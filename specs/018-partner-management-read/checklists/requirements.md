@@ -43,3 +43,4 @@
   stays a research item of the plan.
 - "Written for non-technical stakeholders": the stakeholders are INUBIT operators; the spec is
   written in their terms.
+- Spec review (2026-11-09): 3 rounds, APPROVED in round 3; reviews in ../reviews/spec-r1.md to spec-r3.md. The five round-3 minors were worked in as well.
