@@ -171,7 +171,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
 
 ### Cache and audit (D-6, D-8)
 
-- [ ] T015 (after T004, T006) `InventoryCache.peek(Key)` returns a fresh snapshot without loading (empty if absent
+- [X] T015 (after T004, T006) `InventoryCache.peek(Key)` returns a fresh snapshot without loading (empty if absent
   or expired); `PartnerSnapshot(List<SystemDiagramPartners> diagrams, Set<DiagramRef> covered)`;
   scopes on `InventoryKind.DIAGRAM` (no new `InventoryKind`): `systemdiagrams:<owner>`,
   `partners:<owner>`, `partners:<owner>|<group>/<name>` as constants of `PartnerSnapshot` — main

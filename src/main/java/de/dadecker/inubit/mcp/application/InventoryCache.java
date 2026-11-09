@@ -9,6 +9,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -110,6 +111,24 @@ public final class InventoryCache {
                 return load(key, mine, loader);
             }
         }
+    }
+
+    /**
+     * The fresh cached value of {@code key} without loading or waiting (research D-6: a call for
+     * one system diagram uses the owner's full snapshot if there is one).
+     *
+     * @return empty if there is no entry, its load is still in flight or failed, or it has expired
+     */
+    @SuppressWarnings("unchecked")
+    public <T> Optional<Snapshot<T>> peek(Key key) {
+        CompletableFuture<Snapshot<?>> entry = entries.get(key);
+        if (entry == null || !entry.isDone() || entry.isCompletedExceptionally()) {
+            return Optional.empty();
+        }
+        Snapshot<?> cached = entry.getNow(null);
+        return clock.instant().isBefore(cached.expiresAt())
+            ? Optional.of((Snapshot<T>) cached)
+            : Optional.empty();
     }
 
     /**

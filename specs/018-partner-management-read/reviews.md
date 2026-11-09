@@ -26,3 +26,4 @@ and is not a baseline failure. It is recorded here in case it comes back.
 - From T011 round 2 (for T025 and the output tasks): a masked setting with child elements is `Masked(set=true)` without a fingerprint; comparison and output must not assume every set masked value has a fingerprint (no equality statement for such a value).
 - From T012 review (for T018): pass the owner to `PartnerManagementPort.read` exactly as `InventoryPort.listDiagrams` returned it (the collision check compares owner case-sensitively).
 - From T014 review (for T032): mention in CHANGELOG that `list_nodes` reports 9.0 nodes as `partially_supported` because partner management is unverified there; add the capability row to the docs/tools.md table.
+- From T015 review (for T018): `partnersScope(owner, diagram)` keys can collide (`a/b`+`c` vs `a`+`b/c`); serve a cached `PartnerSnapshot` only if its `covered` contains every requested `DiagramRef`, never on the key alone.
