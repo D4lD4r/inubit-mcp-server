@@ -95,7 +95,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
   `HTTPConnectorTrustStore` masked by name; key material in a plain field; unknown `fieldType` —
   main `adapter/archive/v81/PartnerSecretRules.java`, `adapter/archive/v81/SecretPaths.java`, test
   `adapter/archive/v81/PartnerSecretRulesTest.java`
-- [ ] T009 (after T005) `SecretFingerprinter`: 32-byte key from `SecureRandom`, created once per
+- [X] T009 (after T005) `SecretFingerprinter`: 32-byte key from `SecureRandom`, created once per
   process in memory; `HMAC-SHA256(key, UTF-8 bytes of the stored value)` → `SecretFingerprint`;
   tests: equal values → equal fingerprints, two instances (simulated processes) → different
   fingerprints, the key is never reachable (no getter, `toString` redacted) — main
