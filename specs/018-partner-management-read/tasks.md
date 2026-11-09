@@ -101,7 +101,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
   fingerprints, the key is never reachable (no getter, `toString` redacted) — main
   `adapter/archive/v81/SecretFingerprinter.java`, test
   `adapter/archive/v81/SecretFingerprinterTest.java`
-- [ ] T010 (after T003, T006) `PartnerFixtures` (test support): synthetic `workflow.xml` builders in
+- [X] T010 (after T003, T006) `PartnerFixtures` (test support): synthetic `workflow.xml` builders in
   the recorded structure (research D-2: `WorkflowModule moduleType="sdCommunicationCloud"` with
   `ModuleId`, `ModuleName`, `Properties/Property name="PartnerManagementSettings" type="Map"` →
   `PartnerFields` with the recorded plain `fieldType` values, `ReferencableTWFs` (`name`, `id`,
