@@ -18,11 +18,13 @@ answer, and the operator exported them by hand with StartCLI.
 
 What the operator's research found (checked on INUBIT 8.1.17, on a test and a production stage):
 
-- **The Partner Management belongs to system diagrams.** It is no separate store: every system
-  diagram (diagram type `systemdiagram`) can carry one. An owner can have several system diagrams;
-  `list_inventory` with `type: systemdiagram` already lists them.
-- **Structure in the exported diagram.** The system diagram's `workflow.xml` holds a property map
-  `PartnerManagementSettings` with
+- **The Partner Management belongs to communication clouds in system diagrams.** It is no separate
+  store: a system diagram (diagram type `systemdiagram`) can contain several communication clouds
+  (modules of type `sdCommunicationCloud`, identified by their module name), and each can carry
+  one Partner Management (confirmed by the plan's recording, research D-2). An owner can have
+  several system diagrams; `list_inventory` with `type: systemdiagram` already lists them.
+- **Structure in the exported diagram.** The system diagram's `workflow.xml` holds, per
+  communication cloud module, a property map `PartnerManagementSettings` with
   - `PartnerFields`: the partner fields configured for this diagram (e.g. `Id`, `Name`);
   - `ReferencableTWFs`: the technical workflows allowed to use the partner data;
   - `Partners`: a list of `Partner` maps. A partner has `Fields` (e.g. `Id`, often an EIC or GLN
@@ -41,7 +43,8 @@ What the operator's research found (checked on INUBIT 8.1.17, on a test and a pr
   `modifyPartnerManagement`: create, update, delete one partner, delete all partners). It only
   writes; it cannot read. `/ibis/rest/application.wadl` answers 404. Whether the generic REST
   diagram export (`/model/export`, used by `get_inventory_item` for diagram details) also carries
-  `PartnerManagementSettings` of a system diagram has not been checked.
+  `PartnerManagementSettings` of a system diagram was not checked by the operator; the plan's
+  recording shows that it does (research D-1).
 - **StartCLI can export system diagrams.** `export` with `--exportWorkflowType systemdiagram`
   (owner, diagram group, export file) works and reports `1-OK: Workflow group exported
   successfully.`; the archive has the layout of the technical export (`archive.properties`,
@@ -99,7 +102,7 @@ encrypted or not, appears in the result, the log, the audit record or an error.
 
 1. **Given** a server whose owner has one system diagram with partner `Id=ACME-0001`,
    `Name=ACME Corp`, **When** the operator searches for `acme-0001`, **Then** the result names the
-   server, the system diagram and its diagram group, the partner's fields and, per
+   server, the system diagram and its diagram group, the communication cloud, the partner's fields and, per
    `ReferencedTWF`, the protocol, the referenced workflow, every protocol setting and additional
    parameter that is not a secret, and each secret as masked with "set"/"not set".
 2. **Given** the same server, **When** the operator searches for `corp`, **Then** the same partner
@@ -135,7 +138,7 @@ the size bound.
 
 1. **Given** a server with 120 partners, **When** the operator lists without a search term,
    **Then** the first page holds the default number of partners in a stable order (system diagram
-   group and name, then partner `Id`, then `Name`), with the total and the offset of the next
+   group and name, communication cloud, then partner `Id`, then `Name`), with the total and the offset of the next
    page.
 2. **Given** a filter `protocol: ftp`, **When** listing, **Then** only partners with at least one
    entry whose `protocol` attribute is `FTP` appear, and each shows only those entries; a filter
@@ -208,7 +211,8 @@ operator can reach the same data with story 2's workflow filter.
 
 1. **Given** that workflow, **When** the operator asks for its details, **Then** the result lists
    the distinct partner variables used (`ISPartnerProtocol.ServerName`, …), and the system
-   diagrams of the owner whose `ReferencableTWFs` contain the workflow.
+   diagrams (with their communication clouds) of the owner whose `ReferencableTWFs` contain the
+   workflow.
 2. **Given** a workflow without partner variables and without a `PartnerManagement` node, **When**
    asked, **Then** the result says so, and no system diagram is read for it.
 
@@ -244,10 +248,14 @@ operator can reach the same data with story 2's workflow filter.
 - **Partner without `Id`**: the configured `PartnerFields` may not include `Id`. Partners are then
   identified by the configured fields in their order; a comparison matches partners by the first
   configured field that is present on both sides, and reports unmatched ones per server.
-- **Duplicate partner Ids** in one system diagram: both are shown; a comparison reports the
+- **Duplicate partner Ids** in one communication cloud: both are shown; a comparison reports the
   duplicate instead of matching arbitrarily.
 - **Same system diagram name in two diagram groups**: they are different system diagrams and are
   never matched with each other.
+- **Several communication clouds in one system diagram**: partners are reported per cloud; the
+  same partner `Id` in two clouds is two partners, never merged or reported as a duplicate.
+- **A `ReferencedTWF` whose workflow reference does not resolve** (its `referencableTWFId` names no
+  `ReferencableTWFs` entry): the entry is shown with the workflow as unresolved and a warning.
 - **Unknown or new protocols and parameters** (a protocol other than FTP or WebService, a setting
   name not seen before): shown as found, with the same masking rules; nothing is dropped silently.
 - **Secret-like names with harmless values** (e.g. an `SSLKeyStore` that names a keystore of the
@@ -267,8 +275,8 @@ operator can reach the same data with story 2's workflow filter.
 - **Workflow in edit mode or diagram checked out**: no effect on reading; the export reads the
   stored version.
 - **Export trace in INUBIT**: a StartCLI export changes the export suffix of the exported
-  diagram's check-in comment (spike, section 3); the tool's documentation states this like for
-  the other exports.
+  diagram's check-in comment (spike, section 3). The channel is REST (research D-1), which leaves no
+  such trace; this applies only if a later change adds the StartCLI channel.
 - **Slow or failing read**: a timeout names the timeout setting; an authentication failure, a
   missing StartCLI installation or an unsupported client version give the existing error kinds
   per server; other servers of a stage are still answered.
@@ -310,7 +318,7 @@ operator can reach the same data with story 2's workflow filter.
   any other state on INUBIT, except the export trace in the check-in comment accepted in the
   Assumptions (StartCLI channel only).
 - **FR-004**: For each partner the result MUST show the system diagram (name and diagram group),
-  every partner field (a masked field as masked with "set"/"not set"), and for each
+  the communication cloud (module name), every partner field (a masked field as masked with "set"/"not set"), and for each
   `ReferencedTWF` entry its protocol, its referenced technical workflow, every protocol setting and
   every additional parameter, secrets masked (FR-008). Entries MUST NOT be merged; their order MUST
   be the order in the export.
@@ -335,8 +343,8 @@ operator can reach the same data with story 2's workflow filter.
   protocol, the workflow and, if present, the protocol settings `ServerName` and `Login` (absent
   ones are omitted; for protocols that name their endpoint or user differently, the plan's research
   names those settings from a recorded export and the documentation lists them).
-- **FR-007**: The result MUST also report the `ReferencableTWFs` of every system diagram that
-  contributed a partner, and which system diagrams were read without a Partner Management.
+- **FR-007**: The result MUST also report the `ReferencableTWFs` of every communication cloud that
+  contributed a partner, and which system diagrams were read without any Partner Management.
 
 **Secrets (Principle II)**
 
@@ -393,10 +401,11 @@ operator can reach the same data with story 2's workflow filter.
   fields on at least one server; it is then shown with its entries from all compared servers.
   With a search term the comparison shows all settings grouped (FR-012); without one it shows the
   summary fields of FR-006 plus only the settings that differ or are present only on some servers.
-- **FR-013**: Partners MUST be matched across servers by system diagram (name and diagram group)
-  and partner `Id` (or, without `Id`, the first configured non-masked partner field present on both
-  sides; masked fields are never a match key); entries by protocol and referenced workflow, then by
-  position among entries with the same key.
+- **FR-013**: Partners MUST be matched across servers by system diagram (name and diagram group),
+  communication cloud (module name) and partner `Id` (or, without `Id`, the first configured non-masked partner field present on both
+  sides; masked fields are never a match key); entries by protocol and referenced workflow (its name,
+  resolved through the entry's reference into `ReferencableTWFs`), then by position among entries
+  with the same key.
   Ambiguous matches (duplicate keys) MUST be reported, not resolved arbitrarily.
 - **FR-014**: A server that fails MUST NOT fail the comparison; it MUST be reported with its error,
   and the comparison MUST state that it is incomplete. A failed server is left out of all equality
@@ -406,8 +415,8 @@ operator can reach the same data with story 2's workflow filter.
 
 - **FR-015**: For a technical workflow, `get_inventory_item` MUST list the distinct
   `ISPartnerProtocol.*` and `ISPartnerParameter.*` variables it uses, whether it contains a
-  `PartnerManagement` node, and the system diagrams of the owner whose `ReferencableTWFs` contain
-  it. It MUST NOT read system diagrams for a workflow without partner variables and without a
+  `PartnerManagement` node, and the system diagrams and communication clouds of the owner whose
+  `ReferencableTWFs` contain it. It MUST NOT read system diagrams for a workflow without partner variables and without a
   `PartnerManagement` node. The system diagrams it reads MUST come from the cache of FR-018 (or
   fill it). It returns names only (no partner data), so it is not audited, like the rest of
   `get_inventory_item`. If the plan finds that this needs more than new fields in
@@ -479,8 +488,10 @@ operator can reach the same data with story 2's workflow filter.
 ### Key Entities
 
 - **System diagram**: an INUBIT diagram of type `systemdiagram` of one owner, identified by name
-  and diagram group, on one server; carries at most one Partner Management.
-- **Partner Management**: per system diagram: the configured partner fields, the referencable
+  and diagram group, on one server; contains communication clouds.
+- **Communication cloud**: a module of type `sdCommunicationCloud` in a system diagram, identified
+  by its module name; carries at most one Partner Management.
+- **Partner Management**: per communication cloud: the configured partner fields, the referencable
   technical workflows, and the partners.
 - **Partner**: a set of partner field values (e.g. `Id`, `Name`) and a list of protocol entries.
 - **Protocol entry** (`ReferencedTWF`): a protocol (FTP, WebService, …), the referenced technical
@@ -564,11 +575,18 @@ operator can reach the same data with story 2's workflow filter.
 - REST channel: no export on disk (FR-010); `apikey`, `accesskey` added to the name patterns
   (FR-008).
 
+### Plan research decisions
+
+- Channel: REST; the recorded REST export carries the same Partner Management as the StartCLI
+  export (FR-001a, research D-1).
+- A system diagram contains communication clouds, each with at most one Partner Management;
+  results, filters' scope and the match key include the cloud (FR-004, FR-007, FR-013).
+- Workflows in the Partner Management are identified by name only (Assumptions).
+
 ## Assumptions
 
-- The channel is chosen by FR-001a. With StartCLI, the data is read through the export with diagram
-  type `systemdiagram` of the owner's diagram groups that contain system diagrams (found through
-  the diagram list).
+- The channel is chosen by FR-001a; the plan's recording selected REST (research D-1): one REST
+  diagram export per system diagram of the owner (found through the diagram list).
 - Partner settings that are not secrets (hosts, ports, logins, directories, file names, protocol
   parameters) are operational data the operator is allowed to see; they reach the conversation
   like other inventory data. The same restriction to the configured owner as in the inventory
@@ -580,11 +598,10 @@ operator can reach the same data with story 2's workflow filter.
 - A `PartnerManagement` node in a technical workflow and the `ISPartner*` variables are identified
   by name in the exported workflow; their exact form is confirmed against a recorded export in the
   plan's research.
-- Whether a `ReferencedTWF` or `ReferencableTWFs` entry identifies a technical workflow by name only
-  or by diagram group and name is confirmed in the plan's research from a recorded export. If both
-  are available, the `workflow` filter (FR-005a), the entry match key (FR-013) and story 4 (FR-015)
-  use both; with the name only, two workflows of the same name in different diagram groups are not
-  told apart, and the documentation says so.
+- `ReferencableTWFs` entries identify a technical workflow by name only, and a `ReferencedTWF`
+  points to one of them by a local id (recorded, research D-2). The `workflow` filter (FR-005a),
+  the entry match key (FR-013) and story 4 (FR-015) therefore use the workflow name; two workflows
+  of the same name in different diagram groups are not told apart, and the documentation says so.
 - INUBIT stores equal secrets in equal form across servers and stages of one installation landscape
   (spike, section 4); FR-012a has a fallback if the research finds otherwise.
 - Exporting a system diagram through StartCLI has the same small trace in INUBIT as other exports

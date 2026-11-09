@@ -207,9 +207,10 @@ use ACME, `*.example.test` and `Workflow-0001`.
 
 - **Decision**: `PartnerComparison` (application, pure) takes per server a masked
   `PartnerSnapshot` or a `ToolError` and builds:
-  - partner key: `(diagramGroup, diagramName, Id)` or, without `Id`, the first configured
+  - partner key: `(diagramGroup, diagramName, cloud module name, Id)` or, without `Id`, the first configured
     non-masked partner field present on both sides; duplicates → `ambiguous` list, not matched;
-  - entry key: `(protocol, WorkflowRef)` plus the position among equal keys;
+  - entry key: `(protocol, workflow name)` (resolved through `referencableTWFId`) plus the
+    position among equal keys;
   - per setting: equal on all answering servers → once; else value per server; masked → `set` per
     server and, if comparable (D-5), `sameOn` groups;
   - `onlyOn` for partners and entries missing on some answering servers; failed servers listed in
@@ -291,5 +292,6 @@ fixture for the parser.
 
 ## Open after research
 
-- Spec amendment for the communication-cloud level (FR-004, FR-005a filter, FR-007, FR-013,
-  Key Entities, contract and data model), then `/speckit-tasks`.
+- None. The spec was amended for the communication-cloud level and the REST channel (FR-004,
+  FR-007, FR-013, Key Entities, Assumptions, Clarifications "Plan research decisions"); the
+  data model and the contract follow it. Next: `/speckit-tasks`.

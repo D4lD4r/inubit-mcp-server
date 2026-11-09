@@ -5,7 +5,9 @@
 How to prove the feature works. Contracts: [find_partners.md](contracts/find_partners.md),
 [other-changes.md](contracts/other-changes.md). Types: [data-model.md](data-model.md).
 
-## 1. T-record: record and decide the channel (operator, live, non-production)
+## 1. T-record: record and decide the channel (operator, live, non-production) — done 2026-11-09
+
+Kept for re-recording (e.g. for 9.0 later); the outcome is in research.md (D-1 = REST).
 
 Prerequisites: a non-production stage listed in `RECORD_ALLOWED_GROUPS`, a system diagram of the
 configured owner that has a Partner Management, and the diagram group it lives in.
@@ -26,7 +28,8 @@ python3 tools/check-identifiers.py --all
 ```
 
 Then apply the D-1 rule (`PartnerChannelDecisionTest` parses both fixtures with
-`PartnerManagementReader` and compares the masked models); record the outcome and the D-2 facts
+`PartnerManagementReader` and compares the masked models per communication cloud; it stays as a
+regression test); record the outcome and the D-2 facts
 (workflow identity, summary keys, map/list encoding, variable form) in research.md.
 
 ## 2. Offline validation

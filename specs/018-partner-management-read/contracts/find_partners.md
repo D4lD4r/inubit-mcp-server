@@ -1,9 +1,8 @@
 # Contract: `find_partners`
 
 Read tool. Hints: `readOnly: true`, `destructive: false`, `idempotent: true`, `openWorld: true`.
-Offered when at least one server is possibly capable of `PARTNER_MANAGEMENT` over the channel of
-D-1 (REST: like `get_inventory_item`; StartCLI: only with a StartCLI client, like
-`export_archives`).
+Offered when at least one server is possibly capable of `PARTNER_MANAGEMENT`; the channel is REST
+(research D-1), so the condition is the same as for `get_inventory_item`.
 
 ## Input (`find_partners.input.json`)
 
@@ -15,7 +14,7 @@ D-1 (REST: like `get_inventory_item`; StartCLI: only with a StartCLI client, lik
 | `search` | string | no | 1–200 characters, no control characters; substring of non-masked partner fields, case-insensitive |
 | `systemDiagram` | string | no | system diagram name, exact, case-insensitive, any diagram group |
 | `protocol` | string | no | `ReferencedTWF` attribute `protocol`, exact, case-insensitive |
-| `workflow` | string | no | referenced workflow name (or `<group>/<name>`, D-2), exact, case-insensitive |
+| `workflow` | string | no | referenced workflow name, exact, case-insensitive (the export has no diagram group, D-2) |
 | `offset` | integer | no | ≥ 0, default 0 |
 | `limit` | integer | no | 1–100, default 20 |
 | `refresh` | boolean | no | default false; bypasses the cache |
@@ -34,8 +33,9 @@ D-1 (REST: like `get_inventory_item`; StartCLI: only with a StartCLI client, lik
       "warnings": ["9.0.3 on qa/node1 is not verified for partner management; …"],
       "error": null }                // ToolError {code, message, cause, nextStep} for a failed server
   ],
-  "referencableWorkflows": [         // FR-007, per system diagram that contributed a partner
-    { "systemDiagram": {"name": "…", "diagramGroup": "…"}, "workflows": ["Workflow-0001"] }
+  "referencableWorkflows": [         // FR-007, per communication cloud that contributed a partner
+    { "systemDiagram": {"name": "…", "diagramGroup": "…"}, "cloud": "Module-0901",
+      "workflows": ["Workflow-0001"] }
   ],
   "partners": [ /* single server: Partner; comparison: ComparedPartner (below) */ ],
   "similarValues": ["ACME-0001"],    // only when a search matched nothing (FR-005b)
@@ -48,11 +48,11 @@ D-1 (REST: like `get_inventory_item`; StartCLI: only with a StartCLI client, lik
 **Partner (single server)**
 
 ```jsonc
-{ "systemDiagram": {"name": "…", "diagramGroup": "…"},
+{ "systemDiagram": {"name": "…", "diagramGroup": "…"}, "cloud": "Module-0901",
   "fields": [{"name": "Id", "value": "ACME-0001"}, {"name": "Secret", "masked": true, "set": true}],
   "maskedCount": 2,
   "entries": [
-    { "protocol": "FTP", "workflow": {"name": "Workflow-0001"},
+    { "protocol": "FTP", "workflow": {"name": "Workflow-0001"}, "format": "…",
       "protocolSettings": [{"name": "ServerName", "value": "ftp.example.test"},
                            {"name": "Password", "masked": true, "set": true}],
       "additionalParameters": [{"name": "FTPProtocol", "value": "SFTP"}] } ] }
@@ -64,7 +64,7 @@ In `list` mode an entry carries only `protocol`, `workflow` and the summary keys
 **ComparedPartner**
 
 ```jsonc
-{ "systemDiagram": {…}, "key": {"field": "Id", "value": "ACME-0001"},
+{ "systemDiagram": {…}, "cloud": "Module-0901", "key": {"field": "Id", "value": "ACME-0001"},
   "onlyOn": null,                      // or ["prod/node1"]
   "fields": [{"name": "Name", "equal": "ACME Corp"}],
   "entries": [
@@ -96,5 +96,6 @@ Server level (in `servers[].error`, others answered): `NOT_CONFIGURED` (no owner
 
 - No value of a masked setting, and nothing derived from it, in the output, an error, the log or
   the audit (SC-002); `sameOn` is the only statement about stored secrets.
-- Order: system diagram group, name, then partner `Id`, then `Name` (list); entries in export order.
+- Order: system diagram group, name, communication cloud, then partner `Id`, then `Name` (list);
+  entries in export order.
 - Size: within `resultLimits.maxChars`; `truncated: true` when cut.

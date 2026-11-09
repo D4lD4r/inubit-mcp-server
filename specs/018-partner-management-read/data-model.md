@@ -16,11 +16,10 @@ hold a raw secret value: a secret exists only as `SettingValue.Masked`.
 ### `WorkflowRef`
 | Field | Type | Rule |
 |---|---|---|
-| `name` | String | referenced technical workflow name |
-| `diagramGroup` | Optional<String> | present only if the export carries it (D-2) |
+| `name` | Optional<String> | the `ReferencableTWFs` entry name that the entry's `referencableTWFId` points to; empty if the id does not resolve (shown as unresolved, with a warning) |
 
-Filter `workflow` matches `name` case-insensitively and exactly; with a group in the export, the
-filter may be given as `<group>/<name>` and then matches both.
+The export names workflows without diagram group (research D-2). Filter `workflow` matches `name`
+case-insensitively and exactly.
 
 ### `SettingValue` (sealed)
 - `Shown(String value)`: a non-secret value, cut at 200 characters with `…[truncated]` when
@@ -45,7 +44,8 @@ keeps no reference to the input.
 | Field | Type | Rule |
 |---|---|---|
 | `protocol` | String | the `protocol` attribute (`FTP`, `WebService`, …), as found |
-| `workflow` | WorkflowRef | |
+| `workflow` | WorkflowRef | resolved through `referencableTWFId` |
+| `format` | Optional<String> | the `format` attribute, shown as found, not interpreted |
 | `protocolSettings` | List<Setting> | export order |
 | `additionalParameters` | List<Setting> | export order |
 | `position` | int | index among entries with the same `(protocol, workflow)` (FR-013) |
@@ -57,16 +57,21 @@ keeps no reference to the input.
 | `entries` | List<ProtocolEntry> | export order; never merged |
 | `maskedCount` | int | number of `Masked` values in fields and entries (FR-009) |
 
-Derived: `key()` → `PartnerKey(diagram, keyField, keyValue)` with `keyField` = `Id` if present
+Derived: `key()` → `PartnerKey(diagram, cloud, keyField, keyValue)` with `keyField` = `Id` if present
 and not masked, else the first configured non-masked field present (FR-013).
 
 ### `SystemDiagramPartners`
 | Field | Type | Rule |
 |---|---|---|
 | `diagram` | DiagramRef | |
-| `hasPartnerManagement` | boolean | false if `PartnerManagementSettings` is absent (FR-007) |
-| `partnerFields` | List<String> | configured partner field names |
-| `referencableWorkflows` | List<WorkflowRef> | `ReferencableTWFs` |
+| `clouds` | List<CommunicationCloud> | the `sdCommunicationCloud` modules that carry `PartnerManagementSettings`, export order; empty → the diagram is reported as read without a Partner Management (FR-007) |
+
+### `CommunicationCloud`
+| Field | Type | Rule |
+|---|---|---|
+| `moduleName` | String | `ModuleName` of the module; part of the partner key (FR-013) |
+| `partnerFields` | List<String> | configured partner field names (`PartnerFields`) |
+| `referencableWorkflows` | List<String> | names of the `ReferencableTWFs` entries (their local ids are used only to resolve entries) |
 | `partners` | List<Partner> | export order |
 
 ### `PartnerUsage` (story 4, in `InventoryDetail`)
@@ -74,7 +79,7 @@ and not masked, else the first configured non-masked field present (FR-013).
 |---|---|
 | `variables` | List<String> — distinct `ISPartnerProtocol.*` / `ISPartnerParameter.*`, sorted |
 | `partnerManagementNode` | boolean |
-| `systemDiagrams` | Optional<List<DiagramRef>> — those whose `referencableWorkflows` contain the workflow |
+| `systemDiagrams` | Optional<List<{diagram, cloud}>> — the clouds whose `referencableWorkflows` contain the workflow |
 | `unavailable` | Optional<ToolError> — why the system diagrams were not read (gate, channel, error) |
 
 ### `PartnerQuery`
