@@ -16,3 +16,7 @@ The first full run had one error, `GitHubReleaseSourceTest.sendsOnlyTheFixedRequ
 (`ReleaseCheckException: HTTP 404` from the WireMock stub). The class passed in 3 of 3 runs on
 its own and the next full build was green, so this looks like a flaky test that already existed
 and is not a baseline failure. It is recorded here in case it comes back.
+
+## Carried over to later tasks
+
+- From T006 review: a present but blank partner `Id` (`Shown("")`) currently yields a key; T025 (`PartnerComparison`) must decide explicitly whether a blank `Id` counts as absent (FR-013 fallback) or matches.

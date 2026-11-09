@@ -62,7 +62,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
   (`FAIL_ON_EMPTY_BEANS`)) — main
   `domain/model/partner/SettingValue.java`, `domain/model/partner/SecretFingerprint.java`, tests
   `domain/model/partner/SettingValueTest.java`, `domain/model/partner/SecretFingerprintTest.java`
-- [ ] T006 (after T004, T005) `Setting(name, SettingValue)`, `ProtocolEntry(protocol, WorkflowRef
+- [X] T006 (after T004, T005) `Setting(name, SettingValue)`, `ProtocolEntry(protocol, WorkflowRef
   workflow, Optional<String> format, List<Setting> protocolSettings, List<Setting>
   additionalParameters, int position)` ("index among entries with the same `(protocol,
   workflow)`"), `Partner(List<Setting> fields, List<ProtocolEntry> entries, int maskedCount)`,
