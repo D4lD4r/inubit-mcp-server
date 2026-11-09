@@ -75,7 +75,7 @@ at most 5 s beyond the read itself (expected well below 1 s); a repeated call wi
 - Extended: `Capability`, `CapabilityMatrix`, `NodeOverview`, `ConfigSummary`,
   `InventoryCache` (`peek`), `Gateway`, `V81Gateway`, `PortSet`, `V81PortSet`, `V61PortSet`,
   `RefusingPorts`, `StaleReportingPorts`, `SecretPaths` (visibility), `InventoryPort.DiagramMetadata`, `AuditRecord`, `AuditLog`, `InventoryDetail`, `DiagramExportParser`,
-  `InventoryService`, `PortSet`, `AdapterGatewayFactory`, `Wiring`, `tools/anonymize.py` (`format` as a generic value),
+  `InventoryService`, `InventoryBounds`, `AdapterGatewayFactory`, `Wiring`, `tools/anonymize.py` (`format` as a generic value),
   schemas, docs.
 
 ## Constitution Check

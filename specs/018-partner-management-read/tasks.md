@@ -139,7 +139,9 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
   `domain/port/PartnerManagementPort.java`, `adapter/rest/v81/V81PartnerManagementAdapter.java`,
   tests `adapter/rest/v81/V81PartnerManagementAdapterContractTest.java`,
   `architecture/PartnerNoWriteTest.java`
-- [ ] T013 (after T012) Port in the gateway (D-4): `Gateway.partners()`; `PortSet` component;
+- [ ] T013 (after T012) Port in the gateway (D-4): `Gateway.partners()` as a `default` method that
+  refuses (like `artifacts()`/`imports()`), so test gateways stay unchanged; `PortSet` component (update
+  `new PortSet(...)` in `CapabilityExtensionTest` and `AdapterGatewayFactoryTest`);
   `V81PortSet`/`V81Gateway` serve it for 8.1 and 9.0; `V61PortSet` gets a refusing stub from
   `RefusingPorts` (`UNSUPPORTED_VERSION`); `StaleReportingPorts` wraps it. Tests: 9.0 selects the
   8.1 port, 6.1 refuses, an `UNEXPECTED_RESPONSE` from the partner port marks the node stale — main
@@ -175,7 +177,8 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
 - [ ] T017 (after T016) `PartnerAudit` (one per call, like `ArchiveExportAudit`):
   `refused(ToolError)` one `REFUSED` record without node; `perServer(node, outcome, fromCache,
   systemDiagramsRead, partnersReturned, valuesMasked)`; capability `find_partners`, step `EXECUTE`,
-  inputs target, compareWith, owner, search, filters each cut to 500 characters; never results;
+  inputs target, compareWith, owner, search, filters each cut to 500 characters, `mcpClient` in
+  the record's `mcpClient` field (tested); never results;
   any write failure → `INTERNAL` naming the `callId` (FR-020). Tests incl. leak check on every
   written line — main `application/PartnerAudit.java`, test `application/PartnerAuditTest.java`
 
@@ -268,18 +271,23 @@ secret equality by server groups (8.1 only), report failed servers.
   entries never matched; failed servers in `notCompared`, left out of every statement
   (FR-012…FR-014) — main `application/PartnerComparison.java`, test
   `application/PartnerComparisonTest.java` (US3-AS1…6, AS8, AS9, SC-003, table-driven)
-- [ ] T026 [US3] Comparison in `PartnerService` and the tool (after T021, T023, T025): fan-out over
-  all targeted and compared servers; `total`/`nextOffset` count matched partner keys across
-  servers; a search hit on one server includes the partner from all; without a search term
-  summary fields grouped like settings plus only differences (FR-012c); FR-005a in a comparison:
-  `NOT_FOUND` only if the system diagram exists on none of the answering servers, otherwise its
-  partners are marked "only on"; entry filters applied per entry key on all compared servers, an
-  entry matching on one server shown with its counterparts; output shape `ComparedPartner` of the
-  contract; one audit record per server with the shared `callId` — main
+- [ ] T026 [US3] Comparison in `PartnerService` (after T021, T024, T025): fan-out over all targeted
+  and compared servers; `total`/`nextOffset` count matched partner keys across servers; a search
+  hit on one server includes the partner from all; without a search term summary fields grouped
+  like settings plus only differences (FR-012c); FR-005a in a comparison: `NOT_FOUND` only if the
+  system diagram exists on none of the answering servers, otherwise its partners are marked "only
+  on"; entry filters applied per entry key on all compared servers, an entry matching on one server
+  shown with its counterparts; one audit record per server with the shared `callId` — main
+  `application/PartnerService.java`, test `application/PartnerServiceCompareTest.java` (US3-AS7,
+  FR-005a comparison rules)
+- [ ] T027 [US3] Comparison output and bounds (after T026): output shape `ComparedPartner` of the
+  contract in the tool and schema; the comparison result within `resultLimits.maxChars` with the
+  cut order of T024 (additional parameters, then settings to the summary keys, then entries),
+  `truncated` reported. **Done when** a 1,000-partner comparison of two stages keeps every page
+  within the bound (SC-004) and the tool test shows the shape — main
   `application/PartnerService.java`, `mcp/tools/FindPartnersTool.java`, schema
   `src/main/resources/schemas/find_partners.output.json`, tests
-  `application/PartnerServiceCompareTest.java` (US3-AS7, FR-005a comparison rules),
-  `mcp/tools/FindPartnersToolTest.java`
+  `application/PartnerServiceCompareTest.java`, `mcp/tools/FindPartnersToolTest.java`
 
 **Checkpoint**: build green; code-review phase 5.
 
@@ -290,43 +298,48 @@ system diagrams/clouds whose `ReferencableTWFs` contain the workflow.
 **Independent test**: synthetic technical workflow with two `ISPartnerProtocol.*`, one
 `ISPartnerParameter.*` and a `PartnerManagement` node; synthetic system diagram naming it.
 
-- [ ] T027 [P] [US4] `DiagramExportParser`: distinct, sorted `ISPartner(Protocol|Parameter)\.
+- [ ] T028 [P] [US4] `DiagramExportParser`: distinct, sorted `ISPartner(Protocol|Parameter)\.
   [A-Za-z0-9_]+` from every attribute value and text of a technical workflow, and whether a
   `moduleType="PartnerManagement"` node exists; carried in `InventoryPort.DiagramMetadata` (new
   fields, `EMPTY` extended; adjust test fakes that build `DiagramMetadata`) — main
   `adapter/rest/v81/DiagramExportParser.java`, `domain/port/InventoryPort.java`, test
   `adapter/rest/v81/DiagramExportParserTest.java`
-- [ ] T028 [US4] (after T018, T027) `PartnerService.referencingClouds(NodeId server, String owner,
+- [ ] T029 [US4] (after T018, T028) `PartnerUsage` (`domain/model/partner/PartnerUsage.java`) and
+  `PartnerService.referencingClouds(NodeId server, String owner,
   String workflowName, boolean refresh)` → clouds whose `referencableWorkflows` contain the
   workflow; `InventoryDetail.partnerUsage` (`variables`, `partnerManagementNode`, `systemDiagrams`
   as `{diagram, cloud}`, `unavailable`); `InventoryService` calls `referencingClouds` only if
   variables or the node exist; gate refused → `unavailable` with error kind and next step; no
   audit; `Wiring` passes `PartnerService` into `InventoryService`; schema
-  `src/main/resources/schemas/get_inventory_item.output.json` additive — main
-  `domain/model/InventoryDetail.java`, `application/InventoryService.java`,
-  `application/PartnerService.java`, `Wiring.java`, test `application/InventoryServiceTest.java`
-  (US4-AS1, AS2)
+  `src/main/resources/schemas/get_inventory_item.output.json` additive, shape exactly as
+  `contracts/other-changes.md` (`systemDiagrams` with `cloud`); `InventoryBounds` keeps and bounds
+  `partnerUsage`; the new constructor parameter is passed in `InventoryServiceTest`,
+  `InventoryOwnerTest`, `CapabilityExtensionTest` and `mcp/tools/InventoryToolFixture` — main
+  `domain/model/InventoryDetail.java`, `domain/model/partner/PartnerUsage.java`,
+  `application/InventoryService.java`, `application/InventoryBounds.java`,
+  `application/PartnerService.java`, `Wiring.java`, tests `application/InventoryServiceTest.java`
+  (US4-AS1, AS2), `application/InventoryBoundsTest.java`
 
 **Checkpoint**: build green; code-review phase 6.
 
 ## Phase 7: Polish & cross-cutting
 
-- [ ] T029 [P] `PartnerSecretLeakTest`: the whole tool over all fixtures (single, list, compare,
+- [ ] T030 [P] `PartnerSecretLeakTest`: the whole tool over all fixtures (single, list, compare,
   errors, cache hit, audit failure): no synthetic secret or derivative in results, errors, log
   output (captured appender) or audit lines; the cache holds only `Masked` values (SC-002) — test
   `security/PartnerSecretLeakTest.java`
-- [ ] T030 [P] `PartnerServicePerformanceTest`: 1,000-partner fixture, parse + mask + fingerprint +
+- [ ] T031 [P] `PartnerServicePerformanceTest`: 1,000-partner fixture, parse + mask + fingerprint +
   page ≤ 5 s beyond the read; a repeated call within the TTL makes no request (SC-005) — test
   `application/PartnerServicePerformanceTest.java`
-- [ ] T031 Docs (FR-022): `docs/tools.md` new `find_partners` section (inputs, output, clouds,
+- [ ] T032 Docs (FR-022): `docs/tools.md` new `find_partners` section (inputs, output, clouds,
   summary keys, masking incl. `fieldType`, equality statement and its limits — different stored
   forms reported as differing, 8.1 only — workflows by name only, name collisions of the REST
   export), capability table row, "All eighteen tools" (and `DevelopmentToolsReferenceTest`),
   `get_inventory_item.partnerUsage`; `README.md` tool list; `SECURITY.md` (partner hosts and logins
   reach the conversation, secrets do not); `CHANGELOG.md`; `docs/setup.md` record cases
-- [ ] T032 Full build and Python tests green; `python3 tools/check-identifiers.py --all`; test count
+- [ ] T033 Full build and Python tests green; `python3 tools/check-identifiers.py --all`; test count
   vs T001 in `specs/018-partner-management-read/reviews.md`
-- [ ] T033 Operator live check (quickstart.md §3) with the partner and stage the operator names;
+- [ ] T034 Operator live check (quickstart.md §3) with the partner and stage the operator names;
   `docs/live-tests.md` entry in neutralized form only (FR-024)
 
 ## Dependencies
@@ -337,16 +350,17 @@ system diagrams/clouds whose `ReferencableTWFs` contain the workflow.
   after T016.
 - US1: T018 → T019 → T020; T021 after T017, T019; T022 after T021.
 - US2: T023 after T019; T024 after T023.
-- US3: T025 after T006, T009, T014, T015 (pure, can run next to US1); T026 after T021, T023, T025.
-- US4: T027 any time after Phase 1; T028 after T018, T027.
-- Polish after the stories; T033 after the release candidate is built.
+- US3: T025 after T006, T009, T014, T015 (pure, can run next to US1); T026 after T021, T024, T025;
+  T027 after T026.
+- US4: T028 any time after Phase 1; T029 after T018, T028.
+- Polish after the stories; T034 after the release candidate is built.
 
 ## Parallel opportunities
 
 - T004, T005, T007 (different files, no dependency on each other).
 - T014, T015, T016 next to T011–T013.
-- T025 (pure comparison) next to US1; T027 (parser) next to US1–US3.
-- T029, T030 next to T031.
+- T025 (pure comparison) next to US1; T028 (parser) next to US1–US3.
+- T030, T031 next to T032.
 
 ## Implementation strategy
 

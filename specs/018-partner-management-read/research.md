@@ -45,7 +45,8 @@ use ACME, `*.example.test` and `Workflow-0001`.
 
 ### D-1 Channel (FR-001, FR-001a, FR-016)
 
-- **Decision**: The channel is decided by a recording made in the first implementation step
+- **Decision**: REST (outcome of the recording, see "T-record results" below). How it was decided:
+  the channel is decided by a recording made in the first implementation step
   (T-record, see [quickstart.md](quickstart.md) §1), not by assumption. Both responses are
   recorded from a non-production stage with `tools/record-fixtures.sh` and neutralized:
   - `model_export_systemdiagram`: `GET /ibis/rest/model/export/<system diagram>`;
@@ -210,9 +211,8 @@ use ACME, `*.example.test` and `Workflow-0001`.
 - **Decision**: `PartnerComparison` (application, pure) takes per server a masked
   `PartnerSnapshot` or a `ToolError` and builds:
   - partner key: `(diagramGroup, diagramName, cloud module name, Id)` or, without `Id`, the first configured
-    non-masked partner field present on both sides; duplicates → `ambiguous` list, not matched;
-  - without `Id`: the first configured non-masked field present on both sides, decided here
-    (not per partner);
+    non-masked partner field present on both sides (decided here, not per partner); duplicates →
+    `ambiguous` list, not matched;
   - entry key: `(protocol, workflow name)` (resolved through `referencableTWFId`) plus the
     position among equal keys;
   - per setting: equal on all answering servers → once; else value per server; masked → `set` per
@@ -229,7 +229,7 @@ use ACME, `*.example.test` and `Workflow-0001`.
 - **Decision**: in scope. `DiagramExportParser` collects, for a technical workflow, the distinct
   `ISPartnerProtocol.*` / `ISPartnerParameter.*` references and whether a `moduleType=
   "PartnerManagement"` node exists. `InventoryDetail` gains `Optional<PartnerUsage> partnerUsage`
-  (`variables`, `partnerManagementNode`, `systemDiagrams` (name, diagram group), `unavailable`
+  (`variables`, `partnerManagementNode`, `systemDiagrams` (`{systemDiagram {name, diagramGroup}, cloud}`), `unavailable`
   (error kind and next step)). The parser result travels in `InventoryPort.DiagramMetadata` (new
   fields). Only if variables or the node exist, `InventoryService` calls
   `PartnerService.referencingClouds(server, owner, workflowName, refresh)` (cache of D-6, gate of

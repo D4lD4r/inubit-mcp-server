@@ -8,7 +8,8 @@ Output `item` gains an optional field, present only for a technical workflow:
 "partnerUsage": {
   "variables": ["ISPartnerParameter.FTPProtocol", "ISPartnerProtocol.ServerName"],
   "partnerManagementNode": true,
-  "systemDiagrams": [{"name": "…", "diagramGroup": "…"}],   // absent if not read
+  "systemDiagrams": [{"systemDiagram": {"name": "…", "diagramGroup": "…"},
+                      "cloud": "Module-0901"}],   // absent if not read
   "unavailable": {"code": "UNSUPPORTED_VERSION", "message": "…", "nextStep": "…"}  // absent if read
 }
 ```
