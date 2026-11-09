@@ -23,6 +23,11 @@ import java.util.UUID;
  * @param account    the INUBIT username of the server, if the server is configured
  * @param reason     refusal or failure code and message, or the result text
  * @param mcpClient  the MCP client's {@code name/version} from {@code initialize}, if sent
+ * @param callId     links the records of one call that writes several (feature 018,
+ *                   {@code find_partners}: one record per server); empty for other tools
+ * @param details    per-record counts and flags in insertion order (feature 018, research D-8;
+ *                   {@code Boolean}, {@code Integer}, {@code Long} or text); empty for other
+ *                   tools, never results
  */
 public record AuditRecord(
     UUID auditId,
@@ -36,7 +41,9 @@ public record AuditRecord(
     Optional<String> account,
     AuditOutcome outcome,
     Optional<String> reason,
-    Optional<String> mcpClient) {
+    Optional<String> mcpClient,
+    Optional<UUID> callId,
+    Map<String, Object> details) {
 
     /** {@code PREVIEW}: the first call of a two-step confirmation; {@code EXECUTE}: the action. */
     public enum Step {
@@ -62,5 +69,16 @@ public record AuditRecord(
         Objects.requireNonNull(outcome, "outcome");
         reason = reason == null ? Optional.empty() : reason;
         mcpClient = mcpClient == null ? Optional.empty() : mcpClient;
+        callId = callId == null ? Optional.empty() : callId;
+        details = Collections.unmodifiableMap(new LinkedHashMap<>(details));
+    }
+
+    /** A record without {@code callId} and {@code details}, as written before feature 018. */
+    public AuditRecord(UUID auditId, Instant timestamp, String profile, String node,
+        Optional<String> group, String capability, Step step, Map<String, String> inputs,
+        Optional<String> account, AuditOutcome outcome, Optional<String> reason,
+        Optional<String> mcpClient) {
+        this(auditId, timestamp, profile, node, group, capability, step, inputs, account, outcome,
+            reason, mcpClient, Optional.empty(), Map.of());
     }
 }

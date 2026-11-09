@@ -177,7 +177,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
   `partners:<owner>`, `partners:<owner>|<group>/<name>` as constants of `PartnerSnapshot` — main
   `application/InventoryCache.java`, `application/PartnerSnapshot.java`, test
   `application/InventoryCachePeekTest.java`
-- [ ] T016 [P] `AuditRecord` additive fields `Optional<UUID> callId` and `Map<String, Object> details`
+- [X] T016 [P] `AuditRecord` additive fields `Optional<UUID> callId` and `Map<String, Object> details`
   (empty by default, overloaded constructor keeps existing call sites); `AuditLog` writes them only
   when present (existing JSONL lines byte-identical — test with a recorded line) — main
   `domain/model/AuditRecord.java`, `infra/AuditLog.java`, test `infra/AuditLogTest.java`
