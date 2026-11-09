@@ -181,7 +181,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
   (empty by default, overloaded constructor keeps existing call sites); `AuditLog` writes them only
   when present (existing JSONL lines byte-identical — test with a recorded line) — main
   `domain/model/AuditRecord.java`, `infra/AuditLog.java`, test `infra/AuditLogTest.java`
-- [ ] T017 (after T016) `PartnerAudit` (one per call, like `ArchiveExportAudit`):
+- [X] T017 (after T016) `PartnerAudit` (one per call, like `ArchiveExportAudit`):
   `refused(ToolError)` one `REFUSED` record without node; `perServer(node, outcome, fromCache,
   systemDiagramsRead, partnersReturned, valuesMasked)`; capability `find_partners`, step `EXECUTE`,
   inputs target, compareWith, owner, search, filters each cut to 500 characters, `mcpClient` in
@@ -237,7 +237,7 @@ a lower-case name part; check every value and the leak check over result, log, a
   `src/main/resources/schemas/find_partners.input.json` / `.output.json` exactly as
   `contracts/find_partners.md` (single-server shape; a target with several servers or a
   `compareWith` is handled from T026 on and covered by its tests, `owner` pattern, unresolved workflow shape);
-  input errors → one audit record without node; registration in `Wiring.toolHandlers()` when
+  input errors → one audit record whose `node` is the target as requested; registration in `Wiring.toolHandlers()` when
   `anyPossiblyCapable(Capability.PARTNER_MANAGEMENT)`; description without customer knowledge
   (FR-025) — main `mcp/tools/FindPartnersTool.java`, `Wiring.java`, tests
   `mcp/tools/FindPartnersToolTest.java` (Op-2, Op-5, FR-002 overlap), `ToolAnnouncementTest.java`,

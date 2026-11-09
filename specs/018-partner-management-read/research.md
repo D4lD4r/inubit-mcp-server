@@ -185,7 +185,7 @@ use ACME, `*.example.test` and `Workflow-0001`.
 - **Decision**: `AuditRecord` gains two additive fields, `Optional<UUID> callId` and
   `Map<String, Object> details` (empty by default; `AuditLog` writes them only when present). A
   new `PartnerAudit` (application, one per call, modelled on `ArchiveExportAudit`) writes:
-  - `REFUSED` with no node for input errors before any server is contacted;
+  - `REFUSED` for input errors before any server is contacted, with `node` = the target as requested (as `ArchiveExportAudit` does) and `group` only if the target parses;
   - after the fan-out, one record per targeted or compared server: outcome `EXECUTED` (data
     returned, also from the cache), `REFUSED` (version gate, `NOT_CONFIGURED`) or `FAILED`
     (error), `details`: `fromCache`, `systemDiagramsRead`, `partnersReturned`, `valuesMasked`.

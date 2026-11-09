@@ -56,7 +56,7 @@ Expected: all tests pass; the scenarios below are covered by the named tests.
 | Op-3 cache, `fromCache`, `refresh`, shared read | `PartnerServiceReadTest` (T018), `InventoryCachePeekTest` (T015) | one read for two calls; none within the TTL |
 | Op-4 audit write fails | `PartnerServiceAuditTest` (T021) | `INTERNAL`, no partner data |
 | Op-5 unknown system diagram; no owner | `PartnerServiceSearchTest` (T020), `PartnerServiceReadTest` (T018) | `NOT_FOUND` + similar names; `NOT_CONFIGURED` for that node only |
-| FR-002 overlap, bad search term, bad owner | `PartnerQueryTest` (T007), `FindPartnersToolTest` (T022) | `INVALID_INPUT` before any INUBIT contact; one audit record without node |
+| FR-002 overlap, bad search term, bad owner | `PartnerQueryTest` (T007), `FindPartnersToolTest` (T022) | `INVALID_INPUT` before any INUBIT contact; one audit record whose `node` is the target as requested |
 | FR-008 at least as strict as the workspace export | `PartnerSecretRulesTest` (T008) | every `SecretPaths` case also masked here |
 | FR-012b fingerprint never serialized | `SecretFingerprinterTest` (T009), `SecretFingerprintTest` (T005) | Jackson refuses; `toString` redacted; new key per process |
 | D-4 name collision of the REST export | `V81PartnerManagementAdapterContractTest` (T012) | other group/owner → `UNEXPECTED_RESPONSE`, no data |

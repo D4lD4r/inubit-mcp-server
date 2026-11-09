@@ -39,7 +39,7 @@ Additive fields on lines written by `find_partners`:
   "details": {"fromCache": false, "systemDiagramsRead": 2, "partnersReturned": 1, "valuesMasked": 3} }
 ```
 
-A refusal before any server is contacted writes one record without `node`. Lines of other tools
+A refusal before any server is contacted writes one record whose `node` is the target as requested (cut to 500 characters; no server named or contacted) and whose `group` is present only if the target parses. Lines of other tools
 are unchanged.
 
 ## Configuration
