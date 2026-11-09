@@ -279,10 +279,12 @@ fixture for the parser.
   The spec needs an amendment before the tasks (see below).
 - **Encoding.** Nested `<Property name="…" type="Map|List">`; leaf values are element text.
   `PartnerFields` lists the configured fields (`Id`, `Name`) with attributes `fieldType`,
-  `showInTable`. The anonymizer replaced the `fieldType` values, so the plain types are not known
-  yet: `anonymize.py` keeps `fieldType` (a type, not data) and treats `format` as a generic value,
-  and `model_export_systemdiagram` is recorded again before the parser task to fix
-  `PLAIN_FIELD_TYPES` (FR-008). A partner is `Property name="Partner" type="Map"` with `Fields` (Map) and
+  `showInTable`. The first recording's anonymizer replaced the `fieldType` values; after T002
+  (`anonymize.py` keeps `fieldType`, `format` becomes a generic value) both fixtures were recorded
+  again on 2026-11-09 (T003, same system diagram and group, names outside the subtree neutralized
+  with the same mapping, D-1 equality per cloud unchanged). Every recorded `fieldType` is `String`
+  (`Id` and `Name`, both fixtures), and every `format` is the same value (`format-1`):
+  **`PLAIN_FIELD_TYPES = {String}`** (FR-008; any other or unknown `fieldType` is masked). A partner is `Property name="Partner" type="Map"` with `Fields` (Map) and
   `ReferencedTWFs` (List of `ReferencedTWF` Maps).
 - **Workflow identity.** `ReferencableTWFs` entries are `<Property name="<workflow name>" id="<n>"
   moduleId="<n>">`; a `ReferencedTWF` points to one through the attribute `referencableTWFId`
@@ -290,10 +292,9 @@ fixture for the parser.
   identified by name only (the documentation says so). The entry key of FR-013 becomes
   `(protocol, referenced workflow name)` resolved through that id.
 - **Further `ReferencedTWF` attributes.** `protocol`, `referencableTWFId`, `type="Map"` and
-  `format`. `format` has the same value on every recorded entry; the anonymizer treated it as a
-  workflow reference (`Workflow-0008` in the fixtures), so its meaning is unknown; the tool shows
-  it as an entry attribute, the parser does not interpret it. The anonymizer should classify it as
-  a generic value (follow-up in tasks).
+  `format`. `format` has the same value on every recorded entry; since T002 the anonymizer treats it
+  as a generic value (`format-1` in the fixtures). Its meaning is unknown; the tool shows it as an
+  entry attribute, the parser does not interpret it.
 - **Summary keys.** WebService entries also use `ServerName` (holding a URL) and `Login`;
   WS-Security credentials are additional parameters (`WSSecurityUsername`,
   `WSSecurityPassword`). `PartnerService.SUMMARY_KEYS` is therefore `ServerName`, `Login` for every

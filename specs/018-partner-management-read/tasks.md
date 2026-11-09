@@ -36,7 +36,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
   (`format-<n>`), not as a workflow reference (research D-2); `--verify` accepts kept `fieldType`
   values only if they match `^[A-Za-z][A-Za-z0-9_.]{0,40}$`. Tests first in
   `tools/tests/test_anonymize_partner.py`; update the self-test
-- [ ] T003 Operator (live, non-production, after T002): record **both** `model_export_systemdiagram`
+- [X] T003 Operator (live, non-production, after T002): record **both** `model_export_systemdiagram`
   and `export_systemdiagram` again with the commands of quickstart.md §1 (stage `ent`, the same
   system diagram and group, one shared `RECORD_ANON_STATE`); neutralize names outside the subtree as
   on 2026-11-09 (local map, deleted afterwards); check with `anonymize.py --verify` and
