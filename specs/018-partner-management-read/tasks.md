@@ -82,7 +82,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
 
 ### Masking and parsing (D-3, D-5)
 
-- [ ] T008 (after T003) `PartnerSecretRules` in the archive package; widen
+- [X] T008 (after T003) `PartnerSecretRules` in the archive package; widen
   `SecretPaths.kind(name, type, encrypted, value)` (returns `null` when not secret) and
   `SecretPaths.isKeyMaterial(Element, type, value)` from `private` to package-private, no behaviour
   change. Masked when (1) `SecretPaths.kind(…) != null`, (2) `type="Password"` or
