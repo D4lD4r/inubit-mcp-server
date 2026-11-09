@@ -159,7 +159,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
 
 ### Capability and versions (D-7, FR-016)
 
-- [ ] T014 [P] `Capability.PARTNER_MANAGEMENT(Kind.READ, Set.of(Channel.REST))`, label "partner
+- [X] T014 [P] `Capability.PARTNER_MANAGEMENT(Kind.READ, Set.of(Channel.REST))`, label "partner
   management"; `CapabilityMatrix`: 6.1 entry `PARTNER_MANAGEMENT → UNSUPPORTED`, 9.0 entry overrides
   it to `UNVERIFIED`, 8.1 `SUPPORTED`, others via `READS_UNVERIFIED`; `NodeOverview` name
   `partner_management` (shown by `list_nodes`); `ConfigSummary` lists it (`--check-config`);

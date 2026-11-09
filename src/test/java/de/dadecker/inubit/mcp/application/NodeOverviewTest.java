@@ -21,7 +21,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Feature 012 (FR-004, research D-2): {@link NodeOverview} names the two halves of the former
- * capability "diagnosis" as {@code process_diagnosis} and {@code log_diagnosis}.
+ * capability "diagnosis" as {@code process_diagnosis} and {@code log_diagnosis}. Feature 018
+ * (FR-016): partner management is listed as {@code partner_management}.
  */
 class NodeOverviewTest {
 
@@ -57,6 +58,29 @@ class NodeOverviewTest {
     }
 
     @Test
+    void partnerManagementIsListedByItsNameWithTheStateOfTheVersionLine() {
+        Set<Capability> partners = EnumSet.of(Capability.PARTNER_MANAGEMENT);
+
+        NodeSummary.Version v81 = version(VersionSetting.V8_1, partners);
+        assertThat(v81.capabilities().usable()).containsExactly("partner_management");
+        assertThat(v81.status()).isEqualTo("supported");
+
+        NodeSummary.Version v90 = version(VersionSetting.V9_0, partners);
+        assertThat(v90.capabilities().usable()).as("runs with a warning")
+            .containsExactly("partner_management");
+        assertThat(v90.capabilities().notUsable()).isEmpty();
+        assertThat(v90.status()).as("unverified, so not fully supported")
+            .isEqualTo("partially_supported");
+
+        NodeSummary.Version v61 = version(VersionSetting.V6_1, partners);
+        assertThat(v61.capabilities().usable()).isEmpty();
+        assertThat(v61.capabilities().notUsable()).singleElement().satisfies(refused -> {
+            assertThat(refused.capability()).isEqualTo("partner_management");
+            assertThat(refused.reason()).endsWith(" does not support partner management");
+        });
+    }
+
+    @Test
     void everyListedNodeHasItsStartCliChoiceWhichTheStartupSummaryLacks() {
         // feature 017 (FR-015, research D-18): always present in list_nodes; final for a pin
         NodeSummary node = TestNodeConfig.node().versionLine(VersionSetting.V8_1).build()
@@ -74,12 +98,22 @@ class NodeOverviewTest {
 
     /** The capabilities of a {@code V8_1} node that allows both diagnosis capabilities only. */
     private static NodeSummary.Capabilities capabilities(CapabilityMatrix matrix) {
+        return version(matrix, VersionSetting.V8_1, DIAGNOSIS).capabilities();
+    }
+
+    /** The version block of a node on {@code line} that allows {@code allowed} only. */
+    private static NodeSummary.Version version(VersionSetting line, Set<Capability> allowed) {
+        return version(CapabilityMatrix.production(), line, allowed);
+    }
+
+    private static NodeSummary.Version version(CapabilityMatrix matrix, VersionSetting line,
+        Set<Capability> allowed) {
         NodeVersions versions = new NodeVersions(new MutableClock(Instant.EPOCH),
-            id -> VersionSetting.V8_1, id -> Duration.ofMinutes(5));
-        NodeSummary node = TestNodeConfig.node().versionLine(VersionSetting.V8_1).build()
+            id -> line, id -> Duration.ofMinutes(5));
+        NodeSummary node = TestNodeConfig.node().versionLine(line).build()
             .summary(path -> false, false);
-        return new NodeOverview(List.of(node), versions, matrix, (id, withClient) -> DIAGNOSIS,
+        return new NodeOverview(List.of(node), versions, matrix, (id, withClient) -> allowed,
             TestClientSelection.none()).nodes()
-            .getFirst().version().orElseThrow().capabilities();
+            .getFirst().version().orElseThrow();
     }
 }

@@ -725,8 +725,8 @@ class MainTest {
 
         assertThat(exit).as(out() + err()).isZero();
         String refused = "available: none; refused: monitoring, process diagnosis, log"
-            + " diagnosis, inventory, workspace export, development writes, deployment,"
-            + " end-to-end test, process control)";
+            + " diagnosis, inventory, partner management, workspace export, development writes,"
+            + " deployment, end-to-end test, process control)";
         assertThat(out())
             .contains("dev/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI"
                 + " only; " + refused + ", client: 6.1.0 (4.0.1–6.1.0; options: no trust-store"

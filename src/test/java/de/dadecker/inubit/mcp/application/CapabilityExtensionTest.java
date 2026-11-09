@@ -465,7 +465,8 @@ class CapabilityExtensionTest {
         assertThat(texts(version.path("capabilities").path("usable")))
             .containsExactly("process_diagnosis", "log_diagnosis", "process_control");
         assertThat(notUsable(version)).containsExactly("monitoring", "inventory",
-            "workspace_export", "development_writes", "deployment", "e2e_test");
+            "partner_management", "workspace_export", "development_writes", "deployment",
+            "e2e_test");
     }
 
     // --- the declared versions are unchanged -------------------------------------------------
@@ -482,8 +483,8 @@ class CapabilityExtensionTest {
         JsonNode version = listVersions().get("qa/node1");
         assertThat(version.path("status").asString()).isEqualTo("supported");
         assertThat(texts(version.path("capabilities").path("usable"))).containsExactly(
-            "monitoring", "process_diagnosis", "log_diagnosis", "inventory", "workspace_export",
-            "development_writes", "deployment", "e2e_test", "process_control");
+            "monitoring", "process_diagnosis", "log_diagnosis", "inventory", "partner_management",
+            "workspace_export", "development_writes", "deployment", "e2e_test", "process_control");
         assertThat(built79).isEmpty();
         assertThat(calls79).isEmpty();
     }
@@ -517,7 +518,8 @@ class CapabilityExtensionTest {
         JsonNode version = listVersions().get("qa/node2");
         assertThat(version.path("status").asString()).isEqualTo("partially_supported");
         assertThat(texts(version.path("capabilities").path("usable")))
-            .containsExactly("monitoring", "process_diagnosis", "log_diagnosis", "inventory");
+            .containsExactly("monitoring", "process_diagnosis", "log_diagnosis", "inventory",
+                "partner_management");
         assertThat(notUsable(version)).containsExactly("inventory (StartCLI parts)",
             "workspace_export", "development_writes", "deployment", "e2e_test",
             "process_control");

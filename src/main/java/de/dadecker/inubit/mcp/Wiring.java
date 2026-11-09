@@ -706,7 +706,8 @@ final class Wiring implements AutoCloseable {
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
         Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
-            Capability.PROCESS_DIAGNOSIS, Capability.LOG_DIAGNOSIS, Capability.INVENTORY);
+            Capability.PROCESS_DIAGNOSIS, Capability.LOG_DIAGNOSIS, Capability.INVENTORY,
+            Capability.PARTNER_MANAGEMENT);
         if (withClient) {
             allowed.add(Capability.WORKSPACE_EXPORT);
         }
