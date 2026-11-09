@@ -102,7 +102,9 @@ use ACME, `*.example.test` and `Workflow-0001`.
   2. `encrypted="true"` or `type="Password"` (redundant with 1, tested on its own), or
   3. the name contains, case-insensitively, one of `password`, `passwd`, `pwd`, `secret`,
      `token`, `keystore`, `privatekey`, `passphrase`, `credential`, `apikey`, `accesskey`, or
-  4. the value is key material (`KeyMaterial`).
+  4. the value is key material (`KeyMaterial`);
+  5. a partner field whose `fieldType` in `PartnerFields` is not on `PLAIN_FIELD_TYPES`
+     (allowlist; unknown types are masked, spec FR-008, review round 4).
   The rule kind is not exposed (the result says how many, not why).
 - **Rationale**: FR-010 requires masking before anything leaves the parsing component; placing it
   in the archive package reuses the redaction rules instead of copying them, so "at least as
@@ -268,7 +270,10 @@ fixture for the parser.
   The spec needs an amendment before the tasks (see below).
 - **Encoding.** Nested `<Property name="…" type="Map|List">`; leaf values are element text.
   `PartnerFields` lists the configured fields (`Id`, `Name`) with attributes `fieldType`,
-  `showInTable`. A partner is `Property name="Partner" type="Map"` with `Fields` (Map) and
+  `showInTable`. The anonymizer replaced the `fieldType` values, so the plain types are not known
+  yet: `anonymize.py` keeps `fieldType` (a type, not data) and treats `format` as a generic value,
+  and `model_export_systemdiagram` is recorded again before the parser task to fix
+  `PLAIN_FIELD_TYPES` (FR-008). A partner is `Property name="Partner" type="Map"` with `Fields` (Map) and
   `ReferencedTWFs` (List of `ReferencedTWF` Maps).
 - **Workflow identity.** `ReferencableTWFs` entries are `<Property name="<workflow name>" id="<n>"
   moduleId="<n>">`; a `ReferencedTWF` points to one through the attribute `referencableTWFId`

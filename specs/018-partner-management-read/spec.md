@@ -138,7 +138,7 @@ the size bound.
 
 1. **Given** a server with 120 partners, **When** the operator lists without a search term,
    **Then** the first page holds the default number of partners in a stable order (system diagram
-   group and name, communication cloud, then partner `Id`, then `Name`), with the total and the offset of the next
+   group and name, communication cloud module name, then partner `Id`, then `Name`), with the total and the offset of the next
    page.
 2. **Given** a filter `protocol: ftp`, **When** listing, **Then** only partners with at least one
    entry whose `protocol` attribute is `FTP` appear, and each shows only those entries; a filter
@@ -191,6 +191,9 @@ server groups.
 8. **Given** `Name` of a partner matches the search on one stage but not on the other (the name
    was changed there), **When** searched, **Then** the partner is included with its entries from
    both stages, matched by `Id`.
+9. **Given** a system diagram with two communication clouds that both hold partner `ACME-0001`,
+   **When** it is searched on a stage, **Then** two partners are returned, each naming its cloud,
+   and each is compared only with the same cloud on the other servers.
 
 ---
 
@@ -247,7 +250,7 @@ operator can reach the same data with story 2's workflow filter.
   empty, stating which system diagrams were read; not an error.
 - **Partner without `Id`**: the configured `PartnerFields` may not include `Id`. Partners are then
   identified by the configured fields in their order; a comparison matches partners by the first
-  configured field that is present on both sides, and reports unmatched ones per server.
+  configured non-masked field that is present on both sides, and reports unmatched ones per server.
 - **Duplicate partner Ids** in one communication cloud: both are shown; a comparison reports the
   duplicate instead of matching arbitrarily.
 - **Same system diagram name in two diagram groups**: they are different system diagrams and are
@@ -294,11 +297,14 @@ operator can reach the same data with story 2's workflow filter.
   `get_inventory_item`. The tool MUST carry the annotations of a read tool (read-only,
   non-destructive, idempotent) and be offered under the condition of its channel (FR-001a): with
   StartCLI, on a node with a StartCLI installation, like the other StartCLI-backed reads; with
-  REST, on every node.
+  REST, wherever the inventory capability is possibly available, like `get_inventory_item`.
 - **FR-001a**: The channel MUST be REST if the plan's research shows, against a recorded response,
   that the REST diagram export of a system diagram carries the complete `PartnerManagementSettings`
   (Principle V: REST is preferred); otherwise StartCLI's export with diagram type `systemdiagram`.
   The tool's availability (FR-001) and the capability's channel (FR-016) follow that decision.
+  Decided: REST (research D-1). Clauses marked "with StartCLI" (FR-001, FR-003, FR-010, FR-016,
+  `CLI_UNAVAILABLE` in FR-019, the StartCLI edge cases) apply only if a later change adds that
+  channel; this feature does not implement or test them.
 - **FR-002**: The tool MUST accept the id of one stage or one server as `target`, an optional
   second stage or server to compare with (`compareWith`), an optional `owner`, an optional search
   term, optional filters (system diagram name, protocol, referenced technical workflow), paging
@@ -319,8 +325,9 @@ operator can reach the same data with story 2's workflow filter.
   Assumptions (StartCLI channel only).
 - **FR-004**: For each partner the result MUST show the system diagram (name and diagram group),
   the communication cloud (module name), every partner field (a masked field as masked with "set"/"not set"), and for each
-  `ReferencedTWF` entry its protocol, its referenced technical workflow, every protocol setting and
-  every additional parameter, secrets masked (FR-008). Entries MUST NOT be merged; their order MUST
+  `ReferencedTWF` entry its protocol, its referenced technical workflow, its other attributes (e.g.
+  `format`, shown uninterpreted), every protocol setting and every additional parameter, secrets
+  masked (FR-008). Entries MUST NOT be merged; their order MUST
   be the order in the export.
 - **FR-005**: The search MUST match a case-insensitive substring against the non-masked partner
   fields (at least `Id` and `Name`). Without a search term the tool lists (story 2).
@@ -339,10 +346,10 @@ operator can reach the same data with story 2's workflow filter.
   `get_inventory_item`'s `NOT_FOUND` suggestions (names containing the term, names of at least 3
   characters contained in it, or within an edit distance of `max(2, length / 3)`; closest first).
 - **FR-006**: The result of a search MUST show full details per matching partner. A list without a
-  search term MUST show a summary per partner: system diagram, partner fields, and per entry the
-  protocol, the workflow and, if present, the protocol settings `ServerName` and `Login` (absent
-  ones are omitted; for protocols that name their endpoint or user differently, the plan's research
-  names those settings from a recorded export and the documentation lists them).
+  search term MUST show a summary per partner: system diagram (name and diagram group),
+  communication cloud (module name), partner fields, and per entry the protocol, the workflow and,
+  if present, the protocol settings `ServerName` and `Login` (absent ones are omitted); these
+  summary keys hold for every protocol (research D-2).
 - **FR-007**: The result MUST also report the `ReferencableTWFs` of every communication cloud that
   contributed a partner, and which system diagrams were read without any Partner Management.
 
@@ -361,7 +368,10 @@ operator can reach the same data with story 2's workflow filter.
     pattern, case-insensitively: at least `password`, `passwd`, `pwd`, `secret`, `token`,
     `keystore`, `privatekey`, `passphrase`, `credential`, `apikey`, `accesskey`;
   - its value is key material (a PEM private key, or a long base64 value that decodes to a JKS,
-    JCEKS or PKCS#12 keystore), as the workspace export detects it.
+    JCEKS or PKCS#12 keystore), as the workspace export detects it;
+  - it is a partner field whose declaration in `PartnerFields` has a `fieldType` that is not on
+    the allowlist of plain field types fixed by the plan from a recorded export (any other or
+    unknown `fieldType` is masked).
   The masking MUST be at least as strict as the workspace export's redaction (feature 003) for
   every property kind both see. Names that match a pattern are masked even if their value is
   harmless (e.g. a keystore reference in `SSLKeyStore`).
@@ -382,7 +392,8 @@ operator can reach the same data with story 2's workflow filter.
 - **FR-012**: With a stage target (several servers) or `compareWith`, the result MUST group per
   partner and per entry: values equal on all compared servers are shown once and marked equal;
   differing values are shown per server; partners and entries present only on some servers are
-  marked with the servers they are on.
+  marked with the servers they are on. Entry attributes other than `protocol` and the workflow
+  reference (e.g. `format`) are compared like settings.
 - **FR-012a**: For a masked value that is set on at least two compared servers, the comparison MUST
   state whether the stored values are the same on all of them, and if not, which servers share a
   stored value (groups of servers, no value). The statement compares the values as INUBIT stores
@@ -393,7 +404,7 @@ operator can reach the same data with story 2's workflow filter.
   secrets are not comparable for a version or channel, the comparison MUST make no equality
   statement for secrets there and say why.
 - **FR-012b**: The equality MUST be decided from a fingerprint that the parsing component computes
-  with a random key created in memory when the server process starts. The key is never written,
+  with a random key created once per server process, in memory. The key is never written,
   logged, returned or audited and is lost when the process ends; the fingerprint never leaves
   memory (it may be kept in the cache of FR-018) and is never shown.
 - **FR-012c**: In a comparison, `total`, `offset` and `nextOffset` MUST count matched partners
@@ -406,7 +417,10 @@ operator can reach the same data with story 2's workflow filter.
   sides; masked fields are never a match key); entries by protocol and referenced workflow (its name,
   resolved through the entry's reference into `ReferencableTWFs`), then by position among entries
   with the same key.
-  Ambiguous matches (duplicate keys) MUST be reported, not resolved arbitrarily.
+  Ambiguous matches (duplicate keys, or two communication clouds of the same module name in one
+  system diagram, which the result tells apart by their module id) MUST be reported, not resolved
+  arbitrarily. An entry whose workflow reference does not resolve never matches a `workflow`
+  filter and is never matched across servers; it is shown per server as unresolved.
 - **FR-014**: A server that fails MUST NOT fail the comparison; it MUST be reported with its error,
   and the comparison MUST state that it is incomplete. A failed server is left out of all equality
   statements and "only on" markers; the result names it as not compared.
@@ -490,7 +504,8 @@ operator can reach the same data with story 2's workflow filter.
 - **System diagram**: an INUBIT diagram of type `systemdiagram` of one owner, identified by name
   and diagram group, on one server; contains communication clouds.
 - **Communication cloud**: a module of type `sdCommunicationCloud` in a system diagram, identified
-  by its module name; carries at most one Partner Management.
+  by its module name (and, if two clouds of one system diagram share a name, by its module id);
+  carries at most one Partner Management.
 - **Partner Management**: per communication cloud: the configured partner fields, the referencable
   technical workflows, and the partners.
 - **Partner**: a set of partner field values (e.g. `Id`, `Name`) and a list of protocol entries.
@@ -583,6 +598,18 @@ operator can reach the same data with story 2's workflow filter.
   results, filters' scope and the match key include the cloud (FR-004, FR-007, FR-013).
 - Workflows in the Partner Management are identified by name only (Assumptions).
 
+### Review round 4 decisions
+
+- The list summary names the communication cloud; `ServerName` and `Login` are the summary keys for
+  every protocol (FR-006).
+- A partner field is also masked when its `fieldType` in `PartnerFields` is not on an allowlist of
+  plain types; unknown types are masked (FR-008).
+- Entry attributes such as `format` are shown uninterpreted and compared like settings (FR-004,
+  FR-012).
+- Unresolved workflow references are never filtered in or matched; clouds of the same name in one
+  diagram are reported as ambiguous (FR-013).
+- The channel is REST; StartCLI clauses apply only to a later change (FR-001a).
+
 ## Assumptions
 
 - The channel is chosen by FR-001a; the plan's recording selected REST (research D-1): one REST
@@ -604,8 +631,9 @@ operator can reach the same data with story 2's workflow filter.
   of the same name in different diagram groups are not told apart, and the documentation says so.
 - INUBIT stores equal secrets in equal form across servers and stages of one installation landscape
   (spike, section 4); FR-012a has a fallback if the research finds otherwise.
-- Exporting a system diagram through StartCLI has the same small trace in INUBIT as other exports
-  (check-in comment suffix); this is accepted as for the other read exports.
+- The REST diagram export leaves no trace in INUBIT. Should a later change add the StartCLI
+  channel, its export trace (check-in comment suffix) would be accepted as for the other read
+  exports.
 
 ## Out of Scope
 

@@ -70,7 +70,8 @@ and not masked, else the first configured non-masked field present (FR-013).
 | Field | Type | Rule |
 |---|---|---|
 | `moduleName` | String | `ModuleName` of the module; part of the partner key (FR-013) |
-| `partnerFields` | List<String> | configured partner field names (`PartnerFields`) |
+| `moduleId` | String | `ModuleId`; shown only when two clouds of one diagram share a name (then reported as ambiguous) |
+| `partnerFields` | List<{name, fieldType}> | configured partner fields (`PartnerFields`); a field whose `fieldType` is not on `PLAIN_FIELD_TYPES` is masked in every partner (FR-008) |
 | `referencableWorkflows` | List<String> | names of the `ReferencableTWFs` entries (their local ids are used only to resolve entries) |
 | `partners` | List<Partner> | export order |
 

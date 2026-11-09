@@ -176,10 +176,11 @@ are nine of them.
 
 1. **T-record** — done 2026-11-09: both channels recorded and neutralized; D-1 = REST, D-2 facts
    in research.md; spec amended for communication clouds.
-2. Domain types and `SecretFingerprint`; `PartnerSecretRules`, `SecretFingerprinter`,
+2. Anonymizer keeps `fieldType` and treats `format` as a generic value; the operator records
+   `model_export_systemdiagram` again to fix `PLAIN_FIELD_TYPES` (FR-008). Then domain types and
+   `SecretFingerprint`; `PartnerSecretRules`, `SecretFingerprinter`,
    `PartnerManagementReader` against synthetic and recorded fixtures (secret tests first).
-3. Port and the REST adapter with contract tests; capability and matrix entries; anonymizer
-   classifies `format` as a generic value.
+3. Port and the REST adapter with contract tests; capability and matrix entries.
 4. `InventoryCache.peek`, `PartnerSnapshot`, `PartnerService` (single server: search, list,
    filters, similar values, paging, bounds).
 5. `PartnerComparison` and its integration (stage targets, `compareWith`).
