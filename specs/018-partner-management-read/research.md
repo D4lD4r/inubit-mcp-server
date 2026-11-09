@@ -112,11 +112,15 @@ use ACME, `*.example.test` and `Workflow-0001`.
   - **Name collisions.** The REST export selects by name only; whether INUBIT keeps diagram names
     unique per owner or system-wide is not documented. The adapter therefore checks the returned
     archive's `WorkflowGroupName` and `UserOrUserGroupName` against the requested `DiagramRef`
-    group and the owner. On a mismatch it returns no data for that diagram and reports it as
-    unreadable (`UNEXPECTED_RESPONSE`: "the export of this name returned a diagram of another group
-    or owner; the name is not unique"), so another group's or owner's Partner Management is never
-    attributed to the requested diagram.
-  - **Gateway.** The port is a new component of `PortSet` and `Gateway` (`partners()`):
+    group and the owner. On a mismatch it returns no data for that diagram and reports it per
+    diagram (`unreadableDiagrams`, code `UNEXPECTED_RESPONSE`: "the export of this name returned a
+    diagram of another group or owner; the name is not unique") without throwing, so the other
+    diagrams are answered, the node is not marked stale, and another group's or owner's Partner
+    Management is never attributed to the requested diagram.
+  - **Gateway.** Services get the port through `GatewayFactory.partners(NodeId)` (default,
+    delegating to `forServer(server).partners()`). `Gateway.partners()` is a default method that
+    refuses with `UNSUPPORTED_VERSION` ("partner management is not available for this INUBIT
+    version"). The port is a new component of `PortSet`:
     `V81PortSet`/`V81Gateway` serve it for 8.1 and 9.0, `V61PortSet` gets a refusing stub from
     `RefusingPorts`, and `StaleReportingPorts` wraps it so that `UNEXPECTED_RESPONSE` marks the node
     stale like every other port.

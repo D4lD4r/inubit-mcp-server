@@ -30,6 +30,9 @@ Offered when at least one server is possibly capable of `PARTNER_MANAGEMENT`; th
     { "node": "qa/node1", "group": "qa", "owner": "…", "collectedAt": "…", "fromCache": true,
       "systemDiagramsRead": [{"name": "…", "diagramGroup": "…"}],
       "withoutPartnerManagement": [{"name": "…", "diagramGroup": "…"}],
+      "unreadableDiagrams": [         // per diagram, the server is still answered (D-4)
+        { "systemDiagram": {"name": "…", "diagramGroup": "…"}, "code": "UNEXPECTED_RESPONSE",
+          "message": "the export of this name returned a diagram of another group or owner" } ],
       "warnings": ["9.0.3 on qa/node1 is not verified for partner management; …",
                    "an entry of partner ACME-0001 in Module-0901 references an unknown workflow"],
       "error": null }                // ToolError {code, message, cause, nextStep} for a failed server
@@ -62,8 +65,8 @@ Offered when at least one server is possibly capable of `PARTNER_MANAGEMENT`; th
 An entry whose `referencableTWFId` does not resolve has `"workflow": {"name": null, "unresolved":
 true}`; the reader's warning for it goes to `servers[].warnings` of that server.
 
-In `list` mode an entry carries only `protocol`, `workflow` and the summary keys of
-`PartnerSummaryKeys` (D-2); `fields` stay complete.
+In `list` mode an entry carries only `protocol`, `workflow` and the summary keys `ServerName` and
+`Login` (if present, D-2); `fields` stay complete.
 
 **ComparedPartner**
 
@@ -79,8 +82,12 @@ In `list` mode an entry carries only `protocol`, `workflow` and the summary keys
         {"name": "Password", "masked": true, "set": {"qa/node1": true, "prod/node1": true},
          "sameOn": [["qa/node1"], ["prod/node1"]]}           // or "equality": "not verified on 9.0.3"
       ] } ],
+  "maskedCount": {"equal": 3},       // or {"differs": {"qa/node1": 3, "prod/node1": 2}} (FR-009)
   "ambiguous": [] }
 ```
+
+Result types map a masked value to `{"masked": true, "set": …}` and never carry the
+fingerprint.
 
 Without a search term, a ComparedPartner holds the summary fields plus only `differs`, masked
 settings whose `set` or `sameOn` differ, and `onlyOn` entries (FR-012c).

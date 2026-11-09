@@ -29,8 +29,9 @@ case-insensitively and exactly.
 
 ### `SecretFingerprint`
 Final class (not a record). Holds the HMAC bytes privately. `equals`/`hashCode` over the bytes;
-`toString()` = `SecretFingerprint[redacted]`; no getter; annotated so that Jackson refuses to
-serialize it (a test serializes it and expects an exception). Created only by
+`toString()` = `SecretFingerprint[redacted]`; no getter and no properties, so the
+`ResultJson` mapper refuses to serialize it (`FAIL_ON_EMPTY_BEANS`; a test serializes it with that
+mapper and expects an exception); no Jackson annotation in `domain` (`PackageBoundaryTest`). Created only by
 `SecretFingerprinter` (adapter) through a package-crossing factory that takes the raw bytes and
 keeps no reference to the input.
 
@@ -110,6 +111,7 @@ Per matched partner:
     `sameOn: List<List<server>>` (groups with equal fingerprint), else `equality:
     "not verified on <version>"`;
 - `onlyOn: List<server>` for partners or entries missing on some answering servers;
+- `maskedCount` grouped like a setting: `equal(n)` or a count per server (FR-009);
 - `ambiguous`: duplicate keys reported per server;
 - call level: `notCompared: List<{server, error}>`, `incomplete: boolean`.
 

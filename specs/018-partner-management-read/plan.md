@@ -67,8 +67,9 @@ at most 5 s beyond the read itself (expected well below 1 s); a repeated call wi
 **Scale/Scope**:
 - 1 new tool (`find_partners`, tool count 17 → 18); `get_inventory_item` output gains
   `partnerUsage`; `list_nodes` and `--check-config` show `partner_management`.
-- New production types (about 16): `PartnerManagementPort`, `SystemDiagramPartners`, `CommunicationCloud`, `Partner`,
-  `ProtocolEntry`, `SettingValue`, `SecretFingerprint`, `WorkflowRef`, `DiagramRef`,
+- New production types (about 21): `PartnerManagementPort`, `SystemDiagramPartners`,
+  `CommunicationCloud`, `Partner`, `PartnerField`, `PartnerKey`, `Setting`, `ProtocolEntry`,
+  `SettingValue`, `SecretFingerprint`, `WorkflowRef`, `DiagramRef`, `PartnerQuery`,
   `PartnerUsage` (domain); `PartnerManagementReader`, `PartnerSecretRules`,
   `SecretFingerprinter`, `V81PartnerManagementAdapter` (adapter); `PartnerService`, `PartnerComparison`,
   `PartnerAudit`, `PartnerSnapshot` (application); `FindPartnersTool` (mcp/tools).
