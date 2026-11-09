@@ -121,7 +121,8 @@ contacted.
    the current last change.
 4. **Given** content that contains a secret (FR-010), **When** the assistant tries to record it,
    **Then** the write is refused with the kind and the line of each finding, never the value;
-   nothing is written; the refusal is audited.
+   nothing is written; the refusal is audited. The same holds for a `create` whose name contains
+   a configured credential or an INUBIT encrypted value (the finding names the field `name`).
 5. **Given** a hand-written note that contains a detected secret, **When** the assistant tries to
    replace it, **Then** the write is refused with `PRECONDITION_FAILED`, telling the operator to
    remove the secret by hand first (so a masked copy never overwrites it); appending to it is
@@ -192,7 +193,10 @@ warning, searched and readable.
   (FR-004d).
 - **Concurrent writes** from two server processes of the same profile: serialized (FR-015).
 - **Symbolic links** inside the knowledge directory: not followed for reading or writing; listed
-  with a warning; a write at a name where a link sits is refused with `PRECONDITION_FAILED`.
+  with a warning; a write at a name where a link sits, or through a linked parent segment, is
+  refused with `PRECONDITION_FAILED`.
+- **Paths taken by something else** (`Partner.MD` on a case-insensitive file system, a directory
+  `Partner.md`): a `create` there is refused with `PRECONDITION_FAILED` naming the path (FR-011).
 - **Hand-written names outside the record rule** (`Partner (alt).md`, a note 5 levels deep):
   listed with a warning, searched and readable; the assistant cannot write to them (FR-004).
 - **Large knowledge** (thousands of notes, megabytes): instructions list only the most recently
@@ -306,7 +310,10 @@ warning, searched and readable.
 - **FR-011**: The assistant MUST be able to record a note with an explicit `name` (FR-004) and an
   explicit mode:
   - `create`: title and content required, topics optional; refused with `CONFLICT` if a note of
-    that name exists, also when only the letter case differs;
+    that name exists, compared as in FR-004b (NFC normalization and case folding); refused with
+    `PRECONDITION_FAILED`, naming the occupying path, if the target path or one of its parent
+    segments is taken by anything that is not a note of that name (a file whose extension differs
+    in letter case, a directory, a symbolic link); nothing is written;
   - `append`: a section added to the current content; refused with `NOT_FOUND` (with similar names)
     if the note does not exist;
   - `replace`: new content and the version token the assistant read; refused with `NOT_FOUND` if
@@ -321,10 +328,11 @@ warning, searched and readable.
   the configuration (read at start); it never touches INUBIT, so the INUBIT write switches
   (`write.enabled`, production opt-in) MUST NOT govern it. With recording off, the record tool is
   not offered and the instructions MUST say that the knowledge is read-only for this profile.
-- **FR-013**: Before writing, the secret rules (FR-010) MUST be applied to the new text: on `create`
-  and `replace` the title, topics and content; on `append` the appended section and any new title
-  or topics. If anything is found, the whole write MUST be refused with `INVALID_INPUT`, naming the
-  kind and the line of each finding, never the value. A `replace` of a note whose current content
+- **FR-013**: Before writing, the secret rules (FR-010) MUST be applied to the new text: in every
+  mode the `name`; on `create` and `replace` the title, topics and content; on `append` the
+  appended section and any new title or topics. If anything is found, the whole write MUST be
+  refused with `INVALID_INPUT`, naming the kind and the field (`name`, `title`, `topics`) or the
+  line of each finding, never the value. A `replace` of a note whose current content
   contains a detected secret MUST be refused with `PRECONDITION_FAILED` (remove it by hand first).
   Bounds (fixed, not configurable, documented in `docs/setup.md`): a note written by
   the assistant at most 256 KiB after the write; notes above 4 MiB are not searched or read;
@@ -335,7 +343,9 @@ warning, searched and readable.
   instructions ignore. At most 10 versions per note are kept; when a new one is added, the oldest is
   removed. The operator restores a version by hand; the documentation says where it is.
 - **FR-015**: Writes MUST be serialized per knowledge directory, also across the server processes of
-  one profile; there are no retries inside the server. A note MUST be written completely or not at
+  one profile; there are no retries inside the server. A writer waits at most 10 s for its turn;
+  after that the write is refused with `PRECONDITION_FAILED` ("another write is in progress") and
+  nothing is written. A note MUST be written completely or not at
   all (no half-written file visible under its name). An `append` is applied on top of the content
   current at that moment.
 - **FR-016**: The recording tool MUST be annotated as a local write (not read-only, not
@@ -360,12 +370,16 @@ warning, searched and readable.
 - **FR-019**: Every recording call (created, appended, replaced, refused, failed) MUST write an audit
   record (profile, capability, note name, mode, sizes before and after, MCP client, outcome) without
   the content, the title or topics, or any detected secret. Reads MUST NOT be audited; they are
-  logged at DEBUG with note names and result counts, never the search text or content.
+  logged at DEBUG with note names and result counts, never the search text or content. Note names
+  in audit records and logs MUST be masked, reduced to one line and cut as in FR-006 (a
+  hand-written file name may contain anything); a name refused under FR-013 is recorded as the
+  mask token.
 - **FR-020**: Failures MUST be actionable error results: `INVALID_INPUT` (a bad name or mode, a
   secret in the new text), `NOT_FOUND` (with up to five similar note names), `CONFLICT` (create on an
   existing name, replace after a change), `PRECONDITION_FAILED` (a bound reached, a replace of a note
   with a secret, an unusable directory), `INTERNAL` (also when the audit record cannot be written;
-  then nothing is written). No error contains note content.
+  then nothing is written). No error contains note content; note names in error results (also the
+  similar names of `NOT_FOUND` and an occupying path, FR-011) are masked as in FR-006.
 
 **Documentation and repository hygiene**
 
@@ -394,7 +408,8 @@ warning, searched and readable.
   answered from the note without repeating the research; checked in the live test with a
   neutralized example.
 - **SC-002**: For every kind of FR-010, zero such values end up in a note through recording, or in
-  a read result, search hit or the instructions from a hand-written note, across the test suite.
+  a read result, search hit or the instructions from a hand-written note, or in an audit record,
+  log line or error result, across the test suite.
 - **SC-003**: No server process can read or write another profile's knowledge (tested with two
   profiles).
 - **SC-004**: Every result (instructions, search page, read page) stays within its bound for a
@@ -418,9 +433,9 @@ warning, searched and readable.
 
 - History: a hidden area, 10 versions per note, ignored by listing and search, counted in the total
   bound (FR-014, FR-013).
-- Recording: explicit name and mode (`create`, `append`, `replace`); `replace` carries the last
-  change read and is refused with `CONFLICT` after a change; writes serialized, no retries (FR-011,
-  FR-015).
+- Recording: explicit name and mode (`create`, `append`, `replace`); `replace` carries the version
+  token read (see round 2) and is refused with `CONFLICT` after a change; writes serialized, no
+  retries (FR-011, FR-015).
 - Secret rules made exact (FR-010); masking before paging, search on masked text (FR-008a).
 - Write check: only the new text; a `replace` of a note with a detected secret is refused, so a
   masked copy never overwrites the operator's text (FR-013).
@@ -451,6 +466,14 @@ warning, searched and readable.
 - A malformed metadata block blocks `append` and `replace` until fixed by hand (FR-004d).
 - Names in the instructions and in hits are masked, single-line and cut like titles (FR-006).
 - The bound values are final (FR-013).
+
+### Review round 4 decisions
+
+- The note name is checked for secrets in every mode; names in audit records, logs and error
+  results are masked like in the instructions (FR-013, FR-019, FR-020).
+- A writer waits at most 10 s for its turn, then gets `PRECONDITION_FAILED` (FR-015).
+- A `create` on a path taken by something that is not that note (other extension case, directory,
+  symbolic link, also on a parent segment) is refused with `PRECONDITION_FAILED` (FR-011).
 
 ## Assumptions
 

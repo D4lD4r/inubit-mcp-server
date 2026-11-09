@@ -40,4 +40,4 @@
   concepts the operator configures and sees (instructions, tools, resources, annotations) and the
   existing per-profile directories. The note format (Markdown) is a user-facing choice: the
   operator edits the notes by hand. Since review round 1 the bounds are fixed values in the spec.
-- Spec review (2026-11-09): 3 rounds (max). Round 3 ended CHANGES_REQUESTED with 1 major (Unicode normalization of names) and 6 minors; all were worked in afterwards (FR-004b to FR-004d, FR-006, FR-013) but not re-reviewed. Reviews in ../reviews/spec-r1.md to spec-r3.md.
+- Spec review (2026-11-09): 3 rounds (max), then a fourth round at the operator's request. Round 4 confirmed all round-3 fixes and ended CHANGES_REQUESTED with 1 major (secrets in note names, unmasked names in audit, logs and errors) and 4 minors (lock wait, paths taken by non-notes, create collision wording, stale round-1 decision); all were worked in afterwards (FR-011, FR-013, FR-015, FR-019, FR-020, SC-002) but not re-reviewed. Reviews in ../reviews/spec-r1.md to spec-r4.md.
