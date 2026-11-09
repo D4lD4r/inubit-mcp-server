@@ -53,7 +53,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
   unresolved, with a warning)") with tests; `domain/model/partner/package-info.java` — main
   `domain/model/partner/DiagramRef.java`,
   `domain/model/partner/WorkflowRef.java`, test `domain/model/partner/DiagramRefTest.java`
-- [ ] T005 [P] `SettingValue` sealed: `Shown(String value)` ("cut at 200 characters with
+- [X] T005 [P] `SettingValue` sealed: `Shown(String value)` ("cut at 200 characters with
   `…[truncated]` when rendered (not when compared)") and `Masked(boolean set,
   Optional<SecretFingerprint> fingerprint)` ("the fingerprint is present only when `set`"); and
   `SecretFingerprint` (final class, not a record; bytes private; `equals`/`hashCode` over the bytes;
