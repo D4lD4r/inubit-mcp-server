@@ -9,6 +9,7 @@ import de.dadecker.inubit.mcp.adapter.cli.v81.V81ImportAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ProcessControlAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81TagAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81LogAdapter;
+import de.dadecker.inubit.mcp.adapter.rest.v81.V81PartnerManagementAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81ProcessQueryAdapter;
 
 /** The 8.1 port set: the REST adapters on the server's client and the StartCLI adapters. */
@@ -34,7 +35,8 @@ final class V81PortSet {
             new V81TagAdapter(node.server().id(), new CliExportRunner(node.server(),
                 node.credentials(), node.guard(), node.cliRunner(), classifier(node)),
                 new CliTagRunner(node.server(), node.credentials(), node.guard(),
-                    node.cliRunner(), classifier(node)), inventory::confirmCredentials));
+                    node.cliRunner(), classifier(node)), inventory::confirmCredentials),
+            new V81PartnerManagementAdapter(node.server().id(), node.client()));
     }
 
     private static CliOutputClassifier classifier(PortSetRegistry.NodeResources node) {

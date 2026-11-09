@@ -144,7 +144,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
   `domain/port/PartnerManagementPort.java`, `adapter/rest/v81/V81PartnerManagementAdapter.java`,
   tests `adapter/rest/v81/V81PartnerManagementAdapterContractTest.java`,
   `architecture/PartnerNoWriteTest.java`
-- [ ] T013 (after T012) Port in the gateway (D-4): `GatewayFactory.partners(NodeId)` (default,
+- [X] T013 (after T012) Port in the gateway (D-4): `GatewayFactory.partners(NodeId)` (default,
   delegating to `forServer(server).partners()`); `Gateway.partners()` as a `default` method that
   refuses with `UNSUPPORTED_VERSION` ("partner management is not available for this INUBIT
   version"), so test gateways stay unchanged; `PortSet` component (update

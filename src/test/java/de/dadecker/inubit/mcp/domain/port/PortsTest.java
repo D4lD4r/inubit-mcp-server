@@ -99,6 +99,18 @@ class PortsTest {
     }
 
     @Test
+    void aGatewayWithoutPartnerManagementAdapterRefusesItAsUnsupportedForItsNode() {
+        // feature 018 (T013, research D-4)
+        assertThatThrownBy(() -> new PreviousGateway().partners())
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+                assertThat(e.error().node()).contains(NODE);
+                assertThat(e.error().message())
+                    .contains("partner management is not available for this INUBIT version");
+            });
+    }
+
+    @Test
     void anXsltRequestCopiesItsParameters() {
         Map<String, String> params = new HashMap<>(Map.of("lang", "de"));
         XsltRequest request = new XsltRequest(Path.of("a.xsl"), Path.of("in.xml"), params,

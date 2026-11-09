@@ -13,10 +13,12 @@ import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
+import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
+import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
@@ -32,7 +34,7 @@ import java.util.Objects;
  * {@link PortSet}.
  */
 public final class RefusingPorts implements ProcessQueryPort, LogPort, InventoryPort,
-    ProcessControlPort, ArtifactPort, ImportPort, TagPort {
+    ProcessControlPort, ArtifactPort, ImportPort, TagPort, PartnerManagementPort {
 
     private final NodeId node;
 
@@ -155,6 +157,11 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
 
     @Override
     public void tag(String tag, String diagramGroup, String owner, WritePermit permit) {
+        throw refusal();
+    }
+
+    @Override
+    public Result read(String owner, List<DiagramRef> systemDiagrams) {
         throw refusal();
     }
 }

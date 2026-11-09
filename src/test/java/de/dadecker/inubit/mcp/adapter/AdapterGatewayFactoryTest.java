@@ -52,6 +52,7 @@ import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
+import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
@@ -479,6 +480,20 @@ class AdapterGatewayFactoryTest {
             assertThat(factory.forServer(DEV).tags()).isNotNull()
                 .isSameAs(factory.tags(DEV))
                 .isInstanceOf(StaleReportingPorts.Tags.class);
+            assertThat(wireMock.getAllServeEvents()).isEmpty();
+        }
+    }
+
+    @Test
+    void theV81GatewayProvidesThePartnerManagementPort() throws NoSuchMethodException {
+        // feature 018 (T013, research D-4): the 8.1 gateway overrides the UNSUPPORTED_VERSION
+        // default of Gateway.partners(), behind the stale-reporting decorator
+        assertThat(V81Gateway.class.getDeclaredMethod("partners").getDeclaringClass())
+            .isEqualTo(V81Gateway.class);
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
+            assertThat(factory.forServer(DEV).partners()).isNotNull()
+                .isSameAs(factory.partners(DEV))
+                .isInstanceOf(StaleReportingPorts.Partners.class);
             assertThat(wireMock.getAllServeEvents()).isEmpty();
         }
     }
@@ -981,7 +996,7 @@ class AdapterGatewayFactoryTest {
             return new PortSet(fake(ProcessQueryPort.class, name), fake(LogPort.class, name),
                 fake(InventoryPort.class, name), fake(ProcessControlPort.class, name),
                 fake(ArtifactPort.class, name), fake(ImportPort.class, name),
-                fake(TagPort.class, name));
+                fake(TagPort.class, name), fake(PartnerManagementPort.class, name));
         };
     }
 

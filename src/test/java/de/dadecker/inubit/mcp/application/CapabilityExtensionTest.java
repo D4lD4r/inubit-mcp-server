@@ -47,6 +47,7 @@ import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
+import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
@@ -324,7 +325,7 @@ class CapabilityExtensionTest {
         };
         return new PortSet(processes, logs, undeclared(InventoryPort.class), processControl,
             undeclared(ArtifactPort.class), undeclared(ImportPort.class),
-            undeclared(TagPort.class));
+            undeclared(TagPort.class), undeclared(PartnerManagementPort.class));
     }
 
     /** A port of a capability 7.9 does not declare: the gate must refuse before it is used. */
