@@ -29,3 +29,7 @@ and is not a baseline failure. It is recorded here in case it comes back.
 - From T015 review (for T018): `partnersScope(owner, diagram)` keys can collide (`a/b`+`c` vs `a`+`b/c`); serve a cached `PartnerSnapshot` only if its `covered` contains every requested `DiagramRef`, never on the key alone.
 - From T016 review (for T017): `AuditRecord` still requires a node, but the contract wants a refusal before any server is contacted written "without node"; decide in T017 (e.g. the requested target, as `ArchiveExportAudit` does, or make node optional) and keep `details` values to booleans and integers (a null value is written as text "null").
 - From T017 (for T021): per-server REFUSED/FAILED records carry no `reason`; add `Optional<String> reason` to `PartnerAudit.perServer` and pass the server's error code (code only, no message) so the audit shows why a server was not answered.
+
+## Implementation — phase 2 build
+
+After T017 (d75367a): `mvn -o -q clean verify` green with 5700 unit tests (surefire, 376 suites), 0 failures, 0 errors, 52 skipped, plus 2 failsafe tests (baseline T001: 5495 + 2).
