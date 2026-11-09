@@ -39,4 +39,5 @@
 - "No implementation details": as in the other specs of this project, the spec names the MCP
   concepts the operator configures and sees (instructions, tools, resources, annotations) and the
   existing per-profile directories. The note format (Markdown) is a user-facing choice: the
-  operator edits the notes by hand. Bounds and the history mechanism are left to the plan.
+  operator edits the notes by hand. Since review round 1 the bounds are fixed values in the spec.
+- Spec review (2026-11-09): 3 rounds (max). Round 3 ended CHANGES_REQUESTED with 1 major (Unicode normalization of names) and 6 minors; all were worked in afterwards (FR-004b to FR-004d, FR-006, FR-013) but not re-reviewed. Reviews in ../reviews/spec-r1.md to spec-r3.md.
