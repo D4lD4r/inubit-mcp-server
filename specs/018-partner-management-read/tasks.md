@@ -36,13 +36,13 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
   (`format-<n>`), not as a workflow reference (research D-2); `--verify` accepts kept `fieldType`
   values only if they match `^[A-Za-z][A-Za-z0-9_.]{0,40}$`. Tests first in
   `tools/tests/test_anonymize_partner.py`; update the self-test
-- [ ] T003 Operator (live, non-production, after T002): record `model_export_systemdiagram` again
-  with the commands of quickstart.md §1 (stage `ent`, the same system diagram), run
-  `export_systemdiagram` too if its `fieldType` values differ; neutralize names outside the subtree
-  as on 2026-11-09 (local map, deleted afterwards); check with `anonymize.py --verify`,
-  `check-identifiers.py --all`; record the plain `fieldType` values found as `PLAIN_FIELD_TYPES`
-  in `specs/018-partner-management-read/research.md` (D-2 facts). **Blocks T009 and every search
-  task** (without the allowlist FR-008 masks `Id` and `Name`)
+- [ ] T003 Operator (live, non-production, after T002): record **both** `model_export_systemdiagram`
+  and `export_systemdiagram` again with the commands of quickstart.md §1 (stage `ent`, the same
+  system diagram and group, one shared `RECORD_ANON_STATE`); neutralize names outside the subtree as
+  on 2026-11-09 (local map, deleted afterwards); check with `anonymize.py --verify` and
+  `check-identifiers.py --all`; record the plain `fieldType` values as `PLAIN_FIELD_TYPES` in
+  `specs/018-partner-management-read/research.md` (D-2 facts). **Blocks T008, T010, T011 and every
+  search task** (without the allowlist FR-008 masks `Id` and `Name`)
 
 ## Phase 2: Foundational — model, masking, REST read, capability, cache, audit (blocks every story)
 
@@ -60,105 +60,123 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
   serializes it with the server's `ObjectMapper` and expects an exception) — main
   `domain/model/partner/SettingValue.java`, `domain/model/partner/SecretFingerprint.java`, tests
   `domain/model/partner/SettingValueTest.java`, `domain/model/partner/SecretFingerprintTest.java`
-- [ ] T006 [P] `Setting(name, SettingValue)`, `ProtocolEntry(protocol, WorkflowRef workflow,
-  Optional<String> format, List<Setting> protocolSettings, List<Setting> additionalParameters, int
-  position)` ("index among entries with the same `(protocol, workflow)`"), `Partner(List<Setting>
-  fields, List<ProtocolEntry> entries, int maskedCount)` with `key()` → `PartnerKey(diagram, cloud,
-  keyField, keyValue)` ("`Id` if present and not masked, else the first configured non-masked
-  field present"), `CommunicationCloud(moduleName, moduleId, List<PartnerField> partnerFields,
-  List<String> referencableWorkflows, List<Partner> partners)`, `SystemDiagramPartners(DiagramRef
-  diagram, List<CommunicationCloud> clouds)` — main `domain/model/partner/*.java`, tests
-  `domain/model/partner/PartnerTest.java` (key rules incl. masked `Id`, missing `Id`)
+- [ ] T006 (after T004, T005) `Setting(name, SettingValue)`, `ProtocolEntry(protocol, WorkflowRef
+  workflow, Optional<String> format, List<Setting> protocolSettings, List<Setting>
+  additionalParameters, int position)` ("index among entries with the same `(protocol,
+  workflow)`"), `Partner(List<Setting> fields, List<ProtocolEntry> entries, int maskedCount)`,
+  `PartnerField(name, fieldType)`, `CommunicationCloud(moduleName, moduleId, List<PartnerField>
+  partnerFields, List<String> referencableWorkflows, List<Partner> partners)` with
+  `keyOf(DiagramRef, Partner)` → `Optional<PartnerKey(diagram, cloudModuleName, "Id", value)>`
+  (empty when `Id` is absent or masked; the both-sides fallback belongs to `PartnerComparison`),
+  `SystemDiagramPartners(DiagramRef diagram, List<CommunicationCloud> clouds)` — main
+  `domain/model/partner/*.java`, test `domain/model/partner/CommunicationCloudTest.java`
 - [ ] T007 [P] `PartnerQuery` with validation (FR-002): `target` required; `compareWith` equal to
-  or overlapping `target` (same id, or a stage and one of its servers) → `INVALID_INPUT`; `search`
-  1–200 code points, no ISO control characters, letters with diacritics, `&`, `/` allowed;
-  `systemDiagram`, `workflow` as the existing diagram names; `protocol` "1–64 characters
-  `[A-Za-z0-9_-]`"; `offset` ≥ 0 default 0; `limit` 1–100 default 20; `refresh` default false —
-  main `domain/model/partner/PartnerQuery.java`, test `domain/model/partner/PartnerQueryTest.java`
+  or overlapping `target` (same id, or a stage and one of its servers) → `INVALID_INPUT`; `owner`
+  `^[A-Za-z0-9_.][A-Za-z0-9_.\- ]{0,199}$` (as `export_archives`); `search` 1–200 code points, no
+  ISO control characters, letters with diacritics, `&`, `/` allowed; `systemDiagram`, `workflow`
+  as the existing diagram names; `protocol` "1–64 characters `[A-Za-z0-9_-]`"; `offset` ≥ 0
+  default 0; `limit` 1–100 default 20; `refresh` default false — main
+  `domain/model/partner/PartnerQuery.java`, test `domain/model/partner/PartnerQueryTest.java`
 
 ### Masking and parsing (D-3, D-5)
 
-- [ ] T008 `PartnerSecretRules` in the archive package: masked when (1) `SecretPaths.kind(name,
-  type, encrypted, value)` is not empty, (2) `type="Password"` or `encrypted="true"`, (3) the name
-  contains case-insensitively `password`, `passwd`, `pwd`, `secret`, `token`, `keystore`,
-  `privatekey`, `passphrase`, `credential`, `apikey`, `accesskey`, (4) the value is key material
-  (`KeyMaterial`), (5) a partner field whose `fieldType` is not on `PLAIN_FIELD_TYPES` (from T003;
-  unknown types masked). Tests: every `SecretPaths` case of the workspace export is also masked
-  here ("at least as strict", FR-008); clear-text legacy `Password` without `encrypted`;
-  `WSSecurityPassword` without type; `SSLKeyStore` of type `HTTPConnectorTrustStore` masked by
-  name; key material in a plain field — main `adapter/archive/v81/PartnerSecretRules.java`, test
+- [ ] T008 (after T003) `PartnerSecretRules` in the archive package; widen
+  `SecretPaths.kind(name, type, encrypted, value)` (returns `null` when not secret) and
+  `SecretPaths.isKeyMaterial(Element, type, value)` from `private` to package-private, no behaviour
+  change. Masked when (1) `SecretPaths.kind(…) != null`, (2) `type="Password"` or
+  `encrypted="true"`, (3) the name contains case-insensitively `password`, `passwd`, `pwd`,
+  `secret`, `token`, `keystore`, `privatekey`, `passphrase`, `credential`, `apikey`, `accesskey`,
+  (4) the value is key material, (5) a partner field whose `fieldType` is not on
+  `PLAIN_FIELD_TYPES` (T003; unknown types masked). Tests: every `SecretPaths` case of the
+  workspace export is also masked here ("at least as strict", FR-008); clear-text legacy
+  `Password` without `encrypted`; `WSSecurityPassword` without type; `SSLKeyStore` of type
+  `HTTPConnectorTrustStore` masked by name; key material in a plain field; unknown `fieldType` —
+  main `adapter/archive/v81/PartnerSecretRules.java`, `adapter/archive/v81/SecretPaths.java`, test
   `adapter/archive/v81/PartnerSecretRulesTest.java`
-- [ ] T009 `SecretFingerprinter` (after T005): 32-byte key from `SecureRandom`, created once per process in
-  memory; `HMAC-SHA256(key, UTF-8 bytes of the stored value)` → `SecretFingerprint`; tests: equal
-  values → equal fingerprints, two instances (simulated processes) → different fingerprints, the key
-  is never reachable (no getter, `toString` redacted) — main
+- [ ] T009 (after T005) `SecretFingerprinter`: 32-byte key from `SecureRandom`, created once per
+  process in memory; `HMAC-SHA256(key, UTF-8 bytes of the stored value)` → `SecretFingerprint`;
+  tests: equal values → equal fingerprints, two instances (simulated processes) → different
+  fingerprints, the key is never reachable (no getter, `toString` redacted) — main
   `adapter/archive/v81/SecretFingerprinter.java`, test
   `adapter/archive/v81/SecretFingerprinterTest.java`
-- [ ] T010 `PartnerFixtures` (test support): synthetic `workflow.xml` builders in the recorded
-  structure (research D-2: `WorkflowModule moduleType="sdCommunicationCloud"` with `ModuleId`,
-  `ModuleName`, `Properties/Property name="PartnerManagementSettings" type="Map"` → `PartnerFields`,
-  `ReferencableTWFs` (`name`, `id`, `moduleId`), `Partners/Partner/Fields`, `ReferencedTWFs/
-  ReferencedTWF` with `protocol`, `referencableTWFId`, `format`); sets: 3 detail partners (FTP with
-  AES password, SFTP-via-FTP with clear-text legacy password, WebService with WS-Security
-  credentials), 120 and 1,000 list partners, two clouds in one diagram sharing `ACME-0001`, two
-  stages × two servers with known differences (US3 independent test) — test
-  `adapter/archive/v81/PartnerFixtures.java`
-- [ ] T011 `PartnerManagementReader.read(DiagramRef, XmlTree.Element workflowRoot)` →
-  `SystemDiagramPartners` (after T003, T005, T006, T008, T009, T010): one `CommunicationCloud` per
+- [ ] T010 (after T003, T006) `PartnerFixtures` (test support): synthetic `workflow.xml` builders in
+  the recorded structure (research D-2: `WorkflowModule moduleType="sdCommunicationCloud"` with
+  `ModuleId`, `ModuleName`, `Properties/Property name="PartnerManagementSettings" type="Map"` →
+  `PartnerFields` with the recorded plain `fieldType` values, `ReferencableTWFs` (`name`, `id`,
+  `moduleId`), `Partners/Partner/Fields`, `ReferencedTWFs/ReferencedTWF` with `protocol`,
+  `referencableTWFId`, `format`); sets: 3 detail partners (FTP with AES password, SFTP-via-FTP with
+  clear-text legacy password, WebService with WS-Security credentials), 120 and 1,000 list
+  partners, two clouds in one diagram sharing `ACME-0001`, one entry with an unresolvable
+  `referencableTWFId`, two stages × two servers with known differences (US3 independent test) —
+  test `adapter/archive/v81/PartnerFixtures.java`
+- [ ] T011 (after T008, T009, T010) `PartnerManagementReader.read(DiagramRef, XmlTree.Element
+  workflowRoot)` → `SystemDiagramPartners` plus warnings: one `CommunicationCloud` per
   `sdCommunicationCloud` module with `PartnerManagementSettings`; values masked inside the method
-  that reads them (FR-010); entries resolve `referencableTWFId` (unresolved → empty name + warning);
-  entries keep export order and are never merged; `maskedCount` per partner. Tests against
-  `PartnerFixtures` and both recorded fixtures (`model_export_systemdiagram.zip` two clouds,
-  `export_systemdiagram.zip` three clouds); a test that the REST and CLI fixtures give equal models
-  per cloud (`PartnerChannelDecisionTest`, D-1 regression); leak check on `toString` of every
-  produced object — main `adapter/archive/v81/PartnerManagementReader.java`, tests
+  that reads them (FR-010); entries resolve `referencableTWFId` (unresolved → empty name and a
+  warning naming partner key and cloud); entries keep export order and are never merged;
+  `maskedCount` per partner. Tests against `PartnerFixtures` and both recorded fixtures
+  (`model_export_systemdiagram.zip` two clouds, `export_systemdiagram.zip` three clouds);
+  `PartnerChannelDecisionTest`: the REST and CLI fixtures give equal models per cloud (D-1
+  regression); leak check on `toString` of every produced object — main
+  `adapter/archive/v81/PartnerManagementReader.java`, tests
   `adapter/archive/v81/PartnerManagementReaderTest.java`,
   `adapter/archive/v81/PartnerChannelDecisionTest.java`
 
 ### Port and REST adapter (D-1, D-4)
 
-- [ ] T012 `PartnerManagementPort.read(String owner, List<DiagramRef> systemDiagrams)` →
-  `List<SystemDiagramPartners>` (masked only) and `V81PartnerManagementAdapter`: one `GET
-  /ibis/rest/model/export/<name>` per system diagram (as `V81InventoryAdapter.diagramMetadata`,
-  in memory, bounded by `InubitHttpClient.MAX_BODY_BYTES`, never on disk), `ArchiveReader`/`XmlTree`
-  → `PartnerManagementReader`; unreadable archive → `UNEXPECTED_RESPONSE` naming the part, never
-  content. Contract test with WireMock serving `model_export_systemdiagram.{http,zip}`; error cases
-  401/403/404/503/timeout map to the existing error kinds; a test that `src/main` never references
-  `PartnerManagementRestlet` or `modifyPartnerManagement` (`PartnerNoWriteTest`) — main
+- [ ] T012 (after T011) `PartnerManagementPort.read(String owner, List<DiagramRef> systemDiagrams)`
+  → `List<SystemDiagramPartners>` (masked only, with warnings) and `V81PartnerManagementAdapter`:
+  one `GET /ibis/rest/model/export/<name>` per system diagram (as
+  `V81InventoryAdapter.diagramMetadata`, in memory, bounded by `InubitHttpClient.MAX_BODY_BYTES`,
+  never on disk), `ArchiveReader`/`XmlTree` → `PartnerManagementReader`. Collision check (D-4): the
+  archive's `WorkflowGroupName` and `UserOrUserGroupName` must equal the requested group and owner,
+  else no data for that diagram and `UNEXPECTED_RESPONSE` ("the export of this name returned a
+  diagram of another group or owner; the name is not unique"); unreadable archive →
+  `UNEXPECTED_RESPONSE` naming the part, never content. Contract test with WireMock serving
+  `model_export_systemdiagram.{http,zip}`, a variant whose group differs and one whose owner
+  differs; 401/403/404/503/timeout map to the existing error kinds; `PartnerNoWriteTest`: `src/main`
+  never references `PartnerManagementRestlet` or `modifyPartnerManagement` — main
   `domain/port/PartnerManagementPort.java`, `adapter/rest/v81/V81PartnerManagementAdapter.java`,
   tests `adapter/rest/v81/V81PartnerManagementAdapterContractTest.java`,
   `architecture/PartnerNoWriteTest.java`
-- [ ] T013 Register the port in `PortSet` for 8.1 (served for 9.0 like the other 8.1 ports, none for
-  6.1) — main `adapter/PortSet.java`, `adapter/AdapterGatewayFactory.java`, test
-  `adapter/PortSetRegistryTest.java`
+- [ ] T013 (after T012) Port in the gateway (D-4): `Gateway.partners()`; `PortSet` component;
+  `V81PortSet`/`V81Gateway` serve it for 8.1 and 9.0; `V61PortSet` gets a refusing stub from
+  `RefusingPorts` (`UNSUPPORTED_VERSION`); `StaleReportingPorts` wraps it. Tests: 9.0 selects the
+  8.1 port, 6.1 refuses, an `UNEXPECTED_RESPONSE` from the partner port marks the node stale — main
+  `domain/port/Gateway.java`, `adapter/PortSet.java`, `adapter/V81PortSet.java`,
+  `adapter/V81Gateway.java`, `adapter/cli/v61/V61PortSet.java`, `adapter/RefusingPorts.java`,
+  `adapter/StaleReportingPorts.java`, `adapter/AdapterGatewayFactory.java`, tests
+  `adapter/PortSetRegistryTest.java`, `adapter/StaleReportingPortsTest.java`
 
 ### Capability and versions (D-7, FR-016)
 
 - [ ] T014 [P] `Capability.PARTNER_MANAGEMENT(Kind.READ, Set.of(Channel.REST))`, label "partner
   management"; `CapabilityMatrix`: 6.1 entry `PARTNER_MANAGEMENT → UNSUPPORTED`, 9.0 entry overrides
   it to `UNVERIFIED`, 8.1 `SUPPORTED`, others via `READS_UNVERIFIED`; `NodeOverview` name
-  `partner_management`; `ConfigSummary` lists it; constant `COMPARABLE_SECRET_LINES = {8.1}` next to
-  the matrix (D-5). Tests in `domain/model/CapabilityMatrixTest.java`,
-  `application/NodeOverviewTest.java`, `config/ConfigSummaryTest.java` — main
+  `partner_management` (shown by `list_nodes`); `ConfigSummary` lists it (`--check-config`);
+  constant `COMPARABLE_SECRET_LINES = {8.1}` next to the matrix (D-5). Tests in
+  `domain/model/CapabilityMatrixTest.java`, `application/NodeOverviewTest.java`,
+  `config/ConfigSummaryTest.java`, `mcp/tools/ListNodesToolTest.java` — main
   `domain/model/Capability.java`, `domain/model/CapabilityMatrix.java`,
   `application/NodeOverview.java`, `config/ConfigSummary.java`
 
 ### Cache and audit (D-6, D-8)
 
-- [ ] T015 [P] `InventoryKind.PARTNERS`; `InventoryCache.peek(Key)` returns a fresh snapshot without
-  loading (empty if absent or expired); `PartnerSnapshot(List<SystemDiagramPartners> diagrams,
-  Set<DiagramRef> covered)`; scope `<owner>` or `<owner>|<group>/<name>` — main
-  `domain/model/InventoryKind.java`, `application/InventoryCache.java`,
-  `application/PartnerSnapshot.java`, test `application/InventoryCachePeekTest.java`
+- [ ] T015 [P] `InventoryCache.peek(Key)` returns a fresh snapshot without loading (empty if absent
+  or expired); `PartnerSnapshot(List<SystemDiagramPartners> diagrams, Set<DiagramRef> covered)`;
+  scopes on `InventoryKind.DIAGRAM` (no new `InventoryKind`): `systemdiagrams:<owner>`,
+  `partners:<owner>`, `partners:<owner>|<group>/<name>` as constants of `PartnerSnapshot` — main
+  `application/InventoryCache.java`, `application/PartnerSnapshot.java`, test
+  `application/InventoryCachePeekTest.java`
 - [ ] T016 [P] `AuditRecord` additive fields `Optional<UUID> callId` and `Map<String, Object> details`
   (empty by default, overloaded constructor keeps existing call sites); `AuditLog` writes them only
   when present (existing JSONL lines byte-identical — test with a recorded line) — main
-  `domain/model/AuditRecord.java`, `infra/AuditLog.java`, tests `infra/AuditLogTest.java`
-- [ ] T017 `PartnerAudit` (one per call, like `ArchiveExportAudit`): `refused(ToolError)` one
-  `REFUSED` record without node; `perServer(node, outcome, fromCache, systemDiagramsRead,
-  partnersReturned, valuesMasked)`; capability `find_partners`, step `EXECUTE`, inputs target,
-  compareWith, owner, search, filters each cut to 500 characters; never results; any write failure
-  → the caller gets `INTERNAL` naming the `callId` (FR-020). Tests incl. leak check on every
+  `domain/model/AuditRecord.java`, `infra/AuditLog.java`, test `infra/AuditLogTest.java`
+- [ ] T017 (after T016) `PartnerAudit` (one per call, like `ArchiveExportAudit`):
+  `refused(ToolError)` one `REFUSED` record without node; `perServer(node, outcome, fromCache,
+  systemDiagramsRead, partnersReturned, valuesMasked)`; capability `find_partners`, step `EXECUTE`,
+  inputs target, compareWith, owner, search, filters each cut to 500 characters; never results;
+  any write failure → `INTERNAL` naming the `callId` (FR-020). Tests incl. leak check on every
   written line — main `application/PartnerAudit.java`, test `application/PartnerAuditTest.java`
 
 **Checkpoint**: build green; code-review phase 2.
@@ -170,32 +188,46 @@ naming system diagram, diagram group and communication cloud; secrets only "set"
 **Independent test**: WireMock with one system diagram of 3 synthetic partners; search by Id and by
 a lower-case name part; check every value and the leak check over result, log, audit and errors.
 
-- [ ] T018 [US1] `PartnerService` (single server, search mode; after T011–T017): resolve target via
-  `TargetResolver`, owner per server (`inventory.owner`, explicit `owner` for all; none →
-  `NOT_CONFIGURED` for that server only, FR-002a); gate `VersionGate.admit(…,
-  PARTNER_MANAGEMENT, READ, {REST})` (6.1 → `UNSUPPORTED_VERSION`, 9.x → warning); system diagrams
-  of the owner from the inventory listing (type `systemdiagram`); cache via `PartnerSnapshot`
-  (`peek` the owner scope first, `refresh` bypasses, single-flight); search = case-insensitive
-  substring over non-masked partner fields (FR-005, FR-011); full details (FR-004) incl. `format`;
-  `referencableWorkflows` per contributing cloud and every system diagram read, marked without
-  Partner Management, clouds without partners with count 0 (FR-007); per-server `collectedAt`;
-  one audit record per server, also from cache (`fromCache`), INFO log line per server (FR-020,
-  FR-021) — main `application/PartnerService.java`, test `application/PartnerServiceTest.java`
-  (US1-AS1…5, Op-1, Op-3, Op-4)
-- [ ] T019 [US1] Similar values (FR-005b): no hit → up to five from non-masked `Id`/`Name` via
-  `SimilarNames.of(term, candidates, 5)`; unknown `systemDiagram` filter → `NOT_FOUND` with up to
-  five similar system diagram names (FR-019) — main `application/PartnerService.java`, test
-  `application/PartnerServiceTest.java` (US1-AS6, Op-5)
-- [ ] T020 [US1] `FindPartnersTool` (name `find_partners`, hints `ToolHints.readOnly("Find partners
+- [ ] T018 [US1] `PartnerService` read path (after T012–T015): resolve target via
+  `TargetResolver`; owner per server (`inventory.owner`, an explicit `owner` for all; none →
+  `NOT_CONFIGURED` for that server only, FR-002a); gate `VersionGate.admit(…, PARTNER_MANAGEMENT,
+  READ, {REST})` (6.1 → `UNSUPPORTED_VERSION`, 9.x → warning); the owner's system diagrams via the
+  gateway's `InventoryPort.listDiagrams(owner)` filtered to `systemdiagram`, cached under
+  `systemdiagrams:<owner>` (never through `InventoryService`); Partner Managements through
+  `partners()` cached as `PartnerSnapshot` (`peek` the owner scope first, `refresh` bypasses,
+  single-flight); per-server `collectedAt`, `fromCache`, warnings. **Done when** tests show: an
+  explicit owner gets its own diagrams; two concurrent calls make one read; a second call within
+  the TTL makes none; `refresh` reads again; a server without owner fails alone — main
+  `application/PartnerService.java`, test `application/PartnerServiceReadTest.java` (Op-3, Op-5
+  `NOT_CONFIGURED`)
+- [ ] T019 [US1] Search and details (after T018): case-insensitive substring over non-masked
+  partner fields (FR-005, FR-011); full details per partner (FR-004: diagram, group, cloud, fields
+  with masked ones as "set"/"not set", entries with protocol, workflow, `format`, settings,
+  parameters, `maskedCount`); unresolved workflow as `{"name": null, "unresolved": true}`, reader
+  warnings into `servers[].warnings`; every system diagram read named, those without a Partner
+  Management marked, clouds without partners with count 0, `referencableWorkflows` per
+  contributing cloud (FR-007). **Done when** US1-AS1…5 and Op-1 pass with the leak check — main
+  `application/PartnerService.java`, test `application/PartnerServiceSearchTest.java`
+- [ ] T020 [US1] Similar values and `NOT_FOUND` on one server (after T019): no hit → up to five from
+  non-masked `Id`/`Name` via `SimilarNames.of(term, candidates, 5)` (FR-005b); unknown
+  `systemDiagram` filter → `NOT_FOUND` with up to five similar system diagram names (FR-019) —
+  main `application/PartnerService.java`, test `application/PartnerServiceSearchTest.java`
+  (US1-AS6, Op-5)
+- [ ] T021 [US1] Audit and log integration (after T017, T019): one `PartnerAudit` per call, one
+  record per targeted server also for cache hits (`fromCache`), shared `callId`, counts; any
+  audit write failure → `INTERNAL`, no partner data for any server; one structured INFO line per
+  server (server, owner, outcome, counts, call id) without settings or secrets (FR-020, FR-021).
+  **Done when** Op-4 passes and the captured log and audit lines pass the leak check — main
+  `application/PartnerService.java`, test `application/PartnerServiceAuditTest.java`
+- [ ] T022 [US1] `FindPartnersTool` (name `find_partners`, hints `ToolHints.readOnly("Find partners
   in the INUBIT Partner Management", true, true)`), schemas
   `src/main/resources/schemas/find_partners.input.json` / `.output.json` exactly as
-  `contracts/find_partners.md` (single-server shape); input errors → one audit record without node;
-  registration in `Wiring.toolHandlers()` when `anyPossiblyCapable(Capability.PARTNER_MANAGEMENT)`;
-  description without customer knowledge (FR-025) — main `mcp/tools/FindPartnersTool.java`,
-  `Wiring.java`, tests `mcp/tools/FindPartnersToolTest.java` (Op-2, Op-5, FR-002 overlap),
-  `ToolAnnouncementTest.java`, `mcp/ToolHintsTest.java`, `WiringAuditTest.java`
-- [ ] T021 [US1] `list_nodes` shows `partner_management` usable/notUsable; `--check-config` lists
-  it — tests `mcp/tools/ListNodesToolTest.java`, `config/ConfigSummaryTest.java`
+  `contracts/find_partners.md` (single-server shape, `owner` pattern, unresolved workflow shape);
+  input errors → one audit record without node; registration in `Wiring.toolHandlers()` when
+  `anyPossiblyCapable(Capability.PARTNER_MANAGEMENT)`; description without customer knowledge
+  (FR-025) — main `mcp/tools/FindPartnersTool.java`, `Wiring.java`, tests
+  `mcp/tools/FindPartnersToolTest.java` (Op-2, Op-5, FR-002 overlap), `ToolAnnouncementTest.java`,
+  `mcp/ToolHintsTest.java`, `WiringAuditTest.java`
 
 **Checkpoint**: build green; US1 works end to end on one server; code-review phase 3.
 
@@ -205,14 +237,14 @@ a lower-case name part; check every value and the leak check over result, log, a
 **Independent test**: 120 synthetic partners; default and custom page size, each filter; order,
 `nextOffset`, totals, size bound.
 
-- [ ] T022 [US2] List mode: summary per partner (system diagram name and group, cloud module name,
-  partner fields, per entry protocol, workflow, `ServerName`, `Login` if present — FR-006);
-  order "system diagram group and name, communication cloud module name, then partner `Id`, then
-  `Name`"; filters case-insensitive exact, AND-combined, `protocol` only the `protocol` attribute
-  (`SFTP` matches nothing), `workflow` by resolved name (unresolved never matches), entry filters
-  show only matching entries (FR-005a) — main `application/PartnerService.java`, test
-  `application/PartnerServiceTest.java` (US2-AS1…4)
-- [ ] T023 [US2] Paging and bounds (FR-017): `ResultLimiter`/`Page`, `limit` 1–100 default 20, texts
+- [ ] T023 [US2] List mode (after T019): summary per partner (system diagram name and group, cloud
+  module name, partner fields, per entry protocol, workflow, `ServerName`, `Login` if present —
+  FR-006); order "system diagram group and name, communication cloud module name, then partner
+  `Id`, then `Name`"; filters case-insensitive exact, AND-combined, `protocol` only the `protocol`
+  attribute (`SFTP` matches nothing), `workflow` by resolved name (unresolved never matches),
+  entry filters show only matching entries (FR-005a, single server) — main
+  `application/PartnerService.java`, test `application/PartnerServiceListTest.java` (US2-AS1…4)
+- [ ] T024 [US2] Paging and bounds (FR-017): `ResultLimiter`/`Page`, `limit` 1–100 default 20, texts
   cut at `ItemBounds.MAX_FIELD_CHARS` with `…[truncated]`, detail cut before entries (first
   additional parameters, then settings to the summary keys, then entries), `truncated` reported;
   SC-004 test with 1,000 partners (every page ≤ `resultLimits.maxChars`) — main
@@ -226,21 +258,28 @@ a lower-case name part; check every value and the leak check over result, log, a
 secret equality by server groups (8.1 only), report failed servers.
 **Independent test**: two fake stages × two servers with known differences (T010).
 
-- [ ] T024 [US3] `PartnerComparison` (pure, D-10): partner key (diagram, cloud, `Id` or first
-  non-masked configured field); entry key (protocol, resolved workflow name) + position; settings
-  and entry attributes such as `format` as `equal`/`differs`; masked: `set` per server and `sameOn`
-  groups by fingerprint when every holder is on a line in `COMPARABLE_SECRET_LINES`, else
-  `equality: "not verified on <version>"`; `onlyOn`; ambiguous keys and same-named clouds reported;
-  unresolved entries never matched; failed servers in `notCompared`, left out of every statement
+- [ ] T025 [US3] `PartnerComparison` (pure, D-10; after T006, T009, T014, T015): partner key
+  (diagram, cloud, `Id`; without a non-masked `Id` the first configured non-masked field present on
+  both sides); entry key (protocol, resolved workflow name) + position; settings and entry
+  attributes such as `format` as `equal`/`differs`; masked: `set` per server and `sameOn` groups by
+  fingerprint only when the value is set on at least two compared servers and every holder is on a
+  line in `COMPARABLE_SECRET_LINES`, else `equality: "not verified on <version>"` (no statement
+  with fewer than two holders); `onlyOn`; ambiguous keys and same-named clouds reported; unresolved
+  entries never matched; failed servers in `notCompared`, left out of every statement
   (FR-012…FR-014) — main `application/PartnerComparison.java`, test
   `application/PartnerComparisonTest.java` (US3-AS1…6, AS8, AS9, SC-003, table-driven)
-- [ ] T025 [US3] Comparison in `PartnerService` and the tool: fan-out over all targeted and
-  compared servers; `total`/`nextOffset` count matched partner keys across servers; a search hit on
-  one server includes the partner from all; without a search term summary fields grouped like
-  settings plus only differences (FR-012c); output shape `ComparedPartner` of the contract; one
-  audit record per server with the shared `callId` — main `application/PartnerService.java`,
-  `mcp/tools/FindPartnersTool.java`, schema `find_partners.output.json`, tests
-  `application/PartnerServiceTest.java` (US3-AS7), `mcp/tools/FindPartnersToolTest.java`
+- [ ] T026 [US3] Comparison in `PartnerService` and the tool (after T021, T023, T025): fan-out over
+  all targeted and compared servers; `total`/`nextOffset` count matched partner keys across
+  servers; a search hit on one server includes the partner from all; without a search term
+  summary fields grouped like settings plus only differences (FR-012c); FR-005a in a comparison:
+  `NOT_FOUND` only if the system diagram exists on none of the answering servers, otherwise its
+  partners are marked "only on"; entry filters applied per entry key on all compared servers, an
+  entry matching on one server shown with its counterparts; output shape `ComparedPartner` of the
+  contract; one audit record per server with the shared `callId` — main
+  `application/PartnerService.java`, `mcp/tools/FindPartnersTool.java`, schema
+  `src/main/resources/schemas/find_partners.output.json`, tests
+  `application/PartnerServiceCompareTest.java` (US3-AS7, FR-005a comparison rules),
+  `mcp/tools/FindPartnersToolTest.java`
 
 **Checkpoint**: build green; code-review phase 5.
 
@@ -251,55 +290,63 @@ system diagrams/clouds whose `ReferencableTWFs` contain the workflow.
 **Independent test**: synthetic technical workflow with two `ISPartnerProtocol.*`, one
 `ISPartnerParameter.*` and a `PartnerManagement` node; synthetic system diagram naming it.
 
-- [ ] T026 [P] [US4] `DiagramExportParser`: distinct, sorted `ISPartner(Protocol|Parameter)\.
+- [ ] T027 [P] [US4] `DiagramExportParser`: distinct, sorted `ISPartner(Protocol|Parameter)\.
   [A-Za-z0-9_]+` from every attribute value and text of a technical workflow, and whether a
-  `moduleType="PartnerManagement"` node exists — main `adapter/rest/v81/DiagramExportParser.java`,
-  test `adapter/rest/v81/DiagramExportParserTest.java`
-- [ ] T027 [US4] `InventoryDetail.partnerUsage` (`variables`, `partnerManagementNode`,
-  `systemDiagrams` as `{diagram, cloud}`, `unavailable`); `InventoryService` reads system diagrams
-  only if variables or the node exist, through `PartnerService` (cache, gate); gate refused →
-  `unavailable` with error kind and next step; no audit; schema
-  `get_inventory_item.output.json` additive — main `domain/model/InventoryDetail.java`,
-  `application/InventoryService.java`, test `application/InventoryServiceTest.java` (US4-AS1, AS2)
+  `moduleType="PartnerManagement"` node exists; carried in `InventoryPort.DiagramMetadata` (new
+  fields, `EMPTY` extended; adjust test fakes that build `DiagramMetadata`) — main
+  `adapter/rest/v81/DiagramExportParser.java`, `domain/port/InventoryPort.java`, test
+  `adapter/rest/v81/DiagramExportParserTest.java`
+- [ ] T028 [US4] (after T018, T027) `PartnerService.referencingClouds(NodeId server, String owner,
+  String workflowName, boolean refresh)` → clouds whose `referencableWorkflows` contain the
+  workflow; `InventoryDetail.partnerUsage` (`variables`, `partnerManagementNode`, `systemDiagrams`
+  as `{diagram, cloud}`, `unavailable`); `InventoryService` calls `referencingClouds` only if
+  variables or the node exist; gate refused → `unavailable` with error kind and next step; no
+  audit; `Wiring` passes `PartnerService` into `InventoryService`; schema
+  `src/main/resources/schemas/get_inventory_item.output.json` additive — main
+  `domain/model/InventoryDetail.java`, `application/InventoryService.java`,
+  `application/PartnerService.java`, `Wiring.java`, test `application/InventoryServiceTest.java`
+  (US4-AS1, AS2)
 
 **Checkpoint**: build green; code-review phase 6.
 
 ## Phase 7: Polish & cross-cutting
 
-- [ ] T028 [P] `PartnerSecretLeakTest`: the whole tool over all fixtures (single, list, compare,
+- [ ] T029 [P] `PartnerSecretLeakTest`: the whole tool over all fixtures (single, list, compare,
   errors, cache hit, audit failure): no synthetic secret or derivative in results, errors, log
   output (captured appender) or audit lines; the cache holds only `Masked` values (SC-002) — test
   `security/PartnerSecretLeakTest.java`
-- [ ] T029 [P] `PartnerServicePerformanceTest`: 1,000-partner fixture, parse + mask + fingerprint +
+- [ ] T030 [P] `PartnerServicePerformanceTest`: 1,000-partner fixture, parse + mask + fingerprint +
   page ≤ 5 s beyond the read; a repeated call within the TTL makes no request (SC-005) — test
   `application/PartnerServicePerformanceTest.java`
-- [ ] T030 Docs (FR-022): `docs/tools.md` new `find_partners` section (inputs, output, clouds,
+- [ ] T031 Docs (FR-022): `docs/tools.md` new `find_partners` section (inputs, output, clouds,
   summary keys, masking incl. `fieldType`, equality statement and its limits — different stored
-  forms reported as differing, 8.1 only — workflows by name only), capability table row,
-  "All eighteen tools" (and `DevelopmentToolsReferenceTest`), `get_inventory_item.partnerUsage`;
-  `README.md` tool list; `SECURITY.md` (partner hosts and logins reach the conversation, secrets
-  do not); `CHANGELOG.md`; `docs/setup.md` record cases
-- [ ] T031 Full build and Python tests green; `python3 tools/check-identifiers.py --all`; test count
-  vs T001 in `reviews.md`
-- [ ] T032 Operator live check (quickstart.md §3) with the partner and stage the operator names;
+  forms reported as differing, 8.1 only — workflows by name only, name collisions of the REST
+  export), capability table row, "All eighteen tools" (and `DevelopmentToolsReferenceTest`),
+  `get_inventory_item.partnerUsage`; `README.md` tool list; `SECURITY.md` (partner hosts and logins
+  reach the conversation, secrets do not); `CHANGELOG.md`; `docs/setup.md` record cases
+- [ ] T032 Full build and Python tests green; `python3 tools/check-identifiers.py --all`; test count
+  vs T001 in `specs/018-partner-management-read/reviews.md`
+- [ ] T033 Operator live check (quickstart.md §3) with the partner and stage the operator names;
   `docs/live-tests.md` entry in neutralized form only (FR-024)
 
 ## Dependencies
 
-- T002 → T003 → T008 (allowlist) → T011; T003 blocks every search task (T018 ff.).
-- Phase 2 (T004–T017) blocks all stories. Inside: T004–T007 parallel; T010 before T011; T011 →
-  T012 → T013; T014–T016 parallel to T011–T013; T016 → T017.
-- US1 (T018–T021) before US2 (T022–T023) and US3 (T024–T025): both extend `PartnerService`.
-  T024 can start after T006/T009 (pure) in parallel with US1.
-- US4 (T026–T027) needs T018 (service); T026 can start any time after Phase 1.
-- Polish after the stories; T032 after the release candidate is built.
+- T002 → T003 → T008, T010; T003 blocks every search task (T018 ff.).
+- Phase 2: T004, T005, T007 parallel; T006 after T004, T005; T009 after T005; T010 after T003,
+  T006; T011 after T008, T009, T010; T012 → T013; T014, T015, T016 parallel to T011–T013; T017
+  after T016.
+- US1: T018 → T019 → T020; T021 after T017, T019; T022 after T021.
+- US2: T023 after T019; T024 after T023.
+- US3: T025 after T006, T009, T014, T015 (pure, can run next to US1); T026 after T021, T023, T025.
+- US4: T027 any time after Phase 1; T028 after T018, T027.
+- Polish after the stories; T033 after the release candidate is built.
 
 ## Parallel opportunities
 
-- T004, T005, T006, T007 (different files, no dependency on each other); T009 after T005.
+- T004, T005, T007 (different files, no dependency on each other).
 - T014, T015, T016 next to T011–T013.
-- T024 (pure comparison) next to US1; T026 (parser) next to US1–US3.
-- T028, T029 next to T030.
+- T025 (pure comparison) next to US1; T027 (parser) next to US1–US3.
+- T029, T030 next to T031.
 
 ## Implementation strategy
 

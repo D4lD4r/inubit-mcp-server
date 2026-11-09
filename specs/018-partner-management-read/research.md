@@ -69,32 +69,21 @@ use ACME, `*.example.test` and `Workflow-0001`.
 
 ### D-2 Workflow identity, summary keys and node form (Assumptions, FR-005a, FR-006, FR-013, FR-015)
 
-- **Decision**: Confirmed from the same recording (T-record), then fixed in the synthetic fixtures:
-  - whether `ReferencedTWF` and `ReferencableTWFs` name a workflow by name only or by diagram group
-    and name. The data model carries `WorkflowRef(name, Optional<diagramGroup>)`; with name only,
-    the documentation says that equal names in different groups are not told apart;
-  - the summary keys per protocol (FR-006): `FTP` → `ServerName`, `Login`; `WebService` → the
-    endpoint and user keys found in the recording (expected: an URL key and `WSSecurityUsername`);
-    stored as a constant table `PartnerSummaryKeys` and listed in `docs/tools.md`; an unknown
-    protocol falls back to `ServerName`, `Login` if present;
-  - the property encoding of maps and lists inside `workflow.xml` (expected: nested
-    `<Property type="Map">` / `type="List"` as in the technical `PartnerManagementConfiguration`);
-  - the form of `ISPartnerProtocol.<key>` and `ISPartnerParameter.<key>` references in a
-    technical workflow (expected: inside property values, e.g. XPath or variable mappings) for
-    story 4; the scan matches `ISPartner(Protocol|Parameter)\.[A-Za-z0-9_]+` in every attribute
-    value and text of the workflow tree, which is independent of the exact place.
-- **Rationale**: the spec defers these facts to research against a recorded export; inventing
-  them would make the fixtures and the contract tests self-confirming.
-- **Alternatives considered**: deriving the structure from documentation only (rejected: no public
-  documentation of the XML; feature 017 showed that documentation-derived fixtures need a marked
-  origin and a later live check).
+- **Decision** (final, from the T-record results below): workflows in the Partner Management are
+  identified by name only (`WorkflowRef(Optional<String> name)`, empty when `referencableTWFId`
+  does not resolve); the summary keys are `ServerName` and `Login` for every protocol (FR-006);
+  maps and lists are nested `<Property type="Map|List">` with leaf values as element text; a
+  Partner Management belongs to an `sdCommunicationCloud` module; story 4's scan matches
+  `ISPartner(Protocol|Parameter)\.[A-Za-z0-9_]+` in every attribute value and text of a technical
+  workflow. `PLAIN_FIELD_TYPES` (FR-008) is fixed from the re-recording (tasks T003).
+- **Rationale**: the spec deferred these facts to a recorded export; they are now recorded.
 
 ### D-3 Parse and mask in one adapter component (FR-008 … FR-011, FR-012b)
 
 - **Decision**: A new `PartnerManagementReader` in `adapter/archive/v81` (next to
   `SecretRedactor`, so it can use the package-private `SecretPaths` and `KeyMaterial`) takes the
-  `XmlTree.Element` of a system diagram's `workflow.xml` and returns the domain model
-  `PartnerManagement` in which every value is already a `SettingValue.Shown` or
+  `XmlTree.Element` of a system diagram's `workflow.xml` and returns `SystemDiagramPartners`
+  (one `CommunicationCloud` per module with a Partner Management) in which every value is already a `SettingValue.Shown` or
   `SettingValue.Masked(set, Optional<SecretFingerprint>)`. Raw values never leave the method that
   reads the property. Masking rules (`PartnerSecretRules`):
   1. `SecretPaths.kind(name, type, encrypted, value)` is not empty (the workspace export's rules,
@@ -117,19 +106,26 @@ use ACME, `*.example.test` and `Workflow-0001`.
 
 - **Decision**: New port `PartnerManagementPort` in `domain/port`:
   `List<SystemDiagramPartners> read(String owner, List<DiagramRef> systemDiagrams)`, returning only
-  masked models. Adapters:
-  - REST (`V81PartnerManagementAdapter`, if D-1 picks REST): one `/model/export/<name>` per system
-    diagram, parsed in memory;
-  - StartCLI (`V81CliPartnerManagementAdapter`, if D-1 picks StartCLI): one export per diagram
-    group with `--exportWorkflowType systemdiagram` via a new
-    `CliExportRunner.exportWorkflowGroup(owner, diagramGroup, WorkflowExportType)` (the old
-    signature delegates with `TECHNICAL`), archive read with `ArchiveReader`.
-  The system diagrams of the owner come from the existing inventory listing (`InventoryPort`, type
-  `systemdiagram`, cached as today), so the port reads only what it is told.
-  The port is registered in `PortSet` for 8.1 and served for 9.0 like the other 8.1 ports; 6.1 has
-  none (refused by the matrix, D-7).
-- **Rationale**: tool logic stays free of HTTP and process details; the channel decision of D-1 is
-  one adapter.
+  masked models, implemented by `V81PartnerManagementAdapter` (REST, D-1): one
+  `GET /ibis/rest/model/export/<name>` per system diagram, parsed in memory.
+  - **Name collisions.** The REST export selects by name only; whether INUBIT keeps diagram names
+    unique per owner or system-wide is not documented. The adapter therefore checks the returned
+    archive's `WorkflowGroupName` and `UserOrUserGroupName` against the requested `DiagramRef`
+    group and the owner. On a mismatch it returns no data for that diagram and reports it as
+    unreadable (`UNEXPECTED_RESPONSE`: "the export of this name returned a diagram of another group
+    or owner; the name is not unique"), so another group's or owner's Partner Management is never
+    attributed to the requested diagram.
+  - **Gateway.** The port is a new component of `PortSet` and `Gateway` (`partners()`):
+    `V81PortSet`/`V81Gateway` serve it for 8.1 and 9.0, `V61PortSet` gets a refusing stub from
+    `RefusingPorts`, and `StaleReportingPorts` wraps it so that `UNEXPECTED_RESPONSE` marks the node
+    stale like every other port.
+  - **System diagram list (owner-specific).** `PartnerService` lists the owner's diagrams itself
+    through the gateway's `InventoryPort.listDiagrams(owner)`, filtered to `systemdiagram`, cached
+    under its own owner-scoped key (D-6). It never uses `InventoryService` (no cycle: story 4 makes
+    `InventoryService` call `PartnerService.referencingClouds(server, owner, workflowName,
+    refresh)`), and an explicit `owner` gets that owner's diagrams, not the configured owner's.
+- **Rationale**: tool logic stays free of HTTP details; the collision check keeps FR-013's "same name
+  in two diagram groups are different system diagrams" sound on a name-only endpoint.
 
 ### D-5 Fingerprint for secret equality (FR-012a, FR-012b, SC-002)
 
@@ -154,15 +150,19 @@ use ACME, `*.example.test` and `Workflow-0001`.
 
 ### D-6 Cache with coverage (FR-018, SC-005)
 
-- **Decision**: `InventoryKind` gains `PARTNERS`. The scope is `<owner>` for "all system diagrams
-  of the owner" and `<owner>|<diagramGroup>/<name>` for one system diagram. A call for one system
-  diagram first asks `InventoryCache.peek(key-all)` (new: returns a fresh snapshot without loading)
-  and uses it if present; otherwise it loads its own key. A call for all loads the owner key. The
-  snapshot value is `PartnerSnapshot(List<SystemDiagramPartners>, List<DiagramRef> covered,
-  List<DiagramRef> withoutPartnerManagement)`. Single-flight, TTL (`inventory.cacheTtl`) and
-  "failures are not cached" come from `InventoryCache` unchanged; `refresh: true` bypasses.
+- **Decision**: no new `InventoryKind` (that enum is part of the tool outputs). `InventoryCache`
+  keys use `InventoryKind.DIAGRAM` with dedicated scopes: `systemdiagrams:<owner>` for the owner's
+  system diagram list, `partners:<owner>` for all of the owner's Partner Managements and
+  `partners:<owner>|<group>/<name>` for one system diagram. A call for one system diagram first asks
+  `InventoryCache.peek(partners:<owner>)` (new: a fresh snapshot without loading) and uses it if
+  present; otherwise it loads its own key. The value is `PartnerSnapshot(List<SystemDiagramPartners>
+  diagrams, Set<DiagramRef> covered)`; diagrams without a cloud are those whose `clouds` is empty.
+  Single-flight, TTL (`inventory.cacheTtl`) and "failures are not cached" come from
+  `InventoryCache` unchanged; `refresh: true` bypasses.
 - **Rationale**: reuses the tested cache and its TTL resolution; coverage is explicit in the key.
-- **Alternatives considered**: a separate cache class (rejected: duplicates TTL and single-flight).
+- **Alternatives considered**: a separate cache class (rejected: duplicates TTL and single-flight);
+  `InventoryKind.PARTNERS` (rejected in plan review round 1: the enum is a domain value of the
+  inventory tools' outputs).
 
 ### D-7 Capability and versions (FR-016)
 
@@ -211,10 +211,13 @@ use ACME, `*.example.test` and `Workflow-0001`.
   `PartnerSnapshot` or a `ToolError` and builds:
   - partner key: `(diagramGroup, diagramName, cloud module name, Id)` or, without `Id`, the first configured
     non-masked partner field present on both sides; duplicates → `ambiguous` list, not matched;
+  - without `Id`: the first configured non-masked field present on both sides, decided here
+    (not per partner);
   - entry key: `(protocol, workflow name)` (resolved through `referencableTWFId`) plus the
     position among equal keys;
   - per setting: equal on all answering servers → once; else value per server; masked → `set` per
-    server and, if comparable (D-5), `sameOn` groups;
+    server and, only if the value is set on at least two compared servers and every holder is
+    comparable (D-5), `sameOn` groups (FR-012a);
   - `onlyOn` for partners and entries missing on some answering servers; failed servers listed in
     `notCompared` and left out of every statement.
   Paging counts matched partner keys across servers (FR-012c); a partner matches if the search
@@ -227,9 +230,11 @@ use ACME, `*.example.test` and `Workflow-0001`.
   `ISPartnerProtocol.*` / `ISPartnerParameter.*` references and whether a `moduleType=
   "PartnerManagement"` node exists. `InventoryDetail` gains `Optional<PartnerUsage> partnerUsage`
   (`variables`, `partnerManagementNode`, `systemDiagrams` (name, diagram group), `unavailable`
-  (error kind and next step)). Only if variables or the node exist, the service asks the partner
-  service for the owner's system diagrams (cache of D-6, gate of D-7) and keeps those whose
-  `ReferencableTWFs` contain the workflow. No audit (names only).
+  (error kind and next step)). The parser result travels in `InventoryPort.DiagramMetadata` (new
+  fields). Only if variables or the node exist, `InventoryService` calls
+  `PartnerService.referencingClouds(server, owner, workflowName, refresh)` (cache of D-6, gate of
+  D-7), which returns the clouds whose `ReferencableTWFs` contain the workflow. No audit (names
+  only). `Wiring` passes `PartnerService` into `InventoryService`.
 - **Rationale**: the criterion of FR-015 ("only new fields") holds: one optional field and one
   lookup through the existing service.
 

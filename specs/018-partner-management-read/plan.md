@@ -3,7 +3,7 @@
 **Branch**: `018-partner-management-read` | **Date**: 2026-11-09 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `/specs/018-partner-management-read/spec.md` (approved in
-spec review round 3).
+spec review round 5).
 
 ## Summary
 
@@ -21,8 +21,9 @@ gets an optional `partnerUsage` for technical workflows (story 4). No second too
   the workspace export's `SecretPaths`/`KeyMaterial` rules plus the name patterns of FR-008; raw
   values never leave it. A set secret carries only a process-keyed HMAC fingerprint (D-5) that is
   never serialized.
-- **Cache with coverage** (D-6): `InventoryCache` with a new kind `PARTNERS`, scoped by owner or by
-  one system diagram; single-flight and TTL unchanged.
+- **Cache with coverage** (D-6): `InventoryCache` with owner-scoped keys (`systemdiagrams:<owner>`,
+  `partners:<owner>`, `partners:<owner>|<group>/<name>`, kind `DIAGRAM`); single-flight and TTL
+  unchanged.
 - **Comparison** (D-10): a pure `PartnerComparison` groups equal and differing settings, `onlyOn`
   markers, `sameOn` groups for secrets (only on INUBIT 8.1, D-5) and failed servers.
 - **Capability** `PARTNER_MANAGEMENT` (D-7): 8.1 supported, 9.0 and others warn, 6.1 refused.
@@ -71,8 +72,9 @@ at most 5 s beyond the read itself (expected well below 1 s); a repeated call wi
   `PartnerUsage` (domain); `PartnerManagementReader`, `PartnerSecretRules`,
   `SecretFingerprinter`, `V81PartnerManagementAdapter` (adapter); `PartnerService`, `PartnerComparison`,
   `PartnerAudit`, `PartnerSnapshot` (application); `FindPartnersTool` (mcp/tools).
-- Extended: `Capability`, `CapabilityMatrix`, `NodeOverview`, `ConfigSummary`, `InventoryKind`,
-  `InventoryCache` (`peek`), `AuditRecord`, `AuditLog`, `InventoryDetail`, `DiagramExportParser`,
+- Extended: `Capability`, `CapabilityMatrix`, `NodeOverview`, `ConfigSummary`,
+  `InventoryCache` (`peek`), `Gateway`, `V81Gateway`, `PortSet`, `V81PortSet`, `V61PortSet`,
+  `RefusingPorts`, `StaleReportingPorts`, `SecretPaths` (visibility), `InventoryPort.DiagramMetadata`, `AuditRecord`, `AuditLog`, `InventoryDetail`, `DiagramExportParser`,
   `InventoryService`, `PortSet`, `AdapterGatewayFactory`, `Wiring`, `tools/anonymize.py` (`format` as a generic value),
   schemas, docs.
 
@@ -134,7 +136,8 @@ src/main/java/de/dadecker/inubit/mcp/
 │   ├── rest/v81/
 │   │   ├── DiagramExportParser.java         # + partner variables, PartnerManagement node (D-11)
 │   │   └── V81PartnerManagementAdapter.java # new: REST export per system diagram (D-1)
-│   ├── PortSet.java, AdapterGatewayFactory.java     # register the port for 8.1 / 9.0
+│   ├── PortSet.java, V81PortSet.java, V81Gateway.java, RefusingPorts.java,
+│   │   StaleReportingPorts.java, cli/v61/V61PortSet.java   # port in the gateway (D-4)
 ├── application/
 │   ├── PartnerService.java                  # fan-out, gate, cache, filters, paging, audit
 │   ├── PartnerComparison.java               # pure comparison (D-10)

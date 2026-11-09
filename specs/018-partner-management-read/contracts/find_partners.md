@@ -10,7 +10,7 @@ Offered when at least one server is possibly capable of `PARTNER_MANAGEMENT`; th
 |---|---|---|---|
 | `target` | string | yes | id of one stage or one server (`<stage>` or `<stage>/<server>`) |
 | `compareWith` | string | no | stage or server id; must not equal or overlap `target` |
-| `owner` | string | no | default: each server's `inventory.owner`; applies to all servers when given |
+| `owner` | string | no | `^[A-Za-z0-9_.][A-Za-z0-9_.\- ]{0,199}$` (as `export_archives`); default: each server's `inventory.owner`; applies to all servers when given |
 | `search` | string | no | 1–200 characters, no control characters; substring of non-masked partner fields, case-insensitive |
 | `systemDiagram` | string | no | system diagram name, exact, case-insensitive, any diagram group |
 | `protocol` | string | no | 1–64 characters `[A-Za-z0-9_-]`; `ReferencedTWF` attribute `protocol`, exact, case-insensitive |
@@ -30,7 +30,8 @@ Offered when at least one server is possibly capable of `PARTNER_MANAGEMENT`; th
     { "node": "qa/node1", "group": "qa", "owner": "…", "collectedAt": "…", "fromCache": true,
       "systemDiagramsRead": [{"name": "…", "diagramGroup": "…"}],
       "withoutPartnerManagement": [{"name": "…", "diagramGroup": "…"}],
-      "warnings": ["9.0.3 on qa/node1 is not verified for partner management; …"],
+      "warnings": ["9.0.3 on qa/node1 is not verified for partner management; …",
+                   "an entry of partner ACME-0001 in Module-0901 references an unknown workflow"],
       "error": null }                // ToolError {code, message, cause, nextStep} for a failed server
   ],
   "referencableWorkflows": [         // FR-007, per communication cloud that contributed a partner
@@ -57,6 +58,9 @@ Offered when at least one server is possibly capable of `PARTNER_MANAGEMENT`; th
                            {"name": "Password", "masked": true, "set": true}],
       "additionalParameters": [{"name": "FTPProtocol", "value": "SFTP"}] } ] }
 ```
+
+An entry whose `referencableTWFId` does not resolve has `"workflow": {"name": null, "unresolved":
+true}`; the reader's warning for it goes to `servers[].warnings` of that server.
 
 In `list` mode an entry carries only `protocol`, `workflow` and the summary keys of
 `PartnerSummaryKeys` (D-2); `fields` stay complete.

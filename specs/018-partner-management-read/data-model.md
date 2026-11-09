@@ -57,8 +57,11 @@ keeps no reference to the input.
 | `entries` | List<ProtocolEntry> | export order; never merged |
 | `maskedCount` | int | number of `Masked` values in fields and entries (FR-009) |
 
-Derived: `key()` → `PartnerKey(diagram, cloud, keyField, keyValue)` with `keyField` = `Id` if present
-and not masked, else the first configured non-masked field present (FR-013).
+Keys are built with context, not by `Partner` alone: `CommunicationCloud.keyOf(DiagramRef,
+Partner)` → `PartnerKey(diagram, cloudModuleName, "Id", value)` when `Id` is present and not
+masked. Without such an `Id`, the key field is "the first configured non-masked field present on
+both sides" (FR-013), which only `PartnerComparison` can decide; a single-server result needs no
+key.
 
 ### `SystemDiagramPartners`
 | Field | Type | Rule |
@@ -94,7 +97,8 @@ Validation before any INUBIT contact (FR-002): ids resolve through `TargetResolv
 
 ### `PartnerSnapshot` (cached value, D-6)
 `List<SystemDiagramPartners> diagrams`, `Set<DiagramRef> covered`. Stored in `InventoryCache` under
-`Key(node, PARTNERS, scope)`, scope `<owner>` or `<owner>|<group>/<name>`. A call needing set S is
+`Key(node, InventoryKind.DIAGRAM, scope)`, scope `partners:<owner>` or
+`partners:<owner>|<group>/<name>`; the owner's system diagram list under `systemdiagrams:<owner>`. A call needing set S is
 served by a fresh snapshot whose `covered` ⊇ S.
 
 ### `PartnerComparison` result (D-10)
