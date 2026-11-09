@@ -18,15 +18,17 @@ Reads one recording (REST body, CLI stdout/stderr, ...) and writes an anonymized
   (system diagrams, feature 018)    every value of the subtree except empty, true, false, up to
                                     five digits and FTP, FTPS, SFTP, HTTP, HTTPS, WebService, NONE;
                                     element names and the attributes name (while it looks like a
-                                    key), type, encrypted and protocol stay. Secrets (type Password,
-                                    encrypted="true", secret-like names, key material) -> AES-/AESG
-                                    + synthetic base64 or legacy-secret-<n>; partner Id ->
-                                    ACME-<nnnn>, Name -> ACME Partner <n>; host/URL settings ->
-                                    host<n>.example.test (URLs keep their scheme); login/user ->
-                                    login<n>; workflow references -> Workflow-<nnnn>; anything else
-                                    -> <SettingName>-<n>. --partner-limit N keeps the first N
-                                    entries of each Partners list. A document that mentions the
-                                    subtree but cannot be parsed is refused (nothing written).
+                                    key), type, encrypted, protocol and fieldType (a type, not
+                                    data) stay. Secrets (type Password, encrypted="true",
+                                    secret-like names, key material) -> AES-/AESG + synthetic
+                                    base64 or legacy-secret-<n>; partner Id -> ACME-<nnnn>, Name ->
+                                    ACME Partner <n>; host/URL settings -> host<n>.example.test
+                                    (URLs keep their scheme); login/user -> login<n>; workflow
+                                    references -> Workflow-<nnnn>; the attribute format ->
+                                    format-<n>; anything else -> <SettingName>-<n>.
+                                    --partner-limit N keeps the first N entries of each Partners
+                                    list. A document that mentions the subtree but cannot be
+                                    parsed is refused (nothing written).
 
 XML documents can be trimmed before anonymization (--xml-limit Workflow=3 keeps the first three
 Workflow elements, --xml-drop WorkflowModule removes those subtrees). ZIP archives are rewritten
@@ -52,7 +54,8 @@ Usage:
                                     # exit 1 if a file (or ZIP entry) still contains an
                                     # identifying value or one of the secrets read from stdin,
                                     # or a PartnerManagementSettings value that is neither
-                                    # harmless nor a synthetic placeholder
+                                    # harmless nor a synthetic placeholder, or a kept fieldType
+                                    # that does not match ^[A-Za-z][A-Za-z0-9_.]{0,40}$
   anonymize.py --self-test
 
 Values found by --verify are never printed, only the rule and the line number.
@@ -489,12 +492,15 @@ def readable_texts(path: Path) -> list[tuple[str, str]]:
 # host names, logins, passwords). Its XML encoding is only known after the first recording, so the
 # neutralization does not rely on it: inside every element named PartnerManagementSettings (by tag
 # or by name attribute) it keeps the element names and the attributes name (while it looks like a
-# key), type, encrypted and protocol, and replaces every other attribute value and text by a
-# synthetic value, except the harmless values of _partner_harmless. The kind of placeholder follows
-# the nearest setting name; it never depends on the original value (no hash, no length).
+# key), type, encrypted, protocol and fieldType, and replaces every other attribute value and text
+# by a synthetic value, except the harmless values of _partner_harmless. The kind of placeholder
+# follows the nearest setting name; it never depends on the original value (no hash, no length).
 
 PARTNER_MARKER = "PartnerManagementSettings"
 PARTNER_KEPT_ATTRIBUTES = {"type", "encrypted", "protocol"}  # "name" only while it is a key
+# The attribute fieldType of a partner field declaration (PartnerFields) is a type, not data: it
+# stays, and --verify accepts it only in this form.
+PARTNER_FIELD_TYPE_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.]{0,40}")
 PARTNER_TOKENS = set("FTP FTPS SFTP HTTP HTTPS WebService NONE".split())  # protocol tokens
 PARTNER_KEY_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 PARTNER_SECRET_NAME_RE = re.compile(
@@ -594,6 +600,8 @@ def _partner_classify_value(ctx: list, k: int, value: str, setting: str | None =
         return "secret"
     if _partner_harmless(stripped):
         return None
+    if setting == "format":  # of a ReferencedTWF: meaning unknown, no workflow reference (D-2)
+        return "generic:format"
     in_twf = _partner_within(ctx, k, PARTNER_TWF_LISTS)
     if _partner_within(ctx, k, {PARTNER_LIST}) and not in_twf:
         if name.lower() == "id":
@@ -739,6 +747,7 @@ class _PartnerWalk:
         self.finalizers: list = []          # write nested XML strings back, innermost first
         self.names: set[str] = {"Value"}    # setting names a generic placeholder may carry
         self.unparsed: list[int] = []       # lines of marker mentions that are not XML
+        self.field_types: list[tuple] = []  # (kept fieldType value, line)
 
     def line(self, element: ET.Element, fallback: int) -> int:
         return self.lines.get(id(element), fallback)
@@ -787,6 +796,9 @@ class _PartnerWalk:
             local = _partner_local(attribute)
             if (attribute == "name" or local in PARTNER_KEPT_ATTRIBUTES or attribute == "xmlns"
                     or attribute.startswith("xmlns:")):
+                continue
+            if local == "fieldType":
+                self.field_types.append((value, line))
                 continue
             setting = None if local == "value" else local
             if setting:
@@ -838,7 +850,8 @@ def neutralize_partner_management(content: str, state: State, limit: int | None 
 
 def partner_findings(text: str) -> list[tuple[int, str]]:
     """(line, rule) for every value of a PartnerManagementSettings subtree that is neither
-    harmless nor a synthetic placeholder. Never returns the value."""
+    harmless nor a synthetic placeholder, and for every kept fieldType that does not match
+    PARTNER_FIELD_TYPE_RE. Never returns the value."""
     if PARTNER_MARKER not in text:
         return []
     lines: dict = {}
@@ -852,6 +865,8 @@ def partner_findings(text: str) -> list[tuple[int, str]]:
     for kind, original, line, _ in walk.slots:
         if not _is_partner_placeholder(original, kind, walk.names):
             findings.append((line, "partner secret" if kind == "secret" else "partner value"))
+    findings.extend((line, "partner field type") for value, line in walk.field_types
+                    if not PARTNER_FIELD_TYPE_RE.fullmatch(value))
     return sorted(findings)
 
 
@@ -1059,13 +1074,17 @@ def self_test() -> int:
 
     partner_xml = (
         '<W><Property name="PartnerManagementSettings" type="Map">'
+        '<Property name="PartnerFields" type="List">'
+        '<Property fieldType="String" name="Id" showInTable="true"/></Property>'
         '<Property name="Partners" type="List">'
         '<Property name="Partner" type="Map"><Property name="Id">9900000000001</Property>'
         '<Property name="Name">Zeta Netz GmbH</Property></Property>'
         '<Property name="Partner" type="Map"><Property name="Id">9900000000002</Property>'
         '<Property name="ServerName">sftp.zeta.invalid</Property>'
         '<Property name="Password" type="Password" encrypted="true">AES-emV0YS1zZWNyZXQ=</Property>'
-        '<Property name="Port">22</Property></Property></Property></Property></W>')
+        '<Property name="Port">22</Property><Property name="ReferencedTWFs" type="List">'
+        '<Property format="ZetaFormat" name="ReferencedTWF" type="Map"/></Property>'
+        '</Property></Property></Property></W>')
     partner_out = Anonymizer(State(), partner_limit=1).anonymize(partner_xml, "text")
     check("partner management", partner_out,
           contains=[">ACME-0001<", ">ACME Partner 1<", 'name="PartnerManagementSettings"'],
@@ -1074,8 +1093,14 @@ def self_test() -> int:
     check("partner secrets and hosts", full_out,
           contains=[">host1.example.test<", ">22<", 'encrypted="true">AES-'],
           absent=["zeta", "emV0YS1zZWNyZXQ"])
+    check("partner field type and format", full_out,
+          contains=['fieldType="String"', 'format="format-1"'], absent=["Workflow-"])
     if partner_findings(full_out) or not partner_findings(partner_xml):
         failures.append("verify: partner management values are not checked")
+    if [rule for _, rule in partner_findings(
+            full_out.replace('fieldType="String"', 'fieldType="Zeta Netz"'))] != [
+            "partner field type"]:
+        failures.append("verify: a kept fieldType that is no type is not reported")
 
     if failures:
         for failure in failures:

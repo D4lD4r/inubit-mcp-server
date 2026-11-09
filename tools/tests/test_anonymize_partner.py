@@ -160,6 +160,43 @@ def escaped_document() -> str:
             f'name="PartnerManagementSettings" type="String">{escaped}</Property></Root>\n')
 
 
+FORMAT = "ZetaFormat"
+
+
+def recorded_form_document(field_type: str = "String") -> str:
+    """The form recorded on 2026-11-09 (research D-2 facts): PartnerFields declare the fields with
+    a fieldType attribute, and every ReferencedTWF carries a format attribute."""
+    entries = "".join(f"""
+                <Property format="{FORMAT}" name="ReferencedTWF" protocol="{WEB_SERVICE}"
+                          referencableTWFId="{n}" type="Map">
+                  <Property name="ServerName">https://{HOST}/soap</Property>
+                </Property>""" for n in (1, 2))
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<Root>
+  <Property name="PartnerManagementSettings" type="Map">
+    <Property name="PartnerFields" type="List">
+      <Property fieldType="{field_type}" name="Id" showInTable="true"/>
+      <Property fieldType="{field_type}" name="Name" showInTable="true"/>
+    </Property>
+    <Property name="ReferencableTWFs" type="List">
+      <Property name="{WF_A}" id="1" moduleId="7"/>
+      <Property name="{WF_B}" id="2" moduleId="7"/>
+    </Property>
+    <Property name="Partners" type="List">
+      <Property name="Partner" type="Map">
+        <Property name="Fields" type="Map">
+          <Property name="Id">{PARTNER_IDS[0]}</Property>
+          <Property name="Name">{PARTNER_NAMES[0]}</Property>
+        </Property>
+        <Property name="ReferencedTWFs" type="List">{entries}
+        </Property>
+      </Property>
+    </Property>
+  </Property>
+</Root>
+"""
+
+
 def assert_no_original(test: unittest.TestCase, text: str, originals=ORIGINALS):
     for original in originals:
         test.assertNotIn(original.lower(), text.lower(), "an original value survived")
@@ -293,6 +330,17 @@ class PartnerNeutralizationTest(unittest.TestCase):
         self.assertNotIn("Zeta", str(raised.exception))
         self.assertIn("PartnerManagementSettings", str(raised.exception))
 
+    def test_field_type_stays_and_format_is_a_generic_value(self):
+        out = self.run_anonymizer(recorded_form_document())
+
+        assert_no_original(self, out, ORIGINALS + [FORMAT])
+        self.assertIn('<Property fieldType="String" name="Id" showInTable="true" />', out)
+        self.assertIn('<Property fieldType="String" name="Name" showInTable="true" />', out)
+        formats = re.findall(r'format="([^"]*)"', out)
+        self.assertEqual(["format-1", "format-1"], formats)  # equal stays equal
+        self.assertRegex(out, r'<Property name="Workflow-\d{4}" id="1" moduleId="7"')
+        self.assertIn('referencableTWFId="2"', out)
+
     def test_placeholders_survive_the_other_text_rules(self):
         out = self.run_anonymizer(property_map_document())
 
@@ -364,6 +412,32 @@ class PartnerVerifyTest(unittest.TestCase):
             code, report = self.verify(*paths)
 
         self.assertEqual(0, code, report)
+
+    def verify_neutralized(self, field_type):
+        out = self.anonymize.Anonymizer(self.anonymize.State()).anonymize(
+            recorded_form_document(field_type), "text")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "out.xml")
+            path.write_text(out, encoding="utf-8")
+            return self.verify(path)
+
+    def test_kept_field_types_pass_when_they_look_like_a_type(self):
+        for field_type in ("String", "x", "java.lang.String", "Plain_Text2", "A" + "b" * 40):
+            with self.subTest(field_type):
+                code, report = self.verify_neutralized(field_type)
+
+                self.assertEqual(0, code, report)
+
+    def test_kept_field_types_fail_when_they_do_not_look_like_a_type(self):
+        for field_type in (PARTNER_NAMES[0], "fieldType-1", "1String", "_String", "",
+                           "A" + "b" * 41, "Zeta/Netz"):
+            with self.subTest(field_type):
+                code, report = self.verify_neutralized(field_type)
+
+                self.assertEqual(1, code)
+                self.assertRegex(report, r"out\.xml:\d+: remaining partner field type")
+                if field_type:
+                    self.assertNotIn(field_type, report)
 
     def test_a_raw_subtree_inside_a_zip_fails(self):
         with tempfile.TemporaryDirectory() as tmp:

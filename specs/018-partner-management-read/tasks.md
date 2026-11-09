@@ -31,7 +31,7 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
 
 - [X] T001 Baseline: the build above is green on branch `018-partner-management-read`; note the test
   count in `specs/018-partner-management-read/reviews.md` ("Implementation — baseline")
-- [ ] T002 `tools/anonymize.py`: inside a `PartnerManagementSettings` subtree keep the attribute
+- [X] T002 `tools/anonymize.py`: inside a `PartnerManagementSettings` subtree keep the attribute
   `fieldType` (a type, not data) and classify the attribute `format` as a generic value
   (`format-<n>`), not as a workflow reference (research D-2); `--verify` accepts kept `fieldType`
   values only if they match `^[A-Za-z][A-Za-z0-9_.]{0,40}$`. Tests first in
