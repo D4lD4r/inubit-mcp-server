@@ -24,6 +24,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -185,6 +186,31 @@ public final class KnowledgeService {
             view.lastWriter(), view.lastChange(), view.versionToken().orElseThrow(),
             view.masked(), body.length(), start, content, next,
             noteWarnings(view, sharedNames(listing)));
+    }
+
+    /**
+     * What the knowledge holds for the server instructions (D-8): the credentials are prepared
+     * with {@code bound} only when notes exist (D-7), and the notes are read lazily, only as far as
+     * the announcement's list has room.
+     */
+    public KnowledgeAnnouncement.State overview(Duration bound) {
+        Listing listing;
+        try {
+            listing = directory.list();
+        } catch (IOException e) {
+            return new KnowledgeAnnouncement.Unusable(problem(e));
+        }
+        if (listing.files().isEmpty()) {
+            return new KnowledgeAnnouncement.Empty();
+        }
+        if (secrets.prepare(bound) instanceof Readiness.NotReady notReady) {
+            return new KnowledgeAnnouncement.NotReady(listing.files().size(), pending(notReady));
+        }
+        Iterator<KnowledgeAnnouncement.Entry> entries = listing.files().stream()
+            .map(file -> view(directory.read(file)))
+            .map(view -> new KnowledgeAnnouncement.Entry(view.name(), view.title(), view.topics()))
+            .iterator();
+        return new KnowledgeAnnouncement.Listed(listing.files().size(), entries);
     }
 
     /** What a note shows: everything masked, reduced where it is a name or a value. */
@@ -384,24 +410,31 @@ public final class KnowledgeService {
         try {
             return directory.list();
         } catch (IOException e) {
-            String problem = switch (e) {
-                case NotDirectoryException ignored -> "not a directory";
-                case AccessDeniedException ignored -> "not readable";
-                default -> "cannot be walked: " + e.getClass().getSimpleName();
-            };
             throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
-                "The knowledge directory of this profile is not usable now (" + problem + ")",
+                "The knowledge directory of this profile is not usable now (" + problem(e) + ")",
                 "The configured knowledge directory is a file, has no read permission, or the"
                     + " walk failed",
                 "Check the knowledge directory with --check-config"));
         }
     }
 
+    /** Why the directory cannot be listed; never a path. */
+    private static String problem(IOException e) {
+        return switch (e) {
+            case NotDirectoryException ignored -> "not a directory";
+            case AccessDeniedException ignored -> "not readable";
+            default -> "cannot be walked: " + e.getClass().getSimpleName();
+        };
+    }
+
+    private static List<String> pending(Readiness.NotReady notReady) {
+        return notReady.pending().stream()
+            .map(p -> p.node() + " (" + p.store() + ": " + p.state() + ")").toList();
+    }
+
     private void ready() {
         if (secrets.prepare(prepareBound) instanceof Readiness.NotReady notReady) {
-            String nodes = notReady.pending().stream()
-                .map(p -> p.node() + " (" + p.store() + ": " + p.state() + ")")
-                .collect(Collectors.joining(", "));
+            String nodes = String.join(", ", pending(notReady));
             throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
                 "The credentials of " + nodes + " have not been read yet",
                 "Notes are shown only after all of the profile's credentials are known, so that a"

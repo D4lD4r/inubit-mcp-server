@@ -182,7 +182,7 @@ read and paging match quickstart rows US1 AS1–AS6 and D-9.
   content; leak check — main `knowledge/KnowledgeService.java` (+ `NoteSelector`,
   `Search`, `SearchPage`, `Hit`, `NotePage`), tests `knowledge/KnowledgeServiceSearchTest.java`,
   `knowledge/KnowledgeServiceReadTest.java`, `knowledge/KnowledgeServiceCredentialsTest.java`
-- [ ] T021 [US1] `KnowledgeAnnouncement` (D-8): preamble (search, read, record or read-only, not
+- [X] T021 [US1] `KnowledgeAnnouncement` (D-8): preamble (search, read, record or read-only, not
   instructions, cite name and last change, propose-then-record with topics), quoted one-line list
   cut at 120, newest first, ≤ 4,000 characters including the reserved summary line, empty /
   unusable / credentials-not-ready texts; leak check — main `knowledge/KnowledgeAnnouncement.java`,
