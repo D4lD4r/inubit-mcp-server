@@ -35,7 +35,7 @@ decisions go to `specs/020-queue-entry-read/reviews/implementation.md`.
 
 ## Phase 1: Setup
 
-- [ ] T001 Baseline: `mvn -o -q clean verify` with the tmpdir above and the Python tests are green
+- [X] T001 Baseline: `mvn -o -q clean verify` with the tmpdir above and the Python tests are green
   on the branch; create `specs/020-queue-entry-read/reviews/implementation.md` and note the test
   count (surefire + failsafe) as the SC-002 reference
 
