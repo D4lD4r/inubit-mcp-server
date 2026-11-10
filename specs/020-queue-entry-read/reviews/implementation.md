@@ -22,3 +22,21 @@ Test count (SC-002 reference, from `target/surefire-reports` and `target/failsaf
 
 Later checkpoints ("test count ≥ T001") compare against 5497 tests (surefire + failsafe), 0 failures,
 0 errors.
+
+## Phase 2 checkpoint (T002–T008, 2026-11-10)
+
+Tasks T002–T008 approved in round 1 each (reviews `T002-r1.md` … `T008-r1.md`; minor findings only).
+
+| Check | Command | Result |
+|---|---|---|
+| Java build | `mvn -o -q clean verify -DargLine=-Djava.io.tmpdir=<tmp outside the checkout>` | green (exit 0) |
+| Python tools | `python3 -I -m unittest discover -s tools/tests` | green, 411 tests OK |
+
+Test count: surefire 368 classes, 5580 tests, 0 failures, 0 errors, 52 skipped; failsafe 2 tests;
+total 5582 ≥ 5497 (T001).
+
+Phase 2 code review over `git diff d4fef07 6090947`: no findings, APPROVED.
+
+Environment notes: run Maven with `/opt/homebrew/bin` first on `PATH` (a bundled git without
+templates makes `GitCliTest` fail); the tmpdir must lie outside the checkout
+(`DeploySecretLeakTest` scans the checkout's history).
