@@ -293,6 +293,22 @@ class CliRunnerTest {
             .containsEntry("JAVA_TOOL_OPTIONS", TOOL_OPTIONS);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"trust's.p12", "trust\"s.p12"})
+    void aTrustStorePathWithAQuoteIsPassedOnlyAsArgument(String name) {
+        // Java 9+ reads ' and " in JAVA_TOOL_OPTIONS as quotes; an unpaired one stops the JVM
+        // (Windows CI, WindowsCommandLineInjectionTest TRUST_STORE with APOSTROPHE)
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+        Path trustStore = cliHome.resolve(name);
+
+        run(launcher, server().trustStore(trustStore).build());
+
+        assertThat(launcher.last().spec().startCliArguments())
+            .containsSubsequence("--trustStoreFilePath", trustStore.toString());
+        assertThat(launcher.last().spec().environment())
+            .containsEntry("JAVA_TOOL_OPTIONS", TOOL_OPTIONS);
+    }
+
     @Test
     void thePasswordPlusNewlineIsWrittenToStdinWhichIsThenClosed() {
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
@@ -863,6 +879,21 @@ class CliRunnerTest {
         assertThat(process.spec().environment()).containsEntry("JAVA_TOOL_OPTIONS",
             TOOL_OPTIONS + " -Djavax.net.ssl.trustStore=" + trustStore
                 + " -Djavax.net.ssl.trustStoreType=PKCS12");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"trust's.p12", "trust\"s.p12"})
+    void aClientWithItsOwnTrustStoreOptionGetsATrustStorePathWithAQuoteOnlyAsArgument(
+        String name) {
+        Path trustStore = cliHome.resolve(name);
+
+        FakeProcessLauncher.FakeProcess process =
+            session(server().trustStore(trustStore).build(), ALL_OPTIONS);
+
+        assertStartCli(process.spec(), "-u", USER,
+            "--trustStoreFilePath", trustStore.toString(), URL);
+        assertThat(process.spec().environment())
+            .containsEntry("JAVA_TOOL_OPTIONS", TOOL_OPTIONS);
     }
 
     @Test

@@ -1706,8 +1706,8 @@ and produces a startup warning. StartCLI cannot pin a certificate, so it gets
 `--trustStoreFilePath` and `--disableHostNameVerification` only — a residual risk for CLI calls.
 The trust store also reaches StartCLI as `-Djavax.net.ssl.trustStore` in `JAVA_TOOL_OPTIONS`,
 because the INUBIT 9.0.10 client ignores `--trustStoreFilePath` for its login connection; keep the
-trust-store path free of whitespace, otherwise only the argument carries it and a 9.0 client fails
-with `TLS_ERROR`.
+trust-store path free of whitespace and of `'` and `"`, otherwise only the argument carries it and
+a 9.0 client fails with `TLS_ERROR`.
 With proper certificates (matching subjectAltNames) remove both settings; no code change is needed.
 
 **INUBIT 6.1 nodes** (feature 012, [INUBIT 6.1 nodes](#inubit-61-nodes-v6_1)) have no REST
