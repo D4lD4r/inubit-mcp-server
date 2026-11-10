@@ -393,7 +393,7 @@ unsupported status explicit (FR-002…FR-004, FR-017, SC-002, SC-005).
   `config/ConfigValidatorTest.java`, `config/ConfigSummaryTest.java` (existing golden texts
   unchanged byte-for-byte; new golden text with an opt-in), `MainTest.java` (`--check-config` with and without opt-in; startup log
   "Configuration: …" warning) (US2-3, US2-5, FR-017)
-- [ ] T029 [P] [US2] `docs/setup.md`: subsection `### Unsupported functions` after `### Workbench
+- [X] T029 [P] [US2] `docs/setup.md`: subsection `### Unsupported functions` after `### Workbench
   archives` with the table, the YAML example and the FR-004 text **verbatim** from
   contracts/configuration-delta.md; section 6 one additional summary example with an opt-in
   (existing examples unchanged); overview bullet listing group-only settings — failing test first

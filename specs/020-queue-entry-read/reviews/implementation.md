@@ -284,3 +284,12 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
 - The production warning (`ConfigValidator.checkQueueEntryReadOptIn`) is a terminology warning
   (`termWarning`, `{group}` follows the profile's terminology); it appears under `Warnings:` in
   `--check-config` and as `Configuration: …` in the startup log, never as an error (exit 0).
+
+## T029 notes
+
+- `docs/setup.md` `### Unsupported functions` also carries the contract's client-installation
+  paragraph and three short validation bullets (true/false only; `unsupported` on a node or in
+  `defaults` is an unknown key; `--check-config` shows the state). The section 6 example is checked
+  against the real `ConfigSummary` output by `QueueEntryDocsTest`.
+- The verbatim FR-004 text links `tools.md#read_queue_entry`, which has no target yet. **T040 must
+  add exactly this anchor** (`## read_queue_entry` in `docs/tools.md`), ideally with a test assertion.
