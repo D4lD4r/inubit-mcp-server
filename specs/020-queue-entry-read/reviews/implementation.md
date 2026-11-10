@@ -74,3 +74,27 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
 
 - Deviation from task text: the "helper inside the shaded JAR" assertion lives in the Failsafe test `QueueEntryHelperPackagingIT` (pattern of `JarVersionIT`), because the shaded JAR does not exist during Surefire. `QueueEntryHelperPackagingTest` checks `target/classes` (exactly one class, major 61).
 - Skeleton: a well-formed request returns exit 1 without frames until T015 adds the flows. Implementer-chosen validation: all 14 keys exactly once, nonce hex (any case), required non-empty fields, `dataOut` required when `parts` contains `data`, strict RFC 3986 percent-encoding with valid UTF-8, malformed request prints nothing (exit 2), I/O error reading the request gives exit 1.
+
+## T015 notes
+
+- Empty frame tokens (finding T015-r1): the helper never writes an empty token; the frame writer
+  writes it as `-` (recorded in data-model "Helper frames"). This covers a single exception
+  without a message (`login error java.io.IOException -`) and a download thread reporting
+  `exceptionOccured()` with `getException() == null` (`part variables error - -`). T018 decodes
+  tokens as usual; `-` as chain means "no exception", `-` as message means "no message".
+- Throwables (finding T015-r1): a `LinkageError` thrown while the vendor classes are looked up
+  (before `start`) stays `api missing`, exit 4. After `start`, a `LinkageError` while the client is
+  created or logs in (e.g. `ExceptionInInitializerError` of `IBISSoapClient`,
+  `InubitClientFactory`, `ConnectionData`) is `login error <chain> <messages>`, exit 3, as any
+  other login failure; one while a download thread is created is that part's `part … error`.
+  Any other `Throwable` gives exit 1 without a frame or output; `run` never throws, and `main`
+  calls `System.exit` in a `finally`, so nothing reaches stderr from the helper itself.
+- Masking: the password and the trust-store password are masked longest first, so one contained
+  in the other leaves no piece unmasked.
+- Test support: `FakeInubitScript.initializerFails(simpleName)` (static initializers of the fake
+  `IBISSoapClient`, `InubitClientFactory`, `MultipartDownloadThread` call
+  `FakeInubitScript.initializing`; in-process only, through a class loader that defines a fresh
+  copy) and `fileFailsWithoutException(fileName)`.
+- Unverified: on 8.1 over `http` the helper passes `null` trust store and trust-store password to
+  `IBISSoapClient`; T034 must confirm live that the 8.1 client accepts this.
+- Open (T015-r2 minor, for T034/T040): an `Error` thrown inside the vendor download thread's `run()` would bypass `exceptionOccured()`, so the helper reports `part … ok` for a missing/partial file. Depends on unverified vendor behaviour; a possible fix is an uncaught-exception handler set before `start()`.

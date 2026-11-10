@@ -10,6 +10,10 @@ import de.dadecker.inubit.mcp.testing.FakeInubitScript;
  */
 public class InubitClientFactory {
 
+    static {
+        FakeInubitScript.initializing("InubitClientFactory");
+    }
+
     public I_IBISClientInterface getRestInstance(ConnectionData connectionData) {
         FakeInubitScript.active().record("InubitClientFactory.getRestInstance");
         return new RestClient();

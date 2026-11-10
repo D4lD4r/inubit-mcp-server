@@ -95,7 +95,10 @@ profile without the opt-in.
 ### Helper frames (stdout)
 
 `#QE1:<nonce> <type> <tokens…>`, tokens percent-encoded; types `start`, `login`, `part`, `api`,
-`end` (D-4). Lines without the prefix are ignored and never logged.
+`end` (D-4). The helper never writes an empty token: an empty token is written as `-` (e.g. the
+`<message>` of an exception without a message, or both `<exceptionChain>` and `<message>` when the
+download thread reports a failure without an exception); `-` is never a class name, and a message
+that is just `-` carries nothing either. Lines without the prefix are ignored and never logged.
 
 ## Result (`QueueEntryResult`)
 

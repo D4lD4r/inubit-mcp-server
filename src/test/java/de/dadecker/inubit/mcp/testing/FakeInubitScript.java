@@ -16,8 +16,10 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * What the fake vendor classes under {@code src/test/java/com/inubit/ibis} do (feature 020,
@@ -66,6 +68,7 @@ public final class FakeInubitScript implements Serializable {
     private final List<Failure> loginFailure = new ArrayList<>();
     private final Map<String, Download> files = new HashMap<>();
     private final List<String> loginNoise = new ArrayList<>();
+    private final Set<String> failingInitializers = new HashSet<>();
     private boolean lingeringThread;
     private transient List<Call> calls = new ArrayList<>();
     private transient Path callLog;
@@ -86,6 +89,25 @@ public final class FakeInubitScript implements Serializable {
     /** A download of {@code fileName} fails with the exception chain {@code chain}. */
     public FakeInubitScript fileFails(String fileName, Failure... chain) {
         files.put(fileName, new Download(null, chain(chain)));
+        return this;
+    }
+
+    /**
+     * A download of {@code fileName} fails, but the thread reports no exception
+     * ({@code exceptionOccured()} is true, {@code getException()} is {@code null}).
+     */
+    public FakeInubitScript fileFailsWithoutException(String fileName) {
+        files.put(fileName, new Download(null, List.of()));
+        return this;
+    }
+
+    /**
+     * The static initializer of the fake vendor class {@code simpleName} throws an
+     * {@link IllegalStateException}. A class is initialized once per class loader, so this works
+     * only in-process with a class loader that defines a fresh copy of that class.
+     */
+    public FakeInubitScript initializerFails(String simpleName) {
+        failingInitializers.add(simpleName);
         return this;
     }
 
@@ -161,6 +183,20 @@ public final class FakeInubitScript implements Serializable {
         }
     }
 
+    /**
+     * For the fakes' static initializers: throws if the script active in this JVM scripted
+     * {@link #initializerFails}; without an active script it does nothing.
+     */
+    public static void initializing(String simpleName) {
+        FakeInubitScript script;
+        synchronized (FakeInubitScript.class) {
+            script = active;
+        }
+        if (script != null && script.failingInitializers.contains(simpleName)) {
+            throw new IllegalStateException("static initializer of " + simpleName + " failed");
+        }
+    }
+
     /** For the fakes: performs the scripted login. */
     public void login() throws Exception {
         loginNoise.forEach(System.out::println);
@@ -175,7 +211,10 @@ public final class FakeInubitScript implements Serializable {
         }
     }
 
-    /** For the fakes: the scripted content of {@code fileName}, or its scripted failure. */
+    /**
+     * For the fakes: the scripted content of {@code fileName}, its scripted failure, or
+     * {@code null} for {@link #fileFailsWithoutException}.
+     */
     public byte[] content(String fileName) throws Exception {
         Download download = files.get(fileName);
         if (download == null) {
@@ -184,7 +223,7 @@ public final class FakeInubitScript implements Serializable {
         if (!download.failure().isEmpty()) {
             throw exception(download.failure());
         }
-        return download.content().clone();
+        return download.content() == null ? null : download.content().clone();
     }
 
     /** Writes this script (without its calls) to {@code file}. */

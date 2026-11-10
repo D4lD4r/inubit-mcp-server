@@ -14,9 +14,14 @@ import java.nio.file.Files;
  */
 public class MultipartDownloadThread extends Thread {
 
+    static {
+        FakeInubitScript.initializing("MultipartDownloadThread");
+    }
+
     private final String fileName;
     private File outputFile;
     private volatile Exception exception;
+    private volatile boolean failedWithoutException;
 
     public MultipartDownloadThread(I_IBISClientInterface client, String user, String fileName,
         String objectType, Object fifth, Object sixth) {
@@ -39,7 +44,12 @@ public class MultipartDownloadThread extends Thread {
     @Override
     public void run() {
         try {
-            Files.write(outputFile.toPath(), FakeInubitScript.active().content(fileName));
+            byte[] content = FakeInubitScript.active().content(fileName);
+            if (content == null) {
+                failedWithoutException = true;
+                return;
+            }
+            Files.write(outputFile.toPath(), content);
         } catch (Exception e) {
             exception = e;
         }
@@ -47,7 +57,7 @@ public class MultipartDownloadThread extends Thread {
 
     public boolean exceptionOccured() {
         FakeInubitScript.active().record("MultipartDownloadThread.exceptionOccured");
-        return exception != null;
+        return exception != null || failedWithoutException;
     }
 
     public Exception getException() {

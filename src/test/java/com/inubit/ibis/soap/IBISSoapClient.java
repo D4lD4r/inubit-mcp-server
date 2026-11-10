@@ -9,6 +9,10 @@ import de.dadecker.inubit.mcp.testing.FakeInubitScript;
  */
 public class IBISSoapClient implements I_IBISClientInterface {
 
+    static {
+        FakeInubitScript.initializing("IBISSoapClient");
+    }
+
     public IBISSoapClient(String url, String trustStoreFile, String trustStorePassword,
         String keyStoreFile, String keyStorePassword, boolean enableHostnameVerification) {
         FakeInubitScript.active().record("IBISSoapClient.<init>", url, trustStoreFile,

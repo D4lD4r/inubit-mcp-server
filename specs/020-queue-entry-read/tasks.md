@@ -224,7 +224,7 @@ INUBIT contact.
   shaded JAR at package time), `adapter/cli/queue/QueueEntryHelperTest.java` (malformed request →
   exit 2 without echoing values), `architecture/PackageBoundaryTest.java` new rule "the helper
   references only `java/*`"
-- [ ] T015 [US1] Helper flows by reflection (FR-006, FR-007, FR-014, FR-015, D-4): `SOAP_81`
+- [X] T015 [US1] Helper flows by reflection (FR-006, FR-007, FR-014, FR-015, D-4): `SOAP_81`
   (`IBISSoapClient(url + "?isCli", trustStore, trustStorePassword, null, null,
   enableHostnameVerification)`, `loginUserCli`, `logoutUser` in `finally`) and `REST_90`
   (`ConnectionData` setters incl. `setSkipHostnameVerification(!hostnameVerification)`,
