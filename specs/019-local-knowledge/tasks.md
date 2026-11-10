@@ -223,7 +223,7 @@ readiness and a failing-audit fake.
   counter), unmatched files never pruned — main `knowledge/KnowledgeHistory.java`, test
   `knowledge/KnowledgeHistoryTest.java` (twelve same-instant versions with contents, link on
   `.history` and a segment)
-- [ ] T028 [US2] `KnowledgeDirectory` write side (D-10, D-12): `checkInternal` (`NOFOLLOW_LINKS` on
+- [X] T028 [US2] `KnowledgeDirectory` write side (D-10, D-12): `checkInternal` (`NOFOLLOW_LINKS` on
   every parent segment, `.history`, `.lock`), occupancy check, `publishNew` via
   `Files.createLink` (exists → `CONFLICT`, unsupported → `PRECONDITION_FAILED`), `publishReplace`
   via atomic move, test hook between check and publish, `totalBytes` walk (not depth-limited,

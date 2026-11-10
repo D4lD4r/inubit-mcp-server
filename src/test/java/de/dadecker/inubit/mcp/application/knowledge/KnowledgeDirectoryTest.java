@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.application.knowledge;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIOException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import de.dadecker.inubit.mcp.application.knowledge.KnowledgeDirectory.Listing;
@@ -9,14 +10,24 @@ import de.dadecker.inubit.mcp.application.knowledge.KnowledgeDirectory.NoteFile;
 import de.dadecker.inubit.mcp.application.knowledge.KnowledgeDirectory.Skipped;
 import de.dadecker.inubit.mcp.application.knowledge.Note.State;
 import de.dadecker.inubit.mcp.domain.model.NoteName;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeDirectory.Occupied;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeDirectory.WriteRefusal;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.WindowsAcl;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.text.Normalizer;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
@@ -24,7 +35,10 @@ import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
-/** Feature 019 T018: the read side of the knowledge directory (research D-4, D-9). */
+/**
+ * Feature 019 T018: the read side of the knowledge directory (research D-4, D-9); T028: the write
+ * side (D-3, D-10, D-12) - occupancy, atomic publication, owner-only creation.
+ */
 class KnowledgeDirectoryTest {
 
     @TempDir
@@ -360,5 +374,284 @@ class KnowledgeDirectoryTest {
         Path file = Files.writeString(temp.resolve("file"), "x");
 
         assertThatIOException().isThrownBy(() -> new KnowledgeDirectory(file).list());
+    }
+
+    // T028: the write side
+
+    private static final Clock CLOCK =
+        Clock.fixed(Instant.parse("2026-11-10T10:15:00Z"), ZoneOffset.UTC);
+    private static final byte[] TEXT = "text\n".getBytes(StandardCharsets.UTF_8);
+
+    private static KnowledgeDirectory writable(Path root) {
+        return new KnowledgeDirectory(root, PrivateFiles.forHost(), CLOCK);
+    }
+
+    private static String posix(Path path) throws IOException {
+        return PosixFilePermissions.toString(Files.getPosixFilePermissions(path));
+    }
+
+    private static List<String> entries(Path directory) throws IOException {
+        try (Stream<Path> files = Files.list(directory)) {
+            return files.map(file -> file.getFileName().toString()).sorted().toList();
+        }
+    }
+
+    private static void assertRefused(ThrowingAction action, WriteRefusal.Kind kind) {
+        assertThatThrownBy(action::run).isInstanceOfSatisfying(WriteRefusal.class,
+            e -> assertThat(e.kind()).isEqualTo(kind));
+    }
+
+    private interface ThrowingAction {
+        void run() throws Exception;
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void theFirstNoteCreatesTheAbsentRootItsParentsAndTheNoteOwnerOnly() throws Exception {
+        Path root = temp.resolve("a").resolve("b").resolve("knowledge");
+        KnowledgeDirectory directory = writable(root);
+
+        Path real = directory.writeRoot();
+        Path note = directory.publishNew(NoteName.of("partners/acme"), TEXT);
+
+        assertThat(real).isEqualTo(root.toRealPath());
+        assertThat(note).isEqualTo(real.resolve("partners").resolve("acme.md"));
+        assertThat(Files.readString(note)).isEqualTo("text\n");
+        assertThat(posix(temp.resolve("a"))).isEqualTo("rwx------");
+        assertThat(posix(root)).isEqualTo("rwx------");
+        assertThat(posix(root.resolve("partners"))).isEqualTo("rwx------");
+        assertThat(posix(note)).isEqualTo("rw-------");
+        assertThat(entries(root.resolve("partners"))).containsExactly("acme.md");
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void theFirstNoteCreatesTheAbsentRootItsParentsAndTheNotePrivateOnWindows()
+        throws Exception {
+        Path root = temp.resolve("a").resolve("knowledge");
+        KnowledgeDirectory directory = writable(root);
+
+        directory.writeRoot();
+        Path note = directory.publishNew(NoteName.of("partners/acme"), TEXT);
+
+        WindowsAcl.assertPrivate(root, WindowsAcl.DIRECTORY_INHERITANCE);
+        WindowsAcl.assertPrivate(root.resolve("partners"), WindowsAcl.DIRECTORY_INHERITANCE);
+        WindowsAcl.assertPrivate(note, "None");
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void existingDirectoriesKeepTheirPermissions() throws Exception {
+        Path root = root();
+        Files.setPosixFilePermissions(root, PosixFilePermissions.fromString("rwxr-x---"));
+        Path partners = Files.createDirectory(root.resolve("partners"));
+        Files.setPosixFilePermissions(partners, PosixFilePermissions.fromString("rwxr-x---"));
+        KnowledgeDirectory directory = writable(root);
+
+        directory.writeRoot();
+        directory.publishNew(NoteName.of("partners/acme"), TEXT);
+
+        assertThat(posix(root)).isEqualTo("rwxr-x---");
+        assertThat(posix(partners)).isEqualTo("rwxr-x---");
+    }
+
+    @Test
+    void aFreeTargetHasNoOccupantAlsoWhenTheRootIsAbsent() throws Exception {
+        assertThat(writable(temp.resolve("missing")).checkFree(NoteName.of("a/b"))).isEmpty();
+        Path root = root();
+        Files.createDirectories(root.resolve("partners"));
+        Files.writeString(root.resolve("partners").resolve("other.md"), "x");
+
+        assertThat(writable(root).checkFree(NoteName.of("partners/acme"))).isEmpty();
+        assertThat(writable(root).checkFree(NoteName.of("partners/new/acme"))).isEmpty();
+    }
+
+    @Test
+    void aFileWithAnotherCaseOfTheSuffixOccupiesTheTarget() throws Exception {
+        Path root = root();
+        Files.createDirectories(root.resolve("partners"));
+        Files.writeString(root.resolve("partners").resolve("acme.MD"), "by hand");
+
+        Optional<Occupied> occupied = writable(root).checkFree(NoteName.of("partners/acme"));
+
+        assertThat(occupied).hasValueSatisfying(o -> {
+            assertThat(o.relative()).isEqualTo(Path.of("partners", "acme.MD"));
+            assertThat(o.what()).isEqualTo("differs from the note path only in case");
+        });
+    }
+
+    @Test
+    void aDirectoryInPlaceOfTheNoteOccupiesTheTarget() throws Exception {
+        Path root = root();
+        Files.createDirectories(root.resolve("partners").resolve("acme.md"));
+
+        assertThat(writable(root).checkFree(NoteName.of("partners/acme")))
+            .contains(new Occupied(Path.of("partners", "acme.md"), "already exists"));
+    }
+
+    @Test
+    void aFileInPlaceOfAParentSegmentOccupiesTheTarget() throws Exception {
+        Path root = root();
+        Files.writeString(root.resolve("partners"), "x");
+
+        assertThat(writable(root).checkFree(NoteName.of("partners/acme")))
+            .contains(new Occupied(Path.of("partners"), "is not a directory"));
+        assertRefused(() -> writable(root).publishNew(NoteName.of("partners/acme"), TEXT),
+            WriteRefusal.Kind.OCCUPIED);
+    }
+
+    @Test
+    void aParentSegmentInAnotherCaseOccupiesTheTarget() throws Exception {
+        Path root = root();
+        Files.createDirectories(root.resolve("Partners"));
+
+        assertThat(writable(root).checkFree(NoteName.of("partners/acme")))
+            .contains(new Occupied(Path.of("Partners"),
+                "differs from the note path only in case"));
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void aLinkAsParentSegmentOccupiesTheTargetAndNothingIsWrittenThroughIt() throws Exception {
+        Path root = root();
+        Path outside = Files.createDirectory(temp.resolve("outside"));
+        Files.createSymbolicLink(root.resolve("partners"), outside);
+        KnowledgeDirectory directory = writable(root);
+
+        assertThat(directory.checkFree(NoteName.of("partners/acme")))
+            .contains(new Occupied(Path.of("partners"), "is a symbolic link"));
+        assertRefused(() -> directory.publishNew(NoteName.of("partners/acme"), TEXT),
+            WriteRefusal.Kind.OCCUPIED);
+        assertThat(entries(outside)).isEmpty();
+    }
+
+    @Test
+    void aNoteCreatedBetweenCheckAndPublicationIsNeverReplaced() throws Exception {
+        Path root = root();
+        KnowledgeDirectory directory = writable(root);
+        Path target = root.resolve("acme.md");
+        directory.beforePublish(() -> {
+            try {
+                Files.writeString(target, "by hand");
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+
+        assertThat(directory.checkFree(NoteName.of("acme"))).isEmpty();
+        assertRefused(() -> directory.publishNew(NoteName.of("acme"), TEXT),
+            WriteRefusal.Kind.EXISTS);
+
+        assertThat(Files.readString(target)).isEqualTo("by hand");
+        assertThat(entries(root)).containsExactly("acme.md");
+    }
+
+    @Test
+    void aFileSystemWithoutHardLinksRefusesToCreateAndLeavesNothingBehind() throws Exception {
+        Path root = root();
+        KnowledgeDirectory directory = writable(root);
+        directory.publisher(new KnowledgeDirectory.Publisher() {
+            @Override
+            public void link(Path target, Path temporary) throws IOException {
+                throw new FileSystemException(target.toString(), null, "not supported");
+            }
+
+            @Override
+            public void move(Path temporary, Path target) throws IOException {
+                throw new AssertionError("not used");
+            }
+        });
+
+        assertRefused(() -> directory.publishNew(NoteName.of("acme"), TEXT),
+            WriteRefusal.Kind.NOT_ATOMIC);
+        assertThat(entries(root)).isEmpty();
+    }
+
+    @Test
+    void aFileSystemWithoutAtomicMovesRefusesToReplaceAndKeepsTheNote() throws Exception {
+        Path root = root();
+        Files.writeString(root.resolve("acme.md"), "old");
+        KnowledgeDirectory directory = writable(root);
+        directory.publisher(new KnowledgeDirectory.Publisher() {
+            @Override
+            public void link(Path target, Path temporary) {
+                throw new AssertionError("not used");
+            }
+
+            @Override
+            public void move(Path temporary, Path target) throws IOException {
+                throw new AtomicMoveNotSupportedException(temporary.toString(),
+                    target.toString(), "not supported");
+            }
+        });
+
+        assertRefused(() -> directory.publishReplace(Path.of("acme.md"), TEXT),
+            WriteRefusal.Kind.NOT_ATOMIC);
+        assertThat(Files.readString(root.resolve("acme.md"))).isEqualTo("old");
+        assertThat(entries(root)).containsExactly("acme.md");
+    }
+
+    @Test
+    void replacingSwapsTheNoteAndLeavesNoTemporaryFile() throws Exception {
+        Path root = root();
+        Files.createDirectories(root.resolve("partners"));
+        Files.writeString(root.resolve("partners").resolve("acme.md"), "old");
+        KnowledgeDirectory directory = writable(root);
+
+        assertThat(directory.checkExisting(Path.of("partners", "acme.md"))).isEmpty();
+        Path note = directory.publishReplace(Path.of("partners", "acme.md"), TEXT);
+
+        assertThat(note).isEqualTo(root.toRealPath().resolve("partners").resolve("acme.md"));
+        assertThat(Files.readString(note)).isEqualTo("text\n");
+        assertThat(entries(root.resolve("partners"))).containsExactly("acme.md");
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void aReplacedNoteIsOwnerOnly() throws Exception {
+        Path root = root();
+        Path old = Files.writeString(root.resolve("acme.md"), "old");
+        Files.setPosixFilePermissions(old, PosixFilePermissions.fromString("rw-r--r--"));
+
+        Path note = writable(root).publishReplace(Path.of("acme.md"), TEXT);
+
+        assertThat(posix(note)).isEqualTo("rw-------");
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void aLinkOnTheWayToAnExistingNoteIsReported() throws Exception {
+        Path root = root();
+        Path outside = Files.createDirectory(temp.resolve("outside"));
+        Path target = Files.writeString(outside.resolve("acme.md"), "outside");
+        Files.createSymbolicLink(root.resolve("partners"), outside);
+        Files.createSymbolicLink(root.resolve("acme.md"), target);
+        KnowledgeDirectory directory = writable(root);
+
+        assertThat(directory.checkExisting(Path.of("partners", "acme.md")))
+            .contains(new Occupied(Path.of("partners"), "is a symbolic link"));
+        assertThat(directory.checkExisting(Path.of("acme.md")))
+            .contains(new Occupied(Path.of("acme.md"), "is a symbolic link"));
+        assertRefused(() -> directory.publishReplace(Path.of("acme.md"), TEXT),
+            WriteRefusal.Kind.OCCUPIED);
+        assertThat(Files.readString(target)).isEqualTo("outside");
+        assertThat(Files.isSymbolicLink(root.resolve("acme.md"))).isTrue();
+    }
+
+    @Test
+    void aNoteThatIsNoLongerThereIsReported() throws Exception {
+        Path root = root();
+
+        assertThat(writable(root).checkExisting(Path.of("acme.md")))
+            .contains(new Occupied(Path.of("acme.md"), "no longer exists"));
+    }
+
+    @Test
+    void aDirectoryWithoutTheWriteSideRefusesToWrite() throws Exception {
+        Path root = root();
+
+        assertThatThrownBy(() -> new KnowledgeDirectory(root).publishNew(NoteName.of("a"), TEXT))
+            .isInstanceOf(IllegalStateException.class);
+        assertThat(entries(root)).isEmpty();
     }
 }
