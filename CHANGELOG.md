@@ -13,7 +13,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--trustStoreFilePath` for its login connection, so every StartCLI call (module inventory,
   `export_artifacts`, process and write tools) failed with `PKIX path building failed`. The trust
   store now also reaches StartCLI as `-Djavax.net.ssl.trustStore`/`-Djavax.net.ssl.trustStoreType`
-  in `JAVA_TOOL_OPTIONS` (not for a path with whitespace, which only the argument can carry).
+  in `JAVA_TOOL_OPTIONS` (not for a path with whitespace, `'` or `"`, which only the argument can
+  carry: Java reads `'` and `"` there as quotes, and an unpaired one stops the JVM).
   Found in the INUBIT 9.0 live check (feature 017, T047).
 - The 9.0 client's TLS failure (`Authentication failed: Could not establish a secure connection
   to the process engine.` with a TLS cause) is reported as `TLS_ERROR` instead of
