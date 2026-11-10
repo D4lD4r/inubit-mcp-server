@@ -74,6 +74,27 @@ SC-002 comparison: see "T030 notes" (v0.8.0 vs HEAD, same scripted stdio session
 
 Phase 4 code review over `git diff a0d7c86 cab7dd9`: no findings.
 
+## Phase 5 checkpoint (T031–T032, 2026-11-10)
+
+Tasks T031 and T032 approved in round 1 (minor findings fixed by the orchestrator). Both are
+test-only; no production code changed in phase 5.
+
+| Check | Command | Result |
+|---|---|---|
+| Java build | `mvn -o -q clean verify -DargLine=-Djava.io.tmpdir=<tmp outside the checkout>` | green (exit 0) |
+| Python tools | `python3 -I -m unittest discover -s tools/tests` | green, 411 tests OK |
+
+Test count: surefire 394 classes, 6267 tests, 0 failures, 0 errors, 52 skipped; failsafe 2
+classes, 3 tests; total 6270 ≥ 6241 (phase 4).
+
+Phase 5 code review over `git diff fe08f41 e7f4ef9`: one finding, recorded here for T038.
+**T038 (opening 9.0) must also update, in the same commit**, besides the tests tasks.md lists:
+`application/QueueEntryServiceVersionTest.productionStillRefusesNineZeroWithoutALaunch` (asserts
+the shipped matrix refuses 9.0 with "not yet verified for INUBIT 9.0") and
+`application/VersionGateTest` around line 1312 (same text). Otherwise the single T038 commit that
+flips the matrix and adds the recorded `v9_0/error_entry` (required together by
+`QueueEntryFixtureCatalogueTest`) cannot be green.
+
 ## T010 – residual masking gaps (for T040 docs)
 
 Accepted in review (minor, not required by D-11): JSON embedded as an escaped string
