@@ -497,6 +497,16 @@ except the first, which is **pending the person's confirmation**.
   topics of 1–60 characters (D-5).
 - FR-003: the permission warning covers group/other read or write; the `--check-config` count
   needs no credential (D-3).
+- FR-004b: "case folding" means NFC, then upper case, then lower case (Java has no Unicode case
+  folding); this is slightly more conservative (e.g. `ı` and `i` collide) (D-4).
+- FR-010 (d): a YAML block scalar (`password: |` and the indented lines below) is one value (D-6).
+- FR-019, FR-020: "the audit record cannot be written" means the record written before the note;
+  if the final record fails after the note was written, the earlier `PENDING` record stays and the
+  result warns (as for `export_archives`). A call that breaks the tool's input schema is rejected
+  by the MCP layer before the tool runs and is not audited; the schema therefore holds only
+  structural rules, and every other check is done and audited by the tool (D-13).
+- FR-014: a new history version is pruned only after the note was written; a failed write leaves
+  note and history unchanged (D-10).
 
 ## Assumptions
 

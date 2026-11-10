@@ -126,8 +126,14 @@ link and case behaviour as the workspace check of feature 003.
 - **Identity**: lookups (read, `append`, `replace`) compare the NFC name exactly against the
   listed names (`NoteName.equals` is code-point equality after NFC). `create` collides when
   `fold(a).equals(fold(b))` with `fold(s) = normalize(NFC(s).toUpperCase(ROOT).toLowerCase(ROOT),
-  NFC)` (Java has no full Unicode case folding; upper-then-lower maps `ß`→`ss` and the Greek final
-  sigma like folding does, which covers the file systems' case-insensitivity of macOS and Windows).
+  NFC)`. Java has no Unicode case folding, and the plan adds no library for it. Upper-then-lower
+  agrees with full case folding for `ß`/`ss`, the Greek final sigma and ordinary letters, and is
+  **more conservative** for a few letters (dotless `ı` and dotted `İ` fold together with `i`): it
+  may call two names equal that folding keeps apart, never the other way round. A false
+  collision costs a `CONFLICT` for a name a person would hardly tell apart anyway; the occupancy
+  check against the real directory listing (D-10) still catches whatever the file system itself
+  treats as equal. Recorded in the spec's plan decisions as the precise meaning of "case folding"
+  in FR-004b. Tests: `ß`/`SS`, `Σ`/`ς`/`σ`, `ı`/`i`, NFD/NFC `Störung`.
 - **NOT_FOUND suggestions**: the case-insensitive matches (`fold` equal) first, then
   `SimilarNames.of(name, names, 5)` (made `public`, it moves from package-private; behaviour
   unchanged), at most five, each masked and cut as in FR-006 (D-8).
@@ -168,6 +174,11 @@ and lines starting with `#` are allowed. Keys (case-sensitive):
   points, one line, no control characters; `topics` 0–20 items, each 1–60 code points, one line,
   no control characters, no `,` `[` `]` (so the flow list stays parseable without quoting
   rules the operator must learn), unique after `fold`. The JSON schema carries these bounds.
+- **Exposed metadata**: every metadata value that leaves the server (`title`, `topics`,
+  `source`, `lastWriter`) goes through the same pipeline as names (masked, one line, cut at 120,
+  D-8), in hits, pages and instructions; unknown keys and the informative `lastChange` value are
+  never returned. A hand-written `source`/`lastWriter` that is neither `by hand` nor
+  `assistant (…)` is returned masked as written.
 - **Body** = the text after the block (or the whole text without a block). Search excerpts and
   read pages use the body; name, title and topics are separate fields.
 - **Client name** in `source`/`lastWriter`: `CallContext.client()` (`name` of `clientInfo`),
@@ -232,8 +243,11 @@ field or line, never the value.
   Value extent: from the first non-space character after the separator; a quoted value (`"` or
   `'`) ends at the matching unescaped quote (or the end of the line); otherwise at the end of the
   line. Exempt: an empty value, the value `***`, a value that is a `${secret:…}` placeholder
-  (`domain/model/SecretPlaceholder`, already reachable from `application`), and a value that is only a YAML block
-  indicator (`|`, `>`) — the next lines are then **not** inspected (stated residual risk, as prose).
+  (`domain/model/SecretPlaceholder`, already reachable from `application`), **YAML block scalars**: if the value is only a block indicator (`|` or `>`, optionally with
+  chomping/indentation indicators such as `|-`, `>+2`), the value is the block that follows: every
+  following line that is empty or indented deeper than the key's line, up to the first non-empty
+  line that is not; that block is one span (empty block → exempt). Tests cover `|`, `>`, `|-` and
+  an empty block.
   The span covers the value only, never the key (the key stays readable, and write findings name
   it, cut at 40 characters and masked).
 - **Determinism and bounds**: the finder runs on at most 4 MiB of text (FR-013 read bound); it is
@@ -267,9 +281,15 @@ either — a breach of Principle II and SC-002.
   wanted name (nothing configured, so nothing to mask), or an end-to-end read that is empty
   (no end-to-end entries). Every other failure (`TIMEOUT`, `UNREACHABLE`, `ACCESS_DENIED`,
   `STORE_NOT_AVAILABLE`, `INVALID_VALUE`, …) means not ready. To tell them apart without parsing
-  messages, `NodeSecrets` gets `Settled settle(Duration bound)` / `settleE2e(Duration bound)`
-  that never throw and return `Held`, `NothingConfigured` or `Failed(FailureKind)` from the same
-  shared read (its `Cell` already keeps the failure for the back-off).
+  messages, `NodeSecrets` gets `Settled awaitSettled(Duration bound)` /
+  `awaitSettledE2e(Duration bound)` that never throw and return `Held`, `NothingConfigured`,
+  `Waiting` or `Failed(FailureKind)` from the same shared read. This needs a refactor of `Cell`
+  (`NodeSecrets:128-150, 548-566`): today the back-off keeps only `Refusal(ToolError, Instant)`
+  and the classified outcome lives in the transient `Failed`; `Refusal` gains the `FailureKind`
+  (or "nothing configured") so that a caller during the back-off gets the classification too.
+  Existing behaviour of `current`/`e2e` is unchanged (covered by `NodeSecretsTest`); the private
+  method `Cell.settle` keeps its name, the new public ones are named `awaitSettled*` to avoid
+  confusion.
 - Implementation `adapter/ProfileSecrets` (adapter package: it uses `NodeSecrets` and the
   `SecretScrubber`), built in `Wiring` from the existing `secrets` map.
 - **Tool calls** (`read_knowledge`, `record_knowledge`) call `prepare(<the longest store timeout
@@ -326,16 +346,17 @@ note text is never interpreted as a template. Exact texts in
   `- "<name>" — "<title>"` plus ` [topics: "<a>", "<b>"]` when it has topics. Every name, title
   and topic is masked (D-6, D-7), reduced to one line (`\p{Cc}`, U+2028/9 and line breaks → space,
   runs of white space → one space, stripped), cut at 120 code points with `…`, and quoted with
-  `"` (`"` inside → `'`, `\` kept). The list stops before the line that would exceed 4,000
-  characters (list lines only); then `(<shown> of <total> notes shown; search with read_knowledge
-  for the others.)`. Notes over 4 MiB and malformed ones are listed (name and title = file name)
+  `"` (`"` inside → `'`, `\` kept). The whole list — its lines **and** the closing
+  summary `(<shown> of <total> notes shown; search with read_knowledge for the others.)` — is at
+  most 4,000 characters: the summary's maximal length is reserved before lines are added, and a
+  test asserts the serialized list length. Notes over 4 MiB and malformed ones are listed (name and title = file name)
   like the others.
 - Empty or absent directory: "The local knowledge of this profile is empty." Unusable directory
   (not a directory, not readable): "The local knowledge of this profile is not usable now
   (<problem>); see --check-config." — without a list. Credentials not ready (D-7): the count and
   "the list is shown after the profile's credentials are read; list them with read_knowledge".
-- The paragraph has a fixed upper bound: preamble ≤ 1,200 characters + list ≤ 4,000 + closing
-  line; a test asserts it for 5,000 notes (SC-004).
+- The paragraph has a fixed upper bound: preamble ≤ 1,200 characters + list ≤ 4,000 (summary
+  included); a test asserts it for 5,000 notes (SC-004).
 
 ## D-9 Reading: `read_knowledge` (FR-008, FR-008a, FR-009)
 
@@ -361,8 +382,9 @@ note text is never interpreted as a template. Exact texts in
 - **Read** (`name` given; `query`/`topic`/`limit` → `INVALID_INPUT`): `offset` is a character
   offset into the masked body (code units, adjusted down to a code point boundary). Returns
   `name`, `title`, `topics`, `source`, `lastWriter`, `lastChange`, `versionToken`, `masked`,
-  `length` (masked body length), `offset`, `content` (≤ 20,000 characters), `nextOffset` when cut,
-  in which case `content` ends with `ItemBounds.TRUNCATION_MARKER` (`…[truncated]`), and
+  `length` (masked body length), `offset`, `content` (≤ 20,000 characters **including** the
+  marker), `nextOffset` when cut, in which case `content` ends with `ItemBounds.TRUNCATION_MARKER`
+  (`…[truncated]`; the page then holds 20,000 minus the marker's length of note text), and
   `warnings`. Lookup per D-4; missing → `NOT_FOUND` with up to five similar names; over 4 MiB or
   unreadable → `PRECONDITION_FAILED` naming the note (masked) and the bound or cause.
 - **Walk**: `Files.walkFileTree` without `FOLLOW_LINKS`, skipping hidden directories (and so
@@ -383,25 +405,33 @@ the masking, walk and ordering, and a single schema keeps the tool count at two.
 
 **Decision**: input `name`, `mode` (`create` | `append` | `replace`), `title`, `topics`,
 `content`, `versionToken`. Required: `name`, `mode`, `content`; `create` also `title`; `replace`
-also `versionToken`; `versionToken` with another mode → `INVALID_INPUT`. `content` 1 to 262,144
-characters (the schema bound; the byte bound follows). Steps in order:
+also `versionToken`; `versionToken` with another mode → `INVALID_INPUT`. The input schema carries only structural
+rules (D-13); `content` must not be empty, its size is bounded by the 256 KiB note bound. Steps in
+order:
 
-1. **Input**: the name rule (D-4) → `INVALID_INPUT`; title/topics bounds (D-5) → `INVALID_INPUT`.
+1. **Combination rules** (mode/field presence, D-5 bounds of title/topics) → `INVALID_INPUT`.
+   These messages name the field and the rule only, never a value.
 2. **Credentials ready** (D-7) → else `PRECONDITION_FAILED`.
 3. **Secret check** of the new text (FR-013): `name` always; `create`/`replace`: title, every
    topic, content; `append`: the section and a given title/topics. Any finding →
    `INVALID_INPUT` with one line per finding: `<kind> in name|title|topics|content line <n>`
    (plus `(key <key>)` for assignments); never the value.
-4. **Audit `PENDING`** (D-13); failure → `INTERNAL`, nothing written.
-5. **Lock** (D-12), at most 10 s → `PRECONDITION_FAILED` "another write is in progress".
-6. Under the lock, on the current state:
+4. **Name rule** (D-4, `.md` suffix) → `INVALID_INPUT` naming the violated rule and the segment
+   number, not the name.
+
+   Until step 3 has passed, the audit record and any log line carry the name as `***` (before
+   the credentials are known, a name cannot be masked reliably); afterwards the masked name
+   (D-13). This order also means an invalid name is refused only after the credentials were read.
+5. **Audit `PENDING`** (D-13); failure → `INTERNAL`, nothing written.
+6. **Lock** (D-12), at most 10 s → `PRECONDITION_FAILED` "another write is in progress".
+7. Under the lock, on the current state:
    - `create`: a listed note whose name collides by `fold` → `CONFLICT` naming it (masked); the
      target path or a parent segment exists as anything other than a directory for a parent / a
      free path for the file (a file with another case of `.md`, a directory, a symbolic link,
      checked with `NOFOLLOW_LINKS` segment by segment, also case-insensitively against the
      directory listing) → `PRECONDITION_FAILED` naming the occupying path (relative, masked).
-   - `append`/`replace`: not listed → `NOT_FOUND` (similar names); listed but outside the record
-     rule → `INVALID_INPUT` (step 1 already refuses it, since the given name is checked); over
+   - `append`/`replace`: not listed → `NOT_FOUND` (similar names); (a name outside the record
+     rule never gets here: step 4 refuses it); over
      4 MiB or unreadable → `PRECONDITION_FAILED`; malformed metadata → `PRECONDITION_FAILED`
      (FR-004d); parent segment or file is a link → `PRECONDITION_FAILED`.
    - `replace`: current token ≠ given → `CONFLICT` naming the current last change; the current
@@ -416,12 +446,23 @@ characters (the schema bound; the byte bound follows). Steps in order:
    - Bounds: the new file > 256 KiB (UTF-8 bytes) → `PRECONDITION_FAILED` naming the bound
      and the size; the knowledge directory total after the write (all regular files, history
      included, links not followed, the lock file excluded) > 100 MiB → `PRECONDITION_FAILED`.
-     The total is computed by a walk on every write (bounded by D-9's walk limits).
-   - Write: `append`/`replace` first copy the current file to the history (D-11), then the atomic
-     write (D-12); `create` creates missing parent directories owner-only.
-7. **Result**: `name`, `mode`, `lastChange`, `versionToken` (of the new file), `sizeBefore`
+     The total is computed by a walk on every write that is not depth-limited; it stops after
+     1,000,000 entries and then **fails closed** (`PRECONDITION_FAILED` "the knowledge directory
+     is too large to measure"), so files beyond the listing walk's limits (D-9) still count.
+   - Internal paths (D-12): every segment of the note's parent, `.history` with its segments and
+     `.lock` are checked with `NOFOLLOW_LINKS`; an existing one that is a link or of the wrong type
+     → `PRECONDITION_FAILED` naming it. Missing directories are created one segment at a time
+     (`PrivateFileSystem.createDirectories` on a single segment whose parent was just checked), never
+     through `createDirectories` of a deep path (it follows links).
+   - Write (D-11, D-12): (i) `append`/`replace` copy the current file to a **new** history version
+     (nothing existing is touched); (ii) publish the new note atomically; (iii) only then prune the
+     history to 10. If (ii) fails, the version added in (i) is deleted again, so the call leaves
+     note and history as they were (`INTERNAL`, audit `FAILED`); if (iii) fails, the note is
+     written and the result warns that older versions were not pruned.
+8. **Result**: `name`, `mode`, `lastChange`, `versionToken` (of the new file), `sizeBefore`
    (bytes; 0 for create), `sizeAfter`, `historyVersions` (kept for this note), `auditId`,
-   `warnings` (e.g. the final audit record could not be written). Audit outcome `EXECUTED`.
+   `warnings` (e.g. the final audit record could not be written, D-13). Audit outcome
+   `EXECUTED`.
 
 - **Never deletes a note** (FR-011): no mode removes or renames a note file.
 - **Annotations** (FR-016): `readOnlyHint=false`, `destructiveHint=false`,
@@ -456,13 +497,24 @@ notes in a directory `a/`.
 - Timeout → `PRECONDITION_FAILED` "another write to the local knowledge is in progress; try again
   in a moment"; nothing written. No retries inside the server.
 - **Atomic write**: a temporary file `.<file name>.<uuid>.tmp` in the target directory (hidden,
-  ignored by the walk), created owner-only, written and `force`d, then
-  `Files.move(tmp, target, ATOMIC_MOVE, REPLACE_EXISTING)` for `append`/`replace` and
-  `Files.move(tmp, target, ATOMIC_MOVE)` for `create` after the occupancy check under the lock (the
-  operator creating the same file in the same instant is a stated residual risk: POSIX `rename`
-  may replace it). If `ATOMIC_MOVE` is not supported (`AtomicMoveNotSupportedException`) the write
-  fails with `PRECONDITION_FAILED` "the file system of the knowledge directory cannot replace files
-  atomically" — no non-atomic fallback. Temporary files left by a crash are deleted on the next
+  ignored by the walk), created owner-only, written and `force`d, then published:
+  - `append`/`replace`: `Files.move(tmp, target, ATOMIC_MOVE, REPLACE_EXISTING)`;
+  - `create`: `Files.createLink(target, tmp)` and then delete `tmp`. A hard link is created
+    atomically and **fails if the target exists** (`link(2)` `EEXIST`, Windows `CreateHardLink`),
+    so a file the operator creates in the same instant is never replaced (FR-004b) —
+    `FileAlreadyExistsException` → `CONFLICT`. The new note shares the temporary file's inode, so
+    it is owner-only (POSIX bits and the Windows ACL belong to the file, not the name).
+  If the file system cannot do the needed primitive (`AtomicMoveNotSupportedException`,
+  `UnsupportedOperationException` or a `FileSystemException` from `createLink`, e.g. FAT or some
+  network shares), the write fails with `PRECONDITION_FAILED` "the file system of the knowledge
+  directory cannot write notes atomically" — no non-atomic fallback. A test injects a file at the
+  target between the occupancy check and publication (a hook in `KnowledgeDirectory`) and
+  asserts `CONFLICT` and the injected file unchanged.
+- **Links on internal paths**: `.lock` is opened with `FileChannel.open(path, WRITE, CREATE,
+  NOFOLLOW_LINKS)` after an owner-only `PrivateFileSystem.createFile` (the existing
+  `openLockFile` follows links and is not used), `.history` segments and parent segments are
+  checked as in D-10 step 7. Tests make `.lock`, `.history`, a history segment and a parent
+  segment symbolic links (POSIX) and assert the refusal and that nothing is written outside. Temporary files left by a crash are deleted on the next
   write if older than one hour.
 - `append` reads the current file under the lock, so it builds on the content current at that
   moment (FR-015, US2 AS2/AS9).
@@ -479,10 +531,21 @@ same primitive. Same directory for the temporary file keeps the move on one file
 - Inputs in fixed order: `name` (masked, one line, cut at 120 — D-8; a name refused for a secret is
   `***`), `mode`, `sizeBefore`, `sizeAfter` (absent when unknown). Never title, topics, content or
   a version token.
-- A refusal before step 4 of D-10 is one `REFUSED` record; afterwards `PENDING` then `EXECUTED`,
+- A refusal before step 5 of D-10 is one `REFUSED` record; afterwards `PENDING` then `EXECUTED`,
   `REFUSED` or `FAILED` with the same `auditId`. `reason` = error code and message (which never
   contain content or values, D-14). A refusal whose record cannot be written and a failed
-  `PENDING` become `INTERNAL`; a failed final record is a result warning (as 015).
+  `PENDING` become `INTERNAL` with nothing written: this is FR-020's "the audit record cannot be
+  written". A final record that cannot be written **after** the note was published leaves the
+  durable `PENDING` record (tool, name, mode, sizes) and becomes a result warning plus an ERROR
+  log, as in 015 (`ArchiveExportAudit`); undoing a published note would risk losing the operator's
+  concurrent hand edit. Recorded in the spec's plan decisions. Tests inject both failures.
+- **Schema-invalid calls**: the MCP SDK validates tool inputs before the handler
+  (`McpServerFactory:114`, `validateToolInputs(true)`), so a call that violates the input schema
+  never reaches the tool and writes nothing; it is not audited, as for every audited tool today.
+  The schema is kept to the structural rules (types, enum, required `name`/`mode`/`content`,
+  `additionalProperties`); every rule with a refusal worth auditing (combinations, bounds in code
+  points, name rule, secrets) is checked by the service and audited. Recorded in the spec's plan
+  decisions.
 - Reads are not audited; DEBUG logs as in D-9. A write logs INFO `knowledge.record` with the masked
   name, mode, sizes and outcome.
 
@@ -539,9 +602,10 @@ merges second adjusts the tool count in docs/tools.md and the README table; no c
 - Unit tests per class with `@TempDir` knowledge directories and synthetic notes (ACME,
   `*.example.test`, `Workflow-0001`, FR-022); a `FakeConfiguredSecrets` for D-7 states.
 - `KnowledgeSecretLeakTest` (`security/`, with `testing/TestSecrets`): every kind of FR-010 in a
-  hand-written note's name, title, topics and body never appears in instructions, hits, pages,
-  audit lines, log lines (captured appender) or error results, and every kind in new text is
-  refused (SC-002).
+  hand-written note's name, title, topics, `source`, `lastWriter` and body (also in a YAML block
+  scalar) never appears in instructions, hits, pages, version tokens, audit lines, log lines
+  (captured appender) or error results; every kind in new text (also in a structurally invalid
+  name holding a not-yet-read configured credential) is refused without echo (SC-002).
 - `KnowledgeProfilesTest`: two profiles, two directories, each server's tools see only their own
   (SC-003); config overlap errors.
 - `KnowledgeBoundsTest`: 5,000 notes and a 1 MiB note; instructions, search page and read page

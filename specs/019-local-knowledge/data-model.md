@@ -47,11 +47,11 @@ get the listed members; everything else is unchanged.
 | `SecretFinder` | service | `List<Finding> find(String text)`; `Masked mask(String text)` | kinds (a)–(d) per D-6/D-7; (a) through `ConfiguredSecrets.occurrences` |
 | `SecretFinder.Finding` | record | `Kind kind`, `int start`, `int end`, `int line`, `Optional<String> key` | `Kind` = `CONFIGURED_CREDENTIAL`, `KEY_MATERIAL`, `INUBIT_ENCRYPTED`, `ASSIGNMENT` |
 | `Note` | record | `NoteName name`, `Path file`, `long size`, `FileTime modified`, `State state` (`OK`, `TOO_LARGE`, `UNREADABLE`), `Optional<String> text` (absent unless OK), `NoteMetadata metadata` | built per walk, never cached (FR-009) |
-| `KnowledgeDirectory` | file access | `Path root`; `Listing list()`; `Note read(NoteName)`; `Status status()`; `long totalBytes()` | walk per D-9; `NOFOLLOW_LINKS`; depth 16, 100,000 entries |
+| `KnowledgeDirectory` | file access | `Path root`; `Listing list()`; `Note read(NoteName)`; `Status status()`; `long totalBytes()`; `checkInternal(Path)`; `publishNew(Path tmp, Path target)` (hard link); `publishReplace(...)` (atomic move) | listing walk per D-9 (`NOFOLLOW_LINKS`, depth 16, 100,000 entries); `totalBytes` not depth-limited, fails closed after 1,000,000 entries (D-10); test hook between check and publish (D-12) |
 | `KnowledgeDirectory.Listing` | record | `List<Note> notes`, `List<String> warnings` | notes ordered by last change desc, then name |
 | `VersionToken` | utility | `static String of(FileTime mtime, String maskedText)` | `v1.` + base64url(first 18 bytes of SHA-256) (D-9) |
-| `KnowledgeLock` | lock | `Held acquire(Duration wait)` (AutoCloseable) | in-process lock, then `FileChannel.tryLock` polling (D-12) |
-| `KnowledgeHistory` | file access | `int keep(Path note, NoteName name)` | copy, then prune to 10 (D-11); returns versions kept |
+| `KnowledgeLock` | lock | `Held acquire(Duration wait)` (AutoCloseable) | in-process lock, then `FileChannel.tryLock` polling; `.lock` opened with `NOFOLLOW_LINKS`, a link there is refused (D-12) |
+| `KnowledgeHistory` | file access | `Path add(Path note, NoteName name)`; `void undo(Path version)`; `int prune(NoteName name)` | add a new version, publish, then prune to 10; `undo` when publication fails (D-10, D-11) |
 | `KnowledgeAudit` | audit helper | `pending`, `refused`, `finished` | D-13 |
 | `KnowledgeAnnouncement` | text builder | `String paragraph(boolean recording)` | D-8; bounded |
 | `KnowledgeService` | use case | `SearchPage search(Search)`; `NotePage read(String name, int offset)`; `Recorded record(Record, Optional<String> client, String mcpClient)` | flow per D-9, D-10; all names in messages reduced (D-14) |
@@ -59,8 +59,8 @@ get the listed members; everything else is unchanged.
 | `SearchPage` / `Hit` | records | page: `hits`, `offset`, `limit`, `total`, `OptionalInt nextOffset`, `warnings`; hit: `name`, `title`, `topics`, `lastChange`, `source`, `Optional<String> versionToken`, `Optional<String> excerpt`, `int masked`, `boolean writable`, `warnings` | D-9 |
 | `NotePage` | record | `name`, `title`, `topics`, `source`, `Optional<String> lastWriter`, `lastChange`, `versionToken`, `int masked`, `int length`, `int offset`, `String content`, `OptionalInt nextOffset`, `warnings` | page 20,000 characters (D-9) |
 | `Record` | record | `String name`, `Mode mode`, `Optional<String> title`, `Optional<List<String>> topics`, `String content`, `Optional<String> versionToken` | `Mode` = `CREATE`, `APPEND`, `REPLACE`; combination rules D-10 |
-| `Recorded` | record | `name`, `mode`, `lastChange`, `versionToken`, `long sizeBefore`, `long sizeAfter`, `int historyVersions`, `String auditId`, `List<String> warnings` | D-10 step 7 |
-| `KnowledgeLimits` | constants | `NOTE_BYTES = 262_144`, `TOTAL_BYTES = 104_857_600`, `READ_BYTES = 4_194_304`, `HISTORY = 10`, `LOCK_WAIT = 10 s`, `PAGE_CHARS = 20_000`, `EXCERPT_CHARS = 300`, `LINE_CHARS = 120`, `LIST_CHARS = 4_000`, `SEARCH_LIMIT_MAX = 50`, `WALK_DEPTH = 16`, `WALK_ENTRIES = 100_000`, `START_PREPARE = 5 s` | referenced by docs test |
+| `Recorded` | record | `name`, `mode`, `lastChange`, `versionToken`, `long sizeBefore`, `long sizeAfter`, `int historyVersions`, `String auditId`, `List<String> warnings` | D-10 step 8 |
+| `KnowledgeLimits` | constants | `NOTE_BYTES = 262_144`, `TOTAL_BYTES = 104_857_600`, `READ_BYTES = 4_194_304`, `HISTORY = 10`, `LOCK_WAIT = 10 s`, `PAGE_CHARS = 20_000`, `EXCERPT_CHARS = 300`, `LINE_CHARS = 120`, `LIST_CHARS = 4_000`, `SEARCH_LIMIT_MAX = 50`, `WALK_DEPTH = 16`, `WALK_ENTRIES = 100_000`, `SIZE_WALK_ENTRIES = 1_000_000`, `START_PREPARE = 5 s` | referenced by docs test |
 
 `application/SimilarNames` changes from package-private to public (no behaviour change).
 
@@ -69,7 +69,7 @@ get the listed members; everything else is unchanged.
 | Type | Change | Members | Rules |
 |---|---|---|---|
 | `infra/SecretScrubber` | Changed | `+ List<SecretSpan> occurrences(String text)` | same matching as `scrub`; `scrub` uses it |
-| `adapter/NodeSecrets` | Changed | `+ Settled settle(Duration)`, `+ Settled settleE2e(Duration)` | never throw; `Held`, `NothingConfigured`, `Failed(FailureKind)` (D-7) |
+| `adapter/NodeSecrets` | Changed | `+ Settled awaitSettled(Duration)`, `+ Settled awaitSettledE2e(Duration)`; `Cell.Refusal` keeps the classified outcome | never throw; `Held`, `NothingConfigured`, `Waiting`, `Failed(FailureKind)` (D-7) |
 | `adapter/ProfileSecrets` | New | implements `ConfiguredSecrets` over `Map<NodeId, NodeSecrets>` and the scrubber | parallel reads, bounded wait |
 | `adapter/os/*PrivateFileSystem` | Changed | `othersMayAccess` | POSIX / Windows (D-3) |
 | `adapter/archive/v81/SecretRedactor`, `RepositoryArchive`, `SecretPaths` | Changed | import `domain.model.KeyMaterial` | behaviour unchanged |

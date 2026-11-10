@@ -30,8 +30,10 @@ contact:
 - **`read_knowledge`** lists/searches (masked text, newest first, paged, excerpts, version
   tokens) or reads one note in pages of 20,000 characters (D-9);
 - **`record_knowledge`** `create` / `append` / `replace` with secret check, bounds (256 KiB,
-  100 MiB, 4 MiB read), version token for `replace`, a 10-version history, a cross-process lock with
-  a 10 s wait, atomic writes and an audit record per call (D-10 … D-13).
+  100 MiB fail-closed, 4 MiB read), version token for `replace`, a 10-version history pruned only
+  after success, a cross-process lock with a 10 s wait, atomic writes (`create` by hard link, so it
+  never replaces a file), no writes through links on any internal path, and an audit record per
+  call (D-10 … D-13).
 
 ## Decision needed (person)
 
@@ -42,8 +44,11 @@ access dialogs for every node) and refuses while a store does not answer (e.g. A
 offline); at server start the reads run for up to 5 s only when notes exist. Alternatives: (B)
 mask only credentials already read (never blocks, breaks SC-002 for unread ones), (C) as chosen
 but never read at start (the note list then never appears in the instructions of a profile with
-nodes). The tasks implement (A); (C) is a one-line change in `Launcher` (T-id in tasks.md).
-Recorded in the spec's "Plan decisions" as pending confirmation.
+nodes). Recorded in the spec's "Plan decisions" as pending confirmation. **Gate**: tasks.md puts
+everything that depends on this choice (the `ConfiguredSecrets` readiness in the tools and at
+start) behind an explicit decision checkpoint; the person's answer is needed before those tasks
+start. Everything else (rules (b)–(d), the walk, the record flow with a fake readiness) does not
+depend on it.
 
 ## Validation status
 
@@ -219,4 +224,5 @@ Each stage ends with a code review of its diff, the findings fixed, and a green 
 |---|---|---|
 | 011 R-10 ("no credential is resolved at startup") no longer holds for profiles with notes; every knowledge call needs all of the profile's credentials (D-7) — **pending the person's confirmation** | FR-010 (a) and SC-002 require masking configured credentials in hand-written notes; values never read are unknown to the process | (B) masking only held credentials leaves unread passwords visible; (C) never reading at start keeps 011 intact but withholds the note list from the instructions of nearly every profile (FR-006). Both are offered to the person; (C) is a small change. |
 | A second home of the key-material rule is avoided by moving `KeyMaterial` from `adapter/archive/v81` to `domain/model` | FR-010 (b) requires "the existing rule"; `application` must not use an adapter | A copy would drift; the move is behaviour-neutral and covered by the existing archive tests. |
+| FR-020 is read as "the record before the write": a failed final audit after the note was published leaves the `PENDING` record and a warning (D-13) | The note cannot be un-published atomically after the fact; `export_archives` (015) set the same precedent | Undoing the write after a final audit failure could itself fail and lose the operator's text; refusing to write without both records is impossible to guarantee. |
 | First `application` sub-package | about 15 cohesive types; the flat package already holds 54 files | Flat placement would mix the knowledge with INUBIT use cases; the boundary rules apply by prefix and need no change. |

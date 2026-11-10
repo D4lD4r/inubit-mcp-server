@@ -29,6 +29,14 @@
 | US2 AS8: 256 KiB and 100 MiB bounds | `KnowledgeBoundsTest` |
 | US2 AS9: two processes append | `KnowledgeLockTest` (threads), `KnowledgeCrossProcessIT` (two JVMs) |
 | US2 AS10: symbolic link `old.md` | `KnowledgeDirectoryTest`, `KnowledgeServiceRecordTest` (POSIX only) |
+| D-12: links on `.lock`, `.history`, a history segment or a parent segment refused; nothing written outside the directory | `KnowledgeDirectoryTest`, `KnowledgeLockTest`, `KnowledgeHistoryTest` (POSIX only) |
+| D-12: a file appears at the target between check and publish → `CONFLICT`, the file unchanged | `KnowledgeServiceRecordTest` (test hook) |
+| D-10, FR-014: publish fails → note and history unchanged; prune only after success | `KnowledgeServiceRecordTest`, `KnowledgeHistoryTest` |
+| D-10: size walk beyond 1,000,000 entries or depth 16 → `PRECONDITION_FAILED` (fail closed) | `KnowledgeBoundsTest` |
+| D-13: pre-write audit fails → `INTERNAL`, nothing written; final audit fails → note written, `PENDING` stays, warning | `KnowledgeServiceRecordTest` (failing audit fake) |
+| D-5, D-6: `source`/`lastWriter` and YAML block values masked | `NoteMetadataTest`, `SecretFinderTest`, `KnowledgeSecretLeakTest` |
+| D-4: fold collisions (`ı`/`i`, NFC forms) | `NoteNameTest` |
+| D-10 step 4: an invalid name holding a secret is refused without echo, audit shows `***` | `KnowledgeServiceRecordTest`, `KnowledgeSecretLeakTest` |
 | US3 AS1, SC-003: two profiles | `KnowledgeProfilesTest` |
 | US3 AS2, FR-009: hand edit visible | `KnowledgeServiceReadTest` |
 | US3 AS3, FR-002: overlap errors | `ConfigValidatorKnowledgeTest` |
