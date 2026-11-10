@@ -18,6 +18,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The 9.0 client's TLS failure (`Authentication failed: Could not establish a secure connection
   to the process engine.` with a TLS cause) is reported as `TLS_ERROR` instead of
   `UNEXPECTED_RESPONSE`.
+- `import_artifacts` no longer rolls back a successful import of a workflow that got a new
+  variable. INUBIT keeps the variables of a workflow in hash order, so the re-export may list a
+  variable added at the end behind another one; the verify refused that as `VERIFY_MISMATCH` and
+  rolled the import back (observed on 8.1). The verification of an import and of its rollback,
+  and the change and conflict checks of the development tools, now compare the `Variable`
+  elements of a workflow's `Variables` by name in any order; their content still counts, and the
+  order of everything else (modules, properties, assignments) stays significant. Fingerprints
+  (confirmation codes, backups, the deployment ledger) and `deploy_release` are unchanged.
 
 ## [0.8.0] - 2026-11-07
 

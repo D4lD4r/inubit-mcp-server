@@ -110,8 +110,9 @@ public interface ImportArchivePort {
     /**
      * True if two versions of the workspace file {@code path} have the same reviewed content:
      * XML compared normalized, ignoring what INUBIT rewrites on every import ({@code
-     * CheckinComment}, {@code LastUpdate}, UIDs, {@code CheckoutUser}) and the order of the
-     * connections of a workflow module (feature 007); an embedded text document (stylesheet,
+     * CheckinComment}, {@code LastUpdate}, UIDs, {@code CheckoutUser}), the order of the
+     * connections of a workflow module (feature 007) and the order of a workflow's variables,
+     * which INUBIT keeps in hash order; an embedded text document (stylesheet,
      * WSDL) as INUBIT stores it, without trailing whitespace and with any line ends (0.4.2);
      * other files byte by byte.
      */

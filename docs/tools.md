@@ -1698,6 +1698,17 @@ limitation: such a fingerprint is not recognised after the server flipped the or
 recorded, so restoring that old backup is refused with `CONFLICT` (nothing is changed) and the
 next deployment preview may warn `OUTSIDE_CHAIN` for that workflow.
 
+**Order of workflow variables (0.8.1).** INUBIT keeps the variables of a workflow in hash order:
+a variable added at the end of `Variables` can come back behind any other one. The verification
+of `import_artifacts` and of its rollback, and the change and conflict checks of the development
+tools, compare a workflow's `Variable` elements by name in any order; a variable added, removed,
+renamed or changed (type, default value, comment, input flag) is still a difference. Fingerprints
+(confirmation codes, backups, the deployment ledger) keep the order, since two exports of one
+stored version list the variables alike, and `deploy_release` is unchanged. The write-back after
+an import takes the server's order, so the workspace file can show the variable moved. A verify
+report (`.reports/verify-<auditId>.diff`) is a plain line diff: it also shows order-only changes
+of connections and variables that did not cause the mismatch.
+
 **Backups** are kept 30 days in `~/.inubit-mcp/<profile>/backups` (the newest per node, owner and
 scope always); older ones are removed at the start of the next writing call, each removal audited
 (`backup_retention`).

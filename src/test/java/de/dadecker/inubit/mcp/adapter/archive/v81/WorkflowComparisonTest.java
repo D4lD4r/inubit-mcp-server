@@ -292,4 +292,64 @@ class WorkflowComparisonTest {
             "<Module><ModuleName>M</ModuleName><IsActive>x</IsActive></Module>")));
         assertThat(WorkflowComparison.reviewed(other, true)).isEqualTo(other);
     }
+
+    /** The normalized form with the connections and the workflow variables in one order. */
+    private static String contentOrdered(String xml) {
+        return text(WorkflowComparison.contentOrdered(root(xml)));
+    }
+
+    private static String variable(String name, String type) {
+        return "<Variable name=\"" + name + "\" type=\"" + type + "\"/>";
+    }
+
+    @Test
+    void theVariablesOfAWorkflowTakeOneOrderByName() {
+        // INUBIT keeps the variables of a workflow in hash order: a new one may come back
+        // anywhere, not where it was sent
+        String sent = workflow(module("Module-0001", connection("2", "5") + connection("1", "4"))
+            + "<Variables xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">"
+            + variable("var.b", "xs:string") + "<!-- c -->" + variable("var.a", "xs:string")
+            + "<Variable type=\"xs:int\"/>" + variable("Var.c", "xs:boolean") + "</Variables>");
+        String stored = workflow(module("Module-0001", connection("1", "4") + connection("2", "5"))
+            + "<Variables xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">"
+            + variable("Var.c", "xs:boolean") + "<!-- c -->" + "<Variable type=\"xs:int\"/>"
+            + variable("var.b", "xs:string") + variable("var.a", "xs:string") + "</Variables>");
+
+        assertThat(contentOrdered(sent)).isEqualTo(contentOrdered(stored))
+            .isEqualTo(contentOrdered(contentOrdered(sent)))
+            // by name (case-sensitive), a variable without a name last; other children stay
+            .containsSubsequence("name=\"Var.c\"", "<!-- c -->", "name=\"var.a\"",
+                "name=\"var.b\"", "<Variable type=\"xs:int\"/>")
+            .containsSubsequence("moduleOutId=\"1\"", "moduleOutId=\"2\"");
+        assertThat(ordered(sent)).as("the fingerprint form keeps the variables' order")
+            .isNotEqualTo(ordered(stored));
+    }
+
+    @Test
+    void onlyTheVariablesOfAWorkflowTakeOneOrder() {
+        String inModule = workflow(module("Module-0001", "<Variables>"
+            + variable("b", "t") + variable("a", "t") + "</Variables>"));
+        String notAWorkflow = "<Module><Variables>" + variable("b", "t") + variable("a", "t")
+            + "</Variables></Module>";
+        String otherChildren = workflow("<Variables><Other name=\"b\"/><Other name=\"a\"/>"
+            + "</Variables>");
+        String properties = workflow(module("Module-0001", "<Properties>"
+            + "<Property name=\"b\">1</Property><Property name=\"a\">2</Property>"
+            + "</Properties>"));
+
+        for (String xml : List.of(inModule, notAWorkflow, otherChildren, properties)) {
+            assertThat(contentOrdered(xml)).as(xml).isEqualTo(text(root(xml)));
+        }
+    }
+
+    @Test
+    void variablesWithTheSameNameAreOrderedByTheirText() {
+        String one = workflow("<Variables>" + variable("a", "t2") + variable("a", "t1")
+            + "</Variables>");
+        String other = workflow("<Variables>" + variable("a", "t1") + variable("a", "t2")
+            + "</Variables>");
+
+        assertThat(contentOrdered(one)).isEqualTo(contentOrdered(other));
+        assertThat(contentOrdered(one)).isNotEqualTo(contentOrdered(other.replace("t2", "t3")));
+    }
 }

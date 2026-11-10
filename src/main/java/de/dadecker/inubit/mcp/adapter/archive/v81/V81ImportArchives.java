@@ -17,8 +17,8 @@ import java.util.TreeMap;
  * The 8.1 {@link ImportArchivePort} (feature 004): {@link ImportAssembler} with the secret
  * values, identities (UIDs, module file names, diagram group context) and versions of the
  * target's raw exports, and the comparison of reviewed content — embedded text documents as
- * INUBIT stores them (0.4.2), the connections of a workflow module in any order (feature 007,
- * {@link WorkflowComparison}).
+ * INUBIT stores them (0.4.2), the connections of a workflow module (feature 007) and the
+ * variables of a workflow in any order ({@link WorkflowComparison}).
  */
 public final class V81ImportArchives implements ImportArchivePort {
 
@@ -151,11 +151,11 @@ public final class V81ImportArchives implements ImportArchivePort {
 
     /**
      * The comparison form of an XML file: normalized, without the volatile children of a
-     * workflow or a module index entry, the connections of the workflow modules in one order
-     * (feature 007).
+     * workflow or a module index entry, the connections of the workflow modules (feature 007)
+     * and the variables of a workflow in one order ({@link WorkflowComparison#contentOrdered}).
      */
     private static byte[] compared(byte[] xml) {
-        return XmlNormalizer.normalize(WorkflowComparison.connectionsOrdered(
+        return XmlNormalizer.normalize(WorkflowComparison.contentOrdered(
             WorkflowComparison.reviewed(XmlTree.parse(xml).root(), false)));
     }
 
