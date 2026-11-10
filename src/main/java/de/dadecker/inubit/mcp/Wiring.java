@@ -479,7 +479,8 @@ final class Wiring implements AutoCloseable {
                 new BackupStore(backups, clock.clock(), privateFiles), ledger, audit,
                 profile.name(), clock.clock(), UUID::randomUUID, workspace,
                 new DiagramGroupTagger(workspace), new PackageWriter(
-                    deployments.resolveSibling("packages"), clock.clock(), privateFiles)));
+                    PackageWriter.defaultDirectory(Path.of(System.getProperty("user.home")),
+                        profile.name()), clock.clock(), privateFiles)));
             deployer = Optional.of(nodeDeployer);
             DeployService deploy = new DeployService(new DeployService.Dependencies(workspace,
                 deployments, profile.name(), new DeployGuard(chain, targets, group ->

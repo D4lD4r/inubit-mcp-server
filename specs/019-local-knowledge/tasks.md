@@ -58,7 +58,7 @@ person's choice on 2026-11-10: option (A), fail closed (plan.md "Decision"). Tas
 - [X] T005 `SecretScrubber.occurrences(String)` returning the spans of held values (D-6 (a)),
   behaviour of the existing scrub methods unchanged — main `infra/SecretScrubber.java`, test
   `infra/SecretScrubberTest.java`
-- [ ] T006 [P] `SimilarNames` made `public` (behaviour unchanged): first a red test in
+- [X] T006 [P] `SimilarNames` made `public` (behaviour unchanged): first a red test in
   `knowledge/SimilarNamesAccessTest.java` that calls `SimilarNames.of` from the
   sub-package (does not compile while package-private), then the modifier; `PackageWriter.defaultDirectory`
   (D-2, the export default used by FR-002) — main `application/SimilarNames.java`,

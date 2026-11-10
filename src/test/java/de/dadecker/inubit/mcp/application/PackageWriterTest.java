@@ -70,6 +70,15 @@ class PackageWriterTest {
     }
 
     @Test
+    void thePackagesOfAProfileLieBesideItsDeploymentLedgers() {
+        Path home = Path.of("home");
+
+        assertThat(PackageWriter.defaultDirectory(home, "dev"))
+            .isEqualTo(home.resolve(".inubit-mcp").resolve("dev").resolve("packages"))
+            .isEqualTo(DeploymentLedger.defaultDirectory(home, "dev").resolveSibling("packages"));
+    }
+
+    @Test
     void aPackageHoldsTheArchivesInImportOrderAndTheReadmeCommands() throws IOException {
         UUID auditId = UUID.randomUUID();
 
