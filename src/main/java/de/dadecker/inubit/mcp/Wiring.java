@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp;
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
 import de.dadecker.inubit.mcp.adapter.NodeSecrets;
 import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
+import de.dadecker.inubit.mcp.adapter.ProfileSecrets;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
@@ -65,6 +66,11 @@ import de.dadecker.inubit.mcp.application.UpdateStatus;
 import de.dadecker.inubit.mcp.application.WorkspaceService;
 import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
 import de.dadecker.inubit.mcp.application.WriteGuard;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeAnnouncement;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeDirectory;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeLimits;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeService;
+import de.dadecker.inubit.mcp.application.knowledge.NoteRefs;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialNames;
@@ -110,6 +116,7 @@ import de.dadecker.inubit.mcp.mcp.tools.DeployReleaseTool;
 import de.dadecker.inubit.mcp.mcp.tools.ImportArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.KillProcessTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListInventoryTool;
+import de.dadecker.inubit.mcp.mcp.tools.ReadKnowledgeTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestoreBackupTool;
@@ -118,6 +125,7 @@ import de.dadecker.inubit.mcp.mcp.tools.RunE2eTestTool;
 import de.dadecker.inubit.mcp.mcp.tools.TagArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
 import java.nio.file.Path;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -190,6 +198,9 @@ final class Wiring implements AutoCloseable {
     /** Feature 015: offered under the condition of {@code export_artifacts} (research R-16). */
     private final ExportArchivesTool exportArchives;
     private final CheckArtifactsTool checkArtifacts;
+    /** Feature 019: the profile's local knowledge, read with all its credentials known (D-7). */
+    private final KnowledgeService knowledge;
+    private final boolean knowledgeRecording;
     private final ImportArtifactsTool importArtifacts;
     private final RestoreBackupTool restoreBackup;
     /** Feature 005: the stage chain of the configuration (empty: none). */
@@ -364,6 +375,12 @@ final class Wiring implements AutoCloseable {
         // read as long as its store may take, but only while the credentials are not held
         Map<NodeId, Duration> fetchWaits = new HashMap<>();
         secrets.forEach((id, nodeSecrets) -> fetchWaits.put(id, nodeSecrets.timeout()));
+        // feature 019 (research D-7, option A): notes are shown only with every configured
+        // credential of the profile known; a tool call waits as long as the slowest store
+        ProfileSecrets profileSecrets = new ProfileSecrets(secrets, scrubber);
+        this.knowledge = new KnowledgeService(
+            new KnowledgeDirectory(config.knowledge().directory()), profileSecrets, new NoteRefs(new SecureRandom()), profileSecrets.timeout());
+        this.knowledgeRecording = config.knowledge().recording();
         SecretTiming secretTiming = new SecretTiming(fetchWaits,
             id -> secrets.get(id).held().isPresent(), stores);
         this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,
@@ -564,6 +581,8 @@ final class Wiring implements AutoCloseable {
         List<ToolHandler> handlers = new ArrayList<>();
         handlers.add(new ListNodesTool(profile, overview::nodes));
         handlers.add(new GetHealthTool(health, updateStatus::current));
+        // feature 019 (research D-15): for every profile, also without nodes
+        handlers.add(new ReadKnowledgeTool(knowledge));
         // feature 012 (research D-12): a read tool only if some node may run its capability
         if (anyPossiblyCapable(Capability.PROCESS_DIAGNOSIS)) {
             handlers.add(new FindProcessesTool(diagnosis));
@@ -617,11 +636,30 @@ final class Wiring implements AutoCloseable {
         return serverFactory(version, handlers, UpdateNotice.NONE);
     }
 
-    /** As above, with the update notice of feature 016 (FR-017 to FR-019). */
+    /**
+     * As above, with the update notice of feature 016 (FR-017 to FR-019) and the knowledge
+     * paragraph as {@link #knowledgeOverview()} finds the notes now.
+     */
     McpServerFactory serverFactory(String version, List<ToolHandler> handlers,
         UpdateNotice updateNotice) {
+        return serverFactory(version, handlers, updateNotice, knowledgeOverview());
+    }
+
+    /** As above, with the knowledge paragraph of {@code knowledgeState} (feature 019, D-8). */
+    McpServerFactory serverFactory(String version, List<ToolHandler> handlers,
+        UpdateNotice updateNotice, KnowledgeAnnouncement.State knowledgeState) {
         return new McpServerFactory(version, profile, handlers, SchemaResources.forClasspath(),
-            new ResultMapper(scrubber), updateNotice);
+            new ResultMapper(scrubber), updateNotice,
+            KnowledgeAnnouncement.paragraph(knowledgeRecording, knowledgeState));
+    }
+
+    /**
+     * What the local knowledge holds at start for the instructions (feature 019, research D-7,
+     * D-8): with notes, the profile's credentials are read first, for at most
+     * {@link KnowledgeLimits#START_PREPARE}; without notes nothing is read.
+     */
+    KnowledgeAnnouncement.State knowledgeOverview() {
+        return knowledge.overview(KnowledgeLimits.START_PREPARE);
     }
 
     GatewayFactory gateways() {
