@@ -30,12 +30,12 @@ person's choice on 2026-11-10: option (A), fail closed (plan.md "Decision"). Tas
 
 ## Phase 1: Setup
 
-- [ ] T001 Baseline: the build above is green on `019-local-knowledge` (on top of 0.8.0); note the
+- [X] T001 Baseline: the build above is green on `019-local-knowledge` (on top of 0.8.0); note the
   test count (expected 4998 tests, 0 failures, 51 skipped) in `reviews/implementation.md`
 
 ## Phase 2: Foundational (plan stage 1; blocks every story)
 
-- [ ] T002 Move `KeyMaterial` from `adapter/archive/v81` to `domain/model` (D-6 (b), behaviour
+- [X] T002 Move `KeyMaterial` from `adapter/archive/v81` to `domain/model` (D-6 (b), behaviour
   unchanged; `+ longBase64` only if research D-6 needs it for the token rule); update the imports
   of `SecretRedactor`, `RepositoryArchive`, `SecretPaths`; keep `adapter/archive/v81/package-info`
   (`theWorkspaceAdapterPackagesExist`). There is no dedicated test today: first write
