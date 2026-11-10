@@ -13,8 +13,10 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerFixtures.PartnerXml;
 import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerFixtures.TwfXml;
 import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerManagementReader;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree;
+import de.dadecker.inubit.mcp.application.PartnerService.Answer;
 import de.dadecker.inubit.mcp.application.PartnerService.CloudCount;
 import de.dadecker.inubit.mcp.application.PartnerService.CloudWorkflows;
+import de.dadecker.inubit.mcp.application.PartnerService.Compared;
 import de.dadecker.inubit.mcp.application.PartnerService.DiagramRead;
 import de.dadecker.inubit.mcp.application.PartnerService.EntryView;
 import de.dadecker.inubit.mcp.application.PartnerService.Found;
@@ -57,14 +59,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * T019: search and details of {@link PartnerService#find} on one server (US1-AS1…5, Op-1, FR-004,
+ * T019: search and details of {@link PartnerService#answer} on one server (US1-AS1…5, Op-1, FR-004,
  * FR-005, FR-007, FR-011) over the masked model the reader makes of the synthetic exports of
  * {@link PartnerFixtures}; every result is checked as the JSON text of {@link ResultJson} against
  * every synthetic secret.
@@ -307,15 +308,17 @@ class PartnerServiceSearchTest {
         export(PartnerFixtures.detail());
 
         assertThat(find("acme-0001").similarValues()).isEmpty();
-        assertThat(service().find(query("dev/node1", Optional.empty(), Optional.empty()))
-            .similarValues()).isEmpty();
+        Found listed = (Found) service().answer(query("dev/node1", Optional.empty(),
+            Optional.empty()));
+
+        assertThat(listed.similarValues()).isEmpty();
     }
 
     @Test
     void noSimilarValuesWhenNoServerAnswered() {
         export(PartnerFixtures.detail());
 
-        Found found = service().find(query("dev/node2", Optional.of("acme-0004")));
+        Found found = (Found) service().answer(query("dev/node2", Optional.of("acme-0004")));
 
         assertThat(found.servers()).extracting(server -> server.error().map(ToolError::code))
             .containsExactly(Optional.of(ErrorCode.NOT_CONFIGURED));
@@ -362,7 +365,7 @@ class PartnerServiceSearchTest {
         }
 
         ToolErrorException e = catchThrowableOfType(ToolErrorException.class,
-            () -> service().find(query("dev/node1", Optional.empty(),
+            () -> service().answer(query("dev/node1", Optional.empty(),
                 Optional.of("SystemDiagram-00"))));
 
         assertThat(e.error().code()).isEqualTo(ErrorCode.NOT_FOUND);
@@ -375,11 +378,11 @@ class PartnerServiceSearchTest {
     void aSystemDiagramFilterIgnoresCaseAndIsNotFoundOnlyIfNoAnsweringServerHasIt() {
         export(PartnerFixtures.detail());
 
-        Found found = service().find(query("dev/node1", Optional.of("acme-0001"),
+        Found found = (Found) service().answer(query("dev/node1", Optional.of("acme-0001"),
             Optional.of("systemdiagram-01")));
         ToolErrorException e = catchThrowableOfType(ToolErrorException.class,
-            () -> service().find(query("dev", Optional.empty(), Optional.of("SystemDiagram-1"))));
-        Found noneAnswered = service().find(query("dev/node2", Optional.empty(),
+            () -> service().answer(query("dev", Optional.empty(), Optional.of("SystemDiagram-1"))));
+        Found noneAnswered = (Found) service().answer(query("dev/node2", Optional.empty(),
             Optional.of("SystemDiagram-1")));
 
         assertThat(found.partners()).extracting(PartnerView::systemDiagram).containsExactly(ONE);
@@ -387,35 +390,6 @@ class PartnerServiceSearchTest {
         assertThat(e.error().nextStep()).contains("'SystemDiagram-01'");
         assertThat(noneAnswered.servers()).extracting(server -> server.error().map(ToolError::code))
             .containsExactly(Optional.of(ErrorCode.NOT_CONFIGURED));
-    }
-
-    // --- paging (FR-017, phase 3 review) ----------------------------------------------------
-
-    @Test
-    void offsetAndLimitPageTheMatchesOfAllServersInServerOrder() {
-        export(PartnerFixtures.detail());
-        owners.put(NODE2, Optional.of(OWNER));
-
-        Found first = service().find(query("dev", Optional.empty(), 2, 3));
-        Found last = service().find(query("dev", Optional.empty(), 5, 3));
-        Found beyond = service().find(query("dev", Optional.of("acme"), 6, 3));
-
-        assertThat(first.partners()).extracting(PartnerServiceSearchTest::id)
-            .containsExactly("ACME-0003", "ACME-0001", "ACME-0002");
-        assertThat(first.total()).isEqualTo(6);
-        assertThat(first.nextOffset()).isEqualTo(OptionalInt.of(5));
-        assertThat(first.referencableWorkflows()).as("the cloud of each server on the page")
-            .hasSize(2);
-        assertThat(last.partners()).extracting(PartnerServiceSearchTest::id)
-            .containsExactly("ACME-0003");
-        assertThat(last.total()).isEqualTo(6);
-        assertThat(last.nextOffset()).isEmpty();
-        assertThat(beyond.partners()).isEmpty();
-        assertThat(beyond.referencableWorkflows()).isEmpty();
-        assertThat(beyond.total()).isEqualTo(6);
-        assertThat(beyond.nextOffset()).isEmpty();
-        assertThat(beyond.similarValues()).as("the search matched, only not on this page")
-            .isEmpty();
     }
 
     // --- FR-011 -------------------------------------------------------------------------------
@@ -468,16 +442,18 @@ class PartnerServiceSearchTest {
     void aFailedServerIsAnsweredWithItsErrorAndNothingLeaks() {
         export(PartnerFixtures.detail());
 
-        Found found = service().find(query("dev", Optional.of("acme")));
+        Compared compared = (Compared) service().answer(query("dev", Optional.of("acme")));
 
-        assertThat(found.servers()).extracting(ServerView::node).containsExactly(NODE1, NODE2);
-        ServerView failed = found.servers().get(1);
+        assertThat(compared.servers()).extracting(ServerView::node)
+            .containsExactly(NODE1, NODE2);
+        ServerView failed = compared.servers().get(1);
         assertThat(failed.error()).map(ToolError::code).contains(ErrorCode.NOT_CONFIGURED);
         assertThat(failed.owner()).isEmpty();
         assertThat(failed.collectedAt()).isEmpty();
         assertThat(failed.systemDiagramsRead()).isEmpty();
-        assertThat(found.partners()).hasSize(3);
-        assertNoSecretIn(found);
+        assertThat(compared.partners()).hasSize(3);
+        assertThat(compared.incomplete()).isTrue();
+        assertNoSecretIn(compared);
     }
 
     // --- support -------------------------------------------------------------------------------
@@ -502,7 +478,7 @@ class PartnerServiceSearchTest {
     }
 
     private Found find(String search) {
-        return service().find(query("dev/node1", Optional.of(search)));
+        return (Found) service().answer(query("dev/node1", Optional.of(search)));
     }
 
     private static PartnerQuery query(String target, Optional<String> search) {
@@ -516,19 +492,12 @@ class PartnerServiceSearchTest {
             false, Optional.empty());
     }
 
-    private static PartnerQuery query(String target, Optional<String> search, int offset,
-        int limit) {
-        return new PartnerQuery(target, Optional.empty(), Optional.empty(), search,
-            Optional.empty(), Optional.empty(), Optional.empty(), offset, limit, false,
-            Optional.empty());
-    }
-
     /**
      * The JSON text of the result holds no synthetic secret, not even its first 12 characters (a
      * fingerprint would make the mapper throw).
      */
-    private static void assertNoSecretIn(Found found) {
-        String json = ResultJson.mapper().writeValueAsString(found);
+    private static void assertNoSecretIn(Answer answer) {
+        String json = ResultJson.mapper().writeValueAsString(answer);
         for (String secret : PartnerFixtures.SECRETS) {
             assertThat(json).doesNotContain(secret).doesNotContain(secret.substring(0, 12));
         }

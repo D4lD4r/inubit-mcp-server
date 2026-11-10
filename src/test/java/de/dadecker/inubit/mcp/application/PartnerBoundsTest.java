@@ -53,13 +53,14 @@ class PartnerBoundsTest {
         int budget = (int) (ResultJson.size(List.of(first)) / PartnerBounds.DIAGRAM_SHARE);
 
         PartnerBounds.Servers bounded = PartnerBounds.servers(
-            List.of(server(List.of(first, second), List.of())), List.of(0), page, budget,
+            List.of(server(List.of(first, second), List.of())), List.of(0),
+            page.stream().map(PartnerBounds.Item::sources).toList(), budget,
             ResultJson::size);
 
         assertThat(bounded.value().get(0).systemDiagramsRead())
             .as("the first partner's, though it does not fit beside the empty lists")
             .containsExactly(second);
-        assertThat(bounded.page()).containsExactly(page.get(0));
+        assertThat(bounded.shown()).isEqualTo(1);
         assertThat(bounded.cut()).isTrue();
     }
 

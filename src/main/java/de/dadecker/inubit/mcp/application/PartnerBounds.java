@@ -2,8 +2,12 @@ package de.dadecker.inubit.mcp.application;
 
 import de.dadecker.inubit.mcp.application.PartnerService.CloudCount;
 import de.dadecker.inubit.mcp.application.PartnerService.CloudWorkflows;
+import de.dadecker.inubit.mcp.application.PartnerService.ComparedEntryView;
+import de.dadecker.inubit.mcp.application.PartnerService.ComparedPartnerView;
+import de.dadecker.inubit.mcp.application.PartnerService.ComparedSettingView;
 import de.dadecker.inubit.mcp.application.PartnerService.DiagramRead;
 import de.dadecker.inubit.mcp.application.PartnerService.EntryView;
+import de.dadecker.inubit.mcp.application.PartnerService.KeyView;
 import de.dadecker.inubit.mcp.application.PartnerService.PartnerView;
 import de.dadecker.inubit.mcp.application.PartnerService.ServerView;
 import de.dadecker.inubit.mcp.application.PartnerService.SettingView;
@@ -14,6 +18,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort.UnreadableDiagram;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -21,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.function.ToIntFunction;
 import java.util.function.UnaryOperator;
 import java.util.stream.IntStream;
@@ -60,6 +67,9 @@ import java.util.stream.IntStream;
  *       values (at most five), and the fields and the system diagram of the one partner always
  *       kept. Only if these alone exceed the budget does the result too; {@link PartnerService}
  *       then still reports {@code truncated}.
+ *   <li>A comparison (T027) is bounded alike: each compared value cut like a shown one (also
+ *       each value of a server in {@code differs}), its page cut in the same order; a compared
+ *       partner is returned only if its system diagram is listed on every server holding it.
  * </ul>
  */
 final class PartnerBounds {
@@ -73,6 +83,32 @@ final class PartnerBounds {
 
     /** A partner on the page, with the server it was read from and its cloud's workflows. */
     record Item(NodeId server, PartnerView partner, CloudWorkflows cloud) {
+
+        /** The system diagram it comes from, on its server. */
+        List<Source> sources() {
+            return List.of(new Source(server, partner.systemDiagram()));
+        }
+    }
+
+    /**
+     * A compared partner on the page (T027), with the servers holding it and the workflows of
+     * its cloud on them; partners of one cloud share the same {@code cloud}.
+     */
+    record ComparedItem(List<NodeId> holders, ComparedPartnerView partner, CloudWorkflows cloud) {
+
+        ComparedItem {
+            holders = List.copyOf(holders);
+        }
+
+        /** Its system diagram on every server holding it. */
+        List<Source> sources() {
+            return holders.stream().map(server -> new Source(server, partner.systemDiagram()))
+                .toList();
+        }
+    }
+
+    /** A system diagram on a server that an element of the page comes from. */
+    record Source(NodeId server, DiagramRef diagram) {
     }
 
     /** A bounded value and whether anything was cut. */
@@ -80,33 +116,47 @@ final class PartnerBounds {
     }
 
     /**
-     * The bounded servers and the page cut to the partners whose system diagram they list.
+     * The bounded servers and how much of the page they list.
      *
-     * @param page the longest prefix of the page whose partners' system diagrams are listed in
-     *             their server's {@code systemDiagramsRead}; it always holds the first partner
-     * @param cut  whether anything of the servers was cut (not the page: its cut shows in
-     *             the number of partners returned)
+     * @param shown the length of the longest prefix of the page whose partners' system diagrams
+     *              are listed in the {@code systemDiagramsRead} of every server they come from;
+     *              at least 1 for a page that is not empty
+     * @param cut   whether anything of the servers was cut (not the page: its cut shows in
+     *              the number of partners returned)
      */
-    record Servers(List<ServerView> value, List<Item> page, boolean cut) {
+    record Servers(List<ServerView> value, int shown, boolean cut) {
     }
 
-    /** The detail cuts of the page, in order. */
-    private static final List<UnaryOperator<PartnerView>> DETAIL_CUTS = List.of(
-        PartnerBounds::withoutAdditionalParameters, PartnerBounds::summarySettings);
+    /** How the page of a single server is cut. */
+    private static final Shape<Item, PartnerView> FOUND = new Shape<Item, PartnerView>(Item::partner,
+        (item, partner) -> new Item(item.server(), partner, item.cloud()),
+        item -> List.of(item.server(), item.cloud()), Item::cloud,
+        (item, cloud) -> new Item(item.server(), item.partner(), cloud),
+        List.of(PartnerBounds::withoutAdditionalParameters, PartnerBounds::summarySettings),
+        PartnerBounds::withoutLastEntry);
+    /** How the page of a comparison is cut: in the same order as {@link #FOUND}. */
+    private static final Shape<ComparedItem, ComparedPartnerView> COMPARED =
+        new Shape<ComparedItem, ComparedPartnerView>(ComparedItem::partner,
+        (item, partner) -> new ComparedItem(item.holders(), partner, item.cloud()),
+        ComparedItem::cloud, ComparedItem::cloud,
+        (item, cloud) -> new ComparedItem(item.holders(), item.partner(), cloud),
+        List.of(PartnerBounds::withoutAdditionalParameters, PartnerBounds::summarySettings),
+        PartnerBounds::withoutLastEntry);
 
     private PartnerBounds() {
     }
 
     /**
      * The servers with their texts, their reader's warnings and their lists of system diagrams
-     * cut, and the page cut to the partners whose system diagram is listed.
+     * cut, and how many partners of the page have their system diagram listed.
      *
      * @param gateWarnings per server, how many of its first warnings are the version gate's
-     * @param page         the partners of the page; the system diagrams they come from are
-     *                     kept first, in page order, the first partner's always
+     * @param page         per partner of the page, the system diagrams it comes from (one per
+     *                     server holding it); these are kept first, in page order, the first
+     *                     partner's always
      */
     static Servers servers(List<ServerView> servers, List<Integer> gateWarnings,
-        List<Item> page, int budget, ToIntFunction<Object> sizeOf) {
+        List<List<Source>> page, int budget, ToIntFunction<Object> sizeOf) {
         Texts texts = new Texts();
         int shares = Math.max(servers.size(), 1);
         int warningShare = (int) (budget * WARNING_SHARE / shares);
@@ -119,11 +169,13 @@ final class PartnerBounds {
                 .map(diagram -> new DiagramRef(diagram.name(), diagram.diagramGroup()))
                 .toList();
             List<Integer> contributing = page.stream()
-                .filter(item -> item.server().equals(server.node()))
-                .map(item -> refs.indexOf(item.partner().systemDiagram()))
+                .flatMap(List::stream)
+                .filter(source -> source.server().equals(server.node()))
+                .map(source -> refs.indexOf(source.diagram()))
                 .distinct()
                 .toList();
-            boolean first = !page.isEmpty() && page.getFirst().server().equals(server.node());
+            boolean first = !page.isEmpty() && page.getFirst().stream()
+                .anyMatch(source -> source.server().equals(server.node()));
             List<UnreadableDiagram> unreadable = fit(server.unreadableDiagrams(), List.of(), 0,
                 diagramShare, sizeOf);
             int left = diagramShare - sizeOf.applyAsInt(unreadable);
@@ -162,10 +214,10 @@ final class PartnerBounds {
                     .toList(),
                 kept, server.error()));
         }
-        List<Item> shown = page.stream()
-            .takeWhile(item -> listed.contains(List.of(item.server(),
-                item.partner().systemDiagram())))
-            .toList();
+        int shown = (int) page.stream()
+            .takeWhile(sources -> sources.stream()
+                .allMatch(source -> listed.contains(List.of(source.server(), source.diagram()))))
+            .count();
         return new Servers(List.copyOf(bounded), shown, texts.cut);
     }
 
@@ -198,14 +250,33 @@ final class PartnerBounds {
     static Bounded<List<Item>> page(List<Item> page, int fixed, int budget,
         ToIntFunction<Object> sizeOf) {
         Texts texts = new Texts();
+        return cut(page, FOUND, texts, texts::partner, fixed, budget, sizeOf);
+    }
+
+    /**
+     * {@link #page} for the page of a comparison (T027): its texts cut and, if the result would
+     * exceed {@code budget}, its detail, then its last partners, then the entries of the one
+     * partner left.
+     */
+    static Bounded<List<ComparedItem>> compared(List<ComparedItem> page, int fixed, int budget,
+        ToIntFunction<Object> sizeOf) {
+        Texts texts = new Texts();
+        return cut(page, COMPARED, texts, texts::compared, fixed, budget, sizeOf);
+    }
+
+    private static <T, P> Bounded<List<T>> cut(List<T> page, Shape<T, P> shape, Texts texts,
+        UnaryOperator<P> cutTexts, int fixed, int budget, ToIntFunction<Object> sizeOf) {
         int workflowShare = (int) (budget * WORKFLOW_SHARE);
-        Map<List<Object>, CloudWorkflows> clouds = new HashMap<>();
-        Page items = new Page(fixed, sizeOf);
-        page.forEach(item -> items.add(new Item(item.server(), texts.partner(item.partner()),
-            clouds.computeIfAbsent(List.of(item.server(), item.cloud()),
-                key -> texts.cloud(item.cloud(), workflowShare, sizeOf)))));
+        Map<Object, CloudWorkflows> clouds = new HashMap<>();
+        Page<T, P> items = new Page<>(shape, fixed, sizeOf);
+        page.forEach(item -> {
+            CloudWorkflows cloud = clouds.computeIfAbsent(shape.cloudKey().apply(item),
+                key -> texts.cloud(shape.cloud().apply(item), workflowShare, sizeOf));
+            T cut = shape.withPartner().apply(item, cutTexts.apply(shape.partner().apply(item)));
+            items.add(shape.withCloud().apply(cut, cloud));
+        });
         boolean cut = texts.cut;
-        for (UnaryOperator<PartnerView> step : DETAIL_CUTS) {
+        for (UnaryOperator<P> step : shape.detailCuts()) {
             for (int i = items.items.size() - 1; i >= 0 && items.size() > budget; i--) {
                 cut |= items.shrink(i, step);
             }
@@ -215,7 +286,7 @@ final class PartnerBounds {
             cut = true;
         }
         while (!items.items.isEmpty() && items.size() > budget
-            && items.shrink(0, PartnerBounds::withoutLastEntry)) {
+            && items.shrink(0, shape.withoutLastEntry())) {
             cut = true;
         }
         return new Bounded<>(List.copyOf(items.items), cut);
@@ -226,13 +297,22 @@ final class PartnerBounds {
      * the order of their first partner.
      */
     static List<CloudWorkflows> workflows(List<Item> items) {
-        Map<List<Object>, CloudWorkflows> clouds = new LinkedHashMap<>();
-        items.forEach(item -> clouds.putIfAbsent(cloudKey(item), item.cloud()));
-        return List.copyOf(clouds.values());
+        return workflows(items, FOUND);
     }
 
-    private static List<Object> cloudKey(Item item) {
-        return List.of(item.server(), item.cloud());
+    /**
+     * The referencable workflows of the clouds of compared partners: once per cloud, in the
+     * order of their first partner.
+     */
+    static List<CloudWorkflows> comparedWorkflows(List<ComparedItem> items) {
+        return workflows(items, COMPARED);
+    }
+
+    private static <T> List<CloudWorkflows> workflows(List<T> items, Shape<T, ?> shape) {
+        Map<Object, CloudWorkflows> clouds = new LinkedHashMap<>();
+        items.forEach(item -> clouds.putIfAbsent(shape.cloudKey().apply(item),
+            shape.cloud().apply(item)));
+        return List.copyOf(clouds.values());
     }
 
     /**
@@ -274,25 +354,72 @@ final class PartnerBounds {
             partner.fields(), partner.maskedCount(), entries);
     }
 
+    private static ComparedPartnerView withoutAdditionalParameters(ComparedPartnerView partner) {
+        return withEntries(partner, partner.entries().stream()
+            .map(entry -> new ComparedEntryView(entry.protocol(), entry.workflow(),
+                entry.position(), entry.onlyOn(), entry.format(), entry.protocolSettings(),
+                Optional.empty()))
+            .toList());
+    }
+
+    private static ComparedPartnerView summarySettings(ComparedPartnerView partner) {
+        return withEntries(partner, partner.entries().stream()
+            .map(entry -> new ComparedEntryView(entry.protocol(), entry.workflow(),
+                entry.position(), entry.onlyOn(), entry.format(), entry.protocolSettings()
+                    .stream()
+                    .filter(setting -> PartnerService.SUMMARY_KEYS.contains(setting.name()))
+                    .toList(),
+                entry.additionalParameters()))
+            .toList());
+    }
+
+    private static ComparedPartnerView withoutLastEntry(ComparedPartnerView partner) {
+        List<ComparedEntryView> entries = partner.entries();
+        return entries.isEmpty() ? partner
+            : withEntries(partner, entries.subList(0, entries.size() - 1));
+    }
+
+    private static ComparedPartnerView withEntries(ComparedPartnerView partner,
+        List<ComparedEntryView> entries) {
+        return new ComparedPartnerView(partner.systemDiagram(), partner.cloud(),
+            partner.moduleId(), partner.key(), partner.onlyOn(), partner.fields(), entries,
+            partner.maskedCount(), partner.ambiguous());
+    }
+
+    /**
+     * How a page of one kind of partner is cut.
+     *
+     * @param cloudKey         what tells the clouds on the page apart
+     * @param detailCuts       the detail cuts, in order
+     * @param withoutLastEntry the cut of the one partner left
+     */
+    private record Shape<T, P>(Function<T, P> partner, BiFunction<T, P, T> withPartner,
+        Function<T, Object> cloudKey, Function<T, CloudWorkflows> cloud,
+        BiFunction<T, CloudWorkflows, T> withCloud, List<UnaryOperator<P>> detailCuts,
+        UnaryOperator<P> withoutLastEntry) {
+    }
+
     /**
      * The page being cut, with running totals of its share of the result size: the partners
-     * and, once per server and cloud on the page, the referencable workflows; each array adds
-     * its elements and the commas between them.
+     * and, once per cloud on the page, the referencable workflows; each array adds its elements
+     * and the commas between them.
      */
-    private static final class Page {
+    private static final class Page<T, P> {
 
-        final List<Item> items = new ArrayList<>();
+        final List<T> items = new ArrayList<>();
         private final List<Integer> sizes = new ArrayList<>();
-        /** Per server and cloud on the page: how many of its partners are on the page. */
-        private final Map<List<Object>, Integer> clouds = new HashMap<>();
-        /** Per server and cloud: its size, measured once. */
-        private final Map<List<Object>, Integer> cloudSizes = new HashMap<>();
+        /** Per cloud on the page: how many of its partners are on the page. */
+        private final Map<Object, Integer> clouds = new HashMap<>();
+        /** Per cloud: its size, measured once. */
+        private final Map<Object, Integer> cloudSizes = new HashMap<>();
+        private final Shape<T, P> shape;
         private final int fixed;
         private final ToIntFunction<Object> sizeOf;
         private int partnerChars;
         private int cloudChars;
 
-        Page(int fixed, ToIntFunction<Object> sizeOf) {
+        Page(Shape<T, P> shape, int fixed, ToIntFunction<Object> sizeOf) {
+            this.shape = shape;
             this.fixed = fixed;
             this.sizeOf = sizeOf;
         }
@@ -303,21 +430,21 @@ final class PartnerBounds {
                 + Math.max(clouds.size() - 1, 0);
         }
 
-        void add(Item item) {
+        void add(T item) {
             items.add(item);
-            sizes.add(sizeOf.applyAsInt(item.partner()));
+            sizes.add(sizeOf.applyAsInt(shape.partner().apply(item)));
             partnerChars += sizes.getLast();
-            List<Object> cloud = cloudKey(item);
+            Object cloud = shape.cloudKey().apply(item);
             if (clouds.merge(cloud, 1, Integer::sum) == 1) {
                 cloudChars += cloudSizes.computeIfAbsent(cloud,
-                    key -> sizeOf.applyAsInt(item.cloud()));
+                    key -> sizeOf.applyAsInt(shape.cloud().apply(item)));
             }
         }
 
         void removeLast() {
-            Item item = items.removeLast();
+            T item = items.removeLast();
             partnerChars -= sizes.removeLast();
-            List<Object> cloud = cloudKey(item);
+            Object cloud = shape.cloudKey().apply(item);
             if (clouds.merge(cloud, -1, Integer::sum) == 0) {
                 clouds.remove(cloud);
                 cloudChars -= cloudSizes.get(cloud);
@@ -325,13 +452,14 @@ final class PartnerBounds {
         }
 
         /** Applies {@code step} to the partner at {@code index}; whether that changed it. */
-        boolean shrink(int index, UnaryOperator<PartnerView> step) {
-            Item item = items.get(index);
-            PartnerView smaller = step.apply(item.partner());
-            if (smaller.equals(item.partner())) {
+        boolean shrink(int index, UnaryOperator<P> step) {
+            T item = items.get(index);
+            P partner = shape.partner().apply(item);
+            P smaller = step.apply(partner);
+            if (smaller.equals(partner)) {
                 return false;
             }
-            items.set(index, new Item(item.server(), smaller, item.cloud()));
+            items.set(index, shape.withPartner().apply(item, smaller));
             int size = sizeOf.applyAsInt(smaller);
             partnerChars += size - sizes.set(index, size);
             return true;
@@ -376,6 +504,42 @@ final class PartnerBounds {
                         entry.format().map(this::field), settings(entry.protocolSettings()),
                         entry.additionalParameters().map(this::settings)))
                     .toList());
+        }
+
+        /** {@link #partner} for a compared partner (T027): every text, also each differing value. */
+        ComparedPartnerView compared(ComparedPartnerView partner) {
+            return new ComparedPartnerView(diagram(partner.systemDiagram()),
+                field(partner.cloud()), partner.moduleId().map(this::field),
+                partner.key().map(key -> new KeyView(field(key.field()), field(key.value()))),
+                partner.onlyOn(), comparedSettings(partner.fields()), partner.entries().stream()
+                    .map(entry -> new ComparedEntryView(field(entry.protocol()),
+                        new WorkflowView(entry.workflow().name().map(this::field),
+                            entry.workflow().unresolved()),
+                        entry.position(), entry.onlyOn(), entry.format().map(this::compared),
+                        comparedSettings(entry.protocolSettings()),
+                        entry.additionalParameters().map(this::comparedSettings)))
+                    .toList(),
+                partner.maskedCount(), partner.ambiguous().stream()
+                    .map(ambiguity -> new PartnerComparison.Ambiguity(ambiguity.node(),
+                        ambiguity.partners(), ambiguity.moduleIds().stream()
+                            .map(this::field).toList()))
+                    .toList());
+        }
+
+        List<ComparedSettingView> comparedSettings(List<ComparedSettingView> settings) {
+            return settings.stream().map(this::compared).toList();
+        }
+
+        /** A masked setting carries no value: its name and the reason why not equal are cut. */
+        ComparedSettingView compared(ComparedSettingView setting) {
+            return new ComparedSettingView(field(setting.name()), setting.equal().map(this::field),
+                setting.differs().map(values -> {
+                    Map<String, String> cut = new LinkedHashMap<>();
+                    values.forEach((node, value) -> cut.put(node, field(value)));
+                    return Collections.unmodifiableMap(cut);
+                }),
+                setting.masked(), setting.set(), setting.sameOn(),
+                setting.equality().map(this::field), setting.onlyOn());
         }
 
         /** A masked setting carries no value: only its name can be cut. */

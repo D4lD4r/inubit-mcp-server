@@ -29,6 +29,7 @@ import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
+import de.dadecker.inubit.mcp.domain.model.ItemBounds;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -59,7 +60,10 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -101,6 +105,7 @@ class PartnerServiceCompareTest {
     private final Map<NodeId, ToolErrorException> failures = new HashMap<>();
     /** The servers whose inventory or partner port was called. */
     private final List<NodeId> contacted = new CopyOnWriteArrayList<>();
+    private ResultLimiter limiter = ResultLimiter.withDefaults();
 
     // --- what is compared ------------------------------------------------------------------------
 
@@ -559,7 +564,211 @@ class PartnerServiceCompareTest {
             .containsExactly(5, 5, 4, 4);
     }
 
+    // --- size bounds (T027, FR-017, SC-004) ---------------------------------------------------
+
+    @Test
+    void everyPageOfAThousandPartnerComparisonOfTwoStagesStaysWithinTheBound() {
+        NODES.forEach(node -> export(node, PartnerFixtures.list(1000)));
+        List<String> all = IntStream.rangeClosed(1, 1000)
+            .mapToObj("ACME-%04d"::formatted).toList();
+
+        for (int maxChars : List.of(10_000, 50_000)) {
+            for (Optional<String> search : List.of(Optional.of("acme"), Optional.<String>empty())) {
+                limiter = new ResultLimiter(100, maxChars);
+                List<String> seen = new ArrayList<>();
+                boolean anyTruncated = false;
+                OptionalInt offset = OptionalInt.of(0);
+                while (offset.isPresent()) {
+                    Compared page = compared(new Query(search).offset(offset.getAsInt())
+                        .limit(100));
+                    String what = maxChars + " " + search + " offset " + offset.getAsInt();
+                    assertWithin(page, maxChars, what);
+                    assertThat(page.total()).as(what).isEqualTo(1000);
+                    assertThat(page.partners()).as(what).isNotEmpty();
+                    if (page.partners().size() < Math.min(100, 1000 - offset.getAsInt())) {
+                        assertThat(page.truncated()).as(what).isTrue();
+                        assertThat(page.nextOffset()).as(what)
+                            .hasValue(offset.getAsInt() + page.partners().size());
+                    }
+                    anyTruncated |= page.truncated();
+                    page.partners().forEach(partner -> seen.add(id(partner)));
+                    offset = page.nextOffset();
+                }
+                assertThat(seen).as(maxChars + " " + search).isEqualTo(all);
+                if (maxChars == 10_000) {
+                    assertThat(anyTruncated).as(maxChars + " " + search).isTrue();
+                }
+            }
+        }
+    }
+
+    @Test
+    void comparedDetailIsCutBeforeThePartnersOfThePageFromTheLastPartner() {
+        NODES.forEach(node -> export(node, PartnerFixtures.list(40)));
+        Query query = search("acme").limit(20);
+        int full = ResultJson.size(compared(query));
+
+        for (int budget = ItemBounds.MAX_ITEM_CHARS; budget <= full + 500; budget += 500) {
+            limiter = new ResultLimiter(100, budget);
+            Compared compared = compared(query);
+            String what = "budget " + budget;
+            assertWithin(compared, budget, what);
+            List<Integer> levels = compared.partners().stream()
+                .map(PartnerServiceCompareTest::level).toList();
+            assertThat(levels).as(what + ": cut from the last partner").isSorted();
+            if (levels.contains(2)) {
+                assertThat(levels).as(what + ": parameters of all first").doesNotContain(0);
+            }
+            if (compared.partners().size() < 20) {
+                assertThat(levels).as(what + ": detail cut before partners").containsOnly(2);
+                assertThat(compared.nextOffset()).hasValue(compared.partners().size());
+            }
+            assertThat(compared.partners()).as(what + ": no entry cut while partners can go")
+                .allSatisfy(partner -> assertThat(partner.entries()).hasSize(1));
+            assertThat(compared.truncated()).as(what).isEqualTo(budget < full);
+            assertNoSecretIn(compared);
+        }
+    }
+
+    @Test
+    void aSingleComparedPartnerThatDoesNotFitLosesItsLastEntries() {
+        List<EntryXml> entries = IntStream.rangeClosed(1, 80)
+            .mapToObj(n -> new EntryXml("FTP", "1", List.of(
+                Leaf.plain("ServerName", "host" + n + ".example.test"),
+                Leaf.plain("Login", "login-" + n)), List.of()))
+            .toList();
+        NODES.forEach(node -> export(node, new DiagramXml(GROUP, DIAGRAM.name(), OWNER,
+            List.of(new CloudXml("33", CLOUD, ID_AND_NAME, WORKFLOWS, List.of(
+                new PartnerXml(fields("ACME-0001", "ACME Corp"), entries)))))));
+        limiter = new ResultLimiter(100, ItemBounds.MAX_ITEM_CHARS);
+
+        Compared compared = compared(list());
+
+        assertWithin(compared, ItemBounds.MAX_ITEM_CHARS, "one large partner");
+        ComparedPartnerView partner = single(compared);
+        assertThat(partner.entries()).isNotEmpty().hasSizeLessThan(80);
+        assertThat(partner.entries()).extracting(ComparedEntryView::position)
+            .as("the first entries are kept")
+            .containsExactlyElementsOf(IntStream
+                .range(0, partner.entries().size()).boxed().toList());
+        assertThat(compared.truncated()).isTrue();
+    }
+
+    @Test
+    void comparedTextsAreCutWithTheMarkerAndTheSearchStillMatchesTheFullValue() {
+        String name = "ACME Long " + "n".repeat(280) + " TAIL-0001";
+        for (NodeId node : NODES) {
+            export(node, new DiagramXml(GROUP, DIAGRAM.name(), OWNER, List.of(new CloudXml("33",
+                CLOUD, ID_AND_NAME, WORKFLOWS, List.of(new PartnerXml(fields("ACME-0001",
+                    node.equals(P2) ? name + " " + "p".repeat(300) : name),
+                    List.of(ftp("ftp-" + "h".repeat(300) + ".example.test"))))))));
+        }
+
+        Compared compared = compared(search("tail-0001"));
+
+        ComparedPartnerView partner = single(compared);
+        ComparedSettingView named = partner.fields().get(1);
+        assertThat(named.differs()).hasValueSatisfying(values -> assertThat(values.values())
+            .allSatisfy(value -> assertThat(value).hasSize(ItemBounds.MAX_FIELD_CHARS)
+                .startsWith("ACME Long nnn").endsWith(ItemBounds.TRUNCATION_MARKER)));
+        assertThat(partner.entries().getFirst().protocolSettings().getFirst().equal())
+            .hasValueSatisfying(value -> assertThat(value).hasSize(ItemBounds.MAX_FIELD_CHARS)
+                .endsWith(ItemBounds.TRUNCATION_MARKER));
+        assertThat(compared.truncated()).isTrue();
+    }
+
+    @Test
+    void everyComparedPartnerHasItsSystemDiagramListedOnEveryServerHoldingIt() {
+        // one partner per system diagram, listed in reverse name order; the last ten only on test
+        for (NodeId node : NODES) {
+            for (int n = 40; n >= 1; n--) {
+                if (n > 30 && node.group().equals("prod")) {
+                    continue;
+                }
+                int number = n;
+                List<CloudXml> clouds = IntStream.rangeClosed(1, 4)
+                    .mapToObj(c -> new CloudXml(String.valueOf(30 + c), "Module-090" + c,
+                        ID_AND_NAME, List.of(), c > 1 ? List.of()
+                            : List.of(named("ACME-%04d".formatted(number),
+                                "ACME Partner " + number))))
+                    .toList();
+                export(node, new DiagramXml(GROUP,
+                    "SystemDiagram-%03d-".formatted(n) + "d".repeat(120), OWNER, clouds));
+            }
+        }
+        limiter = new ResultLimiter(100, 16_000);
+
+        for (Query query : List.of(search("acme"), list())) {
+            List<String> seen = new ArrayList<>();
+            OptionalInt offset = OptionalInt.of(0);
+            while (offset.isPresent()) {
+                Compared compared = compared(query.offset(offset.getAsInt()).limit(100));
+                String what = query.search + " offset " + offset.getAsInt();
+                assertWithin(compared, 16_000, what);
+                assertThat(compared.partners()).as(what).isNotEmpty();
+                for (ComparedPartnerView partner : compared.partners()) {
+                    for (NodeId holder : partner.onlyOn().orElse(NODES)) {
+                        assertThat(compared.servers().get(NODES.indexOf(holder))
+                            .systemDiagramsRead())
+                            .extracting(PartnerService.DiagramRead::name).as(what + " " + holder)
+                            .contains(partner.systemDiagram().name());
+                    }
+                }
+                if (offset.getAsInt() == 0) {
+                    assertThat(compared.truncated()).as(what).isTrue();
+                }
+                compared.partners().forEach(partner -> seen.add(id(partner)));
+                offset = compared.nextOffset();
+            }
+            assertThat(seen).as(query.search + ": every partner on some page")
+                .containsExactlyInAnyOrderElementsOf(IntStream
+                    .rangeClosed(1, 40).mapToObj("ACME-%04d"::formatted).toList());
+        }
+    }
+
+    @Test
+    void theAuditCountsWhatTheBoundedComparisonHolds() {
+        NODES.forEach(node -> export(node, PartnerFixtures.list(40)));
+        limiter = new ResultLimiter(100, 10_000);
+
+        Compared compared = compared(search("acme").limit(20));
+
+        assertThat(compared.partners()).isNotEmpty().hasSizeLessThan(20);
+        assertThat(audit).hasSize(4).allSatisfy(record -> {
+            String node = record.node();
+            assertThat(record.details())
+                .containsEntry("partnersReturned", compared.partners().size())
+                .containsEntry("valuesMasked", (int) compared.partners().stream()
+                    .flatMap(partner -> Stream.concat(partner.fields().stream(),
+                        partner.entries().stream().flatMap(entry -> Stream.of(
+                                entry.format().stream(), entry.protocolSettings().stream(),
+                                entry.additionalParameters().stream().flatMap(List::stream))
+                            .flatMap(Function.identity()))))
+                    .filter(setting -> setting.set().filter(set -> set.containsKey(node))
+                        .isPresent())
+                    .count());
+        });
+    }
+
     // --- support -------------------------------------------------------------------------------
+
+    /**
+     * 0: in full; 1: without additional parameters; 2: protocol settings down to the summary
+     * keys.
+     */
+    private static int level(ComparedPartnerView partner) {
+        boolean parameters = partner.entries().stream()
+            .allMatch(entry -> entry.additionalParameters().isPresent());
+        boolean summary = partner.entries().stream()
+            .flatMap(entry -> entry.protocolSettings().stream())
+            .allMatch(setting -> PartnerService.SUMMARY_KEYS.contains(setting.name()));
+        return parameters ? 0 : summary ? 2 : 1;
+    }
+
+    /** The result, which the tool returns as it is, within {@code maxChars}. */
+    private static void assertWithin(Compared compared, int maxChars, String what) {
+        assertThat(ResultJson.size(compared)).as(what).isLessThanOrEqualTo(maxChars);
+    }
 
     /** {@link PartnerFixtures#stages()} read per server. */
     private void exportStages() {
@@ -671,7 +880,7 @@ class PartnerServiceCompareTest {
             node -> versions.getOrDefault(node, VersionSetting.V8_1),
             node -> Duration.ofMinutes(10));
         return new PartnerService(new Gateways(), new TargetResolver(NODES), new FanOut(),
-            ResultLimiter.withDefaults(),
+            limiter,
             new InventoryCache(new MutableClock(T0), node -> Duration.ofMinutes(10)),
             node -> Optional.ofNullable(owners.get(node)), node -> Duration.ofSeconds(5),
             node -> Duration.ofSeconds(120), ResultJson::size, Terminology.DEFAULT,

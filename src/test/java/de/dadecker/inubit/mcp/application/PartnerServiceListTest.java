@@ -59,7 +59,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * T023: list mode of {@link PartnerService#find} on one server (US2-AS1…4, FR-005a, FR-006): the
+ * T023: list mode of {@link PartnerService#answer} on one server (US2-AS1…4, FR-005a, FR-006): the
  * summary per partner, the list order, paging in that order and the entry filters in both modes,
  * over the masked model the reader makes of the synthetic exports of {@link PartnerFixtures};
  * every result is checked as the JSON text of {@link ResultJson} against every synthetic secret.
@@ -434,7 +434,7 @@ class PartnerServiceListTest {
     }
 
     private Found find(PartnerQuery query) {
-        return new PartnerService(new Gateways(), new TargetResolver(List.of(NODE1)),
+        return (Found) new PartnerService(new Gateways(), new TargetResolver(List.of(NODE1)),
             new FanOut(), ResultLimiter.withDefaults(),
             new InventoryCache(new MutableClock(T0), node -> Duration.ofMinutes(10)),
             node -> Optional.of(OWNER), node -> Duration.ofSeconds(5),
@@ -442,7 +442,7 @@ class PartnerServiceListTest {
             FakeVersionDetection.pinned81(), SecretTiming.NONE,
             new PartnerAudit.Dependencies(audit::add, Clock.systemUTC(), "default",
                 UUID::randomUUID))
-            .find(query);
+            .answer(query);
     }
 
     /**

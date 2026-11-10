@@ -297,7 +297,7 @@ secret equality by server groups (8.1 only), report failed servers.
   shown with its counterparts; one audit record per server with the shared `callId` — main
   `application/PartnerService.java`, test `application/PartnerServiceCompareTest.java` (US3-AS7,
   FR-005a comparison rules)
-- [ ] T027 [US3] Comparison output and bounds (after T026): output shape `ComparedPartner` of the
+- [x] T027 [US3] Comparison output and bounds (after T026): output shape `ComparedPartner` of the
   contract in the tool and schema (incl. `maskedCount`, separate `protocolSettings` and
   `additionalParameters`, `format` grouped like a setting); the comparison result within `resultLimits.maxChars` with the
   cut order of T024 (additional parameters, then settings to the summary keys, then entries),

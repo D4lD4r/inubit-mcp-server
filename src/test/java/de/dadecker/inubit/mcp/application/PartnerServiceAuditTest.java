@@ -11,6 +11,7 @@ import ch.qos.logback.core.read.ListAppender;
 import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerFixtures;
 import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerManagementReader;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree;
+import de.dadecker.inubit.mcp.application.PartnerService.Answer;
 import de.dadecker.inubit.mcp.application.PartnerService.Found;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
@@ -63,7 +64,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
 
 /**
- * T021: the audit and the INFO log lines of {@link PartnerService#find} (FR-020, FR-021, research
+ * T021: the audit and the INFO log lines of {@link PartnerService#answer} (FR-020, FR-021, research
  * D-8, Op-3, Op-4): one record and one line per targeted server with a shared call id, also for a
  * cache hit or a failed server; an audit write failure ends the call in {@code INTERNAL} without
  * partner data; neither the audit nor the log holds a partner setting or a secret.
@@ -109,7 +110,7 @@ class PartnerServiceAuditTest {
 
     @Test
     void oneRecordAndOneLinePerServerShareTheCallId() {
-        Found found = service(port).find(query("dev", Optional.of("acme"), Optional.empty()));
+        Answer found = service(port).answer(query("dev", Optional.of("acme"), Optional.empty()));
 
         // the masked values shown: 3 of ACME-0001, 3 of ACME-0002, 6 of ACME-0003 in full
         int masked = 12;
@@ -142,9 +143,9 @@ class PartnerServiceAuditTest {
     void aCacheHitIsAuditedWithFromCacheUnderItsOwnCallId() {
         PartnerService service = service(port);
 
-        service.find(query("dev/node1", Optional.of("acme-0001"), Optional.empty()));
+        service.answer(query("dev/node1", Optional.of("acme-0001"), Optional.empty()));
         clock.advance(Duration.ofMinutes(2));
-        service.find(query("dev/node1", Optional.of("acme-0001"), Optional.empty()));
+        service.answer(query("dev/node1", Optional.of("acme-0001"), Optional.empty()));
 
         assertThat(port.records).hasSize(2);
         assertThat(port.records).extracting(record -> record.details().get("fromCache"))
@@ -161,7 +162,7 @@ class PartnerServiceAuditTest {
             Optional.of("acme"), Optional.empty(), Optional.empty(), Optional.empty(), 1, 1, false,
             Optional.empty());
 
-        Found found = service(port).find(page);
+        Found found = (Found) service(port).answer(page);
 
         assertThat(found.total()).isEqualTo(3);
         // ACME-0002 in full: Note, the FTP Password, the AS4 Password
@@ -175,7 +176,7 @@ class PartnerServiceAuditTest {
     @Test
     void anUnknownTargetIsOneRefusedRecordWithoutServerAndOneLine() {
         ToolErrorException e = catchThrowableOfType(ToolErrorException.class,
-            () -> service(port).find(query("dev/node9", Optional.of("acme"), Optional.empty())));
+            () -> service(port).answer(query("dev/node9", Optional.of("acme"), Optional.empty())));
 
         assertThat(e.error().code()).isEqualTo(ErrorCode.TARGET_UNKNOWN);
         assertThat(port.records).singleElement().satisfies(record -> {
@@ -194,7 +195,7 @@ class PartnerServiceAuditTest {
         String target = "dev/node9\nfind_partners on dev/node1: EXECUTED" + "x".repeat(600);
 
         ToolErrorException e = catchThrowableOfType(ToolErrorException.class,
-            () -> service(port).find(query(target, Optional.empty(), Optional.empty())));
+            () -> service(port).answer(query(target, Optional.empty(), Optional.empty())));
 
         assertThat(e.error().code()).isEqualTo(ErrorCode.INTERNAL);
         assertThat(lines()).singleElement().asString()
@@ -209,7 +210,8 @@ class PartnerServiceAuditTest {
         portFailure = new ToolErrorException(ToolError.of(ErrorCode.UNREACHABLE,
             "dev/node1 did not answer", "cause", "next step").withNode(NODE1));
 
-        Found found = service(port).find(query("dev/node1", Optional.empty(), Optional.empty()));
+        Found found = (Found) service(port).answer(query("dev/node1", Optional.empty(),
+            Optional.empty()));
 
         assertThat(found.servers().get(0).error()).map(ToolError::code)
             .contains(ErrorCode.UNREACHABLE);
@@ -224,7 +226,7 @@ class PartnerServiceAuditTest {
     @Test
     void anUnknownSystemDiagramIsAuditedForTheServerThatAnswered() {
         ToolErrorException e = catchThrowableOfType(ToolErrorException.class,
-            () -> service(port).find(query("dev", Optional.empty(), Optional.of("Nothing-01"))));
+            () -> service(port).answer(query("dev", Optional.empty(), Optional.of("Nothing-01"))));
 
         assertThat(e.error().code()).isEqualTo(ErrorCode.NOT_FOUND);
         assertThat(port.records).extracting(AuditRecord::outcome, AuditRecord::reason)
@@ -239,7 +241,7 @@ class PartnerServiceAuditTest {
         port.failing = true;
 
         ToolErrorException e = catchThrowableOfType(ToolErrorException.class,
-            () -> service(port).find(query("dev/node1", Optional.of("acme"), Optional.empty())));
+            () -> service(port).answer(query("dev/node1", Optional.of("acme"), Optional.empty())));
 
         assertThat(e.error().code()).isEqualTo(ErrorCode.INTERNAL);
         assertThat(e.error().message()).contains(port.ids.get(0).toString())
@@ -252,7 +254,7 @@ class PartnerServiceAuditTest {
         port.failOn = NODE2.value();
 
         ToolErrorException e = catchThrowableOfType(ToolErrorException.class,
-            () -> service(port).find(query("dev", Optional.of("acme"), Optional.empty())));
+            () -> service(port).answer(query("dev", Optional.of("acme"), Optional.empty())));
 
         assertThat(e.error().code()).isEqualTo(ErrorCode.INTERNAL);
         assertThat(port.records).extracting(AuditRecord::node).containsExactly(NODE1.value());
@@ -267,12 +269,12 @@ class PartnerServiceAuditTest {
         PartnerService service = service(new AuditLog(directory, new SecretScrubber(),
             PrivateFiles.forHost()));
 
-        service.find(query("dev", Optional.of("acme"), Optional.empty()));
-        service.find(query("dev", Optional.of("no-such-partner"), Optional.empty()));
+        service.answer(query("dev", Optional.of("acme"), Optional.empty()));
+        service.answer(query("dev", Optional.of("no-such-partner"), Optional.empty()));
         catchThrowableOfType(ToolErrorException.class,
-            () -> service.find(query("dev", Optional.empty(), Optional.of("Nothing-01"))));
+            () -> service.answer(query("dev", Optional.empty(), Optional.of("Nothing-01"))));
         catchThrowableOfType(ToolErrorException.class,
-            () -> service.find(query("dev/node9", Optional.of("acme"), Optional.empty())));
+            () -> service.answer(query("dev/node9", Optional.of("acme"), Optional.empty())));
 
         List<String> audit;
         try (Stream<Path> files = Files.list(directory)) {

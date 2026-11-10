@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerFixtures;
 import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerFixtures.CloudXml;
 import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerFixtures.DiagramXml;
+import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerFixtures.EntryXml;
 import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerFixtures.FieldXml;
 import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerFixtures.Leaf;
 import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerFixtures.PartnerXml;
@@ -91,6 +92,9 @@ class FindPartnersToolTest {
     private final List<NodeId> portReads = new CopyOnWriteArrayList<>();
     /** The reader's result per system diagram of the owner, in list order. */
     private final Map<DiagramRef, PartnerManagementReader.Result> exports = new LinkedHashMap<>();
+    /** A server's own exports, instead of {@link #exports}. */
+    private final Map<NodeId, Map<DiagramRef, PartnerManagementReader.Result>> nodeExports =
+        new HashMap<>();
     private final Map<NodeId, Optional<String>> owners =
         new HashMap<>(Map.of(NODE1, Optional.of(OWNER), NODE2, Optional.of(OWNER)));
     private final PartnerAudit.Dependencies audits =
@@ -119,7 +123,8 @@ class FindPartnersToolTest {
 
         assertThat(tool.path("name").asString()).isEqualTo("find_partners");
         assertThat(tool.path("description").asString()).isEqualTo("[acme] "
-            + FindPartnersTool.DESCRIPTION.replace("{group}", "group").replace("{node}", "node"));
+            + FindPartnersTool.DESCRIPTION.replace("{group}", "group").replace("{nodes}", "nodes")
+                .replace("{node}", "node"));
         JsonNode annotations = tool.path("annotations");
         assertThat(annotations.path("title").asString())
             .isEqualTo("Find partners in the INUBIT Partner Management");
@@ -441,6 +446,10 @@ class FindPartnersToolTest {
         assertThat(servers.get(1).path("error").path("code").asString())
             .isEqualTo("NOT_CONFIGURED");
         assertThat(result.path("structuredContent").path("partners")).hasSize(1);
+        assertThat(result.path("structuredContent").path("incomplete").asBoolean(false))
+            .as("a stage of two servers is compared").isTrue();
+        assertThat(result.path("structuredContent").path("notCompared")).containsExactly(
+            JSON.readTree("{\"node\":\"dev/node2\",\"code\":\"NOT_CONFIGURED\"}"));
         assertThat(audit).extracting(AuditRecord::outcome)
             .containsExactly(AuditOutcome.EXECUTED, AuditOutcome.REFUSED);
     }
@@ -528,22 +537,93 @@ class FindPartnersToolTest {
             .as("no entry has this protocol: an empty result, not NOT_FOUND").isEmpty();
     }
 
-    /** Interim (phase 3 review): T026 removes this refusal and this test. */
-    @Test
-    void compareWithIsAuditedAsNotSupportedYetWithoutAnyRead() {
-        JsonNode error = toolError(call(Map.of("target", "dev/node1", "compareWith",
-            "dev/node2")));
+    // --- US3 over MCP (T027) -----------------------------------------------------------------
 
-        assertThat(error.path("code").asString()).isEqualTo("INVALID_INPUT");
-        assertThat(error.path("message").asString()).isEqualTo("compareWith is not supported yet");
-        assertThat(audit).singleElement().satisfies(record -> {
-            assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED);
-            assertThat(record.node()).isEqualTo("dev/node1");
-            assertThat(record.reason()).hasValueSatisfying(reason ->
-                assertThat(reason).startsWith("INVALID_INPUT: "));
-            assertThat(record.inputs().keySet()).containsExactly("target", "compareWith");
-        });
-        assertThat(portReads).isEmpty();
+    @Test
+    void aComparisonShowsTheComparedPartnerInTheContractShapeWithoutAnySecret() {
+        JsonNode result = call(Map.of("target", "dev/node1", "compareWith", "dev/node2",
+            "search", "acme-0003"));
+
+        assertMatchesOutputSchema("find_partners", result);
+        JsonNode content = result.path("structuredContent");
+        assertThat(content.path("compared").asBoolean(false)).isTrue();
+        assertThat(content.path("incomplete").asBoolean(true)).isFalse();
+        assertThat(content.path("notCompared")).isEmpty();
+        assertThat(content.path("servers")).extracting(server -> server.path("node").asString())
+            .containsExactly("dev/node1", "dev/node2");
+        JsonNode partner = content.path("partners").get(0);
+        assertThat(partner.path("systemDiagram")).isEqualTo(JSON.readTree(
+            "{\"name\":\"SystemDiagram-01\",\"diagramGroup\":\"" + GROUP + "\"}"));
+        assertThat(partner.path("key"))
+            .isEqualTo(JSON.readTree("{\"field\":\"Id\",\"value\":\"ACME-0003\"}"));
+        assertThat(partner.has("onlyOn")).as("held by every server").isFalse();
+        assertThat(partner.path("fields").get(0))
+            .isEqualTo(JSON.readTree("{\"name\":\"Id\",\"equal\":\"ACME-0003\"}"));
+        assertThat(partner.path("maskedCount")).isEqualTo(JSON.readTree("{\"equal\":6}"));
+        assertThat(partner.path("ambiguous")).isEmpty();
+        JsonNode entry = partner.path("entries").get(0);
+        assertThat(entry.path("position").asInt(-1)).isZero();
+        assertThat(entry.path("workflow"))
+            .isEqualTo(JSON.readTree("{\"name\":\"Workflow-0003\"}"));
+        assertThat(entry.path("protocolSettings")).contains(JSON.readTree("""
+            {"name":"Password","masked":true,"set":{"dev/node1":true,"dev/node2":true},
+             "sameOn":[["dev/node1","dev/node2"]]}"""));
+        assertThat(entry.path("additionalParameters").isArray()).isTrue();
+        assertThat(audit).extracting(AuditRecord::node).containsExactly("dev/node1", "dev/node2");
+        assertNoSecretIn(result);
+    }
+
+    @Test
+    void aListComparisonShowsDifferencesOnlyOnAndAmbiguityInTheContractShape() {
+        List<FieldXml> idAndName = List.of(new FieldXml("Id", "String"),
+            new FieldXml("Name", "String"));
+        List<TwfXml> workflows = List.of(new TwfXml("1", "34", "Workflow-0001"));
+        EntryXml withPassword = new EntryXml("FTP", "1", List.of(
+            Leaf.plain("ServerName", "ftp1.example.test"), Leaf.plain("Login", "login1"),
+            Leaf.encrypted("Password", PartnerFixtures.AES_PASSWORD)), List.of());
+        EntryXml withoutPassword = new EntryXml("FTP", "1", List.of(
+            Leaf.plain("ServerName", "ftp2.example.test"), Leaf.plain("Login", "login1")),
+            List.of());
+        EntryXml unresolved = new EntryXml("FTP", PartnerFixtures.UNRESOLVED_TWF_ID,
+            List.of(Leaf.plain("ServerName", "ftp1.example.test")), List.of());
+        export(NODE1, new DiagramXml(GROUP, "SystemDiagram-01", OWNER, List.of(new CloudXml("33",
+            "Module-0901", idAndName, workflows, List.of(
+                partnerXml("ACME-0001", "ACME Corp", withPassword),
+                partnerXml("ACME-0002", "ACME Two", unresolved),
+                partnerXml("ACME-0003", "ACME Three", withoutPassword))))));
+        export(NODE2, new DiagramXml(GROUP, "SystemDiagram-01", OWNER, List.of(new CloudXml("33",
+            "Module-0901", idAndName, workflows, List.of(
+                partnerXml("ACME-0001", "ACME Corporation", withoutPassword),
+                partnerXml("ACME-0003", "ACME Three", withoutPassword),
+                partnerXml("ACME-0003", "ACME Three Again", withoutPassword))))));
+
+        JsonNode result = call(Map.of("target", "dev"));
+
+        assertMatchesOutputSchema("find_partners", result);
+        JsonNode content = result.path("structuredContent");
+        assertThat(content.path("compared").asBoolean(false)).isTrue();
+        JsonNode partners = content.path("partners");
+        JsonNode first = partners.get(0);
+        assertThat(first.path("key").path("value").asString()).isEqualTo("ACME-0001");
+        assertThat(first.path("fields")).contains(JSON.readTree("""
+            {"name":"Name","differs":{"dev/node1":"ACME Corp","dev/node2":"ACME Corporation"}}"""));
+        assertThat(first.path("maskedCount"))
+            .isEqualTo(JSON.readTree("{\"differs\":{\"dev/node1\":1,\"dev/node2\":0}}"));
+        JsonNode onlyOnNode1 = partners.get(1);
+        assertThat(onlyOnNode1.path("key").path("value").asString()).isEqualTo("ACME-0002");
+        assertThat(onlyOnNode1.path("onlyOn")).isEqualTo(JSON.readTree("[\"dev/node1\"]"));
+        assertThat(onlyOnNode1.path("entries").get(0).path("workflow"))
+            .isEqualTo(JSON.readTree("{\"name\":null,\"unresolved\":true}"));
+        assertThat(partners).filteredOn(partner -> !partner.path("ambiguous").isEmpty())
+            .isNotEmpty()
+            .allSatisfy(partner -> assertThat(partner.path("ambiguous")).contains(JSON.readTree(
+                "{\"node\":\"dev/node2\",\"partners\":2,\"moduleIds\":[\"33\"]}")));
+        assertNoSecretIn(result);
+    }
+
+    private static PartnerXml partnerXml(String id, String name, EntryXml entry) {
+        return new PartnerXml(List.of(Leaf.plain("Id", id), Leaf.plain("Name", name)),
+            List.of(entry));
     }
 
     // --- support -------------------------------------------------------------------------------
@@ -581,6 +661,18 @@ class FindPartnersToolTest {
             XmlTree.parse(PartnerFixtures.workflowXml(diagram)).root()));
     }
 
+    /** Reads {@code diagram} as {@link #export(DiagramXml)} does, for {@code node} only. */
+    private void export(NodeId node, DiagramXml diagram) {
+        DiagramRef ref = new DiagramRef(diagram.name(), diagram.group());
+        nodeExports.computeIfAbsent(node, server -> new LinkedHashMap<>()).put(ref,
+            PartnerManagementReader.read(ref,
+                XmlTree.parse(PartnerFixtures.workflowXml(diagram)).root()));
+    }
+
+    private Map<DiagramRef, PartnerManagementReader.Result> exportsOf(NodeId server) {
+        return nodeExports.getOrDefault(server, exports);
+    }
+
     private static String id(JsonNode partner) {
         return partner.path("fields").get(0).path("value").asString();
     }
@@ -601,7 +693,7 @@ class FindPartnersToolTest {
             return new InventoryPort() {
                 @Override
                 public List<InventoryItem> listDiagrams(String owner) {
-                    return exports.keySet().stream()
+                    return exportsOf(server).keySet().stream()
                         .map(diagram -> InventoryItem.diagram(server, diagram.name(),
                             "systemdiagram", diagram.diagramGroup(), owner))
                         .toList();
@@ -634,9 +726,10 @@ class FindPartnersToolTest {
             return (owner, diagrams) -> {
                 portReads.add(server);
                 return new PartnerManagementPort.Result(
-                    diagrams.stream().map(diagram -> exports.get(diagram).partners()).toList(),
+                    diagrams.stream().map(diagram -> exportsOf(server).get(diagram).partners())
+                        .toList(),
                     List.of(), diagrams.stream().collect(Collectors.toMap(diagram -> diagram,
-                        diagram -> exports.get(diagram).warnings())));
+                        diagram -> exportsOf(server).get(diagram).warnings())));
             };
         }
 

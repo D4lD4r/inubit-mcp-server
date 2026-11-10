@@ -12,6 +12,8 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerFixtures.PartnerXml;
 import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerFixtures.TwfXml;
 import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerManagementReader;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree;
+import de.dadecker.inubit.mcp.application.PartnerService.Answer;
+import de.dadecker.inubit.mcp.application.PartnerService.Compared;
 import de.dadecker.inubit.mcp.application.PartnerService.EntryView;
 import de.dadecker.inubit.mcp.application.PartnerService.Found;
 import de.dadecker.inubit.mcp.application.PartnerService.PartnerView;
@@ -57,8 +59,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * T024: paging and size bounds of {@link PartnerService#find} (FR-017, SC-004): texts cut with the
- * marker, the result within {@code resultLimits.maxChars} (the tool returns it as it is), detail
+ * T024: paging and size bounds of {@link PartnerService#answer} (FR-017, SC-004): texts cut with
+ * the marker, the result within {@code resultLimits.maxChars} (the tool returns it as it is), detail
  * cut before the partners of the page, {@code truncated}, the audit counting what is returned;
  * every result checked as the JSON text of {@link ResultJson} against every synthetic secret.
  */
@@ -381,9 +383,10 @@ class PartnerServiceBoundsTest {
         ResultLimiter limiter = new ResultLimiter(100, ItemBounds.MAX_ITEM_CHARS);
 
         // no match: nothing on the page to cut, only the guard can report it
-        Found found = find(new PartnerQuery("dev", Optional.empty(), Optional.empty(),
-            Optional.of("no-such-partner"), Optional.empty(), Optional.empty(), Optional.empty(),
-            0, 20, false, Optional.empty()), limiter);
+        Compared found = (Compared) answer(new PartnerQuery("dev", Optional.empty(),
+            Optional.empty(), Optional.of("no-such-partner"), Optional.empty(), Optional.empty(),
+            Optional.empty(), 0, 20, false, Optional.empty()), limiter,
+            FakeVersionDetection.pinned81());
 
         assertThat(ResultJson.size(found)).as("the remaining case: errors alone exceed it")
             .isGreaterThan(ItemBounds.MAX_ITEM_CHARS);
@@ -482,6 +485,10 @@ class PartnerServiceBoundsTest {
     }
 
     private Found find(PartnerQuery query, ResultLimiter limiter, VersionGate gate) {
+        return (Found) answer(query, limiter, gate);
+    }
+
+    private Answer answer(PartnerQuery query, ResultLimiter limiter, VersionGate gate) {
         audit.clear();
         return new PartnerService(new Gateways(), new TargetResolver(nodes), new FanOut(),
             limiter, new InventoryCache(new MutableClock(T0), node -> Duration.ofMinutes(10)),
@@ -490,7 +497,7 @@ class PartnerServiceBoundsTest {
             Terminology.DEFAULT, gate, SecretTiming.NONE,
             new PartnerAudit.Dependencies(audit::add, Clock.systemUTC(), "default",
                 UUID::randomUUID))
-            .find(query);
+            .answer(query);
     }
 
     /**

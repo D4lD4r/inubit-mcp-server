@@ -361,8 +361,8 @@ public final class PartnerService {
      * @param compared              always {@code true}
      * @param servers               one per targeted, then per compared server, in config order
      * @param referencableWorkflows per communication cloud (and module id) of a returned partner:
-     *                              the workflows of every server holding the partner, as first
-     *                              seen
+     *                              the workflows of every server holding a partner of that cloud
+     *                              on the page before the size bound, as first seen
      * @param partners              the page of matched partners (FR-012c): the comparison order
      *                              with a search term, else the list order
      * @param total                 the number of matched partners across all servers (FR-012c)
@@ -508,43 +508,32 @@ public final class PartnerService {
     }
 
     /**
-     * The partners of every server of {@code query.target()} whose non-masked fields contain
-     * {@code query.search()}, case-insensitively, each in full (FR-004, FR-005, FR-007, FR-011);
-     * without a search term every partner as a summary in list order (FR-006); either narrowed by
-     * the {@code protocol} and {@code workflow} entry filters (FR-005a); the page
-     * {@code query.offset()}, {@code query.limit()} of them, the result within
-     * {@code resultLimits} (FR-017). A search without hits gets similar values if a server
+     * On a single server without {@code query.compareWith()}: the partners whose non-masked
+     * fields contain {@code query.search()}, case-insensitively, each in full (FR-004, FR-005,
+     * FR-007, FR-011); without a search term every partner as a summary in list order (FR-006);
+     * either narrowed by the {@code protocol} and {@code workflow} entry filters (FR-005a); the
+     * page {@code query.offset()}, {@code query.limit()} of them, the result within
+     * {@code resultLimits} (FR-017). A search without hits gets similar values if the server
      * answered (FR-005b).
+     *
+     * <p>With a stage target of several servers or with {@code query.compareWith()}, the
+     * comparison of the targeted and the compared servers (T026, FR-012…FR-014): partners matched
+     * across the servers, a partner included if the search matches a shown field on at least one
+     * server and then shown from all; without a search term a summary of each with only the
+     * differences (FR-012c); {@code total} and {@code nextOffset} count matched partners; within
+     * {@code resultLimits} as well (T027). A failed server is not compared and makes the
+     * comparison incomplete.
      *
      * <p>Audit and log (T021, FR-020, FR-021): one {@link PartnerAudit} per call; an unknown
      * target is one {@code REFUSED} record; otherwise one record and one INFO line per server,
      * also for a cache hit or a failed server (its error code as reason, never the message),
      * counting the partners and masked values the result holds after the size bound.
      *
-     * @throws ToolErrorException {@code TARGET_UNKNOWN} before any server is contacted;
-     *     {@code NOT_FOUND} with up to {@link #MAX_SIMILAR} similar system diagram names if no
-     *     server that answered has a system diagram named {@code query.systemDiagram()} (FR-019);
-     *     {@code INTERNAL} naming the call id, and no partner data, if any audit record could not
-     *     be written
-     */
-    public Found find(PartnerQuery query) {
-        PartnerAudit audit = PartnerAudit.of(audits, query);
-        return found(audit, resolve(audit, query.target()), query);
-    }
-
-    /**
-     * {@link #find} on a single server; with a stage target of several servers or with
-     * {@code query.compareWith()}, the comparison of the targeted and the compared servers (T026,
-     * FR-012…FR-014): partners matched across the servers, a partner included if the search
-     * matches a shown field on at least one server and then shown from all; without a search term
-     * a summary of each with only the differences (FR-012c); {@code total} and
-     * {@code nextOffset} count matched partners. A failed server is not compared and makes the
-     * comparison incomplete. Audit and log as for {@link #find}, one record per server.
-     *
      * @throws ToolErrorException {@code TARGET_UNKNOWN} for an unknown {@code target} or
-     *     {@code compareWith} before any server is contacted; {@code NOT_FOUND} if no answering
-     *     server has the {@code systemDiagram} (FR-005a, FR-019); {@code INTERNAL} if an audit
-     *     record could not be written
+     *     {@code compareWith} before any server is contacted; {@code NOT_FOUND} with up to
+     *     {@link #MAX_SIMILAR} similar system diagram names if no server that answered has a
+     *     system diagram named {@code query.systemDiagram()} (FR-005a, FR-019); {@code INTERNAL}
+     *     naming the call id, and no partner data, if any audit record could not be written
      */
     public Answer answer(PartnerQuery query) {
         PartnerAudit audit = PartnerAudit.of(audits, query);
@@ -610,13 +599,14 @@ public final class PartnerService {
         PartnerBounds.Servers servers = PartnerBounds.servers(
             results.stream().map(PartnerService::serverView).toList(), results.stream()
                 .map(result -> result.payload().map(ServerRead::gateWarnings).orElse(0))
-                .toList(), page, budget, sizeOf);
+                .toList(), page.stream().map(PartnerBounds.Item::sources).toList(), budget,
+            sizeOf);
         // nextOffset and truncated at their widest: paging can only shorten them
         int fixed = sizeOf.applyAsInt(new Found(audit.callId(), mode, false, servers.value(),
             List.of(), List.of(), similar.value(), total, query.offset(), limit,
             OptionalInt.of(total), false));
         PartnerBounds.Bounded<List<PartnerBounds.Item>> bounded =
-            PartnerBounds.page(servers.page(), fixed, budget, sizeOf);
+            PartnerBounds.page(page.subList(0, servers.shown()), fixed, budget, sizeOf);
         List<PartnerBounds.Item> returned = bounded.value();
         ToolErrorException unaudited = null;
         for (NodeResult<ServerRead> result : results) {
@@ -655,9 +645,8 @@ public final class PartnerService {
 
     /**
      * The comparison of {@code servers} (T026): read as for {@link #found}, compared
-     * ({@link PartnerComparison}), then searched, filtered, ordered and paged by matched partner.
-     * T026 bounds the servers and reports a result over its budget as {@code truncated}; the
-     * compared partners are bounded with T027.
+     * ({@link PartnerComparison}), then searched, filtered, ordered and paged by matched partner,
+     * the result bounded as {@link #found} does (T027, {@link PartnerBounds}).
      */
     private Compared compared(PartnerAudit audit, List<NodeId> servers, PartnerQuery query) {
         List<NodeResult<ServerRead>> results = read(servers, query);
@@ -687,19 +676,37 @@ public final class PartnerService {
                 .map(search -> SimilarNames.of(search, similarCandidates(comparison),
                     MAX_SIMILAR)));
         int budget = limiter.maxChars();
+        String mode = summary ? "list" : "search";
+        Map<CloudKey, CloudWorkflows> clouds = comparedWorkflows(page, results, answering);
+        List<PartnerBounds.ComparedItem> items = page.stream()
+            .map(partner -> new PartnerBounds.ComparedItem(
+                partner.onlyOn().isEmpty() ? answering : partner.onlyOn(),
+                comparedView(partner, summary),
+                clouds.get(new CloudKey(partner.diagram(), partner.cloud(), partner.moduleId()))))
+            .toList();
+        // the page is cut to the partners whose system diagram every server holding them lists
         PartnerBounds.Servers bounded = PartnerBounds.servers(
             results.stream().map(PartnerService::serverView).toList(), results.stream()
                 .map(result -> result.payload().map(ServerRead::gateWarnings).orElse(0))
-                .toList(), List.of(), budget, sizeOf);
-        List<ComparedPartnerView> views = page.stream()
-            .map(partner -> comparedView(partner, summary))
+                .toList(), items.stream().map(PartnerBounds.ComparedItem::sources).toList(),
+            budget, sizeOf);
+        List<NotCompared> notCompared = comparison.notCompared().stream()
+            .map(failed -> new NotCompared(failed.node(), failed.error().code()))
             .toList();
+        // nextOffset and truncated at their widest: paging can only shorten them
+        int fixed = sizeOf.applyAsInt(new Compared(audit.callId(), mode, true, bounded.value(),
+            List.of(), List.of(), similar.value(), total, query.offset(), limit,
+            OptionalInt.of(total), false, comparison.incomplete(), notCompared));
+        PartnerBounds.Bounded<List<PartnerBounds.ComparedItem>> cut = PartnerBounds.compared(
+            items.subList(0, bounded.shown()), fixed, budget, sizeOf);
+        List<PartnerBounds.ComparedItem> returned = cut.value();
         ToolErrorException unaudited = null;
         for (NodeResult<ServerRead> result : results) {
             NodeId node = result.node();
             List<ComparedPartnerView> held = result.payload().isEmpty() ? List.of()
-                : views.stream()
-                    .filter(view -> view.onlyOn().map(on -> on.contains(node)).orElse(true))
+                : returned.stream()
+                    .filter(item -> item.holders().contains(node))
+                    .map(PartnerBounds.ComparedItem::partner)
                     .toList();
             try {
                 audit(audit, query, result, notFound.map(ToolError::code), held.size(),
@@ -714,13 +721,12 @@ public final class PartnerService {
         if (notFound.isPresent()) {
             throw new ToolErrorException(notFound.get());
         }
-        int next = from + page.size();
-        boolean truncated = bounded.cut() || similar.cut();
-        List<NotCompared> notCompared = comparison.notCompared().stream()
-            .map(failed -> new NotCompared(failed.node(), failed.error().code()))
-            .toList();
-        Compared result = new Compared(audit.callId(), summary ? "list" : "search", true,
-            bounded.value(), comparedWorkflows(page, results, answering), views, similar.value(),
+        int next = from + returned.size();
+        boolean truncated = bounded.cut() || similar.cut() || cut.cut()
+            || returned.size() < Math.min(query.limit(), total - from);
+        Compared result = new Compared(audit.callId(), mode, true, bounded.value(),
+            PartnerBounds.comparedWorkflows(returned),
+            returned.stream().map(PartnerBounds.ComparedItem::partner).toList(), similar.value(),
             total, query.offset(), limit, next < total ? OptionalInt.of(next) : OptionalInt.empty(),
             truncated, comparison.incomplete(), notCompared);
         // never reported as complete while over its bound
@@ -799,9 +805,10 @@ public final class PartnerService {
 
     /**
      * Per communication cloud (and module id) of the page, the referencable workflows of every
-     * answering server holding the partner, as first seen (FR-007).
+     * answering server holding a partner of the cloud on the page, as first seen (FR-007); the
+     * size bound keeps them whole for the partners of the cloud it leaves on the page.
      */
-    private static List<CloudWorkflows> comparedWorkflows(List<ComparedPartner> page,
+    private static Map<CloudKey, CloudWorkflows> comparedWorkflows(List<ComparedPartner> page,
         List<NodeResult<ServerRead>> results, List<NodeId> answering) {
         Map<CloudKey, Set<String>> clouds = new LinkedHashMap<>();
         for (ComparedPartner partner : page) {
@@ -819,10 +826,10 @@ public final class PartnerService {
                     && partner.moduleId().map(cloud.moduleId()::equals).orElse(true))
                 .forEach(cloud -> workflows.addAll(cloud.referencableWorkflows()));
         }
-        return clouds.entrySet().stream()
-            .map(cloud -> new CloudWorkflows(cloud.getKey().diagram(), cloud.getKey().cloud(),
-                cloud.getKey().moduleId(), List.copyOf(cloud.getValue())))
-            .toList();
+        Map<CloudKey, CloudWorkflows> workflows = new LinkedHashMap<>();
+        clouds.forEach((key, names) -> workflows.put(key, new CloudWorkflows(key.diagram(),
+            key.cloud(), key.moduleId(), List.copyOf(names))));
+        return workflows;
     }
 
     /** A communication cloud of a compared partner, told apart by module id where needed. */

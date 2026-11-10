@@ -54,8 +54,8 @@ Offered when at least one server is possibly capable of `PARTNER_MANAGEMENT`; th
   "partners": [ /* single server: Partner; comparison: ComparedPartner (below) */ ],
   "similarValues": ["ACME-0001"],    // only when a search matched nothing (FR-005b)
   "total": 120, "offset": 0, "limit": 20, "nextOffset": 20, "truncated": false,
-  "incomplete": false,               // a compared server failed
-  "notCompared": [{"node": "…", "code": "UNREACHABLE"}]
+  "incomplete": false,               // comparison only: a compared server failed
+  "notCompared": [{"node": "…", "code": "UNREACHABLE"}]   // comparison only, in server order
 }
 ```
 
@@ -82,12 +82,16 @@ In `list` mode an entry carries only `protocol`, `workflow` and the summary keys
 **ComparedPartner**
 
 ```jsonc
-{ "systemDiagram": {…}, "cloud": "Module-0901", "key": {"field": "Id", "value": "ACME-0001"},
-  "onlyOn": null,                      // or ["prod/node1"]
+{ "systemDiagram": {…}, "cloud": "Module-0901",
+  "moduleId": "33",                  // only when two clouds of one diagram share a name
+  "key": {"field": "Id", "value": "ACME-0001"},   // absent: no key, compared on its server alone
+  "onlyOn": ["prod/node1"],          // absent when every answering server holds it
   "fields": [{"name": "Name", "equal": "ACME Corp"}],
   "entries": [
-    { "protocol": "FTP", "workflow": {"name": "Workflow-0001"}, "position": 0, "onlyOn": null,
-      "format": {"equal": "…"},       // entry attributes other than protocol/workflow, grouped like settings
+    { "protocol": "FTP", "workflow": {"name": "Workflow-0001"}, "position": 0,
+                                      // position among the entries of this protocol and workflow
+      "onlyOn": ["qa/node1"],         // absent when every server holding the partner holds it
+      "format": {"name": "format", "equal": "…"},   // a setting named format
       "protocolSettings": [
         {"name": "ServerName", "differs": {"qa/node1": "a.example.test", "prod/node1": "b.example.test"}},
         {"name": "Login", "equal": "acme"},
@@ -96,14 +100,26 @@ In `list` mode an entry carries only `protocol`, `workflow` and the summary keys
       ],
       "additionalParameters": [{"name": "FTPProtocol", "equal": "SFTP"}] } ],
   "maskedCount": {"equal": 3},       // or {"differs": {"qa/node1": 3, "prod/node1": 2}} (FR-009)
-  "ambiguous": [] }
+  "ambiguous": [{"node": "qa/node1", "partners": 2, "moduleIds": ["33"]}] }
 ```
+
+Absent values are omitted, never `null`. A partner without key (key field masked, absent or blank)
+and every partner of an ambiguous key (several partners of the key on a server, or two clouds of
+the module name there) is compared on its server alone: no `key` or no match, `onlyOn` names that
+server, and `ambiguous` says why. An entry whose workflow does not resolve is compared on its
+server alone likewise. A setting or field masked on any server is compared as masked: `set` per
+server, and only when it is set on at least two servers either `sameOn` or `equality`; a set value
+without fingerprint (child elements, or shown on its server) gets neither. A field masked on any
+server is not searched. A failed server is only listed in `notCompared` (its error in `servers`);
+`onlyOn` and every statement consider the answering servers only.
 
 Result types map a masked value to `{"masked": true, "set": …}` and never carry the
 fingerprint.
 
 Without a search term, a ComparedPartner holds the summary fields plus only `differs`, masked
-settings whose `set` or `sameOn` differ, and `onlyOn` entries (FR-012c).
+settings whose `set` or `sameOn` differ, and `onlyOn` entries (FR-012c); `format` only if it
+differs, `additionalParameters` only the differing ones (absent if none). With a search term, the partners
+keep the comparison order; without, the list order.
 
 ## Errors
 
@@ -130,3 +146,11 @@ Server level (in `servers[].error`, others answered): `NOT_CONFIGURED` (no owner
   server errors, at most five similar values, the fields and the system diagram of the first partner of the page)
   alone
   exceed the bound, the result does too, always with `truncated: true`.
+- Size of a comparison: the same bound and order of cuts on ComparedPartners. Texts are cut with
+  the marker (a search still matches the full value); then the detail from the last partner of the
+  page to the first: `additionalParameters` dropped, then `protocolSettings` down to `ServerName`
+  and `Login`; then partners from the end of the page (the first is kept), then the last entries
+  of that partner. `referencableWorkflows` holds, per cloud of a returned partner, the workflows of
+  every server holding a partner of that cloud on the page before the size bound (a server
+  whose partners of that cloud were cut still holds the cloud); the system diagram of a returned
+  partner stays listed on every server holding it.

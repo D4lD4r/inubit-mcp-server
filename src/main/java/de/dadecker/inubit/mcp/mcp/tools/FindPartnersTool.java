@@ -2,8 +2,6 @@ package de.dadecker.inubit.mcp.mcp.tools;
 
 import de.dadecker.inubit.mcp.application.PartnerAudit;
 import de.dadecker.inubit.mcp.application.PartnerService;
-import de.dadecker.inubit.mcp.domain.model.ErrorCode;
-import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.partner.PartnerQuery;
 import de.dadecker.inubit.mcp.mcp.CallContext;
@@ -15,19 +13,18 @@ import java.util.Optional;
 
 /**
  * {@code find_partners} (feature 018, contracts/find_partners.md): the partners of the INUBIT
- * Partner Management in the owner's system diagrams of one stage or server ({@link
- * PartnerService}). Read-only for INUBIT; secrets only as "set"/"not set".
+ * Partner Management in the owner's system diagrams of one stage or server, or their comparison
+ * across a stage's servers or with {@code compareWith} ({@link PartnerService#answer}).
+ * Read-only for INUBIT; secrets only as "set"/"not set".
  *
  * <p>Applies the input defaults ({@code offset} 0, {@code limit}
  * {@value PartnerQuery#DEFAULT_LIMIT}, {@code refresh} false). An input the schema lets through
  * but {@link PartnerQuery} refuses (e.g. a {@code compareWith} that overlaps {@code target}) is
  * {@code INVALID_INPUT} with one {@code REFUSED} audit record whose node is the target as
  * requested; every other audit is written by the service. The result is the service's
- * {@link PartnerService.Found} as it is: it carries every output field, so the size bound
- * (FR-017) measures exactly what the tool returns.
- *
- * <p>{@code compareWith} is in the schema but not implemented yet: a call with it is refused the
- * same way before any server is contacted (phase 3 review; T026 lifts this refusal).
+ * {@link PartnerService.Answer} as it is ({@link PartnerService.Found} or
+ * {@link PartnerService.Compared}): it carries every output field, so the size bound (FR-017)
+ * measures exactly what the tool returns.
  */
 public final class FindPartnersTool implements ToolHandler {
 
@@ -41,7 +38,17 @@ public final class FindPartnersTool implements ToolHandler {
         + " and name. systemDiagram, protocol and workflow narrow both; with protocol or"
         + " workflow only the matching entries are shown. Passwords, keys and other secrets are"
         + " only shown as set or not set. Lists the system diagrams read and, if a search"
-        + " matches nothing, similar partner Ids and names. Read-only; every call is audited.";
+        + " matches nothing, similar partner Ids and names. One {group} of several {nodes}, or"
+        + " compareWith (another {group} or {node}), compares the partners across the {nodes}:"
+        + " matched by system diagram, communication cloud and partner key, each field and"
+        + " setting shown once if equal, else per {node} (differs); secrets per {node} as set,"
+        + " with sameOn naming the {nodes} storing the same value; onlyOn names the {nodes}"
+        + " holding a partner, entry or setting if not all do (a partner without key or with an"
+        + " ambiguous key is compared alone on its {node}). The search matches a partner if a"
+        + " field shown on any {node} contains the term; a field masked on any {node} is not"
+        + " searched. Without search the comparison lists each partner with its summary and"
+        + " only the differences. Each failed {node} is named in notCompared and the result is"
+        + " incomplete. Read-only; every call is audited.";
 
     private final PartnerService service;
     private final PartnerAudit.Dependencies audits;
@@ -92,21 +99,10 @@ public final class FindPartnersTool implements ToolHandler {
                 workflow, args.integer("offset", 0),
                 args.integer("limit", PartnerQuery.DEFAULT_LIMIT), args.flag("refresh"),
                 context.client());
-            refuseUnsupported(query);
         } catch (ToolErrorException e) {
             throw new PartnerAudit(audits, target, compareWith, owner, search, systemDiagram,
                 protocol, workflow, context.client()).refused(e.error()).exception();
         }
-        return service.find(query);
-    }
-
-    /** @throws ToolErrorException {@code INVALID_INPUT} if {@code compareWith} is given */
-    private static void refuseUnsupported(PartnerQuery query) {
-        if (query.compareWith().isPresent()) {
-            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
-                "compareWith is not supported yet",
-                "This version of find_partners does not implement compareWith yet",
-                "Call again without compareWith"));
-        }
+        return service.answer(query);
     }
 }
