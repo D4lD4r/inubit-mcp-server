@@ -22,9 +22,11 @@ configured password and every FR-010 kind placed in a note's name, title, topics
 **Reviews**: after each phase a `code-review` reviewer checks the phase diff; findings and
 decisions go to `specs/019-local-knowledge/reviews/implementation.md` ("Implementation — phase N").
 
-**Decision gate (D-7)**: tasks marked **[D-7]** implement option (A) of plan.md "Decision needed"
-and MUST NOT start before the person confirmed (A), (B) or (C). For (B) or (C) the gate task T016
-rewrites them first (see "Decision gate"). All other tasks are independent of the choice.
+**Decision gate (D-7)**: the gate task T016 (between Phases 3 and 4) needs the person's choice of
+option (A), (B) or (C) in plan.md "Decision needed". Tasks marked **[D-7]** implement option (A)
+directly; option (B) also changes the readiness port, the result contracts and the
+announcement, so Phases 4 to 8 start only after the gate. Phases 1 to 3 do not depend on the
+choice.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -38,8 +40,9 @@ rewrites them first (see "Decision gate"). All other tasks are independent of th
 - [ ] T002 Move `KeyMaterial` from `adapter/archive/v81` to `domain/model` (D-6 (b), behaviour
   unchanged; `+ longBase64` only if research D-6 needs it for the token rule); update the imports
   of `SecretRedactor`, `RepositoryArchive`, `SecretPaths`; keep `adapter/archive/v81/package-info`
-  (`theWorkspaceAdapterPackagesExist`). There is no dedicated test today: first add
-  `KeyMaterialTest` pinning the current behaviour (green before the move), then move;
+  (`theWorkspaceAdapterPackagesExist`). There is no dedicated test today: first write
+  `domain/model/KeyMaterialTest` against the new location, pinning the current behaviour (red: the
+  class does not exist there yet), then move (green);
   `SecretRedactorTest`, `RepositoryArchiveTest`, `ArchiveRoundTripTest` and
   `V81ReleaseArchivesTest` stay unchanged apart from the import — main
   `domain/model/KeyMaterial.java`, test `domain/model/KeyMaterialTest.java` (new)
@@ -62,9 +65,11 @@ rewrites them first (see "Decision gate"). All other tasks are independent of th
   `application/PackageWriter.java`, tests `application/SimilarNamesTest.java` (new; today
   covered through `InventoryServiceTest`), `application/PackageWriterTest.java`
 - [ ] T007 [P] `knowledge/package-info.java` and `KnowledgeLimits` (data-model.md constants, incl.
-  `SIZE_WALK_ENTRIES = 1_000_000`); `PackageBoundaryTest` stays green without a new rule —
-  main `knowledge/KnowledgeLimits.java`, test `architecture/PackageBoundaryTest.java` (unchanged,
-  run)
+  `SIZE_WALK_ENTRIES = 1_000_000`): first `KnowledgeLimitsTest` asserting every value of
+  data-model.md and the relations between them (e.g. read page < note read bound, excerpt <
+  instructions bound) — red, then the class; `PackageBoundaryTest` stays green without a new rule
+  — main `knowledge/KnowledgeLimits.java`, tests `knowledge/KnowledgeLimitsTest.java` (new),
+  `architecture/PackageBoundaryTest.java` (unchanged, run)
 
 **Checkpoint**: build green; code-review phase 2.
 
@@ -80,22 +85,42 @@ prints the line without reading a credential.
   relative paths refused (configuration-delta.md), `recording: "yes"` refused — main
   `config/KnowledgeConfig.java`, `config/ProfileConfig.java`, `config/ConfigLoader.java`, test
   `config/ConfigLoaderTest.java`
-- [ ] T009 [US3] `ConfigValidator.checkKnowledge` (FR-002): overlap with another profile's
-  knowledge, export directory (`PackageWriter.defaultDirectory` when unset), workspace and the
-  configuration/audit/log paths, compared after `canonical()`; error texts per
-  configuration-delta.md; leak check — main `config/ConfigValidator.java`, test
+- [ ] T009 [US3] `ConfigValidator.checkKnowledge` (FR-002, D-2): after `canonical()`, the
+  relations *equal*, *inside* and *contains* are each an error, tested for every forbidden path of
+  the D-2 table: this profile's `workspace` and `auditDirectory`; `BackupStore.defaultRoot`
+  (backups); `DeploymentLedger.defaultDirectory` (deployment ledger);
+  `PackageWriter.defaultDirectory` (packages); `~/.inubit-mcp` itself (equal and contains only);
+  `~/.inubit-mcp/<other>` and every other profile's `workspace`, `auditDirectory` and
+  `knowledge.directory`; the default configuration directory and the folder of the configuration
+  file in use (`ConfigLocation.roots()`). Also: inside `~/.inubit-mcp/<profile>` is allowed, a copy
+  of the same profile gets the existing warning only, a symbolic-link root is resolved; error
+  texts per configuration-delta.md; leak check — main `config/ConfigValidator.java`, test
   `config/ConfigValidatorKnowledgeTest.java`
 - [ ] T010 [P] [US3] `PrivateFileSystem.othersMayAccess(Path)` (D-3): POSIX group/other read or
   write, Windows ACL `check`; empty for a missing path — main `domain/port/PrivateFileSystem.java`,
   `adapter/os/OsPrivateFileSystem.java` (and the other `*PrivateFileSystem` implementations), test
   `adapter/os/OsPrivateFileSystemTest.java`
-- [ ] T011 [US3] `KnowledgeStatus` (`ok|absent|not a directory|not readable`, note count without
-  credentials) and the `ConfigSummary` line `Knowledge: <path> (<status>), recording on|off, <n>
-  notes`; `--check-config` and the start-time permission warning in `Launcher` (T010); leak check —
-  main `config/KnowledgeStatus.java`, `config/ConfigSummary.java`, `Launcher.java`, tests
-  `config/ConfigSummaryTest.java`, `MainTest.java`
+- [ ] T011 [US3] `KnowledgeStatus` record (`OK`, `ABSENT`, `PROBLEM` with `not a directory` or
+  `not readable`, `recording`, `notes`) and its `ConfigSummary` line `Knowledge: <path> (<status>),
+  recording on|off, <n> notes`, tested with constructed values; in `Launcher` the start-time
+  warnings of configuration-delta.md: the permission warning (T010) and "not usable: not a
+  directory / not readable" (`Files.isDirectory`/`isReadable`, no walk); leak check. The note
+  count from the walk is wired into `--check-config` in T018 — main `config/KnowledgeStatus.java`,
+  `config/ConfigSummary.java`, `Launcher.java`, tests `config/ConfigSummaryTest.java`,
+  `MainTest.java`
 
 **Checkpoint**: build green; code-review phase 3.
+
+## Decision gate (D-7; after Phase 3, before Phase 4)
+
+- [ ] T016 The person confirms the D-7 option (plan.md "Decision needed"); record the answer in
+  spec.md "Plan decisions" and research D-7. (A): the [D-7] tasks as written. (C): as (A), but
+  T024 without the start-time `prepare` (the instructions show the count and the
+  credentials-not-ready text whenever nodes are configured); docs say so. (B): before any task of
+  Phase 4 starts, reconcile spec (SC-002 narrowed by the person), plan, research D-7, data-model,
+  contracts (`credentialsChecked: partial` in both output schemas), quickstart and the affected
+  tasks (T013 to T015, T020 to T022, T024, T030, T031, T036 to T038) in one commit with a review
+  round (`reviews/tasks-d7.md`). The answer gates Phases 4 to 8.
 
 ## Phase 4: Secrets (plan stage 3; FR-010, FR-008a, FR-013)
 
@@ -110,7 +135,7 @@ prints the line without reading a credential.
   (`|`, `>`, indicators) as one span; keys stay readable; at most 4 MiB input — main
   `knowledge/SecretFinder.java`, test `knowledge/SecretFinderTest.java` (each form, CDATA,
   multiline, `${secret:…}` exempt, empty block, findings never contain the value)
-- [ ] T013 `ConfiguredSecrets` port (`prepare`, `occurrences`, readiness states per D-7) and rule
+- [ ] T013 [D-7] `ConfiguredSecrets` port (`prepare`, `occurrences`, readiness states per D-7) and rule
   (a) in `SecretFinder` through the port; `FakeConfiguredSecrets` (test) with `Held`, `Waiting`,
   `Failed`, `NothingConfigured` — main `domain/port/ConfiguredSecrets.java`,
   `knowledge/SecretFinder.java`, test `testing/FakeConfiguredSecrets.java`,
@@ -124,7 +149,7 @@ prints the line without reading a credential.
   test `adapter/ProfileSecretsTest.java` (all held, one waiting, one failed (AWS offline), none
   configured)
 
-**Checkpoint**: build green; code-review phase 4 (T014/T015 only once the gate is passed).
+**Checkpoint**: build green; code-review phase 4.
 
 ## Phase 5: User Story 1 – The assistant uses what is already known (P1, plan stage 4)
 
@@ -137,13 +162,16 @@ read and paging match quickstart rows US1 AS1–AS6 and D-9.
   in order; writer single-quotes every string and refuses a block over the bounds; round-trip tests
   with quotes, backslashes, `#`, `:`, `---`; 63/64/65 lines and 8 KiB ± 1 — main
   `knowledge/NoteMetadata.java`, test `knowledge/NoteMetadataTest.java`
-- [ ] T018 [US1] `Note` and `KnowledgeDirectory` read side (D-9): walk with `NOFOLLOW_LINKS`,
-  depth 16 / 100,000 entries (listing warnings), hidden `.history`/dot files skipped, links listed
-  with a warning, only lowercase `.md`, notes over 4 MiB and unreadable notes listed with a
-  warning, duplicate NFC names both listed with the warning; `status()` — main `knowledge/Note.java`,
-  `knowledge/KnowledgeDirectory.java`, test `knowledge/KnowledgeDirectoryTest.java` (links POSIX
-  only)
-- [ ] T019 [P] [US1] `VersionToken` (`v1.` + 24 characters over mtime and masked text) and
+- [ ] T018 [US1] `Note` and `KnowledgeDirectory` read side (D-4, D-9): walk with
+  `NOFOLLOW_LINKS`, depth 16 / 100,000 entries (listing warnings), hidden entries skipped (segment
+  starting with `.`, incl. `.history`, or `Files.isHidden` true — the Windows hidden attribute),
+  links listed with a warning, only lowercase `.md`, notes over 4 MiB and unreadable notes listed
+  with a warning, duplicate NFC names both listed with the warning; `status()`; `Launcher` builds
+  the `--check-config` `KnowledgeStatus` (T011) from `status()`, never reading a credential — main
+  `knowledge/Note.java`, `knowledge/KnowledgeDirectory.java`, `Launcher.java`, tests
+  `knowledge/KnowledgeDirectoryTest.java` (links POSIX only; the hidden attribute Windows only),
+  `MainTest.java` (`--check-config` count)
+- [ ] T019 [US1] `VersionToken` (`v1.` + 24 characters over mtime and masked text) and
   `NoteRefs` (per-process HMAC key, `r1.` + 20 characters, `resolve` against a listing) — main
   `knowledge/VersionToken.java`, `knowledge/NoteRefs.java`, tests `knowledge/VersionTokenTest.java`,
   `knowledge/NoteRefsTest.java` (stable within a process, different across keys, no name in it)
@@ -152,7 +180,9 @@ read and paging match quickstart rows US1 AS1–AS6 and D-9.
   offset, excerpt ≤ 300, `masked`, `writable`, `ref`; read pages of 20,000 including the marker,
   `nextOffset`, lookup by exact NFC name or `ref`, `NOT_FOUND` with up to five masked similar
   names (case-insensitive first), `CONFLICT` for duplicate names by `name`; readiness not held →
-  `PRECONDITION_FAILED` (fake); leak check — main `knowledge/KnowledgeService.java` (+ `NoteSelector`,
+  `PRECONDITION_FAILED` (fake); DEBUG `knowledge.read` with `notes`, `hits` and the masked, cut
+  `name` asserted through a logback `ListAppender` (as `SecretLeakTest`), never `query`, `topic` or
+  content; leak check — main `knowledge/KnowledgeService.java` (+ `NoteSelector`,
   `Search`, `SearchPage`, `Hit`, `NotePage`), tests `knowledge/KnowledgeServiceSearchTest.java`,
   `knowledge/KnowledgeServiceReadTest.java`, `knowledge/KnowledgeServiceCredentialsTest.java`
 - [ ] T021 [US1] `KnowledgeAnnouncement` (D-8): preamble (search, read, record or read-only, not
@@ -165,13 +195,14 @@ read and paging match quickstart rows US1 AS1–AS6 and D-9.
   `CallContext`; results validated against both shapes; combination errors — main
   `mcp/tools/ReadKnowledgeTool.java`, `src/main/resources/schemas/read_knowledge.*.json`, test
   `mcp/tools/ReadKnowledgeToolTest.java`
-- [ ] T023 [US1] Wiring: `KnowledgeService` per profile, `read_knowledge` always offered (FR-007),
+- [ ] T023 [D-7] [US1] Wiring: `ProfileSecrets` (T015) as the profile's `ConfiguredSecrets`,
+  `KnowledgeService` per profile, `read_knowledge` always offered (FR-007),
   knowledge paragraph in `McpServerFactory.instructions()` before the update notice (016); tool
   count 18 — main `Wiring.java`, `mcp/McpServerFactory.java`, tests `ServerIdentityTest.java`,
   `ToolAnnouncementTest.java`
 - [ ] T024 [D-7] [US1] Start-time `prepare` in `Launcher` (only when notes exist, ≤ 5 s; otherwise
-  the announcement's credentials-not-ready text) and `ProfileSecrets` wired as `ConfiguredSecrets`
-  — main `Launcher.java`, `Wiring.java`, test `MainTest.java`, `KnowledgeToolsWiringTest.java`
+  the announcement's credentials-not-ready text) — main `Launcher.java`, tests `MainTest.java`,
+  `KnowledgeToolsWiringTest.java`
 
 **Checkpoint**: build green; code-review phase 5.
 
@@ -212,8 +243,9 @@ readiness and a failing-audit fake.
   malformed metadata, stale token, secret in a note to replace); new text with metadata;
   256 KiB / 100 MiB bounds; history add → publish (commit point) → prune; undo before the commit
   point; warnings after it; result. Tests for every row of quickstart D-10 … D-13 incl. the
-  failing-audit fake and the race hook; leak check — main `knowledge/KnowledgeService.java`
-  (+ `Record`, `Recorded`), test `knowledge/KnowledgeServiceRecordTest.java`
+  failing-audit fake and the race hook; INFO `knowledge.record` with the masked name, mode,
+  sizes and outcome asserted through a `ListAppender` for each outcome; leak check — main
+  `knowledge/KnowledgeService.java` (+ `Record`, `Recorded`), test `knowledge/KnowledgeServiceRecordTest.java`
 - [ ] T031 [US2] `ToolHints.localOnlyWrite(title)` (`openWorld=false`) and `RecordKnowledgeTool`
   with `schemas/record_knowledge.{input,output}.json` exactly as the contract (structural rules
   only, description with the propose-then-record rule incl. topics) — main `mcp/ToolHints.java`,
@@ -236,8 +268,9 @@ readiness and a failing-audit fake.
   (US2 AS8) — test `knowledge/KnowledgeBoundsTest.java`
 - [ ] T036 `KnowledgeSecretLeakTest`: every FR-010 kind in a hand-written note's name, title,
   topics, `source`, `lastWriter` and body (also YAML block and multiline XML) never appears in
-  instructions, hits, pages, version tokens, refs, audit lines, captured log lines or error
-  results; every kind in new text refused without echo, also in an invalid name (SC-002) — test
+  instructions, hits, pages, version tokens, refs, audit lines, captured log lines (the test
+  first asserts that the read and record log lines were captured, so the check is not vacuous) or
+  error results; every kind in new text refused without echo, also in an invalid name (SC-002) — test
   `security/KnowledgeSecretLeakTest.java`
 
 **Checkpoint**: build green; code-review phase 7.
@@ -258,15 +291,6 @@ readiness and a failing-audit fake.
   validation record filled in `quickstart.md`; final code-review over
   `git diff origin/main...HEAD`; findings in `reviews/implementation.md`
 
-## Decision gate (D-7, before T014, T015, T024)
-
-- [ ] T016 The person confirms the D-7 option (plan.md "Decision needed"); record the answer in
-  spec.md "Plan decisions" and research D-7. (A): T014, T015, T024 as written. (B): T014 drops
-  `awaitSettled*`; `ProfileSecrets` masks only held credentials, no readiness refusal; T024 drops
-  the start-time `prepare`; SC-002 is narrowed in the spec by the person. (C): T014, T015 as
-  written; T024 without the start-time `prepare` (instructions show the count and the
-  credentials-not-ready text whenever nodes are configured).
-
 ## Live check (SC-001; after the implementation, by the person)
 
 - [ ] T041 Live check steps 1–7 of `quickstart.md` "Live check" with a scratch profile; result
@@ -277,22 +301,22 @@ readiness and a failing-audit fake.
 - Phase 2 blocks everything; T002 before T012 (`KeyMaterial`); T003 before T018, T020, T030;
   T004, T005 before T012, T013.
 - Phase 3: T008 → T009; T008 + T010 → T011.
-- Phase 4: T012 → T013; T016 → T014 → T015.
-- US1: T017, T018 → T020 (also T013, T019) → T021 → T022 → T023; T015 + T023 → T024.
+- Gate: Phase 3 → T016 → Phases 4 to 8.
+- Phase 4: T012 → T013 → T014 → T015.
+- US1: T017 → T018 (also T003, T011) → T019 → T020 (also T013) → T021 → T022 → T023 (also
+  T015) → T024.
 - US2: T025 → T026; T018 → T028; T026 + T027 + T028 + T029 + T020 → T030 → T031 → T032 → T033.
-- Phase 7 needs T032 (T036 also T024 only for the real-adapter variant; with the fake it needs T032).
+- Phase 7 needs T032.
 - Phase 8 needs all of Phases 2–7; T037/T038 wording of D-7 needs T016.
 - T041 after T040.
 
 ## Parallel opportunities
 
-T003/T004/T005/T006/T007; T010 alongside T008/T009; T017/T019 alongside T018; T025/T027/T029
+T003/T004/T005/T006/T007; T010 alongside T008/T009; T017 alongside T012 to T015; T025/T027/T029
 alongside T028; T034/T035; T037/T038. Builds always sequential.
 
 ## Implementation strategy
 
-MVP = Phases 2–5 without the [D-7] tasks: reading and the instructions, with a fake readiness in
-tests and rules (b)–(d). Then recording (Phase 6), bounds and leak proof (Phase 7), docs. The D-7
-tasks are added once the person decided; until then the build is wired with a readiness that
-holds no credentials only in tests — production wiring (T024) waits for the gate, so no release
-is cut before it. Each phase ends green and reviewed.
+Phases 1 to 3 (foundation and configuration) can be done before the person decided D-7. MVP =
+Phases 4 and 5 after the gate: reading and the instructions with the real readiness. Then
+recording (Phase 6), bounds and leak proof (Phase 7), docs. Each phase ends green and reviewed.

@@ -44,11 +44,10 @@ access dialogs for every node) and refuses while a store does not answer (e.g. A
 offline); at server start the reads run for up to 5 s only when notes exist. Alternatives: (B)
 mask only credentials already read (never blocks, breaks SC-002 for unread ones), (C) as chosen
 but never read at start (the note list then never appears in the instructions of a profile with
-nodes). Recorded in the spec's "Plan decisions" as pending confirmation. **Gate**: tasks.md puts
-everything that depends on this choice (the `ConfiguredSecrets` readiness in the tools and at
-start) behind an explicit decision checkpoint; the person's answer is needed before those tasks
-start. Everything else (rules (b)–(d), the walk, the record flow with a fake readiness) does not
-depend on it.
+nodes). Recorded in the spec's "Plan decisions" as pending confirmation. **Gate**: tasks.md puts an
+explicit decision task (T016) after the configuration phase: option (B) changes the readiness
+port, both output contracts and the announcement, so the secrets, read and record phases start
+only after the person's answer. Foundation and configuration do not depend on it.
 
 ## Validation status
 
