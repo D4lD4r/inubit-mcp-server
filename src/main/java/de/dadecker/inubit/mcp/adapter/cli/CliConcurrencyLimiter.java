@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
@@ -20,6 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * A further run waits up to the node's {@code cliTimeout}, then fails with {@code TIMEOUT}. Other
  * nodes get no limit. The local client probes ({@link CliVersionProbe}, {@link CliClientProbe})
  * take no permit; the {@link de.dadecker.inubit.mcp.adapter.CredentialGuard} applies on top.
+ * Helper runs (feature 020, research D-14, FR-016) take the same per-node permits on every
+ * version line; StartCLI runs on other nodes still take none.
  */
 public final class CliConcurrencyLimiter {
 
@@ -44,11 +47,26 @@ public final class CliConcurrencyLimiter {
         if (!matrix.isCliOnly(NodeVersionState.initial(server.versionLine()).effectiveVersion())) {
             return new Permit(null);
         }
+        return take(server, server.cliTimeout());
+    }
+
+    /**
+     * A permit for one helper run on {@code server}, on any version line; close it when the run
+     * is over. Shares the permits with {@link #acquire} on the same node.
+     *
+     * @throws ToolErrorException {@code TIMEOUT} if no permit is free within {@code wait} or the
+     *     caller is interrupted while waiting
+     */
+    public Permit acquireForHelper(EffectiveNodeConfig server, Duration wait) {
+        return take(server, wait);
+    }
+
+    private Permit take(EffectiveNodeConfig server, Duration wait) {
         Semaphore semaphore = semaphores.computeIfAbsent(server.id(),
             id -> new Semaphore(PERMITS, true));
         boolean acquired;
         try {
-            acquired = semaphore.tryAcquire(server.cliTimeout().toNanos(), TimeUnit.NANOSECONDS);
+            acquired = semaphore.tryAcquire(wait.toNanos(), TimeUnit.NANOSECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT,
@@ -59,7 +77,7 @@ public final class CliConcurrencyLimiter {
         if (!acquired) {
             throw new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT,
                 "No StartCLI slot on " + server.id() + " became free within "
-                    + Durations.human(server.cliTimeout()),
+                    + Durations.human(wait),
                 PERMITS + " other StartCLI runs on the node are still running (the INUBIT server"
                     + " is slow or unreachable)",
                 "Retry later; check get_health; raise cliTimeout if the INUBIT server is just slow")

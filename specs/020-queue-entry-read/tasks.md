@@ -117,7 +117,7 @@ decisions go to `specs/020-queue-entry-read/reviews/implementation.md`.
   delivered and buffer zeroed, label in timeout and launch-failure texts, 1 MiB truncation flag,
   `hanging()` → kill after timeout, `ignoringDestroy()` → forcible kill); regression net: existing
   `CliRunnerTest`, `CliRunnerWindowsSelectTest`, export/import/tag runner tests unchanged and green
-- [ ] T007 [P] `adapter/cli/CliConcurrencyLimiter.java` `+ Permit acquireForHelper(EffectiveNodeConfig,
+- [X] T007 [P] `adapter/cli/CliConcurrencyLimiter.java` `+ Permit acquireForHelper(EffectiveNodeConfig,
   Duration wait)`: the same per-node fair semaphore (2 permits) without the 6.1-only shortcut;
   expiry → `TIMEOUT` with the limiter's text; `acquire` unchanged (StartCLI on 8.1/9.0 still takes
   no slot — FR-016 interpretation, owner decision) — failing tests first in
