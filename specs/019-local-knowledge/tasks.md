@@ -289,7 +289,7 @@ readiness and a failing-audit fake.
 - [X] T039 `KnowledgeToolsReferenceTest`: `docs/tools.md` and `docs/setup.md` match the schemas
   and `KnowledgeLimits`; `NoCustomerIdentifiersTest` and `tools/check-identifiers.py` pass (FR-022)
   — test `KnowledgeToolsReferenceTest.java`
-- [ ] T040 Full verification (mvn + Python), quickstart offline table checked row by row and the
+- [X] T040 Full verification (mvn + Python), quickstart offline table checked row by row and the
   validation record filled in `quickstart.md`; final code-review over
   `git diff origin/main...HEAD`; findings in `reviews/implementation.md`
 

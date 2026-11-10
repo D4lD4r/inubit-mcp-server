@@ -111,3 +111,25 @@ bounds tests, the other name call sites, the record name bound, or the 5,000-not
 Targeted after the fixes: the knowledge tests (`Knowledge*Test`, `SecretFinderTest`,
 `RecordKnowledgeToolTest`, `ReadKnowledgeToolTest`) 266, 0 failures. The full build follows at
 the phase 8 checkpoint.
+
+## Implementation — phase 8 and final review (T037–T040)
+
+T039's reference test found that `docs/setup.md` named neither `knowledge.directory` nor the
+configuration delta of feature 019 in its introduction; both added (2d390b1). A mutation check
+(one bound in `setup.md`, one field row in `tools.md` changed) turns the test red.
+
+Build on 2d390b1: surefire 5952 tests, 0 failures, 0 errors, 58 skipped; failsafe 3 tests,
+0 failures. Python tools: 411 tests OK. `tools/check-identifiers.py --all`: clean.
+
+Final code review of `git diff origin/main...HEAD` (142 files) by a review agent: no findings.
+Checked: link handling and no-follow reads in the walk, publish (hard link, atomic replace),
+history and lock; the lock timeouts, version token and `ref` re-resolution under the lock;
+history removal on failed publish and pruning; the 256 KiB, 100 MiB, size-walk, page, offset and
+search bounds against schemas and docs; masking before search, cut, excerpt and paging, and of
+names, titles, topics, `lastWriter`, errors, hints and the audit; D-7 readiness (scrubber
+registration before completion, timeout as waiting, back-off refusal, both credential sets, the
+withheld instructions list); the `recording` strict boolean, the overlap rules and
+`--check-config`; the `KeyMaterial` move; the docs against the code. Every `******` seen was the
+display masking of the review tool.
+
+T041 (live check, quickstart steps 1–7) is left to the person.

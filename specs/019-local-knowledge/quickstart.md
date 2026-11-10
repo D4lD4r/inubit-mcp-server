@@ -84,3 +84,18 @@ Use a scratch profile (e.g. `acme-test`) and a synthetic finding; nothing here t
 7. Delete the scratch profile's knowledge directory.
 
 Record the result (client, version, pass/fail per step) in the PR description.
+
+## Validation record
+
+**Offline, 2026-11-10** (branch `019-local-knowledge`, base `origin/main` 0.8.0, at 2d390b1):
+- Every row of the offline table was checked against the test classes: each named class exists
+  and covers its row (spot checks: the test hook of `KnowledgeServiceRecordTest`, `awaitSettled`
+  in `NodeSecretsTest`, `openLockFileNoFollow`, the `CaseFolding.txt` test of `NoteNameTest`,
+  the knowledge paragraph in `ServerIdentityTest`, the `--check-config` line in `MainTest` and
+  `ConfigSummaryTest`). No name needed correcting.
+- `mvn -o clean verify`: surefire 5952 tests, 0 failures, 0 errors, 58 skipped; failsafe 3 tests
+  (including `KnowledgeCrossProcessIT`), 0 failures.
+- `python3 -I -m unittest discover -s tools/tests`: 411 tests OK.
+- `tools/check-identifiers.py --all`: clean.
+
+**Live**: not done yet (T041, left to the person).
