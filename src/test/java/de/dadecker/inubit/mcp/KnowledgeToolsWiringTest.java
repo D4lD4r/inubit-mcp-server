@@ -36,7 +36,8 @@ import tools.jackson.databind.JsonNode;
  * 019-T023: the production wiring of the local knowledge (research D-7, D-8, D-15):
  * {@code read_knowledge} always offered, the profile's credentials as the masking source, and the
  * knowledge paragraph in the instructions of the server the wiring builds; 019-T024: the
- * start-time wait for the credentials and its log line.
+ * start-time wait for the credentials and its log line; 019-T032: {@code record_knowledge} only
+ * with {@code recording} on, right after {@code read_knowledge}, audited in the profile's log.
  */
 @Timeout(60)
 class KnowledgeToolsWiringTest {
@@ -51,6 +52,7 @@ class KnowledgeToolsWiringTest {
             profile:
               name: acme
             workspace: %s
+            auditDirectory: %s
             knowledge:
               directory: %s
               recording: %s
@@ -59,7 +61,8 @@ class KnowledgeToolsWiringTest {
                 nodes:
                   - name: node1
                     baseUrl: https://localhost:1
-            """.formatted(temp.resolve("workspace"), temp.resolve("knowledge"), recording);
+            """.formatted(temp.resolve("workspace"), temp.resolve("audit"),
+                temp.resolve("knowledge"), recording);
         return new ConfigLoader(Map.of(), temp, false).parse(yaml, temp.resolve("config.yaml"))
             .config();
     }
@@ -108,7 +111,7 @@ class KnowledgeToolsWiringTest {
     }
 
     @Test
-    void withRecordingOffTheParagraphIsReadOnlyAndTheToolStillOffered() throws IOException {
+    void withRecordingOffTheParagraphIsReadOnlyAndOnlyReadingIsOffered() throws IOException {
         note("a.md", "x");
         SecretScrubber scrubber = new SecretScrubber();
         try (Wiring wiring = wiring(config(false), store(), scrubber);
@@ -119,7 +122,36 @@ class KnowledgeToolsWiringTest {
             assertThat(instructions).contains("The local knowledge is read-only for this profile")
                 .doesNotContain("To record a finding");
             assertThat(wiring.toolHandlers().stream().map(ToolHandler::name))
-                .contains("read_knowledge");
+                .contains("read_knowledge").doesNotContain("record_knowledge");
+        }
+    }
+
+    @Test
+    void withRecordingOnTheNoteIsWrittenAndAuditedInTheProfilesLog() throws IOException {
+        SecretScrubber scrubber = new SecretScrubber();
+        try (Wiring wiring = wiring(config(true), store(), scrubber);
+             McpTestClient client = McpTestClient.start(
+                 wiring.serverFactory("0.0.0-test", wiring.toolHandlers()))) {
+            client.initialize();
+            List<String> names = wiring.toolHandlers().stream().map(ToolHandler::name).toList();
+            JsonNode result = client.callTool("record_knowledge", Map.of("name", "partners/acme",
+                "mode", "create", "title", "ACME", "content", "Uses EDIFACT."));
+
+            assertThat(names.subList(0, 4)).containsExactly("list_nodes", "get_health",
+                "read_knowledge", "record_knowledge");
+            assertThat(result.path("isError").asBoolean()).isFalse();
+            String auditId = result.path("structuredContent").path("auditId").asString();
+            assertThat(Files.readString(temp.resolve("knowledge/partners/acme.md")))
+                .contains("source: 'assistant (mcp-test-client/1.0)'").endsWith("Uses EDIFACT.");
+            List<String> audit = new ArrayList<>();
+            try (var files = Files.list(temp.resolve("audit"))) {
+                for (Path file : files.toList()) {
+                    audit.addAll(Files.readAllLines(file));
+                }
+            }
+            assertThat(audit).hasSize(2).allSatisfy(line -> assertThat(line).contains(auditId,
+                "\"record_knowledge\"", "\"acme\"", "mcp-test-client/1.0"));
+            assertThat(audit.get(1)).contains("EXECUTED");
         }
     }
 

@@ -148,7 +148,7 @@ class TerminologyRenderingTest {
     void everyToolDescriptionStartsWithTheProfilePrefix() {
         JsonNode tools = tools("ACME test");
 
-        assertThat(tools).hasSize(10); // nine read tools plus read_knowledge (feature 019)
+        assertThat(tools).hasSize(11); // nine read tools plus the two knowledge tools (019)
         for (JsonNode tool : tools) {
             assertThat(tool.path("description").asString())
                 .as(tool.path("name").asString()).startsWith("[acme: ACME test] ");
@@ -159,7 +159,7 @@ class TerminologyRenderingTest {
     void withoutDescriptionThePrefixIsTheProfileName() {
         JsonNode tools = tools("");
 
-        assertThat(tools).hasSize(10); // nine read tools plus read_knowledge (feature 019)
+        assertThat(tools).hasSize(11); // nine read tools plus the two knowledge tools (019)
         for (JsonNode tool : tools) {
             assertThat(tool.path("description").asString())
                 .as(tool.path("name").asString()).startsWith("[acme] ")

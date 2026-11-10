@@ -67,6 +67,7 @@ import de.dadecker.inubit.mcp.application.WorkspaceService;
 import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
 import de.dadecker.inubit.mcp.application.WriteGuard;
 import de.dadecker.inubit.mcp.application.knowledge.KnowledgeAnnouncement;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeAudit;
 import de.dadecker.inubit.mcp.application.knowledge.KnowledgeDirectory;
 import de.dadecker.inubit.mcp.application.knowledge.KnowledgeLimits;
 import de.dadecker.inubit.mcp.application.knowledge.KnowledgeService;
@@ -117,6 +118,7 @@ import de.dadecker.inubit.mcp.mcp.tools.ImportArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.KillProcessTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListInventoryTool;
 import de.dadecker.inubit.mcp.mcp.tools.ReadKnowledgeTool;
+import de.dadecker.inubit.mcp.mcp.tools.RecordKnowledgeTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestoreBackupTool;
@@ -375,12 +377,6 @@ final class Wiring implements AutoCloseable {
         // read as long as its store may take, but only while the credentials are not held
         Map<NodeId, Duration> fetchWaits = new HashMap<>();
         secrets.forEach((id, nodeSecrets) -> fetchWaits.put(id, nodeSecrets.timeout()));
-        // feature 019 (research D-7, option A): notes are shown only with every configured
-        // credential of the profile known; a tool call waits as long as the slowest store
-        ProfileSecrets profileSecrets = new ProfileSecrets(secrets, scrubber);
-        this.knowledge = new KnowledgeService(
-            new KnowledgeDirectory(config.knowledge().directory()), profileSecrets, new NoteRefs(new SecureRandom()), profileSecrets.timeout());
-        this.knowledgeRecording = config.knowledge().recording();
         SecretTiming secretTiming = new SecretTiming(fetchWaits,
             id -> secrets.get(id).held().isPresent(), stores);
         this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,
@@ -398,6 +394,18 @@ final class Wiring implements AutoCloseable {
         Function<NodeId, WritePolicy> policies = id -> byId.containsKey(id)
             ? policy(byId.get(id), secrets.get(id)) : null;
         AuditLog audit = new AuditLog(config.auditDirectory(), scrubber, privateFiles);
+        // feature 019 (research D-7, option A): notes are shown only with every configured
+        // credential of the profile known; a tool call waits as long as the slowest store. With
+        // recording on, notes are written under the knowledge lock and audited in the shared log
+        // (D-10); with it off the service is read-only
+        ProfileSecrets profileSecrets = new ProfileSecrets(secrets, scrubber);
+        this.knowledgeRecording = config.knowledge().recording();
+        this.knowledge = new KnowledgeService(
+            new KnowledgeDirectory(config.knowledge().directory(), privateFiles, clock.clock()),
+            profileSecrets, new NoteRefs(new SecureRandom()), profileSecrets.timeout(),
+            knowledgeRecording ? new KnowledgeService.Writing(privateFiles, clock.clock(),
+                new KnowledgeAudit.Dependencies(audit, clock.clock(), profile.name(),
+                    UUID::randomUUID)) : null);
         this.processControl = new ProcessControlService(
             new WriteGuard(targets, policies, gateways, versionGate), policies,
             gateways, new ConfirmationRegistry(clock.clock()), audit, clock.clock(),
@@ -581,8 +589,12 @@ final class Wiring implements AutoCloseable {
         List<ToolHandler> handlers = new ArrayList<>();
         handlers.add(new ListNodesTool(profile, overview::nodes));
         handlers.add(new GetHealthTool(health, updateStatus::current));
-        // feature 019 (research D-15): for every profile, also without nodes
+        // feature 019 (research D-15): for every profile, also without nodes; recording only
+        // with knowledge.recording on
         handlers.add(new ReadKnowledgeTool(knowledge));
+        if (knowledgeRecording) {
+            handlers.add(new RecordKnowledgeTool(knowledge));
+        }
         // feature 012 (research D-12): a read tool only if some node may run its capability
         if (anyPossiblyCapable(Capability.PROCESS_DIAGNOSIS)) {
             handlers.add(new FindProcessesTool(diagnosis));

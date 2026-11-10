@@ -252,7 +252,7 @@ readiness and a failing-audit fake.
   only, description with the propose-then-record rule incl. topics) — main `mcp/ToolHints.java`,
   `mcp/tools/RecordKnowledgeTool.java`, `src/main/resources/schemas/record_knowledge.*.json`,
   tests `mcp/ToolHintsTest.java`, `mcp/tools/RecordKnowledgeToolTest.java`
-- [ ] T032 [US2] Wiring: `record_knowledge` offered only with `recording: true`; instructions say
+- [X] T032 [US2] Wiring: `record_knowledge` offered only with `recording: true`; instructions say
   read-only otherwise (FR-012); tool count 19 — main `Wiring.java`, tests
   `KnowledgeToolsWiringTest.java`, `ToolAnnouncementTest.java`, `ServerIdentityTest.java`
 - [ ] T033 [US2] `KnowledgeCrossProcessIT` (failsafe): two JVMs append to one note; both appends
