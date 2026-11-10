@@ -141,7 +141,7 @@ prints the line without reading a credential.
   `Held`, `NothingConfigured`, `Waiting`, `Failed(FailureKind)`; `Cell.Refusal` keeps the
   classified outcome (D-7, private `Cell.settle` keeps its name); existing behaviour of the reads
   unchanged — main `adapter/NodeSecrets.java`, test `adapter/NodeSecretsTest.java`
-- [ ] T015 [D-7] `ProfileSecrets` implementing `ConfiguredSecrets` over all nodes' `NodeSecrets`
+- [X] T015 [D-7] `ProfileSecrets` implementing `ConfiguredSecrets` over all nodes' `NodeSecrets`
   (parallel reads, bounded wait, `SecretScrubber.occurrences`) — main `adapter/ProfileSecrets.java`,
   test `adapter/ProfileSecretsTest.java` (all held, one waiting, one failed (AWS offline), none
   configured)

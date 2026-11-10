@@ -71,8 +71,8 @@ get the listed members; everything else is unchanged.
 | Type | Change | Members | Rules |
 |---|---|---|---|
 | `infra/SecretScrubber` | Changed | `+ List<SecretSpan> occurrences(String text)` | same matching as `scrub`; `scrub` uses it |
-| `adapter/NodeSecrets` | Changed | `+ Settled awaitSettled(Duration)`, `+ Settled awaitSettledE2e(Duration)`; `Cell.Refusal` keeps the classified outcome | never throw; `Held`, `NothingConfigured`, `Waiting`, `Failed(FailureKind)` (D-7) |
-| `adapter/ProfileSecrets` | New | implements `ConfiguredSecrets` over `Map<NodeId, NodeSecrets>` and the scrubber | parallel reads, bounded wait |
+| `adapter/NodeSecrets` | Changed | `+ Settled awaitSettled(Duration)`, `+ Settled awaitSettledE2e(Duration)`, `+ String storeName()`; `Cell.Refusal` keeps the classified outcome | never throw; `Held`, `NothingConfigured`, `Waiting`, `Failed(FailureKind)` (D-7) |
+| `adapter/ProfileSecrets` | New | implements `ConfiguredSecrets` over `Map<NodeId, NodeSecrets>` and the scrubber; `+ Duration timeout()` (longest store timeout, the tool-call bound) | parallel reads, bounded wait |
 | `adapter/os/*PrivateFileSystem` | Changed | `othersMayAccess`, `openLockFileNoFollow` | POSIX / Windows (D-3) |
 | `adapter/archive/v81/SecretRedactor`, `RepositoryArchive`, `SecretPaths` | Changed | import `domain.model.KeyMaterial` | behaviour unchanged |
 | `application/PackageWriter` | Changed | `+ static Path defaultDirectory(Path home, String profile)` | used by `Wiring` and `ConfigValidator` |

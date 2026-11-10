@@ -156,6 +156,8 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
     private final SecretScrubber scrubber;
     private final Clock clock;
     private final Duration timeout;
+    /** The kind of store, for messages ("AWS Parameter Store", "macOS Keychain"). */
+    private final String storeName;
     /** Username, password and trust store password. */
     private final Cell<NodeCredentials> main;
     /** The end-to-end test credentials; {@code null} for an AWS node without such names. */
@@ -209,6 +211,7 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
         this.scrubber = Objects.requireNonNull(scrubber, "scrubber");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.timeout = Objects.requireNonNull(timeout, "timeout");
+        this.storeName = "AWS Parameter Store";
         StoreLocation location = new StoreLocation(source.region(), source.awsProfile());
         Objects.requireNonNull(store, "store");
         List<Wanted> kinds = new ArrayList<>();
@@ -238,7 +241,7 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
         this.scrubber = Objects.requireNonNull(scrubber, "scrubber");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.timeout = Objects.requireNonNull(timeout, "timeout");
-        Objects.requireNonNull(store, "store");
+        this.storeName = Objects.requireNonNull(store, "store").kind().displayName();
         List<String> kinds = new ArrayList<>(List.of(USERNAME, PASSWORD));
         if (config.tls().trustStore().isPresent()) {
             kinds.add(TRUST_STORE_PASSWORD);
@@ -308,6 +311,11 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
     /** The node. */
     public NodeId node() {
         return node;
+    }
+
+    /** The kind of store the node reads from, e.g. {@code AWS Parameter Store}; never a value. */
+    public String storeName() {
+        return storeName;
     }
 
     /** How long a caller waits at most for a read of this node: the store's timeout. */
