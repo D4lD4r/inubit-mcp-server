@@ -95,6 +95,23 @@ the shipped matrix refuses 9.0 with "not yet verified for INUBIT 9.0") and
 flips the matrix and adds the recorded `v9_0/error_entry` (required together by
 `QueueEntryFixtureCatalogueTest`) cannot be green.
 
+## Phase 6 checkpoint, offline part (T033, 2026-11-10)
+
+T033 approved in round 2 (two minors fixed by the orchestrator after approval). Test-only plus
+documentation; no file under `src/main` changed. T034–T039 are owner-gated (live steps and the
+9.0 decision) and were not started; T040–T042 depend on T038 or T039.
+
+| Check | Command | Result |
+|---|---|---|
+| Java build | `mvn -o -q clean verify -DargLine=-Djava.io.tmpdir=<tmp outside the checkout>` | green (exit 0) |
+| Python tools | `python3 -I -m unittest discover -s tools/tests` | green, 411 tests OK |
+
+Test count: surefire 395 classes, 6308 tests, 0 failures, 0 errors, 52 skipped; failsafe 2
+classes, 3 tests; total 6311 ≥ 6270 (phase 5). The live test itself is excluded (`live` tag).
+
+Phase 6 code review over `git diff 1b8ccd7 0e5fa34`: no significant findings (production wiring
+unchanged, record-directory guard holds, no leaks in messages, no vacuous checks, docs agree).
+
 ## T010 – residual masking gaps (for T040 docs)
 
 Accepted in review (minor, not required by D-11): JSON embedded as an escaped string
