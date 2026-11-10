@@ -143,7 +143,7 @@ INUBIT contact.
 
 ### Domain logic (plan stage 4)
 
-- [ ] T009 [P] [US1] `domain/model/ContentKind.java`, `BinarySignature.java`,
+- [X] T009 [P] [US1] `domain/model/ContentKind.java`, `BinarySignature.java`,
   `EntryContentClassifier.java` (FR-009, D-10): empty → `EMPTY`; signatures `ZIP` (`50 4B 03 04`,
   `50 4B 05 06`, `50 4B 07 08`), `GZIP` (`1F 8B`), `PDF` (`25 50 44 46 2D`), `PNG`
   (`89 50 4E 47 0D 0A 1A 0A`), `JPEG` (`FF D8 FF`), `GIF` (`GIF87a`, `GIF89a`), `JAVA_SERIALIZED`
