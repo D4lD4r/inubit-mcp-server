@@ -342,7 +342,7 @@ INUBIT contact.
   position is still scrubbed) and `application/QueueEntryLoggingTest.java` (captured logback output
   of a full call contains no returned value, no password; exactly one INFO line) (depends on
   T009–T011, T023)
-- [ ] T025 [US1] `mcp/tools/ReadQueueEntryTool.java` (`ToolHints.readOnly("Read a Queue Manager
+- [X] T025 [US1] `mcp/tools/ReadQueueEntryTool.java` (`ToolHints.readOnly("Read a Queue Manager
   entry", true, true)`, description verbatim from contracts/mcp-tools-delta.md),
   `src/main/resources/schemas/read_queue_entry.input.json` and `.output.json` (contracts), service
   construction in `Wiring.java` with `SecretScrubber::scrub` (registration/announcement follows in

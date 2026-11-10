@@ -126,8 +126,8 @@ class TemplateGrammarTest {
             .anySatisfy(t -> assertThat(t).contains("config/ConfigValidator.java"));
         // feature 004 adds import_artifacts, restore_backup, set_active, tag_artifacts and
         // run_e2e_test .{input,output}.json; feature 005 deploy_release; feature 015
-        // export_archives
-        assertThat(Files.list(SCHEMAS).count()).isEqualTo(34);
+        // export_archives; feature 020 read_queue_entry
+        assertThat(Files.list(SCHEMAS).count()).isEqualTo(36);
         assertThat(schemaTemplates()).filteredOn(t -> PLACEHOLDER.matcher(t).find())
             .hasSizeGreaterThan(15);
     }

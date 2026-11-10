@@ -57,6 +57,7 @@ import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.VersionGate;
 import de.dadecker.inubit.mcp.application.PackageWriter;
 import de.dadecker.inubit.mcp.application.ProcessControlService;
+import de.dadecker.inubit.mcp.application.QueueEntryService;
 import de.dadecker.inubit.mcp.application.ReleaseDiscovery;
 import de.dadecker.inubit.mcp.application.ReleasePlanner;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
@@ -115,6 +116,7 @@ import de.dadecker.inubit.mcp.mcp.tools.KillProcessTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListInventoryTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
+import de.dadecker.inubit.mcp.mcp.tools.ReadQueueEntryTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestoreBackupTool;
 import de.dadecker.inubit.mcp.mcp.tools.SetActiveTool;
 import de.dadecker.inubit.mcp.mcp.tools.RunE2eTestTool;
@@ -188,6 +190,8 @@ final class Wiring implements AutoCloseable {
     private final DiagnosisService diagnosis;
     private final InventoryService inventory;
     private final ProcessControlService processControl;
+    /** Feature 020: built for every configuration; announced only under its opt-in. */
+    private final ReadQueueEntryTool readQueueEntry;
     private final ClientSelectionPort clientSelection;
     private final ExportArtifactsTool exportArtifacts;
     /** Feature 015: offered under the condition of {@code export_artifacts} (research R-16). */
@@ -381,6 +385,10 @@ final class Wiring implements AutoCloseable {
         this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,
             id -> byId.get(id).cliTimeout(), hangingThresholds::get, clock.clock(),
             ResultJson::size, versionGate, secretTiming);
+        // feature 020 (FR-011): the configured credentials are replaced before the masking
+        this.readQueueEntry = new ReadQueueEntryTool(new QueueEntryService(targets,
+            id -> byId.get(id).queueEntryRead(), versionGate, gateways::processes,
+            gateways::queueEntryContent, scrubber::scrub));
         this.inventory = new InventoryService(gateways, targets, fanOut, limiter,
             new InventoryCache(clock.clock(), id -> byId.get(id).inventory().cacheTtl()),
             id -> byId.get(id).inventory().owner(), timeouts::get,
