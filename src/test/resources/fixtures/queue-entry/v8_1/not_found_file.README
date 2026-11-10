@@ -1,0 +1,8 @@
+RECONSTRUCTED – 8.1 download of a queue file INUBIT does not have (exit 0). 8.1's text for a
+missing file was never observed; the 9.0 spike text (v9_0/not_found_file) stands in for it
+until the live check (research D-21) records the 8.1 negative case. Exception class not
+recorded (java.io.IOException). Expected: both parts NotFound.
+
+Frames use the fixed nonce 0123456789abcdef0123456789abcdef; a replay replaces it with the
+nonce of its request. Lines without the frame prefix are vendor noise the classifier ignores.
+Used by QueueEntryHelperClassifierTest (tasks.md T019, research D-5).

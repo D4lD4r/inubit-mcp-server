@@ -1,0 +1,8 @@
+RECONSTRUCTED – 9.0 download of a queue file INUBIT does not have (exit 0). The marker text
+`@Start@Unable to download@@@<file>@End@<owner>/workflow/<workflow>/error/<file>` was observed
+by the spike of 2026-11-10 on 9.0.10 (research "Spike facts"); names are fictitious, the
+exception class was not recorded (java.io.IOException). Expected: both parts NotFound.
+
+Frames use the fixed nonce 0123456789abcdef0123456789abcdef; a replay replaces it with the
+nonce of its request. Lines without the frame prefix are vendor noise the classifier ignores.
+Used by QueueEntryHelperClassifierTest (tasks.md T019, research D-5).

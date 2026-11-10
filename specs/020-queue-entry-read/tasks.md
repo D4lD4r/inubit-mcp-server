@@ -259,7 +259,7 @@ INUBIT contact.
   unsupported INUBIT interface may have changed" (never the parser message) — failing tests first
   in `adapter/cli/queue/WfspParserTest.java` (types none/Boolean/Integer/Long/XmlDocument with
   escaped XML, DOCTYPE refused, wrong root, `Property` without `name`, 10,000 properties)
-- [ ] T019 [US1] `adapter/cli/queue/QueueEntryHelperClassifier.java` (FR-013, D-5): frames + exit code
+- [X] T019 [US1] `adapter/cli/queue/QueueEntryHelperClassifier.java` (FR-013, D-5): frames + exit code
   → `ToolError` or part results per the D-5 table (`TLS_ERROR`, `UNREACHABLE`, `AUTH_FAILED` with
   the 9.x internal-user-management hint, `FORBIDDEN`, part `NotFound` on `@Start@Unable to
   download` / `MissingWorkflowWithName`, connection failure in a part fails the call, other part

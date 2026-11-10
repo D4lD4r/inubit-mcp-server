@@ -1,0 +1,4 @@
+log4j:WARN No appenders could be found for logger (com.inubit.ibis.soap.IBISSoapClient).
+log4j:WARN Please initialize the log4j system properly.
+#QE1:0123456789abcdef0123456789abcdef start SOAP_81
+#QE1:0123456789abcdef0123456789abcdef login error javax.net.ssl.SSLHandshakeException%3Esun.security.validator.ValidatorException%3Esun.security.provider.certpath.SunCertPathBuilderException PKIX%20path%20building%20failed%3A%20sun.security.provider.certpath.SunCertPathBuilderException%3A%20unable%20to%20find%20valid%20certification%20path%20to%20requested%20target%0APKIX%20path%20building%20failed%3A%20sun.security.provider.certpath.SunCertPathBuilderException%3A%20unable%20to%20find%20valid%20certification%20path%20to%20requested%20target%0Aunable%20to%20find%20valid%20certification%20path%20to%20requested%20target

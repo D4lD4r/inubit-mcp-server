@@ -1,0 +1,6 @@
+SYNTHETIC – a frame of the call's nonce with an unknown type (`progress`) between valid
+frames, exit 0. Expected: UNEXPECTED_RESPONSE (the unsupported interface may have changed).
+
+Frames use the fixed nonce 0123456789abcdef0123456789abcdef; a replay replaces it with the
+nonce of its request. Lines without the frame prefix are vendor noise the classifier ignores.
+Used by QueueEntryHelperClassifierTest (tasks.md T019, research D-5).

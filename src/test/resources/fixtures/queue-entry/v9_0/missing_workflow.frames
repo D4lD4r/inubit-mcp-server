@@ -1,0 +1,6 @@
+10:15:30.123 [main] INFO  com.inubit.ibis.client.rest.InubitClientFactory - creating REST client for https://inubit.example.test:8443
+#QE1:0123456789abcdef0123456789abcdef start REST_90
+#QE1:0123456789abcdef0123456789abcdef login ok
+#QE1:0123456789abcdef0123456789abcdef part data error java.io.IOException %40Start%40MissingWorkflowWithName%40%40%40Missing%20workflow%3A%20Workflow-0001%40%40%40Workflow-0001%40End%40
+#QE1:0123456789abcdef0123456789abcdef part variables error java.io.IOException %40Start%40MissingWorkflowWithName%40%40%40Missing%20workflow%3A%20Workflow-0001%40%40%40Workflow-0001%40End%40
+#QE1:0123456789abcdef0123456789abcdef end
