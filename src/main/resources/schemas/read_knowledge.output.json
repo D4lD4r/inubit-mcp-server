@@ -1,0 +1,193 @@
+{
+  "type": "object",
+  "oneOf": [
+    {
+      "type": "object",
+      "title": "listing",
+      "required": [
+        "notes",
+        "total",
+        "limit",
+        "offset",
+        "warnings"
+      ],
+      "properties": {
+        "notes": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/hit"
+          }
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "nextOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Present when more hits follow"
+        },
+        "warnings": {
+          "$ref": "#/$defs/warnings"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "title": "note",
+      "required": [
+        "name",
+        "title",
+        "topics",
+        "source",
+        "lastChange",
+        "versionToken",
+        "masked",
+        "length",
+        "offset",
+        "content",
+        "warnings"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "topics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "type": "string",
+          "description": "by hand, or assistant (<client>)"
+        },
+        "lastWriter": {
+          "type": "string"
+        },
+        "lastChange": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "versionToken": {
+          "type": "string",
+          "description": "Pass to record_knowledge mode replace"
+        },
+        "masked": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of secrets shown as *** in the whole note"
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Characters of the (masked) content"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 20000,
+          "description": "At most 20,000 characters including the marker …[truncated] when cut"
+        },
+        "nextOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Present when more content follows"
+        },
+        "warnings": {
+          "$ref": "#/$defs/warnings"
+        }
+      },
+      "additionalProperties": false
+    }
+  ],
+  "$defs": {
+    "warnings": {
+      "type": "array",
+      "maxItems": 21,
+      "items": {
+        "type": "string"
+      }
+    },
+    "hit": {
+      "type": "object",
+      "required": [
+        "name",
+        "ref",
+        "title",
+        "topics",
+        "lastChange",
+        "source",
+        "masked",
+        "writable",
+        "warnings"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "topics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "As in the note; hand-written notes may hold more than 20 (bounded by the 8 KiB metadata block)"
+        },
+        "lastChange": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source": {
+          "type": "string"
+        },
+        "versionToken": {
+          "type": "string",
+          "description": "Absent for notes that cannot be read"
+        },
+        "excerpt": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "masked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "writable": {
+          "type": "boolean",
+          "description": "record_knowledge can append to or replace this note"
+        },
+        "ref": {
+          "type": "string",
+          "description": "Exact reference to this note for read_knowledge and record_knowledge (valid while the server runs)"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

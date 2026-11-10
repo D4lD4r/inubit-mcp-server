@@ -187,7 +187,7 @@ read and paging match quickstart rows US1 AS1–AS6 and D-9.
   cut at 120, newest first, ≤ 4,000 characters including the reserved summary line, empty /
   unusable / credentials-not-ready texts; leak check — main `knowledge/KnowledgeAnnouncement.java`,
   test `knowledge/KnowledgeAnnouncementTest.java`
-- [ ] T022 [US1] `ReadKnowledgeTool` with `schemas/read_knowledge.{input,output}.json` exactly as
+- [X] T022 [US1] `ReadKnowledgeTool` with `schemas/read_knowledge.{input,output}.json` exactly as
   contracts/mcp-tools-delta.md (`oneOf`, `ref`), `ToolHints.readOnly`, client name from
   `CallContext`; results validated against both shapes; combination errors — main
   `mcp/tools/ReadKnowledgeTool.java`, `src/main/resources/schemas/read_knowledge.*.json`, test
