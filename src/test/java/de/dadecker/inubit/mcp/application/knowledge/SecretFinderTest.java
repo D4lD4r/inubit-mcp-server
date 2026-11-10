@@ -438,4 +438,30 @@ class SecretFinderTest {
         assertThatThrownBy(() -> new Finding(Kind.ASSIGNMENT, 0, 3, 0, Optional.empty()))
             .isInstanceOf(IllegalArgumentException.class);
     }
+
+    // note names (019-T036): "/" separates segments, but belongs to the base64 alphabet
+
+    @Test
+    void aNameIsSearchedAsAWholeAndSegmentBySegment() {
+        String encrypted = "kinds/AES-U1lOVEgtQUVTLTAwMDAwMDAx";
+        byte[] jceks = new byte[96];
+        Arrays.fill(jceks, 0, 4, (byte) 0xce);
+        Arrays.fill(jceks, 4, jceks.length, (byte) 7);
+        String keystore = "a/" + Base64.getEncoder().encodeToString(jceks) + "/b";
+        SecretFinder configured = new SecretFinder(FakeConfiguredSecrets.held("Hunter/2pw"));
+
+        assertThat(finder.find(encrypted)).isEmpty();
+        assertThat(finder.findInName(encrypted)).extracting(Finding::kind, Finding::start)
+            .containsExactly(org.assertj.core.groups.Tuple.tuple(Kind.INUBIT_ENCRYPTED, 6));
+        assertThat(finder.maskName(encrypted)).isEqualTo(new Masked("kinds/***", 1));
+        // the run with the segment after it still decodes: masked too, the safe side
+        assertThat(finder.maskName(keystore)).isEqualTo(new Masked("a/***", 1));
+        // a JKS in base64 starts with "/" itself
+        assertThat(finder.maskName("x/" + Base64.getEncoder().encodeToString(jks()) + ".md"))
+            .isEqualTo(new Masked("x/***.md", 1));
+        assertThat(configured.maskName("p/Hunter/2pw")).isEqualTo(new Masked("p/***", 1));
+        assertThat(configured.findInName("p/Hunter/2pw")).extracting(Finding::kind)
+            .containsExactly(Kind.CONFIGURED_CREDENTIAL);
+        assertThat(finder.maskName("partners/acme")).isEqualTo(new Masked("partners/acme", 0));
+    }
 }

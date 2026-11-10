@@ -268,7 +268,7 @@ readiness and a failing-audit fake.
 - [X] T035 [P] `KnowledgeBoundsTest`: 5,000 notes and a 1 MiB note — instructions, search page and
   read page within their bounds and reporting the cut (SC-004); 256 KiB / 100 MiB write bounds
   (US2 AS8) — test `knowledge/KnowledgeBoundsTest.java`
-- [ ] T036 `KnowledgeSecretLeakTest`: every FR-010 kind in a hand-written note's name, title,
+- [X] T036 `KnowledgeSecretLeakTest`: every FR-010 kind in a hand-written note's name, title,
   topics, `source`, `lastWriter` and body (also YAML block and multiline XML) never appears in
   instructions, hits, pages, version tokens, refs, audit lines, captured log lines (the test
   first asserts that the read and record log lines were captured, so the check is not vacuous) or

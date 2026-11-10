@@ -105,6 +105,41 @@ public final class SecretFinder {
         return Masked.of(text, find(text).stream().map(Finding::span).toList());
     }
 
+    /**
+     * Every secret in the note name {@code name}: those of every run of whole segments (the whole
+     * name included), because {@code /} separates the segments but belongs to the base64
+     * alphabet, so that an encrypted value or a keystore (whose base64 may hold {@code /} itself)
+     * right after a segment would be missed (019-T036).
+     */
+    public List<Finding> findInName(String name) {
+        List<Integer> starts = new ArrayList<>();
+        starts.add(0);
+        for (int i = name.indexOf('/'); i >= 0; i = name.indexOf('/', i + 1)) {
+            starts.add(i + 1);
+        }
+        List<Finding> all = new ArrayList<>();
+        for (int s = 0; s < starts.size(); s++) {
+            int from = starts.get(s);
+            for (int e = s + 1; e <= starts.size(); e++) {
+                int to = e < starts.size() ? starts.get(e) - 1 : name.length();
+                if (to > from) {
+                    find(name.substring(from, to)).forEach(finding -> all.add(new Finding(
+                        finding.kind(), finding.start() + from, finding.end() + from, 1,
+                        finding.key())));
+                }
+            }
+        }
+        return all.stream().distinct()
+            .sorted(Comparator.comparingInt(Finding::start).thenComparingInt(Finding::end)
+                .thenComparing(Finding::kind))
+            .toList();
+    }
+
+    /** The note name {@code name} with every finding of {@link #findInName} masked. */
+    public Masked maskName(String name) {
+        return Masked.of(name, findInName(name).stream().map(Finding::span).toList());
+    }
+
     private static boolean hasKeyWord(String key) {
         String lower = key.toLowerCase(Locale.ROOT);
         return KEY_WORDS.stream().anyMatch(lower::contains);

@@ -21,6 +21,11 @@ final class Shown {
         return cut(line(finder.mask(text).text()));
     }
 
+    /** The note name {@code name} masked by {@link SecretFinder#maskName}, as one line, cut. */
+    static String name(SecretFinder finder, String name) {
+        return cut(line(finder.maskName(name).text()));
+    }
+
     /** Control characters and line breaks as spaces, runs of white space as one, stripped. */
     static String line(String text) {
         return SPACES.matcher(BREAKS.matcher(text).replaceAll(" ")).replaceAll(" ").strip();

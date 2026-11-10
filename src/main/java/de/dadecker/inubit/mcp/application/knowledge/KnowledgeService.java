@@ -208,7 +208,7 @@ public final class KnowledgeService {
         Listing listing = list();
         NoteFile file = find(target, listing);
         Note note = directory.read(file);
-        String name = Shown.of(finder, file.name().value());
+        String name = Shown.name(finder, file.name().value());
         if (note.state() != Note.State.OK) {
             throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
                 "The note " + Names.quote(name) + " cannot be read: "
@@ -286,7 +286,7 @@ public final class KnowledgeService {
     private View view(Note note) {
         NoteFile file = note.file();
         String rawName = file.name().value();
-        String maskedName = finder.mask(rawName).text();
+        String maskedName = finder.maskName(rawName).text();
         boolean nameSecret = !maskedName.equals(rawName);
         String fileName = Shown.of(finder, file.name().lastSegment());
         Instant lastChange = file.modified().toInstant().truncatedTo(ChronoUnit.SECONDS);
@@ -405,7 +405,7 @@ public final class KnowledgeService {
     }
 
     private String skipped(Skipped skipped) {
-        String name = Shown.of(finder, slashed(skipped.relative()));
+        String name = Shown.name(finder, slashed(skipped.relative()));
         return switch (skipped.reason()) {
             case LINK -> "symbolic link " + name + " is ignored";
             case UNREADABLE -> name + " is skipped: it cannot be read";
@@ -434,7 +434,7 @@ public final class KnowledgeService {
         String wanted = Normalizer.normalize(given, Normalizer.Form.NFC);
         List<NoteFile> found = listing.files().stream()
             .filter(file -> file.name().value().equals(wanted)).toList();
-        String shown = Shown.of(finder, wanted);
+        String shown = Shown.name(finder, wanted);
         if (found.size() > 1) {
             throw new ToolErrorException(ToolError.of(ErrorCode.CONFLICT,
                 "The name " + Names.quote(shown) + " is ambiguous: several notes have this name"
@@ -464,7 +464,7 @@ public final class KnowledgeService {
         names.stream().filter(name -> NoteName.fold(name).equals(folded)).sorted()
             .forEach(chosen::add);
         chosen.addAll(SimilarNames.of(wanted, names, MAX_SIMILAR));
-        return chosen.stream().limit(MAX_SIMILAR).map(name -> Shown.of(finder, name))
+        return chosen.stream().limit(MAX_SIMILAR).map(name -> Shown.name(finder, name))
             .distinct().toList();
     }
 

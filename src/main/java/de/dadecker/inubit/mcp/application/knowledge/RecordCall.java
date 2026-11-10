@@ -218,7 +218,7 @@ final class RecordCall {
         Set<String> lines = new LinkedHashSet<>();
         call.name().ifPresent(name -> {
             String nfc = Normalizer.normalize(name, Normalizer.Form.NFC);
-            finder.find(nfc).forEach(finding -> lines.add(line(finding, "name")));
+            finder.findInName(nfc).forEach(finding -> lines.add(line(finding, "name")));
             if (lines.isEmpty()) {
                 logName = Shown.cut(Shown.line(nfc));
                 audit.name(nfc);
@@ -280,7 +280,7 @@ final class RecordCall {
             return new Target(NoteName.of(name), Optional.empty());
         }
         NoteFile file = service.find(new NoteSelector.ByRef(call.ref().get()), service.list());
-        String masked = finder.mask(file.name().value()).text();
+        String masked = finder.maskName(file.name().value()).text();
         logName = Shown.cut(Shown.line(masked));
         audit.name(masked);
         boolean secret = !masked.equals(file.name().value());
@@ -599,11 +599,11 @@ final class RecordCall {
     }
 
     private String path(Path relative) {
-        return Names.quote(Shown.of(finder, KnowledgeService.slashed(relative)));
+        return Names.quote(Shown.name(finder, KnowledgeService.slashed(relative)));
     }
 
     private String shown(NoteName name) {
-        return Shown.of(finder, name.value());
+        return Shown.name(finder, name.value());
     }
 
     private static ToolErrorException precondition(String message, String cause, String next) {
