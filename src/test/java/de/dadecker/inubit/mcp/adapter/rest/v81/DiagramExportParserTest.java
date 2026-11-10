@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.zip.ZipEntry;
@@ -59,7 +60,7 @@ class DiagramExportParserTest {
             RestFixtures.bytes("model_export_sample.zip"));
 
         assertThat(metadata).isEqualTo(new DiagramMetadata(Optional.of(true),
-            Optional.of("[message 107]"), Optional.of("OWNERS")));
+            Optional.of("[message 107]"), Optional.of("OWNERS"), List.of(), false));
     }
 
     @Test
@@ -81,7 +82,43 @@ class DiagramExportParserTest {
 
         assertThat(metadata).as("the workflow's own fields, not those of a module subtree")
             .isEqualTo(new DiagramMetadata(Optional.of(true), Optional.of("head comment"),
-                Optional.of("OWNERS")));
+                Optional.of("OWNERS"), List.of(), false));
+    }
+
+    @Test
+    void thePartnerVariablesOfEveryAttributeAndTextAreDistinctAndSorted() {
+        String workflow = WORKFLOW_XML.replace("<IsActive>true</IsActive>",
+            "<IsActive>true</IsActive>"
+            + "<WorkflowModule moduleType='XSLTConverter'>"
+            + "<Property name='Target' value='ISPartnerProtocol.ServerName'/>"
+            + "<Property name='Expr'>concat(ISPartnerParameter.FTPProtocol, '/',"
+            + " ISPartnerProtocol.ServerName)</Property>"
+            + "<Script><![CDATA[$x := ISPartnerProtocol.Login_2;]]></Script>"
+            + "<Property name='Other'>ISPartnerProtocol. ISPartnerFoo.Bar ISPartner.X</Property>"
+            + "<!-- ISPartnerParameter.InAComment -->"
+            + "</WorkflowModule>");
+
+        DiagramMetadata metadata = DiagramExportParser.parse(DEV,
+            zip(Map.of("workflow/workflow.xml", workflow)));
+
+        assertThat(metadata.partnerVariables()).containsExactly("ISPartnerParameter.FTPProtocol",
+            "ISPartnerProtocol.Login_2", "ISPartnerProtocol.ServerName");
+        assertThat(metadata.partnerManagementNode()).isFalse();
+        assertThat(metadata.owner()).contains("OWNERS");
+    }
+
+    @Test
+    void aPartnerManagementNodeAnywhereInTheWorkflowIsFound() {
+        String workflow = WORKFLOW_XML.replace("<IsActive>true</IsActive>",
+            "<IsActive>true</IsActive><Modules><WorkflowModule moduleType='PartnerManagement'>"
+            + "<Property name='PartnerManagementConfiguration' type='Map'/>"
+            + "</WorkflowModule></Modules>");
+
+        DiagramMetadata metadata = DiagramExportParser.parse(DEV,
+            zip(Map.of("workflow/workflow.xml", workflow)));
+
+        assertThat(metadata.partnerManagementNode()).isTrue();
+        assertThat(metadata.partnerVariables()).isEmpty();
     }
 
     @Test

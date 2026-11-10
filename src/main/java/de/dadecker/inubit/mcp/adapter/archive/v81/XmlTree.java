@@ -88,9 +88,19 @@ public final class XmlTree {
                 .toList();
         }
 
+        /** The child elements named {@code name} in document order. */
+        public List<Element> elements(String name) {
+            return elements().stream().filter(e -> e.localName().equals(name)).toList();
+        }
+
         /** The first child element named {@code name}. */
         public Optional<Element> child(String name) {
             return elements().stream().filter(e -> e.localName().equals(name)).findFirst();
+        }
+
+        /** The {@link #text()} of the first child element named {@code name}; empty if none. */
+        public String childText(String name) {
+            return child(name).map(Element::text).orElse("");
         }
 
         /** The concatenated text children (the value of an element without element children). */

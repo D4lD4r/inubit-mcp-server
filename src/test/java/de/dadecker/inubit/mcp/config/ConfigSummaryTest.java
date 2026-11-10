@@ -571,9 +571,9 @@ class ConfigSummaryTest {
         String summary = render(V6_1);
 
         String access = " (INUBIT 6.1, StartCLI only; available: none; refused: monitoring,"
-            + " process diagnosis, log diagnosis, inventory, workspace export, development"
-            + " writes, deployment, end-to-end test, process control), secrets: credentialStore"
-            + " (macOS Keychain), username ←";
+            + " process diagnosis, log diagnosis, inventory, partner management, workspace"
+            + " export, development writes, deployment, end-to-end test, process control),"
+            + " secrets: credentialStore (macOS Keychain), username ←";
         assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
             + access);
         assertThat(summary).as("a concrete 6.1 pin is judged like the line")
@@ -597,9 +597,9 @@ class ConfigSummaryTest {
 
         assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
             + " (INUBIT 6.1, StartCLI only; available: monitoring, process diagnosis; refused:"
-            + " log diagnosis, inventory, workspace export, development writes, deployment,"
-            + " end-to-end test, process control), secrets: credentialStore (macOS Keychain),"
-            + " username ←");
+            + " log diagnosis, inventory, partner management, workspace export, development"
+            + " writes, deployment, end-to-end test, process control), secrets: credentialStore"
+            + " (macOS Keychain), username ←");
     }
 
     @Test

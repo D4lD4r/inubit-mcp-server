@@ -63,17 +63,25 @@ public interface InventoryPort {
         }
     }
 
-    /** From {@code workflow/workflow.xml} of the export; empty values if INUBIT omits them. */
+    /**
+     * From {@code workflow/workflow.xml} of the export; empty values if INUBIT omits them.
+     *
+     * @param partnerVariables      the distinct {@code ISPartnerProtocol.*} and
+     *                              {@code ISPartnerParameter.*} references of the workflow,
+     *                              sorted (spec 018, FR-015)
+     * @param partnerManagementNode whether the workflow has a {@code PartnerManagement} node
+     */
     record DiagramMetadata(Optional<Boolean> active, Optional<String> checkinComment,
-        Optional<String> owner) {
+        Optional<String> owner, List<String> partnerVariables, boolean partnerManagementNode) {
 
-        public static final DiagramMetadata EMPTY =
-            new DiagramMetadata(Optional.empty(), Optional.empty(), Optional.empty());
+        public static final DiagramMetadata EMPTY = new DiagramMetadata(Optional.empty(),
+            Optional.empty(), Optional.empty(), List.of(), false);
 
         public DiagramMetadata {
             active = active == null ? Optional.empty() : active;
             checkinComment = checkinComment == null ? Optional.empty() : checkinComment;
             owner = owner == null ? Optional.empty() : owner;
+            partnerVariables = List.copyOf(partnerVariables);
         }
     }
 

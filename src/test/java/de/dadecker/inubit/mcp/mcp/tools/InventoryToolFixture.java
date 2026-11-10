@@ -21,9 +21,12 @@ import de.dadecker.inubit.mcp.application.FanOut;
 import de.dadecker.inubit.mcp.application.InventoryCache;
 import de.dadecker.inubit.mcp.application.InventoryService;
 import de.dadecker.inubit.mcp.application.NodeVersions;
+import de.dadecker.inubit.mcp.application.PartnerAudit;
+import de.dadecker.inubit.mcp.application.PartnerService;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.TargetResolver;
+import de.dadecker.inubit.mcp.application.VersionGate;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -48,6 +51,7 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -154,15 +158,23 @@ final class InventoryToolFixture implements AutoCloseable {
             TestCliRunners.forHost(used, environment,
                 new CliResources("acme", PrivateFiles.forHost())),
             versions, PortSetRegistry.v81Default());
+        InventoryCache cache =
+            new InventoryCache(Clock.systemUTC(), id -> byId.get(id).inventory().cacheTtl());
+        VersionGate gate = gateWithoutClients(versions, gateways, CapabilityMatrix.production());
+        // feature 018 (FR-015): a technical workflow's partner usage; never audited
+        PartnerService partners = new PartnerService(gateways, new TargetResolver(ids),
+            new FanOut(), ResultLimiter.withDefaults(), cache,
+            id -> byId.get(id).inventory().owner(), id -> byId.get(id).timeout(),
+            id -> byId.get(id).cliExportTimeout(), ResultJson::size, Terminology.DEFAULT, gate,
+            SecretTiming.NONE, new PartnerAudit.Dependencies(record -> {
+                throw new AssertionError("get_inventory_item writes no audit record");
+            }, Clock.systemUTC(), "default", UUID::randomUUID));
         InventoryService inventory = new InventoryService(gateways, new TargetResolver(ids),
-            new FanOut(), ResultLimiter.withDefaults(),
-            new InventoryCache(Clock.systemUTC(), id -> byId.get(id).inventory().cacheTtl()),
+            new FanOut(), ResultLimiter.withDefaults(), cache,
             id -> byId.get(id).inventory().owner(), id -> byId.get(id).timeout(),
             id -> byId.get(id).cliExportTimeout(), id -> byId.get(id).cliTimeout(),
             CliRunner.KILL_GRACE.multipliedBy(2),
-            ResultJson::size, Terminology.DEFAULT,
-            gateWithoutClients(versions, gateways, CapabilityMatrix.production()),
-            SecretTiming.NONE);
+            ResultJson::size, Terminology.DEFAULT, gate, SecretTiming.NONE, partners);
         client = McpTestClient.start(List.of(tool.apply(inventory)), scrubber);
         client.initialize();
     }

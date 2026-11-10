@@ -36,9 +36,11 @@ import tools.jackson.databind.node.ObjectNode;
  * <ul>
  *   <li>JSON Lines in {@code <auditDirectory>/audit-YYYY-MM.jsonl} (month of the record's
  *       timestamp, UTC); one compact JSON object per line, fields in the order of the data
- *       model ({@code auditId, timestamp, profile, node, group, capability, step, inputs,
- *       account, outcome, reason, mcpClient}; 002 contracts/mcp-tools-delta.md), absent optional
- *       fields omitted. Line breaks inside values are escaped by JSON, so
+ *       model ({@code auditId, callId, timestamp, profile, node, group, capability, step, inputs,
+ *       account, outcome, reason, mcpClient, details}; 002 contracts/mcp-tools-delta.md, 018
+ *       contracts/other-changes.md), absent optional fields and empty {@code details} omitted, so
+ *       records without {@code callId} and {@code details} are written exactly as before
+ *       feature 018. Line breaks inside values are escaped by JSON, so
  *       a value can never start a new record.
  *   <li>Append-only: each record is written through a {@link FileChannel} opened with
  *       {@code CREATE, WRITE, APPEND}, then {@code force(true)}d before {@link #append}
@@ -49,7 +51,9 @@ import tools.jackson.databind.node.ObjectNode;
  *       user and {@code SYSTEM}, an existing access list is not changed. If the file system
  *       cannot create private objects (a POSIX system without permission support), the
  *       directory is created without restricted access and the file by the open, as before.
- *   <li>Every string value is scrubbed of registered secrets (Constitution II). The inputs
+ *   <li>Every string value is scrubbed of registered secrets (Constitution II); a
+ *       {@code details} value is written as a JSON boolean or number if it is a
+ *       {@code Boolean}, {@code Integer} or {@code Long}, otherwise as scrubbed text. The inputs
  *       {@value AuditRecord#CONFIRMATION_CODE} and {@value AuditRecord#ISSUED_CONFIRMATION_CODE}
  *       are stored only as {@code sha256:} plus the first 16 hex chars of their SHA-256, which
  *       is enough to correlate a preview with its execution.
@@ -180,6 +184,7 @@ public final class AuditLog implements AuditPort {
     private ObjectNode toJson(AuditRecord record) {
         ObjectNode node = JsonNodeFactory.instance.objectNode();
         node.put("auditId", record.auditId().toString());
+        record.callId().ifPresent(callId -> node.put("callId", callId.toString()));
         node.put("timestamp", record.timestamp().toString());
         node.put("profile", scrubber.scrub(record.profile()));
         node.put("node", scrubber.scrub(record.node()));
@@ -196,6 +201,18 @@ public final class AuditLog implements AuditPort {
         node.put("outcome", record.outcome().name());
         put(node, "reason", record.reason());
         put(node, "mcpClient", record.mcpClient());
+        if (!record.details().isEmpty()) {
+            ObjectNode details = node.putObject("details");
+            for (Map.Entry<String, Object> detail : record.details().entrySet()) {
+                String key = scrubber.scrub(detail.getKey());
+                switch (detail.getValue()) {
+                    case Boolean flag -> details.put(key, flag);
+                    case Integer count -> details.put(key, count);
+                    case Long count -> details.put(key, count);
+                    default -> details.put(key, scrubber.scrub(String.valueOf(detail.getValue())));
+                }
+            }
+        }
         return node;
     }
 

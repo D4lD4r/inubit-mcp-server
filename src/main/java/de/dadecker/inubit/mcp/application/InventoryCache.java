@@ -9,6 +9,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -34,8 +35,11 @@ import java.util.function.Supplier;
  *   <li>A waiter that is interrupted (fan-out deadline) gets {@code TIMEOUT}; the load itself
  *       continues in its own caller and is cached when it completes.
  * </ul>
+ *
+ * <p>Not final only so that a test can stand in for a cache under contention (feature 018,
+ * {@code PartnerService}).
  */
-public final class InventoryCache {
+public class InventoryCache {
 
     /** Scope of a whole list (diagrams or modules) of a server. */
     public static final String ALL = "all";
@@ -110,6 +114,24 @@ public final class InventoryCache {
                 return load(key, mine, loader);
             }
         }
+    }
+
+    /**
+     * The fresh cached value of {@code key} without loading or waiting (research D-6: a call for
+     * one system diagram uses the owner's full snapshot if there is one).
+     *
+     * @return empty if there is no entry, its load is still in flight or failed, or it has expired
+     */
+    @SuppressWarnings("unchecked")
+    public <T> Optional<Snapshot<T>> peek(Key key) {
+        CompletableFuture<Snapshot<?>> entry = entries.get(key);
+        if (entry == null || !entry.isDone() || entry.isCompletedExceptionally()) {
+            return Optional.empty();
+        }
+        Snapshot<?> cached = entry.getNow(null);
+        return clock.instant().isBefore(cached.expiresAt())
+            ? Optional.of((Snapshot<T>) cached)
+            : Optional.empty();
     }
 
     /**
