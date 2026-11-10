@@ -50,12 +50,14 @@ import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.infra.ResultJson;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -68,6 +70,10 @@ import org.junit.jupiter.api.Timeout;
  */
 @Timeout(30)
 class PartnerServiceSearchTest {
+
+    /** The audit is checked by {@code PartnerServiceAuditTest}. */
+    private static final PartnerAudit.Dependencies NO_AUDIT = new PartnerAudit.Dependencies(
+        record -> { }, Clock.systemUTC(), "default", UUID::randomUUID);
 
     private static final NodeId NODE1 = NodeId.parse("dev/node1");
     private static final NodeId NODE2 = NodeId.parse("dev/node2");
@@ -485,7 +491,8 @@ class PartnerServiceSearchTest {
         return new PartnerService(new Gateways(), new TargetResolver(List.of(NODE1, NODE2)),
             new FanOut(), new InventoryCache(new MutableClock(T0), node -> Duration.ofMinutes(10)),
             owners::get, node -> Duration.ofSeconds(5), node -> Duration.ofSeconds(120),
-            Terminology.DEFAULT, FakeVersionDetection.pinned81(), SecretTiming.NONE);
+            Terminology.DEFAULT, FakeVersionDetection.pinned81(), SecretTiming.NONE,
+            NO_AUDIT);
     }
 
     private PartnerManagementPort.Result portRead(List<DiagramRef> diagrams) {

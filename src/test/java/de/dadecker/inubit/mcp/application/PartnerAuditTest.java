@@ -99,8 +99,9 @@ class PartnerAuditTest {
     void perServerRecordsShareTheCallIdAndCarryTheCounts() {
         PartnerAudit audit = audit("qa");
 
-        audit.perServer(QA1, AuditOutcome.EXECUTED, true, 2, 1, 3);
-        audit.perServer(QA2, AuditOutcome.FAILED, false, 0, 0, 0);
+        audit.perServer(QA1, AuditOutcome.EXECUTED, Optional.empty(), true, 2, 1, 3);
+        audit.perServer(QA2, AuditOutcome.FAILED, Optional.of(ErrorCode.UNREACHABLE), false, 0,
+            0, 0);
 
         assertThat(port.records).extracting(AuditRecord::auditId).containsExactly(FIRST, SECOND);
         assertThat(port.records).extracting(AuditRecord::callId)
@@ -116,7 +117,8 @@ class PartnerAuditTest {
             .containsOnly(AuditRecord.Step.EXECUTE);
         assertThat(port.records).extracting(AuditRecord::mcpClient)
             .containsOnly(Optional.of("claude-code/2.0"));
-        assertThat(port.records).extracting(AuditRecord::reason).containsOnly(Optional.empty());
+        assertThat(port.records).extracting(AuditRecord::reason)
+            .containsExactly(Optional.empty(), Optional.of("UNREACHABLE"));
         assertThat(port.records.get(0).details()).containsExactly(
             Map.entry("fromCache", true),
             Map.entry("systemDiagramsRead", 2),
@@ -131,7 +133,24 @@ class PartnerAuditTest {
     void perServerAcceptsOnlyExecutedRefusedOrFailed(AuditOutcome outcome) {
         PartnerAudit audit = audit("qa");
 
-        assertThatThrownBy(() -> audit.perServer(QA1, outcome, false, 0, 0, 0))
+        assertThatThrownBy(() -> audit.perServer(QA1, outcome, Optional.empty(), false, 0, 0,
+            0))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThat(port.records).isEmpty();
+    }
+
+    @Test
+    void anExecutedRecordHasNoReasonAndARefusedOrFailedOneNeedsIt() {
+        PartnerAudit audit = audit("qa");
+
+        assertThatThrownBy(() -> audit.perServer(QA1, AuditOutcome.EXECUTED,
+            Optional.of(ErrorCode.UNREACHABLE), false, 0, 0, 0))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> audit.perServer(QA1, AuditOutcome.REFUSED, Optional.empty(),
+            false, 0, 0, 0))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> audit.perServer(QA1, AuditOutcome.FAILED, Optional.empty(),
+            false, 0, 0, 0))
             .isInstanceOf(IllegalArgumentException.class);
         assertThat(port.records).isEmpty();
     }
@@ -142,7 +161,7 @@ class PartnerAuditTest {
             Optional.of("OWNERS"), Optional.of("acme"), Optional.of("SystemDiagram-01"),
             Optional.of("AS2"), Optional.of("Workflow-0001"), Optional.empty());
 
-        audit.perServer(QA1, AuditOutcome.EXECUTED, false, 2, 1, 3);
+        audit.perServer(QA1, AuditOutcome.EXECUTED, Optional.empty(), false, 2, 1, 3);
 
         assertThat(port.records.getFirst().inputs()).containsExactly(
             Map.entry("target", "qa"),
@@ -160,8 +179,8 @@ class PartnerAuditTest {
             Optional.of("OWNERS"), Optional.of("acme"), Optional.empty(), Optional.of("AS2"),
             Optional.empty(), 0, PartnerQuery.DEFAULT_LIMIT, true, Optional.of("cursor/1.4"));
 
-        PartnerAudit.of(dependencies(), query).perServer(QA1, AuditOutcome.EXECUTED, false, 1,
-            1, 0);
+        PartnerAudit.of(dependencies(), query).perServer(QA1, AuditOutcome.EXECUTED,
+            Optional.empty(), false, 1, 1, 0);
 
         AuditRecord record = port.records.getFirst();
         assertThat(record.mcpClient()).contains("cursor/1.4");
@@ -254,11 +273,11 @@ class PartnerAuditTest {
     @Test
     void perServerThrowsInternalNamingTheCallIdWhenTheRecordCannotBeWritten() {
         PartnerAudit audit = audit("qa");
-        audit.perServer(QA1, AuditOutcome.EXECUTED, false, 2, 1, 3);
+        audit.perServer(QA1, AuditOutcome.EXECUTED, Optional.empty(), false, 2, 1, 3);
         port.failing = true;
 
         ToolErrorException thrown = catchThrowableOfType(ToolErrorException.class,
-            () -> audit.perServer(QA2, AuditOutcome.EXECUTED, true, 1, 1, 0));
+            () -> audit.perServer(QA2, AuditOutcome.EXECUTED, Optional.empty(), true, 1, 1, 0));
 
         assertThat(thrown).isNotNull();
         assertThat(thrown.error().code()).isEqualTo(ErrorCode.INTERNAL);
@@ -280,8 +299,9 @@ class PartnerAuditTest {
 
         PartnerAudit.of(dependencies, query).refused(INVALID);
         PartnerAudit audit = PartnerAudit.of(dependencies, query);
-        audit.perServer(QA1, AuditOutcome.EXECUTED, false, 3, 1, 6);
-        audit.perServer(QA2, AuditOutcome.REFUSED, true, 0, 0, 0);
+        audit.perServer(QA1, AuditOutcome.EXECUTED, Optional.empty(), false, 3, 1, 6);
+        audit.perServer(QA2, AuditOutcome.REFUSED, Optional.of(ErrorCode.NOT_CONFIGURED), true,
+            0, 0, 0);
 
         List<String> lines = Files.readAllLines(directory.resolve("audit-2026-11.jsonl"),
             StandardCharsets.UTF_8);

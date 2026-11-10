@@ -146,14 +146,21 @@ public final class PartnerAudit {
      *
      * @param outcome {@code EXECUTED} (data returned, also from the cache), {@code REFUSED} or
      *                {@code FAILED}
+     * @param reason  why the server was not answered: its error code only, never the message;
+     *                present exactly when {@code outcome} is not {@code EXECUTED}
      * @throws ToolErrorException {@code INTERNAL} naming the {@code callId} if the record could
      *     not be written; no partner data may be returned for any server then
      */
-    public void perServer(NodeId node, AuditOutcome outcome, boolean fromCache,
-        int systemDiagramsRead, int partnersReturned, int valuesMasked) {
+    public void perServer(NodeId node, AuditOutcome outcome, Optional<ErrorCode> reason,
+        boolean fromCache, int systemDiagramsRead, int partnersReturned, int valuesMasked) {
         Objects.requireNonNull(node, "node");
+        Objects.requireNonNull(reason, "reason");
         if (!PER_SERVER.contains(outcome)) {
             throw new IllegalArgumentException("Not a per-server outcome: " + outcome);
+        }
+        if (reason.isPresent() == (outcome == AuditOutcome.EXECUTED)) {
+            throw new IllegalArgumentException(outcome + " " + (reason.isPresent()
+                ? "carries no reason" : "needs the error code as reason"));
         }
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("fromCache", fromCache);
@@ -162,7 +169,7 @@ public final class PartnerAudit {
         details.put("valuesMasked", valuesMasked);
         try {
             d.port().append(record(node.value(), Optional.of(node.group().value()), outcome,
-                Optional.empty(), details));
+                reason.map(ErrorCode::name), details));
         } catch (RuntimeException e) {
             LOG.error("Audit record of call {} for {} ({}) could not be written ({})", callId,
                 node.value(), outcome, e.getClass().getSimpleName());

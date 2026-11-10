@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.application;
 
 import de.dadecker.inubit.mcp.application.InventoryCache.Key;
 import de.dadecker.inubit.mcp.application.InventoryCache.Snapshot;
+import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -27,6 +28,7 @@ import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort.UnreadableDiagra
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -37,6 +39,8 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The use case behind {@code find_partners} (feature 018). T018: the read path.
@@ -74,6 +78,9 @@ import java.util.stream.Stream;
  *       similar shown {@code Id} and {@code Name} values ({@link SimilarNames}), never a masked
  *       one; a {@code systemDiagram} that no answering server has ends the call with
  *       {@code NOT_FOUND} naming up to five similar system diagram names.
+ *   <li>Audit and log (T021, FR-020, FR-021, research D-8): one {@link PartnerAudit} per call
+ *       with one call id; one record and one INFO line per targeted server, also for cache hits;
+ *       an audit record that cannot be written ends the call in {@code INTERNAL} without data.
  * </ul>
  */
 public final class PartnerService {
@@ -81,6 +88,11 @@ public final class PartnerService {
     static final Duration FAN_OUT_GRACE = Duration.ofSeconds(1);
     private static final String TOOL = "find_partners";
     private static final String SYSTEM_DIAGRAM = "systemdiagram";
+    private static final Logger LOG = LoggerFactory.getLogger(PartnerService.class);
+    private static final int MAX_LOGGED = 500;
+    /** Error codes audited as {@code REFUSED} (research D-8); every other error is FAILED. */
+    private static final Set<ErrorCode> REFUSALS =
+        EnumSet.of(ErrorCode.NOT_CONFIGURED, ErrorCode.UNSUPPORTED_VERSION);
     /** Upper bound of similar values and similar system diagram names (FR-005b, FR-019). */
     static final int MAX_SIMILAR = 5;
     /** The partner fields similar values are taken from (FR-005b). */
@@ -233,6 +245,7 @@ public final class PartnerService {
     private final Terminology terms;
     private final VersionGate gate;
     private final SecretTiming secretTiming;
+    private final PartnerAudit.Dependencies audits;
 
     /**
      * @param owners         the effective {@code inventory.owner} of each node; empty if none is
@@ -243,11 +256,13 @@ public final class PartnerService {
      *                       {@link InventoryService}
      * @param terms          the display names of the levels in messages
      * @param secretTiming   the fan-out allowance for fetching the secrets (feature 010)
+     * @param audits         what the audit of every call shares (FR-020)
      */
     public PartnerService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
         InventoryCache cache, Function<NodeId, Optional<String>> owners,
         Function<NodeId, Duration> timeouts, Function<NodeId, Duration> exportTimeouts,
-        Terminology terms, VersionGate gate, SecretTiming secretTiming) {
+        Terminology terms, VersionGate gate, SecretTiming secretTiming,
+        PartnerAudit.Dependencies audits) {
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.targets = Objects.requireNonNull(targets, "targets");
         this.fanOut = Objects.requireNonNull(fanOut, "fanOut");
@@ -258,6 +273,7 @@ public final class PartnerService {
         this.terms = Objects.requireNonNull(terms, "terms");
         this.gate = Objects.requireNonNull(gate, "gate");
         this.secretTiming = Objects.requireNonNull(secretTiming, "secretTiming");
+        this.audits = Objects.requireNonNull(audits, "audits");
     }
 
     /**
@@ -266,33 +282,54 @@ public final class PartnerService {
      * full (FR-004, FR-005, FR-007, FR-011). A search without hits gets similar values
      * (FR-005b).
      *
+     * <p>Audit and log (T021, FR-020, FR-021): one {@link PartnerAudit} per call; an unknown
+     * target is one {@code REFUSED} record; otherwise one record and one INFO line per server,
+     * also for a cache hit or a failed server (its error code as reason, never the message).
+     *
      * @throws ToolErrorException {@code TARGET_UNKNOWN} before any server is contacted;
      *     {@code NOT_FOUND} with up to {@link #MAX_SIMILAR} similar system diagram names if no
-     *     server that answered has a system diagram named {@code query.systemDiagram()} (FR-019)
+     *     server that answered has a system diagram named {@code query.systemDiagram()} (FR-019);
+     *     {@code INTERNAL} naming the call id, and no partner data, if any audit record could not
+     *     be written
      */
     public Found find(PartnerQuery query) {
+        PartnerAudit audit = PartnerAudit.of(audits, query);
+        List<NodeId> targeted;
+        try {
+            targeted = targets.resolve(query.target());
+        } catch (ToolErrorException e) {
+            ToolErrorException refused = audit.refused(e.error());
+            LOG.info("{} on {}: REFUSED {} (call {}{})", TOOL, loggable(query.target()),
+                e.error().code(), audit.callId(),
+                refused.error().equals(e.error()) ? "" : ", no audit record");
+            throw refused;
+        }
+        List<NodeResult<ServerRead>> results = read(targeted, query);
+        Optional<ToolError> notFound = query.systemDiagram()
+            .flatMap(name -> unknownSystemDiagram(name, results));
         Optional<String> term = query.search().map(PartnerService::folded);
         List<ServerView> servers = new ArrayList<>();
         List<CloudWorkflows> workflows = new ArrayList<>();
         List<PartnerView> partners = new ArrayList<>();
-        List<NodeResult<ServerRead>> results = read(query);
-        query.systemDiagram().ifPresent(name -> requireSystemDiagram(name, results));
+        ToolErrorException unaudited = null;
         for (NodeResult<ServerRead> result : results) {
-            servers.add(serverView(result));
-            for (SystemDiagramPartners diagram : result.payload().map(ServerRead::diagrams)
-                .orElse(List.of())) {
-                for (CommunicationCloud cloud : diagram.clouds()) {
-                    List<PartnerView> matches = cloud.partners().stream()
-                        .filter(partner -> term.isEmpty() || matches(partner, term.get()))
-                        .map(partner -> partnerView(diagram, cloud, partner))
-                        .toList();
-                    if (!matches.isEmpty()) {
-                        partners.addAll(matches);
-                        workflows.add(new CloudWorkflows(diagram.diagram(), cloud.moduleName(),
-                            cloud.referencableWorkflows()));
-                    }
-                }
+            List<PartnerView> returned = new ArrayList<>();
+            if (notFound.isEmpty()) {
+                collect(result, term, returned, workflows);
             }
+            servers.add(serverView(result));
+            partners.addAll(returned);
+            try {
+                audit(audit, query, result, notFound.map(ToolError::code), returned);
+            } catch (ToolErrorException e) {
+                unaudited = unaudited == null ? e : unaudited;
+            }
+        }
+        if (unaudited != null) {
+            throw unaudited;
+        }
+        if (notFound.isPresent()) {
+            throw new ToolErrorException(notFound.get());
         }
         Optional<List<String>> similar = query.search()
             .filter(search -> partners.isEmpty())
@@ -318,11 +355,72 @@ public final class PartnerService {
             .toList();
     }
 
+    /** {@code value} for a log line: at most 500 chars, control characters as {@code ?}. */
+    private static String loggable(String value) {
+        String bounded = value.length() <= MAX_LOGGED ? value : value.substring(0, MAX_LOGGED);
+        return bounded.replaceAll("\\p{Cntrl}", "?");
+    }
+
+    /** The partners of {@code result} that match {@code term}, with their clouds' workflows. */
+    private static void collect(NodeResult<ServerRead> result, Optional<String> term,
+        List<PartnerView> partners, List<CloudWorkflows> workflows) {
+        for (SystemDiagramPartners diagram : result.payload().map(ServerRead::diagrams)
+            .orElse(List.of())) {
+            for (CommunicationCloud cloud : diagram.clouds()) {
+                List<PartnerView> matches = cloud.partners().stream()
+                    .filter(partner -> term.isEmpty() || matches(partner, term.get()))
+                    .map(partner -> partnerView(diagram, cloud, partner))
+                    .toList();
+                if (!matches.isEmpty()) {
+                    partners.addAll(matches);
+                    workflows.add(new CloudWorkflows(diagram.diagram(), cloud.moduleName(),
+                        cloud.referencableWorkflows()));
+                }
+            }
+        }
+    }
+
     /**
-     * @throws ToolErrorException {@code NOT_FOUND} if at least one server answered and none of
-     *     them has a system diagram called {@code name} (any case, any diagram group)
+     * The audit record and the INFO line of one server: {@code EXECUTED} with its counts, or
+     * {@code REFUSED}/{@code FAILED} with its error code ({@code notFound} for a server that
+     * answered a call that ends in {@code NOT_FOUND}). Server, owner, outcome, counts and call id
+     * only: no partner setting, no secret, no error message.
+     *
+     * @throws ToolErrorException {@code INTERNAL} if the record could not be written
      */
-    private static void requireSystemDiagram(String name, List<NodeResult<ServerRead>> results) {
+    private void audit(PartnerAudit audit, PartnerQuery query,
+        NodeResult<ServerRead> result, Optional<ErrorCode> notFound,
+        List<PartnerView> returned) {
+        Optional<ServerRead> read = result.payload();
+        Optional<ErrorCode> reason = result.error().map(ToolError::code).or(() -> notFound);
+        AuditOutcome outcome = reason
+            .map(code -> REFUSALS.contains(code) ? AuditOutcome.REFUSED : AuditOutcome.FAILED)
+            .orElse(AuditOutcome.EXECUTED);
+        boolean fromCache = read.map(ServerRead::fromCache).orElse(false);
+        int diagramsRead = read.map(server -> server.diagrams().size()).orElse(0);
+        int masked = returned.stream().mapToInt(PartnerView::maskedCount).sum();
+        boolean written = false;
+        try {
+            audit.perServer(result.node(), outcome, reason, fromCache, diagramsRead,
+                returned.size(), masked);
+            written = true;
+        } finally {
+            LOG.info("{} on {}: {}{} (owner {}, systemDiagramsRead {}, partnersReturned {},"
+                    + " valuesMasked {}, fromCache {}; call {}{})", TOOL, result.node(), outcome,
+                reason.map(code -> " " + code).orElse(""),
+                read.map(ServerRead::owner).or(query::owner)
+                    .or(() -> owners.apply(result.node())).orElse("none"), diagramsRead,
+                returned.size(), masked, fromCache, audit.callId(),
+                written ? "" : ", no audit record");
+        }
+    }
+
+    /**
+     * {@code NOT_FOUND} if at least one server answered and none of them has a system diagram
+     * called {@code name} (any case, any diagram group).
+     */
+    private static Optional<ToolError> unknownSystemDiagram(String name,
+        List<NodeResult<ServerRead>> results) {
         List<NodeResult<ServerRead>> answered = results.stream()
             .filter(result -> result.payload().isPresent())
             .toList();
@@ -331,14 +429,14 @@ public final class PartnerService {
             .map(DiagramRef::name)
             .toList();
         if (answered.isEmpty() || names.stream().anyMatch(name::equalsIgnoreCase)) {
-            return;
+            return Optional.empty();
         }
         List<String> similar = SimilarNames.of(name, names, MAX_SIMILAR);
         String where = answered.stream()
             .map(result -> result.node() + " (owner " + result.payload().orElseThrow().owner()
                 + ")")
             .collect(Collectors.joining(", "));
-        throw new ToolErrorException(ToolError.of(ErrorCode.NOT_FOUND,
+        return Optional.of(ToolError.of(ErrorCode.NOT_FOUND,
             "No system diagram named " + Names.quote(name) + " on " + where,
             "The name is misspelled, or the system diagram belongs to another owner",
             similar.isEmpty()
@@ -420,7 +518,10 @@ public final class PartnerService {
      * @throws ToolErrorException {@code TARGET_UNKNOWN} before any server is contacted
      */
     List<NodeResult<ServerRead>> read(PartnerQuery query) {
-        List<NodeId> servers = targets.resolve(query.target());
+        return read(targets.resolve(query.target()), query);
+    }
+
+    private List<NodeResult<ServerRead>> read(List<NodeId> servers, PartnerQuery query) {
         Set<NodeId> pending = secretTiming.pending(servers);
         return secretTiming.explainTimeouts(fanOut.run(servers, this::deadline,
             server -> read(server, query)), pending);

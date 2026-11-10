@@ -231,7 +231,7 @@ a lower-case name part; check every value and the leak check over result, log, a
   `systemDiagram` filter → `NOT_FOUND` with up to five similar system diagram names (FR-019) —
   main `application/PartnerService.java`, test `application/PartnerServiceSearchTest.java`
   (US1-AS6, Op-5)
-- [ ] T021 [US1] Audit and log integration (after T017, T019): one `PartnerAudit` per call, one
+- [X] T021 [US1] Audit and log integration (after T017, T019): one `PartnerAudit` per call, one
   record per targeted server also for cache hits (`fromCache`), shared `callId`, counts; any
   audit write failure → `INTERNAL`, no partner data for any server; one structured INFO line per
   server (server, owner, outcome, counts, call id) without settings or secrets (FR-020, FR-021).
