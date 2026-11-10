@@ -2,10 +2,6 @@ package de.dadecker.inubit.mcp.mcp.tools;
 
 import de.dadecker.inubit.mcp.application.PartnerAudit;
 import de.dadecker.inubit.mcp.application.PartnerService;
-import de.dadecker.inubit.mcp.application.PartnerService.CloudWorkflows;
-import de.dadecker.inubit.mcp.application.PartnerService.Found;
-import de.dadecker.inubit.mcp.application.PartnerService.PartnerView;
-import de.dadecker.inubit.mcp.application.PartnerService.ServerView;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -13,12 +9,9 @@ import de.dadecker.inubit.mcp.domain.model.partner.PartnerQuery;
 import de.dadecker.inubit.mcp.mcp.CallContext;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import de.dadecker.inubit.mcp.mcp.ToolHints;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.OptionalInt;
-import java.util.UUID;
 
 /**
  * {@code find_partners} (feature 018, contracts/find_partners.md): the partners of the INUBIT
@@ -29,7 +22,9 @@ import java.util.UUID;
  * {@value PartnerQuery#DEFAULT_LIMIT}, {@code refresh} false). An input the schema lets through
  * but {@link PartnerQuery} refuses (e.g. a {@code compareWith} that overlaps {@code target}) is
  * {@code INVALID_INPUT} with one {@code REFUSED} audit record whose node is the target as
- * requested; every other audit is written by the service.
+ * requested; every other audit is written by the service. The result is the service's
+ * {@link PartnerService.Found} as it is: it carries every output field, so the size bound
+ * (FR-017) measures exactly what the tool returns.
  *
  * <p>{@code compareWith} is in the schema but not implemented yet: a call with it is refused the
  * same way before any server is contacted (phase 3 review; T026 lifts this refusal).
@@ -102,7 +97,7 @@ public final class FindPartnersTool implements ToolHandler {
             throw new PartnerAudit(audits, target, compareWith, owner, search, systemDiagram,
                 protocol, workflow, context.client()).refused(e.error()).exception();
         }
-        return Result.of(service.find(query), query);
+        return service.find(query);
     }
 
     /** @throws ToolErrorException {@code INVALID_INPUT} if {@code compareWith} is given */
@@ -112,28 +107,6 @@ public final class FindPartnersTool implements ToolHandler {
                 "compareWith is not supported yet",
                 "This version of find_partners does not implement compareWith yet",
                 "Call again without compareWith"));
-        }
-    }
-
-    /**
-     * The single-server shape of the contract: the page of the service with {@code total},
-     * {@code nextOffset} and {@code truncated}, within {@code resultLimits.maxChars} (the service
-     * leaves room for the fields added here).
-     *
-     * @param mode  {@code search} with a search term, else {@code list}
-     * @param limit the page size applied: the requested {@code limit}, at most
-     *              {@code resultLimits.maxItems} (as {@code Page.limit} of the other tools)
-     */
-    record Result(UUID callId, String mode, boolean compared, List<ServerView> servers,
-        List<CloudWorkflows> referencableWorkflows, List<PartnerView> partners,
-        Optional<List<String>> similarValues, int total, int offset, int limit,
-        OptionalInt nextOffset, boolean truncated) {
-
-        static Result of(Found found, PartnerQuery query) {
-            return new Result(found.callId(), query.search().isPresent() ? "search" : "list",
-                false, found.servers(), found.referencableWorkflows(), found.partners(),
-                found.similarValues(), found.total(), query.offset(), found.limit(),
-                found.nextOffset(), found.truncated());
         }
     }
 }

@@ -58,7 +58,7 @@ import org.junit.jupiter.api.Timeout;
 
 /**
  * T024: paging and size bounds of {@link PartnerService#find} (FR-017, SC-004): texts cut with the
- * marker, the result within {@code resultLimits.maxChars} (with the room the tool needs), detail
+ * marker, the result within {@code resultLimits.maxChars} (the tool returns it as it is), detail
  * cut before the partners of the page, {@code truncated}, the audit counting what is returned;
  * every result checked as the JSON text of {@link ResultJson} against every synthetic secret.
  */
@@ -146,6 +146,26 @@ class PartnerServiceBoundsTest {
     }
 
     @Test
+    void aLongSimilarValueIsCutWithTheMarkerAndTruncated() {
+        // two names that differ only after the cut: one suggestion
+        export(new DiagramXml(GROUP, "SystemDiagram-01", OWNER, List.of(new CloudXml("33",
+            "Module-0901", ID_AND_NAME, WORKFLOW, Stream.of("a", "b")
+                .map(tail -> new PartnerXml(List.of(Leaf.plain("Id", "ACME-000" + tail),
+                    Leaf.plain("Name", "n".repeat(260) + tail)), List.of()))
+                .toList()))));
+
+        // not contained in the name, but within the edit distance of a similar value
+        Found found = find(query(Optional.of("n".repeat(199) + "x"), 0, 20),
+            ResultLimiter.withDefaults());
+
+        assertThat(found.partners()).isEmpty();
+        assertThat(found.similarValues()).hasValueSatisfying(values ->
+            assertThat(values).singleElement().satisfies(value -> assertThat(value)
+                .hasSize(ItemBounds.MAX_FIELD_CHARS).startsWith("nnn").endsWith(MARKER)));
+        assertThat(found.truncated()).isTrue();
+    }
+
+    @Test
     void nothingCutIsNotTruncated() {
         export(PartnerFixtures.detail());
 
@@ -162,8 +182,7 @@ class PartnerServiceBoundsTest {
     void detailIsCutBeforeThePartnersOfThePageFromTheLastPartner() {
         export(PartnerFixtures.list(40));
         PartnerQuery query = query(Optional.of("acme"), 0, 20);
-        int full = ResultJson.size(find(query, ResultLimiter.withDefaults()))
-            + PartnerService.TOOL_FIELDS_CHARS;
+        int full = ResultJson.size(find(query, ResultLimiter.withDefaults()));
 
         for (int budget = ItemBounds.MAX_ITEM_CHARS; budget <= full + 250; budget += 250) {
             Found found = find(query, new ResultLimiter(100, budget));
@@ -266,6 +285,48 @@ class PartnerServiceBoundsTest {
             .startsWith("SystemDiagram-000").as("the others in list order").isSorted();
         assertThat(none.partners()).isEmpty();
         assertThat(none.similarValues()).isPresent();
+    }
+
+    @Test
+    void everyPartnerReturnedHasItsSystemDiagramListedAlsoWhenTheListIsCut() {
+        // one partner per system diagram, listed in reverse name order: the list order of the
+        // system diagrams is the reverse of the page order in list mode
+        for (int n = 60; n >= 1; n--) {
+            int number = n;
+            List<CloudXml> clouds = IntStream.rangeClosed(1, 4)
+                .mapToObj(c -> new CloudXml(String.valueOf(30 + c), "Module-090" + c,
+                    ID_AND_NAME, List.of(), c > 1 ? List.of() : List.of(new PartnerXml(
+                        List.of(Leaf.plain("Id", "ACME-%04d".formatted(number)),
+                            Leaf.plain("Name", "ACME Partner " + number)), List.of()))))
+                .toList();
+            export(new DiagramXml(GROUP, "SystemDiagram-%03d-".formatted(n) + "d".repeat(120),
+                OWNER, clouds));
+        }
+        ResultLimiter limiter = new ResultLimiter(100, 10_000);
+
+        for (Optional<String> search : List.of(Optional.of("acme"), Optional.<String>empty())) {
+            List<String> seen = new ArrayList<>();
+            OptionalInt offset = OptionalInt.of(0);
+            while (offset.isPresent()) {
+                Found found = find(query(search, offset.getAsInt(), 100), limiter);
+                String what = search + " offset " + offset.getAsInt();
+                assertWithin(found, 10_000, what);
+                List<String> listed = found.servers().get(0).systemDiagramsRead().stream()
+                    .map(PartnerService.DiagramRead::name).toList();
+                assertThat(listed).as(what + ": cut").hasSizeLessThan(60);
+                assertThat(found.partners()).as(what).isNotEmpty().allSatisfy(partner ->
+                    assertThat(listed).as(what).contains(partner.systemDiagram().name()));
+                if (offset.getAsInt() == 0) {
+                    assertThat(found.partners()).as(what).hasSizeGreaterThan(1);
+                    assertThat(found.truncated()).as(what).isTrue();
+                }
+                found.partners().forEach(partner -> seen.add(id(partner)));
+                offset = found.nextOffset();
+            }
+            assertThat(seen).as(search + ": every partner on some page")
+                .containsExactlyInAnyOrderElementsOf(IntStream.rangeClosed(1, 60)
+                    .mapToObj("ACME-%04d"::formatted).toList());
+        }
     }
 
     @Test
@@ -398,10 +459,9 @@ class PartnerServiceBoundsTest {
         return parameters ? 0 : summary ? 2 : 1;
     }
 
-    /** The result and the fields the tool adds within {@code maxChars}. */
+    /** The result, which the tool returns as it is, within {@code maxChars}. */
     private static void assertWithin(Found found, int maxChars, String what) {
-        assertThat(ResultJson.size(found) + PartnerService.TOOL_FIELDS_CHARS).as(what)
-            .isLessThanOrEqualTo(maxChars);
+        assertThat(ResultJson.size(found)).as(what).isLessThanOrEqualTo(maxChars);
     }
 
     /** Reads {@code diagram} with the reader as the adapter does and offers it to the owner. */

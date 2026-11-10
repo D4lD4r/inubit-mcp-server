@@ -20,6 +20,7 @@ import de.dadecker.inubit.mcp.application.InventoryCache;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.PartnerAudit;
 import de.dadecker.inubit.mcp.application.PartnerService;
+import de.dadecker.inubit.mcp.application.PartnerService.Found;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.TargetResolver;
@@ -47,6 +48,7 @@ import de.dadecker.inubit.mcp.infra.ResultJson;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import java.lang.reflect.RecordComponent;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
@@ -57,6 +59,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -69,7 +72,8 @@ import tools.jackson.databind.json.JsonMapper;
  * shape) on the real {@link PartnerService} with fake ports serving the synthetic exports of
  * {@link PartnerFixtures} and a recording audit log: hints and schemas, the defaults of the tool,
  * the unresolved workflow shape, Op-2, Op-5 and the audited input refusals (FR-002, FR-020);
- * T023: the list summary and the entry filters; T024: the size bound.
+ * T023: the list summary and the entry filters; T024: the size bound, measured on the result
+ * the tool returns as it is (phase 4 code review).
  */
 @Timeout(60)
 class FindPartnersToolTest {
@@ -283,6 +287,32 @@ class FindPartnersToolTest {
         assertThat(audit).singleElement().satisfies(record -> assertThat(record.details())
             .containsEntry("partnersReturned", content.path("partners").size()));
         assertNoSecretIn(result);
+    }
+
+    @Test
+    void theToolReturnsWhatTheBoundMeasuredWithinMaxCharsAlsoAtTheLargestOffset() {
+        limiter = new ResultLimiter(100, 10_000);
+        export(PartnerFixtures.list(1000));
+        List<String> fields = Stream.of(Found.class.getRecordComponents())
+            .map(RecordComponent::getName).toList();
+        FindPartnersTool tool = new FindPartnersTool(service(FakeVersionDetection.pinned81()),
+            audits);
+
+        for (Map<String, Object> arguments : List.of(
+            Map.<String, Object>of("target", "dev/node1", "search", "acme", "limit", 100),
+            Map.<String, Object>of("target", "dev/node1", "limit", 100),
+            Map.<String, Object>of("target", "dev/node1", "offset", 999, "limit", 100),
+            Map.<String, Object>of("target", "dev/node1", "search", "acme", "offset",
+                Integer.MAX_VALUE, "limit", 100))) {
+            String what = arguments.toString();
+            assertThat(tool.handle(arguments)).as(what + ": the service's result as it is")
+                .isInstanceOfSatisfying(Found.class, found ->
+                    assertThat(ResultJson.size(found)).as(what).isLessThanOrEqualTo(10_000));
+            JsonNode content = call(arguments).path("structuredContent");
+            assertThat(content.toString().length()).as(what).isLessThanOrEqualTo(10_000);
+            assertThat(content.propertyNames()).as(what + ": no field outside the bound")
+                .isSubsetOf(fields);
+        }
     }
 
     @Test

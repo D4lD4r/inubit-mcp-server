@@ -125,12 +125,6 @@ public final class PartnerService {
     /** Error codes audited as {@code REFUSED} (research D-8); every other error is FAILED. */
     private static final Set<ErrorCode> REFUSALS =
         EnumSet.of(ErrorCode.NOT_CONFIGURED, ErrorCode.UNSUPPORTED_VERSION);
-    /**
-     * Room for the fields the tool adds to {@link Found} ({@code mode}, {@code compared},
-     * {@code offset}: at most 53 chars as JSON), so the tool result stays within
-     * {@code resultLimits.maxChars}.
-     */
-    static final int TOOL_FIELDS_CHARS = 64;
     /** Upper bound of similar values and similar system diagram names (FR-005b, FR-019). */
     static final int MAX_SIMILAR = 5;
     /** The partner fields similar values are taken from (FR-005b). */
@@ -181,9 +175,12 @@ public final class PartnerService {
     }
 
     /**
-     * The answer of one call (T019, T020).
+     * The answer of one call (T019, T020): every field of the tool result, in its order, so the
+     * size bound measures exactly what the tool returns (FR-017).
      *
      * @param callId                the call id shared by every audit record of the call (FR-020)
+     * @param mode                  {@code search} with a search term, else {@code list}
+     * @param compared              whether the result is a comparison ({@code compareWith}, T026)
      * @param servers               one per targeted server, in config order
      * @param referencableWorkflows per communication cloud that contributed a returned partner
      *                              (FR-007)
@@ -194,19 +191,21 @@ public final class PartnerService {
      *                              {@code Name} values of the system diagrams read, closest first
      *                              (FR-005b)
      * @param total                 the number of matching partners on all servers
+     * @param offset                the {@code offset} requested
      * @param limit                 the page size applied: {@code limit}, at most
      *                              {@code resultLimits.maxItems}
      * @param nextOffset            the offset of the next page, if more matches follow
      * @param truncated             whether a text, a part of a partner or a partner of the page
      *                              was cut to keep the result within its size bound (FR-017)
      */
-    public record Found(UUID callId, List<ServerView> servers,
+    public record Found(UUID callId, String mode, boolean compared, List<ServerView> servers,
         List<CloudWorkflows> referencableWorkflows, List<PartnerView> partners,
-        Optional<List<String>> similarValues, int total, int limit, OptionalInt nextOffset,
-        boolean truncated) {
+        Optional<List<String>> similarValues, int total, int offset, int limit,
+        OptionalInt nextOffset, boolean truncated) {
 
         public Found {
             Objects.requireNonNull(callId, "callId");
+            Objects.requireNonNull(mode, "mode");
             servers = List.copyOf(servers);
             referencableWorkflows = List.copyOf(referencableWorkflows);
             partners = List.copyOf(partners);
@@ -420,19 +419,23 @@ public final class PartnerService {
             position += size;
         }
         boolean answered = results.stream().anyMatch(result -> result.payload().isPresent());
-        Optional<List<String>> similar = query.search()
-            .filter(search -> total == 0 && answered)
-            .map(search -> SimilarNames.of(search, similarCandidates(results), MAX_SIMILAR));
+        PartnerBounds.Bounded<Optional<List<String>>> similar = PartnerBounds.similarValues(
+            query.search()
+                .filter(search -> total == 0 && answered)
+                .map(search -> SimilarNames.of(search, similarCandidates(results), MAX_SIMILAR)));
         int budget = limiter.maxChars();
-        PartnerBounds.Bounded<List<ServerView>> servers = PartnerBounds.servers(
+        String mode = summary ? "list" : "search";
+        // the page is cut to the partners whose system diagram the servers list
+        PartnerBounds.Servers servers = PartnerBounds.servers(
             results.stream().map(PartnerService::serverView).toList(), results.stream()
                 .map(result -> result.payload().map(ServerRead::gateWarnings).orElse(0))
                 .toList(), page, budget, sizeOf);
         // nextOffset and truncated at their widest: paging can only shorten them
-        int fixed = sizeOf.applyAsInt(new Found(audit.callId(), servers.value(), List.of(),
-            List.of(), similar, total, limit, OptionalInt.of(total), false)) + TOOL_FIELDS_CHARS;
+        int fixed = sizeOf.applyAsInt(new Found(audit.callId(), mode, false, servers.value(),
+            List.of(), List.of(), similar.value(), total, query.offset(), limit,
+            OptionalInt.of(total), false));
         PartnerBounds.Bounded<List<PartnerBounds.Item>> bounded =
-            PartnerBounds.page(page, fixed, budget, sizeOf);
+            PartnerBounds.page(servers.page(), fixed, budget, sizeOf);
         List<PartnerBounds.Item> returned = bounded.value();
         ToolErrorException unaudited = null;
         for (NodeResult<ServerRead> result : results) {
@@ -452,22 +455,24 @@ public final class PartnerService {
             throw new ToolErrorException(notFound.get());
         }
         int next = from + returned.size();
-        boolean truncated = servers.cut() || bounded.cut()
+        boolean truncated = servers.cut() || similar.cut() || bounded.cut()
             || returned.size() < Math.min(query.limit(), total - from);
-        Found found = new Found(audit.callId(), servers.value(),
+        Found found = new Found(audit.callId(), mode, false, servers.value(),
             PartnerBounds.workflows(returned),
-            returned.stream().map(PartnerBounds.Item::partner).toList(), similar, total, limit,
-            next < total ? OptionalInt.of(next) : OptionalInt.empty(), truncated);
-        // a result over its bound (parts that are never cut, see PartnerBounds) is never
+            returned.stream().map(PartnerBounds.Item::partner).toList(), similar.value(), total,
+            query.offset(), limit, next < total ? OptionalInt.of(next) : OptionalInt.empty(),
+            truncated);
+        // a result over its bound (parts that are never left out, see PartnerBounds) is never
         // reported as complete
-        return truncated || sizeOf.applyAsInt(found) + TOOL_FIELDS_CHARS <= budget ? found
-            : new Found(found.callId(), found.servers(), found.referencableWorkflows(),
-                found.partners(), found.similarValues(), total, limit, found.nextOffset(), true);
+        return truncated || sizeOf.applyAsInt(found) <= budget ? found
+            : new Found(found.callId(), mode, false, found.servers(),
+                found.referencableWorkflows(), found.partners(), found.similarValues(), total,
+                query.offset(), limit, found.nextOffset(), true);
     }
 
     /**
-     * The shown {@code Id} and {@code Name} values of every partner read; a masked value is never
-     * a candidate (FR-011).
+     * The shown {@code Id} and {@code Name} values of every partner read, uncut (the size bound
+     * cuts the similar values and reports it); a masked value is never a candidate (FR-011).
      */
     private static List<String> similarCandidates(List<NodeResult<ServerRead>> results) {
         return results.stream()
@@ -479,7 +484,7 @@ public final class PartnerService {
             .filter(field -> SIMILAR_FIELDS.contains(field.name()))
             .map(Setting::value)
             .flatMap(value -> value instanceof SettingValue.Shown shown
-                ? Stream.of(shown.rendered()) : Stream.empty())
+                ? Stream.of(shown.value()) : Stream.empty())
             .toList();
     }
 

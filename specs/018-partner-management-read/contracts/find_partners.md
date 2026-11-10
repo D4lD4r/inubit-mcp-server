@@ -127,5 +127,6 @@ Server level (in `servers[].error`, others answered): `NOT_CONFIGURED` (no owner
   `withoutPartnerManagement` and `unreadableDiagrams` are cut to fit too (diagrams with a partner on
   the page first; unreadable diagrams before the others), and each cloud's `workflows` in
   `referencableWorkflows` likewise; the version gate's warnings are always kept. Only if the parts that are never cut (version gate warnings,
-  server errors, at most five similar values, the fields of the first partner of the page) alone
+  server errors, at most five similar values, the fields and the system diagram of the first partner of the page)
+  alone
   exceed the bound, the result does too, always with `truncated: true`.
