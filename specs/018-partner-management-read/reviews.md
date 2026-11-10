@@ -124,3 +124,7 @@ Fix round (uncommitted on bd49ff9), one line per finding:
 7. Fixed: `PartnerBounds.similarValues` cuts each similar value to `MAX_FIELD_CHARS` with the marker and reports the cut, which sets `truncated`; the candidates are now the uncut shown values (`SettingValue.Shown.value()`, not `rendered()`, which was cut already and hid the cut); values equal once cut are shown once (`distinct` after the cut, coordinator minor). Test: `PartnerServiceBoundsTest.aLongSimilarValueIsCutWithTheMarkerAndTruncated` (two names differing only after the cut give one cut suggestion, `truncated`).
 
 Review of the fix round: reviews/phase4-cr-fix-r1.md (APPROVED, 1 minor fixed). Full build `mvn -o -q clean verify` green: 5815 unit tests (52 skipped) + 2 integration tests.
+
+## Implementation — phase 5 build
+
+After T027 (6490f01): `mvn -o -q clean verify` green with 5879 unit tests (52 skipped), 0 failures, 0 errors, plus 2 integration tests (after phase 4 fixes: 5815 + 2).
