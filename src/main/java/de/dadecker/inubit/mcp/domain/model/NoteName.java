@@ -74,9 +74,6 @@ public record NoteName(String value) {
                 return Optional.of("segment " + (i + 1) + " " + problem.get());
             }
         }
-        if (nfc.toLowerCase(Locale.ROOT).endsWith(SUFFIX)) {
-            return Optional.of("the name must not end in " + SUFFIX);
-        }
         return Optional.empty();
     }
 
@@ -133,6 +130,9 @@ public record NoteName(String value) {
         }
         if (segment.endsWith(".") || segment.endsWith(" ")) {
             return Optional.of("ends with . or a space");
+        }
+        if (segment.toLowerCase(Locale.ROOT).endsWith(SUFFIX)) {
+            return Optional.of("ends in " + SUFFIX);
         }
         int dot = segment.indexOf('.');
         String base = (dot < 0 ? segment : segment.substring(0, dot)).strip()

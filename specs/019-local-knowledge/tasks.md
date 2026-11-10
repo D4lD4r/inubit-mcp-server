@@ -46,7 +46,7 @@ person's choice on 2026-11-10: option (A), fail closed (plan.md "Decision"). Tas
   `domain/model/KeyMaterial.java`, test `domain/model/KeyMaterialTest.java` (new)
 - [X] T003 [P] `NoteName` (D-4): NFC, record rule (1–4 segments, 1–100 code points of `\p{L}`,
   `\p{N}`, `_ . -` and space; no leading `.`, no trailing `.`/space, no Windows device name incl.
-  superscript digits, no `.md` suffix in any case), messages naming rule and segment number, never
+  superscript digits, no segment ending in `.md` in any case), messages naming rule and segment number, never
   the name; `fold` = upper/lower to a fixpoint (≤ 4 rounds) then NFC; `equals` on NFC code points.
   Tests: every rule, `ß`/`ẞ`/`SS`/`ss`, `Σ`/`ς`/`σ`, `ſ`/`s`, Kelvin sign, `ı`/`İ`/`i`, NFD/NFC
   `Störung`, plus the `CaseFolding.txt` (Unicode 15.1, C+F lines of letters, license header kept)

@@ -121,8 +121,9 @@ link and case behaviour as the workspace check of feature 003.
   with `.` (it would be hidden; the spec's segment rule allows `.` inside, the hidden rule makes a
   leading `.` invisible, so it is refused) and not ending with `.` or space (Windows drops them); the
   part before the first `.` is not a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM0`–`COM9`,
-  `LPT0`–`LPT9`, also with superscript digits, compared case-insensitively). The whole name must not
-  end in `.md` in any letter case. The name is NFC-normalized before the check.
+  `LPT0`–`LPT9`, also with superscript digits, compared case-insensitively); no segment ends in
+  `.md` in any letter case (a folder `x.md` would clash with the file of note `x` and nest the
+  histories, D-11). The name is NFC-normalized before the check.
 - **Identity**: lookups (read, `append`, `replace`) compare the NFC name exactly against the
   listed names (`NoteName.equals` is code-point equality after NFC). `create` collides when
   `fold(a).equals(fold(b))` with `fold(s)` = NFC, then `toUpperCase(ROOT)` followed by

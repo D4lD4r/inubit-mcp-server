@@ -102,10 +102,6 @@ public final class PackageWriter {
     private final FileSink sink;
 
     /**
-     * @param root  {@code ~/.inubit-mcp/<profile>/packages}
-     * @param files creates the private directories and files
-     */
-    /**
      * The directory of the packages of a profile: {@code <home>/.inubit-mcp/<profile>/packages},
      * beside {@link DeploymentLedger#defaultDirectory}.
      */
@@ -113,6 +109,10 @@ public final class PackageWriter {
         return DeploymentLedger.defaultDirectory(home, profile).resolveSibling("packages");
     }
 
+    /**
+     * @param root  {@code ~/.inubit-mcp/<profile>/packages}
+     * @param files creates the private directories and files
+     */
     public PackageWriter(Path root, Clock clock, PrivateFileSystem files) {
         this(root, clock, files, (file, content) -> writeOwnerOnly(files, file, content));
     }

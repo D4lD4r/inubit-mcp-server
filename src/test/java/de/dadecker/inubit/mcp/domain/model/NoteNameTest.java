@@ -48,8 +48,10 @@ class NoteNameTest {
         assertProblem("COM¹", "segment 1 is a reserved Windows device name");
         assertProblem("lpt0", "segment 1 is a reserved Windows device name");
         assertProblem("aux .x", "segment 1 is a reserved Windows device name");
-        assertProblem("notes.md", "the name must not end in .md");
-        assertProblem("notes.MD", "the name must not end in .md");
+        assertProblem("notes.md", "segment 1 ends in .md");
+        assertProblem("notes.MD", "segment 1 ends in .md");
+        assertProblem("x.md/y", "segment 1 ends in .md");
+        assertProblem("a/x.Md/y", "segment 2 ends in .md");
         assertThat(NoteName.writableProblem("secret-xyz:1")).hasValueSatisfying(
             p -> assertThat(p).doesNotContain("secret-xyz"));
     }
