@@ -240,7 +240,8 @@ readiness and a failing-audit fake.
   via atomic move, test hook between check and publish, `totalBytes` walk (not depth-limited,
   fail closed after 1,000,000 entries), stale temporary files older than one hour removed; first-write creation (D-3): an absent nested
   root, its missing parents, note subdirectories, `.history` and the note are created owner-only
-  (POSIX bits / Windows ACL via `PrivateFiles`), existing directories keep their permissions — main
+  (through the injected `PrivateFileSystem` port, `createDirectories`/`createFile`; tests use the
+  `testing/PrivateFiles` implementations and check POSIX bits / the Windows ACL), existing directories keep their permissions — main
   `knowledge/KnowledgeDirectory.java`, tests `knowledge/KnowledgeDirectoryTest.java`,
   `knowledge/KnowledgeBoundsTest.java` (walk part)
 - [ ] T029 [P] [US2] `KnowledgeAudit` (D-13): `REFUSED` / `PENDING` → `EXECUTED|REFUSED|FAILED`,
