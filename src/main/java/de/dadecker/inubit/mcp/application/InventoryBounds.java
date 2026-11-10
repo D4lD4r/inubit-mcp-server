@@ -10,6 +10,9 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.UnavailableInventoryPart;
 import de.dadecker.inubit.mcp.domain.model.VersionEntry;
+import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
+import de.dadecker.inubit.mcp.domain.model.partner.PartnerUsage;
+import de.dadecker.inubit.mcp.domain.model.partner.PartnerUsage.CloudUse;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -27,14 +30,17 @@ import java.util.function.ToIntFunction;
  *       exceeds {@link ItemBounds#MAX_ITEM_CHARS} (JSON escapes can expand a char to six), the
  *       last listed workflow is dropped ({@code workflowCount} keeps the full number), then the
  *       longest text is halved.
- *   <li>Details: texts are cut the same way ({@code unavailable} texts to
- *       {@link ToolError#MAX_EXCERPT_LENGTH}); while the detail exceeds its budget (the
- *       server's share of {@code resultLimits.maxChars}), the list of using workflows is first cut
- *       to {@link #WORKFLOW_SHARE} of the budget (follow-up N2: versions are what the detail is
- *       for, the workflows are only names and {@code workflowCount} keeps the full number); then
- *       the oldest versions are dropped (the newest are kept), then the last modules, then the
- *       last similar names, then the longest texts are halved (the capped workflows always
- *       leave three quarters of the budget, so they need no second cut).
+ *   <li>Details: texts are cut the same way ({@code unavailable} texts, also those of
+ *       {@code partnerUsage}, to {@link ToolError#MAX_EXCERPT_LENGTH}); while the detail exceeds
+ *       its budget (the server's share of {@code resultLimits.maxChars}), the list of using
+ *       workflows is first cut to {@link #WORKFLOW_SHARE} of the budget (follow-up N2: versions
+ *       are what the detail is for, the workflows are only names and {@code workflowCount} keeps
+ *       the full number) and the variables and system diagrams of {@code partnerUsage} to half
+ *       of {@link #PARTNER_SHARE} each (feature 018; only a module has workflows, only a
+ *       technical workflow a partner usage); then the oldest versions are dropped (the newest
+ *       are kept), then the last modules, then the last similar names, then the longest texts
+ *       are halved and the {@code unavailable} parts dropped (the capped lists always leave
+ *       three quarters of the budget, so they need no second cut).
  *   <li>Every cut sets {@code truncated} (list: on the page; detail: on the item).
  * </ul>
  */
@@ -43,6 +49,11 @@ final class InventoryBounds {
     private static final String MARKER = ItemBounds.TRUNCATION_MARKER;
     /** The part of a detail's budget that its list of using workflows may take at most. */
     static final double WORKFLOW_SHARE = 0.25;
+    /**
+     * The part of a detail's budget that the lists of its {@code partnerUsage} may take at most,
+     * half each (feature 018: a technical workflow has no list of using workflows).
+     */
+    static final double PARTNER_SHARE = 0.25;
 
     /** A bounded value and whether anything was cut. */
     record Bounded<T>(T value, boolean cut) {
@@ -100,6 +111,11 @@ final class InventoryBounds {
             draft.truncated = true;
             int share = (int) (budget * WORKFLOW_SHARE);
             draft.workflows = draft.workflows.map(list -> prefixWithin(list, share, sizeOf));
+            int partnerShare = (int) (budget * PARTNER_SHARE / 2);
+            draft.partnerUsage = draft.partnerUsage.map(usage -> new PartnerUsage(
+                prefixWithin(usage.variables(), partnerShare, sizeOf),
+                usage.partnerManagementNode(), usage.systemDiagrams().map(list ->
+                    prefixWithin(list, partnerShare, sizeOf)), usage.unavailable()));
             draft.versions = draft.versions.map(list ->
                 fit(list, kept -> draft.with(d -> d.versions = Optional.of(kept)), budget,
                     sizeOf));
@@ -117,7 +133,7 @@ final class InventoryBounds {
     }
 
     /** The longest prefix of {@code list} whose own serialized size is at most {@code max}. */
-    private static <T> List<T> prefixWithin(List<T> list, int max, ToIntFunction<Object> sizeOf) {
+    static <T> List<T> prefixWithin(List<T> list, int max, ToIntFunction<Object> sizeOf) {
         if (sizeOf.applyAsInt(list) <= max) {
             return list;
         }
@@ -218,6 +234,7 @@ final class InventoryBounds {
         private Optional<List<ModuleRef>> modules;
         private final Optional<ConnectorFlags> connector;
         private Optional<List<String>> similarNames;
+        private Optional<PartnerUsage> partnerUsage;
         private List<UnavailableInventoryPart> unavailable;
         private boolean truncated;
 
@@ -239,6 +256,7 @@ final class InventoryBounds {
             modules = detail.modules();
             connector = detail.connector();
             similarNames = detail.similarNames();
+            partnerUsage = detail.partnerUsage();
             unavailable = detail.unavailable();
             truncated = detail.truncated();
         }
@@ -266,6 +284,15 @@ final class InventoryBounds {
                 part.part(), texts.cut(part.reason(), longMax),
                 texts.cut(part.likelyCause(), longMax), texts.cut(part.nextStep(), longMax)))
                 .toList();
+            partnerUsage = partnerUsage.map(usage -> new PartnerUsage(
+                texts.cutAll(usage.variables(), max), usage.partnerManagementNode(),
+                usage.systemDiagrams().map(list -> list.stream().map(use -> new CloudUse(
+                    new DiagramRef(texts.cut(use.systemDiagram().name(), max),
+                        texts.cut(use.systemDiagram().diagramGroup(), max)),
+                    texts.cut(use.cloud(), max))).toList()),
+                usage.unavailable().map(reason -> new PartnerUsage.Unavailable(reason.code(),
+                    texts.cut(reason.message(), longMax),
+                    texts.cut(reason.nextStep(), longMax)))));
             truncated |= texts.cut;
         }
 
@@ -305,6 +332,12 @@ final class InventoryBounds {
                 unavailable = List.of();
                 return true;
             }
+            if (partnerUsage.flatMap(PartnerUsage::unavailable).isPresent()) {
+                PartnerUsage usage = partnerUsage.get();
+                partnerUsage = Optional.of(new PartnerUsage(usage.variables(),
+                    usage.partnerManagementNode(), usage.systemDiagrams(), Optional.empty()));
+                return true;
+            }
             if (name.isEmpty() && owner.isEmpty()) {
                 return false;
             }
@@ -319,7 +352,8 @@ final class InventoryBounds {
         InventoryDetail build() {
             return new InventoryDetail(server, kind, name, type, group, owner, active,
                 lastChange, workflows, workflowCount, usageComplete, checkinComment, userComment,
-                versions, modules, connector, similarNames, unavailable, truncated);
+                versions, modules, connector, similarNames, partnerUsage, unavailable,
+                truncated);
         }
     }
 }

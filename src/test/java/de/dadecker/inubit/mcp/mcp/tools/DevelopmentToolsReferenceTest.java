@@ -16,7 +16,10 @@ import org.junit.jupiter.api.Test;
  * backups. T028 (research D-26): no owner kind any more — every owner, user or user group, is
  * imported with {@code --importUser}. Feature 005 (T003, research D-15): the deployment codes
  * {@code CHAIN_VIOLATION}, {@code SOURCE_INCONSISTENT} and {@code DEPLOY_LOCKED} are in the
- * catalogue as well (described in full with {@code deploy_release}, T029).
+ * catalogue as well (described in full with {@code deploy_release}, T029). Feature 018 (T032,
+ * FR-022): {@code find_partners} is the eighteenth tool, quoted as announced, with its masking,
+ * the limits of the equality statement, the name collisions of the REST export and its audit
+ * records, and {@code get_inventory_item} documents its {@code partnerUsage}.
  */
 class DevelopmentToolsReferenceTest {
 
@@ -42,7 +45,35 @@ class DevelopmentToolsReferenceTest {
             "| [`restore_backup`](#restore_backup) |", "| [`set_active`](#set_active) |",
             "| [`tag_artifacts`](#tag_artifacts) |", "| [`run_e2e_test`](#run_e2e_test) |",
             "| [`deploy_release`](#deploy_release) |",
-            "All seventeen tools");
+            "All eighteen tools");
+    }
+
+    @Test
+    void findPartnersIsQuotedAsRenderedAndDescribed() throws IOException {
+        String reference = folded(TOOLS);
+
+        assertThat(reference).contains(
+            "[acme] " + Terminology.DEFAULT.render(FindPartnersTool.DESCRIPTION),
+            "| [`find_partners`](#find_partners) |", "## `find_partners`",
+            "../specs/018-partner-management-read/contracts/find_partners.md",
+            "| `find_partners`, the partner usage of `get_inventory_item` (feature 018) |"
+                + " `partner_management` |");
+        // masking, the equality statement and its limits, workflows by name, name collisions
+        assertThat(reference).contains("**`fieldType`** is not `String`",
+            "the same secret stored in different forms",
+            "It is made **on INUBIT 8.1 only**", "\"equality\": \"not verified on 9.0.3\"",
+            "match technical workflows **by name only**",
+            "The REST model export selects a diagram **by name only**");
+        // the carry-overs of the reviews
+        assertThat(reference).contains("**share one `cliExportTimeout`**",
+            "A field **masked on any compared node is not searched**",
+            "`onlyOn` means \"compared alone\", **not \"absent on the other nodes\"**",
+            "**next to the clouds of the system diagrams that were read**",
+            "**An error of a Partner Management export carries no `excerpt`**");
+        // get_inventory_item.partnerUsage
+        assertThat(reference).contains("| `partnerUsage` |", "`partnerManagementNode`",
+            "`3 × timeout + cliExportTimeout`", "**the read goes on and fills the cache**",
+            "The partner usage is **not audited**");
     }
 
     @Test
@@ -85,5 +116,16 @@ class DevelopmentToolsReferenceTest {
             "_E2E_USERNAME", "_E2E_PASSWORD", "~/.inubit-mcp/<profile>/backups", "30 days",
             "development: on (confirmation SERVER)");
         assertThat(setup).doesNotContain("`owners.<name>`", "Owner kinds", "not yet supported");
+    }
+
+    @Test
+    void theSetupDocumentsTheFindPartnersAuditRecordsAndBudget() throws IOException {
+        String setup = folded(SETUP);
+
+        assertThat(setup).contains("`find_partners` (step `EXECUTE`, no `PENDING`) records these"
+                + " cases:", "**one record per targeted or compared node**",
+            "`callId` (shared by all records of one call)",
+            "`details` (`fromCache`, `systemDiagramsRead`, `partnersReturned`, `valuesMasked`)",
+            "\"capability\":\"find_partners\"", "**share this one budget**");
     }
 }

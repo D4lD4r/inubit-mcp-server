@@ -653,14 +653,14 @@ page) is described in [docs/live-tests.md](live-tests.md#startcli-live-check-on-
 
 ### Inventory settings
 
-The inventory tools (`list_inventory`, `get_inventory_item`) use three settings, each
-configurable in `defaults`, per group or per node:
+The inventory tools (`list_inventory`, `get_inventory_item`) and `find_partners` (feature 018)
+use three settings, each configurable in `defaults`, per group or per node:
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `inventory.owner` | none (required for the inventory tools) | the owning Workbench user or user group whose diagrams and modules are listed. It is inserted into StartCLI commands, so it must match `^[A-Za-z0-9_.][A-Za-z0-9_.\- ]{0,199}$` (startup error otherwise). Without an owner for a node, `list_inventory` and `get_inventory_item` return `NOT_CONFIGURED` for that node ("set inventory.owner for <group>/<node> or in defaults"); all other tools work. `--check-config` warns once when no owner is set anywhere while a CLI is configured |
-| `inventory.cacheTtl` | `PT10M` | how long diagram lists, module lists and version histories are cached per node; tools accept `refresh: true` to bypass it |
-| `cliExportTimeout` | `PT120S` | timeout of one StartCLI export, import or tag command (module list about 10–15 s, version history of a diagram group about 5 s on DEV); also the budget of the module usage index (reading the nodes of every technical workflow over REST, about 2–3 s on DEV); separate from `cliTimeout` |
+| `inventory.owner` | none (required for the inventory tools) | the owning Workbench user or user group whose diagrams and modules are listed, and whose system diagrams `find_partners` and the partner usage of `get_inventory_item` read (a call of `find_partners` may name another `owner`). It is inserted into StartCLI commands, so it must match `^[A-Za-z0-9_.][A-Za-z0-9_.\- ]{0,199}$` (startup error otherwise). Without an owner for a node, `list_inventory`, `get_inventory_item` and `find_partners` (without `owner`) return `NOT_CONFIGURED` for that node ("set inventory.owner for <group>/<node> or in defaults"); all other tools work. `--check-config` warns once when no owner is set anywhere while a CLI is configured |
+| `inventory.cacheTtl` | `PT10M` | how long diagram lists, module lists, version histories and the masked Partner Management data of the system diagrams (`find_partners`, partner usage) are cached per node; tools accept `refresh: true` to bypass it |
+| `cliExportTimeout` | `PT120S` | timeout of one StartCLI export, import or tag command (module list about 10–15 s, version history of a diagram group about 5 s on DEV); also the budget of the module usage index (reading the nodes of every technical workflow over REST, about 2–3 s on DEV), and of the Partner Management read (feature 018): the REST exports of one node's system diagrams by `find_partners` and the partner usage of `get_inventory_item` run one after the other and **share this one budget**, so raise it for an owner with many system diagrams; separate from `cliTimeout` |
 
 ```yaml
 defaults:
@@ -765,7 +765,9 @@ executed or failed — is appended to the audit log before the result is returne
 call of the development tools, of `deploy_release` and of `export_archives`
 ([Development settings](#development-settings),
 [Stage chain and deployments](#stage-chain-and-deployments),
-[Workbench archives](#workbench-archives)). Calls whose arguments violate the
+[Workbench archives](#workbench-archives)), and every call of the read tool `find_partners`
+(feature 018), because it reads partner data; if one of its records cannot be written, the call
+returns `INTERNAL` and no partner data. Calls whose arguments violate the
 input schema (group id instead of a node id, malformed process id or code, reason over 500
 chars, unknown property) are rejected by the MCP SDK before the tool runs and are not audited;
 they cannot change anything.
@@ -786,20 +788,40 @@ they cannot change anything.
 - Fields: `auditId`, `timestamp`, `profile` (the profile name), `node`, `group`, `capability`
   (`restart_process`, `kill_process`, the development tools `import_artifacts`,
   `restore_backup`, `set_active`, `tag_artifacts`, `run_e2e_test`, `backup_retention` for the
-  removal of old backups, `deploy_release` and `export_archives`), `step` (`PREVIEW` for the
+  removal of old backups, `deploy_release`, `export_archives` and `find_partners`), `step`
+  (`PREVIEW` for the
   first call of a two-step confirmation, `EXECUTE` otherwise), `inputs` (for restart and kill:
   `processId`, `confirmationCode` / `issuedConfirmationCode` as `sha256:` + 16 hex chars only,
   `reason`; for `export_archives`: `owner`, `diagramGroup`, `targetFolder`, `workflow.<n>`,
-  `file.<n>`, `acknowledgeClearTextSecrets`, `reason`, never file content or secret values),
-  `account` (the INUBIT username), `outcome`, `reason` (refusal or failure code and message, or
-  the result), `mcpClient` (name/version the client sent in `initialize`). Absent values are
-  omitted.
+  `file.<n>`, `acknowledgeClearTextSecrets`, `reason`, never file content or secret values; for
+  `find_partners`: `target`, `compareWith`, `owner`, `search`, `systemDiagram`, `protocol`,
+  `workflow`, each cut to 500 characters, never a partner value, setting or secret),
+  `account` (the INUBIT username; not for `find_partners`), `outcome`, `reason` (refusal or
+  failure code and message, or the result), `mcpClient` (name/version the client sent in
+  `initialize`), and for `find_partners` only `callId` (shared by all records of one call) and
+  `details` (`fromCache`, `systemDiagramsRead`, `partnersReturned`, `valuesMasked`). Absent
+  values are omitted.
 - Outcomes: `CHALLENGE_ISSUED` (preview), `PENDING` (written **before** StartCLI runs; if it
   cannot be written, the action is not executed), then `EXECUTED` or `FAILED` with the same
   `auditId`; `REFUSED` for every refusal; `PACKAGED` for a node of a package-only deployment
   target; `PARTIALLY_COMPLETED` for an `export_archives` call whose writing failed (some or no
   archives written, one failed, the rest not attempted). A confirmed restart therefore leaves
   three records: `CHALLENGE_ISSUED`, `PENDING`, `EXECUTED`.
+- `find_partners` (step `EXECUTE`, no `PENDING`) records these cases:
+  - a refusal before any node is contacted (`INVALID_INPUT`, `TARGET_UNKNOWN`): one record
+    `REFUSED`, `node` the target as requested (cut to 500 characters), `group` only if the
+    target is a valid id, `reason` the code and message;
+  - otherwise **one record per targeted or compared node**, all with the same `callId`:
+    `EXECUTED` for a node that answered (also from the cache; `details` with its counts),
+    `REFUSED` for `NOT_CONFIGURED` or `UNSUPPORTED_VERSION`, `FAILED` for any other error of the
+    node; `reason` is the error code only (`NOT_FOUND` for a node that answered a call ending in
+    an unknown `systemDiagram`). The server also logs one INFO line per node with the same
+    counts and the `callId`.
+
+  ```json
+  {"auditId":"…","callId":"…","timestamp":"2026-10-03T08:15:30.123Z","profile":"acme","node":"qa/node1","group":"qa","capability":"find_partners","step":"EXECUTE","inputs":{"target":"qa","compareWith":"prod","search":"ACME-0001"},"outcome":"EXECUTED","mcpClient":"claude-code/2.1.0","details":{"fromCache":false,"systemDiagramsRead":3,"partnersReturned":1,"valuesMasked":2}}
+  ```
+
 - Secrets are scrubbed from every field; passwords never appear.
 
 ### Artifact workspace
@@ -2140,7 +2162,7 @@ Group dev: archives: allowed
 Group next: archives: allowed
   Node next/node1: read-only, cli: unavailable, client: none, address: base URL, inubit: V9_X, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_NEXT_USERNAME ok, password ← INUBIT_ACME_NEXT_PASSWORD ok
 Group legacy: archives: allowed
-  Node legacy/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process diagnosis, log diagnosis, inventory, workspace export, development writes, deployment, end-to-end test, process control), client: 6.1.0 (4.0.1–6.1.0; options: no trust-store option, no host-name option), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_LEGACY_USERNAME ok, password ← INUBIT_ACME_LEGACY_PASSWORD ok
+  Node legacy/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process diagnosis, log diagnosis, inventory, partner management, workspace export, development writes, deployment, end-to-end test, process control), client: 6.1.0 (4.0.1–6.1.0; options: no trust-store option, no host-name option), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_LEGACY_USERNAME ok, password ← INUBIT_ACME_LEGACY_PASSWORD ok
 client /opt/inubit-8.1/client (Java 17): CLI 8.1.17 (4.0.1–8.1.17)
 client /opt/inubit-6.1/client (Java 8): CLI 6.1.0 (4.0.1–6.1.0)
 Warnings:

@@ -167,7 +167,7 @@ final class SecretPaths {
     }
 
     /** The kind of secret a property holds, or {@code null}. */
-    private static Kind kind(String name, String type, boolean encrypted, String value) {
+    static Kind kind(String name, String type, boolean encrypted, String value) {
         if (type.equals("Password")) {
             return Kind.PASSWORD;
         }
@@ -195,7 +195,7 @@ final class SecretPaths {
      * Key material in a property that is not a secret type (review I3): an
      * {@code InternalDocument} named like a keystore or holding one, or a PEM private key.
      */
-    private static boolean isKeyMaterial(Element property, String type, String value) {
+    static boolean isKeyMaterial(Element property, String type, String value) {
         if (SecretPlaceholder.isPlaceholder(value.strip())) {
             return false;
         }
