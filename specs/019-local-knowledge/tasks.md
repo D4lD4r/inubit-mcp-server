@@ -168,7 +168,7 @@ read and paging match quickstart rows US1 AS1–AS6 and D-9.
   `knowledge/Note.java`, `knowledge/KnowledgeDirectory.java`, `Launcher.java`, tests
   `knowledge/KnowledgeDirectoryTest.java` (links POSIX only; the hidden attribute Windows only),
   `MainTest.java` (`--check-config` count)
-- [ ] T019 [US1] `VersionToken` (`v1.` + 24 characters over mtime and masked text) and
+- [X] T019 [US1] `VersionToken` (`v1.` + 24 characters over mtime and masked text) and
   `NoteRefs` (per-process HMAC key, `r1.` + 20 characters, `resolve` against a listing) — main
   `knowledge/VersionToken.java`, `knowledge/NoteRefs.java`, tests `knowledge/VersionTokenTest.java`,
   `knowledge/NoteRefsTest.java` (stable within a process, different across keys, no name in it)
