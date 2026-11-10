@@ -281,7 +281,7 @@ field or line, never the value.
 the one further form the recordings show; (d) follows the spec's grammar literally, including the
 XML forms INUBIT exports use (`<Property name="…Password">`).
 
-## D-7 Configured credentials (FR-010 (a)) — **needs the person's confirmation**
+## D-7 Configured credentials (FR-010 (a)) — option (A), confirmed by the person on 2026-11-10
 
 **Problem**: rule (a) needs the profile's configured credential values, but since feature 011
 (research R-10) no credential is read at start; every node reads its credentials on first use from
@@ -331,7 +331,7 @@ either — a breach of Principle II and SC-002.
 - The masking of hits and pages, the version-token hash, the write check and the masking of names
   in audit, logs and errors all use the same `SecretFinder` with (a) included.
 
-**Consequences (to confirm)**:
+**Consequences (accepted by the person with option (A))**:
 
 1. The first knowledge call of a session reads the credentials of **every** node of the profile,
    so the access dialogs of nodes the session never contacts may appear. With knowledge notes
@@ -341,15 +341,15 @@ either — a breach of Principle II and SC-002.
    unreachable — e.g. offline without VPN), the knowledge tools refuse to work for that profile.
    A profile whose nodes have nothing configured (`NOT_FOUND`) is not affected.
 
-**Alternatives** (for the person's choice):
+**Alternatives** (rejected by the person on 2026-11-10):
 
-- (A, chosen) fail closed as above.
+- (A, chosen; confirmed by the person on 2026-11-10, T016) fail closed as above.
 - (B) mask only the credentials already held and say so in each result (`credentialsChecked:
   partial`). Never blocks, never shows dialogs early, but a hand-written note can show a password
   that the session has not read yet: violates FR-010 (a) and SC-002 as written.
 - (C) as (A), but never read at start: the instructions of a profile with nodes would then never
   list notes (the list is withheld until a tool call), which weakens FR-006 for nearly every
-  profile. A one-line change in `Launcher` if the person prefers it.
+  profile.
 
 ## D-8 Core instructions (FR-005 … FR-007, FR-017)
 

@@ -22,11 +22,9 @@ configured password and every FR-010 kind placed in a note's name, title, topics
 **Reviews**: after each phase a `code-review` reviewer checks the phase diff; findings and
 decisions go to `specs/019-local-knowledge/reviews/implementation.md` ("Implementation — phase N").
 
-**Decision gate (D-7)**: the gate task T016 (between Phases 3 and 4) needs the person's choice of
-option (A), (B) or (C) in plan.md "Decision needed". Tasks marked **[D-7]** implement option (A)
-directly; option (B) also changes the readiness port, the result contracts and the
-announcement, so Phases 4 to 8 start only after the gate. Phases 1 to 3 do not depend on the
-choice.
+**Decision gate (D-7)**: passed. The gate task T016 (between Phases 3 and 4) recorded the
+person's choice on 2026-11-10: option (A), fail closed (plan.md "Decision"). Tasks marked
+**[D-7]** implement that option as written.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -116,19 +114,10 @@ prints the line without reading a credential.
 
 ## Decision gate (D-7; after Phase 3, before Phase 4)
 
-- [ ] T016 The person confirms the D-7 option (plan.md "Decision needed"). For every option, one
-  commit before any task of Phase 4 records the answer in spec.md "Plan decisions", plan.md
-  ("Decision needed" no longer pending; Constitution Check) and research D-7, and reconciles every
-  artifact the option changes, with a review round (`reviews/tasks-d7.md`):
-  (A): nothing beyond that; the [D-7] tasks as written.
-  (C): FR-006 wording in the spec as the person agrees; configuration-delta.md (no start-time
-  wait or INFO line), data-model.md (`START_PREPARE` removed), quickstart (offline rows and live
-  check step 3), T024 (no start-time `prepare`; the instructions show the count and the
-  credentials-not-ready text whenever nodes are configured), T037/T038 and T041.
-  (B): SC-002 narrowed in the spec by the person; data-model, contracts (`credentialsChecked:
-  partial` in both output schemas, no readiness refusal, no start-time wait), quickstart and the
-  affected tasks (T013 to T015, T020 to T022, T024, T030, T031, T036 to T038, T041).
-  The answer gates Phases 4 to 8.
+- [X] T016 The person chose D-7 option (A), fail closed, on 2026-11-10. Recorded in spec.md
+  "Plan decisions", plan.md ("Decision", Constitution Check, Complexity Tracking) and research
+  D-7, reviewed in `reviews/tasks-d7.md`; no other artifact changes for (A), the [D-7] tasks stay
+  as written. Phases 4 to 8 may start.
 
 ## Phase 4: Secrets (plan stage 3; FR-010, FR-008a, FR-013)
 
@@ -330,6 +319,6 @@ alongside T028; T034/T035; T037 (docs) and T038 (CHANGELOG) touch different file
 
 ## Implementation strategy
 
-Phases 1 to 3 (foundation and configuration) can be done before the person decided D-7. MVP =
-Phases 4 and 5 after the gate: reading and the instructions with the real readiness. Then
+Phases 1 to 3 (foundation and configuration), then the passed gate T016. MVP = Phases 4 and
+5: reading and the instructions with the real readiness. Then
 recording (Phase 6), bounds and leak proof (Phase 7), docs. Each phase ends green and reviewed.

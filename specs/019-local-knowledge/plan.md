@@ -24,7 +24,7 @@ contact:
   (D-6);
 - **configured credentials** must be known before a note is shown: the knowledge tools read the
   profile's credentials first and refuse while a store does not answer (fail closed, D-7 —
-  **pending the person's confirmation**, see "Decision needed");
+  option (A), confirmed by the person on 2026-11-10, see "Decision");
 - **instructions** announce the knowledge for every profile with the propose-then-record rule and
   a bounded, quoted, masked note list (D-8);
 - **`read_knowledge`** lists/searches (masked text, newest first, paged, excerpts, version
@@ -35,19 +35,18 @@ contact:
   never replaces a file), no writes through links on any internal path, and an audit record per
   call (D-10 … D-13).
 
-## Decision needed (person)
+## Decision (person, D-7) — option (A), confirmed by the person on 2026-11-10
 
 FR-010 (a) asks to mask the profile's configured credentials in notes. Since 011 (R-10) the server
 reads no credential at start, so they are unknown until a node is first used. The plan **fails
 closed** (D-7): the first knowledge call reads all of the profile's credentials (with possible
 access dialogs for every node) and refuses while a store does not answer (e.g. AWS Parameter Store
-offline); at server start the reads run for up to 5 s only when notes exist. Alternatives: (B)
-mask only credentials already read (never blocks, breaks SC-002 for unread ones), (C) as chosen
-but never read at start (the note list then never appears in the instructions of a profile with
-nodes). Recorded in the spec's "Plan decisions" as pending confirmation. **Gate**: tasks.md puts an
-explicit decision task (T016) after the configuration phase: option (B) changes the readiness
-port, both output contracts and the announcement, so the secrets, read and record phases start
-only after the person's answer. Foundation and configuration do not depend on it.
+offline); at server start the reads run for up to 5 s only when notes exist. Rejected
+alternatives: (B) mask only credentials already read (never blocks, breaks SC-002 for unread
+ones), (C) as (A) but never read at start (the note list then never appears in the instructions
+of a profile with nodes). The person chose (A) on 2026-11-10; recorded in the spec's "Plan
+decisions" and research D-7. **Gate**: the decision task T016 in tasks.md (after the
+configuration phase) is passed; the secrets, read and record phases may start.
 
 ## Validation status
 
@@ -109,7 +108,7 @@ walk limits (depth 16, 100,000 entries), the read bound (4 MiB per note) and the
 | V. Adapter Isolation & Version Compatibility | ✅ | ✅ no INUBIT access; file work in `application/knowledge` through `java.nio` and the `PrivateFileSystem` port (as `BackupStore`); credentials through the new `ConfiguredSecrets` port; `KeyMaterial` moved to `domain` so the archive adapter and the knowledge share one rule. |
 | VI. Bounded, Structured Output | ✅ | ✅ instructions list ≤ 4,000 characters, search ≤ 50 hits with 300-character excerpts, pages ≤ 20,000 characters with marker and offset, warnings capped at 20; schemas for both tools. |
 | VII. Observability & Auditability | ✅ | ✅ every recording call audited (PENDING → final, REFUSED); reads logged at DEBUG with names and counts only; `--check-config` line. |
-| Tech constraints (011 R-10: no credential at start) | — | ⚠️ changed for profiles with notes (D-7) → Complexity Tracking, pending confirmation. |
+| Tech constraints (011 R-10: no credential at start) | — | ⚠️ changed for profiles with notes (D-7) → Complexity Tracking, confirmed by the person on 2026-11-10 (option A). |
 
 ## Project Structure
 
@@ -221,7 +220,7 @@ Each stage ends with a code review of its diff, the findings fixed, and a green 
 
 | Violation | Why needed | Simpler alternative rejected because |
 |---|---|---|
-| 011 R-10 ("no credential is resolved at startup") no longer holds for profiles with notes; every knowledge call needs all of the profile's credentials (D-7) — **pending the person's confirmation** | FR-010 (a) and SC-002 require masking configured credentials in hand-written notes; values never read are unknown to the process | (B) masking only held credentials leaves unread passwords visible; (C) never reading at start keeps 011 intact but withholds the note list from the instructions of nearly every profile (FR-006). Both are offered to the person; (C) is a small change. |
+| 011 R-10 ("no credential is resolved at startup") no longer holds for profiles with notes; every knowledge call needs all of the profile's credentials (D-7) — option (A), confirmed by the person on 2026-11-10 | FR-010 (a) and SC-002 require masking configured credentials in hand-written notes; values never read are unknown to the process | (B) masking only held credentials leaves unread passwords visible; (C) never reading at start keeps 011 intact but withholds the note list from the instructions of nearly every profile (FR-006). Both were rejected by the person (2026-11-10). |
 | A second home of the key-material rule is avoided by moving `KeyMaterial` from `adapter/archive/v81` to `domain/model` | FR-010 (b) requires "the existing rule"; `application` must not use an adapter | A copy would drift; the move is behaviour-neutral and covered by the existing archive tests. |
 | FR-020 is read as "the record before the write": a failed final audit after the note was published leaves the `PENDING` record and a warning (D-13) | The note cannot be un-published atomically after the fact; `export_archives` (015) set the same precedent | Undoing the write after a final audit failure could itself fail and lose the operator's text; refusing to write without both records is impossible to guarantee. |
 | First `application` sub-package | about 15 cohesive types; the flat package already holds 54 files | Flat placement would mix the knowledge with INUBIT use cases; the boundary rules apply by prefix and need no change. |

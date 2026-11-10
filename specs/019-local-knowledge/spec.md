@@ -478,7 +478,7 @@ warning, searched and readable.
 ### Plan decisions (2026-11-10)
 
 Details in [research.md](research.md); these refine the requirements without changing them,
-except the first, which is **pending the person's confirmation**.
+the first was confirmed by the person on 2026-11-10 (option (A) of research D-7, T016).
 
 - FR-010 (a): configured credentials are only known after they were read. Before a note is shown,
   searched or written, the profile's credentials are read (all nodes, in parallel); while a store
