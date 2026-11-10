@@ -154,7 +154,7 @@ prints the line without reading a credential.
 **Independent test**: a directory with synthetic notes, a fake readiness: instructions, search,
 read and paging match quickstart rows US1 AS1–AS6 and D-9.
 
-- [ ] T017 [P] [US1] `NoteMetadata` parser/writer (D-5): front matter within 64 lines / 8 KiB,
+- [X] T017 [P] [US1] `NoteMetadata` parser/writer (D-5): front matter within 64 lines / 8 KiB,
   plain/double/single-quoted values and flow lists, malformed cases (FR-004d), unknown keys kept
   in order; writer single-quotes every string and refuses a block over the bounds; round-trip tests
   with quotes, backslashes, `#`, `:`, `---`; 63/64/65 lines and 8 KiB ± 1 — main
