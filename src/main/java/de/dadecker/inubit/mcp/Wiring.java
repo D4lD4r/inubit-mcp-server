@@ -659,7 +659,12 @@ final class Wiring implements AutoCloseable {
      * {@link KnowledgeLimits#START_PREPARE}; without notes nothing is read.
      */
     KnowledgeAnnouncement.State knowledgeOverview() {
-        return knowledge.overview(KnowledgeLimits.START_PREPARE);
+        return knowledgeOverview(KnowledgeLimits.START_PREPARE);
+    }
+
+    /** As above, waiting at most {@code bound} for the credentials (tests use a short one). */
+    KnowledgeAnnouncement.State knowledgeOverview(Duration bound) {
+        return knowledge.overview(bound);
     }
 
     GatewayFactory gateways() {

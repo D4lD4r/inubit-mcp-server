@@ -19,7 +19,9 @@ import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
 import de.dadecker.inubit.mcp.application.ReleaseSource;
 import de.dadecker.inubit.mcp.application.UpdateCache;
 import de.dadecker.inubit.mcp.application.UpdateCheck;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeAnnouncement;
 import de.dadecker.inubit.mcp.application.knowledge.KnowledgeDirectory;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeLimits;
 import de.dadecker.inubit.mcp.config.CheckedClient;
 import de.dadecker.inubit.mcp.config.CliClient;
 import de.dadecker.inubit.mcp.config.ConfigException;
@@ -72,6 +74,7 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -550,7 +553,8 @@ final class Launcher {
                 notice = new UpdateNotice(wiring.updateStatus()::current, cache, dialogs);
             }
             McpServerFactory factory = wiring.serverFactory(BuildInfo.version(),
-                toolHandlers.apply(wiring), notice);
+                toolHandlers.apply(wiring), notice,
+                knowledgeAtStart(wiring, KnowledgeLimits.START_PREPARE));
             try (McpServerFactory.RunningServer server = factory.start(context.in(),
                 context.out()); UpdateCheck closing = check) {
                 LOG.info("INUBIT MCP server {} started for profile {} with {} node(s)",
@@ -655,5 +659,19 @@ final class Launcher {
             throw new UsageException("--config and --profile cannot be combined");
         }
         return new Arguments(config, profile, checkConfig, version);
+    }
+
+    /**
+     * The knowledge state for the instructions (feature 019, research D-7, D-8): with notes, waits
+     * at most {@code bound} for the profile's credentials and, when they are not read by then,
+     * logs the pending nodes at INFO; the reads continue in the background.
+     */
+    static KnowledgeAnnouncement.State knowledgeAtStart(Wiring wiring, Duration bound) {
+        KnowledgeAnnouncement.State state = wiring.knowledgeOverview(bound);
+        if (state instanceof KnowledgeAnnouncement.NotReady notReady) {
+            LOG.info("Knowledge note list withheld from the instructions: credentials of {} not"
+                + " read yet", String.join(", ", notReady.nodes()));
+        }
+        return state;
     }
 }

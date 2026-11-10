@@ -197,7 +197,7 @@ read and paging match quickstart rows US1 AS1–AS6 and D-9.
   knowledge paragraph in `McpServerFactory.instructions()` before the update notice (016); tool
   count 18 — main `Wiring.java`, `mcp/McpServerFactory.java`, tests `ServerIdentityTest.java`,
   `ToolAnnouncementTest.java`
-- [ ] T024 [D-7] [US1] Start-time `prepare` in `Launcher` (only when notes exist, ≤ 5 s; otherwise
+- [X] T024 [D-7] [US1] Start-time `prepare` in `Launcher` (only when notes exist, ≤ 5 s; otherwise
   the announcement's credentials-not-ready text; the INFO line of configuration-delta.md when not
   ready, asserted through a `ListAppender`; leak check) — main `Launcher.java`, tests `MainTest.java`,
   `KnowledgeToolsWiringTest.java`

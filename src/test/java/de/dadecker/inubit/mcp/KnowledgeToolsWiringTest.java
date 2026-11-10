@@ -2,28 +2,41 @@ package de.dadecker.inubit.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeAnnouncement;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
+import de.dadecker.inubit.mcp.mcp.UpdateNotice;
 import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
 
 /**
  * 019-T023: the production wiring of the local knowledge (research D-7, D-8, D-15):
  * {@code read_knowledge} always offered, the profile's credentials as the masking source, and the
- * knowledge paragraph in the instructions of the server the wiring builds.
+ * knowledge paragraph in the instructions of the server the wiring builds; 019-T024: the
+ * start-time wait for the credentials and its log line.
  */
 @Timeout(60)
 class KnowledgeToolsWiringTest {
@@ -121,6 +134,68 @@ class KnowledgeToolsWiringTest {
 
             assertThat(instructions).contains("The local knowledge of this profile is empty.");
             assertThat(store.reads()).isEmpty();
+        }
+    }
+
+    @Test
+    void credentialsNotReadInTimeWithholdTheListAndLogTheNodesAtInfo() throws Exception {
+        // 019-T024 (D-7, configuration-delta.md): the bound runs out, the reads continue
+        note("partners/acme.md", "---\ntitle: " + PASSWORD + "\n---\nlogin with " + PASSWORD);
+        FakeCredentialStore store = store().delay("INUBIT_ACME_DEV_PASSWORD",
+            Duration.ofSeconds(30));
+        SecretScrubber scrubber = new SecretScrubber();
+        try (Wiring wiring = wiring(config(true), store, scrubber)) {
+            List<String> log = new ArrayList<>();
+            KnowledgeAnnouncement.State state = launcherLog(log,
+                () -> Launcher.knowledgeAtStart(wiring, Duration.ofMillis(200)));
+            try (McpTestClient client = McpTestClient.start(wiring.serverFactory("0.0.0-test",
+                wiring.toolHandlers(), UpdateNotice.NONE, state))) {
+                String instructions = client.initialize().path("instructions").asString();
+
+                assertThat(state).isInstanceOf(KnowledgeAnnouncement.NotReady.class);
+                assertThat(log).containsExactly("Knowledge note list withheld from the"
+                    + " instructions: credentials of "
+                    + String.join(", ", ((KnowledgeAnnouncement.NotReady) state).nodes())
+                    + " not read yet");
+                assertThat(log.getFirst()).contains("dev/node1").doesNotContain(PASSWORD,
+                    "partners/acme");
+                assertThat(instructions).contains("1 note").doesNotContain("partners/acme",
+                    "Notes (newest first):");
+                assertThat(client.rawOutput()).doesNotContain(PASSWORD);
+            }
+        }
+    }
+
+    @Test
+    void credentialsReadInTimeListTheNotesAndLogNothing() throws Exception {
+        note("a.md", "x");
+        try (Wiring wiring = wiring(config(true), store(), new SecretScrubber())) {
+            List<String> log = new ArrayList<>();
+            KnowledgeAnnouncement.State state = launcherLog(log,
+                () -> Launcher.knowledgeAtStart(wiring, Duration.ofSeconds(5)));
+
+            assertThat(state).isInstanceOf(KnowledgeAnnouncement.Listed.class);
+            assertThat(log).isEmpty();
+        }
+    }
+
+    /** Runs {@code action}, collecting the {@link Launcher} log's messages into {@code log}. */
+    private static <T> T launcherLog(List<String> log, Supplier<T> action) {
+        LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
+        Logger logger = context.getLogger(Launcher.class);
+        Level level = logger.getLevel();
+        logger.setLevel(Level.INFO);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.setContext(context);
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            return action.get();
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+            logger.setLevel(level);
+            appender.list.stream().map(ILoggingEvent::getFormattedMessage).forEach(log::add);
         }
     }
 }

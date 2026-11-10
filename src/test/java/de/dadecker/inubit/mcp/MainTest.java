@@ -2026,6 +2026,31 @@ class MainTest {
     }
 
     @Test
+    void theStartWaitsForTheCredentialsAndListsTheNotesWithoutTheirSecrets(@TempDir Path outside)
+        throws Exception {
+        // feature 019 T024 (D-7, D-8): with notes, serve prepares the credentials before the
+        // instructions; in time, the list is shown masked and no "withheld" line is logged
+        credentials();
+        Path knowledge = Files.createDirectories(outside.resolve("knowledge/partners"));
+        Files.writeString(knowledge.resolve("acme.md"),
+            "---\ntitle: Login " + PASSWORD + "\n---\nuse " + PASSWORD);
+        Path file = config(Files.readString(validConfig()) + "knowledge:\n  directory: "
+            + outside.resolve("knowledge") + "\n");
+
+        List<String> log = logOf(Launcher.class, () -> serve(file, session -> {
+            String instructions = session.initialize.path("result").path("instructions")
+                .asString();
+            assertThat(instructions).contains("Notes (newest first):",
+                "\n- \"partners/acme\" — \"Login ***\"");
+            assertThat(session.protocol.rawText()).doesNotContain(PASSWORD);
+        }));
+
+        assertThat(credentialStore.get().reads()).isNotEmpty();
+        assertThat(log).noneMatch(line -> line.contains("withheld"))
+            .noneMatch(line -> line.contains(PASSWORD));
+    }
+
+    @Test
     void aNewerReleaseShowsInTheFirstResultInGetHealthInTheLogAndInTheCache() throws Exception {
         // feature 016 T010 (FR-001, FR-005 to FR-007, FR-017): the check runs after the start
         credentials();
@@ -2075,7 +2100,7 @@ class MainTest {
 
         serve(validConfig(), session -> {
             assertThat(session.initialize.path("result").path("instructions").asString())
-                .endsWith(" A newer inubit-mcp-server 99.0.0 is available (installed "
+                .endsWith("\n\nA newer inubit-mcp-server 99.0.0 is available (installed "
                     + BuildInfo.version() + "): https://github.com/D4lD4r/inubit-mcp-server/"
                     + "releases/tag/v99.0.0; update manually.");
             assertThat(session.call(2, "list_nodes", "{}").path("result").path("content"))
