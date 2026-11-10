@@ -70,6 +70,12 @@ public final class CliOutputClassifier {
     /** Feature 017 (research D-16, FR-013): StartCLI cannot log in through OAuth. */
     private static final String INTERNAL_USERS = ". On INUBIT 9 the user must exist in the"
         + " internal user management; users that log in only through OAuth cannot use StartCLI";
+    /**
+     * The 9.0 client's wording of a failed TLS connection; 8.1 prints {@code Login to the server
+     * failed.} instead (T047 live check, finding F-2).
+     */
+    private static final String NINE_SECURE_CONNECTION =
+        "Could not establish a secure connection to the process engine.";
     private static final Pattern TLS_FAILURE = Pattern.compile(
         "SSLHandshakeException|SSLException|CertificateException|PKIX path|"
             + "No subject alternative");
@@ -248,7 +254,8 @@ public final class CliOutputClassifier {
             return Optional.of(authFailed("The user does not exist or password does not match.",
                 nine));
         }
-        if (all.contains("Login to the server failed.") && TLS_FAILURE.matcher(all).find()) {
+        if ((all.contains("Login to the server failed.") || all.contains(NINE_SECURE_CONNECTION))
+            && TLS_FAILURE.matcher(all).find()) {
             return Optional.of(tlsError());
         }
         if (all.contains("Login to the server failed.") && NETWORK_FAILURE.matcher(all).find()) {
