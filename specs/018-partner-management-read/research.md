@@ -212,7 +212,9 @@ use ACME, `*.example.test` and `Workflow-0001`.
   values cut at `ItemBounds.MAX_FIELD_CHARS` (200) with `…[truncated]`; the whole result through
   `ResultLimiter` (`resultLimits.maxChars`), cutting detail before entries: first additional
   parameters, then settings to the summary keys, then entries, reporting
-  `truncated`. Search term: 1–200 code points, `Character.isISOControl` refused. Names validated
+  `truncated`. Implementation (T024): `PartnerBounds` with the limiter's `maxChars`/`maxItems`
+  instead of `ResultLimiter.page`, which refuses items over `MAX_ITEM_CHARS` (a full partner can be
+  larger). Search term: 1–200 code points, `Character.isISOControl` refused. Names validated
   with the existing diagram name rule.
 - **Rationale**: matches the existing paging helpers and bounds; 20 detailed partners fit the
   default 50,000 characters on the fixture (checked in the quickstart).

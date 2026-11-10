@@ -123,4 +123,9 @@ Server level (in `servers[].error`, others answered): `NOT_CONFIGURED` (no owner
   the audit (SC-002); `sameOn` is the only statement about stored secrets.
 - Order: system diagram group, name, communication cloud, then partner `Id`, then `Name` (list);
   entries in export order.
-- Size: within `resultLimits.maxChars`; `truncated: true` when cut.
+- Size: within `resultLimits.maxChars`; `truncated: true` when cut. The per-server lists `systemDiagramsRead`,
+  `withoutPartnerManagement` and `unreadableDiagrams` are cut to fit too (diagrams with a partner on
+  the page first; unreadable diagrams before the others), and each cloud's `workflows` in
+  `referencableWorkflows` likewise; the version gate's warnings are always kept. Only if the parts that are never cut (version gate warnings,
+  server errors, at most five similar values, the fields of the first partner of the page) alone
+  exceed the bound, the result does too, always with `truncated: true`.

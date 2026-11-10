@@ -117,7 +117,7 @@ final class InventoryBounds {
     }
 
     /** The longest prefix of {@code list} whose own serialized size is at most {@code max}. */
-    private static <T> List<T> prefixWithin(List<T> list, int max, ToIntFunction<Object> sizeOf) {
+    static <T> List<T> prefixWithin(List<T> list, int max, ToIntFunction<Object> sizeOf) {
         if (sizeOf.applyAsInt(list) <= max) {
             return list;
         }

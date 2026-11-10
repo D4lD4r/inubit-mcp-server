@@ -435,11 +435,13 @@ class PartnerServiceListTest {
 
     private Found find(PartnerQuery query) {
         return new PartnerService(new Gateways(), new TargetResolver(List.of(NODE1)),
-            new FanOut(), new InventoryCache(new MutableClock(T0), node -> Duration.ofMinutes(10)),
+            new FanOut(), ResultLimiter.withDefaults(),
+            new InventoryCache(new MutableClock(T0), node -> Duration.ofMinutes(10)),
             node -> Optional.of(OWNER), node -> Duration.ofSeconds(5),
-            node -> Duration.ofSeconds(120), Terminology.DEFAULT, FakeVersionDetection.pinned81(),
-            SecretTiming.NONE, new PartnerAudit.Dependencies(audit::add, Clock.systemUTC(),
-                "default", UUID::randomUUID))
+            node -> Duration.ofSeconds(120), ResultJson::size, Terminology.DEFAULT,
+            FakeVersionDetection.pinned81(), SecretTiming.NONE,
+            new PartnerAudit.Dependencies(audit::add, Clock.systemUTC(), "default",
+                UUID::randomUUID))
             .find(query);
     }
 

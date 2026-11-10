@@ -245,6 +245,10 @@ operator can reach the same data with story 2's workflow filter.
 
 ### Edge Cases
 
+- **More system diagrams than fit the result size bound**: an owner with hundreds of system
+  diagrams. The lists of system diagrams read, without Partner Management and unreadable are
+  cut to fit the bound (those that contribute a partner on the page first) and the result reports
+  `truncated: true`; FR-007 names every system diagram read within that bound (FR-017).
 - **No system diagram, or no Partner Management in it**: the owner has no system diagram, or a
   system diagram without `PartnerManagementSettings` or with an empty `Partners` list. Result:
   empty, stating which system diagrams were read; not an error.

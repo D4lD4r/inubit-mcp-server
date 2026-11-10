@@ -264,7 +264,7 @@ a lower-case name part; check every value and the leak check over result, log, a
   attribute (`SFTP` matches nothing), `workflow` by resolved name (unresolved never matches),
   entry filters show only matching entries (FR-005a, single server) — main
   `application/PartnerService.java`, test `application/PartnerServiceListTest.java` (US2-AS1…4)
-- [ ] T024 [US2] Paging and bounds (FR-017): `ResultLimiter`/`Page`, `limit` 1–100 default 20, texts
+- [X] T024 [US2] Paging and bounds (FR-017): `ResultLimiter`/`Page`, `limit` 1–100 default 20, texts
   cut at `ItemBounds.MAX_FIELD_CHARS` with `…[truncated]`, detail cut before entries (first
   additional parameters, then settings to the summary keys, then entries), `truncated` reported;
   SC-004 test with 1,000 partners (every page ≤ `resultLimits.maxChars`) — main

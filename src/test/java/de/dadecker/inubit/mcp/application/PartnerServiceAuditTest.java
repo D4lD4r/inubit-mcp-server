@@ -33,6 +33,7 @@ import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.infra.AuditLog;
+import de.dadecker.inubit.mcp.infra.ResultJson;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
@@ -331,9 +332,10 @@ class PartnerServiceAuditTest {
                 return id;
             });
         return new PartnerService(new Gateways(), new TargetResolver(List.of(NODE1, NODE2)),
-            new FanOut(), cache, owners::get, node -> Duration.ofSeconds(5),
-            node -> Duration.ofSeconds(120), Terminology.DEFAULT, FakeVersionDetection.pinned81(),
-            SecretTiming.NONE, dependencies);
+            new FanOut(), ResultLimiter.withDefaults(), cache, owners::get,
+            node -> Duration.ofSeconds(5), node -> Duration.ofSeconds(120), ResultJson::size,
+            Terminology.DEFAULT, FakeVersionDetection.pinned81(), SecretTiming.NONE,
+            dependencies);
     }
 
     /** Records every appended record; fails every append while {@code failing} or for a node. */

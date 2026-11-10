@@ -116,11 +116,13 @@ public final class FindPartnersTool implements ToolHandler {
     }
 
     /**
-     * The single-server shape of the contract: the page of the service with {@code total} and
-     * {@code nextOffset}. Until the size bound (T024) nothing is cut, so {@code truncated} is
-     * false.
+     * The single-server shape of the contract: the page of the service with {@code total},
+     * {@code nextOffset} and {@code truncated}, within {@code resultLimits.maxChars} (the service
+     * leaves room for the fields added here).
      *
-     * @param mode {@code search} with a search term, else {@code list}
+     * @param mode  {@code search} with a search term, else {@code list}
+     * @param limit the page size applied: the requested {@code limit}, at most
+     *              {@code resultLimits.maxItems} (as {@code Page.limit} of the other tools)
      */
     record Result(UUID callId, String mode, boolean compared, List<ServerView> servers,
         List<CloudWorkflows> referencableWorkflows, List<PartnerView> partners,
@@ -130,8 +132,8 @@ public final class FindPartnersTool implements ToolHandler {
         static Result of(Found found, PartnerQuery query) {
             return new Result(found.callId(), query.search().isPresent() ? "search" : "list",
                 false, found.servers(), found.referencableWorkflows(), found.partners(),
-                found.similarValues(), found.total(), query.offset(), query.limit(),
-                found.nextOffset(), false);
+                found.similarValues(), found.total(), query.offset(), found.limit(),
+                found.nextOffset(), found.truncated());
         }
     }
 }

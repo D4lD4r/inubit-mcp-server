@@ -33,6 +33,7 @@ import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort.UnreadableDiagram;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.infra.ResultJson;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.time.Clock;
@@ -537,9 +538,9 @@ class PartnerServiceReadTest {
 
     private PartnerService service(VersionGate gate, InventoryCache cache) {
         return new PartnerService(new Gateways(), new TargetResolver(List.of(NODE1, NODE2)),
-            new FanOut(), cache, this::owner, node -> Duration.ofSeconds(5),
-            node -> Duration.ofSeconds(120), Terminology.DEFAULT, gate, SecretTiming.NONE,
-            NO_AUDIT);
+            new FanOut(), ResultLimiter.withDefaults(), cache, this::owner,
+            node -> Duration.ofSeconds(5), node -> Duration.ofSeconds(120), ResultJson::size,
+            Terminology.DEFAULT, gate, SecretTiming.NONE, NO_AUDIT);
     }
 
     private PartnerManagementPort.Result portRead(NodeId node, String owner,

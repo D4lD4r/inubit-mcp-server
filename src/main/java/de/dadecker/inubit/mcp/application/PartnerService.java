@@ -40,6 +40,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.function.ToIntFunction;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -93,9 +94,15 @@ import org.slf4j.LoggerFactory;
  *       (case-insensitive; a masked or missing value last; ties in export order). A search keeps
  *       the export order (contracts/find_partners.md, "Guarantees").
  *   <li>Paging (FR-017, phase 3 review): the matches of all servers in server order, then in the
- *       order above; {@code offset} and {@code limit} select the partners returned, with the
- *       number of matches as {@code total} and {@code nextOffset} while more follow. The size
- *       bound ({@code resultLimits}) follows in T024.
+ *       order above; {@code offset} and {@code limit} (at most {@code resultLimits.maxItems})
+ *       select the partners returned, with the number of matches as {@code total} and
+ *       {@code nextOffset} while more follow.
+ *   <li>Size (T024, FR-017, SC-004): the whole result stays within
+ *       {@code resultLimits.maxChars}; texts are cut, and detail before the partners of the page
+ *       ({@link PartnerBounds}). {@code truncated} reports any cut, also a page shorter than
+ *       {@code limit} although more matches follow; {@code nextOffset} then points at the first
+ *       partner left out. Search and filters always match the full values. A result that is
+ *       still over its bound (only parts that are never cut) is reported {@code truncated}.
  *   <li>Similar values (T020, FR-005b, FR-011, FR-019): a search without hits on a call where
  *       at least one server answered lists up to five similar shown {@code Id} and {@code Name}
  *       values ({@link SimilarNames}), never a masked one; a {@code systemDiagram} that no
@@ -104,7 +111,8 @@ import org.slf4j.LoggerFactory;
  *   <li>Audit and log (T021, FR-020, FR-021, research D-8): one {@link PartnerAudit} per call
  *       with one call id; one record and one INFO line per targeted server, also for cache hits;
  *       an audit record that cannot be written ends the call in {@code INTERNAL} without data.
- *       {@code valuesMasked} counts the masked values the returned page shows (fields and the
+ *       {@code partnersReturned} and {@code valuesMasked} count what the result finally holds,
+ *       after the size bound: {@code valuesMasked} the masked values shown (fields and the
  *       settings of the entries shown), not the partners' {@code maskedCount}.
  * </ul>
  */
@@ -117,6 +125,12 @@ public final class PartnerService {
     /** Error codes audited as {@code REFUSED} (research D-8); every other error is FAILED. */
     private static final Set<ErrorCode> REFUSALS =
         EnumSet.of(ErrorCode.NOT_CONFIGURED, ErrorCode.UNSUPPORTED_VERSION);
+    /**
+     * Room for the fields the tool adds to {@link Found} ({@code mode}, {@code compared},
+     * {@code offset}: at most 53 chars as JSON), so the tool result stays within
+     * {@code resultLimits.maxChars}.
+     */
+    static final int TOOL_FIELDS_CHARS = 64;
     /** Upper bound of similar values and similar system diagram names (FR-005b, FR-019). */
     static final int MAX_SIMILAR = 5;
     /** The partner fields similar values are taken from (FR-005b). */
@@ -149,10 +163,12 @@ public final class PartnerService {
      * @param warnings           the version gate's warnings, then the reader's warnings of the
      *                           requested diagrams in list order (the same whether the owner's
      *                           entry or the diagram's own entry answers)
+     * @param gateWarnings       how many of the first {@code warnings} are the version gate's
+     *                           (FR-016: never cut by the size bound)
      */
     record ServerRead(String owner, List<DiagramRef> systemDiagrams, Instant collectedAt,
         boolean fromCache, List<SystemDiagramPartners> diagrams,
-        List<UnreadableDiagram> unreadableDiagrams, List<String> warnings) {
+        List<UnreadableDiagram> unreadableDiagrams, List<String> warnings, int gateWarnings) {
 
         ServerRead {
             Objects.requireNonNull(owner, "owner");
@@ -178,11 +194,16 @@ public final class PartnerService {
      *                              {@code Name} values of the system diagrams read, closest first
      *                              (FR-005b)
      * @param total                 the number of matching partners on all servers
+     * @param limit                 the page size applied: {@code limit}, at most
+     *                              {@code resultLimits.maxItems}
      * @param nextOffset            the offset of the next page, if more matches follow
+     * @param truncated             whether a text, a part of a partner or a partner of the page
+     *                              was cut to keep the result within its size bound (FR-017)
      */
     public record Found(UUID callId, List<ServerView> servers,
         List<CloudWorkflows> referencableWorkflows, List<PartnerView> partners,
-        Optional<List<String>> similarValues, int total, OptionalInt nextOffset) {
+        Optional<List<String>> similarValues, int total, int limit, OptionalInt nextOffset,
+        boolean truncated) {
 
         public Found {
             Objects.requireNonNull(callId, "callId");
@@ -299,10 +320,12 @@ public final class PartnerService {
     private final GatewayFactory gateways;
     private final TargetResolver targets;
     private final FanOut fanOut;
+    private final ResultLimiter limiter;
     private final InventoryCache cache;
     private final Function<NodeId, Optional<String>> owners;
     private final Function<NodeId, Duration> timeouts;
     private final Function<NodeId, Duration> exportTimeouts;
+    private final ToIntFunction<Object> sizeOf;
     private final Terminology terms;
     private final VersionGate gate;
     private final SecretTiming secretTiming;
@@ -312,25 +335,29 @@ public final class PartnerService {
      * @param owners         the effective {@code inventory.owner} of each node; empty if none is
      *                       configured
      * @param timeouts       the REST timeout of each server
+     * @param limiter        {@code resultLimits}: the page size and the size of the result
      * @param exportTimeouts the {@code cliExportTimeout} of each server: the budget of the
      *                       exports of its system diagrams, as for the module usage index of
      *                       {@link InventoryService}
+     * @param sizeOf         a value's serialized size in chars (the tool result's JSON)
      * @param terms          the display names of the levels in messages
      * @param secretTiming   the fan-out allowance for fetching the secrets (feature 010)
      * @param audits         what the audit of every call shares (FR-020)
      */
     public PartnerService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
-        InventoryCache cache, Function<NodeId, Optional<String>> owners,
+        ResultLimiter limiter, InventoryCache cache, Function<NodeId, Optional<String>> owners,
         Function<NodeId, Duration> timeouts, Function<NodeId, Duration> exportTimeouts,
-        Terminology terms, VersionGate gate, SecretTiming secretTiming,
-        PartnerAudit.Dependencies audits) {
+        ToIntFunction<Object> sizeOf, Terminology terms, VersionGate gate,
+        SecretTiming secretTiming, PartnerAudit.Dependencies audits) {
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.targets = Objects.requireNonNull(targets, "targets");
         this.fanOut = Objects.requireNonNull(fanOut, "fanOut");
+        this.limiter = Objects.requireNonNull(limiter, "limiter");
         this.cache = Objects.requireNonNull(cache, "cache");
         this.owners = Objects.requireNonNull(owners, "owners");
         this.timeouts = Objects.requireNonNull(timeouts, "timeouts");
         this.exportTimeouts = Objects.requireNonNull(exportTimeouts, "exportTimeouts");
+        this.sizeOf = Objects.requireNonNull(sizeOf, "sizeOf");
         this.terms = Objects.requireNonNull(terms, "terms");
         this.gate = Objects.requireNonNull(gate, "gate");
         this.secretTiming = Objects.requireNonNull(secretTiming, "secretTiming");
@@ -342,13 +369,14 @@ public final class PartnerService {
      * {@code query.search()}, case-insensitively, each in full (FR-004, FR-005, FR-007, FR-011);
      * without a search term every partner as a summary in list order (FR-006); either narrowed by
      * the {@code protocol} and {@code workflow} entry filters (FR-005a); the page
-     * {@code query.offset()}, {@code query.limit()} of them (FR-017). A search without hits gets
-     * similar values if a server answered (FR-005b).
+     * {@code query.offset()}, {@code query.limit()} of them, the result within
+     * {@code resultLimits} (FR-017). A search without hits gets similar values if a server
+     * answered (FR-005b).
      *
      * <p>Audit and log (T021, FR-020, FR-021): one {@link PartnerAudit} per call; an unknown
      * target is one {@code REFUSED} record; otherwise one record and one INFO line per server,
      * also for a cache hit or a failed server (its error code as reason, never the message),
-     * counting the partners returned on the page.
+     * counting the partners and masked values the result holds after the size bound.
      *
      * @throws ToolErrorException {@code TARGET_UNKNOWN} before any server is contacted;
      *     {@code NOT_FOUND} with up to {@link #MAX_SIMILAR} similar system diagram names if no
@@ -376,32 +404,43 @@ public final class PartnerService {
             .toList();
         int total = matched.stream().mapToInt(List::size).sum();
         int from = Math.min(query.offset(), total);
-        int to = Math.min(from + query.limit(), total);
-        List<ServerView> servers = new ArrayList<>();
-        List<CloudWorkflows> workflows = new ArrayList<>();
-        List<PartnerView> partners = new ArrayList<>();
-        ToolErrorException unaudited = null;
+        int limit = Math.min(query.limit(), limiter.maxItems());
+        int to = Math.min(from + limit, total);
+        List<PartnerBounds.Item> page = new ArrayList<>();
         int position = 0;
         for (int i = 0; i < results.size(); i++) {
-            NodeResult<ServerRead> result = results.get(i);
+            NodeId node = results.get(i).node();
             List<Match> server = matched.get(i);
             int size = server.size();
-            List<Match> page = server.subList(Math.clamp(from - position, 0, size),
-                Math.clamp(to - position, 0, size));
+            server.subList(Math.clamp(from - position, 0, size), Math.clamp(to - position, 0, size))
+                .forEach(match -> page.add(new PartnerBounds.Item(node,
+                    partnerView(match, summary), new CloudWorkflows(match.diagram().diagram(),
+                        match.cloud().moduleName(), moduleId(match.diagram(), match.cloud()),
+                        match.cloud().referencableWorkflows()))));
             position += size;
-            List<PartnerView> returned = page.stream()
-                .map(match -> partnerView(match, summary))
-                .toList();
-            page.stream()
-                .map(match -> new CloudWorkflows(match.diagram().diagram(),
-                    match.cloud().moduleName(), moduleId(match.diagram(), match.cloud()),
-                    match.cloud().referencableWorkflows()))
-                .distinct()
-                .forEach(workflows::add);
-            servers.add(serverView(result));
-            partners.addAll(returned);
+        }
+        boolean answered = results.stream().anyMatch(result -> result.payload().isPresent());
+        Optional<List<String>> similar = query.search()
+            .filter(search -> total == 0 && answered)
+            .map(search -> SimilarNames.of(search, similarCandidates(results), MAX_SIMILAR));
+        int budget = limiter.maxChars();
+        PartnerBounds.Bounded<List<ServerView>> servers = PartnerBounds.servers(
+            results.stream().map(PartnerService::serverView).toList(), results.stream()
+                .map(result -> result.payload().map(ServerRead::gateWarnings).orElse(0))
+                .toList(), page, budget, sizeOf);
+        // nextOffset and truncated at their widest: paging can only shorten them
+        int fixed = sizeOf.applyAsInt(new Found(audit.callId(), servers.value(), List.of(),
+            List.of(), similar, total, limit, OptionalInt.of(total), false)) + TOOL_FIELDS_CHARS;
+        PartnerBounds.Bounded<List<PartnerBounds.Item>> bounded =
+            PartnerBounds.page(page, fixed, budget, sizeOf);
+        List<PartnerBounds.Item> returned = bounded.value();
+        ToolErrorException unaudited = null;
+        for (NodeResult<ServerRead> result : results) {
             try {
-                audit(audit, query, result, notFound.map(ToolError::code), returned);
+                audit(audit, query, result, notFound.map(ToolError::code), returned.stream()
+                    .filter(item -> item.server().equals(result.node()))
+                    .map(PartnerBounds.Item::partner)
+                    .toList());
             } catch (ToolErrorException e) {
                 unaudited = unaudited == null ? e : unaudited;
             }
@@ -412,12 +451,18 @@ public final class PartnerService {
         if (notFound.isPresent()) {
             throw new ToolErrorException(notFound.get());
         }
-        boolean answered = results.stream().anyMatch(result -> result.payload().isPresent());
-        Optional<List<String>> similar = query.search()
-            .filter(search -> total == 0 && answered)
-            .map(search -> SimilarNames.of(search, similarCandidates(results), MAX_SIMILAR));
-        return new Found(audit.callId(), servers, workflows, partners, similar, total,
-            to < total ? OptionalInt.of(to) : OptionalInt.empty());
+        int next = from + returned.size();
+        boolean truncated = servers.cut() || bounded.cut()
+            || returned.size() < Math.min(query.limit(), total - from);
+        Found found = new Found(audit.callId(), servers.value(),
+            PartnerBounds.workflows(returned),
+            returned.stream().map(PartnerBounds.Item::partner).toList(), similar, total, limit,
+            next < total ? OptionalInt.of(next) : OptionalInt.empty(), truncated);
+        // a result over its bound (parts that are never cut, see PartnerBounds) is never
+        // reported as complete
+        return truncated || sizeOf.applyAsInt(found) + TOOL_FIELDS_CHARS <= budget ? found
+            : new Found(found.callId(), found.servers(), found.referencableWorkflows(),
+                found.partners(), found.similarValues(), total, limit, found.nextOffset(), true);
     }
 
     /**
@@ -636,7 +681,7 @@ public final class PartnerService {
     private static List<SettingView> settingViews(List<Setting> settings) {
         return settings.stream().map(setting -> switch (setting.value()) {
             case SettingValue.Shown shown -> new SettingView(setting.name(),
-                Optional.of(shown.rendered()), Optional.empty(), Optional.empty());
+                Optional.of(shown.value()), Optional.empty(), Optional.empty());
             case SettingValue.Masked masked -> new SettingView(setting.name(), Optional.empty(),
                 Optional.of(true), Optional.of(masked.set()));
         }).toList();
@@ -672,6 +717,7 @@ public final class PartnerService {
         String owner = query.owner().orElseGet(() -> configuredOwner(server));
         List<String> warnings = new ArrayList<>(gate.admit(TOOL, server,
             Capability.PARTNER_MANAGEMENT, Capability.Kind.READ, Set.of(Channel.REST)).warnings());
+        int gateWarnings = warnings.size();
         AtomicBoolean read = new AtomicBoolean();
         Snapshot<List<DiagramRef>> list = cache.get(
             key(server, PartnerSnapshot.systemDiagramsScope(owner)), query.refresh(), () -> {
@@ -703,7 +749,7 @@ public final class PartnerService {
                 warnings.addAll(snapshot.value().warnings().getOrDefault(diagram, List.of())));
         }
         return new ServerRead(owner, list.value(), collectedAt, !read.get(), diagrams, unreadable,
-            warnings);
+            warnings, gateWarnings);
     }
 
     /**

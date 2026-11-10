@@ -396,9 +396,9 @@ final class Wiring implements AutoCloseable {
         PartnerAudit.Dependencies partnerAudits = new PartnerAudit.Dependencies(audit,
             clock.clock(), profile.name(), UUID::randomUUID);
         this.findPartners = new FindPartnersTool(new PartnerService(gateways, targets, fanOut,
-            inventoryCache, id -> byId.get(id).inventory().owner(), timeouts::get,
-            id -> byId.get(id).cliExportTimeout(), terms, versionGate, secretTiming,
-            partnerAudits), partnerAudits);
+            limiter, inventoryCache, id -> byId.get(id).inventory().owner(), timeouts::get,
+            id -> byId.get(id).cliExportTimeout(), ResultJson::size, terms, versionGate,
+            secretTiming, partnerAudits), partnerAudits);
         // feature 003: the workspace history uses the system git (not the StartCLI launcher)
         Path workspace = config.workspace();
         this.exportArtifacts = new ExportArtifactsTool(new WorkspaceService(workspace,

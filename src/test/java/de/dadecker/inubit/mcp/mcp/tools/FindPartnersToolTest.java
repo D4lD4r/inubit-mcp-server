@@ -20,6 +20,7 @@ import de.dadecker.inubit.mcp.application.InventoryCache;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.PartnerAudit;
 import de.dadecker.inubit.mcp.application.PartnerService;
+import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.application.VersionGate;
@@ -42,6 +43,7 @@ import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.infra.ResultJson;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
@@ -67,7 +69,7 @@ import tools.jackson.databind.json.JsonMapper;
  * shape) on the real {@link PartnerService} with fake ports serving the synthetic exports of
  * {@link PartnerFixtures} and a recording audit log: hints and schemas, the defaults of the tool,
  * the unresolved workflow shape, Op-2, Op-5 and the audited input refusals (FR-002, FR-020);
- * T023: the list summary and the entry filters.
+ * T023: the list summary and the entry filters; T024: the size bound.
  */
 @Timeout(60)
 class FindPartnersToolTest {
@@ -89,6 +91,8 @@ class FindPartnersToolTest {
         new HashMap<>(Map.of(NODE1, Optional.of(OWNER), NODE2, Optional.of(OWNER)));
     private final PartnerAudit.Dependencies audits =
         new PartnerAudit.Dependencies(audit::add, clock, "acme", UUID::randomUUID);
+    /** {@code resultLimits} of the profile; a test may set smaller ones before its first call. */
+    private ResultLimiter limiter = ResultLimiter.withDefaults();
     private McpTestClient client;
 
     @BeforeEach
@@ -245,6 +249,40 @@ class FindPartnersToolTest {
         assertThat(content.has("nextOffset")).isFalse();
         assertThat(audit).extracting(record -> record.details().get("partnersReturned"))
             .containsExactly(2, 1);
+    }
+
+    @Test
+    void theLimitEchoedIsThePageSizeAppliedAtMostMaxItems() {
+        limiter = new ResultLimiter(5, 50_000);
+        export(PartnerFixtures.list(20));
+
+        JsonNode content = call(Map.of("target", "dev/node1", "limit", 20))
+            .path("structuredContent");
+
+        assertThat(content.path("limit").asInt()).isEqualTo(5);
+        assertThat(content.path("partners")).hasSize(5);
+        assertThat(content.path("nextOffset").asInt()).isEqualTo(5);
+        assertThat(content.path("truncated").asBoolean(false)).isTrue();
+    }
+
+    @Test
+    void theResultStaysWithinMaxCharsAndReportsTheCut() {
+        limiter = new ResultLimiter(100, 10_000);
+        export(PartnerFixtures.list(1000));
+
+        JsonNode result = call(Map.of("target", "dev/node1", "search", "acme", "limit", 100));
+
+        assertMatchesOutputSchema("find_partners", result);
+        JsonNode content = result.path("structuredContent");
+        assertThat(content.toString().length()).isLessThanOrEqualTo(10_000);
+        assertThat(content.path("truncated").asBoolean(false)).isTrue();
+        assertThat(content.path("total").asInt()).isEqualTo(1003);
+        assertThat(content.path("partners").size()).isPositive().isLessThan(100);
+        assertThat(content.path("nextOffset").asInt())
+            .isEqualTo(content.path("partners").size());
+        assertThat(audit).singleElement().satisfies(record -> assertThat(record.details())
+            .containsEntry("partnersReturned", content.path("partners").size()));
+        assertNoSecretIn(result);
     }
 
     @Test
@@ -501,9 +539,9 @@ class FindPartnersToolTest {
 
     private PartnerService service(VersionGate gate) {
         return new PartnerService(new Gateways(), new TargetResolver(List.of(NODE1, NODE2)),
-            new FanOut(), new InventoryCache(clock, node -> Duration.ofMinutes(10)), owners::get,
-            node -> Duration.ofSeconds(5), node -> Duration.ofSeconds(120), Terminology.DEFAULT,
-            gate, SecretTiming.NONE, audits);
+            new FanOut(), limiter, new InventoryCache(clock, node -> Duration.ofMinutes(10)),
+            owners::get, node -> Duration.ofSeconds(5), node -> Duration.ofSeconds(120),
+            ResultJson::size, Terminology.DEFAULT, gate, SecretTiming.NONE, audits);
     }
 
     /** Reads {@code diagram} with the reader as the adapter does and offers it to the owner. */
