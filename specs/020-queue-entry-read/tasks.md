@@ -41,7 +41,7 @@ decisions go to `specs/020-queue-entry-read/reviews/implementation.md`.
 
 ## Phase 2: Foundational — configuration, capability, gate, process pipeline (plan stages 1, 2, 5; blocks every story)
 
-- [ ] T002 [P] Opt-in binding (FR-003, D-15): new `config/UnsupportedConfig.java`
+- [X] T002 [P] Opt-in binding (FR-003, D-15): new `config/UnsupportedConfig.java`
   (`record UnsupportedConfig(Optional<Boolean> queueEntryRead)`, `EMPTY`); `config/GroupConfig.java`
   `+ UnsupportedConfig unsupported` (default `EMPTY`); `config/ConfigLoader.java`
   `requireStrictUnsupportedOptIn` beside `requireStrictArchivesOptIn` ("a present, non-null,

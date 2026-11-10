@@ -204,7 +204,7 @@ public final class TestNodeConfig {
             fixed.tls(), fixed.cli(), fixed.inventory(), fixed.timeout(), fixed.cliTimeout(),
             fixed.cliExportTimeout(), fixed.hangingThreshold(), fixed.confirmationTtl(),
             fixed.credentialPrefix(), fixed.development(), fixed.secretPlan(),
-            fixed.archivesProductionOptIn(), sources);
+            fixed.archivesProductionOptIn(), false, sources);
         return layered.withCli(layered.cliFor(
             NodeVersionState.initial(versionLine).effectiveVersion()).cli());
     }

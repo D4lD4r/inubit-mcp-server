@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -764,7 +765,8 @@ class ConfigLoaderTest {
                 java.util.Optional.of(URI.create("https://u:secretpw@h.example.test")), false, null,
                 null, null, null, null, null, null, null, null, null, null, null, null, null);
             GroupConfig stage = new GroupConfig("dev", false, List.of(entry), null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null);
 
             assertThatThrownBy(() -> EffectiveNodeConfig.resolve(Defaults.EMPTY, stage, entry,
                 "INUBIT_ACME", SecretPlan.resolve(CredentialsConfig.EMPTY, "INUBIT_ACME", stage,
@@ -781,7 +783,8 @@ class ConfigLoaderTest {
                 java.util.Optional.of(URI.create(url)), false, null,
                 null, null, null, null, null, null, null, null, null, null, null, null, null);
             GroupConfig stage = new GroupConfig("dev", false, List.of(entry), null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null);
 
             assertThatThrownBy(() -> EffectiveNodeConfig.resolve(Defaults.EMPTY, stage, entry,
                 "INUBIT_ACME", SecretPlan.resolve(CredentialsConfig.EMPTY, "INUBIT_ACME", stage,
@@ -1390,6 +1393,92 @@ class ConfigLoaderTest {
                 .hasMessageContaining("groups[0].archives.productionOptIn")
                 .hasMessageContaining("true or false")
                 .hasMessageNotContaining("maybe");
+        }
+    }
+
+    /** Feature 020 (T002, FR-003, research D-15): {@code unsupported.queueEntryRead}. */
+    @Nested
+    class Unsupported {
+
+        private LoadedConfig parse(String yaml) {
+            return loader().parse(yaml, home.resolve("u.yaml"));
+        }
+
+        private static String onGroup(String unsupported) {
+            return MINIMAL.replace("    nodes:", "    unsupported:" + unsupported + "    nodes:");
+        }
+
+        private UnsupportedConfig unsupportedOf(String yaml) {
+            return parse(yaml).config().groups().get(0).unsupported();
+        }
+
+        @Test
+        void theOptInIsReadPerGroup() {
+            assertThat(unsupportedOf(onGroup("\n      queueEntryRead: true\n")))
+                .isEqualTo(new UnsupportedConfig(Optional.of(true)));
+            assertThat(unsupportedOf(onGroup("\n      queueEntryRead: false\n")).queueEntryRead())
+                .contains(false);
+            assertThat(unsupportedOf(MINIMAL)).isEqualTo(UnsupportedConfig.EMPTY);
+            assertThat(UnsupportedConfig.EMPTY.queueEntryRead()).isEmpty();
+            assertThat(unsupportedOf(onGroup("\n"))).as("an empty block is the default")
+                .isEqualTo(UnsupportedConfig.EMPTY);
+            assertThat(unsupportedOf(onGroup("\n      queueEntryRead:\n")))
+                .as("an empty value is the default").isEqualTo(UnsupportedConfig.EMPTY);
+            assertThat(unsupportedOf(onGroup("\n      queueEntryRead: null\n")))
+                .as("null is the default").isEqualTo(UnsupportedConfig.EMPTY);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"\"true\"", "1", "0", "yes", "[true]", "{ on: true }"})
+        void aNonBooleanValueIsRejectedWithoutTheValue(String value) {
+            assertThatThrownBy(() -> parse(onGroup("\n      queueEntryRead: " + value + "\n")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessage("Invalid value at groups[0].unsupported.queueEntryRead in "
+                    + home.resolve("u.yaml") + ": expected true or false");
+        }
+
+        @Test
+        void theErrorTextsLeakNoSecret() {
+            for (String value : List.of(
+                "\"" + TestSecrets.CREDENTIAL_PAYLOAD_VALUE + "\"",
+                "[" + TestSecrets.CONFIGURED_PASSWORD + "]",
+                "{ password: " + TestSecrets.CONFIGURED_PASSWORD + ", trustStorePassword: "
+                    + TestSecrets.TRUST_STORE_PASSWORD + " }")) {
+                assertThatThrownBy(() -> parse(onGroup("\n      queueEntryRead: " + value + "\n")))
+                    .isInstanceOf(ConfigException.class)
+                    .satisfies(e -> TestSecrets.assertNoLeak(e.getMessage()));
+            }
+            assertThatThrownBy(() -> parse(onGroup("\n      archiveRead: "
+                + TestSecrets.CREDENTIAL_PAYLOAD_VALUE + "\n")))
+                .isInstanceOf(ConfigException.class)
+                .satisfies(e -> TestSecrets.assertNoLeak(e.getMessage()));
+            assertThatThrownBy(() -> parse(MINIMAL + "defaults:\n  unsupported:\n"
+                + "    queueEntryRead: " + TestSecrets.CREDENTIAL_PAYLOAD_VALUE + "\n"))
+                .isInstanceOf(ConfigException.class)
+                .satisfies(e -> TestSecrets.assertNoLeak(e.getMessage()));
+        }
+
+        @Test
+        void anotherKeyBelowUnsupportedIsAnUnknownKey() {
+            assertThatThrownBy(() -> parse(onGroup("\n      archiveRead: true\n")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'archiveRead' at groups[0].unsupported");
+        }
+
+        @Test
+        void unsupportedOnANodeIsAnUnknownKey() {
+            assertThatThrownBy(() -> parse(MINIMAL + "        unsupported:\n"
+                + "          queueEntryRead: true\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'unsupported' at groups[0].nodes[0]");
+        }
+
+        @Test
+        void unsupportedInTheDefaultsIsAnUnknownKey() {
+            assertThatThrownBy(() -> parse(MINIMAL + "defaults:\n  unsupported:\n"
+                + "    queueEntryRead: true\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'unsupported' at defaults");
         }
     }
 

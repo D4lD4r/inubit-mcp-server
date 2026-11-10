@@ -342,6 +342,7 @@ public final class ConfigLoader {
         checkCredentialsSections(rootObject, source);
         rejectEmptyListEntries(rootObject, "", source);
         requireStrictArchivesOptIn(rootObject, source);
+        requireStrictUnsupportedOptIn(rootObject, source);
         requireStrictUpdateCheck(rootObject, source);
         List<String> urlProblems = new ArrayList<>();
         sanitizeUrls(rootObject, source, urlProblems);
@@ -609,6 +610,25 @@ public final class ConfigLoader {
             if (!optIn.isMissingNode() && !optIn.isNull() && !optIn.isBoolean()) {
                 throw new ConfigException("Invalid value at groups[" + i
                     + "].archives.productionOptIn in " + source + ": expected true or false");
+            }
+        }
+    }
+
+    /**
+     * Feature 020 (research D-15): {@code unsupported.queueEntryRead} of a group must be a YAML
+     * boolean, like {@link #requireStrictArchivesOptIn}. The value is never echoed. Other shapes
+     * are left to the binding.
+     */
+    private static void requireStrictUnsupportedOptIn(ObjectNode root, Path source) {
+        JsonNode groups = root.get("groups");
+        if (groups == null || !groups.isArray()) {
+            return;
+        }
+        for (int i = 0; i < groups.size(); i++) {
+            JsonNode optIn = groups.get(i).path("unsupported").path("queueEntryRead");
+            if (!optIn.isMissingNode() && !optIn.isNull() && !optIn.isBoolean()) {
+                throw new ConfigException("Invalid value at groups[" + i
+                    + "].unsupported.queueEntryRead in " + source + ": expected true or false");
             }
         }
     }
