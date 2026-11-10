@@ -86,7 +86,7 @@ prints the line without reading a credential.
   relative paths loaded as given (refused by `ConfigValidator`, T009), `recording: "yes"` refused — main
   `config/KnowledgeConfig.java`, `config/ProfileConfig.java`, `config/ConfigLoader.java`, test
   `config/ConfigLoaderTest.java`
-- [ ] T009 [US3] `ConfigValidator.checkKnowledge` (FR-002, D-2): after `canonical()`, the
+- [X] T009 [US3] `ConfigValidator.checkKnowledge` (FR-002, D-2): after `canonical()`, the
   relations *equal*, *inside* and *contains* are each an error, tested for every forbidden path of
   the D-2 table: this profile's `workspace` and `auditDirectory`; `BackupStore.defaultRoot`
   (backups); `DeploymentLedger.defaultDirectory` (deployment ledger);

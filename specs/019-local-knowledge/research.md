@@ -67,6 +67,12 @@ each forbidden path `P` the relation is *equal*, *inside* (`K.startsWith(P)`) or
   as well.
 - "Inside `~/.inubit-mcp/<profile>`" is allowed (it is the default), "equal to" or "containing"
   it is not (it contains the workspace and the audit directory, so the first rows report it).
+  The allowance also holds where `~/.inubit-mcp/<profile>` itself lies inside a forbidden path
+  (T009: a `--config` file in the home directory makes the home directory the folder of the
+  configuration file; the default knowledge directory stays valid then).
+- `ConfigValidator.withServerPaths(home, defaultConfigDirectory)` (T009) supplies home and
+  configuration directory; `Launcher` always sets them. Without them (unit tests of other
+  checks) only the configured directories of this and the other profiles are compared.
 - A copy of the same profile (same profile name, the existing `copy` notion) shares the knowledge
   by design and gets the existing "same profile name" warning, not an error (two processes of one
   profile are expected, FR-015).

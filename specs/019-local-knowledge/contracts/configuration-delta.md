@@ -35,7 +35,8 @@ directory`, `package directory`, `server data directory ~/.inubit-mcp`, `configu
 directory`, `folder of the configuration file`, and for another profile `workspace of profile
 '<p>' (<file>)`, `audit directory of profile '<p>' (<file>)`, `data directory of profile '<p>'`,
 `knowledge directory of profile '<p>' (<file>)`. For `~/.inubit-mcp` only *equal* and *contains*
-apply; inside `~/.inubit-mcp/<own profile>` is allowed.
+apply; inside `~/.inubit-mcp/<own profile>` is allowed, also where that directory lies inside the
+folder of the configuration file (a `--config` file in the home directory).
 
 Two configuration files of the **same** profile name (an existing warning) may share the knowledge
 directory; no additional message.

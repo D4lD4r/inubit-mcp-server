@@ -250,7 +250,7 @@ final class Launcher {
             // it and the client probe's processes end with this process
             ProcessContainment containment = context.containment().get();
             CliSystem system = context.windows() ? new WindowsSystem() : new PosixSystem();
-            ValidationReport report = validator(otherProfiles,
+            ValidationReport report = validator(otherProfiles, loader,
                 context.windows() ? startCliHost(system, containment) : StartCliHost.unchecked())
                 .validate(loaded);
             Map<NodeId, ClientVersion> clients = new HashMap<>();
@@ -277,7 +277,7 @@ final class Launcher {
             return checked.hasErrors() ? EXIT_ERROR : EXIT_OK;
         }
         ValidationReport report = withPrivateObjects(loaded.config(),
-            validator(otherProfiles, StartCliHost.unchecked()).validate(loaded));
+            validator(otherProfiles, loader, StartCliHost.unchecked()).validate(loaded));
         if (report.hasErrors()) {
             printFindings("Configuration errors in " + loaded.source() + " (the MCP server does not"
                 + " start):", report.errors());
@@ -314,10 +314,12 @@ final class Launcher {
         return new ValidationReport(report.errors(), warnings, report.workspace());
     }
 
-    private ConfigValidator validator(List<LoadedConfig> otherProfiles, StartCliHost host) {
+    private ConfigValidator validator(List<LoadedConfig> otherProfiles, ConfigLoader loader,
+        StartCliHost host) {
         return new ConfigValidator(context.exists(), context.environment(), context.windows(),
             Path.of(System.getProperty("java.io.tmpdir")), source -> otherProfiles,
-            workspace -> WorkspaceDirectory.prepare(workspace, context.privateFiles()), host);
+            workspace -> WorkspaceDirectory.prepare(workspace, context.privateFiles()), host)
+            .withServerPaths(context.userHome(), loader.defaultDirectory());
     }
 
     /**

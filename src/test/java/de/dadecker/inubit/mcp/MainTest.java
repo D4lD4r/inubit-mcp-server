@@ -1199,6 +1199,35 @@ class MainTest {
         assertThat(out()).as("nothing on the protocol stdout").isEmpty();
     }
 
+    // --- feature 019 T009: the knowledge directory keeps clear of the server's directories -----
+
+    @Test
+    void aKnowledgeDirectoryInsideTheServersPackageDirectoryStopsCheckAndStart()
+        throws IOException {
+        Path packages = home.resolve(".inubit-mcp/acme/packages");
+        Path file = config("""
+            profile:
+              name: acme
+            knowledge:
+              directory: %s
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+            """.formatted(packages.resolve("notes")));
+        String error = "The knowledge directory " + packages.resolve("notes") + " is inside the"
+            + " package directory " + packages + "; set knowledge.directory to a folder outside it";
+
+        assertThat(run("--check-config", "--config", file.toString())).isEqualTo(1);
+        assertThat(out()).contains(error);
+
+        stdout.reset();
+        assertThat(run("--config", file.toString())).isEqualTo(1);
+        assertThat(err()).contains("does not start", error);
+    }
+
     // --- 002 research D-9: profile selection --------------------------------------------------
 
     /** {@code <home>/.config/inubit-mcp/<fileName>.yaml} declaring {@code profileName}. */
