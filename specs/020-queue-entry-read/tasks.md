@@ -430,7 +430,7 @@ refused before any content request (FR-006, FR-019, US3-1…5).
   `CLI_UNAVAILABLE` naming `defaults.cliClients."9.0"`; an 8.1 client chosen for a 9.0 node
   (`api missing`) → `CLI_UNAVAILABLE`; fixes in `CliQueueEntryAdapter`/`QueueEntryService` only if
   a test fails
-- [ ] T032 [US3] 9.0 contract in the fallback state (FR-019): `adapter/cli/queue/QueueEntryV90ContractTest.java`
+- [X] T032 [US3] 9.0 contract in the fallback state (FR-019): `adapter/cli/queue/QueueEntryV90ContractTest.java`
   asserts, while `v9_0/error_entry` is absent, that a 9.0 node is refused "not yet verified" with
   no launch, and runs the `REST_90` path against the 9.0 spike texts (`not_found_file`,
   `missing_workflow` → partial / `NOT_FOUND` after re-read); `QueueEntryFixtureCatalogueTest`

@@ -25,15 +25,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * T026 (feature 020, research D-18, D-20): the closed world of the queue-entry fixtures in
+ * T026, T032 (feature 020, research D-18, D-20): the closed world of the queue-entry fixtures in
  * {@code fixtures/queue-entry/}. Every file lies in {@code v8_1/} or {@code v9_0/} (or is the
  * root {@code README.md}) and belongs to a case, named by the file name up to its first dot; every
  * case has an {@code .origin} whose first line is {@code recorded …} or {@code reconstructed …}
  * and a {@code .README}, except the queueLog answers {@code rows_<case>} (T012), which are a
  * {@code .json} and an {@code .origin} only. A case with frames has its exit code and the other
- * way round, and its frames use the fixed nonce. 9.0 is {@code SUPPORTED} for reading queue
- * entries in the capability matrix exactly when {@code v9_0/error_entry.origin} starts with
- * {@code recorded} (FR-019).
+ * way round, and its frames use the fixed nonce; a {@code start} frame names the helper variant
+ * of its directory ({@code SOAP_81} in {@code v8_1/}, {@code REST_90} in {@code v9_0/}). 9.0 is
+ * {@code SUPPORTED} for reading queue entries in the capability matrix exactly when
+ * {@code v9_0/error_entry.origin} starts with {@code recorded} (FR-019).
  */
 class QueueEntryFixtureCatalogueTest {
 
@@ -51,12 +52,17 @@ class QueueEntryFixtureCatalogueTest {
     private static final Set<String> ROWS_SUFFIXES = Set.of(".json", ".origin");
     private static final Pattern ORIGIN = Pattern.compile("(?:reconstructed|recorded) .+");
     private static final Pattern FRAME = Pattern.compile("#QE1:([^ ]*) .*");
+    private static final Pattern START = Pattern.compile("#QE1:[^ ]* start ([^ ]*).*");
+    /** The helper variant whose frames a version directory holds. */
+    private static final Map<String, String> VARIANTS = Map.of("v8_1", "SOAP_81",
+        "v9_0", "REST_90");
 
     @Test
     void everyFileBelongsToACaseWithItsOriginAndReadme() throws IOException {
         assertThat(violations(ROOT)).isEmpty();
         assertThat(cases(ROOT)).as("cases").contains("v8_1/not_found_file",
-            "v8_1/rows_two_errors", "v8_1/secrets_everywhere", "v9_0/not_found_file");
+            "v8_1/rows_two_errors", "v8_1/secrets_everywhere", "v9_0/missing_workflow",
+            "v9_0/not_found_file");
     }
 
     @Test
@@ -134,6 +140,21 @@ class QueueEntryFixtureCatalogueTest {
     }
 
     @Test
+    void aStartFrameOfTheOtherVersionFails(@TempDir Path temp) throws IOException {
+        Path copy = copy(ROOT, temp.resolve("queue-entry"));
+        Path frames90 = copy.resolve("v9_0/not_found_file.frames");
+        Files.writeString(frames90, Files.readString(frames90).replace(" start REST_90",
+            " start SOAP_81"));
+        Path frames81 = copy.resolve("v8_1/binary_zip.frames");
+        Files.writeString(frames81, Files.readString(frames81).replace(" start SOAP_81",
+            " start REST_90"));
+
+        assertThat(violations(copy)).containsExactlyInAnyOrder(
+            "v8_1/binary_zip: a start frame not naming SOAP_81",
+            "v9_0/not_found_file: a start frame not naming REST_90");
+    }
+
+    @Test
     void theNineZeroRuleFailsInBothDirections(@TempDir Path temp) throws IOException {
         Path copy = copy(ROOT, temp.resolve("queue-entry"));
 
@@ -179,6 +200,11 @@ class QueueEntryFixtureCatalogueTest {
             }
             if (suffixes.contains(".frames") && !fixedNonce(root.resolve(name + ".frames"))) {
                 violations.add(name + ": a frame without the fixed nonce");
+            }
+            String variant = VARIANTS.get(name.substring(0, name.indexOf('/')));
+            if (suffixes.contains(".frames")
+                && !startFramesName(root.resolve(name + ".frames"), variant)) {
+                violations.add(name + ": a start frame not naming " + variant);
             }
         });
         return violations;
@@ -239,6 +265,14 @@ class QueueEntryFixtureCatalogueTest {
             .map(FRAME::matcher)
             .filter(Matcher::matches)
             .allMatch(frame -> frame.group(1).equals(FIXTURE_NONCE));
+    }
+
+    /** Every {@code start} frame names {@code variant}; a case without one passes. */
+    private static boolean startFramesName(Path frames, String variant) {
+        return lines(frames).stream()
+            .map(START::matcher)
+            .filter(Matcher::matches)
+            .allMatch(start -> start.group(1).equals(variant));
     }
 
     private static String firstLine(Path file) {

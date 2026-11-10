@@ -410,3 +410,47 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
   UNSUPPORTED for 9.0.10.
 - Every error passes `TestSecrets.assertNoLeak`; every launch spec is checked for secrets; the
   helper temp root is empty after each case. No server is contacted.
+
+## T032 notes
+
+- Result: `QueueEntryV90ContractTest` was **green on its first run**; no production code changed
+  (`CapabilityMatrix.production()` still refuses 9.0 "not yet verified"). The only red test was
+  the new catalogue rule (see below), which is test code.
+- `QueueEntryV90ContractTest` (6 cases) runs the real `QueueEntryService` and
+  `CliQueueEntryAdapter` on the T031 profile (`QueueEntryVersionProfile`, node `test/n90`
+  detected as 9.0.10, 9.0 client and JDK 21). A `FakeProcessLauncher` replays
+  `v9_0/<case>.frames`/`.exit` with the request's nonce. The row is built in the test, because
+  `v9_0/` has no `.rows.json`; its file name is the one the `not_found_file` frames name.
+  - Fallback: the test asserts that `v9_0/error_entry.origin` is absent. With the production
+    matrix, the call is refused with `UNSUPPORTED_VERSION` "not yet verified for INUBIT 9.0".
+    There is one detection, no lookup and no launch, and the log line ends with
+    `outcome UNSUPPORTED_VERSION`. T038 must replace this test, because its first assertion
+    fails as soon as the recording arrives.
+  - Meaning of "partial / NOT_FOUND after re-read" (spec edge case, research D-5, T023 note):
+    both reconstructed cases report **both** parts `NotFound`, so the service reads the rows a
+    second time. If the row (same `fileName`) is still there, the result is partial. Data and
+    variables are both unavailable with the reason "INUBIT did not find the content of this
+    entry", and the log says `outcome PARTIAL`. If the row is gone, the call fails with
+    `NOT_FOUND` and the exact contract text "… left the Queue Manager of test/n90 (restarted,
+    killed or deleted meanwhile)", and the log says `outcome NOT_FOUND`. Each case runs both
+    ways; there are two row reads and exactly one `REST_90` request to the base address
+    (`objectType`, `fileName`, `user`).
+  - Leak check: `TestSecrets.assertNoLeak` runs on the result JSON, every error and every log
+    line, and the launch spec is checked for secrets. INUBIT's own texts from the frames
+    (`Unable to download`, `MissingWorkflowWithName`, `IOException`, `acme/workflow`) never reach
+    a result, an error or the log. The temporary root is empty after each case.
+  - For T038: `CASES` must equal the `v9_0/*.frames` cases on disk (the same rule as
+    `QueueEntryV81ContractTest` in T026). The not-found tests name their cases in a
+    `@ValueSource`, so T038 adds `error_entry` to `CASES` together with its own test and does not
+    run the not-found expectations on it. A recorded `not_found_file` keeps its name and stays
+    covered.
+- Opened matrix: the T031 test constant moved into the shared fixture as
+  `QueueEntryVersionProfile.OPENED`, and `QueueEntryServiceVersionTest.OPENED` now refers to it,
+  so both tests open 9.0 with one test-only declaration. The production matrix is unchanged.
+- `QueueEntryFixtureCatalogueTest` already covered `v9_0/` from T026: the closed file layout,
+  `.origin`/`.README`, the frames/exit pair, the fixed nonce, and the 9.0 rule (matrix ⇔ recorded
+  `error_entry`). T032 adds one missing rule: every `start` frame names the helper variant of its
+  directory (`SOAP_81` in `v8_1/`, `REST_90` in `v9_0/`). This keeps 8.1 frames out of a 9.0
+  recording (T037/T038) and the other way round. The rule is tested in both directions on a
+  temporary copy, and `v9_0/missing_workflow` is now listed among the expected cases.
+  `fixtures/queue-entry/README.md` states the rule and the V90 case-list rule.

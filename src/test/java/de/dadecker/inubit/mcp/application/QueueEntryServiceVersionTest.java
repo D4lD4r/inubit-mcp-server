@@ -13,7 +13,6 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
 import de.dadecker.inubit.mcp.adapter.cli.queue.QueueEntryVersionProfile;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
-import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -28,7 +27,6 @@ import de.dadecker.inubit.mcp.domain.model.QueueEntryRow;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
-import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -40,13 +38,11 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
-import java.util.Set;
 import java.util.TreeMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,7 +58,7 @@ import org.junit.jupiter.params.provider.EnumSource;
  * {@link de.dadecker.inubit.mcp.adapter.cli.queue.CliQueueEntryAdapter} per node on one profile
  * ({@link QueueEntryVersionProfile}: a client installation and JDK per version). The helper is a
  * {@link FakeProcessLauncher} per node that records the launched JDK, class path and request.
- * 9.0 is opened by {@link #OPENED}, a declaration of this test only; {@link
+ * 9.0 is opened by {@link #OPENED}, a test-only declaration; {@link
  * CapabilityMatrix#production()} keeps 9.0 refused (FR-019 fallback, asserted below). No server
  * is contacted.
  */
@@ -81,19 +77,8 @@ class QueueEntryServiceVersionTest {
     /** The shipped matrix; the cases that do not need 9.0 opened run against it. */
     static final CapabilityMatrix SHIPPED = CapabilityMatrix.production();
 
-    /**
-     * The production declaration with {@code QUEUE_ENTRY_READ} supported on 9.0, as it will be
-     * once the 9.0 recording exists; 6.1, other and unknown versions as in production.
-     */
-    static final CapabilityMatrix OPENED = new CapabilityMatrix(List.of(
-        new CapabilityMatrix.Entry(new VersionRange(6, 1, 6, 1),
-            Map.of(Capability.MONITORING, SupportState.UNSUPPORTED,
-                Capability.PROCESS_DIAGNOSIS, SupportState.UNSUPPORTED),
-            Map.of(Capability.MONITORING, Set.of(Channel.CLI),
-                Capability.PROCESS_DIAGNOSIS, Set.of(Channel.CLI)), true),
-        new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1), all(SupportState.SUPPORTED)),
-        new CapabilityMatrix.Entry(new VersionRange(9, 0, 9, 0), all(SupportState.SUPPORTED))),
-        unknownVersions());
+    /** 9.0 opened for this test only ({@link QueueEntryVersionProfile#OPENED}). */
+    static final CapabilityMatrix OPENED = QueueEntryVersionProfile.OPENED;
 
     @TempDir
     Path root;
@@ -361,24 +346,5 @@ class QueueEntryServiceVersionTest {
         assertThat(spec.workingDirectory()).isEqualTo(home);
         assertThat(spec.environment()).containsEntry("JAVA_HOME", jdk.toString());
         QueueEntryVersionProfile.assertLaunchedWithoutSecrets(spec);
-    }
-
-    private static Map<Capability, SupportState> all(SupportState state) {
-        Map<Capability, SupportState> states = new EnumMap<>(Capability.class);
-        for (Capability capability : Capability.values()) {
-            states.put(capability, state);
-        }
-        return states;
-    }
-
-    /** Reads unverified, writes and {@code QUEUE_ENTRY_READ} unsupported, as in production. */
-    private static Map<Capability, SupportState> unknownVersions() {
-        Map<Capability, SupportState> states = new EnumMap<>(Capability.class);
-        for (Capability capability : Capability.values()) {
-            states.put(capability, capability.kind() == Capability.Kind.READ
-                && capability != Capability.QUEUE_ENTRY_READ
-                ? SupportState.UNVERIFIED : SupportState.UNSUPPORTED);
-        }
-        return states;
     }
 }

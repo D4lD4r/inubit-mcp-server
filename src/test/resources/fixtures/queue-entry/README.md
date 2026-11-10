@@ -31,9 +31,10 @@ its name before the suffix.
 | `.README` | what the case shows and what the tests expect (required) |
 
 `.frames` and `.exit` come as a pair. All frames use the fixed nonce
-`0123456789abcdef0123456789abcdef`; a replay replaces it with the nonce of its request. The byte
-counts in the `part … ok <bytes>` frames equal the lengths of `.data` and `.wfsp`, so these two
-are stored without line-end conversion (`-text` in `.gitattributes`).
+`0123456789abcdef0123456789abcdef`; a replay replaces it with the nonce of its request. A
+`start` frame names the helper variant of its directory: `SOAP_81` in `v8_1/`, `REST_90` in
+`v9_0/`. The byte counts in the `part … ok <bytes>` frames equal the lengths of `.data` and
+`.wfsp`, so these two are stored without line-end conversion (`-text` in `.gitattributes`).
 
 ### Lookup answers (`rows_<case>.*`)
 
@@ -65,10 +66,12 @@ The first line is one of:
 | 8.1 | `cutoff_tag` | a cut inside an unclosed secret element or placeholder leaks nothing |
 | 8.1 | `too_large` | the row reports more than 10 MiB: only the variables are requested |
 | 8.1 | `rows_*` | lookup answers (see above) |
-| 9.0 | `missing_workflow`, `not_found_file` | 9.0 helper failures |
+| 9.0 | `missing_workflow`, `not_found_file` | 9.0 helper failures; INUBIT reports both parts not found: partial result while the row stays, `NOT_FOUND` once it left |
 
 `QueueEntryV81ContractTest` runs the real `CliQueueEntryAdapter` and `QueueEntryService` over
 every 8.1 case with a `.rows.json` (fake process launcher, no helper process, no network); its
+case list must equal those files. `QueueEntryV90ContractTest` does the same for every 9.0 case
+with `.frames` (9.0 opened by a test-only capability matrix, the row answered in the test); its
 case list must equal those files.
 
 ## Recording (OWNER)
