@@ -110,18 +110,21 @@ public interface ImportArchivePort {
     /**
      * True if two versions of the workspace file {@code path} have the same reviewed content:
      * XML compared normalized, ignoring what INUBIT rewrites on every import ({@code
-     * CheckinComment}, {@code LastUpdate}, UIDs, {@code CheckoutUser}) and the order of the
-     * connections of a workflow module (feature 007); an embedded text document (stylesheet,
-     * WSDL) as INUBIT stores it, without trailing whitespace and with any line ends (0.4.2);
-     * other files byte by byte.
+     * CheckinComment}, {@code LastUpdate}, UIDs, {@code CheckoutUser}), the order of the
+     * connections of a workflow module (feature 007), the order of a workflow's variables,
+     * which INUBIT keeps in hash order, and a namespace declaration on a workflow's
+     * {@code Variables} that nothing in it uses; an embedded text document (stylesheet, WSDL) as
+     * INUBIT stores it, without trailing whitespace and with any line ends (0.4.2), or as the
+     * same XML with every text node, as INUBIT re-serializes it; other files byte by byte.
      */
     boolean equivalent(String path, byte[] expected, byte[] actual);
 
     /**
      * True if {@code server}, the workspace file {@code path} as a re-export after an import
      * shows it, is what the target makes of {@code sent} on that import: {@link #equivalent},
-     * or different only in what INUBIT rewrites on the import of that file. Only for the
-     * verification of an import and of its rollback; the default rewrites nothing.
+     * or different only in what INUBIT rewrites on the import of that file (a Saxon factory, a
+     * comment added to a workflow module sent without one). Only for the verification of an
+     * import and of its rollback; the default rewrites nothing.
      */
     default boolean importedAs(String path, byte[] sent, byte[] server) {
         return equivalent(path, sent, server);
