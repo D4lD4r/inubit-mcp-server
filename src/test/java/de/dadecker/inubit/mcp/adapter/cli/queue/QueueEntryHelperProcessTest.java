@@ -6,21 +6,29 @@ import static de.dadecker.inubit.mcp.adapter.cli.queue.QueueEntryHelperTest.outp
 import static de.dadecker.inubit.mcp.adapter.cli.queue.QueueEntryHelperTest.request;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliResult;
+import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.CliSystem;
+import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
-import de.dadecker.inubit.mcp.adapter.cli.StartCliEnvironment;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
+import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.testing.FakeInubitClient;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.Failure;
 import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
+import de.dadecker.inubit.mcp.testing.TestCliRunners.FixedSystem;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -30,17 +38,18 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * The packaged queue-entry helper of feature 020 (research D-3, D-4) in a real child JVM: its
- * class file is taken from the helper resource directory on the class path into
- * {@code <tmp>/helper}, a {@link FakeInubitClient} is the client home, and the D-3 command runs
- * through {@link SystemProcessLauncher} and {@link ProcessRun}. The vendor fakes read their
- * script from {@code <home>/conf} and record their calls there.
+ * The packaged queue-entry helper of feature 020 (research D-3, D-4) in a real child JVM:
+ * {@link HelperInstallation} installs it in its private directory with a
+ * {@link FakeInubitClient} as the client home, and its argument array (with the
+ * {@code --add-opens} list) runs through {@link SystemProcessLauncher} and {@link ProcessRun}.
+ * The vendor fakes read their script from {@code <home>/conf} and record their calls there.
  */
 @Timeout(90)
 class QueueEntryHelperProcessTest {
@@ -66,9 +75,14 @@ class QueueEntryHelperProcessTest {
     Path tmp;
 
     private final CliResources resources = new CliResources("acme", PrivateFiles.forHost());
+    private HelperInstallation installation;
 
     @AfterEach
     void closeResources() {
+        if (installation != null) {
+            installation.close();
+            assertThat(installation.directory()).as("deleted on close").doesNotExist();
+        }
         resources.close();
     }
 
@@ -80,11 +94,19 @@ class QueueEntryHelperProcessTest {
                 .printsOnLogin(FOREIGN_FRAME)
                 .file(FILE, DATA)
                 .file(FILE + ".wfsp", VARIABLES));
+        LaunchSpec spec = launchSpec(client);
         Path data = out("data.bin");
         Path variables = out("variables.wfsp");
-        LaunchSpec spec = launchSpec(client);
+        HelperRequest.TrustStore trustStore = HelperTrustStore.write(NodeId.parse("int/a"),
+            installation.trustStoreFile(),
+            List.of(TestCertificates.get().localhostCertificate()), PrivateFiles.forHost());
+        String trustStorePassword = trustStore.password().reveal();
 
-        CliResult result = runHelper(spec, request(lines -> outputs(lines, data, variables)));
+        CliResult result = runHelper(spec, request(lines -> {
+            outputs(lines, data, variables);
+            lines.put("trustStore", encode(trustStore.file().toString()));
+            lines.put("trustStorePassword", encode(trustStorePassword));
+        }));
 
         assertThat(result.exitCode()).isZero();
         assertThat(frames(result.stdout())).containsExactly(
@@ -98,8 +120,8 @@ class QueueEntryHelperProcessTest {
         assertThat(data).hasBinaryContent(DATA);
         assertThat(variables).hasBinaryContent(VARIABLES);
         assertThat(client.calls()).as("the child JVM's vendor calls (FR-007)").containsExactly(
-            call("IBISSoapClient.<init>", URL_81 + "?isCli", "/var/qe-0001/trust.p12",
-                TestSecrets.TRUST_STORE_PASSWORD, "null", "null", "true"),
+            call("IBISSoapClient.<init>", URL_81 + "?isCli", trustStore.file().toString(),
+                trustStorePassword, "null", "null", "true"),
             call("IBISSoapClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
             call("MultipartDownloadThread.<init>", "IBISSoapClient", USER, FILE, OBJECT_TYPE,
                 "null", "null"),
@@ -113,6 +135,9 @@ class QueueEntryHelperProcessTest {
             call("MultipartDownloadThread.exceptionOccured"),
             call("IBISSoapClient.logoutUser", USER));
         assertArgvCarriesOnlyJvmOptionsAndTheClassName(spec, client, data, variables);
+        assertThat(String.join(" ", spec.command())).doesNotContain(trustStorePassword);
+        assertThat(result.stdout() + result.stderr()).as("the one-time password stays on stdin")
+            .doesNotContain(trustStorePassword);
         TestSecrets.assertNoLeak(result.stdout());
         TestSecrets.assertNoLeak(result.stderr());
     }
@@ -125,10 +150,11 @@ class QueueEntryHelperProcessTest {
                 .printsOnLogin(NOISE)
                 .file(FILE, DATA)
                 .file(FILE + ".wfsp", VARIABLES));
+        LaunchSpec spec = launchSpec(client);
         Path data = out("data.bin");
         Path variables = out("variables.wfsp");
 
-        CliResult result = runHelper(launchSpec(client), request(lines -> {
+        CliResult result = runHelper(spec, request(lines -> {
             outputs(lines, data, variables);
             lines.put("variant", "REST_90");
             lines.put("url", encode(URL_90));
@@ -158,10 +184,11 @@ class QueueEntryHelperProcessTest {
                 .leavesNonDaemonThread()
                 .loginFails(new Failure("java.io.IOException",
                     "login of " + USER + " refused, password " + TestSecrets.CONFIGURED_PASSWORD)));
+        LaunchSpec spec = launchSpec(client);
         Path data = out("data.bin");
         Path variables = out("variables.wfsp");
 
-        CliResult result = runHelper(launchSpec(client), request(lines -> {
+        CliResult result = runHelper(spec, request(lines -> {
             outputs(lines, data, variables);
             lines.put("variant", "REST_90");
             lines.put("url", encode(URL_90));
@@ -178,53 +205,32 @@ class QueueEntryHelperProcessTest {
 
     // --- helpers --------------------------------------------------------------------------
 
-    private Path out(String name) throws IOException {
-        return Files.createDirectories(tmp.resolve("out")).resolve(name);
+    /** {@code name} in the installation's {@code out/}. */
+    private Path out(String name) {
+        return installation.outDirectory().resolve(name);
     }
 
     /**
-     * The D-3 command: JVM options, the class path {@code <tmp>/helper}, {@code <home>/lib/*},
-     * {@code <home>/lib/shared/*} and the class name; the client home is the working directory.
+     * Installs the helper through {@link HelperInstallation} with {@code client} as the client
+     * home and this JVM's runtime as the JDK; its D-3 argument array, environment and working
+     * directory.
      */
     private LaunchSpec launchSpec(FakeInubitClient client) throws IOException {
-        Path helper = installHelper();
-        Path vendorTmp = Files.createDirectories(tmp.resolve("vendor"));
-        Path home = client.home();
-        String javaHome = System.getProperty("java.home");
-        List<String> command = List.of(
-            Path.of(javaHome, "bin", Platform.windows() ? "java.exe" : "java").toString(),
-            "-Xmx512m",
-            "-Djdk.tls.client.protocols=TLSv1.2,TLSv1.3",
-            "-Dsecretkey.path=" + home.resolve("conf"),
-            "-Djava.io.tmpdir=" + vendorTmp,
-            "-cp",
-            String.join(File.pathSeparator, helper.toString(),
-                home.resolve("lib").resolve("*").toString(),
-                home.resolve("lib").resolve("shared").resolve("*").toString()),
-            QueueEntryHelperPackagingTest.HELPER_CLASS);
-        return new LaunchSpec(command, environment(javaHome), home);
-    }
-
-    /** Copies the packaged helper class from the class path to {@code <tmp>/helper}. */
-    private Path installHelper() throws IOException {
-        Path helper = tmp.resolve("helper");
-        Path classFile = helper.resolve(QueueEntryHelperPackagingTest.HELPER_FILE);
-        Files.createDirectories(classFile.getParent());
-        try (InputStream in = QueueEntryHelperProcessTest.class.getClassLoader()
-            .getResourceAsStream(QueueEntryHelperPackagingTest.RESOURCE_DIRECTORY
-                + QueueEntryHelperPackagingTest.HELPER_FILE)) {
-            assertThat(in).as("the packaged helper on the class path").isNotNull();
-            Files.copy(in, classFile);
-        }
-        return helper;
-    }
-
-    private static Map<String, String> environment(String javaHome) {
-        if (Platform.windows()) {
-            return StartCliEnvironment.windows(System.getenv(), javaHome,
-                System.getenv("SystemRoot") + "\\system32");
-        }
-        return StartCliEnvironment.posix(System.getenv(), javaHome);
+        Path tempRoot = Files.createDirectories(tmp.resolve("tmp"));
+        CliSystem system = new FixedSystem(Platform.windows()
+            ? new CliSystem.Read(System.getenv("SystemRoot") + "\\system32")
+            : new CliSystem.Unreadable("not Windows"), StandardCharsets.UTF_8);
+        HelperInstallation.Host host = new HelperInstallation.Host(Platform.windows(),
+            System.getenv(), system, ProcessContainment.Bound::new, resources, tempRoot);
+        EffectiveNodeConfig server = TestNodeConfig.node().id("int/a").cliHome(client.home())
+            .build();
+        CliRunner.Selection selection = TestCliRunners.forHost(FakeProcessLauncher.of("", "", 0),
+            Map.of(), resources).select(server, Optional.empty());
+        installation = HelperInstallation.install(host, selection,
+            Optional.of(System.getProperty("java.home")));
+        assertThat(installation.launchSpec().command()).as("the vendor --add-opens list")
+            .contains("--add-opens=java.base/java.lang=ALL-UNNAMED");
+        return installation.launchSpec();
     }
 
     private CliResult runHelper(LaunchSpec spec, String request) {

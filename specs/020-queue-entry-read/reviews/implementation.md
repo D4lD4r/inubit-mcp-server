@@ -123,3 +123,17 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
 - Invalid UTF-8 makes the JDK print a content-free `[Fatal Error] :-1:-1: <byte-position message>`
   line to stderr (same as the existing `XmlTree.parse`). Stderr is the log channel (Constitution
   VII), so the protocol is unaffected. Candidate for later cleanup (e.g. a silent error handler).
+
+## T020 notes
+
+- Orchestrator decision (T020-r1 minor): queue directories may hold entry content (`out/`), so
+  `CliResources.sweepStale` sweeps stale `inubit-mcp-queue-<profile>-<pid>-<random>` directories
+  at startup exactly like export directories: only this profile, only real directories (no links
+  or files), only if owned by the current user (an unreadable owner counts as foreign), never the
+  current process's and never one whose pid is alive. There are no legacy (feature 001) queue
+  names. The startup log line now says "temporary directories".
+- Texts (T020-r1 minors): after the shutdown `HelperInstallation` reports "The MCP server is
+  shutting down; the queue-entry helper was not started for <node>" (`INTERNAL`, D-3
+  `processLabel`); a failure while copying the helper class has its own `CLI_UNAVAILABLE` text
+  ("could not be copied into its private temporary directory"), separate from the private-directory
+  failure.

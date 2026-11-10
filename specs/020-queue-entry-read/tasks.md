@@ -270,7 +270,7 @@ INUBIT contact.
   and `v9_0/not_found_file.*`, `v9_0/missing_workflow.*` (spike texts, `.origin`
   `reconstructed spike 2026-11-10`) with `.README`; failing tests first in
   `adapter/cli/queue/QueueEntryHelperClassifierTest.java`; leak check (depends on T017)
-- [ ] T020 [US1] `adapter/cli/queue/HelperInstallation.java` and `HelperTrustStore.java` (D-2, D-3,
+- [X] T020 [US1] `adapter/cli/queue/HelperInstallation.java` and `HelperTrustStore.java` (D-2, D-3,
   D-7, D-8): private temp dir `inubit-mcp-queue-<profile>-<pid>-<random>` via
   `PrivateFileSystem.createTempDirectory` with `helper/`, `vendor/`, `out/`, registered with
   `CliResources`, deleted on every exit path; helper resource copied (missing → `INTERNAL`);
