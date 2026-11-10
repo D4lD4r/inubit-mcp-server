@@ -32,4 +32,16 @@ class ToolHintsTest {
         assertThat(hints.idempotent()).isFalse();
         assertThat(hints.openWorld()).isTrue();
     }
+
+    /** Feature 019 (research D-10): record_knowledge writes local notes only, no INUBIT. */
+    @Test
+    void localOnlyWriteIsLikeLocalWriteButClosedWorld() {
+        ToolHints hints = ToolHints.localOnlyWrite("Record a note");
+
+        assertThat(hints.title()).isEqualTo("Record a note");
+        assertThat(hints.readOnly()).isFalse();
+        assertThat(hints.destructive()).isFalse();
+        assertThat(hints.idempotent()).isFalse();
+        assertThat(hints.openWorld()).isFalse();
+    }
 }

@@ -247,7 +247,7 @@ readiness and a failing-audit fake.
   failing-audit fake and the race hook; INFO `knowledge.record` with the masked name, mode,
   sizes and outcome asserted through a `ListAppender` for each outcome; leak check — main
   `knowledge/KnowledgeService.java` (+ `Record`, `Recorded`), test `knowledge/KnowledgeServiceRecordTest.java`
-- [ ] T031 [US2] `ToolHints.localOnlyWrite(title)` (`openWorld=false`) and `RecordKnowledgeTool`
+- [X] T031 [US2] `ToolHints.localOnlyWrite(title)` (`openWorld=false`) and `RecordKnowledgeTool`
   with `schemas/record_knowledge.{input,output}.json` exactly as the contract (structural rules
   only, description with the propose-then-record rule incl. topics) — main `mcp/ToolHints.java`,
   `mcp/tools/RecordKnowledgeTool.java`, `src/main/resources/schemas/record_knowledge.*.json`,
