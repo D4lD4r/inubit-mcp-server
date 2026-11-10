@@ -128,3 +128,11 @@ Review of the fix round: reviews/phase4-cr-fix-r1.md (APPROVED, 1 minor fixed). 
 ## Implementation — phase 5 build
 
 After T027 (6490f01): `mvn -o -q clean verify` green with 5879 unit tests (52 skipped), 0 failures, 0 errors, plus 2 integration tests (after phase 4 fixes: 5815 + 2).
+
+## Implementation — phase 5 code review (36533b6..eaf7199)
+
+2 findings:
+1. [medium] `PartnerService.compared` builds each server's `PartnerComparison.Answered` from `read.diagrams()` alone and drops `ServerRead.unreadableDiagrams`: a server that answers but could not read one system diagram (404 after listing, name collision, unexpected response) still counts as answering for that diagram, so every partner of the diagram on the other servers gets `onlyOn` without that server (a false "missing there") while `incomplete` stays false and `notCompared` is empty. No test with an unreadable diagram in a comparison.
+2. [minor] `find_partners.output.json` `servers` description says "one entry per targeted {node}"; a `compareWith` comparison also lists the compared ones (Javadoc and contract say so).
+
+Decisions judged (accepted): key field per cloud, blank/masked/absent key compared alone, ambiguity with `moduleId`; `onlyOn` relative to answering servers (partners) or holders (entries, settings); masked settings with `sameOn` only for ≥2 fingerprinted holders on comparable lines; search and similar values on shown values only; paging, `truncated`, `nextOffset` from the returned page and the over-bound guard; one audit record per server; `NOT_FOUND` only if no answering server has the diagram; output `oneOf` on `compared` matches the serialized shape. Verdict: CHANGES REQUESTED.
