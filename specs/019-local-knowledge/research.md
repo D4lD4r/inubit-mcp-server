@@ -255,8 +255,9 @@ field or line, never the value.
     of an XML element that carries `encrypted="true"` or `type="Password"` (attribute order free,
     either quote) is a secret, up to its matching closing tag (across lines; without one, to the
     end of the text — fail closed).
-  Token rule: `(?<![A-Za-z0-9+/=])(AES-|AESG)` followed by a run of `[A-Za-z0-9+/=:-]` that
-  holds at least 16 base64 characters; the whole token is one span. No `{AES}`, `ENC(` or
+  Token rule: `(?<![A-Za-z0-9+/])(AES-|AESG)` followed by a run of `[A-Za-z0-9+/=:-]` that
+  holds at least 16 base64 characters; the whole token is one span. (T012: `=` is not in the
+  look-behind, so `var.login=AES-…` is found; base64 padding never precedes a token.) No `{AES}`, `ENC(` or
   `!enc!` form occurs in the recordings; none is added (research of 017 found none either).
 - **(d) Assignments** — the key words `password`, `passwd`, `pwd`, `secret`, `token`,
   `passphrase`, `credential`, `apikey`, case-insensitive substring of the key. Recognized forms

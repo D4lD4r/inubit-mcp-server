@@ -124,7 +124,7 @@ prints the line without reading a credential.
 **Goal**: one finder for all four kinds; configured credentials available through a port.
 **Independent test**: `SecretFinderTest` finds every kind in every position, masks spans only.
 
-- [ ] T012 `SecretFinder` rules (b)–(d) (D-6): key material via `KeyMaterial`; `AES-`/`AESG`
+- [X] T012 `SecretFinder` rules (b)–(d) (D-6): key material via `KeyMaterial`; `AES-`/`AESG`
   tokens (≥ 16 base64 characters); content of elements with `encrypted="true"`/`type="Password"`
   and of key-word elements or `name="…key word…"` elements **across lines** to the matching
   closing tag (missing tag → to the end of the text); assignments (plain, YAML/properties, JSON,
