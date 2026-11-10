@@ -247,7 +247,7 @@ INUBIT contact.
 
 ### Adapter (plan stage 7)
 
-- [ ] T017 [P] [US1] `adapter/cli/queue/HelperRequest.java` (stdin request of data-model "Helper
+- [X] T017 [P] [US1] `adapter/cli/queue/HelperRequest.java` (stdin request of data-model "Helper
   request"; `byte[] encode()`; `toString()` without `user`, `password`, `trustStorePassword`) and
   `adapter/cli/queue/HelperFrames.java` (frames of one nonce; other lines ignored; frame with a
   wrong nonce ignored; unknown frame type, duplicate `end`, missing `end` reported) — failing tests
