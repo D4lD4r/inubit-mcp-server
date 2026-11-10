@@ -2,7 +2,7 @@ package de.dadecker.inubit.mcp.adapter.cli;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
-import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchedProcess;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessRun.StartHook;
 import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Built;
 import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Cause;
 import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.TooLong;
@@ -15,7 +15,6 @@ import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.ClientCheck;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
-import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.MajorMinor;
@@ -27,10 +26,8 @@ import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.ClientCheckLookup;
 import de.dadecker.inubit.mcp.domain.port.WriteLock;
 import de.dadecker.inubit.mcp.infra.Secret;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -83,6 +80,7 @@ import org.slf4j.LoggerFactory;
  *   <li>The child environment is the allowlist of {@link StartCliEnvironment}, with
  *       {@code JAVA_HOME} from {@code cli.javaHome}, else the server's own (on Windows in any
  *       spelling). No credential variable ever reaches StartCLI.
+ *   <li>The process is run by {@link ProcessRun} with the label {@code StartCLI}.
  *   <li>The working directory is the CLI home. On timeout (or interruption) the process tree is
  *       destroyed; any member still alive after {@link #KILL_GRACE} is killed forcibly. On
  *       Windows a timeout whose last output is the client's password prompt names both
@@ -105,23 +103,22 @@ import org.slf4j.LoggerFactory;
  */
 public final class CliRunner {
 
-    public static final int MAX_OUTPUT_BYTES = 1 << 20;
-    public static final Duration KILL_GRACE = Duration.ofSeconds(2);
+    public static final int MAX_OUTPUT_BYTES = ProcessRun.MAX_OUTPUT_BYTES;
+    public static final Duration KILL_GRACE = ProcessRun.KILL_GRACE;
     private static final Logger LOG = LoggerFactory.getLogger(CliRunner.class);
-    private static final Duration POLL = Duration.ofMillis(20);
     private static final byte[] JKS_MAGIC =
         {(byte) 0xfe, (byte) 0xed, (byte) 0xfe, (byte) 0xed};
     /** The characters a value passed outside the command must not contain on Windows (R-2). */
     private static final String REFUSED_CHARACTERS =
         "\" % ! ^ & | < >, control characters or non-ASCII characters";
 
-    private final ProcessLauncher launcher;
+    private final ProcessRun processRun;
     private final Map<String, String> parentEnvironment;
     private final boolean windows;
     private final CliSystem system;
     private final ProcessContainment containment;
     private final CliResources resources;
-    /** Created on the first decoded output: building a runner never loads native code. */
+    /** Created on the first run: building a runner never loads native code. */
     private volatile OutputDecoder decoder;
     private final StartCliPinProbe pinProbe;
     private final Function<NodeId, Optional<InubitVersion>> versions;
@@ -139,19 +136,6 @@ public final class CliRunner {
             return action.apply(Optional.of(permit.admitted()));
         }
     };
-
-    /** Starts the launched process; a write starts it inside its hand-off (research D-24). */
-    @FunctionalInterface
-    private interface StartHook {
-        StartHook DIRECT = Launch::launch;
-
-        LaunchedProcess start(Launch launch) throws IOException;
-    }
-
-    @FunctionalInterface
-    private interface Launch {
-        LaunchedProcess launch() throws IOException;
-    }
 
     /** Carries the launch's {@link IOException} out of the hand-off. */
     private static final class LaunchFailure extends UncheckedIOException {
@@ -215,7 +199,7 @@ public final class CliRunner {
         this.resources = Objects.requireNonNull(resources, "resources");
         this.pinProbe = Objects.requireNonNull(pinProbe, "pinProbe");
         this.versions = Objects.requireNonNull(versions, "versions");
-        this.launcher = launcher;
+        this.processRun = new ProcessRun(launcher, resources);
         this.parentEnvironment = Map.copyOf(parentEnvironment);
         this.windows = windows;
         this.system = Objects.requireNonNull(system, "system");
@@ -715,8 +699,47 @@ public final class CliRunner {
             choice.address().name().toLowerCase(Locale.ROOT));
         LaunchSpec spec = windows ? windowsSpec(server, target, arguments, extraJavaToolOptions)
             : posixSpec(target, arguments, extraJavaToolOptions);
-        return launchAndWait(server, spec, stdinSecret, stdinCommands, timeout, timeoutSetting,
-            maxOutputBytes, hook).forClientMajor(choice.major());
+        String launchCause = windows ? "The Windows command interpreter "
+            + spec.command().get(0) + " could not be started with cli.home as its working"
+            + " directory" : "The script is not executable or the JDK is missing";
+        String launchNextStep = windows ? "Check that cli.home is an existing local directory"
+            + " your account can access"
+            : "Check cliHome, cli.javaHome and the file permissions of bin/startcli.sh";
+        ProcessRun.Call call = ProcessRun.Call.of("StartCLI").forNode(server.id())
+            .withTimeoutSetting(timeoutSetting).withOutput(maxOutputBytes, decoder())
+            .startedBy(hook).withLaunchFailure(launchCause, launchNextStep);
+        if (windows) {
+            call = call.refiningTimeouts((stdout, message) ->
+                CliOutputClassifier.endsAtThePasswordPrompt(stdout)
+                    ? Optional.of(timeoutAtThePasswordPrompt(server, message, timeoutSetting))
+                    : Optional.empty());
+        }
+        return processRun.run(spec, stdinBytes(stdinSecret, stdinCommands), timeout, call)
+            .forClientMajor(choice.major());
+    }
+
+    /**
+     * The password line, then one line per session command, in one buffer that
+     * {@link ProcessRun} zero-fills; the password's own bytes are zero-filled here. The whole
+     * input is written up front, without waiting for StartCLI's {@code Password:} or command
+     * prompt; the 6.1 prompt behaviour is reconstructed from documentation (research D-5), so
+     * this is the one place to adjust once recordings show otherwise.
+     */
+    private static byte[] stdinBytes(Optional<Secret> secret, List<CliSessionCommand> commands) {
+        byte[] password = secret.map(value -> (value.reveal() + "\n")
+            .getBytes(StandardCharsets.UTF_8)).orElse(new byte[0]);
+        try {
+            StringBuilder lines = new StringBuilder();
+            for (CliSessionCommand command : commands) {
+                lines.append(command.text()).append('\n');
+            }
+            byte[] rest = lines.toString().getBytes(StandardCharsets.UTF_8);
+            byte[] bytes = Arrays.copyOf(password, password.length + rest.length);
+            System.arraycopy(rest, 0, bytes, password.length, rest.length);
+            return bytes;
+        } finally {
+            Arrays.fill(password, (byte) 0);
+        }
     }
 
     private LaunchSpec posixSpec(LaunchTarget target, List<String> arguments,
@@ -881,7 +904,7 @@ public final class CliRunner {
      * The Java runtime StartCLI runs with: {@code cli.javaHome}, else the server's own
      * {@code JAVA_HOME} (on Windows in any spelling).
      */
-    Optional<String> javaHome(EffectiveNodeConfig server) {
+    public Optional<String> javaHome(EffectiveNodeConfig server) {
         return server.cli().javaHome().map(Path::toString)
             .or(() -> Optional.ofNullable(windows
                     ? StartCliEnvironment.valueIgnoringCase(parentEnvironment, "JAVA_HOME")
@@ -914,159 +937,10 @@ public final class CliRunner {
         return windows ? "bin\\startcli.bat" : "bin/startcli.sh";
     }
 
-    private CliResult launchAndWait(EffectiveNodeConfig server, LaunchSpec spec,
-        Optional<Secret> stdinSecret, List<CliSessionCommand> stdinCommands, Duration timeout,
-        String timeoutSetting, int maxOutputBytes, StartHook hook) {
-        long start = System.nanoTime();
-        LaunchedProcess process;
-        // announced before the launch, so that a concurrent shutdown waits for and stops it;
-        // refused (nothing started) once the resources are closed (Phase 6 review W2)
-        CliResources.Reservation reservation;
-        try {
-            reservation = resources.reserve();
-        } catch (ToolErrorException e) {
-            throw new ToolErrorException(e.error().withNode(server.id()));
-        }
-        try {
-            process = hook.start(() -> launcher.launch(spec));
-        } catch (IOException e) {
-            reservation.close();
-            throw unavailable(server, "StartCLI could not be started ("
-                    + e.getClass().getSimpleName() + ")",
-                windows ? "The Windows command interpreter " + spec.command().get(0)
-                    + " could not be started with cli.home as its working directory"
-                    : "The script is not executable or the JDK is missing",
-                windows ? "Check that cli.home is an existing local directory your account can"
-                    + " access"
-                    : "Check cliHome, cli.javaHome and the file permissions of bin/startcli.sh");
-        } catch (RuntimeException | Error e) {
-            reservation.close();
-            throw e;
-        }
-        CliResources.Registration registration;
-        try {
-            registration = reservation.process(process);
-        } catch (ToolErrorException e) {
-            // close() gave up waiting for this launch; the process was stopped (US4 R1)
-            throw new ToolErrorException(e.error().withNode(server.id()));
-        }
-        try (registration) {
-            CliResult result = waitFor(server, process, stdinSecret, stdinCommands, timeout,
-                timeoutSetting, start, maxOutputBytes);
-            if (resources.closed()) {
-                throw new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
-                    "The MCP server is shutting down; StartCLI on " + server.id()
-                        + " was stopped",
-                    "The MCP client closed the connection or the MCP server was terminated",
-                    "Retry after the MCP server was restarted").withNode(server.id()));
-            }
-            return result;
-        }
-    }
-
-    private CliResult waitFor(EffectiveNodeConfig server, LaunchedProcess process,
-        Optional<Secret> stdinSecret, List<CliSessionCommand> stdinCommands, Duration timeout,
-        String timeoutSetting, long start, int maxOutputBytes) {
-        BoundedSink stdout = BoundedSink.drain(process.stdout(), maxOutputBytes);
-        BoundedSink stderr = BoundedSink.drain(process.stderr(), maxOutputBytes);
-        writeStdin(process, stdinSecret, stdinCommands);
-        boolean exited;
-        try {
-            exited = process.waitFor(timeout);
-        } catch (InterruptedException e) {
-            terminate(process);
-            Thread.currentThread().interrupt();
-            throw timeout(server, "The StartCLI call on " + server.id() + " was cancelled",
-                timeoutSetting);
-        }
-        if (!exited) {
-            terminate(process);
-            String message = "StartCLI did not finish within " + Durations.human(timeout)
-                + " on " + server.id();
-            if (windows) {
-                stdout.await(KILL_GRACE);
-                if (CliOutputClassifier.endsAtThePasswordPrompt(stdout.text(decoder()))) {
-                    throw timeoutAtThePasswordPrompt(server, message, timeoutSetting);
-                }
-            }
-            throw timeout(server, message, timeoutSetting);
-        }
-        stdout.await(KILL_GRACE);
-        stderr.await(KILL_GRACE);
-        return new CliResult(process.exitValue(), stdout.text(decoder()), stderr.text(decoder()),
-            Duration.ofNanos(System.nanoTime() - start), stdout.truncated() || stderr.truncated(),
-            maxOutputBytes);
-    }
-
-    /**
-     * Writes the password line, then one line per session command, and closes stdin. The whole
-     * input is written up front, without waiting for StartCLI's {@code Password:} or command
-     * prompt; the 6.1 prompt behaviour is reconstructed from documentation (research D-5), so
-     * this is the one place to adjust once recordings show otherwise.
-     */
-    private static void writeStdin(LaunchedProcess process, Optional<Secret> secret,
-        List<CliSessionCommand> commands) {
-        try (OutputStream stdin = process.stdin()) {
-            if (secret.isPresent()) {
-                byte[] bytes = (secret.get().reveal() + "\n").getBytes(StandardCharsets.UTF_8);
-                try {
-                    stdin.write(bytes);
-                    stdin.flush();
-                } finally {
-                    Arrays.fill(bytes, (byte) 0);
-                }
-            }
-            for (CliSessionCommand command : commands) {
-                stdin.write((command.text() + "\n").getBytes(StandardCharsets.UTF_8));
-            }
-            stdin.flush();
-        } catch (IOException e) {
-            // the process exited before reading stdin; its output tells why
-        }
-    }
-
-    /**
-     * {@code destroy} the process tree; whatever of it is still alive after {@link #KILL_GRACE}
-     * (the root or any descendant, e.g. a JVM that ignores SIGTERM) is killed forcibly.
-     */
-    private static void terminate(LaunchedProcess process) {
-        process.destroy();
-        boolean interrupted = Thread.interrupted();
-        try {
-            long deadline = System.nanoTime() + KILL_GRACE.toNanos();
-            while (process.treeAlive() && System.nanoTime() < deadline) {
-                if (process.isAlive()) {
-                    process.waitFor(POLL);
-                } else {
-                    Thread.sleep(POLL.toMillis());
-                }
-            }
-            if (process.treeAlive()) {
-                process.destroyForcibly();
-                process.waitFor(KILL_GRACE);
-            }
-        } catch (InterruptedException e) {
-            interrupted = true;
-            process.destroyForcibly();
-        } finally {
-            if (interrupted) {
-                Thread.currentThread().interrupt();
-            }
-        }
-    }
-
     private static ToolErrorException unavailable(EffectiveNodeConfig server, String message,
         String likelyCause, String nextStep) {
         return new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE, message,
             likelyCause, nextStep).withNode(server.id()));
-    }
-
-    private static ToolErrorException timeout(EffectiveNodeConfig server, String message,
-        String timeoutSetting) {
-        return new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT, message,
-            "The INUBIT server is slow or unreachable, or StartCLI waits for input",
-            "Check get_health; raise " + timeoutSetting + " if the INUBIT server is just slow")
-            .withNode(server.id()));
     }
 
     /**
@@ -1083,64 +957,5 @@ public final class CliRunner {
                 + " if the call keeps stopping at the prompt, run the StartCLI live check on"
                 + " Windows in docs/live-tests.md")
             .withNode(server.id()));
-    }
-
-    /**
-     * Reads a stream to its end on a virtual thread, keeping at most the first {@code bound}
-     * bytes.
-     */
-    private static final class BoundedSink {
-
-        private final ByteArrayOutputStream kept = new ByteArrayOutputStream();
-        private final int bound;
-        private boolean overflow;
-        private Thread reader;
-
-        private BoundedSink(int bound) {
-            this.bound = bound;
-        }
-
-        static BoundedSink drain(InputStream in, int bound) {
-            BoundedSink sink = new BoundedSink(bound);
-            sink.reader = Thread.ofVirtual().start(() -> sink.consume(in));
-            return sink;
-        }
-
-        private void consume(InputStream in) {
-            byte[] buffer = new byte[8192];
-            try (in) {
-                int n;
-                while ((n = in.read(buffer)) >= 0) {
-                    synchronized (this) {
-                        int room = bound - kept.size();
-                        if (n > room) {
-                            overflow = true;
-                        }
-                        kept.write(buffer, 0, Math.min(n, Math.max(room, 0)));
-                    }
-                }
-            } catch (IOException e) {
-                // stream closed: keep what was read
-            }
-        }
-
-        void await(Duration timeout) {
-            try {
-                if (!reader.join(timeout)) {
-                    // a grandchild still holds the pipe; keep what was read so far
-                    reader.interrupt();
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-
-        synchronized String text(OutputDecoder decoder) {
-            return decoder.decode(kept.toByteArray());
-        }
-
-        synchronized boolean truncated() {
-            return overflow;
-        }
     }
 }

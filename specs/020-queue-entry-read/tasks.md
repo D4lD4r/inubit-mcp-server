@@ -106,7 +106,7 @@ decisions go to `specs/020-queue-entry-read/reviews/implementation.md`.
   compile unchanged; the real implementation follows in T012. Failing tests first:
   `domain/model/QueueEntryRowTest.java`, `SystemVariablesTest.java`, `QueueEntriesTest.java`,
   `domain/port/ProcessQueryPortTest.java` (default refuses without any call)
-- [ ] T006 Extract the process pipeline (D-3): new `adapter/cli/ProcessRun.java`
+- [X] T006 Extract the process pipeline (D-3): new `adapter/cli/ProcessRun.java`
   (`CliResult run(LaunchSpec spec, byte[] stdin, Duration timeout, String processLabel)`: reserve,
   launch, drain stdout/stderr with the 1 MiB bound, write stdin then zero-fill it, wait, tree kill
   with the 2 s grace, `TIMEOUT`/`CLI_UNAVAILABLE`/`INTERNAL` texts with `processLabel`) moved out of

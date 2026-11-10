@@ -186,7 +186,7 @@ public final class CliResources implements AutoCloseable {
          *     the registered processes (it gave up waiting for this one); the process is then
          *     stopped at once
          */
-        Registration process(LaunchedProcess process) {
+        public Registration process(LaunchedProcess process) {
             boolean late;
             synchronized (lock) {
                 late = stopped;
