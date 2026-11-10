@@ -83,4 +83,27 @@ class XmlEqualityTest {
     void malformedDocumentsAreRefused(String a, String b) {
         assertThatIllegalArgumentException().isThrownBy(() -> equal(a, b));
     }
+
+    private static boolean equalKeepingText(String a, String b) {
+        return XmlEquality.equalKeepingText(a.getBytes(StandardCharsets.UTF_8),
+            b.getBytes(StandardCharsets.UTF_8));
+    }
+
+    @org.junit.jupiter.api.Test
+    void keepingTextOnlyWhatAParserDoesNotReportIsIgnored() {
+        // how INUBIT re-serializes an embedded stylesheet (observed on 8.1)
+        assertThat(equalKeepingText("<!-- c -->\n<a\n   x='1'\n   y='2'>t</a>\n",
+            "<!-- c --><a x=\"1\" y=\"2\">t</a>")).isTrue();
+        assertThat(equalKeepingText("<a s=\"f(.,\n  1)\"/>", "<a s=\"f(.,   1)\"/>"))
+            .as("a line break in an attribute value is read as a space").isTrue();
+        assertThat(equalKeepingText("<a>&gt;</a>", "<a><![CDATA[>]]></a>")).isTrue();
+        // every text node counts, whitespace between elements included
+        assertThat(equalKeepingText("<a>\n  <b/>\n</a>", "<a><b/></a>")).isFalse();
+        assertThat(equal("<a>\n  <b/>\n</a>", "<a><b/></a>")).isTrue();
+        assertThat(equalKeepingText("<a><t> </t></a>", "<a><t>  </t></a>")).isFalse();
+        assertThat(equalKeepingText("<a s=\"f(., 1)\"/>", "<a s=\"f(.,   1)\"/>")).isFalse();
+        assertThat(equalKeepingText("<!-- c --><a/>", "<!-- d --><a/>")).isFalse();
+        assertThat(equalKeepingText("<a xmlns:p='u'/>", "<a/>")).isFalse();
+        assertThatIllegalArgumentException().isThrownBy(() -> equalKeepingText("<a>", "<a/>"));
+    }
 }

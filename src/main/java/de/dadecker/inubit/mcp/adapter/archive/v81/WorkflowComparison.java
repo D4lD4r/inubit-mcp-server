@@ -1,14 +1,18 @@
 package de.dadecker.inubit.mcp.adapter.archive.v81;
 
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
+import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Namespace;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Node;
+import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Text;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 
 /**
@@ -24,6 +28,14 @@ import java.util.regex.Pattern;
  *       order. Only the direct connections of a module whose parent is a {@code Workflow} are
  *       reordered, within the slots connections occupy; the order of the modules and of
  *       everything else stays significant.
+ *   <li>{@link #contentOrdered}: also the {@code Variable} children of a workflow's
+ *       {@code Variables}, which INUBIT keeps in hash order: a variable added at the end comes
+ *       back behind an arbitrary other one (observed on 8.1). They take one order by their
+ *       {@code name}, within the slots variables occupy; a namespace declaration on
+ *       {@code Variables} that nothing in it uses, which INUBIT drops, is left out. Only for the comparison of reviewed
+ *       content ({@link V81ImportArchives}), not for fingerprints: backup manifests keep
+ *       fingerprints over {@link #connectionsOrdered} (contract P-4, P-5), and two exports of one
+ *       stored version list the variables in the same order.
  * </ul>
  *
  * <p>Both forms are only compared or hashed, never imported, deployed or stored (FR-006).
@@ -41,6 +53,17 @@ final class WorkflowComparison {
     private static final Set<String> VOLATILE = Set.of("CheckinComment", "LastUpdate",
         "WorkflowUId", "ModuleUId", "CheckoutUser");
     private static final Pattern DECIMAL = Pattern.compile("[0-9]+");
+
+    /**
+     * Variables with a {@code name} first, by it (UTF-8, unsigned byte order, i.e. case-sensitive
+     * code point order); then those without; ties and the others by their normalized text. A
+     * total order, as {@link #ORDER}.
+     */
+    private static final Comparator<Named> BY_NAME = Comparator
+        .comparing((Named named) -> named.name().isEmpty())
+        .thenComparing((a, b) -> a.name().isEmpty() ? 0
+            : Arrays.compareUnsigned(a.name().get(), b.name().get()))
+        .thenComparing((a, b) -> Arrays.compareUnsigned(a.text(), b.text()));
 
     /**
      * Connections with a plain decimal {@code moduleOutId} and {@code ConnectionId} first, by
@@ -85,7 +108,17 @@ final class WorkflowComparison {
      * positions connections occupied; nothing else changes. Idempotent.
      */
     static Element connectionsOrdered(Element element) {
-        return ordered(element, false);
+        return ordered(element, false, false);
+    }
+
+    /**
+     * {@link #connectionsOrdered}, and the direct {@code Variable} children of every
+     * {@code Variables} element whose parent is a {@code Workflow} in the order of
+     * {@link #BY_NAME}, in the positions variables occupied, and such a {@code Variables}
+     * without the namespace declarations nothing in it uses; nothing else changes. Idempotent.
+     */
+    static Element contentOrdered(Element element) {
+        return ordered(element, false, true);
     }
 
     /**
@@ -111,7 +144,12 @@ final class WorkflowComparison {
         }
     }
 
-    private static Element ordered(Element element, boolean parentIsWorkflow) {
+    private static Element ordered(Element element, boolean parentIsWorkflow,
+        boolean variables) {
+        if (variables && parentIsWorkflow && is(element, "Variables")
+            && !element.hasElements()) {
+            return withoutUnusedNamespaces(element);
+        }
         if (!element.hasElements()) {
             return element;
         }
@@ -119,35 +157,67 @@ final class WorkflowComparison {
         List<Node> children = new ArrayList<>(element.children().size());
         boolean changed = false;
         for (Node child : element.children()) {
-            Node now = child instanceof Element e ? ordered(e, workflow) : child;
+            Node now = child instanceof Element e ? ordered(e, workflow, variables) : child;
             changed |= now != child;
             children.add(now);
         }
         if (parentIsWorkflow && is(element, "WorkflowModule")) {
-            changed |= sortConnections(children);
+            changed |= sortInSlots(children, "Connection", Keyed::of, ORDER, Keyed::connection);
+        }
+        if (variables && parentIsWorkflow && is(element, "Variables")) {
+            changed |= sortInSlots(children, "Variable", Named::of, BY_NAME, Named::variable);
+            return withoutUnusedNamespaces(changed ? element.withChildren(children) : element);
         }
         return changed ? element.withChildren(children) : element;
     }
 
-    /** Sorts the connections of {@code children} within their slots; true if any moved. */
-    private static boolean sortConnections(List<Node> children) {
+    /**
+     * {@code variables} without the prefixed namespace declarations that nothing in it uses:
+     * INUBIT drops such a declaration when it stores a workflow (observed on 8.1: an
+     * {@code xmlns:is} that no variable type used). A prefix counts as used if an element or
+     * attribute name in {@code variables} has it or an attribute value or text contains
+     * {@code prefix:} (a variable type such as {@code is:anyElement}).
+     */
+    private static Element withoutUnusedNamespaces(Element variables) {
+        List<Namespace> kept = variables.namespaces().stream()
+            .filter(ns -> ns.prefix().isEmpty() || uses(variables, ns.prefix())).toList();
+        return kept.size() == variables.namespaces().size() ? variables
+            : variables.withNamespaces(kept);
+    }
+
+    private static boolean uses(Element element, String prefix) {
+        String qualified = prefix + ":";
+        if (element.prefix().equals(prefix) || element.attributes().stream().anyMatch(a ->
+            a.prefix().equals(prefix) || a.value().contains(qualified))) {
+            return true;
+        }
+        return element.children().stream().anyMatch(child -> child instanceof Element e
+            ? uses(e, prefix) : child instanceof Text text && text.value().contains(qualified));
+    }
+
+    /**
+     * Sorts the {@code name} elements of {@code children} by {@code order} within the slots they
+     * occupy; true if any moved.
+     */
+    private static <T> boolean sortInSlots(List<Node> children, String name,
+        Function<Element, T> keyed, Comparator<T> order, Function<T, Element> element) {
         List<Integer> slots = new ArrayList<>();
-        List<Keyed> connections = new ArrayList<>();
+        List<T> items = new ArrayList<>();
         for (int i = 0; i < children.size(); i++) {
-            if (children.get(i) instanceof Element e && is(e, "Connection")) {
+            if (children.get(i) instanceof Element e && is(e, name)) {
                 slots.add(i);
-                connections.add(Keyed.of(e));
+                items.add(keyed.apply(e));
             }
         }
-        if (connections.size() < 2) {
+        if (items.size() < 2) {
             return false;
         }
-        List<Keyed> sorted = new ArrayList<>(connections);
-        sorted.sort(ORDER);
+        List<T> sorted = new ArrayList<>(items);
+        sorted.sort(order);
         boolean moved = false;
         for (int i = 0; i < slots.size(); i++) {
-            moved |= sorted.get(i) != connections.get(i);
-            children.set(slots.get(i), sorted.get(i).connection());
+            moved |= sorted.get(i) != items.get(i);
+            children.set(slots.get(i), element.apply(sorted.get(i)));
         }
         return moved;
     }
@@ -170,6 +240,16 @@ final class WorkflowComparison {
                 ? Optional.of(new NumericKey(new BigInteger(target.get()),
                     new BigInteger(id.get()))) : Optional.empty();
             return new Keyed(connection, number, XmlNormalizer.normalize(connection));
+        }
+    }
+
+    /** A workflow variable with its sort key: its {@code name} (UTF-8), if it has one. */
+    private record Named(Element variable, Optional<byte[]> name, byte[] text) {
+
+        static Named of(Element variable) {
+            return new Named(variable, variable.attribute("name")
+                .map(name -> name.getBytes(StandardCharsets.UTF_8)),
+                XmlNormalizer.normalize(variable));
         }
     }
 

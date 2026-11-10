@@ -18,6 +18,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The 9.0 client's TLS failure (`Authentication failed: Could not establish a secure connection
   to the process engine.` with a TLS cause) is reported as `TLS_ERROR` instead of
   `UNEXPECTED_RESPONSE`.
+- `import_artifacts` no longer rolls back a successful import because of what INUBIT normalizes
+  when it stores a workflow or a stylesheet; the verify refused these as `VERIFY_MISMATCH` and
+  rolled the import back (all observed on 8.1):
+  - INUBIT keeps the variables of a workflow in hash order, so a variable added at the end can
+    come back behind another one. The `Variable` elements of a workflow's `Variables` are now
+    compared by name in any order.
+  - INUBIT drops a namespace declaration on `Variables` that no variable uses (e.g. `xmlns:is`
+    without an `is:` type). Such a declaration no longer counts; a used one still does.
+  - INUBIT re-serializes an XSLT stylesheet (and WSDL): start tags on one line, no line break
+    between a leading comment and the root element, line breaks in attribute values as spaces.
+    Such files now also count as equal when they are the same XML with every text node,
+    whitespace between elements and in `xsl:text` included.
+  - INUBIT gives a workflow module sent without a `Comment` the comment of the module it uses
+    (seen for a globally used Throw module). The verification of an import and of its rollback
+    accept that added comment; a sent comment that comes back changed or missing still counts.
+
+  The first three also apply to the change and conflict checks of the development tools. The
+  order of everything else (modules, properties, assignments) stays significant, fingerprints
+  (confirmation codes, backups, the deployment ledger) and `deploy_release` are unchanged.
 
 ## [0.8.0] - 2026-11-07
 
