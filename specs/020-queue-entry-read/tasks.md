@@ -86,7 +86,7 @@ decisions go to `specs/020-queue-entry-read/reviews/implementation.md`.
   (fresh `UNREACHABLE`, `TIMEOUT`, `TLS_ERROR`, `AUTH_FAILED`, `UNEXPECTED_RESPONSE` passed through;
   back-off replays the code without a detection call; known 8.1 version admits; existing `admit`
   tests unchanged); leak check (depends on T003)
-- [ ] T005 [P] Domain types and ports (data-model "Domain"): `domain/model/QueueEntryRow.java`
+- [X] T005 [P] Domain types and ports (data-model "Domain"): `domain/model/QueueEntryRow.java`
   ("`fileName` 1–255, no `/`, `\`, NUL, control chars; workflow without `@@@` or control chars";
   `errorTexts` `userDefined1..5`, non-empty only, "each ≤ 2,000"), `QueueEntries.java` ("newest
   first, ≤ 100; `truncated()` = `total > rows.size()`"), `QueueEntryRef.java`, `EntryPart.java`,
