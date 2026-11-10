@@ -98,3 +98,15 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
 - Unverified: on 8.1 over `http` the helper passes `null` trust store and trust-store password to
   `IBISSoapClient`; T034 must confirm live that the 8.1 client accepts this.
 - Open (T015-r2 minor, for T034/T040): an `Error` thrown inside the vendor download thread's `run()` would bypass `exceptionOccured()`, so the helper reports `part … ok` for a missing/partial file. Depends on unverified vendor behaviour; a possible fix is an uncaught-exception handler set before `start()`.
+
+## T016 notes
+
+- `QueueEntryHelperProcessTest` copies the helper class from the class-path resource
+  `META-INF/inubit-mcp/queue-entry-helper/` into `<tmp>/helper` and builds the D-3 command itself
+  (`-Xmx512m`, TLS protocols, `-Dsecretkey.path=<home>/conf`, `-Djava.io.tmpdir=<tmp>/vendor`,
+  `-cp <helper><sep><home>/lib/*<sep><home>/lib/shared/*`, class name; working dir = client home;
+  env from `StartCliEnvironment`). The `--add-opens` list is left out: it belongs to T020
+  (`HelperInstallation`), whose tests own the exact argument array.
+- No helper bug found. Mutation check: without `System.exit` in `main` both lingering-thread
+  cases fail with `TIMEOUT` (the child JVM does not end).
+- For T020 (from T016-r1): once `HelperInstallation` exists, run at least one child-JVM case with its real argument array (incl. `--add-opens`), either here or in T020's tests.

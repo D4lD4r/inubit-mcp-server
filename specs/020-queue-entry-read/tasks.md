@@ -239,7 +239,7 @@ INUBIT contact.
   variants, only login/download/logout called (FR-007), variables-only request, part error with
   `@Start@Unable to download`, missing class → `api missing` exit 4, login failure exit 3,
   password and trust-store password never printed; leak check)
-- [ ] T016 [US1] `adapter/cli/queue/QueueEntryHelperProcessTest.java`: the packaged helper runs in
+- [X] T016 [US1] `adapter/cli/queue/QueueEntryHelperProcessTest.java`: the packaged helper runs in
   a real child JVM through `SystemProcessLauncher` with `FakeInubitClient` as client home and the
   D-3 command (`-cp <helper>:<home>/lib/*:<home>/lib/shared/*`), credentials on stdin only (argv =
   JVM options + class name), vendor noise lines on stdout ignored, `System.exit` ends a JVM with a
