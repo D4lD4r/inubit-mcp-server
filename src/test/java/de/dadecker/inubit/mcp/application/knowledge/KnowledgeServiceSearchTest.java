@@ -114,6 +114,24 @@ class KnowledgeServiceSearchTest {
     }
 
     @Test
+    void anOffsetNearTheLargestIntegerGivesAnEmptyPageWithoutANextOffset() throws IOException {
+        // phase 5 review: offset + limit must not wrap into a negative nextOffset
+        fixture.note("a.md", "destination", NEWER);
+        int offset = Integer.MAX_VALUE - 1;
+
+        SearchPage list = service.search(new Search(Optional.empty(), Optional.empty(), 20,
+            offset));
+        SearchPage found = service.search(new Search(Optional.of("destination"),
+            Optional.empty(), 20, offset));
+
+        for (SearchPage page : List.of(list, found)) {
+            assertThat(page.hits()).isEmpty();
+            assertThat(page.total()).isEqualTo(1);
+            assertThat(page.nextOffset()).isEmpty();
+        }
+    }
+
+    @Test
     void anAbsentDirectoryListsNothing() throws IOException {
         Files.delete(fixture.root);
 

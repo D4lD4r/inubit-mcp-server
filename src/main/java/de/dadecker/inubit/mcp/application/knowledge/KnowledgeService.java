@@ -97,12 +97,12 @@ public final class KnowledgeService {
             .map(text -> Pattern.compile(Pattern.quote(text),
                 Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE));
         Optional<String> topic = search.topic().map(NoteName::fold);
-        int end = search.offset() + search.limit();
+        long end = (long) search.offset() + search.limit(); // no overflow near Integer.MAX_VALUE
         List<Hit> hits = new ArrayList<>();
         int total;
         if (query.isEmpty() && topic.isEmpty()) {
             total = listing.files().size();
-            for (int i = search.offset(); i < Math.min(end, total); i++) {
+            for (int i = search.offset(); i < Math.min(end, (long) total); i++) {
                 View view = view(directory.read(listing.files().get(i)));
                 hits.add(hit(view, shared, OptionalInt.empty()));
             }
@@ -125,7 +125,7 @@ public final class KnowledgeService {
             }
         }
         LOG.debug("knowledge.read notes={} hits={}", listing.files().size(), total);
-        OptionalInt next = end < total ? OptionalInt.of(end) : OptionalInt.empty();
+        OptionalInt next = end < total ? OptionalInt.of((int) end) : OptionalInt.empty();
         return new SearchPage(hits, search.offset(), search.limit(), total, next,
             warnings(listing));
     }

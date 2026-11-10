@@ -49,3 +49,17 @@ Build on 54691ce: surefire 5679 tests, 0 failures, 0 errors, 52 skipped; failsaf
 | R2 | major | `START_TAG` backtracked quadratically on `<` followed by a long word without `>` (40,000 characters took about 5 s), against the linear bound of T012 | possessive quantifiers (same matches); test `aLongTagLikeWordWithoutClosingBracketIsScannedInLinearTime` (200,000 characters, 2 s bound; times out without the fix) |
 
 Targeted after the fixes: `SecretFinderTest` 67, 0 failures.
+
+## Implementation — phase 5 (T017–T024)
+
+Build on 63c71fb: surefire 5829 tests, 3 failures, 0 errors, 56 skipped (failsafe not reached).
+Code review of `04aaa8e..63c71fb` by a review agent (no findings on fail-closed reading, masking
+before search, cut and page, logs, package boundaries, level words or the start-time wait).
+
+| # | Severity | Finding | Resolution |
+|---|---|---|---|
+| B1 | build | `TerminologyRenderingTest`: the `ref` description of the `read_knowledge` output schema said "valid while the server runs" (a level word of the default terminology), and the read-only tool count was still nine | the description says "valid until the next restart" (schema and contract); the count is ten |
+| R1 | minor | `KnowledgeService.search` computed `offset + limit` in `int`: an offset near `Integer.MAX_VALUE` wrapped and returned a negative `nextOffset`, against the output schema (`minimum: 0`) | the page end is a `long`; `nextOffset` only when hits follow; test `anOffsetNearTheLargestIntegerGivesAnEmptyPageWithoutANextOffset` (fails without the fix) |
+
+Targeted after the fixes: `KnowledgeServiceSearchTest` 17 (1 skipped), `TerminologyRenderingTest`
+8, `ReadKnowledgeToolTest` 11, 0 failures.

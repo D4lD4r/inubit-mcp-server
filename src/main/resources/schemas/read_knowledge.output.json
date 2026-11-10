@@ -178,7 +178,7 @@
         },
         "ref": {
           "type": "string",
-          "description": "Exact reference to this note for read_knowledge and record_knowledge (valid while the server runs)"
+          "description": "Exact reference to this note for read_knowledge and record_knowledge (valid until the next restart)"
         },
         "warnings": {
           "type": "array",

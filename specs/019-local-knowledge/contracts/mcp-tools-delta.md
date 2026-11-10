@@ -136,7 +136,7 @@ Two shapes, `oneOf`: a listing (neither `name` nor `ref` given) and a page of on
         "excerpt": { "type": "string", "maxLength": 300 },
         "masked": { "type": "integer", "minimum": 0 },
         "writable": { "type": "boolean", "description": "record_knowledge can append to or replace this note" },
-        "ref": { "type": "string", "description": "Exact reference to this note for read_knowledge and record_knowledge (valid while the server runs)" },
+        "ref": { "type": "string", "description": "Exact reference to this note for read_knowledge and record_knowledge (valid until the next restart)" },
         "warnings": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
