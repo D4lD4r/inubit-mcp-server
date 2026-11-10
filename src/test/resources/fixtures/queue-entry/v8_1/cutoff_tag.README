@@ -1,0 +1,9 @@
+SYNTHETIC – 8.1 entry whose data stream breaks off inside a secret-named element
+(<credentials><password>… without end tags) and whose variable lastRequest has an apiKey
+element with a broken end tag. Expected: the values masked up to the next < or the end of the
+text; a cut at maxChars inside the placeholder shows only part of the placeholder, never the
+value.
+
+Frames use the fixed nonce 0123456789abcdef0123456789abcdef; a replay replaces it with the
+nonce of its request. Lines without the frame prefix are vendor noise the classifier ignores.
+Used by QueueEntryV81ContractTest (tasks.md T026, research D-18, D-19).

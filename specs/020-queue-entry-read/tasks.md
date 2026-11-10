@@ -353,7 +353,7 @@ INUBIT contact.
 
 ### Fixtures and 8.1 contract (plan stage 9)
 
-- [ ] T026 [US1] Synthetic content cases in `src/test/resources/fixtures/queue-entry/v8_1/`
+- [X] T026 [US1] Synthetic content cases in `src/test/resources/fixtures/queue-entry/v8_1/`
   (`binary_zip`, `utf16_text`, `latin1_text`, `secrets_everywhere`, `many_variables` (250),
   `long_values`, `missing_variables`, `cutoff_tag`, `too_large`, each `.data`/`.wfsp`/`.frames`/
   `.exit`/`.rows.json` as needed, `.origin` `reconstructed`, `.README`), `fixtures/queue-entry/README.md`,

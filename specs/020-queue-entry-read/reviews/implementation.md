@@ -223,3 +223,33 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
 - INFO line (finding 3): once a row is selected, its node and file name are logged even when a
   later step (content port, re-read, shaping) fails and no `fileName` was passed; the failure's
   message and content never reach the line.
+
+## T026 notes
+
+- Lookup in the contract test: `QueueEntryV81ContractTest` answers the entry lookup with a fake
+  `ProcessQueryPort` fed from `<case>.rows.json` through the real `QueueEntryRowParser`
+  (`QueueEntryRowFixtures.queueEntries`, now public); the helper is a `FakeProcessLauncher`
+  replaying `.frames`/`.exit` and writing `.data`/`.wfsp` to the requested output paths. No helper
+  process, no WireMock, no network.
+- Catalogue rules (`QueueEntryFixtureCatalogueTest`): every file under `fixtures/queue-entry/`
+  except the root `README.md` belongs to a case in `v8_1/` or `v9_0/`; every case has an `.origin`
+  whose first line starts with `recorded` or `reconstructed`; `.frames` and `.exit` come as a pair
+  and every frame carries the fixed nonce. A `.README` is required for every case except the
+  `rows_<case>.json` lookup answers (T012 did not require one; their `.origin` explains them), so
+  T027's `error_entry` needs one.
+- The contract test's case list must equal the `v8_1/*.rows.json` cases on disk, so T027 adds
+  `error_entry` there (with its expectations) and cannot be forgotten.
+- 9.0 rule: `CapabilityMatrix.production()` has 9.0 `QUEUE_ENTRY_READ` unsupported and
+  `v9_0/error_entry.origin` does not exist, so the rule holds; both directions are tested on a
+  temporary copy.
+- `too_large` is represented by the row's `fileSize` (10,485,761) only; no 10 MiB file is in the
+  repository, the data stream is never requested. The adapter's own check of an oversized written
+  file stays covered by `CliQueueEntryAdapterTest`.
+- `.gitattributes`: `.data` and `.wfsp` under `fixtures/queue-entry/` are `-text`, as the frames
+  name their exact byte lengths (`secrets_everywhere.data` has CRLF lines).
+- Masking results asserted as the masker produces them (FR-011): a JSON object value becomes a
+  quoted placeholder (`"credentials": "${secret:data.credentials}"`), a Bearer token under a
+  non-secret key keeps its scheme (`"auth": "Bearer ${secret:authorization}"`), the configured
+  password is `***`.
+- The fixtures were generated once by a script outside the repository (not committed); the
+  `.origin` of each case states `reconstructed synthetic content …`.

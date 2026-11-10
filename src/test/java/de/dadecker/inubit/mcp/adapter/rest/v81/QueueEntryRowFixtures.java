@@ -3,10 +3,15 @@ package de.dadecker.inubit.mcp.adapter.rest.v81;
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.QueueEntries;
+import de.dadecker.inubit.mcp.domain.model.QueueEntryRow;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -14,9 +19,10 @@ import tools.jackson.databind.json.JsonMapper;
  * The synthetic queueLog answers of feature 020 (research D-9) in
  * {@code fixtures/queue-entry/v8_1/rows_<case>.json}. Opening a case without its
  * {@code rows_<case>.origin} (first line {@code reconstructed …} or {@code recorded …}) fails, so
- * no hand-written answer passes for a recording.
+ * no hand-written answer passes for a recording. {@link #queueEntries} parses any such answer,
+ * also the {@code <case>.rows.json} of a content case, with the real row parser.
  */
-final class QueueEntryRowFixtures {
+public final class QueueEntryRowFixtures {
 
     private static final String DIRECTORY = "/fixtures/queue-entry/v8_1/";
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -44,6 +50,19 @@ final class QueueEntryRowFixtures {
         return aResponse().withStatus(200)
             .withHeader("Content-Type", "application/json;charset=UTF-8")
             .withBody(bytes(rowsCase));
+    }
+
+    /**
+     * The rows of a queueLog answer as {@code ProcessQueryPort.queueEntries} returns them, each
+     * row parsed by {@link QueueEntryRowParser}, {@code total} from {@code queueLog.total}.
+     */
+    public static QueueEntries queueEntries(NodeId server, byte[] answer) {
+        JsonNode queueLog = JSON.readTree(answer).path("queueLog");
+        List<QueueEntryRow> rows = new ArrayList<>();
+        for (JsonNode row : queueLog.path("row")) {
+            rows.add(QueueEntryRowParser.parse(server, row));
+        }
+        return new QueueEntries(rows, queueLog.path("total").asLong());
     }
 
     private static byte[] resource(String name) {

@@ -1,0 +1,7 @@
+SYNTHETIC – 8.1 entry with 250 variables: the 11 INUBIT system variables, one _hidden.
+variable, then var001…var238. Expected: totalCount 250, returnedCount 200, truncated true;
+the first 12 are system variables, the others not; the last returned is var188.
+
+Frames use the fixed nonce 0123456789abcdef0123456789abcdef; a replay replaces it with the
+nonce of its request. Lines without the frame prefix are vendor noise the classifier ignores.
+Used by QueueEntryV81ContractTest (tasks.md T026, research D-18, D-19).

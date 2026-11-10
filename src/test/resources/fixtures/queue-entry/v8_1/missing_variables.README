@@ -1,0 +1,8 @@
+SYNTHETIC – 8.1 entry whose data stream is read but whose variables file INUBIT does
+not find (the 8.1 marker reconstructed as in v8_1/not_found_file). The entry is still in the
+Queue Manager when the rows are read again. Expected (FR-012): data kind text; variables
+unavailable with the reason "INUBIT did not find the content of this entry".
+
+Frames use the fixed nonce 0123456789abcdef0123456789abcdef; a replay replaces it with the
+nonce of its request. Lines without the frame prefix are vendor noise the classifier ignores.
+Used by QueueEntryV81ContractTest (tasks.md T026, research D-18, D-19).

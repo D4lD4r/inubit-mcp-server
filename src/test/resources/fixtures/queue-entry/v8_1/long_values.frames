@@ -1,0 +1,7 @@
+log4j:WARN No appenders could be found for logger (com.inubit.ibis.soap.IBISSoapClient).
+log4j:WARN Please initialize the log4j system properly.
+#QE1:0123456789abcdef0123456789abcdef start SOAP_81
+#QE1:0123456789abcdef0123456789abcdef login ok
+#QE1:0123456789abcdef0123456789abcdef part data ok 30022
+#QE1:0123456789abcdef0123456789abcdef part variables ok 63893
+#QE1:0123456789abcdef0123456789abcdef end
