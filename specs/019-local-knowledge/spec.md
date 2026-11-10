@@ -475,6 +475,29 @@ warning, searched and readable.
 - A `create` on a path taken by something that is not that note (other extension case, directory,
   symbolic link, also on a parent segment) is refused with `PRECONDITION_FAILED` (FR-011).
 
+### Plan decisions (2026-11-10)
+
+Details in [research.md](research.md); these refine the requirements without changing them,
+except the first, which is **pending the person's confirmation**.
+
+- FR-010 (a): configured credentials are only known after they were read. Before a note is shown,
+  searched or written, the profile's credentials are read (all nodes, in parallel); while a store
+  does not answer, the knowledge tools refuse with `PRECONDITION_FAILED` (fail closed). At start,
+  with notes present, the server waits up to 5 s; if not done, the instructions give the count and
+  withhold the list (FR-006's "if cut" path). This changes 011's "no credential at start" for
+  profiles with notes (D-7).
+- FR-010 (c): the recorded exports hold one further form, the older 12-character encoding inside a
+  property marked `encrypted="true"`; the content of every XML element with `encrypted="true"` or
+  `type="Password"` is treated as a secret. (d) also covers XML elements whose `name` attribute
+  contains a key word (`<Property name="Login.Password">`) (D-6).
+- FR-004: record names additionally must not start with `.` (the note would be hidden) or end with
+  `.` or a space (Windows drops them) (D-4).
+- Metadata block: a front-matter block between `---` lines with `title`, `topics`, `source`,
+  `lastWriter`, `lastChange`; unknown keys kept. Record bounds: title 1–200 characters, at most 20
+  topics of 1–60 characters (D-5).
+- FR-003: the permission warning covers group/other read or write; the `--check-config` count
+  needs no credential (D-3).
+
 ## Assumptions
 
 - The knowledge is stored unencrypted, protected by owner-only permissions like the workspace;

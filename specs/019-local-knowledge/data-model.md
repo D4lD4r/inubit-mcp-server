@@ -1,0 +1,105 @@
+# Data Model: Local Knowledge per Profile
+
+**Feature**: 019-local-knowledge | **Date**: 2026-11-10 | **Research**: [research.md](research.md)
+
+Paths relative to `src/main/java/de/dadecker/inubit/mcp/`. "New" types are added, "Changed" types
+get the listed members; everything else is unchanged.
+
+## Files on disk
+
+| Item | Path | Created by | Rules |
+|---|---|---|---|
+| Knowledge directory | `knowledge.directory`, default `~/.inubit-mcp/<profile>/knowledge` | first write (owner-only) | never created at start or by a read; root may be a symbolic link (resolved); FR-002 overlap rules (D-2) |
+| Note | `<dir>/<segment>/…/<last>.md` | operator or `record_knowledge` | regular file, lowercase `.md`, no hidden segment, not a link; ≤ 256 KiB when written by the server; read/search bound 4 MiB |
+| Metadata block | first lines of a note, between `---` lines | operator or server | keys `title`, `topics`, `source`, `lastWriter`, `lastChange`; unknown keys kept (D-5) |
+| History version | `<dir>/.history/<note path>.md/<yyyyMMdd'T'HHmmss.nnnnnnnnn'Z'>[-n].md` | `append`/`replace` | owner-only; 10 newest kept per note; hidden from the walk; counts towards 100 MiB (D-11) |
+| Lock file | `<dir>/.lock` | first write | owner-only, empty, never deleted, excluded from the 100 MiB total (D-12) |
+| Temporary file | `<target dir>/.<file>.<uuid>.tmp` | a write | hidden; moved atomically over the target; leftovers older than 1 h deleted on the next write |
+
+## Configuration (`config`)
+
+| Type | Change | Fields | Rules |
+|---|---|---|---|
+| `KnowledgeConfig` | New record | `Path directory`, `Optional<Boolean> recording` | `recording()` = `recording.orElse(true)`; `directory` filled by the loader (D-1) |
+| `ProfileConfig` | Changed | `+ KnowledgeConfig knowledge` | JSON property `knowledge`; never null after loading |
+| `ConfigLoader` | Changed | default `knowledge.directory`; `requireStrictKnowledgeRecording` | quoted boolean → load error |
+| `ConfigValidator` | Changed | `checkKnowledge(…)` | errors per D-2; uses `canonical` |
+| `KnowledgeStatus` | New record | `Path path`, `State state` (`OK`, `ABSENT`, `PROBLEM`), `Optional<String> problem`, `boolean recording`, `int notes` | rendered by `ConfigSummary` as the `Knowledge:` line (D-3) |
+| `ConfigSummary` | Changed | `render(…, KnowledgeStatus)` | line after `Workspace:` |
+
+## Domain (`domain`)
+
+| Type | Change | Fields / members | Rules |
+|---|---|---|---|
+| `model/NoteName` | New value | `String value` (NFC); `static Optional<String> writableProblem(String)`; `static NoteName ofRelativePath(Path)`; `String fold()`; `List<String> segments()` | record rule and identity per D-4; `equals` = code points after NFC |
+| `model/KeyMaterial` | Moved from `adapter/archive/v81` (package-private → public) | `isKeyMaterial(byte[])`, `decodeDocument(String)`, `hasKeyName(String)`, `longBase64(String)` (from `SecretPaths`) | behaviour unchanged; archive adapter imports it |
+| `model/Masked` | New record | `String text`, `int count`; `MASK_TOKEN = "***"` | `count` = merged spans replaced |
+| `model/SecretSpan` | New record | `int start`, `int end` | `0 ≤ start < end ≤ length` |
+| `port/ConfiguredSecrets` | New port | `Readiness prepare(Duration bound)`; `List<SecretSpan> occurrences(String text)` | D-7 |
+| `port/ConfiguredSecrets.Readiness` | New sealed type | `Ready`, `NotReady(List<Pending> pending)`; `Pending(String node, String store, String state)` | `state` = `waiting` or a failure kind in lower case; never a value |
+| `port/PrivateFileSystem` | Changed | `+ Optional<String> othersMayAccess(Path)` | POSIX bits / Windows `check` (D-3); empty for a missing path |
+
+## Application (`application/knowledge`, new sub-package)
+
+| Type | Kind | Fields / members | Rules |
+|---|---|---|---|
+| `NoteMetadata` | record + parser/writer | `Optional<String> title`, `List<String> topics`, `Optional<String> source`, `Optional<String> lastWriter`, `Optional<String> lastChange`, `List<Entry> unknown`, `int bodyStart`, `boolean malformed`, `Optional<String> problem` | grammar D-5; `write(...)` produces the block with double-quoted strings |
+| `SecretFinder` | service | `List<Finding> find(String text)`; `Masked mask(String text)` | kinds (a)–(d) per D-6/D-7; (a) through `ConfiguredSecrets.occurrences` |
+| `SecretFinder.Finding` | record | `Kind kind`, `int start`, `int end`, `int line`, `Optional<String> key` | `Kind` = `CONFIGURED_CREDENTIAL`, `KEY_MATERIAL`, `INUBIT_ENCRYPTED`, `ASSIGNMENT` |
+| `Note` | record | `NoteName name`, `Path file`, `long size`, `FileTime modified`, `State state` (`OK`, `TOO_LARGE`, `UNREADABLE`), `Optional<String> text` (absent unless OK), `NoteMetadata metadata` | built per walk, never cached (FR-009) |
+| `KnowledgeDirectory` | file access | `Path root`; `Listing list()`; `Note read(NoteName)`; `Status status()`; `long totalBytes()` | walk per D-9; `NOFOLLOW_LINKS`; depth 16, 100,000 entries |
+| `KnowledgeDirectory.Listing` | record | `List<Note> notes`, `List<String> warnings` | notes ordered by last change desc, then name |
+| `VersionToken` | utility | `static String of(FileTime mtime, String maskedText)` | `v1.` + base64url(first 18 bytes of SHA-256) (D-9) |
+| `KnowledgeLock` | lock | `Held acquire(Duration wait)` (AutoCloseable) | in-process lock, then `FileChannel.tryLock` polling (D-12) |
+| `KnowledgeHistory` | file access | `int keep(Path note, NoteName name)` | copy, then prune to 10 (D-11); returns versions kept |
+| `KnowledgeAudit` | audit helper | `pending`, `refused`, `finished` | D-13 |
+| `KnowledgeAnnouncement` | text builder | `String paragraph(boolean recording)` | D-8; bounded |
+| `KnowledgeService` | use case | `SearchPage search(Search)`; `NotePage read(String name, int offset)`; `Recorded record(Record, Optional<String> client, String mcpClient)` | flow per D-9, D-10; all names in messages reduced (D-14) |
+| `Search` | record | `Optional<String> query`, `Optional<String> topic`, `int limit`, `int offset` | limit 1–50, offset ≥ 0 |
+| `SearchPage` / `Hit` | records | page: `hits`, `offset`, `limit`, `total`, `OptionalInt nextOffset`, `warnings`; hit: `name`, `title`, `topics`, `lastChange`, `source`, `Optional<String> versionToken`, `Optional<String> excerpt`, `int masked`, `boolean writable`, `warnings` | D-9 |
+| `NotePage` | record | `name`, `title`, `topics`, `source`, `Optional<String> lastWriter`, `lastChange`, `versionToken`, `int masked`, `int length`, `int offset`, `String content`, `OptionalInt nextOffset`, `warnings` | page 20,000 characters (D-9) |
+| `Record` | record | `String name`, `Mode mode`, `Optional<String> title`, `Optional<List<String>> topics`, `String content`, `Optional<String> versionToken` | `Mode` = `CREATE`, `APPEND`, `REPLACE`; combination rules D-10 |
+| `Recorded` | record | `name`, `mode`, `lastChange`, `versionToken`, `long sizeBefore`, `long sizeAfter`, `int historyVersions`, `String auditId`, `List<String> warnings` | D-10 step 7 |
+| `KnowledgeLimits` | constants | `NOTE_BYTES = 262_144`, `TOTAL_BYTES = 104_857_600`, `READ_BYTES = 4_194_304`, `HISTORY = 10`, `LOCK_WAIT = 10 s`, `PAGE_CHARS = 20_000`, `EXCERPT_CHARS = 300`, `LINE_CHARS = 120`, `LIST_CHARS = 4_000`, `SEARCH_LIMIT_MAX = 50`, `WALK_DEPTH = 16`, `WALK_ENTRIES = 100_000`, `START_PREPARE = 5 s` | referenced by docs test |
+
+`application/SimilarNames` changes from package-private to public (no behaviour change).
+
+## Adapters and wiring
+
+| Type | Change | Members | Rules |
+|---|---|---|---|
+| `infra/SecretScrubber` | Changed | `+ List<SecretSpan> occurrences(String text)` | same matching as `scrub`; `scrub` uses it |
+| `adapter/NodeSecrets` | Changed | `+ Settled settle(Duration)`, `+ Settled settleE2e(Duration)` | never throw; `Held`, `NothingConfigured`, `Failed(FailureKind)` (D-7) |
+| `adapter/ProfileSecrets` | New | implements `ConfiguredSecrets` over `Map<NodeId, NodeSecrets>` and the scrubber | parallel reads, bounded wait |
+| `adapter/os/*PrivateFileSystem` | Changed | `othersMayAccess` | POSIX / Windows (D-3) |
+| `adapter/archive/v81/SecretRedactor`, `RepositoryArchive`, `SecretPaths` | Changed | import `domain.model.KeyMaterial` | behaviour unchanged |
+| `application/PackageWriter` | Changed | `+ static Path defaultDirectory(Path home, String profile)` | used by `Wiring` and `ConfigValidator` |
+| `Wiring` | Changed | `knowledgeService()`, tools in `toolHandlers()` | `record_knowledge` only with `recording()` |
+| `Launcher` | Changed | knowledge paragraph at `serve`; `KnowledgeStatus` for `--check-config`; permission warning in `withPrivateObjects` | D-3, D-7, D-8 |
+| `mcp/McpServerFactory` | Changed | `instructions()` appends the knowledge paragraph | after rendering, before the update notice |
+| `mcp/ToolHints` | Changed | `+ localOnlyWrite(String title)` | `readOnly=false, destructive=false, idempotent=false, openWorld=false` |
+| `mcp/tools/ReadKnowledgeTool`, `RecordKnowledgeTool` | New | schemas `read_knowledge.{input,output}.json`, `record_knowledge.{input,output}.json` | [contracts/mcp-tools-delta.md](contracts/mcp-tools-delta.md) |
+
+## Audit record (`record_knowledge`)
+
+| Field | Value |
+|---|---|
+| `capability` | `record_knowledge` |
+| `node` | `-` |
+| `group`, `account` | empty |
+| `step` | `EXECUTE` |
+| `inputs` | `name` (masked, one line, ≤ 120), `mode`, `sizeBefore`, `sizeAfter` |
+| `outcome` | `REFUSED` (before writing) or `PENDING` → `EXECUTED` / `REFUSED` / `FAILED` |
+| `reason` | error code and message (no content, title, topic, value or token) |
+| `mcpClient` | from the call |
+
+## State transitions of a note
+
+```text
+(absent) --create--> note v1 (block written, source = assistant (<client>))
+note vN --append (token not needed)--> history += vN, note vN+1 = vN + section
+note vN --replace (token = token(vN))--> history += vN, note vN+1 = new content
+note vN --replace (token stale)--> CONFLICT, unchanged
+note (hand-edited) --any write--> block added or updated, unknown keys kept
+(no transition deletes or renames a note)
+```
