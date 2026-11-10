@@ -9,6 +9,8 @@ import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.MediaRange;
 import de.dadecker.inubit.mcp.adapter.rest.RestResponse;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
+import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
 import de.dadecker.inubit.mcp.domain.model.partner.SystemDiagramPartners;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
@@ -34,8 +36,9 @@ import java.util.Optional;
  * must be passed as {@code listDiagrams} returned it. A diagram whose export answers HTTP 404
  * (deleted or renamed since it was listed) is reported as unreadable with {@code NOT_FOUND} as
  * well. An export that cannot be read is {@code UNEXPECTED_RESPONSE} naming the part, never its
- * content; other request failures come from {@link InubitHttpClient}. All errors carry the server
- * id.
+ * content; other request failures come from {@link InubitHttpClient}, without the excerpt of the
+ * answer (T030, FR-008: the answer to a Partner Management export may quote partner data). All
+ * errors carry the server id.
  */
 public final class V81PartnerManagementAdapter implements PartnerManagementPort {
 
@@ -43,6 +46,9 @@ public final class V81PartnerManagementAdapter implements PartnerManagementPort 
         + " or owner; the name is not unique";
     static final String NOT_SINGLE = "the export of this name holds several diagrams of this name"
         + " in this group; the name is not unique";
+    /** The next step of an unexpected answer whose excerpt was dropped. */
+    static final String NO_EXCERPT_NEXT_STEP = "Check the INUBIT system log for the time of the"
+        + " call (the answer to a Partner Management export is not quoted)";
     static final String NOT_RETURNED = "the export of this name did not return the requested"
         + " diagram; the name is not unique or not found";
 
@@ -63,8 +69,7 @@ public final class V81PartnerManagementAdapter implements PartnerManagementPort 
         List<UnreadableDiagram> unreadable = new ArrayList<>();
         Map<DiagramRef, List<String>> warnings = new HashMap<>();
         for (DiagramRef diagram : systemDiagrams) {
-            RestResponse export = client.get(EXPORT + InubitHttpClient.encodePathSegment(
-                diagram.name()), Map.of(), MediaRange.ANY, 404);
+            RestResponse export = export(diagram);
             if (export.status() == 404) {
                 unreadable.add(new UnreadableDiagram(diagram, ErrorCode.NOT_FOUND, "The export of "
                     + where(diagram) + " answered HTTP 404; the system diagram no longer exists"
@@ -85,6 +90,25 @@ public final class V81PartnerManagementAdapter implements PartnerManagementPort 
             }
         }
         return new Result(diagrams, unreadable, warnings);
+    }
+
+    /** The export of {@code diagram}; a failure keeps its kind but loses the excerpt. */
+    private RestResponse export(DiagramRef diagram) {
+        try {
+            return client.get(EXPORT + InubitHttpClient.encodePathSegment(diagram.name()),
+                Map.of(), MediaRange.ANY, 404);
+        } catch (ToolErrorException e) {
+            ToolError error = e.error();
+            if (error.excerpt().isEmpty()) {
+                throw e;
+            }
+            // only an unexpected answer's next step points to the excerpt
+            ToolError withoutExcerpt = ToolError.of(error.code(), error.message(),
+                error.likelyCause(), error.code() == ErrorCode.UNEXPECTED_RESPONSE
+                    ? NO_EXCERPT_NEXT_STEP : error.nextStep());
+            throw new ToolErrorException(error.node().map(withoutExcerpt::withNode)
+                .orElse(withoutExcerpt));
+        }
     }
 
     private Element workflowRoot(DiagramRef diagram, byte[] body) {

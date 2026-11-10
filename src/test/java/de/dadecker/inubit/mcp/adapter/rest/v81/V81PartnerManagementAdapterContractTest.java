@@ -338,6 +338,23 @@ class V81PartnerManagementAdapterContractTest {
         assertThat(error.node()).contains(ID);
     }
 
+    @ParameterizedTest(name = "HTTP {0} → {1}")
+    @CsvSource({"500, Check the INUBIT system log", "400, Check the INUBIT system log",
+        "503, run get_health"})
+    void aFailedExportIsReportedWithoutAnExcerptOfItsAnswer(int status, String nextStep) {
+        // T030: the answer of a Partner Management export may quote partner data
+        stub(RECORDED.name(), aResponse().withStatus(status)
+            .withBody("failed near " + PartnerFixtures.AES_PASSWORD + " " + RECORDED_VALUE));
+
+        ToolError error = errorOf(() -> adapter().read(OWNER, List.of(RECORDED)));
+
+        assertThat(error.excerpt()).isEmpty();
+        assertThat(error.toString()).doesNotContain(PartnerFixtures.AES_PASSWORD, RECORDED_VALUE,
+            "failed near");
+        assertThat(error.nextStep()).doesNotContainIgnoringCase("excerpt").startsWith(nextStep);
+        assertThat(error.node()).contains(ID);
+    }
+
     @Test
     void a503InMaintenanceModeIsMaintenanceMode() {
         stub(RECORDED.name(), aResponse().withStatus(503));

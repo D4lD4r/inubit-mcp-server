@@ -342,7 +342,7 @@ system diagrams/clouds whose `ReferencableTWFs` contain the workflow.
 
 ## Phase 7: Polish & cross-cutting
 
-- [ ] T030 [P] `PartnerSecretLeakTest`: the whole tool over all fixtures (single, list, compare,
+- [x] T030 [P] `PartnerSecretLeakTest`: the whole tool over all fixtures (single, list, compare,
   errors, cache hit, audit failure): no synthetic secret or derivative in results, errors, log
   output (captured appender) or audit lines; the cache holds only `Masked` values (SC-002) — test
   `security/PartnerSecretLeakTest.java`
