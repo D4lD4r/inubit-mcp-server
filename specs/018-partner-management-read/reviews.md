@@ -142,3 +142,7 @@ Fix round (uncommitted on 516c342), one line per finding:
 2. Fixed: `servers` description: one entry per targeted {node}, then per compared {node} (`compareWith`).
 
 Review of the fix round: reviews/phase5-cr-fix-r1.md (APPROVED after 3 rounds, 2 medium fixed). Full build `mvn -o -q clean verify` green: 5883 unit tests (52 skipped) + 2 integration tests.
+
+## Implementation — phase 6 build
+
+After T029 (59fdd34): `mvn -o -q clean verify` green with 5895 unit tests (52 skipped), 0 failures, 0 errors, plus 2 integration tests (after phase 5 fixes: 5883 + 2).
