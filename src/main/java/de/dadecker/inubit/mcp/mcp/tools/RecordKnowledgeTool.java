@@ -76,6 +76,7 @@ public final class RecordKnowledgeTool implements ToolHandler {
         Record.Mode mode = Record.Mode.valueOf(args.string("mode").toUpperCase(Locale.ROOT));
         return Result.of(service.record(new Record(args.optionalString("name"),
             args.optionalString("ref"), mode, args.optionalString("title"), topics,
-            args.string("content"), args.optionalString("versionToken"), context.client())));
+            args.string("content"), args.optionalString("versionToken"), context.clientName(),
+            context.client())));
     }
 }

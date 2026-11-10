@@ -65,3 +65,24 @@ Targeted after the fixes: `KnowledgeServiceSearchTest` 17 (1 skipped), `Terminol
 8, `ReadKnowledgeToolTest` 11, 0 failures.
 Build on 74ec687: surefire 5830 tests, 0 failures, 0 errors, 56 skipped; failsafe 2 tests,
 0 failures.
+
+## Implementation — phase 6 (T025–T033)
+
+Build on e17bc1d: surefire 5935 tests, 0 failures, 0 errors, 58 skipped; failsafe 3 tests,
+0 failures.
+Code review of `74ec687..e17bc1d` by a review agent (no findings on secrets in content, title,
+topics or `versionToken`, the INFO line, the order history version → publish → prune, the undo
+before the commit point, the token and secret order, the bounds, links on the way, the audit
+records, the lock, schemas, wiring, package boundaries or level words).
+
+| # | Severity | Finding | Resolution |
+|---|---|---|---|
+| R1 | minor | `KnowledgeDirectory.publishNew` removed the temporary file in `finally`: when that failed after the hard link (the commit point), the created note was reported as `INTERNAL` "as they were" with a `FAILED` audit record; on the `EXISTS` path the failure hid the `CONFLICT` | the temporary file is removed quietly on every path, after the link too (a stale one is removed by a later size walk); `publishReplace` likewise; tests `aTemporaryFileThatCannotBeRemovedAfterTheCommitPointIsNoError` and `aTemporaryFileThatCannotBeRemovedDoesNotHideThatTheNoteExists` (both fail without the fix) |
+| R2 | minor | `create` did not check `.history` before publication (D-10 step 7): a link there was first met by the prune after the commit, and the warning reported an invented 11 versions | `KnowledgeHistory.check` runs under the lock before a new note is published and refuses with `PRECONDITION_FAILED`; a count that cannot be read is reported as "an unknown number of versions"; test `aLinkInTheHistoryIsRefusedBeforeANoteIsCreated` |
+| R3 | minor | the lock-file errors named the absolute path `<real dir>/.lock` and the file system's reason text, unmasked and uncut (D-14), in the model's result and the audit `reason` | the message names `.lock` in the knowledge directory and only the exception's class; `KnowledgeLockTest` asserts that neither the directory's path nor a link target appears |
+| R4 | minor | `source`/`lastWriter` held the client's `name/version` (`CallContext.client()`), against D-5 and data-model.md (`client` for the metadata, `mcpClient` for the audit) | `Record` carries `client` (the `clientInfo` name, for the metadata) and `mcpClient` (`name/version`, for the audit); `RecordKnowledgeTool` passes `clientName()` and `client()`; the service, tool and wiring tests expect `assistant (<name>)` and `name/version` in the audit |
+| R5 | note | pruning orders versions by their stamp: if ten versions carry stamps later than the clock (the clock stepped back, or a history copied from a machine with clock skew), the version just added is the oldest and pruned at once | not changed: the stamp is the version's identity (D-11) and a modification time is just as exposed to skew; the note itself is never lost |
+
+Targeted after the fixes: `KnowledgeServiceRecordTest` 39 (1 skipped), `KnowledgeDirectoryTest` 38
+(3 skipped), `KnowledgeLockTest` 9, `KnowledgeHistoryTest`, `RecordKnowledgeToolTest`,
+`KnowledgeToolsWiringTest`, 0 failures. The full build follows at the phase 7 checkpoint.

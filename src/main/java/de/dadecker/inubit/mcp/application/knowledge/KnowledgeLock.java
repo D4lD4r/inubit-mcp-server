@@ -9,7 +9,6 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -93,7 +92,7 @@ public final class KnowledgeLock {
         try {
             if (Files.exists(file, LinkOption.NOFOLLOW_LINKS)) {
                 if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
-                    throw unusable(file, Files.isSymbolicLink(file)
+                    throw unusable(Files.isSymbolicLink(file)
                         ? "it is a symbolic link" : "it is not a regular file");
                 }
             } else {
@@ -104,12 +103,8 @@ public final class KnowledgeLock {
                 }
             }
             return files.openLockFileNoFollow(file);
-        } catch (FileSystemException e) {
-            throw unusable(file, Files.isSymbolicLink(file) ? "it is a symbolic link"
-                : e.getClass().getSimpleName() + (e.getReason() == null ? ""
-                    : ": " + e.getReason()));
         } catch (IOException | UnsupportedOperationException e) {
-            throw unusable(file, Files.isSymbolicLink(file) ? "it is a symbolic link"
+            throw unusable(Files.isSymbolicLink(file) ? "it is a symbolic link"
                 : e.getClass().getSimpleName());
         }
     }
@@ -152,13 +147,15 @@ public final class KnowledgeLock {
             "Try again in a moment"));
     }
 
-    private static ToolErrorException unusable(Path file, String why) {
+    /** Names the file only relative to the knowledge directory (research D-14). */
+    private static ToolErrorException unusable(String why) {
         return new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
-            "The lock file " + file + " of the local knowledge cannot be used (" + why
+            "The lock file " + FILE + " in the knowledge directory cannot be used (" + why
                 + "); nothing was written",
             "This file serializes the writes to the local knowledge; a link there is never"
                 + " followed",
-            "Remove " + file + " by hand (it is created again on the next write), then retry"));
+            "Remove " + FILE + " from the knowledge directory by hand (it is created again on the"
+                + " next write), then retry"));
     }
 
     private static void closeQuietly(FileChannel channel) {

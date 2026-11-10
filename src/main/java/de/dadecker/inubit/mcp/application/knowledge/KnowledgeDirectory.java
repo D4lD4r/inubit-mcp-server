@@ -442,13 +442,18 @@ public final class KnowledgeDirectory {
             beforePublish.run();
             publisher.link(target, temporary);
         } catch (FileAlreadyExistsException e) {
+            removeQuietly(temporary);
             throw new WriteRefusal(WriteRefusal.Kind.EXISTS,
                 new Occupied(real.relativize(target), "already exists"), "already exists");
         } catch (FileSystemException | UnsupportedOperationException e) {
+            removeQuietly(temporary);
             throw notAtomic(e);
-        } finally {
-            Files.deleteIfExists(temporary);
+        } catch (IOException | RuntimeException e) {
+            removeQuietly(temporary);
+            throw e;
         }
+        // after the commit point: a temporary file left behind is removed by a later size walk
+        removeQuietly(temporary);
         return target;
     }
 
@@ -478,10 +483,19 @@ public final class KnowledgeDirectory {
             throw notAtomic(e);
         } finally {
             if (!moved) {
-                Files.deleteIfExists(temporary);
+                removeQuietly(temporary);
             }
         }
         return target;
+    }
+
+    /** A failure to remove a temporary file never hides the outcome of the write. */
+    private static void removeQuietly(Path temporary) {
+        try {
+            Files.deleteIfExists(temporary);
+        } catch (IOException e) {
+            // left for the size walk, which removes stale temporary files
+        }
     }
 
     /**

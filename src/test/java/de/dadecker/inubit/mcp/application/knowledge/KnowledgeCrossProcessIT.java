@@ -56,7 +56,8 @@ class KnowledgeCrossProcessIT {
 
     private static Record append(String section) {
         return new Record(Optional.of(NOTE), Optional.empty(), Mode.APPEND, Optional.empty(),
-            Optional.empty(), section, Optional.empty(), Optional.of("cross-process/1"));
+            Optional.empty(), section, Optional.empty(),
+            Optional.of("cross-process"), Optional.of("cross-process/1"));
     }
 
     /** The second JVM: appends {@code args[1]} to the note in the knowledge {@code args[0]}. */
@@ -75,7 +76,7 @@ class KnowledgeCrossProcessIT {
         KnowledgeService service = service(root);
         service.record(new Record(Optional.of(NOTE), Optional.empty(), Mode.CREATE,
             Optional.of("Shared"), Optional.empty(), "Start.", Optional.empty(),
-            Optional.of("cross-process/1")));
+            Optional.of("cross-process"), Optional.of("cross-process/1")));
         Path note = root.resolve(NOTE + ".md");
         String created = Files.readString(note);
         Process child;

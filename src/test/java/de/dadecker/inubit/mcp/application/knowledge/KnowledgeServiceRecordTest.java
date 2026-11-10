@@ -54,8 +54,9 @@ class KnowledgeServiceRecordTest {
     private static final Instant NOW = Instant.parse("2026-11-10T10:15:00Z");
     private static final UUID ID = UUID.fromString("00000000-0000-4000-8000-000000000030");
     private static final String HELD = "S3cond-held-value";
-    private static final String CLIENT = "claude-code/2.0";
-    private static final String WRITER = "'assistant (" + CLIENT + ")'";
+    private static final String CLIENT_NAME = "claude-code";
+    private static final String CLIENT = CLIENT_NAME + "/2.0";
+    private static final String WRITER = "'assistant (" + CLIENT_NAME + ")'";
 
     @TempDir
     Path temp;
@@ -97,22 +98,26 @@ class KnowledgeServiceRecordTest {
     private static Record create(String name, String title, List<String> topics,
         String content) {
         return new Record(Optional.of(name), Optional.empty(), Mode.CREATE, Optional.of(title),
-            Optional.of(topics), content, Optional.empty(), Optional.of(CLIENT));
+            Optional.of(topics), content, Optional.empty(), Optional.of(CLIENT_NAME),
+            Optional.of(CLIENT));
     }
 
     private static Record append(String name, String section) {
         return new Record(Optional.of(name), Optional.empty(), Mode.APPEND, Optional.empty(),
-            Optional.empty(), section, Optional.empty(), Optional.of(CLIENT));
+            Optional.empty(), section, Optional.empty(), Optional.of(CLIENT_NAME),
+            Optional.of(CLIENT));
     }
 
     private static Record replace(String name, String content, String token) {
         return new Record(Optional.of(name), Optional.empty(), Mode.REPLACE, Optional.empty(),
-            Optional.empty(), content, Optional.of(token), Optional.of(CLIENT));
+            Optional.empty(), content, Optional.of(token), Optional.of(CLIENT_NAME),
+            Optional.of(CLIENT));
     }
 
     private static Record byRef(String ref, Mode mode, String content) {
         return new Record(Optional.empty(), Optional.of(ref), mode, Optional.empty(),
-            Optional.empty(), content, Optional.empty(), Optional.of(CLIENT));
+            Optional.empty(), content, Optional.empty(), Optional.of(CLIENT_NAME),
+            Optional.of(CLIENT));
     }
 
     private static String block(String title, String topics, String source) {
@@ -171,6 +176,7 @@ class KnowledgeServiceRecordTest {
         assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.EXECUTED);
         assertThat(port.records).allSatisfy(audit -> {
             assertThat(audit.auditId()).isEqualTo(ID);
+            assertThat(audit.mcpClient()).as("name/version in the audit").hasValue(CLIENT);
             assertThat(audit.toString()).doesNotContain("EDIFACT", "ACME", "brien");
         });
         assertThat(port.records.getLast().inputs()).containsExactly(
@@ -193,7 +199,8 @@ class KnowledgeServiceRecordTest {
             clock));
 
         fresh.record(new Record(Optional.of("a"), Optional.empty(), Mode.CREATE,
-            Optional.of("A"), Optional.empty(), "x", Optional.empty(), Optional.empty()));
+            Optional.of("A"), Optional.empty(), "x", Optional.empty(), Optional.empty(),
+            Optional.empty()));
 
         assertThat(Files.readString(root.resolve("a.md"))).contains(
             "source: 'assistant (unknown client)'", "topics: []");
@@ -203,7 +210,7 @@ class KnowledgeServiceRecordTest {
     void theClientNameIsMaskedAndShortened() throws IOException {
         service.record(new Record(Optional.of("a"), Optional.empty(), Mode.CREATE,
             Optional.of("A"), Optional.empty(), "x", Optional.empty(),
-            Optional.of(HELD + "x".repeat(100))));
+            Optional.of(HELD + "x".repeat(100)), Optional.of(HELD + "x".repeat(100))));
 
         String text = text("a.md");
         assertThat(text).doesNotContain(HELD).contains("source: 'assistant (***xxx");
@@ -274,7 +281,7 @@ class KnowledgeServiceRecordTest {
 
         service.record(new Record(Optional.of("a"), Optional.empty(), Mode.APPEND,
             Optional.empty(), Optional.of(List.of("y")), "more", Optional.empty(),
-            Optional.of(CLIENT)));
+            Optional.of(CLIENT_NAME), Optional.of(CLIENT)));
 
         assertThat(text("a.md")).isEqualTo("---\ntitle: 'Old'\ntopics: ['y']\n"
             + "source: 'by hand'\nlastWriter: " + WRITER + "\nlastChange: '" + NOW + "'\n"
@@ -372,19 +379,19 @@ class KnowledgeServiceRecordTest {
         String token = "v1.AAAAAAAAAAAAAAAAAAAAAAAA";
         List<Record> calls = List.of(
             new Record(Optional.of("a"), Optional.empty(), Mode.CREATE, Optional.empty(),
-                Optional.empty(), "x", Optional.empty(), Optional.empty()),
+                Optional.empty(), "x", Optional.empty(), Optional.empty(), Optional.empty()),
             new Record(Optional.empty(), Optional.empty(), Mode.APPEND, Optional.empty(),
-                Optional.empty(), "x", Optional.empty(), Optional.empty()),
+                Optional.empty(), "x", Optional.empty(), Optional.empty(), Optional.empty()),
             new Record(Optional.of("a"), Optional.of("r"), Mode.APPEND, Optional.empty(),
-                Optional.empty(), "x", Optional.empty(), Optional.empty()),
+                Optional.empty(), "x", Optional.empty(), Optional.empty(), Optional.empty()),
             new Record(Optional.empty(), Optional.of("r"), Mode.CREATE, Optional.of("T"),
-                Optional.empty(), "x", Optional.empty(), Optional.empty()),
+                Optional.empty(), "x", Optional.empty(), Optional.empty(), Optional.empty()),
             new Record(Optional.of("a"), Optional.empty(), Mode.REPLACE, Optional.empty(),
-                Optional.empty(), "x", Optional.empty(), Optional.empty()),
+                Optional.empty(), "x", Optional.empty(), Optional.empty(), Optional.empty()),
             new Record(Optional.of("a"), Optional.empty(), Mode.APPEND, Optional.empty(),
-                Optional.empty(), "x", Optional.of(token), Optional.empty()),
+                Optional.empty(), "x", Optional.of(token), Optional.empty(), Optional.empty()),
             new Record(Optional.of("a"), Optional.empty(), Mode.CREATE, Optional.of("T"),
-                Optional.empty(), "x", Optional.of(token), Optional.empty()),
+                Optional.empty(), "x", Optional.of(token), Optional.empty(), Optional.empty()),
             create("a", "T", List.of(), ""),
             create("a", "", List.of(), "x"),
             create("a", "😀".repeat(201), List.of(), "x"),
@@ -649,6 +656,23 @@ class KnowledgeServiceRecordTest {
         }
     }
 
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void aLinkInTheHistoryIsRefusedBeforeANoteIsCreated() throws IOException {
+        Path outside = Files.createDirectories(temp.resolve("outside"));
+        Files.createSymbolicLink(fixture.root.resolve(".history"), outside);
+
+        ToolError refused = error(ErrorCode.PRECONDITION_FAILED, () -> service.record(
+            create("a", "T", List.of(), "x")));
+
+        assertThat(refused.message()).contains(".history", "symbolic link");
+        assertThat(fixture.root.resolve("a.md")).doesNotExist();
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.REFUSED);
+        try (Stream<Path> files = Files.list(outside)) {
+            assertThat(files).isEmpty();
+        }
+    }
+
     // D-12: the race between the check and publication
 
     @Test
@@ -676,6 +700,29 @@ class KnowledgeServiceRecordTest {
     }
 
     // D-10, FR-014: before and after the commit point
+
+    @Test
+    void aTemporaryFileThatCannotBeRemovedAfterTheCommitPointIsNoError() throws IOException {
+        directory.publisher(new Publisher() {
+            @Override
+            public void link(Path target, Path temporary) throws IOException {
+                Publisher.FILES.link(target, temporary);
+                Files.delete(temporary);
+                Files.createDirectories(temporary.resolve("in-the-way"));
+            }
+
+            @Override
+            public void move(Path temporary, Path target) {
+                throw new AssertionError("not used");
+            }
+        });
+
+        Recorded recorded = service.record(create("a", "A", List.of(), "x"));
+
+        assertThat(recorded.name()).isEqualTo("a");
+        assertThat(text("a.md")).endsWith("---\n\nx");
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.EXECUTED);
+    }
 
     @Test
     void aFailedPublicationLeavesNoteAndHistoryAsTheyWere() throws IOException {

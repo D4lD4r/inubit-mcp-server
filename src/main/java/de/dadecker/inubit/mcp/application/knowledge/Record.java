@@ -16,11 +16,13 @@ import java.util.Optional;
  * @param topics       the topics; kept if absent ({@code append}, {@code replace})
  * @param content      the body ({@code create}, {@code replace}) or the section to add
  * @param versionToken the token read last; required for {@code replace} only
- * @param mcpClient    the MCP client's {@code name/version}, if sent
+ * @param client       the MCP client's {@code name} for the note's {@code source} and
+ *                     {@code lastWriter} (research D-5), if sent
+ * @param mcpClient    the MCP client's {@code name/version} for the audit, if sent
  */
 public record Record(Optional<String> name, Optional<String> ref, Mode mode,
     Optional<String> title, Optional<List<String>> topics, String content,
-    Optional<String> versionToken, Optional<String> mcpClient) {
+    Optional<String> versionToken, Optional<String> client, Optional<String> mcpClient) {
 
     /** What the call does with the note. */
     public enum Mode {
@@ -40,6 +42,7 @@ public record Record(Optional<String> name, Optional<String> ref, Mode mode,
         topics = Objects.requireNonNull(topics, "topics").map(List::copyOf);
         Objects.requireNonNull(content, "content");
         Objects.requireNonNull(versionToken, "versionToken");
+        Objects.requireNonNull(client, "client");
         Objects.requireNonNull(mcpClient, "mcpClient");
     }
 }

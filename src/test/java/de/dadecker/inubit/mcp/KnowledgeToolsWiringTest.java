@@ -142,7 +142,7 @@ class KnowledgeToolsWiringTest {
             assertThat(result.path("isError").asBoolean()).isFalse();
             String auditId = result.path("structuredContent").path("auditId").asString();
             assertThat(Files.readString(temp.resolve("knowledge/partners/acme.md")))
-                .contains("source: 'assistant (mcp-test-client/1.0)'").endsWith("Uses EDIFACT.");
+                .contains("source: 'assistant (mcp-test-client)'").endsWith("Uses EDIFACT.");
             List<String> audit = new ArrayList<>();
             try (var files = Files.list(temp.resolve("audit"))) {
                 for (Path file : files.toList()) {

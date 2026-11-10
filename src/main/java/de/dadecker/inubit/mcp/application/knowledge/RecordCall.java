@@ -27,6 +27,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
@@ -442,7 +443,7 @@ final class RecordCall {
 
     /** {@code assistant (<client>)}: masked, one line, at most 60 characters. */
     private String writer() {
-        String client = call.mcpClient()
+        String client = call.client()
             .map(value -> cut(Shown.line(finder.mask(value).text()), CLIENT_CODE_POINTS))
             .filter(value -> !value.isEmpty()).orElse("unknown client");
         return "assistant (" + client + ")";
@@ -474,12 +475,14 @@ final class RecordCall {
     private Recorded publish(NoteName name, Optional<NoteFile> existing, String text,
         byte[] bytes, long before, KnowledgeHistory history) throws IOException {
         Path version = null;
-        if (existing.isPresent()) {
-            try {
+        try {
+            if (existing.isPresent()) {
                 version = history.add(existing.get().file(), name);
-            } catch (IOException e) {
-                throw failed(e, true);
+            } else {
+                history.check(name);
             }
+        } catch (IOException e) {
+            throw failed(e, true);
         }
         Path published;
         try {
@@ -526,10 +529,12 @@ final class RecordCall {
         try {
             kept = history.prune(name);
         } catch (IOException | RuntimeException e) {
-            kept = count(history, name);
+            OptionalInt counted = count(history, name);
+            kept = counted.orElse(KnowledgeLimits.HISTORY + 1);
             warnings.add("The note was written, but its history could not be pruned ("
-                + e.getClass().getSimpleName() + "); it holds " + kept + " versions until a"
-                + " later write prunes it");
+                + e.getClass().getSimpleName() + "); it holds " + counted.stream()
+                    .mapToObj(Integer::toString).findFirst().orElse("an unknown number of")
+                + " versions until a later write prunes it");
         }
         FileTime modified;
         try {
@@ -549,11 +554,11 @@ final class RecordCall {
             audit.auditId().toString(), warnings);
     }
 
-    private static int count(KnowledgeHistory history, NoteName name) {
+    private static OptionalInt count(KnowledgeHistory history, NoteName name) {
         try {
-            return history.count(name);
+            return OptionalInt.of(history.count(name));
         } catch (IOException | RuntimeException e) {
-            return KnowledgeLimits.HISTORY + 1;
+            return OptionalInt.empty();
         }
     }
 

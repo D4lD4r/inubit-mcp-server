@@ -141,7 +141,7 @@ class RecordKnowledgeToolTest {
             .isEqualTo(2);
         String text = Files.readString(root.resolve("partners/acme.md"));
         assertThat(text).contains("title: 'ACME'", "topics: []",
-            "source: 'assistant (mcp-test-client/1.0)'").endsWith("---\nNew.");
+            "source: 'assistant (mcp-test-client)'").endsWith("---\nNew.");
         assertThat(audit).extracting(AuditRecord::outcome).containsExactly(
             AuditOutcome.PENDING, AuditOutcome.EXECUTED, AuditOutcome.PENDING,
             AuditOutcome.EXECUTED, AuditOutcome.PENDING, AuditOutcome.EXECUTED);

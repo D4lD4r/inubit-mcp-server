@@ -17,6 +17,7 @@ import de.dadecker.inubit.mcp.testing.WindowsAcl;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -544,6 +545,30 @@ class KnowledgeDirectoryTest {
 
         assertThat(Files.readString(target)).isEqualTo("by hand");
         assertThat(entries(root)).containsExactly("acme.md");
+    }
+
+    @Test
+    void aTemporaryFileThatCannotBeRemovedDoesNotHideThatTheNoteExists() throws Exception {
+        Path root = root();
+        KnowledgeDirectory directory = writable(root);
+        directory.publisher(new KnowledgeDirectory.Publisher() {
+            @Override
+            public void link(Path target, Path temporary) throws IOException {
+                Files.writeString(target, "written meanwhile");
+                Files.delete(temporary);
+                Files.createDirectories(temporary.resolve("in-the-way"));
+                throw new FileAlreadyExistsException(target.toString());
+            }
+
+            @Override
+            public void move(Path temporary, Path target) {
+                throw new AssertionError("not used");
+            }
+        });
+
+        assertRefused(() -> directory.publishNew(NoteName.of("acme"), TEXT),
+            WriteRefusal.Kind.EXISTS);
+        assertThat(Files.readString(root.resolve("acme.md"))).isEqualTo("written meanwhile");
     }
 
     @Test

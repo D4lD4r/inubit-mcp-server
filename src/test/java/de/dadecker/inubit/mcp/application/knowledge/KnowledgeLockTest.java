@@ -153,6 +153,8 @@ class KnowledgeLockTest {
             .isInstanceOfSatisfying(ToolErrorException.class, e -> {
                 assertThat(e.error().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
                 assertThat(e.error().message()).contains(".lock").contains("link");
+                assertThat(e.error().toString()).as("no path outside the knowledge directory")
+                    .doesNotContain(root.toString(), outside.toString());
             });
         assertThat(Files.readString(target)).isEqualTo("kept");
         assertThat(Files.isSymbolicLink(root.resolve(".lock"))).isTrue();
@@ -176,11 +178,14 @@ class KnowledgeLockTest {
     @Test
     void aDirectoryInPlaceOfTheLockFileIsRefused() throws IOException {
         Files.createDirectory(root.resolve(".lock"));
+        String real = root.toRealPath().toString();
 
         assertThatThrownBy(() -> lock().acquire(SHORT))
             .isInstanceOfSatisfying(ToolErrorException.class, e -> {
                 assertThat(e.error().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
                 assertThat(e.error().message()).contains(".lock");
+                assertThat(e.error().toString()).as("the directory's path is not shown")
+                    .doesNotContain(root.toString(), real);
             });
         lockIsFree();
     }

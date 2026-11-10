@@ -135,6 +135,17 @@ public final class KnowledgeHistory {
     }
 
     /**
+     * Checks the history directory of {@code name} without creating it, before a new note is
+     * published (research D-10 step 7).
+     *
+     * @throws ToolErrorException {@code PRECONDITION_FAILED} when a directory on the way is a link
+     *     or no directory
+     */
+    public void check(NoteName name) throws IOException {
+        versionDirectory(name, false);
+    }
+
+    /**
      * The versions of {@code name} there are, e.g. after {@link #prune} failed.
      *
      * @throws ToolErrorException {@code PRECONDITION_FAILED} when a directory on the way is a link
