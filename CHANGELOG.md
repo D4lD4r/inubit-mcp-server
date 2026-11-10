@@ -7,6 +7,53 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Feature 019: a local knowledge per profile. Not yet checked live in an MCP client (the live check
+of `specs/019-local-knowledge/quickstart.md` is open).
+
+### Added
+
+- A **local knowledge** per profile (feature 019): Markdown notes with operating knowledge and
+  research results in a folder on this computer, `knowledge.directory` (default
+  `~/.inubit-mcp/<profile>/knowledge`), written by hand or by the assistant. Neither tool contacts
+  INUBIT; both are offered for every profile, also without nodes or write switches.
+  - `read_knowledge` (read-only): lists the notes newest first, searches them by text and topic
+    (paged, with excerpts), and reads one note by name or by the `ref` of a hit, paged by
+    character offset.
+  - `record_knowledge` (not read-only, not destructive): creates a note, appends a section or
+    replaces a note's content (with the `versionToken` read last). The description and the
+    instructions tell the assistant to propose the note first and to record only after the
+    operator agreed. No mode deletes or renames a note; the previous version is kept in
+    `.history/` (10 versions per note, restored by hand). Every call is audited (capability
+    `record_knowledge`, the masked note name, mode and sizes; never content).
+    `knowledge.recording: false` makes the knowledge read-only and leaves the tool out.
+  - The server instructions get a paragraph on the knowledge with the list of notes (newest
+    first, at most 4,000 characters), after the profile paragraph and before the update notice.
+  - Secrets in notes — the profile's configured credentials, key material, INUBIT encrypted
+    values and password assignments — are shown as `***` in every result, error, log and audit
+    record, and text holding one is refused for writing. The check is pattern-based; a secret in
+    plain prose is not recognized.
+  - Bounds: 256 KiB per note after a write, notes over 4 MiB not read, 100 MiB for the folder
+    with history, 20,000 characters per page, a lock of at most 10 s between writers.
+  - The folder must not overlap the workspace, the audit, backup, ledger or package directory,
+    the configuration directory or folder, or another profile's directories (a configuration
+    error). The server warns when group or others may access it; what it creates is owner-only.
+  - `--check-config` prints `Knowledge: <folder> (ok|absent|<problem>), recording on|off,
+    <n> notes`.
+
+  See `docs/setup.md` ("Local knowledge") and `docs/tools.md` ("The local knowledge").
+
+### Changed
+
+- **Credential reads for the local knowledge** (feature 019, decided as "fail closed"): to mask
+  the profile's own credentials in notes, the first `read_knowledge` or `record_knowledge` call
+  reads the credentials of every node of the profile, so access dialogs of nodes the session does
+  not otherwise contact may appear. In a profile whose knowledge holds at least one note, these
+  reads start already at server start (which waits up to 5 s for them before listing the notes;
+  until then the list is withheld). This changes the rule of 0.7.0 that no credential is read at
+  start, for profiles with notes. While a credential cannot be read (dialog denied, Parameter
+  Store unreachable), both knowledge tools refuse with `PRECONDITION_FAILED`.
+- `docs/tools.md` describes nineteen tools.
+
 ## [0.8.0] - 2026-11-07
 
 Feature 012: read-only INUBIT 6.1 nodes, reached through StartCLI only. Feature 013: the
