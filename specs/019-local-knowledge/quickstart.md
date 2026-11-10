@@ -50,7 +50,7 @@
 | US3 AS3, FR-002: overlap errors | `ConfigValidatorKnowledgeTest` |
 | US3 AS4, FR-003: permission warning, `--check-config` line | `OsPrivateFileSystemTest`, `MainTest` (`--check-config`, start warning), `ConfigSummaryTest` |
 | Edge: names outside the rule, NFC/case collision, occupied path, malformed metadata, unreadable and oversized notes, hidden files | `NoteNameTest`, `NoteMetadataTest`, `KnowledgeDirectoryTest`, `KnowledgeServiceRecordTest` |
-| FR-010 (a) readiness (D-7) | `ProfileSecretsTest`, `NodeSecretsTest` (settle), `KnowledgeServiceCredentialsTest` |
+| FR-010 (a) readiness (D-7) | `ProfileSecretsTest`, `NodeSecretsTest` (`awaitSettled`), `KnowledgeServiceCredentialsTest` |
 | FR-010 (b) moved rule unchanged | `KeyMaterialTest`, `SecretRedactorTest`, `RepositoryArchiveTest` |
 | FR-016, FR-018, SC-006: annotations, two tools | `KnowledgeToolsWiringTest`, `ToolAnnouncementTest` |
 | SC-004: 5,000 notes, 1 MiB note | `KnowledgeBoundsTest` |

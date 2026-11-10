@@ -151,19 +151,19 @@ src/main/java/de/dadecker/inubit/mcp/
 │   ├── Masked.java, SecretSpan.java  # NEW
 ├── domain/port/
 │   ├── ConfiguredSecrets.java        # NEW
-│   └── PrivateFileSystem.java        # + othersMayAccess
+│   └── PrivateFileSystem.java        # + othersMayAccess, openLockFileNoFollow
 ├── application/
 │   ├── SimilarNames.java             # public
 │   ├── PackageWriter.java            # + defaultDirectory
 │   └── knowledge/                    # NEW sub-package (D-16)
 │       ├── KnowledgeLimits.java, NoteMetadata.java, SecretFinder.java, Note.java,
-│       ├── KnowledgeDirectory.java, VersionToken.java, KnowledgeLock.java,
+│       ├── KnowledgeDirectory.java, VersionToken.java, KnowledgeLock.java, NoteRefs.java,
 │       ├── KnowledgeHistory.java, KnowledgeAudit.java, KnowledgeAnnouncement.java,
-│       └── KnowledgeService.java (+ Search, SearchPage, Hit, NotePage, Record, Recorded)
+│       └── KnowledgeService.java (+ NoteSelector, Search, SearchPage, Hit, NotePage, Record, Recorded)
 ├── adapter/
-│   ├── NodeSecrets.java              # + settle, settleE2e
+│   ├── NodeSecrets.java              # + awaitSettled, awaitSettledE2e (Cell refactor)
 │   ├── ProfileSecrets.java           # NEW
-│   ├── os/OsPrivateFileSystem.java   # + othersMayAccess
+│   ├── os/OsPrivateFileSystem.java   # + othersMayAccess, openLockFileNoFollow
 │   └── archive/v81/                  # import domain KeyMaterial (SecretRedactor, RepositoryArchive, SecretPaths)
 ├── infra/SecretScrubber.java         # + occurrences
 └── mcp/
@@ -195,12 +195,12 @@ Each stage ends with a code review of its diff, the findings fixed, and a green 
 2. **Configuration** — `KnowledgeConfig`, loader defaults and strict boolean, FR-002 checks,
    `othersMayAccess`, `KnowledgeStatus` and the `--check-config` line, start warning (US3 AS3,
    AS4).
-3. **Secrets** — `SecretFinder` (b)–(d), `ConfiguredSecrets` port, `NodeSecrets.settle`,
+3. **Secrets** — `SecretFinder` (b)–(d), `ConfiguredSecrets` port, `NodeSecrets.awaitSettled`,
    `ProfileSecrets`, (a) in the finder (FR-010).
-4. **Read (US1)** — `NoteMetadata`, `KnowledgeDirectory`, `VersionToken`, `KnowledgeService`
+4. **Read (US1)** — `NoteMetadata`, `KnowledgeDirectory`, `VersionToken`, `NoteRefs`, `KnowledgeService`
    search/read, `ReadKnowledgeTool`, schemas, wiring, `KnowledgeAnnouncement` and the instructions
    paragraph, start-time `prepare`.
-5. **Record (US2)** — `KnowledgeLock`, `KnowledgeHistory`, `KnowledgeAudit`, record flow,
+5. **Record (US2)** — `openLockFileNoFollow`, `KnowledgeLock`, `KnowledgeHistory`, `KnowledgeAudit`, record flow,
    `RecordKnowledgeTool`, `ToolHints.localOnlyWrite`, `recording: false` wiring, cross-process IT.
 6. **Operator control and bounds (US3, SC-003, SC-004)** — two-profile test, bounds test,
    leak test across all surfaces.
@@ -210,7 +210,7 @@ Each stage ends with a code review of its diff, the findings fixed, and a green 
 ### Touch points
 
 - **011 (credentials, R-10)**: D-7 reads credentials before knowledge calls and, with notes, at
-  start; `NodeSecrets` gets non-throwing `settle` methods built on its existing shared read.
+  start; `NodeSecrets` gets non-throwing `awaitSettled` methods built on its existing shared read.
 - **013 (owner-only on Windows)**: reused through `PrivateFileSystem`.
 - **015 (archive export)**: `KeyMaterial` moves to `domain`; `SecretRedactor`/`RepositoryArchive`
   behaviour unchanged (their tests stay unchanged).

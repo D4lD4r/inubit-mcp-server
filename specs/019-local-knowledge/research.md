@@ -386,7 +386,7 @@ note text is never interpreted as a template. Exact texts in
 
 **Decision**: one tool with two shapes, chosen by `name` or `ref`:
 
-- **List/search** (no `name`): optional `query` (1–200 characters, one line), optional `topic`
+- **List/search** (neither `name` nor `ref`): optional `query` (1–200 characters, one line), optional `topic`
   (1–60), `limit` 1–50 (default 20), `offset` ≥ 0 (default 0). Order: last change descending,
   then name ascending (code-point order). Match: `query` as a literal, case-insensitive
   (`Pattern.quote` with `CASE_INSENSITIVE | UNICODE_CASE`) substring of the masked name, title,
@@ -622,8 +622,10 @@ same primitive. Same directory for the temporary file keeps the move on one file
 **Decision**: existing `ErrorCode`s only. Every error built by the knowledge service passes note
 names, paths and keys through the D-8 reduction (masked, one line, cut at 120); the
 `ResultMapper`'s global scrub stays as a second line of defence. No error carries content, a
-title, a topic, an excerpt or a version token of another note. Mapping: `INVALID_INPUT` (name rule,
-`.md` suffix, mode/field combinations, bounds of title/topics/query, secret findings),
+title, a topic, an excerpt or a version token of another note. Mapping: `INVALID_INPUT` (name rule
+and `.md` suffix of a given `name`, mode/field combinations, bounds of title/topics/query, secret
+findings in the given name and new text; a `ref` whose resolved note fails the name rule or holds
+a secret in its name is `PRECONDITION_FAILED`, D-10 step 4),
 `NOT_FOUND` (with `similar`), `CONFLICT` (create collision, stale version token),
 `PRECONDITION_FAILED` (bounds, replace of a note with a secret, malformed metadata, occupied
 path, link, lock timeout, credentials not ready, directory unusable, non-atomic file system),
