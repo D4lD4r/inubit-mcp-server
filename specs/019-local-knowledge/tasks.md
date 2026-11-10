@@ -265,7 +265,7 @@ readiness and a failing-audit fake.
 - [X] T034 [P] [US3] `KnowledgeProfilesTest`: two profiles, two directories; each server's tools
   and instructions see only their own notes (SC-003), and a record through each profile changes
   only that profile's directory (FR-001, US3 AS1) — test `KnowledgeProfilesTest.java`
-- [ ] T035 [P] `KnowledgeBoundsTest`: 5,000 notes and a 1 MiB note — instructions, search page and
+- [X] T035 [P] `KnowledgeBoundsTest`: 5,000 notes and a 1 MiB note — instructions, search page and
   read page within their bounds and reporting the cut (SC-004); 256 KiB / 100 MiB write bounds
   (US2 AS8) — test `knowledge/KnowledgeBoundsTest.java`
 - [ ] T036 `KnowledgeSecretLeakTest`: every FR-010 kind in a hand-written note's name, title,
