@@ -33,7 +33,7 @@
       "items": {
         "$ref": "#/$defs/Server"
       },
-      "description": "One entry per targeted {node}, in config order; a failed {node} has its error and no data"
+      "description": "One entry per targeted {node}, then per compared {node} (compareWith), in config order; a failed {node} has its error and no data"
     },
     "referencableWorkflows": {
       "type": "array",
@@ -109,7 +109,7 @@
       "items": {
         "$ref": "#/$defs/NotCompared"
       },
-      "description": "Only in a comparison: the failed {nodes} in config order, each with its error code; the full error is listed with its {node}"
+      "description": "Only in a comparison: the failed {nodes} in config order, each with its error code, and each system diagram one {node} could not read (systemDiagram); the full error is listed with its {node}. That {node} is left out of onlyOn and every statement for that system diagram's partners"
     }
   },
   "additionalProperties": false,
@@ -653,6 +653,9 @@
         },
         "code": {
           "$ref": "#/$defs/ErrorCode"
+        },
+        "systemDiagram": {
+          "$ref": "#/$defs/DiagramRef"
         }
       },
       "additionalProperties": false

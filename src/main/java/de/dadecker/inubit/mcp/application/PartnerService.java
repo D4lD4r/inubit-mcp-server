@@ -387,8 +387,22 @@ public final class PartnerService {
         }
     }
 
-    /** A server left out of a comparison (FR-014); its error is in its {@link ServerView}. */
-    public record NotCompared(NodeId node, ErrorCode code) {
+    /**
+     * A server left out of a comparison (FR-014), or of the comparison of one system diagram it
+     * could not read (D-4); its error is in its {@link ServerView}.
+     *
+     * @param systemDiagram the system diagram not read; empty if the server failed as a whole
+     */
+    public record NotCompared(NodeId node, ErrorCode code, Optional<DiagramRef> systemDiagram) {
+
+        public NotCompared {
+            systemDiagram = systemDiagram == null ? Optional.empty() : systemDiagram;
+        }
+
+        /** A server that failed as a whole. */
+        public NotCompared(NodeId node, ErrorCode code) {
+            this(node, code, Optional.empty());
+        }
     }
 
     /** The partner key of a matched partner (FR-013): its key field and that field's value. */
@@ -401,7 +415,8 @@ public final class PartnerService {
      *
      * @param moduleId    only when two clouds of the diagram share the module name on its server
      * @param key         empty for a partner without key (compared on its server alone)
-     * @param onlyOn      the servers holding it, if not every answering server does
+     * @param onlyOn      the servers holding it, if not every answering server that read its
+     *                    system diagram does
      * @param fields      every field, grouped like settings
      * @param entries     all, or those the entry filters match; in list mode each with the
      *                    summary keys and only the differing settings (FR-012c)
@@ -656,7 +671,8 @@ public final class PartnerService {
         PartnerComparison.Result comparison = PartnerComparison.compare(results.stream()
             .map(result -> result.payload()
                 .<PartnerComparison.ServerInput>map(read -> new PartnerComparison.Answered(
-                    result.node(), read.version(), read.diagrams()))
+                    result.node(), read.version(), read.diagrams(),
+                    read.unreadableDiagrams()))
                 .orElseGet(() -> new PartnerComparison.Failed(result.node(),
                     result.error().orElseThrow())))
             .toList());
@@ -677,10 +693,10 @@ public final class PartnerService {
                     MAX_SIMILAR)));
         int budget = limiter.maxChars();
         String mode = summary ? "list" : "search";
-        Map<CloudKey, CloudWorkflows> clouds = comparedWorkflows(page, results, answering);
+        Map<CloudKey, CloudWorkflows> clouds = comparedWorkflows(page, results, comparison);
         List<PartnerBounds.ComparedItem> items = page.stream()
             .map(partner -> new PartnerBounds.ComparedItem(
-                partner.onlyOn().isEmpty() ? answering : partner.onlyOn(),
+                holders(partner, comparison),
                 comparedView(partner, summary),
                 clouds.get(new CloudKey(partner.diagram(), partner.cloud(), partner.moduleId()))))
             .toList();
@@ -690,9 +706,7 @@ public final class PartnerService {
                 .map(result -> result.payload().map(ServerRead::gateWarnings).orElse(0))
                 .toList(), items.stream().map(PartnerBounds.ComparedItem::sources).toList(),
             budget, sizeOf);
-        List<NotCompared> notCompared = comparison.notCompared().stream()
-            .map(failed -> new NotCompared(failed.node(), failed.error().code()))
-            .toList();
+        List<NotCompared> notCompared = notCompared(comparison, bounded.value());
         // nextOffset and truncated at their widest: paging can only shorten them
         int fixed = sizeOf.applyAsInt(new Compared(audit.callId(), mode, true, bounded.value(),
             List.of(), List.of(), similar.value(), total, query.offset(), limit,
@@ -805,14 +819,14 @@ public final class PartnerService {
 
     /**
      * Per communication cloud (and module id) of the page, the referencable workflows of every
-     * answering server holding a partner of the cloud on the page, as first seen (FR-007); the
+     * server holding a partner of the cloud on the page, as first seen (FR-007); the
      * size bound keeps them whole for the partners of the cloud it leaves on the page.
      */
     private static Map<CloudKey, CloudWorkflows> comparedWorkflows(List<ComparedPartner> page,
-        List<NodeResult<ServerRead>> results, List<NodeId> answering) {
+        List<NodeResult<ServerRead>> results, PartnerComparison.Result comparison) {
         Map<CloudKey, Set<String>> clouds = new LinkedHashMap<>();
         for (ComparedPartner partner : page) {
-            List<NodeId> holders = partner.onlyOn().isEmpty() ? answering : partner.onlyOn();
+            List<NodeId> holders = holders(partner, comparison);
             Set<String> workflows = clouds.computeIfAbsent(
                 new CloudKey(partner.diagram(), partner.cloud(), partner.moduleId()),
                 key -> new LinkedHashSet<>());
@@ -830,6 +844,32 @@ public final class PartnerService {
         clouds.forEach((key, names) -> workflows.put(key, new CloudWorkflows(key.diagram(),
             key.cloud(), key.moduleId(), List.copyOf(names))));
         return workflows;
+    }
+
+    /** The servers holding {@code partner}: its {@code onlyOn}, else every reader of it. */
+    private static List<NodeId> holders(ComparedPartner partner,
+        PartnerComparison.Result comparison) {
+        return partner.onlyOn().isEmpty() ? comparison.readers(partner.diagram())
+            : partner.onlyOn();
+    }
+
+    /**
+     * The failed servers and the system diagrams answering servers could not read, in server
+     * order (FR-014, D-4): only those its bounded {@code unreadableDiagrams} keep, with their
+     * cut names, so they stay within the size bound (their cut shows in {@code truncated}).
+     */
+    private static List<NotCompared> notCompared(PartnerComparison.Result comparison,
+        List<ServerView> servers) {
+        List<NotCompared> notCompared = new ArrayList<>();
+        for (ServerView server : servers) {
+            comparison.notCompared().stream()
+                .filter(failed -> failed.node().equals(server.node()))
+                .forEach(failed -> notCompared.add(
+                    new NotCompared(failed.node(), failed.error().code())));
+            server.unreadableDiagrams().forEach(gone -> notCompared.add(new NotCompared(
+                server.node(), gone.code(), Optional.of(gone.systemDiagram()))));
+        }
+        return notCompared;
     }
 
     /** A communication cloud of a compared partner, told apart by module id where needed. */

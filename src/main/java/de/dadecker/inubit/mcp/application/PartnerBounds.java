@@ -52,6 +52,8 @@ import java.util.stream.IntStream;
  *       the others in list order (an owner can have hundreds). Every partner returned has its
  *       system diagram in {@code systemDiagramsRead}: the first partner's is always kept, and
  *       a partner whose system diagram does not fit leaves the page with the partners after it.
+ *       Likewise in {@code unreadableDiagrams} of every server that could not read it (a
+ *       comparison): a returned partner's diagram is never cut from there.
  *   <li>Referencable workflows: each cloud's list is cut once to the longest prefix within
  *       {@link #WORKFLOW_SHARE} of the budget; the clouds of partners cut from the page go with
  *       them.
@@ -69,7 +71,8 @@ import java.util.stream.IntStream;
  *       then still reports {@code truncated}.
  *   <li>A comparison (T027) is bounded alike: each compared value cut like a shown one (also
  *       each value of a server in {@code differs}), its page cut in the same order; a compared
- *       partner is returned only if its system diagram is listed on every server holding it.
+ *       partner is returned only if its system diagram is listed on every server holding it;
+ *       its {@code notCompared} lists only the unreadable diagrams kept here, as cut here.
  * </ul>
  */
 final class PartnerBounds {
@@ -163,6 +166,9 @@ final class PartnerBounds {
         int diagramShare = (int) (budget * DIAGRAM_SHARE / shares);
         List<ServerView> bounded = new ArrayList<>();
         Set<List<Object>> listed = new HashSet<>();
+        List<DiagramRef> pageDiagrams = page.stream().flatMap(List::stream)
+            .map(Source::diagram).distinct().toList();
+        Set<DiagramRef> unlisted = new HashSet<>();
         for (int i = 0; i < servers.size(); i++) {
             ServerView server = servers.get(i);
             List<DiagramRef> refs = server.systemDiagramsRead().stream()
@@ -176,8 +182,16 @@ final class PartnerBounds {
                 .toList();
             boolean first = !page.isEmpty() && page.getFirst().stream()
                 .anyMatch(source -> source.server().equals(server.node()));
-            List<UnreadableDiagram> unreadable = fit(server.unreadableDiagrams(), List.of(), 0,
-                diagramShare, sizeOf);
+            List<DiagramRef> gone = server.unreadableDiagrams().stream()
+                .map(UnreadableDiagram::systemDiagram).toList();
+            boolean firstGone = !page.isEmpty() && page.getFirst().stream()
+                .anyMatch(source -> gone.contains(source.diagram()));
+            List<UnreadableDiagram> unreadable = fit(server.unreadableDiagrams(),
+                pageDiagrams.stream().map(gone::indexOf).filter(index -> index >= 0).toList(),
+                firstGone ? 1 : 0, diagramShare, sizeOf);
+            List<DiagramRef> named = unreadable.stream().map(UnreadableDiagram::systemDiagram)
+                .toList();
+            gone.stream().filter(diagram -> !named.contains(diagram)).forEach(unlisted::add);
             int left = diagramShare - sizeOf.applyAsInt(unreadable);
             List<DiagramRead> read = fit(server.systemDiagramsRead(), contributing,
                 first ? 1 : 0, left, sizeOf);
@@ -216,7 +230,8 @@ final class PartnerBounds {
         }
         int shown = (int) page.stream()
             .takeWhile(sources -> sources.stream()
-                .allMatch(source -> listed.contains(List.of(source.server(), source.diagram()))))
+                .allMatch(source -> listed.contains(List.of(source.server(), source.diagram()))
+                    && !unlisted.contains(source.diagram())))
             .count();
         return new Servers(List.copyOf(bounded), shown, texts.cut);
     }

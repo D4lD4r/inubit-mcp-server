@@ -15,6 +15,7 @@ import de.dadecker.inubit.mcp.domain.model.partner.SecretFingerprint;
 import de.dadecker.inubit.mcp.domain.model.partner.Setting;
 import de.dadecker.inubit.mcp.domain.model.partner.SettingValue;
 import de.dadecker.inubit.mcp.domain.model.partner.SystemDiagramPartners;
+import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort.UnreadableDiagram;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -55,6 +56,9 @@ import java.util.stream.Stream;
  *       compared as {@link SettingComparison.Masked}.
  *   <li><b>Failed servers</b> (FR-014) are only listed in {@code notCompared}; {@code onlyOn}
  *       and every statement consider the answering servers only.
+ *   <li><b>Unreadable system diagrams</b> (D-4): a server that answered but could not read a
+ *       system diagram is listed in {@code notRead} with it and left out of the statements of
+ *       that diagram's partners as a failed server is; the comparison is incomplete.
  * </ul>
  *
  * <p>The result holds no value of a masked setting and no {@link SecretFingerprint}: fingerprints
@@ -71,9 +75,13 @@ public final class PartnerComparison {
 
     /** The answering servers in input order, with their version. */
     private final Map<NodeId, Optional<InubitVersion>> versions;
+    /** Per answering server, the system diagrams it could not read. */
+    private final Map<NodeId, Set<DiagramRef>> unreadable;
 
-    private PartnerComparison(Map<NodeId, Optional<InubitVersion>> versions) {
+    private PartnerComparison(Map<NodeId, Optional<InubitVersion>> versions,
+        Map<NodeId, Set<DiagramRef>> unreadable) {
         this.versions = versions;
+        this.unreadable = unreadable;
     }
 
     /** One targeted or compared server: its Partner Managements, or why it gave none. */
@@ -84,16 +92,25 @@ public final class PartnerComparison {
     /**
      * A server that answered.
      *
-     * @param version  its INUBIT version; empty if unknown (then no secret equality statement)
-     * @param diagrams the system diagrams read, masked
+     * @param version    its INUBIT version; empty if unknown (then no secret equality statement)
+     * @param diagrams   the system diagrams read, masked
+     * @param unreadable the requested system diagrams that gave no data (D-4)
      */
     public record Answered(NodeId node, Optional<InubitVersion> version,
-        List<SystemDiagramPartners> diagrams) implements ServerInput {
+        List<SystemDiagramPartners> diagrams, List<UnreadableDiagram> unreadable)
+        implements ServerInput {
 
         public Answered {
             Objects.requireNonNull(node, "node");
             version = version == null ? Optional.empty() : version;
             diagrams = List.copyOf(diagrams);
+            unreadable = List.copyOf(unreadable);
+        }
+
+        /** A server that read every requested system diagram. */
+        public Answered(NodeId node, Optional<InubitVersion> version,
+            List<SystemDiagramPartners> diagrams) {
+            this(node, version, diagrams, List.of());
         }
     }
 
@@ -106,20 +123,49 @@ public final class PartnerComparison {
         }
     }
 
+    /** A system diagram an answering server could not read (D-4). */
+    public record NotRead(NodeId node, UnreadableDiagram diagram) {
+
+        public NotRead {
+            Objects.requireNonNull(node, "node");
+            Objects.requireNonNull(diagram, "diagram");
+        }
+    }
+
     /**
      * @param partners    every partner of the answering servers, matched where possible
      * @param notCompared the failed servers, in input order
+     * @param notRead     the system diagrams answering servers could not read, in input order
+     * @param answering   the answering servers, in input order
      */
-    public record Result(List<ComparedPartner> partners, List<Failed> notCompared) {
+    public record Result(List<ComparedPartner> partners, List<Failed> notCompared,
+        List<NotRead> notRead, List<NodeId> answering) {
 
         public Result {
             partners = List.copyOf(partners);
             notCompared = List.copyOf(notCompared);
+            notRead = List.copyOf(notRead);
+            answering = List.copyOf(answering);
         }
 
-        /** Whether a server failed, so the comparison is incomplete (FR-014). */
+        /**
+         * Whether a server failed or could not read a system diagram, so the comparison is
+         * incomplete (FR-014).
+         */
         public boolean incomplete() {
-            return !notCompared.isEmpty();
+            return !notCompared.isEmpty() || !notRead.isEmpty();
+        }
+
+        /**
+         * The servers the partners of {@code diagram} are compared on: the answering servers
+         * that did not fail to read it; {@code onlyOn} of such a partner is relative to them.
+         */
+        public List<NodeId> readers(DiagramRef diagram) {
+            return answering.stream()
+                .filter(node -> notRead.stream().noneMatch(
+                    gone -> gone.node().equals(node) && gone.diagram().systemDiagram()
+                        .equals(diagram)))
+                .toList();
         }
     }
 
@@ -129,7 +175,8 @@ public final class PartnerComparison {
      * @param moduleId    the cloud's {@code ModuleId}, only when two clouds of the diagram share
      *                    the module name on the partner's server
      * @param key         empty for a partner without key (never matched)
-     * @param onlyOn      the servers holding it, if not every answering server does; else empty
+     * @param onlyOn      the servers holding it, if not every answering server that read its
+     *                    system diagram does ({@link Result#readers}); else empty
      * @param maskedCount the number of masked values per server, grouped (FR-009)
      * @param ambiguous   per server where its key is ambiguous; empty for a matched partner
      */
@@ -251,13 +298,20 @@ public final class PartnerComparison {
     /** Compares {@code servers} (each server once, in the order of the result's maps). */
     public static Result compare(List<? extends ServerInput> servers) {
         Map<NodeId, Optional<InubitVersion>> versions = new LinkedHashMap<>();
+        Map<NodeId, Set<DiagramRef>> unreadable = new HashMap<>();
         Map<Slot, Map<NodeId, List<CommunicationCloud>>> slots = new LinkedHashMap<>();
         List<Failed> failed = new ArrayList<>();
+        List<NotRead> notRead = new ArrayList<>();
         for (ServerInput server : servers) {
             switch (server) {
                 case Failed f -> failed.add(f);
                 case Answered answered -> {
                     versions.put(answered.node(), answered.version());
+                    for (UnreadableDiagram gone : answered.unreadable()) {
+                        notRead.add(new NotRead(answered.node(), gone));
+                        unreadable.computeIfAbsent(answered.node(), node -> new HashSet<>())
+                            .add(gone.systemDiagram());
+                    }
                     for (SystemDiagramPartners diagram : answered.diagrams()) {
                         for (CommunicationCloud cloud : diagram.clouds()) {
                             slots.computeIfAbsent(new Slot(diagram.diagram(), cloud.moduleName()),
@@ -269,10 +323,10 @@ public final class PartnerComparison {
                 }
             }
         }
-        PartnerComparison comparison = new PartnerComparison(versions);
+        PartnerComparison comparison = new PartnerComparison(versions, unreadable);
         List<ComparedPartner> partners = new ArrayList<>();
         slots.forEach((slot, clouds) -> partners.addAll(comparison.partners(slot, clouds)));
-        return new Result(partners, failed);
+        return new Result(partners, failed, notRead, List.copyOf(versions.keySet()));
     }
 
     private List<ComparedPartner> partners(Slot slot,
@@ -353,8 +407,16 @@ public final class PartnerComparison {
     private ComparedPartner compared(Slot slot, Optional<PartnerKey> key,
         Optional<String> moduleId, Map<NodeId, Partner> holders, List<Ambiguity> ambiguous) {
         return new ComparedPartner(slot.diagram(), slot.cloud(), moduleId, key,
-            onlyOn(holders.keySet(), versions.keySet()), settings(map(holders, Partner::fields)),
+            onlyOn(holders.keySet(), readers(slot.diagram())),
+            settings(map(holders, Partner::fields)),
             grouped(map(holders, Partner::maskedCount)), entries(holders), ambiguous);
+    }
+
+    /** The answering servers that did not fail to read {@code diagram}. */
+    private List<NodeId> readers(DiagramRef diagram) {
+        return versions.keySet().stream()
+            .filter(node -> !unreadable.getOrDefault(node, Set.of()).contains(diagram))
+            .toList();
     }
 
     private List<ComparedEntry> entries(Map<NodeId, Partner> holders) {

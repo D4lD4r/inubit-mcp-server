@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.application.PartnerComparison.ComparedEntry;
 import de.dadecker.inubit.mcp.application.PartnerComparison.ComparedPartner;
 import de.dadecker.inubit.mcp.application.PartnerComparison.Failed;
 import de.dadecker.inubit.mcp.application.PartnerComparison.Grouped;
+import de.dadecker.inubit.mcp.application.PartnerComparison.NotRead;
 import de.dadecker.inubit.mcp.application.PartnerComparison.Result;
 import de.dadecker.inubit.mcp.application.PartnerComparison.ServerInput;
 import de.dadecker.inubit.mcp.application.PartnerComparison.SettingComparison;
@@ -30,6 +31,7 @@ import de.dadecker.inubit.mcp.domain.model.partner.Setting;
 import de.dadecker.inubit.mcp.domain.model.partner.SettingValue;
 import de.dadecker.inubit.mcp.domain.model.partner.SystemDiagramPartners;
 import de.dadecker.inubit.mcp.domain.model.partner.WorkflowRef;
+import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort.UnreadableDiagram;
 import de.dadecker.inubit.mcp.infra.ResultJson;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -320,6 +322,36 @@ class PartnerComparisonTest {
         assertThat(compared.entries().get(0).protocolSettings()).containsExactly(
             new SettingComparison.Masked("Password", Map.of(T1, true, T2, true),
                 List.of(List.of(T1, T2)), Optional.empty(), List.of()));
+    }
+
+    @Test
+    void aServerThatCouldNotReadTheSystemDiagramIsLeftOutOfItsStatementsOnly() {
+        UnreadableDiagram gone = new UnreadableDiagram(DIAGRAM, ErrorCode.NOT_FOUND,
+            "deleted after listing");
+        DiagramRef other = new DiagramRef("SystemDiagram-02", "GRP-PM");
+        Partner corp = partner("ACME-0001", "ACME Corp");
+        Partner seven = partner("ACME-0007", "ACME Seven");
+        Partner onlyT1 = partner("ACME-0003", "ACME Three");
+
+        Result result = PartnerComparison.compare(List.of(
+            new Answered(T1, V81, List.of(new SystemDiagramPartners(DIAGRAM,
+                List.of(cloud(corp, onlyT1))), new SystemDiagramPartners(other,
+                List.of(cloud(seven))))),
+            new Answered(T2, V81, List.of(new SystemDiagramPartners(DIAGRAM,
+                List.of(cloud(corp))))),
+            new Answered(P1, V81, List.of(new SystemDiagramPartners(other,
+                List.of(cloud(seven)))), List.of(gone))));
+
+        assertThat(result.incomplete()).isTrue();
+        assertThat(result.notCompared()).isEmpty();
+        assertThat(result.notRead()).containsExactly(new NotRead(P1, gone));
+        assertThat(result.partners()).extracting(partner -> partner.key().orElseThrow().value(),
+                ComparedPartner::onlyOn)
+            .as("P1 neither holds nor lacks the partners of the diagram it could not read")
+            .containsExactly(tuple("ACME-0001", List.of()), tuple("ACME-0003", List.of(T1)),
+                tuple("ACME-0007", List.of(T1, P1)));
+        assertThat(result.readers(DIAGRAM)).containsExactly(T1, T2);
+        assertThat(result.readers(other)).containsExactly(T1, T2, P1);
     }
 
     // --- US3-AS8, FR-013: the partner key ---

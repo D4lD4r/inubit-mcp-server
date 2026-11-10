@@ -43,6 +43,7 @@ import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
+import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort.UnreadableDiagram;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.infra.ResultJson;
@@ -103,6 +104,8 @@ class PartnerServiceCompareTest {
     private final List<AuditRecord> audit = new CopyOnWriteArrayList<>();
     /** Per server, the failure its inventory and partner ports throw once contacted. */
     private final Map<NodeId, ToolErrorException> failures = new HashMap<>();
+    /** Per server, the listed system diagrams whose export gives no data (D-4). */
+    private final Map<NodeId, Map<DiagramRef, UnreadableDiagram>> unreadable = new HashMap<>();
     /** The servers whose inventory or partner port was called. */
     private final List<NodeId> contacted = new CopyOnWriteArrayList<>();
     private ResultLimiter limiter = ResultLimiter.withDefaults();
@@ -437,6 +440,84 @@ class PartnerServiceCompareTest {
         assertThat(audit.get(2).details()).containsEntry("partnersReturned", 0)
             .containsEntry("valuesMasked", 0);
         assertThat(audit.get(3).details()).containsEntry("partnersReturned", 2);
+    }
+
+    @Test
+    void aSystemDiagramOneServerCouldNotReadLeavesItOutOfThatDiagramsStatementsOnly() {
+        exportStages();
+        exports.get(P2).remove(DIAGRAM);
+        UnreadableDiagram gone = new UnreadableDiagram(DIAGRAM, ErrorCode.NOT_FOUND,
+            "SystemDiagram-01 was deleted after listing");
+        unreadable.put(P2, Map.of(DIAGRAM, gone));
+        for (NodeId node : NODES) {
+            export(node, new DiagramXml(GROUP, "SystemDiagram-02", OWNER, List.of(new CloudXml(
+                "33", CLOUD, ID_AND_NAME, WORKFLOWS, List.of(named("ACME-0007", "ACME Seven"))))));
+        }
+
+        Compared compared = compared(list());
+
+        assertThat(compared.incomplete()).isTrue();
+        assertThat(compared.notCompared()).containsExactly(
+            new NotCompared(P2, ErrorCode.NOT_FOUND, Optional.of(DIAGRAM)));
+        assertThat(partner(compared, "ACME-0001").onlyOn()).as("P2 neither holds nor lacks it")
+            .isEmpty();
+        assertThat(partner(compared, "ACME-0003").onlyOn()).contains(List.of(T1, T2));
+        assertThat(partner(compared, "ACME-0007").onlyOn()).isEmpty();
+        assertThat(audit).extracting(AuditRecord::outcome).containsOnly(AuditOutcome.EXECUTED);
+        assertThat(audit.get(3).details()).as("only ACME-0007 is held by P2")
+            .containsEntry("partnersReturned", 1);
+        assertNoSecretIn(compared);
+    }
+
+    @Test
+    void manyLongNamedSystemDiagramsOneServerCouldNotReadStayWithinTheBound() {
+        exportStages();
+        Map<DiagramRef, UnreadableDiagram> gone = new LinkedHashMap<>();
+        for (int i = 0; i < 300; i++) {
+            DiagramRef diagram = new DiagramRef("Gone-%03d-".formatted(i) + "x".repeat(400), GROUP);
+            gone.put(diagram, new UnreadableDiagram(diagram, ErrorCode.UNEXPECTED_RESPONSE,
+                "no answer"));
+        }
+        unreadable.put(P2, gone);
+        limiter = new ResultLimiter(100, 20_000);
+
+        Compared compared = compared(list());
+
+        assertWithin(compared, 20_000, "300 unreadable diagrams");
+        assertThat(compared.truncated()).isTrue();
+        assertThat(compared.incomplete()).isTrue();
+        assertThat(compared.partners()).isNotEmpty();
+        assertThat(compared.notCompared()).as("only the diagrams listed under servers, cut")
+            .isNotEmpty()
+            .allSatisfy(entry -> assertThat(entry.systemDiagram().orElseThrow().name())
+                .hasSizeLessThanOrEqualTo(ItemBounds.MAX_FIELD_CHARS))
+            .extracting(NotCompared::systemDiagram)
+            .containsExactlyElementsOf(compared.servers().get(3).unreadableDiagrams().stream()
+                .map(diagram -> Optional.of(diagram.systemDiagram())).toList());
+    }
+
+    @Test
+    void theUnreadableSystemDiagramOfAPartnerOnThePageIsKeptFirst() {
+        exportStages();
+        exports.get(P2).remove(DIAGRAM);
+        Map<DiagramRef, UnreadableDiagram> gone = new LinkedHashMap<>();
+        for (int i = 0; i < 300; i++) {
+            DiagramRef diagram = i == 250 ? DIAGRAM
+                : new DiagramRef("Gone-%03d-".formatted(i) + "x".repeat(400), GROUP);
+            gone.put(diagram, new UnreadableDiagram(diagram, ErrorCode.UNEXPECTED_RESPONSE,
+                "no answer"));
+        }
+        unreadable.put(P2, gone);
+        limiter = new ResultLimiter(100, 20_000);
+
+        Compared compared = compared(list());
+
+        assertWithin(compared, 20_000, "300 unreadable diagrams");
+        assertThat(compared.truncated()).isTrue();
+        assertThat(compared.partners()).isNotEmpty()
+            .allSatisfy(partner -> assertThat(partner.systemDiagram()).isEqualTo(DIAGRAM));
+        assertThat(compared.notCompared()).as("P2 neither holds nor lacks the page's partners")
+            .contains(new NotCompared(P2, ErrorCode.UNEXPECTED_RESPONSE, Optional.of(DIAGRAM)));
     }
 
     @Test
@@ -958,7 +1039,8 @@ class PartnerServiceCompareTest {
                     if (failures.containsKey(server)) {
                         throw failures.get(server);
                     }
-                    return exports.getOrDefault(server, Map.of()).keySet().stream()
+                    return Stream.concat(exports.getOrDefault(server, Map.of()).keySet().stream(),
+                            unreadable.getOrDefault(server, Map.of()).keySet().stream())
                         .map(diagram -> InventoryItem.diagram(server, diagram.name(),
                             "systemdiagram", diagram.diagramGroup(), owner))
                         .toList();
@@ -994,9 +1076,15 @@ class PartnerServiceCompareTest {
                     throw failures.get(server);
                 }
                 Map<DiagramRef, PartnerManagementReader.Result> read = exports.get(server);
+                Map<DiagramRef, UnreadableDiagram> gone = unreadable.getOrDefault(server,
+                    Map.of());
+                List<DiagramRef> readable = diagrams.stream()
+                    .filter(diagram -> !gone.containsKey(diagram))
+                    .toList();
                 return new PartnerManagementPort.Result(
-                    diagrams.stream().map(diagram -> read.get(diagram).partners()).toList(),
-                    List.of(), diagrams.stream().collect(Collectors.toMap(diagram -> diagram,
+                    readable.stream().map(diagram -> read.get(diagram).partners()).toList(),
+                    diagrams.stream().filter(gone::containsKey).map(gone::get).toList(),
+                    readable.stream().collect(Collectors.toMap(diagram -> diagram,
                         diagram -> read.get(diagram).warnings())));
             };
         }

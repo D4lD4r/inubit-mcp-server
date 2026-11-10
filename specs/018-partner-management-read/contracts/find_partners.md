@@ -54,8 +54,10 @@ Offered when at least one server is possibly capable of `PARTNER_MANAGEMENT`; th
   "partners": [ /* single server: Partner; comparison: ComparedPartner (below) */ ],
   "similarValues": ["ACME-0001"],    // only when a search matched nothing (FR-005b)
   "total": 120, "offset": 0, "limit": 20, "nextOffset": 20, "truncated": false,
-  "incomplete": false,               // comparison only: a compared server failed
-  "notCompared": [{"node": "…", "code": "UNREACHABLE"}]   // comparison only, in server order
+  "incomplete": false,               // comparison only: a server failed or could not read a diagram
+  "notCompared": [{"node": "…", "code": "UNREACHABLE"},   // comparison only, in server order
+                  {"node": "…", "code": "NOT_FOUND",      // a system diagram not read there
+                   "systemDiagram": {"name": "…", "diagramGroup": "…"}}]
 }
 ```
 
@@ -111,7 +113,11 @@ server alone likewise. A setting or field masked on any server is compared as ma
 server, and only when it is set on at least two servers either `sameOn` or `equality`; a set value
 without fingerprint (child elements, or shown on its server) gets neither. A field masked on any
 server is not searched. A failed server is only listed in `notCompared` (its error in `servers`);
-`onlyOn` and every statement consider the answering servers only.
+`onlyOn` and every statement consider the answering servers only. A server that answered but could
+not read one system diagram (`unreadableDiagrams` in `servers`) is listed in `notCompared` with
+that `systemDiagram`, the result is `incomplete`, and it is left out of `onlyOn` and every
+statement for that diagram's partners only: it neither holds nor lacks them. `notCompared`
+lists only the diagrams kept in the bounded `unreadableDiagrams`, with their cut names.
 
 Result types map a masked value to `{"masked": true, "set": …}` and never carry the
 fingerprint.
