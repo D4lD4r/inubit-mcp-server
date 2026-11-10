@@ -13,11 +13,13 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ConfiguredSecrets;
 import de.dadecker.inubit.mcp.domain.port.ConfiguredSecrets.Readiness;
+import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import java.io.IOException;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.NotDirectoryException;
 import java.nio.file.Path;
 import java.text.Normalizer;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -69,17 +71,77 @@ public final class KnowledgeService {
     private final SecretFinder finder;
     private final NoteRefs refs;
     private final Duration prepareBound;
+    private final Writing writing;
 
     /**
+     * What {@link #record} needs besides the directory (research D-10 to D-13).
+     *
+     * @param files creates the lock file and the history owner-only
+     * @param clock the time of {@code lastChange} and of the history versions
+     * @param audit the audit log of every write
+     */
+    public record Writing(PrivateFileSystem files, Clock clock,
+        KnowledgeAudit.Dependencies audit) {
+
+        public Writing {
+            Objects.requireNonNull(files, "files");
+            Objects.requireNonNull(clock, "clock");
+            Objects.requireNonNull(audit, "audit");
+        }
+    }
+
+    /**
+     * The read side only: {@link #record} throws {@link IllegalStateException}.
+     *
      * @param prepareBound how long a call waits for the credentials of the profile (D-7)
      */
     public KnowledgeService(KnowledgeDirectory directory, ConfiguredSecrets secrets, NoteRefs refs,
         Duration prepareBound) {
+        this(directory, secrets, refs, prepareBound, null);
+    }
+
+    /**
+     * Read and write side; {@code directory} must be opened for writing.
+     *
+     * @param prepareBound how long a call waits for the credentials of the profile (D-7)
+     */
+    public KnowledgeService(KnowledgeDirectory directory, ConfiguredSecrets secrets, NoteRefs refs,
+        Duration prepareBound, Writing writing) {
         this.directory = Objects.requireNonNull(directory, "directory");
         this.secrets = Objects.requireNonNull(secrets, "secrets");
         this.finder = new SecretFinder(secrets);
         this.refs = Objects.requireNonNull(refs, "refs");
         this.prepareBound = Objects.requireNonNull(prepareBound, "prepareBound");
+        this.writing = writing;
+    }
+
+    /**
+     * Writes a note (research D-10): creates it, appends a section or replaces its content. Every
+     * call is audited; nothing is written unless every check passed.
+     *
+     * @throws ToolErrorException    {@code INVALID_INPUT}, {@code NOT_FOUND}, {@code CONFLICT},
+     *                               {@code PRECONDITION_FAILED} or {@code INTERNAL} (contract
+     *                               {@code record_knowledge})
+     * @throws IllegalStateException if the service was built for reading only
+     */
+    public Recorded record(Record call) {
+        Objects.requireNonNull(call, "call");
+        if (writing == null) {
+            throw new IllegalStateException("the knowledge service was built for reading only");
+        }
+        return new RecordCall(this, writing, call).run();
+    }
+
+    KnowledgeDirectory directory() {
+        return directory;
+    }
+
+    SecretFinder finder() {
+        return finder;
+    }
+
+    NoteRefs refs() {
+        return refs;
     }
 
     /**
@@ -350,13 +412,13 @@ public final class KnowledgeService {
         };
     }
 
-    private static String slashed(Path relative) {
+    static String slashed(Path relative) {
         List<String> parts = new ArrayList<>();
         relative.forEach(part -> parts.add(part.toString()));
         return String.join("/", parts);
     }
 
-    private NoteFile find(NoteSelector target, Listing listing) {
+    NoteFile find(NoteSelector target, Listing listing) {
         return switch (target) {
             case NoteSelector.ByRef byRef -> refs.resolve(byRef.ref(), listing).orElseThrow(
                 () -> new ToolErrorException(ToolError.of(ErrorCode.NOT_FOUND,
@@ -406,16 +468,20 @@ public final class KnowledgeService {
             .distinct().toList();
     }
 
-    private Listing list() {
+    Listing list() {
         try {
             return directory.list();
         } catch (IOException e) {
-            throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
-                "The knowledge directory of this profile is not usable now (" + problem(e) + ")",
-                "The configured knowledge directory is a file, has no read permission, or the"
-                    + " walk failed",
-                "Check the knowledge directory with --check-config"));
+            throw unusable(e);
         }
+    }
+
+    static ToolErrorException unusable(IOException e) {
+        return new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+            "The knowledge directory of this profile is not usable now (" + problem(e) + ")",
+            "The configured knowledge directory is a file, has no read permission, or the"
+                + " walk failed",
+            "Check the knowledge directory with --check-config"));
     }
 
     /** Why the directory cannot be listed; never a path. */
@@ -432,7 +498,7 @@ public final class KnowledgeService {
             .map(p -> p.node() + " (" + p.store() + ": " + p.state() + ")").toList();
     }
 
-    private void ready() {
+    void ready() {
         if (secrets.prepare(prepareBound) instanceof Readiness.NotReady notReady) {
             String nodes = String.join(", ", pending(notReady));
             throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,

@@ -134,6 +134,17 @@ public final class KnowledgeHistory {
         return Math.min(versions.size(), KnowledgeLimits.HISTORY);
     }
 
+    /**
+     * The versions of {@code name} there are, e.g. after {@link #prune} failed.
+     *
+     * @throws ToolErrorException {@code PRECONDITION_FAILED} when a directory on the way is a link
+     *     or no directory
+     */
+    public int count(NoteName name) throws IOException {
+        Optional<Path> directory = versionDirectory(name, false);
+        return directory.isEmpty() ? 0 : versions(directory.get()).size();
+    }
+
     private record Version(Path file, String stamp, Instant instant, int counter) {
     }
 

@@ -237,7 +237,7 @@ readiness and a failing-audit fake.
   capability `record_knowledge`, node `-`, inputs name (masked or `***`), mode, sizes; never
   title, topics, content, token or `ref`; leak check — main `knowledge/KnowledgeAudit.java`, test
   `knowledge/KnowledgeAuditTest.java`
-- [ ] T030 [US2] `KnowledgeService.record` (D-10 steps 1–8): combination rules and the early
+- [X] T030 [US2] `KnowledgeService.record` (D-10 steps 1–8): combination rules and the early
   256 KiB `content` bound before readiness and scanning; readiness; secret check of the new text
   (name always); target (name rule, or `ref` resolved, checked, re-resolved under the lock);
   `PENDING`; lock; checks under the lock (fold collision, occupancy, `NOT_FOUND`, 4 MiB,
