@@ -57,7 +57,7 @@ choice.
 - [ ] T004 [P] `Masked` and `SecretSpan` records (D-6): masking of spans to `***`, count, merging
   overlapping spans, never splitting a surrogate pair — main `domain/model/Masked.java`,
   `domain/model/SecretSpan.java`, test `domain/model/MaskedTest.java`
-- [ ] T005 [P] `SecretScrubber.occurrences(String)` returning the spans of held values (D-6 (a)),
+- [ ] T005 `SecretScrubber.occurrences(String)` returning the spans of held values (D-6 (a)),
   behaviour of the existing scrub methods unchanged — main `infra/SecretScrubber.java`, test
   `infra/SecretScrubberTest.java`
 - [ ] T006 [P] `SimilarNames` made `public` (behaviour unchanged): first a red test in
@@ -238,7 +238,9 @@ readiness and a failing-audit fake.
   every parent segment, `.history`, `.lock`), occupancy check, `publishNew` via
   `Files.createLink` (exists → `CONFLICT`, unsupported → `PRECONDITION_FAILED`), `publishReplace`
   via atomic move, test hook between check and publish, `totalBytes` walk (not depth-limited,
-  fail closed after 1,000,000 entries), stale temporary files older than one hour removed — main
+  fail closed after 1,000,000 entries), stale temporary files older than one hour removed; first-write creation (D-3): an absent nested
+  root, its missing parents, note subdirectories, `.history` and the note are created owner-only
+  (POSIX bits / Windows ACL via `PrivateFiles`), existing directories keep their permissions — main
   `knowledge/KnowledgeDirectory.java`, tests `knowledge/KnowledgeDirectoryTest.java`,
   `knowledge/KnowledgeBoundsTest.java` (walk part)
 - [ ] T029 [P] [US2] `KnowledgeAudit` (D-13): `REFUSED` / `PENDING` → `EXECUTED|REFUSED|FAILED`,
@@ -271,7 +273,8 @@ readiness and a failing-audit fake.
 ## Phase 7: User Story 3 – The operator keeps control; bounds and leaks (P2, plan stage 6)
 
 - [ ] T034 [P] [US3] `KnowledgeProfilesTest`: two profiles, two directories; each server's tools
-  and instructions see only their own notes (SC-003) — test `KnowledgeProfilesTest.java`
+  and instructions see only their own notes (SC-003), and a record through each profile changes
+  only that profile's directory (FR-001, US3 AS1) — test `KnowledgeProfilesTest.java`
 - [ ] T035 [P] `KnowledgeBoundsTest`: 5,000 notes and a 1 MiB note — instructions, search page and
   read page within their bounds and reporting the cut (SC-004); 256 KiB / 100 MiB write bounds
   (US2 AS8) — test `knowledge/KnowledgeBoundsTest.java`
@@ -288,11 +291,11 @@ readiness and a failing-audit fake.
 
 - [ ] T037 [P] Docs (FR-021): `docs/setup.md` (directory, switch, bounds, history and restoring by
   hand, `--check-config` line, the credential reads of D-7 as decided), `docs/tools.md` (both
-  tools, schemas, errors, tool count), `README.md` (tool table and count), `SECURITY.md` (what may
+  tools, schemas, errors, tool count), `README.md` (tool table and count; if 018 merged first, the tool count reconciled here and in
+  `ToolAnnouncementTest` per the plan's touch points), `SECURITY.md` (what may
   be stored; local, unencrypted, owner-only; pattern-based check, prose secrets not caught)
 - [ ] T038 [P] `CHANGELOG.md` `[Unreleased]`: the local knowledge, the two tools, the credential
-  reads (D-7 as decided); `pom.xml` version unchanged. If 018 merged first: reconcile the tool
-  count in docs, README and `ToolAnnouncementTest` (plan touch points)
+  reads (D-7 as decided); `pom.xml` version unchanged
 - [ ] T039 `KnowledgeToolsReferenceTest`: `docs/tools.md` and `docs/setup.md` match the schemas
   and `KnowledgeLimits`; `NoCustomerIdentifiersTest` and `tools/check-identifiers.py` pass (FR-022)
   — test `KnowledgeToolsReferenceTest.java`
@@ -308,7 +311,7 @@ readiness and a failing-audit fake.
 ## Dependencies
 
 - Phase 2 blocks everything; T002 before T012 (`KeyMaterial`); T003 before T018, T020, T030;
-  T004, T005 before T012, T013.
+  T004 → T005; T004, T005 before T012, T013.
 - Phase 3: T008 → T009; T008 + T010 → T011.
 - Gate: Phase 3 → T016 → Phases 4 to 8.
 - Phase 4: T012 → T013 → T014 → T015.
@@ -321,8 +324,8 @@ readiness and a failing-audit fake.
 
 ## Parallel opportunities
 
-T003/T004/T005/T006/T007; T010 alongside T008/T009; T017 alongside T012 to T015; T025/T027/T029
-alongside T028; T034/T035; T037/T038. Builds always sequential.
+T003/T004/T006/T007 (then T005 after T004); T010 alongside T008/T009; T017 alongside T012 to T015; T025/T027/T029
+alongside T028; T034/T035; T037 (docs) and T038 (CHANGELOG) touch different files. Builds always sequential.
 
 ## Implementation strategy
 
