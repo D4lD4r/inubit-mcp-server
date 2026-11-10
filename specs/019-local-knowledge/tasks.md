@@ -159,7 +159,7 @@ read and paging match quickstart rows US1 AS1–AS6 and D-9.
   in order; writer single-quotes every string and refuses a block over the bounds; round-trip tests
   with quotes, backslashes, `#`, `:`, `---`; 63/64/65 lines and 8 KiB ± 1 — main
   `knowledge/NoteMetadata.java`, test `knowledge/NoteMetadataTest.java`
-- [ ] T018 [US1] `Note` and `KnowledgeDirectory` read side (D-4, D-9): walk with
+- [X] T018 [US1] `Note` and `KnowledgeDirectory` read side (D-4, D-9): walk with
   `NOFOLLOW_LINKS`, depth 16 / 100,000 entries (listing warnings), hidden entries skipped (segment
   starting with `.`, incl. `.history`, or `Files.isHidden` true — the Windows hidden attribute),
   links listed with a warning, only lowercase `.md`, notes over 4 MiB and unreadable notes listed

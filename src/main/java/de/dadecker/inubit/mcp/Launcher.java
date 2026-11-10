@@ -19,6 +19,7 @@ import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
 import de.dadecker.inubit.mcp.application.ReleaseSource;
 import de.dadecker.inubit.mcp.application.UpdateCache;
 import de.dadecker.inubit.mcp.application.UpdateCheck;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeDirectory;
 import de.dadecker.inubit.mcp.config.CheckedClient;
 import de.dadecker.inubit.mcp.config.CliClient;
 import de.dadecker.inubit.mcp.config.ConfigException;
@@ -31,6 +32,7 @@ import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.EntryCheck;
 import de.dadecker.inubit.mcp.config.GroupConfig;
 import de.dadecker.inubit.mcp.config.JdkRelease;
+import de.dadecker.inubit.mcp.config.KnowledgeConfig;
 import de.dadecker.inubit.mcp.config.KnowledgeStatus;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.config.ParameterCheck;
@@ -273,7 +275,7 @@ final class Launcher {
             ValidationReport checked = entries.addTo(parameters.addTo(withProbes));
             context.out().print(new ConfigSummary(context.exists(), context.windows())
                 .render(loaded, checked, clients, options, parameters, entries,
-                    checkedClients, KnowledgeStatus.probe(loaded.config().knowledge(), 0)));
+                    checkedClients, knowledgeStatus(loaded.config().knowledge())));
             context.out().flush();
             return checked.hasErrors() ? EXIT_ERROR : EXIT_OK;
         }
@@ -304,6 +306,23 @@ final class Launcher {
      * logs, the deployment ledgers and locks; and the knowledge directory if others may access
      * it or it is not usable (feature 019, FR-003); nothing is changed.
      */
+    /**
+     * The knowledge line of {@code --check-config} (feature 019, research D-3): the notes are
+     * counted by a walk that reads no note and no credential; 0 if the walk fails.
+     */
+    private static KnowledgeStatus knowledgeStatus(KnowledgeConfig knowledge) {
+        KnowledgeStatus probed = KnowledgeStatus.probe(knowledge, 0);
+        if (probed.state() != KnowledgeStatus.State.OK) {
+            return probed;
+        }
+        try {
+            return KnowledgeStatus.probe(knowledge,
+                new KnowledgeDirectory(knowledge.directory()).status().notes());
+        } catch (IOException e) {
+            return probed;
+        }
+    }
+
     private ValidationReport withPrivateObjects(ProfileConfig config, ValidationReport report) {
         PrivateObjectCheck check = new PrivateObjectCheck(context.privateFiles(),
             System.getProperty("user.name", ""));

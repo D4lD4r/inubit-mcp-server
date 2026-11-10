@@ -1279,6 +1279,36 @@ class MainTest {
             .isEqualTo("rwxr-xr-x");
     }
 
+    @Test
+    void checkConfigCountsTheNotesWithoutNamingThem() throws IOException {
+        credentials();
+        Path knowledge = Files.createDirectories(home.resolve("Notes/acme"));
+        Files.writeString(Files.createDirectories(knowledge.resolve("systems"))
+            .resolve("sap-rfc.md"), "---\ntitle: SAP RFC\n---\nbody\n");
+        Files.writeString(knowledge.resolve("a.md"), "a");
+        Files.writeString(knowledge.resolve(".hidden.md"), "x");
+        Files.writeString(knowledge.resolve("other.txt"), "x");
+        Path file = Files.createDirectories(home.resolve(".config/inubit-mcp"))
+            .resolve("acme.yaml");
+        Files.writeString(file, """
+            profile:
+              name: acme
+            knowledge:
+              directory: %s
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+            """.formatted(knowledge));
+
+        assertThat(run("--check-config", "--config", file.toString())).as(out()).isZero();
+
+        assertThat(out()).contains("Knowledge: " + knowledge + " (ok), recording on, 2 notes\n")
+            .doesNotContain("sap-rfc").doesNotContain("SAP RFC");
+    }
+
     // --- 002 research D-9: profile selection --------------------------------------------------
 
     /** {@code <home>/.config/inubit-mcp/<fileName>.yaml} declaring {@code profileName}. */
