@@ -214,7 +214,7 @@ readiness and a failing-audit fake.
   `NOSHARE_DELETE`) plus `NOFOLLOW_LINKS`; `openLockFile` unchanged — main
   `domain/port/PrivateFileSystem.java`, `adapter/os/OsPrivateFileSystem.java`, test
   `adapter/os/OsPrivateFileSystemTest.java` (link refused, POSIX; Windows simulation)
-- [ ] T026 [US2] `KnowledgeLock` (D-12): in-process lock, then `tryLock` polling up to 10 s,
+- [X] T026 [US2] `KnowledgeLock` (D-12): in-process lock, then `tryLock` polling up to 10 s,
   `.lock` created owner-only and opened with `openLockFileNoFollow` — main
   `knowledge/KnowledgeLock.java`, test `knowledge/KnowledgeLockTest.java` (threads, timeout,
   link)
