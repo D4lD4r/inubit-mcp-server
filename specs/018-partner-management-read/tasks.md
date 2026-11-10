@@ -346,7 +346,7 @@ system diagrams/clouds whose `ReferencableTWFs` contain the workflow.
   errors, cache hit, audit failure): no synthetic secret or derivative in results, errors, log
   output (captured appender) or audit lines; the cache holds only `Masked` values (SC-002) — test
   `security/PartnerSecretLeakTest.java`
-- [ ] T031 [P] `PartnerServicePerformanceTest`: 1,000-partner fixture, parse + mask + fingerprint +
+- [x] T031 [P] `PartnerServicePerformanceTest`: 1,000-partner fixture, parse + mask + fingerprint +
   page ≤ 5 s beyond the read; a repeated call within the TTL makes no request (SC-005) — test
   `application/PartnerServicePerformanceTest.java`
 - [ ] T032 Docs (FR-022): `docs/tools.md` new `find_partners` section (inputs, output, clouds,
