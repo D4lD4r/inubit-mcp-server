@@ -341,8 +341,15 @@ public final class ConfigValidator {
      * @param what      how the error names it (contracts/configuration-delta.md)
      * @param path      as configured or derived
      * @param mayHoldIt whether the knowledge directory may lie inside it ({@code ~/.inubit-mcp})
+     * @param mayHoldOwnData whether the knowledge directory may lie inside it when this profile's
+     *                       data directory does too (the configuration roots, e.g. a
+     *                       configuration file in the home directory)
      */
-    private record Forbidden(String what, Path path, boolean mayHoldIt) {
+    private record Forbidden(String what, Path path, boolean mayHoldIt, boolean mayHoldOwnData) {
+
+        Forbidden(String what, Path path) {
+            this(what, path, false, false);
+        }
     }
 
     /**
@@ -350,7 +357,8 @@ public final class ConfigValidator {
      * lies inside or contains a directory of this profile, of the server or of another profile of
      * the default configuration directory. Lying inside this profile's data directory {@code
      * ~/.inubit-mcp/<profile>} is allowed (it is the default), also where that directory itself
-     * lies inside a forbidden one (a configuration file in the home directory). Paths are
+     * lies inside a configuration root (a configuration file in the home directory), but not
+     * inside a workspace or audit directory. Paths are
      * compared {@linkplain #canonical canonically}; a copy of the same profile is not compared.
      */
     private void checkKnowledge(LoadedConfig loaded, List<LoadedConfig> others,
@@ -365,28 +373,28 @@ public final class ConfigValidator {
         String name = config.profile().name();
         boolean ownName = ProfileInfo.isValidName(name) && !ProfileInfo.isReservedName(name);
         List<Forbidden> forbidden = new ArrayList<>();
-        forbidden.add(new Forbidden("workspace", config.workspace(), false));
-        forbidden.add(new Forbidden("audit directory", config.auditDirectory(), false));
+        forbidden.add(new Forbidden("workspace", config.workspace()));
+        forbidden.add(new Forbidden("audit directory", config.auditDirectory()));
         Optional<Path> dataDirectory = Optional.empty();
         if (serverPaths.isPresent()) {
             Path home = serverPaths.get().home();
             if (ownName) {
                 dataDirectory = Optional.of(dataDirectory(home, name));
                 forbidden.add(new Forbidden("backup directory",
-                    BackupStore.defaultRoot(home, name), false));
+                    BackupStore.defaultRoot(home, name)));
                 forbidden.add(new Forbidden("deployment ledger directory",
-                    DeploymentLedger.defaultDirectory(home, name), false));
+                    DeploymentLedger.defaultDirectory(home, name)));
                 forbidden.add(new Forbidden("package directory",
-                    PackageWriter.defaultDirectory(home, name), false));
+                    PackageWriter.defaultDirectory(home, name)));
             }
             forbidden.add(new Forbidden("server data directory ~/.inubit-mcp",
-                home.resolve(".inubit-mcp"), true));
+                home.resolve(".inubit-mcp"), true, false));
             List<Path> roots = new ConfigLocation(serverPaths.get().defaultConfigDirectory(),
                 loaded.source()).roots();
-            forbidden.add(new Forbidden("configuration directory", roots.get(0), false));
+            forbidden.add(new Forbidden("configuration directory", roots.get(0), false, true));
             if (roots.size() > 1) {
                 forbidden.add(new Forbidden("folder of the configuration file", roots.get(1),
-                    false));
+                    false, true));
             }
         }
         for (LoadedConfig other : others) {
@@ -401,14 +409,14 @@ public final class ConfigValidator {
             if (serverPaths.isPresent() && ProfileInfo.isValidName(otherName)
                 && !ProfileInfo.isReservedName(otherName)) {
                 forbidden.add(new Forbidden("data directory of profile " + profile,
-                    dataDirectory(serverPaths.get().home(), otherName), false));
+                    dataDirectory(serverPaths.get().home(), otherName)));
             }
             forbidden.add(new Forbidden("workspace of profile " + profile + file,
-                otherConfig.workspace(), false));
+                otherConfig.workspace()));
             forbidden.add(new Forbidden("audit directory of profile " + profile + file,
-                otherConfig.auditDirectory(), false));
+                otherConfig.auditDirectory()));
             forbidden.add(new Forbidden("knowledge directory of profile " + profile + file,
-                otherConfig.knowledge().directory(), false));
+                otherConfig.knowledge().directory()));
         }
         Path knowledge = canonical(directory);
         Optional<Path> ownData = dataDirectory.map(ConfigValidator::canonical)
@@ -425,7 +433,8 @@ public final class ConfigValidator {
                 findings.error(prefix + "is the same directory as the " + candidate.what() + " "
                     + otherShown + "; set knowledge.directory to a folder of its own");
             } else if (knowledge.startsWith(path) && !candidate.mayHoldIt()
-                && !ownData.filter(own -> own.startsWith(path)).isPresent()) {
+                && !(candidate.mayHoldOwnData()
+                    && ownData.filter(own -> own.startsWith(path)).isPresent())) {
                 findings.error(prefix + "is inside the " + candidate.what() + " " + otherShown
                     + "; set knowledge.directory to a folder outside it");
             } else if (path.startsWith(knowledge)) {

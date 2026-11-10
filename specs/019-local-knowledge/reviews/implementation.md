@@ -21,3 +21,18 @@ of `556fc7f..1240f95` by a review agent.
 | R2 | minor | `PackageWriter.defaultDirectory` was inserted between the constructor's Javadoc and the constructor | moved above the constructor's Javadoc |
 
 All other points of D-2, D-4, D-6 and data-model.md were confirmed.
+
+Build on 89184f2 + T008 (a0269e3): surefire 5542 tests, 0 failures, 0 errors, 52 skipped;
+failsafe 2 tests, 0 failures.
+
+## Implementation — phase 3 (T008–T011)
+
+Build on 6d8cb9c: surefire 5581 tests, 0 failures, 0 errors, 52 skipped; failsafe 2 tests,
+0 failures. Code review of `89184f2..6d8cb9c` by a review agent.
+
+| # | Severity | Finding | Resolution |
+|---|---|---|---|
+| R1 | major | The allowance "inside `~/.inubit-mcp/<own profile>`" applied to every forbidden directory, so `workspace: ~` or `auditDirectory: ~/.inubit-mcp/acme` (or another profile's audit directory there) let the default knowledge directory lie inside a workspace or audit directory | the allowance holds only for the configuration directory and the folder of the configuration file (`Forbidden.mayHoldOwnData`); test `theDataDirectoryExemptionDoesNotCoverAWorkspaceOrAuditDirectoryHoldingIt` (fails without the fix); D-2 and the contract worded accordingly |
+
+Targeted after the fix: `ConfigValidatorKnowledgeTest` 16, `ConfigValidatorTest` 189 (1 skipped),
+`MainTest` 78 (3 skipped), 0 failures.

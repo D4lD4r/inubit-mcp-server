@@ -198,6 +198,22 @@ class ConfigValidatorKnowledgeTest {
     }
 
     @Test
+    void theDataDirectoryExemptionDoesNotCoverAWorkspaceOrAuditDirectoryHoldingIt()
+        throws IOException {
+        Path k = home.resolve(".inubit-mcp/acme/knowledge");
+
+        assertThat(errors(profileFile("acme.yaml", "acme", "workspace: ~\n")))
+            .contains(inside(k, "workspace", home));
+        Path ownData = home.resolve(".inubit-mcp/acme");
+        assertThat(errors(profileFile("acme.yaml", "acme", "auditDirectory: ~/.inubit-mcp/acme\n")))
+            .contains(inside(k, "audit directory", ownData));
+
+        Path globex = profileFile("globex.yaml", "globex", "auditDirectory: ~/.inubit-mcp/acme\n");
+        assertThat(errors(profileFile("acme.yaml", "acme", "")))
+            .contains(inside(k, "audit directory of profile 'globex' (" + globex + ")", ownData));
+    }
+
+    @Test
     void aSymbolicLinkRootIsResolved() throws IOException {
         Files.createDirectories(home.resolve("work"));
         Files.createSymbolicLink(home.resolve("alias"), home.resolve("work"));
