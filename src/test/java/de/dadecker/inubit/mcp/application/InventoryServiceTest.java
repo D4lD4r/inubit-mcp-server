@@ -207,7 +207,8 @@ class InventoryServiceTest {
         port.details.put("billing order import", new InventoryPort.DiagramDetail(
             "billing order import", Optional.of("technical"), Optional.of("head"), List.of()));
         port.metadata.put("Workflow-0101", new InventoryPort.DiagramMetadata(
-            Optional.of(true), Optional.of("head comment"), Optional.of("OWNERS")));
+            Optional.of(true), Optional.of("head comment"), Optional.of("OWNERS"), List.of(),
+            false));
         port.histories.put("GRP-41", new InventoryPort.VersionHistory(
             Map.of("Workflow-0101", List.of(
                     version(2, "2026-01-23T06:54:27Z", "second", "TAG-02"),

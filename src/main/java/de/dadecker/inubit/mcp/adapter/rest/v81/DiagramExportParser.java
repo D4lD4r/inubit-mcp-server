@@ -7,11 +7,20 @@ import de.dadecker.inubit.mcp.domain.port.InventoryPort.DiagramMetadata;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.w3c.dom.Element;
+import org.w3c.dom.NamedNodeMap;
+import org.w3c.dom.Node;
 
 /**
  * Reads the head metadata of a diagram from the ZIP of {@code GET /ibis/rest/model/export/<name>}
@@ -26,6 +35,9 @@ import org.w3c.dom.Element;
  *       other entry is skipped unread. From it only {@code IBISWorkflow/Workflows/WorkflowGroup/
  *       Workflow/{IsActive, CheckinComment, UserOrUserGroupName}} of the first workflow are
  *       taken (direct children, so the fields of nested module subtrees do not count).
+ *   <li>From the whole workflow (spec 018, FR-015): the distinct, sorted
+ *       {@code ISPartner(Protocol|Parameter).<name>} references in every attribute value and
+ *       text (comments not), and whether an element has {@code moduleType="PartnerManagement"}.
  *   <li>An export without {@code workflow/workflow.xml} (e.g. of a non-technical diagram) has
  *       no metadata ({@link DiagramMetadata#EMPTY}).
  * </ul>
@@ -38,6 +50,10 @@ public final class DiagramExportParser {
     public static final long MAX_ENTRY_BYTES = 64L << 20;
 
     private static final byte[] ZIP_SIGNATURE = {'P', 'K', 3, 4};
+    /** A reference to a partner protocol setting or additional parameter. */
+    private static final Pattern PARTNER_VARIABLE =
+        Pattern.compile("ISPartner(?:Protocol|Parameter)\\.[A-Za-z0-9_]+");
+    private static final String PARTNER_MANAGEMENT = "PartnerManagement";
 
     private DiagramExportParser() {
     }
@@ -65,10 +81,52 @@ public final class DiagramExportParser {
             throw InventoryXml.unexpected(server, "The workflow of the diagram export of "
                 + server + " has no IBISWorkflow/Workflows/WorkflowGroup/Workflow");
         }
+        Set<String> variables = new TreeSet<>();
+        boolean partnerManagement = scan(root, variables);
         return new DiagramMetadata(
             InventoryXml.childText(head.get(), "IsActive").flatMap(DiagramExportParser::bool),
             InventoryXml.childText(head.get(), "CheckinComment"),
-            InventoryXml.childText(head.get(), "UserOrUserGroupName"));
+            InventoryXml.childText(head.get(), "UserOrUserGroupName"),
+            List.copyOf(variables), partnerManagement);
+    }
+
+    /**
+     * Adds the partner variables of every attribute value and text below {@code node} to
+     * {@code variables}; whether an element below it is a {@code PartnerManagement} node.
+     */
+    private static boolean scan(Node node, Set<String> variables) {
+        boolean partnerManagement = false;
+        Deque<Node> open = new ArrayDeque<>(List.of(node));
+        while (!open.isEmpty()) {
+            Node next = open.pop();
+            switch (next.getNodeType()) {
+                case Node.ELEMENT_NODE -> {
+                    NamedNodeMap attributes = next.getAttributes();
+                    for (int i = 0; i < attributes.getLength(); i++) {
+                        Node attribute = attributes.item(i);
+                        partnerManagement |= XmlSupport.localName(attribute).equals("moduleType")
+                            && attribute.getNodeValue().equals(PARTNER_MANAGEMENT);
+                        variables(attribute.getNodeValue(), variables);
+                    }
+                    for (Node child = next.getLastChild(); child != null;
+                        child = child.getPreviousSibling()) {
+                        open.push(child);
+                    }
+                }
+                case Node.TEXT_NODE, Node.CDATA_SECTION_NODE ->
+                    variables(next.getNodeValue(), variables);
+                default -> {
+                }
+            }
+        }
+        return partnerManagement;
+    }
+
+    private static void variables(String text, Set<String> variables) {
+        Matcher matcher = PARTNER_VARIABLE.matcher(text);
+        while (matcher.find()) {
+            variables.add(matcher.group());
+        }
     }
 
     /** {@code true}/{@code false} (any case); anything else is absent. */

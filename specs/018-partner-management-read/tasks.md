@@ -316,7 +316,7 @@ system diagrams/clouds whose `ReferencableTWFs` contain the workflow.
 **Independent test**: synthetic technical workflow with two `ISPartnerProtocol.*`, one
 `ISPartnerParameter.*` and a `PartnerManagement` node; synthetic system diagram naming it.
 
-- [ ] T028 [P] [US4] `DiagramExportParser`: distinct, sorted `ISPartner(Protocol|Parameter)\.
+- [x] T028 [P] [US4] `DiagramExportParser`: distinct, sorted `ISPartner(Protocol|Parameter)\.
   [A-Za-z0-9_]+` from every attribute value and text of a technical workflow, and whether a
   `moduleType="PartnerManagement"` node exists; carried in `InventoryPort.DiagramMetadata` (new
   fields, `EMPTY` extended; adjust test fakes that build `DiagramMetadata`) — main
