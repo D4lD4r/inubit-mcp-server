@@ -279,7 +279,7 @@ readiness and a failing-audit fake.
 
 ## Phase 8: Documentation and polish (plan stage 7; FR-021, FR-022)
 
-- [ ] T037 [P] Docs (FR-021): `docs/setup.md` (directory, switch, bounds, history and restoring by
+- [X] T037 [P] Docs (FR-021): `docs/setup.md` (directory, switch, bounds, history and restoring by
   hand, `--check-config` line, the credential reads of D-7 as decided), `docs/tools.md` (both
   tools, schemas, errors, tool count), `README.md` (tool table and count; if 018 merged first, the tool count reconciled here and in
   `ToolAnnouncementTest` per the plan's touch points), `SECURITY.md` (what may

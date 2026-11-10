@@ -12,7 +12,9 @@ person. It uses the INUBIT REST API wherever possible and the INUBIT command-lin
 only where REST cannot do the job. Nodes of an older **INUBIT 6.1** installation can be configured
 read-only: they are reached through StartCLI only, never over REST (see
 [Requirements](#requirements)). One server process serves one **profile** (one customer or project,
-one YAML file); several profiles run side by side as separate registrations.
+one YAML file); several profiles run side by side as separate registrations. Each profile keeps a
+**local knowledge** — Markdown notes with operating knowledge and research results on this
+computer — that the assistant searches before researching in INUBIT and, after you agreed, extends.
 
 ## Tools
 
@@ -20,6 +22,8 @@ one YAML file); several profiles run side by side as separate registrations.
 |---|---|---|
 | `list_nodes` | which profile this is and which groups and nodes are configured (production flag, write access, repository writes, CLI) | none |
 | `get_health` | is a node or a whole group reachable and ready; maintenance mode, version, memory, threads, queue | REST |
+| `read_knowledge` | list, search or read the notes of the profile's local knowledge (secrets shown as `***`) | none (local files) |
+| `record_knowledge` | create a note, append a section or replace a note's content in the local knowledge, after you agreed; never deletes, keeps 10 versions | none (local files) |
 | `find_processes` | failed (`ERROR`), waiting, queued or hanging process instances | REST |
 | `query_logs` | log entries (systemLog, queueLog, auditLog, …) by time, workflow, severity, process id, text | REST |
 | `list_inventory` | diagrams or modules of the configured owner, filtered by name, type, INUBIT group | REST (diagrams), StartCLI (modules) |
@@ -42,6 +46,8 @@ own explicit setting:
 | Tools | Offered when |
 |---|---|
 | `list_nodes`, `get_health`, `check_artifacts` | always |
+| `read_knowledge` | always |
+| `record_knowledge` | unless the profile sets `knowledge.recording: false` |
 | `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item` | a node is not pinned to an INUBIT version that refuses the tool (none of them is offered, e.g., in a profile of INUBIT 6.1 nodes only) |
 | `export_artifacts`, `export_archives` | a node has a StartCLI installation and is not pinned to an INUBIT version that refuses the export |
 | `restart_process`, `kill_process` | a node has effective write access (`write.enabled`) |
@@ -358,8 +364,8 @@ The build produces the single executable JAR `target/inubit-mcp-server-<version>
 ## Documentation
 
 - [docs/setup.md](docs/setup.md) — configuration, credentials, TLS, `--check-config`, registration,
-  several profiles side by side, the artifact workspace, development stages, the stage chain and
-  deployments
+  several profiles side by side, the artifact workspace, the local knowledge, development stages,
+  the stage chain and deployments
 - [docs/tools.md](docs/tools.md) — tool reference with inputs, outputs, error codes and example
   prompts
 - [docs/migration-001-to-002.md](docs/migration-001-to-002.md) — migrating a configuration file of
