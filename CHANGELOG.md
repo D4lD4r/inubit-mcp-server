@@ -7,6 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-10
+
+Fixes from the first INUBIT 9.0 live check and from imports on 8.1.
+
+### Changed
+
+- AWS SDK for Java v2 2.57.7 → 2.57.10 (the same artifacts). `THIRD-PARTY-NOTICES.md` is
+  updated.
+
 ### Fixed
 
 - StartCLI on INUBIT 9.0 with a configured `tls.trustStore`: the 9.0.10 client ignores
@@ -926,7 +935,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.4...v0.7.0
