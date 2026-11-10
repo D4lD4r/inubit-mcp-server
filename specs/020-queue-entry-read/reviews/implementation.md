@@ -176,3 +176,30 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
 - Credentials reach `CliQueueEntryAdapter` as `node::credentials` (the held credentials the node's guard is bound to); `Slot.ports()` already awaits `NodeSecrets.current` before any port exists, and the port set is rebuilt on rotation.
 - The 7-port `PortSet` compatibility constructor refuses queue-entry reads with `RefusingPorts.refusal()`, whose text names INUBIT 6.1. Production never uses it for 8.1/9.0 (`Wiring` uses `v81Default(host, processRun, limiter).withV90()`), but test registries built with `v81Default()` / `V81PortSet.create(node)` give that 6.1 wording — later tests (T023+) must not assert on it for 8.1/9.0 nodes.
 - Process deviation: tests were written first but not run red; evidence of their strength: they do not compile without the new API, and two deliberate mutations (plain 8.1 set in `withV90`, separate guard) failed.
+
+## T023 notes
+
+- Seam for T024: part 1 is the package-private `QueueEntryService.readRaw(target, processId,
+  fileName, maxChars)` returning `RawEntryRead(node, row, content, maxChars, warnings)` (the
+  selected row, the unshaped `RawEntryContent`, the validated text limit, the gate's warnings).
+  T024 adds the public `read(…)` → `QueueEntryResult` on top of it, plus `knownSecrets` in the
+  constructor and the INFO line; the T023 tests keep calling `readRaw`.
+- A data stream not requested for its size (> 10 MiB) is returned as `PartResult.TooLarge(fileSize)`
+  (the row's size), so T024 renders every unavailable part from one shape.
+- Texts not fixed by the contract (implementer's choice): `fileName` unknown → `NOT_FOUND` "Queue
+  entry <file> of process <id> is not in the Queue Manager of <node>; nothing was read"; the
+  non-ERROR state list is bounded like the candidate list (20, "and N more"); the "only N of M
+  rows were read" suffix ends every candidate message when the row cap was hit (", … and none is
+  in ERROR" for the state list, as `ProcessControlService`).
+- `NOT_CONFIGURED` next step (review T023-r1, orchestrator decision): "… and restart the MCP
+  client (…)", the wording of the existing opt-in refusals (`WriteGuard`, `DevelopmentGuard`,
+  `ArchiveExportService`); contracts/mcp-tools-delta.md "Errors" changed from "restart the server"
+  to match, so contract, code and test agree and the bare level word "server" stays out of the
+  message (`MessageTerminologyTest`). No other feature document carried the old wording.
+- Re-read after `NotFound`: "still there" = a row with the same `fileName` among the re-read rows
+  (any state); a failure of the re-read itself passes through as the call's error.
+- The service takes `Predicate<NodeId>` (opt-in), `Function<NodeId, ProcessQueryPort>` and
+  `Function<NodeId, QueueEntryContentPort>` (the `ArchiveExportService` style), so its tests need no
+  `GatewayFactory` fake and never see the 6.1-worded refusal of the 7-port `PortSet` (T022 note).
+- Mutation check: opt-in after the gate, no `TooLarge` substitution, no re-read check, data always
+  requested, unbounded lists — each fails at least one test.

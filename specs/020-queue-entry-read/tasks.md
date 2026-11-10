@@ -314,7 +314,7 @@ INUBIT contact.
 
 ### Service and tool (plan stage 8)
 
-- [ ] T023 [US1] `application/QueueEntryService.java`, part 1 (FR-001, FR-002 refusal, FR-005,
+- [X] T023 [US1] `application/QueueEntryService.java`, part 1 (FR-001, FR-002 refusal, FR-005,
   FR-012, FR-013, D-9): input checks (`processId` `^[1-9][0-9]{0,18}$`; `fileName` "1–255
   characters, no `/`, `\`, NUL or other control characters"; `maxChars` "integer 1–100,000,
   default 20,000"); `TargetResolver.resolveSingleServer`; opt-in → `NOT_CONFIGURED` **before** the
