@@ -40,6 +40,9 @@
 | D-12: `.lock` as a link refused; Windows lock file not deletable while held | `KnowledgeLockTest`, `OsPrivateFileSystemTest` (`openLockFileNoFollow`) |
 | D-13: pre-write audit fails → `INTERNAL`, nothing written; final audit fails → note written, `PENDING` stays, warning | `KnowledgeServiceRecordTest` (failing audit fake) |
 | D-5, D-6: `source`/`lastWriter` and YAML block values masked | `NoteMetadataTest`, `SecretFinderTest`, `KnowledgeSecretLeakTest` |
+| D-9: `ref` reads a note whose listed name is cut, masked or holds a control character; duplicate NFC names → `CONFLICT` by name, both readable by `ref`; unknown `ref` → `NOT_FOUND` | `KnowledgeServiceReadTest`, `KnowledgeServiceRecordTest`, `ReadKnowledgeToolTest` |
+| D-5: single-quoted round trip (quotes, backslashes); block over 64 lines / 8 KiB refused | `NoteMetadataTest`, `KnowledgeServiceRecordTest` |
+| D-11: more than ten versions within one clock instant pruned in order | `KnowledgeHistoryTest` |
 | D-4: fold collisions (`ß`/`ẞ`/`SS`, `ı`/`i`, NFC forms) and the `CaseFolding.txt` table | `NoteNameTest` |
 | D-10 step 4: an invalid name holding a secret is refused without echo, audit shows `***` | `KnowledgeServiceRecordTest`, `KnowledgeSecretLeakTest` |
 | US3 AS1, SC-003: two profiles | `KnowledgeProfilesTest` |

@@ -509,6 +509,11 @@ except the first, which is **pending the person's confirmation**.
 - FR-014: a new history version is pruned only after the note was written; a failed write leaves
   note and history unchanged. Once the note is written, the call succeeds; if pruning then fails,
   the result warns and the next successful write prunes (D-10).
+- FR-004, FR-008: since listed names are masked and cut, each hit also carries an opaque `ref`
+  that reads (and, for `append`/`replace`, writes) exactly that note; two files with the same name
+  in different Unicode forms are both listed and reachable by `ref` only (D-9).
+- FR-004 metadata: the server writes single-quoted values and refuses a write whose block would
+  exceed the parser's bounds, so every block it writes reads back well-formed (D-5).
 - Symbolic links (Edge Cases, FR-011): links that exist before a write are refused on every
   internal path; a concurrent swap by a process of the same user is outside the threat model
   (D-12).

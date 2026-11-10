@@ -168,7 +168,17 @@ and lines starting with `#` are allowed. Keys (case-sensitive):
 | `lastChange` | ISO-8601 instant (informative, FR-004a) | set on every write |
 
 - Values may be plain, `"double-quoted"` (escapes `\"`, `\\`, `\n` not allowed — a value is one
-  line) or `'single-quoted'` (`''` for `'`). The server writes every string double-quoted.
+  line) or `'single-quoted'` (`''` for `'`). Flow-list items may be plain or quoted the same way.
+  The server writes every string **single-quoted** (`'` doubled), which represents every one-line
+  string without control characters — `"` and `\` stay literal — so whatever the server accepts
+  (title, topics, the client name reduced to one line) is read back unchanged. Round-trip tests:
+  quotes, apostrophes, backslashes, `#`, `:` and `---` inside values.
+- **Block bound on write**: the complete block the server is about to write (server keys plus
+  preserved unknown keys and comments) is checked against the parser's bounds (64 lines, 8 KiB)
+  before publication; if it would exceed them → `PRECONDITION_FAILED` "the metadata block of the
+  note would exceed 64 lines or 8 KiB; shorten it by hand", nothing written. The server keys alone
+  stay far below (worst case about 6 KiB with four-byte characters and doubled quotes). Tests at
+  63/64/65 lines and 8 KiB ± 1 byte.
   Unknown keys are preserved in order on a write and otherwise ignored, so the operator can add
   own fields.
 - **Malformed** (FR-004d): an opening `---` without a closing one within the bounds; a line that
@@ -387,9 +397,22 @@ note text is never interpreted as a template. Exact texts in
 - **Hit**: `name`, `title`, `topics`, `lastChange` (ISO-8601 UTC, seconds), `source`,
   `versionToken`, `excerpt` (≤ 300 characters of the masked body: from 100 characters before the
   first body match, else the body start; line breaks → space; never splitting a surrogate pair),
-  `masked` (count in the whole note), `writable` (name follows the record rule and metadata is
-  well-formed), `warnings` (per note). Names, titles and topics as in D-8 (masked, one line,
+  `masked` (count in the whole note), `writable` (name follows the record rule, contains no
+  secret, and metadata is well-formed), `ref`, `warnings` (per note). Names, titles and topics as in D-8 (masked, one line,
   cut at 120) but not quoted (they are JSON strings).
+- **Note reference `ref`** (FR-004: every listed note stays readable): the displayed `name` is
+  masked and cut and therefore not always the exact name. Every hit carries `ref` =
+  `r1.` + base64url of the first 15 bytes of HMAC-SHA-256(per-process random key, exact relative
+  path) — 23 characters, stable for the life of the server process, revealing nothing about the
+  name (no secret can be recovered from it). `read_knowledge` and `record_knowledge`
+  (`append`/`replace`) accept `ref` instead of `name` (exactly one of the two → else
+  `INVALID_INPUT`); a `ref` resolves against the current listing, an unknown one → `NOT_FOUND`
+  "list the notes again" (e.g. after a restart). Written results and audit records carry the
+  masked name, never the `ref` alone.
+- **Duplicate names**: two files whose names are equal after NFC (e.g. an NFD and an NFC file on
+  Linux) are both listed, each with its own `ref` and the warning `another file has the same name
+  in another Unicode form; use ref`; a lookup by that `name` → `CONFLICT` "several notes have this
+  name; use ref". Order between them: code-point order of the raw path.
 - **Page result**: `notes`, `offset`, `limit`, `total`, `nextOffset` (absent on the last page),
   `warnings` (directory-level: symbolic links ignored, files skipped, walk bounds reached; at most
   20 lines then `… and <n> more`).
@@ -446,7 +469,12 @@ order:
      free path for the file (a file with another case of `.md`, a directory, a symbolic link,
      checked with `NOFOLLOW_LINKS` segment by segment, also case-insensitively against the
      directory listing) → `PRECONDITION_FAILED` naming the occupying path (relative, masked).
-   - `append`/`replace`: not listed → `NOT_FOUND` (similar names); (a name outside the record
+   - `append`/`replace` by `ref` (D-9): the `ref` is resolved against the current listing
+     (unknown → `NOT_FOUND` "list the notes again"); the resolved name must follow the record rule
+     and hold no secret, else `PRECONDITION_FAILED` "this note cannot be written by the tool
+     (`writable` is false)"; until then audit and logs carry the name as `***`.
+   - `append`/`replace`: not listed → `NOT_FOUND` (similar names); a `name` shared by two files
+     in different Unicode forms → `CONFLICT` "use ref"; (a name outside the record
      rule never gets here: step 4 refuses it); over
      4 MiB or unreadable → `PRECONDITION_FAILED`; malformed metadata → `PRECONDITION_FAILED`
      (FR-004d); parent segment or file is a link → `PRECONDITION_FAILED`.
@@ -494,8 +522,11 @@ order:
 ## D-11 History (FR-014)
 
 **Decision**: `<knowledge>/.history/<note path>.md/<stamp>.md`, e.g. the note `partners/acme` →
-`.history/partners/acme.md/20261110T101500.123456789Z.md`. `<stamp>` is the write time in UTC with
-nanoseconds; an existing name gets `-2`, `-3`. Lexical order = time order. After adding, the
+`.history/partners/acme.md/20261110T101500.123456789Z-000.md`. `<stamp>` is the write time in UTC
+with nanoseconds, followed by a three-digit counter (`-000`, `-001`, … if the name exists; beyond
+`-999` → `PRECONDITION_FAILED`). Order is by the **parsed** (instant, counter), not lexically;
+files that do not match the pattern are never pruned. A test writes more than ten versions within
+one clock instant (fixed clock) and asserts that the oldest are pruned. After adding, the
 versions of that note beyond the 10 newest are deleted (oldest first). Created owner-only
 (D-3). The `.history` tree is hidden, so walk, search, instructions and the note count ignore it,
 but it counts towards the 100 MiB bound. `docs/setup.md` documents where it is and how to restore

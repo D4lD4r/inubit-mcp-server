@@ -57,6 +57,8 @@ topics: masked, one line, cut at 120 characters with `…`, `"` inside replaced 
   "properties": {
     "name": { "type": "string", "minLength": 1, "maxLength": 1000,
               "description": "Read this note (its name as listed, e.g. partners/acme); leave out to list or search" },
+    "ref": { "type": "string",
+             "description": "Read this note by the ref of a hit (always exact, also when the listed name was shortened); instead of name" },
     "query": { "type": "string", "pattern": "^[^\\u0000-\\u001F\\u007F]{1,200}$",
                "description": "Case-insensitive text to find in name, title, topics or content" },
     "topic": { "type": "string", "pattern": "^[^\\u0000-\\u001F\\u007F]{1,60}$",
@@ -70,8 +72,9 @@ topics: masked, one line, cut at 120 characters with `…`, `"` inside replaced 
 }
 ```
 
-`name` together with `query`, `topic` or `limit` → `INVALID_INPUT` ("read by name or search, not
-both").
+`name` or `ref` together with `query`, `topic` or `limit`, or `name` and `ref` together →
+`INVALID_INPUT` ("read by name or search, not both"). A lookup by a `name` that two files share
+in different Unicode forms → `CONFLICT` ("use ref"); an unknown `ref` → `NOT_FOUND`.
 
 ### Output schema (`schemas/read_knowledge.output.json`)
 
@@ -122,7 +125,7 @@ Two shapes, `oneOf`: a listing (no `name` given) and a page of one note (`name` 
     "warnings": { "type": "array", "maxItems": 21, "items": { "type": "string" } },
     "hit": {
       "type": "object",
-      "required": ["name", "title", "topics", "lastChange", "source", "masked", "writable", "warnings"],
+      "required": ["name", "ref", "title", "topics", "lastChange", "source", "masked", "writable", "warnings"],
       "properties": {
         "name": { "type": "string" },
         "title": { "type": "string" },
@@ -133,6 +136,7 @@ Two shapes, `oneOf`: a listing (no `name` given) and a page of one note (`name` 
         "excerpt": { "type": "string", "maxLength": 300 },
         "masked": { "type": "integer", "minimum": 0 },
         "writable": { "type": "boolean", "description": "record_knowledge can append to or replace this note" },
+        "ref": { "type": "string", "description": "Exact reference to this note for read_knowledge and record_knowledge (valid while the server runs)" },
         "warnings": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
@@ -180,10 +184,12 @@ tool runs and is not audited, so every refusal worth auditing is checked by the 
 ```json
 {
   "type": "object",
-  "required": ["name", "mode", "content"],
+  "required": ["mode", "content"],
   "properties": {
     "name": { "type": "string",
               "description": "Note name: up to 4 segments separated by /, each 1-100 letters, digits, _ . - and spaces, not starting with . (e.g. partners/acme); without .md" },
+    "ref": { "type": "string",
+             "description": "append/replace: the ref of a hit, instead of name (exact also when the listed name was shortened)" },
     "mode": { "type": "string", "enum": ["create", "append", "replace"],
               "description": "create a new note, append a section, or replace the content" },
     "title": { "type": "string",
@@ -200,7 +206,8 @@ tool runs and is not audited, so every refusal worth auditing is checked by the 
 ```
 
 Checked by the service, all `INVALID_INPUT` and audited (D-10 steps 1, 3, 4): `create` without
-`title`; `replace` without `versionToken`; `versionToken` with `create` or `append`; empty
+`title`; neither or both of `name` and `ref`, or `ref` with `create`; `replace` without
+`versionToken`; `versionToken` with `create` or `append`; empty
 `content`; title/topic bounds (code points); duplicate topics; a malformed `versionToken`; the
 secret check; the name rule and the `.md` suffix. Messages name the field and the rule, never the
 value.

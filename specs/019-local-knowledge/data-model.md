@@ -12,7 +12,7 @@ get the listed members; everything else is unchanged.
 | Knowledge directory | `knowledge.directory`, default `~/.inubit-mcp/<profile>/knowledge` | first write (owner-only) | never created at start or by a read; root may be a symbolic link (resolved); FR-002 overlap rules (D-2) |
 | Note | `<dir>/<segment>/…/<last>.md` | operator or `record_knowledge` | regular file, lowercase `.md`, no hidden segment, not a link; ≤ 256 KiB when written by the server; read/search bound 4 MiB |
 | Metadata block | first lines of a note, between `---` lines | operator or server | keys `title`, `topics`, `source`, `lastWriter`, `lastChange`; unknown keys kept (D-5) |
-| History version | `<dir>/.history/<note path>.md/<yyyyMMdd'T'HHmmss.nnnnnnnnn'Z'>[-n].md` | `append`/`replace` | owner-only; 10 newest kept per note; hidden from the walk; counts towards 100 MiB (D-11) |
+| History version | `<dir>/.history/<note path>.md/<yyyyMMdd'T'HHmmss.nnnnnnnnn'Z'>-<nnn>.md` | `append`/`replace` | owner-only; 10 newest kept per note; hidden from the walk; counts towards 100 MiB (D-11) |
 | Lock file | `<dir>/.lock` | first write | owner-only, empty, never deleted, excluded from the 100 MiB total (D-12) |
 | Temporary file | `<target dir>/.<file>.<uuid>.tmp` | a write | hidden; moved atomically over the target; leftovers older than 1 h deleted on the next write |
 
@@ -43,7 +43,7 @@ get the listed members; everything else is unchanged.
 
 | Type | Kind | Fields / members | Rules |
 |---|---|---|---|
-| `NoteMetadata` | record + parser/writer | `Optional<String> title`, `List<String> topics`, `Optional<String> source`, `Optional<String> lastWriter`, `Optional<String> lastChange`, `List<Entry> unknown`, `int bodyStart`, `boolean malformed`, `Optional<String> problem` | grammar D-5; `write(...)` produces the block with double-quoted strings |
+| `NoteMetadata` | record + parser/writer | `Optional<String> title`, `List<String> topics`, `Optional<String> source`, `Optional<String> lastWriter`, `Optional<String> lastChange`, `List<Entry> unknown`, `int bodyStart`, `boolean malformed`, `Optional<String> problem` | grammar D-5; `write(...)` produces the block with single-quoted strings and refuses a block over 64 lines / 8 KiB (D-5) |
 | `SecretFinder` | service | `List<Finding> find(String text)`; `Masked mask(String text)` | kinds (a)–(d) per D-6/D-7; (a) through `ConfiguredSecrets.occurrences` |
 | `SecretFinder.Finding` | record | `Kind kind`, `int start`, `int end`, `int line`, `Optional<String> key` | `Kind` = `CONFIGURED_CREDENTIAL`, `KEY_MATERIAL`, `INUBIT_ENCRYPTED`, `ASSIGNMENT` |
 | `Note` | record | `NoteName name`, `Path file`, `long size`, `FileTime modified`, `State state` (`OK`, `TOO_LARGE`, `UNREADABLE`), `Optional<String> text` (absent unless OK), `NoteMetadata metadata` | built per walk, never cached (FR-009) |
