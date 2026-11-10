@@ -286,7 +286,7 @@ readiness and a failing-audit fake.
   be stored; local, unencrypted, owner-only; pattern-based check, prose secrets not caught)
 - [X] T038 [P] `CHANGELOG.md` `[Unreleased]`: the local knowledge, the two tools, the credential
   reads (D-7 as decided); `pom.xml` version unchanged
-- [ ] T039 `KnowledgeToolsReferenceTest`: `docs/tools.md` and `docs/setup.md` match the schemas
+- [X] T039 `KnowledgeToolsReferenceTest`: `docs/tools.md` and `docs/setup.md` match the schemas
   and `KnowledgeLimits`; `NoCustomerIdentifiersTest` and `tools/check-identifiers.py` pass (FR-022)
   — test `KnowledgeToolsReferenceTest.java`
 - [ ] T040 Full verification (mvn + Python), quickstart offline table checked row by row and the

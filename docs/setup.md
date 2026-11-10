@@ -7,8 +7,9 @@ of feature 002 with the deltas of feature 003
 ([development stage](../specs/004-development-stage/contracts/configuration-delta.md)), 005
 ([stage chain](../specs/005-stage-chain-deployment/contracts/configuration-delta.md)), 009
 ([INUBIT version](../specs/009-inubit-version-detection/contracts/configuration-delta.md)), 010
-([secret sources](../specs/010-secret-sources/contracts/configuration-delta.md)) and 011
-([credential stores](../specs/011-os-credential-stores/contracts/configuration-delta.md)); this
+([secret sources](../specs/010-secret-sources/contracts/configuration-delta.md)), 011
+([credential stores](../specs/011-os-credential-stores/contracts/configuration-delta.md)) and 019
+([local knowledge](../specs/019-local-knowledge/contracts/configuration-delta.md)); this
 guide walks through it. All host names below are examples (`*.example.test`).
 
 ## 1. Prerequisites
@@ -907,8 +908,8 @@ knowledge:
   recording: false                 # default true; false: read only, record_knowledge not offered
 ```
 
-- Both keys and the block are optional; any other key is an error. `directory` is bound like
-  `workspace`: `~` is expanded and the path must be absolute afterwards. `recording` must be
+- Both keys and the block are optional; any other key is an error. `knowledge.directory` is
+  bound like `workspace`: `~` is expanded and the path must be absolute afterwards. `recording` must be
   `true` or `false` (not `"false"` or `0`). They are read at start only; no environment variable
   or command-line switch changes them.
 - The folder must be a folder of its own: it must not be, lie inside or contain the workspace, the
