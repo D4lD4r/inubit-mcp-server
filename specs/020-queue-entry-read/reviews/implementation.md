@@ -47,3 +47,13 @@ Accepted in review (minor, not required by D-11): JSON embedded as an escaped st
 (`{"payload": "{\"password\": \"s\"}"}`) and JSON keys written with `\u` escapes are not masked by
 rule 3; the known-credential scrubber still applies. To be listed with the masking residual risk in
 `docs/tools.md` (T040).
+
+## T011 – masking decisions and residual gaps
+
+- Implementer decisions accepted in review: `-` counts as `_` in the term test (so `X-Api-Key`
+  is a secret name, as the spec's own example requires); rules 4/5 allow only spaces and tabs
+  around the colon; rule 7 replaces only the token (`Basic ${secret:authorization}`); unquoted
+  rule 6 values may over-mask past `<`, `>` or `"` (safe side).
+- Residual gap (minor finding T011-r1): a rule 6 quoted value with a backslash-escaped quote of
+  the same kind (`password="a\"b"`) is masked only up to the escaped quote. To be listed with the
+  masking residual risk in `docs/tools.md` (T040), unless fixed earlier.

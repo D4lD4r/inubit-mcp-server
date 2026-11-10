@@ -164,7 +164,7 @@ INUBIT contact.
   `<a:apiToken><x>1</x></a:apiToken>`, cut-off `<password>abc`, `<password/>`,
   `pwd="a b"` attribute, `"password": "x"`, `"credentials": {"u":1}`, broken JSON); rest of the
   text byte-identical
-- [ ] T011 [US1] `SecretTextMasker` rules 4–7 and merging (D-11): rule 4 `(Proxy-)Authorization:`
+- [X] T011 [US1] `SecretTextMasker` rules 4–7 and merging (D-11): rule 4 `(Proxy-)Authorization:`
   line → `${secret:authorization}`; rule 5 header-style `name: value` line with a secret name →
   to end of line; rule 6 `name=value` (quoted → matching quote, unterminated → end of line; else
   up to the first `&`, `;`, whitespace or line end); rule 7 `Basic <base64 decoding to text with

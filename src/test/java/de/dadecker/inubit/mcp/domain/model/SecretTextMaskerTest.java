@@ -5,15 +5,20 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 import de.dadecker.inubit.mcp.testing.TestSecrets;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/** Feature 020 (T010, FR-011, D-11): term test, placeholder and masking rules 1–3. */
+/** Feature 020 (T010, T011, FR-011, D-11): term test, placeholder, masking rules 1–7, merging. */
 class SecretTextMaskerTest {
 
     private static final String SECRET = TestSecrets.CREDENTIAL_PAYLOAD_VALUE;
+    private static final String AUTHORIZATION = "${secret:authorization}";
+    /** HTTP Basic credentials {@code acme:<secret>}. */
+    private static final String BASIC = base64("acme:" + SECRET);
     /** Generous for linear work on ~1–10 MiB; quadratic run time takes minutes to hours. */
     private static final Duration LINEAR = Duration.ofSeconds(10);
     private static final int MIB = 1024 * 1024;
@@ -41,6 +46,13 @@ class SecretTextMaskerTest {
         "password:user", ""})
     void otherNamesAreNotSecret(String name) {
         assertThat(SecretTextMasker.secretName(name)).isFalse();
+    }
+
+    @Test
+    void theTermTestReadsAHyphenAsAnUnderscore() {
+        assertThat(SecretTextMasker.secretName("X-Api-Key")).isTrue();
+        assertThat(SecretTextMasker.secretName("api-keys")).isTrue();
+        assertThat(SecretTextMasker.secretName("pass-word")).isFalse();
     }
 
     @Test
@@ -235,7 +247,175 @@ class SecretTextMaskerTest {
         assertThat(SecretTextMasker.mask(text)).isEqualTo(text);
     }
 
+    // rule 4: Authorization header
+
+    @Test
+    void rule4MasksTheAuthorizationHeaderValueOfAStoredHttpMessage() {
+        String text = "GET /orders HTTP/1.1\r\nHost: globex.example.test\r\n"
+            + "Authorization: Basic " + BASIC + "\r\nAccept: */*\r\n";
+
+        String masked = SecretTextMasker.mask(text);
+
+        assertThat(masked).isEqualTo("GET /orders HTTP/1.1\r\nHost: globex.example.test\r\n"
+            + "Authorization: " + AUTHORIZATION + "\r\nAccept: */*\r\n");
+        TestSecrets.assertNoLeak(masked);
+    }
+
+    @Test
+    void rule4MatchesProxyAuthorizationAndAnyCaseAndScheme() {
+        assertThat(SecretTextMasker.mask("proxy-authorization:Negotiate " + SECRET + "\nx"))
+            .isEqualTo("proxy-authorization:" + AUTHORIZATION + "\nx");
+        assertThat(SecretTextMasker.mask("  AUTHORIZATION\t: Digest a=\"b\", c=d"))
+            .isEqualTo("  AUTHORIZATION\t: " + AUTHORIZATION);
+    }
+
+    @Test
+    void rule4LeavesAnEmptyValueTheNextLineAndProseAlone() {
+        String text = "Authorization:\nHost: globex.example.test\n"
+            + "See the Authorization: header in Workflow-0001\n";
+
+        assertThat(SecretTextMasker.mask(text)).isEqualTo(text);
+    }
+
+    // rule 5: header-style line
+
+    @Test
+    void rule5MasksASecretHeaderLineToTheEndOfTheLine() {
+        String text = "X-Api-Key: " + SECRET + "\r\nCookie: session=" + SECRET + "; lang=en\n"
+            + "Content-Type: text/xml\npassword:" + SECRET;
+
+        String masked = SecretTextMasker.mask(text);
+
+        assertThat(masked).isEqualTo("X-Api-Key: ${secret:data.X-Api-Key}\r\n"
+            + "Cookie: ${secret:data.Cookie}\nContent-Type: text/xml\n"
+            + "password:${secret:data.password}");
+        TestSecrets.assertNoLeak(masked);
+    }
+
+    @Test
+    void rule5LeavesNeutralHeadersAndProseAlone() {
+        String text = "Content-Type: text/plain\nPassword reset: done for acme\n"
+            + "The token: see Module-0001\n  user : acme\n";
+
+        assertThat(SecretTextMasker.mask(text)).isEqualTo(text);
+    }
+
+    // rule 6: name=value
+
+    @Test
+    void rule6MasksAQueryParameterUpToTheNextAmpersand() {
+        String masked = SecretTextMasker.mask(
+            "GET /login?user=a&password=" + SECRET + "&x=1 HTTP/1.1");
+
+        assertThat(masked)
+            .isEqualTo("GET /login?user=a&password=${secret:data.password}&x=1 HTTP/1.1");
+        TestSecrets.assertNoLeak(masked);
+    }
+
+    @Test
+    void rule6StopsAtSemicolonWhitespaceAndLineEnd() {
+        assertThat(SecretTextMasker.mask("token=a;b=1 api_key=a b secret=a\nc pwd=x\u2028y"))
+            .isEqualTo("token=${secret:data.token};b=1 api_key=${secret:data.api_key} b "
+                + "secret=${secret:data.secret}\nc pwd=${secret:data.pwd}\u2028y");
+    }
+
+    @Test
+    void rule6MasksAQuotedValueUpToTheMatchingQuote() {
+        assertThat(SecretTextMasker.mask("pwd='a b' n=1 secret=\"a 'b' c\";x"))
+            .isEqualTo("pwd='${secret:data.pwd}' n=1 secret=\"${secret:data.secret}\";x");
+    }
+
+    @Test
+    void rule6MasksAnUnterminatedQuotedValueToTheEndOfTheLine() {
+        String masked = SecretTextMasker.mask("pwd='a " + SECRET + "\r\nnext='1'");
+
+        assertThat(masked).isEqualTo("pwd='${secret:data.pwd}\r\nnext='1'");
+        TestSecrets.assertNoLeak(masked);
+    }
+
+    @Test
+    void rule6UsesTheLocalNameOfTheWholeName() {
+        assertThat(SecretTextMasker.mask("ns:password=x a.b-myToken=y"))
+            .isEqualTo(
+                "ns:password=${secret:data.password} a.b-myToken=${secret:data.a.b-myToken}");
+    }
+
+    @Test
+    void rule6LeavesNeutralNamesEmptyValuesAndSpacedPairsAlone() {
+        String text = "user=acme&order=Order-0001 password= x token=&y password = z "
+            + "token${x}=v";
+
+        assertThat(SecretTextMasker.mask(text)).isEqualTo(text);
+    }
+
+    // rule 7: Basic and Bearer credentials
+
+    @Test
+    void rule7MasksABasicCredentialInText() {
+        String masked = SecretTextMasker.mask("sent Basic " + BASIC + " to globex.example.test");
+
+        assertThat(masked).isEqualTo("sent Basic " + AUTHORIZATION + " to globex.example.test");
+        TestSecrets.assertNoLeak(masked);
+    }
+
+    @Test
+    void rule7MasksABearerTokenOfAtLeast16Characters() {
+        String token = "eyJhbGciOiJIUzI1NiJ9.e30." + SECRET + ".a-_~+/==";
+
+        String masked = SecretTextMasker.mask("{\"header\":\"Bearer " + token + "\"}");
+
+        assertThat(masked).isEqualTo("{\"header\":\"Bearer " + AUTHORIZATION + "\"}");
+        TestSecrets.assertNoLeak(masked);
+        assertThat(SecretTextMasker.mask("Bearer\t1234567890123456"))
+            .isEqualTo("Bearer\t" + AUTHORIZATION);
+    }
+
+    @Test
+    void rule7LeavesProseShortTokensAndBase64WithoutAColonAlone() {
+        String text = "Bearer of the message; Basic configuration of Module-0001; "
+            + "Bearer 123456789012345; Basic " + base64("no colon here") + "; Basic abcde; "
+            + "BasicAuth " + BASIC + "; xBearer 1234567890123456";
+
+        assertThat(SecretTextMasker.mask(text)).isEqualTo(text);
+    }
+
     // all rules together
+
+    @Test
+    void anAuthorizationHeaderGetsThePlaceholderOfRule4NotThatOfRule5() {
+        assertThat(SecretTextMasker.mask("Authorization: x"))
+            .isEqualTo("Authorization: " + AUTHORIZATION);
+        assertThat(SecretTextMasker.mask("Proxy-Authorization: Bearer 1234567890123456"))
+            .isEqualTo("Proxy-Authorization: " + AUTHORIZATION);
+    }
+
+    @Test
+    void anAttributeMatchedByRules2And6IsMaskedOnce() {
+        String masked = SecretTextMasker.mask(
+            "<login password=\"" + SECRET + "\" user=\"acme\">x</login>");
+
+        assertThat(masked)
+            .isEqualTo("<login password=\"${secret:data.password}\" user=\"acme\">x</login>");
+        TestSecrets.assertNoLeak(masked);
+    }
+
+    @Test
+    void aJsonValueReachingPastASecretHeaderLineExtendsItsMask() {
+        String masked = SecretTextMasker.mask(
+            "token: {\"pwd\": \"a\n" + SECRET + "\"}\nnext: 1");
+
+        assertThat(masked).isEqualTo("token: ${secret:data.token}\"}\nnext: 1");
+        TestSecrets.assertNoLeak(masked);
+    }
+
+    @Test
+    void namesCarryingPlaceholderSyntaxAreNormalised() {
+        assertThat(SecretTextMasker.mask("{\"password${x}\": \"s\"}"))
+            .isEqualTo("{\"password${x}\": \"${secret:data.password__x_}\"}");
+        String notAName = "<pass${x}word>v</pass${x}word>";
+        assertThat(SecretTextMasker.mask(notAName)).isEqualTo(notAName);
+    }
+
 
     @Test
     void aSecretValueInsideAnotherMaskedValueIsMaskedOnce() {
@@ -419,6 +599,86 @@ class SecretTextMaskerTest {
 
         assertThat(maskInTime("<doc " + name + " pwd=\"" + SECRET + "\"/>"))
             .isEqualTo("<doc " + name + " pwd=\"${secret:data.pwd}\"/>");
+    }
+
+    // rules 4–7 on long lines, values and runs up to the 10 MiB decode bound: linear, no error
+
+    @Test
+    void tenMebibyteHeaderValuesAreMaskedInLinearTime() {
+        String value = "a".repeat(10 * MIB);
+
+        assertThat(maskInTime("Authorization: Bearer " + value))
+            .isEqualTo("Authorization: " + AUTHORIZATION);
+        assertThat(maskInTime("X-Api-Key: " + value))
+            .isEqualTo("X-Api-Key: ${secret:data.X-Api-Key}");
+    }
+
+    @Test
+    void manyHeaderLinesAreMaskedInLinearTime() {
+        assertThat(maskInTime("Cookie: c\n".repeat(MIB / 10)))
+            .isEqualTo("Cookie: ${secret:data.Cookie}\n".repeat(MIB / 10));
+        assertThat(maskInTime("Authorization: x\r\n".repeat(MIB / 18)))
+            .isEqualTo(("Authorization: " + AUTHORIZATION + "\r\n").repeat(MIB / 18));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"a", "a:", " \t", "token", "Authorization ", "a-.", "pwd "})
+    void tenMebibyteLinesWithoutAHeaderOrPairAreKeptInLinearTime(String unit) {
+        String text = unit.repeat(10 * MIB / unit.length());
+
+        assertThat(maskInTime(text)).isEqualTo(text);
+    }
+
+    @Test
+    void longNameValueRunsAreMaskedInLinearTime() {
+        assertThat(maskInTime("pwd=".repeat(MIB / 4))).isEqualTo("pwd=${secret:data.pwd}");
+        assertThat(maskInTime("pwd=" + "a".repeat(10 * MIB))).isEqualTo("pwd=${secret:data.pwd}");
+        assertThat(maskInTime("a=".repeat(MIB / 2))).isEqualTo("a=".repeat(MIB / 2));
+        assertThat(maskInTime("a:".repeat(MIB / 2) + "token=x"))
+            .isEqualTo("a:".repeat(MIB / 2) + "token=${secret:data.token}");
+    }
+
+    @Test
+    void unterminatedQuotedValuesAreMaskedInLinearTime() {
+        int count = MIB / 7;
+
+        assertThat(maskInTime("pwd='" + "a".repeat(10 * MIB))).isEqualTo("pwd='${secret:data.pwd}");
+        assertThat(maskInTime("pwd=\"a ".repeat(count))).isEqualTo(
+            "pwd=\"" + "${secret:data.pwd}\"".repeat(count - 1) + "${secret:data.pwd}");
+        assertThat(maskInTime(("pwd='a " + "x".repeat(64) + "\n").repeat(count / 10)))
+            .isEqualTo("pwd='${secret:data.pwd}\n".repeat(count / 10));
+    }
+
+    @Test
+    void longBasicAndBearerTokensAreMaskedInLinearTime() {
+        assertThat(maskInTime("Basic " + base64("acme:" + "a".repeat(7 * MIB))))
+            .isEqualTo("Basic " + AUTHORIZATION);
+        assertThat(maskInTime("Bearer " + "a".repeat(10 * MIB)))
+            .isEqualTo("Bearer " + AUTHORIZATION);
+        assertThat(maskInTime("Basic YWNtZTp4 ".repeat(MIB / 15)))
+            .isEqualTo(("Basic " + AUTHORIZATION + " ").repeat(MIB / 15));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Basic ", "Bearer ", "Basic QUJD ", "Basic A", "Basic abcd= ",
+        "Basic ab= ", "Bearer a b "})
+    void tenMebibytesOfTokensThatAreNoCredentialsAreKeptInLinearTime(String unit) {
+        String text = unit.repeat(10 * MIB / unit.length());
+
+        assertThat(maskInTime(text)).isEqualTo(text);
+    }
+
+    @Test
+    void aTenMebibyteBasicTokenThatIsNoCredentialIsKeptWithoutError() {
+        String withoutColon = "Basic " + "QUJD".repeat(10 * MIB / 4);
+        String invalid = "Basic " + "A".repeat(10 * MIB + 1);
+
+        assertThat(maskInTime(withoutColon)).isEqualTo(withoutColon);
+        assertThat(maskInTime(invalid)).isEqualTo(invalid);
+    }
+
+    private static String base64(String text) {
+        return Base64.getEncoder().encodeToString(text.getBytes(StandardCharsets.UTF_8));
     }
 
     private static String maskInTime(String text) {
