@@ -421,7 +421,7 @@ refused before any content request (FR-006, FR-019, US3-1…5).
 17/21 paths) and a 6.1 node; `FakeProcessLauncher` records the launched JDK, class path and
 `variant`.
 
-- [ ] T031 [US3] Version selection end to end (US3-1…5): failing tests first in
+- [X] T031 [US3] Version selection end to end (US3-1…5): failing tests first in
   `adapter/cli/queue/QueueEntryVersionSelectionTest.java` and `application/QueueEntryServiceVersionTest.java`
   — 8.1 node → `SOAP_81`, the `defaults.cliClients."8.1"` home and JDK, servlet URL; 9.0 node
   (matrix opened in the test via a test declaration) → `REST_90`, the 9.0 home and JDK, base URL;

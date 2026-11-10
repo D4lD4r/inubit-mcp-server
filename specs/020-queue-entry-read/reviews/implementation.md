@@ -371,3 +371,42 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
   Test: `ListNodesToolTest.anIncompatibleClientMakesQueueEntryReadNotUsableAsAWhole`. Before the
   fix the output-schema validation of `list_nodes` even rejected the result, because
   `"queue_entry_read (StartCLI parts)"` is not an allowed value.
+
+## T031 notes
+
+- Result: every T031 test was **green on its first run**. No production code changed
+  (`CliQueueEntryAdapter`, `QueueEntryService`, `CapabilityMatrix` untouched). The first run
+  compiled and passed with no test edits in between. US3 is already carried by T004 (detection
+  codes), T021 (`QueueEntryVariant`, `cliFor(version)` per call), T022 (version through the
+  port), T023 (gate before lookup) and T030 (9.0 admission).
+- Shared fixture `adapter/cli/queue/QueueEntryVersionProfile` (test, public) holds one profile
+  with an `8.1` client plus JDK 17 and a `9.0` client plus JDK 21 under `defaults.cliClients`.
+  Helper homes live in a private temp root. It also provides fake helpers (`helperReading`
+  echoes the requested `variant`; `helperLacking` sends one `api missing` frame, exit 4).
+- `QueueEntryVersionSelectionTest` (adapter, 8 cases) calls the real `CliQueueEntryAdapter`
+  with a given version:
+  - 8.1 (AUTO and V8_1): SOAP_81, 8.1 home/JDK, servlet address.
+  - 9.0 (AUTO and V9_0): REST_90, 9.0 home/JDK, base address.
+  - 6.1.5 and 9.1.0: UNSUPPORTED_VERSION, before credentials, with no launch.
+  - No `"9.0"` entry: CLI_UNAVAILABLE naming `defaults.cliClients."9.0"`, no launch.
+  - `"9.0"` pointing to the 8.1 home: CLI_UNAVAILABLE after one REST_90 launch.
+- `QueueEntryServiceVersionTest` (application, 14 cases) runs the same bullets end to end
+  through the real `VersionGate` (`FakeVersionDetection.gateWithoutClients`, so no client
+  probe) with one real adapter and one `FakeProcessLauncher` per node. It adds:
+  - both versions read on one service;
+  - 6.1 (pinned) and 9.1.0 (detected) refused with the exact gate texts ("supported: 8.1,
+    9.0"), with no lookup and no launch;
+  - an undetectable AUTO node failing with the detection's own code (UNREACHABLE, TIMEOUT,
+    TLS_ERROR, AUTH_FAILED, UNEXPECTED_RESPONSE), with no lookup and no launch;
+  - the back-off replay within 60 s with no second detection.
+  Undetectable versions are covered in the service test only, because the adapter never sees
+  them.
+- How 9.0 is opened: the test-local constant `QueueEntryServiceVersionTest.OPENED` is a new
+  `CapabilityMatrix(...)` declaration. It copies the production 6.1 entry, supports every
+  capability on 8.1 and 9.0, and treats unknown versions as production does. It is passed only
+  to that service's gate. `CapabilityMatrix.production()` is not modified.
+  `productionStillRefusesNineZeroWithoutALaunch` asserts that production still refuses 9.0
+  ("not yet verified"), with no lookup and no launch, and still reports QUEUE_ENTRY_READ
+  UNSUPPORTED for 9.0.10.
+- Every error passes `TestSecrets.assertNoLeak`; every launch spec is checked for secrets; the
+  helper temp root is empty after each case. No server is contacted.
