@@ -41,6 +41,21 @@ Environment notes: run Maven with `/opt/homebrew/bin` first on `PATH` (a bundled
 templates makes `GitCliTest` fail); the tmpdir must lie outside the checkout
 (`DeploySecretLeakTest` scans the checkout's history).
 
+## Phase 3 checkpoint (T009–T026, 2026-11-10)
+
+Tasks T009–T026 approved (reviews `T009-r1.md` … `T026-r1.md`, multi-round where noted). T027
+(8.1 recording) is **[OWNER]**-gated and open: the neutralization diff needs the owner's review.
+
+| Check | Command | Result |
+|---|---|---|
+| Java build | `mvn -o -q clean verify -DargLine=-Djava.io.tmpdir=<tmp outside the checkout>` | green (exit 0) |
+| Python tools | `python3 -I -m unittest discover -s tools/tests` | green, 411 tests OK |
+
+Test count: surefire 389 classes, 6211 tests, 0 failures, 0 errors, 52 skipped; failsafe 2
+classes, 3 tests; total 6214 ≥ 5582 (phase 2).
+
+Phase 3 code review over `git diff 95cb080 232a1d2`: no findings.
+
 ## T010 – residual masking gaps (for T040 docs)
 
 Accepted in review (minor, not required by D-11): JSON embedded as an escaped string
