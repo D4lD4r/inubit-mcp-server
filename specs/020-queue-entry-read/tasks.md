@@ -440,7 +440,7 @@ refused before any content request (FR-006, FR-019, US3-1…5).
 
 ## Phase 6: Live check and recordings (gates the feature; FR-019, SC-004)
 
-- [ ] T033 Live test code (offline part): `live/QueueEntryLiveTest.java` (`@Tag("live")`;
+- [X] T033 Live test code (offline part): `live/QueueEntryLiveTest.java` (`@Tag("live")`;
   `INUBIT_LIVE_NODE`, `INUBIT_LIVE_QUEUE_ENTRY=<processId>[/<fileName>]`, skipped without them;
   production refused by `LiveTarget`; rows before/after equal in state, `startTime`, `fileSize`,
   `fileName`; captured log contains no returned value; optional `INUBIT_LIVE_RECORD_DIR` writes

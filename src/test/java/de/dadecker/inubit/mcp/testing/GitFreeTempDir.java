@@ -41,7 +41,11 @@ public final class GitFreeTempDir implements TempDirFactory {
             + candidates);
     }
 
-    private static boolean insideGitTree(Path directory) {
+    /**
+     * Whether {@code directory} or one of its parents has a {@code .git} entry (the directory of
+     * a clone or the file of a worktree); pass a real path, as links are not resolved here.
+     */
+    public static boolean insideGitTree(Path directory) {
         for (Path dir = directory; dir != null; dir = dir.getParent()) {
             if (Files.exists(dir.resolve(".git"), LinkOption.NOFOLLOW_LINKS)) {
                 return true;

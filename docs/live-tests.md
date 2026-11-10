@@ -27,7 +27,7 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 mvn verify -Plive
   "INUBIT_LIVE_SERVER is no longer supported; use INUBIT_LIVE_NODE=<group>/<node> instead, and
   select the profile with INUBIT_MCP_PROFILE=<profile>". Unset it in your shell.
 - A single test: add `-Dtest=HealthLiveTest` (or `DiagnosisLiveTest`, `InventoryLiveTest`,
-  `ArtifactExportLiveTest`).
+  `ArtifactExportLiveTest`, `QueueEntryLiveTest`).
 - `INUBIT_LIVE_DIAGRAM_GROUP` (optional) names a diagram group of the node's `inventory.owner`
   for `ArtifactExportLiveTest`; without it that test is skipped. Choose a small group.
 - `INUBIT_LIVE_GROUP` (optional, `InventoryLiveTest` only) names the diagram group whose version
@@ -69,6 +69,7 @@ Only non-production groups (e.g. development or test stages) may be used.
 | `live/InventoryLiveTest` (T098) | `list_inventory(kind=DIAGRAM, type=technical)`, the number of diagrams in group `GRP-41`, the technical diagrams of one group (`INUBIT_LIVE_GROUP`, else the group of the first technical diagram), `list_inventory(kind=MODULE)` twice (the second from the cache: same `collectedAt` and `total`), `get_inventory_item` of the first diagram of that group: versions newest first, `active` present, no `activeVersion`, nothing `unavailable`; and (T126) `list_inventory(kind=MODULE, type=XSLT Converter)`: `usageComplete`, at least one module with `workflowCount` ≥ 1, whose `get_inventory_item` has versions and nothing `unavailable` | `GET /ibis/rest/model/models`, `/model/modelByName/…` (also for every technical workflow: the module usage index), `/model/export/…` (read-only); StartCLI `export --exportModule '' …` and `export … --includeHistory` of one or two diagram groups into a private temporary directory that is deleted afterwards (read-only exports) |
 | `live/ArtifactExportLiveTest` (feature 003, T038) | runs only with `INUBIT_LIVE_DIAGRAM_GROUP` (one diagram group of the node's `inventory.owner`): `export_artifacts` of that group twice into a **temporary** workspace (never the configured one) — the second export is `unchanged`; no `AES-` value and no `type="Password"` value other than a `${secret:…}` placeholder in the workspace; `check_artifacts` on the exported workflows reports no ERROR | StartCLI `export --exportWorkflowType 'technical' --exportWorkflowGroup '<group>'` twice into a private temporary directory that is deleted afterwards (read-only exports); the module list only if a module is missing in the workspace |
 | `live/HealthLiveTest` (T063) | `get_health` for `INUBIT_LIVE_NODE` through the real MCP server with the production wiring (`Wiring`, via the test helper `TestWiring`): `reachable`, `ready`, `version` starting with `8.1`, answer within 5 s (SC-002) | `GET /healthcheck`, `/ready`, `/system/info`, `/metrics?format=json` (read-only) |
+| `live/QueueEntryLiveTest` (feature 020, T033) | runs only with `INUBIT_LIVE_QUEUE_ENTRY` (an existing ERROR entry) on a node whose group sets `unsupported.queueEntryRead: true`: `read_queue_entry` through the real MCP server with the production wiring; the entry's queue row has the same state, `startTime`, `fileSize` and `fileName` before and after (SC-004); data and variables are available; neither the captured log nor the result contains an original masked value or a known secret, and the log contains none of the returned values (SC-003). See [Queue entry read](#queue-entry-read-feature-020) | `POST /ibis/rest/log/queueLog?format=json` before and after (read-only queries); the version detection (`/system/info`); one run of the queue-entry helper, which logs in with the INUBIT client of the node's version (8.1: SOAP servlet, 9.0: REST) and downloads the entry's data and variables into a private temporary directory that is deleted afterwards (read-only); with `INUBIT_LIVE_RECORD_DIR` a second helper run for a fictitious file name |
 
 Each test prints one summary line without secrets or business data to stderr, e.g.
 `[live] test/node1: version 8.1.17, status OK, maintenanceMode false, load 51.7% memory, unavailable [], 699 ms`
@@ -221,6 +222,80 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEPLOY_TARGET=int INUBIT_LIVE_DEPLOY_DIAGRAM
 - **Audit records** (`audit/audit-YYYY-MM.jsonl`) of every call: `deploy_release` (group and node
   records), `tag_artifacts`, `restore_backup`.
 - The temporary workspace is removed; the reports below it go with it.
+
+## Queue entry read (feature 020)
+
+`live/QueueEntryLiveTest` reads one existing ERROR entry of the Queue Manager with
+`read_queue_entry` and checks that reading leaves it untouched (SC-004). It is **read-only**; run
+it once per INUBIT version (8.1 and 9.0 test servers):
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 INUBIT_LIVE_QUEUE_ENTRY=1234 \
+  mvn verify -Plive -Dtest=QueueEntryLiveTest
+```
+
+- `INUBIT_LIVE_QUEUE_ENTRY=<processId>[/<fileName>]` names the entry: the decimal `processId`
+  (from `find_processes` or `query_logs` with `logType: queueLog`) and, if the process has several
+  ERROR entries, its `fileName` after a `/` (as `read_queue_entry` accepts it: 1 to 255
+  characters, no `/`, `\` or control characters). Without it the test is skipped; a malformed
+  value fails naming the variable, never echoing the file name.
+- The group of `INUBIT_LIVE_NODE` must set `unsupported.queueEntryRead: true`
+  ([setup.md](setup.md)); otherwise the test fails before anything is contacted. Production groups
+  are refused as for every live test. The node needs the StartCLI client settings (`cliHome`,
+  `cliJavaHome` or `defaults.cliClients`, setup.md section 3) and its credentials.
+- The test reads the process's queue rows (REST), calls `read_queue_entry` through the wired
+  server, and reads the rows again: the row with the returned `fileName` keeps its state,
+  `startTime` and `fileSize`; a row that is gone fails as "left the Queue Manager or was renamed".
+  The result must have data and variables. The server log (logger `de.dadecker.inubit` at
+  `DEBUG`) is captured during the test, and three leak checks run on it (SC-003); failure
+  messages name fields and counts, never values:
+  - **Returned values**: the log contains none of the stripped lines of the data text with at
+    least 10 characters, nor of the unmasked, non-system variable values: those with at least 10
+    characters anywhere, those with 4 to 9 characters as a whole token (not next to a letter,
+    digit or underscore). Shorter lines such as closing tags or numbers also occur in unrelated
+    log text and are not checked.
+  - **Masked values**: the test keeps the raw `.wfsp` the helper wrote (also without
+    `INUBIT_LIVE_RECORD_DIR`) and parses it. For every variable the result reports as
+    `masked: true` (the result lists the variables in file order), the original value, stripped,
+    must occur neither in the log nor in any text of the result, whatever its length: from 4
+    characters anywhere, shorter ones as a whole token (a plain search for one to three characters
+    would hit unrelated words). Only a blank value is skipped. If the result has masked variables
+    but the helper wrote no parseable `.wfsp` with as many variables as the result reports, the
+    test fails.
+  - **Known secrets**: no log line and no text of the result contains a secret registered in the
+    live scrubber (the node password, the trust-store password and their encoded forms), whatever
+    its length.
+- A read that started no queue-entry helper fails (nothing to check the masked values against,
+  nothing to record).
+- It prints one line, e.g.
+  `[live] read_queue_entry test/node1 process 1234: data 2048 bytes (text), 12 variables, entry unchanged`.
+
+### Recording the helper output (`INUBIT_LIVE_RECORD_DIR`)
+
+To produce the fixture recording of research D-18 (quickstart "Live check" step 5), add
+`INUBIT_LIVE_RECORD_DIR=<private directory outside the repository>`:
+
+- The path is resolved to its real path: its nearest existing ancestor with symbolic links and
+  the file system's letter case resolved, plus the rest. A relative path, one with `..`
+  segments (after a symbolic link, `..` leads to the link target's parent), one inside the
+  repository (also resolved, so a link into it or a different letter case on a case-insensitive
+  file system is caught) and one inside any git working tree (a directory or a parent with a
+  `.git` entry) are refused; the recording is written below the real path. Each run creates a
+  new owner-only
+  directory `queue-entry-…` below it (POSIX `rwx------`, files `rw-------`; on Windows an access
+  list for the current user and SYSTEM only). On a file system with neither, the test fails and
+  records nothing.
+- The run writes, owner-only, the raw output of the queue-entry helper as case files:
+  `error_entry.frames` (the helper's stdout), `error_entry.exit` (its exit code),
+  `error_entry.data` and `error_entry.wfsp` (the raw data and variables). The request on stdin,
+  which carries the password, is never recorded. The files hold **raw entry content**: neutralize
+  them as in research D-18 before anything is copied into the repository, and delete them
+  afterwards.
+- It also runs one negative case directly on the adapter: the entry's workflow with the
+  fictitious file name `Module-0000(0)@0@00000000`. The login succeeds, so it causes no
+  `AUTH_FAILED` back-off; nothing is changed. Its helper output is recorded as
+  `not_found_file.*`, and the summary line ends with the outcome per part, e.g.
+  `; not-found case data NotFound, variables NotFound; recorded`.
 
 ## Credential store live check (feature 011)
 

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.fail;
 
 import de.dadecker.inubit.mcp.TestWiring;
 import de.dadecker.inubit.mcp.adapter.aws.SsmParameterStore;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.os.CredentialStores;
 import de.dadecker.inubit.mcp.config.ConfigException;
@@ -211,6 +212,15 @@ record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boo
         Supplier<ParameterStore> parameterStore) {
         return TestWiring.withParameterStoreSupplier(config, credentialStore, scrubber,
             Files::exists, windows, new SystemProcessLauncher(), System.getenv(), parameterStore);
+    }
+
+    /**
+     * The production wiring that starts its processes through {@code launcher} (feature 020: the
+     * queue entry live test records the helper's raw output).
+     */
+    TestWiring wiring(ProcessLauncher launcher) {
+        return TestWiring.withParameterStoreSupplier(loaded.config(), store(), scrubber,
+            Files::exists, windows, launcher, System.getenv(), SsmParameterStore::new);
     }
 
     /**

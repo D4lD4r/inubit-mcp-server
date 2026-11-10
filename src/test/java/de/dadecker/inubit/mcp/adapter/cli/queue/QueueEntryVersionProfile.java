@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliSystem;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher.Answer;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
@@ -141,8 +142,7 @@ public final class QueueEntryVersionProfile implements AutoCloseable {
     }
 
     /** The node's queue-entry adapter, running the helper through {@code launcher}. */
-    public CliQueueEntryAdapter adapter(EffectiveNodeConfig server,
-        FakeProcessLauncher launcher) {
+    public CliQueueEntryAdapter adapter(EffectiveNodeConfig server, ProcessLauncher launcher) {
         NodeCredentials credentials = new NodeCredentials(server.id(),
             Optional.of(new SourcedValue<>(USER, "test")),
             Optional.of(new SourcedValue<>(scrubber.register(TestSecrets.CONFIGURED_PASSWORD),

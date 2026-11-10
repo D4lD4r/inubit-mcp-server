@@ -475,3 +475,94 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
   recording (T037/T038) and the other way round. The rule is tested in both directions on a
   temporary copy, and `v9_0/missing_workflow` is now listed among the expected cases.
   `fixtures/queue-entry/README.md` states the rule and the V90 case-list rule.
+
+## T033 notes
+
+- Files: `live/QueueEntryLiveTest` (`@Tag("live")`, `@Timeout(600)`), its testable logic
+  `live/QueueEntryLiveTestSupport`, and the offline test `live/QueueEntryLiveTestSupportTest`
+  (26 cases in round 1, 39 in round 2, written first; the red run was the missing support
+  class). Three small test-tree changes: `LiveTarget.wiring(ProcessLauncher)` (the production
+  wiring with a given launcher), `QueueEntryVersionProfile.adapter` now takes a `ProcessLauncher`
+  instead of a `FakeProcessLauncher`, so the recorder can wrap the fake helper, and
+  `GitFreeTempDir.insideGitTree` is public (round 2). Existing callers are unchanged.
+- Exclusion: the default build excludes the class through `surefire.excludedGroups=live,live-store`
+  (pom), just like the other live tests. Without `INUBIT_LIVE_NODE` it is skipped by
+  `LiveTarget.resolve()`; without `INUBIT_LIVE_QUEUE_ENTRY` it is skipped by
+  `QueueEntryLiveTestSupport.entry`. A node whose group lacks `unsupported.queueEntryRead: true`
+  fails before anything is contacted.
+- `INUBIT_LIVE_QUEUE_ENTRY=<processId>[/<fileName>]`: the value is split at the first `/` and is
+  not stripped. The processId follows the input-schema pattern; the fileName follows
+  `QueueEntryRow.isValidFileName`. A test checks that this matches the schema's `fileName`
+  pattern on a list of candidates (C0/C1 controls, NBSP, 255/256 characters). Messages name the
+  variable and its form but never echo the file name.
+- `INUBIT_LIVE_RECORD_DIR` (round 2, review finding 1): the value is resolved to a real path
+  (the nearest existing ancestor with `toRealPath()`, so links and the letter case on a
+  case-insensitive file system are resolved, plus the remaining components, normalized). A
+  relative path, one with `..` segments (round-2 review minor: after a link, `..` is the link
+  target's parent, so a lexical normalize could hide a path into the repository; refused
+  outright), one inside the repository (`user.dir`, also `toRealPath()`) and one inside any
+  git working tree (`GitFreeTempDir.insideGitTree`, now public instead of a copy) are refused,
+  and the real path is used. Offline tests: a link to the repository and to its parent, a
+  case variant (skipped where the file system is case-sensitive; it runs on macOS), a clone and
+  a worktree `.git` file, and a normal directory; the test class uses `GitFreeTempDir` as its
+  `@TempDir` factory so its temporary directory is never inside a git tree. The per-run directory
+  `queue-entry-…` is created **before** the server is contacted with `OsPrivateFileSystem`
+  (POSIX `rwx------`/`rw-------`; on Windows an owner+SYSTEM access list), and the files are
+  created with `createFile` and then written. If the file system supports neither (an
+  `UnsupportedOperationException`), the test fails with "nothing is recorded" and creates
+  nothing. A fake file system tests this, because the host always supports one of the two.
+- Recording (`HelperRecorder`): it wraps the launcher and records only launches whose last
+  argument is `HelperInstallation.MAIN_CLASS`. It copies stdout (the frames, including vendor
+  noise before them, like the fixture `.frames`) while it is read. When `waitFor` first returns
+  true, it snapshots the exit code and the files `out/data.bin` and `out/variables.wfsp`. The out
+  directory is the sibling of the helper's `-Djava.io.tmpdir=<call dir>/vendor`. This happens
+  before the adapter closes the installation and deletes the directory. Stdin (the request with
+  the password) is never read. The layout and file names copy `HelperInstallation` and
+  `CliQueueEntryAdapter`. `theRecorderKeepsTheHelpersRawOutputButNotItsRequest` runs the **real**
+  adapter on the T031 profile, so a layout change fails offline.
+- The case files are `error_entry.frames|.exit|.data|.wfsp`, plus `not_found_file.*` from the
+  negative case. A part the helper did not write gets no file. `.exit` is `<code>\n`, like the
+  fixtures. `.rows.json` is not recorded, because D-21 does not ask for it; T034/T035 build the
+  row by hand as in T032. The `error_entry` files are written before the result is asserted, so
+  a failing read is still recorded if the helper ran.
+- Negative case: it uses `gateways().queueEntryContent(node).read(...)` with the workflow of the
+  row read and `Module-0000(0)@0@00000000`, the size 0, both parts, and `detect(node)`. The
+  outcome is not asserted. It is summarised as part classes (e.g. `data NotFound, variables
+  NotFound`) or `error <code>` at the end of the `[live]` line. The test asserts that exactly one
+  new helper run happened.
+- SC-004 check: the row is selected by the `entry.fileName` the tool returned. If it is missing
+  from the rows read before, the test fails. In the rows read after, the row with the same
+  `fileName` must keep `state` (and `rawState`), `startTime` (`since`) and `fileSize`. If no row
+  with that `fileName` remains, the message is "fileName: … left the Queue Manager or was
+  renamed". Messages list field names only.
+- SC-003 log check: during the test, logger `de.dadecker.inubit` runs at `DEBUG` with a
+  `ListAppender` and additivity off, so DEBUG lines do not reach the console. The values checked
+  are the stripped lines of the data text with at least 10 characters (`MIN_CHECKED_CHARS`) and
+  of the text values of non-system, unmasked variables: from 10 characters as substrings, from 4
+  (`MIN_TOKEN_CHARS`) to 9 as whole tokens (round 2, finding 3; `Checked.occursIn`: not next to a
+  letter, digit or underscore); shorter lines such as `</order>` occur in unrelated log text.
+  The check covers formatted messages and logged stack traces, and the failure shows only a
+  count.
+- Masked values (round 2, finding 2): `maskedValues` parses the raw `.wfsp` of the read's helper
+  run with `WfspParser.parse` and pairs it with the result's items by position (the service
+  lists the variables in file order; the variable count must equal `totalCount`, so names that
+  are cut or scrubbed do not matter). The stripped original value of every item reported
+  `masked: true` must occur in neither the log nor any string of the result; a blank value is
+  skipped, a value of 1 to 3 characters is matched as a token, a longer one as a substring.
+  Masked items without a parseable, matching `.wfsp` fail. `assertNoKnownSecret` checks every
+  log line and every string of the result with `SecretScrubber.containsSecret` of the live
+  scrubber (any length). Offline cases cover both checks.
+- No helper run (round 2, finding 4): `readRun` fails with a clear message when the
+  `read_queue_entry` call started no helper (checked after the error result is shown), so the
+  `[live]` line never says `recorded` without `error_entry`.
+- Docs: `docs/live-tests.md` has the section "Queue entry read (feature 020)" with the
+  subsection on recording, a tests-table row, and `QueueEntryLiveTest` in the single-test list.
+- For T034: run the quickstart command once without and once with `INUBIT_LIVE_RECORD_DIR`.
+  The T013/T015 notes still apply: confirm the 8.1 `MultipartDownloadThread` constructor and
+  that the 8.1 client accepts a null trust store over plain HTTP. If the negative case is refused
+  before a launch (for example a classification before the helper), the assertion "helper runs
+  of the not-found case" fails. That is a finding to note, not a reason to loosen the test.
+- Round-2 review minors (fixed after approval): `..` segments in `INUBIT_LIVE_RECORD_DIR` are
+  refused (offline case `<temp>/missing/../link-into-repo/records` and four more; the two older
+  tests that used `..` paths now use plain ones); a new case with `totalCount` 4 but 3 returned
+  items and a 4-variable `.wfsp` pins that the raw file is matched against `totalCount`.
