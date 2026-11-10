@@ -40,3 +40,10 @@ Phase 2 code review over `git diff d4fef07 6090947`: no findings, APPROVED.
 Environment notes: run Maven with `/opt/homebrew/bin` first on `PATH` (a bundled git without
 templates makes `GitCliTest` fail); the tmpdir must lie outside the checkout
 (`DeploySecretLeakTest` scans the checkout's history).
+
+## T010 – residual masking gaps (for T040 docs)
+
+Accepted in review (minor, not required by D-11): JSON embedded as an escaped string
+(`{"payload": "{\"password\": \"s\"}"}`) and JSON keys written with `\u` escapes are not masked by
+rule 3; the known-credential scrubber still applies. To be listed with the masking residual risk in
+`docs/tools.md` (T040).

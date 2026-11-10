@@ -152,7 +152,7 @@ INUBIT contact.
   UTF-8 if the whole stream is valid (BOM dropped), otherwise ISO-8859-1 — failing tests first in
   `domain/model/EntryContentClassifierTest.java` (each signature, NUL at byte 8191 vs 8192, exactly
   10 % vs 10 % + 1, UTF-16LE → binary, Latin-1 umlaut → ISO-8859-1, 3-byte stream, empty)
-- [ ] T010 [P] [US1] `domain/model/SecretTextMasker.java` rules 1–3 (FR-011, D-11): term test
+- [X] T010 [P] [US1] `domain/model/SecretTextMasker.java` rules 1–3 (FR-011, D-11): term test
   (lower-cased local name contains `password`, `passwd`, `pwd`, `secret`, `token`, `apikey`,
   `api_key`, `credential`, `authorization`, `private`, `keystore`, `cookie`); placeholder
   `${secret:data.<name>}` (name chars outside `[A-Za-z0-9_.-]` → `_`, cut at 64); rule 1 XML
