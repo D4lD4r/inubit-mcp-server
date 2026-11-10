@@ -233,7 +233,7 @@ readiness and a failing-audit fake.
   `testing/PrivateFiles` implementations and check POSIX bits / the Windows ACL), existing directories keep their permissions — main
   `knowledge/KnowledgeDirectory.java`, tests `knowledge/KnowledgeDirectoryTest.java`,
   `knowledge/KnowledgeBoundsTest.java` (walk part)
-- [ ] T029 [P] [US2] `KnowledgeAudit` (D-13): `REFUSED` / `PENDING` → `EXECUTED|REFUSED|FAILED`,
+- [X] T029 [P] [US2] `KnowledgeAudit` (D-13): `REFUSED` / `PENDING` → `EXECUTED|REFUSED|FAILED`,
   capability `record_knowledge`, node `-`, inputs name (masked or `***`), mode, sizes; never
   title, topics, content, token or `ref`; leak check — main `knowledge/KnowledgeAudit.java`, test
   `knowledge/KnowledgeAuditTest.java`
