@@ -60,3 +60,7 @@ Fix round (uncommitted on 4fb823b), one line per finding:
 8. Fixed: `AuditRecord` rejects a null `details` key or value with NullPointerException at construction; `AuditLog` no longer has a `null` case; test.
 
 Review of the fix round: reviews/phase2-cr-fix-r1.md (APPROVED, 3 minors fixed afterwards: `NOT_SINGLE` message, docs on the refusing serializer and on per-diagram NOT_FOUND). Full build `mvn -o -q clean verify` green: 5707 unit tests (52 skipped) + 2 integration tests.
+
+## Implementation — phase 3 build
+
+After T022 (5097278): `mvn -o -q clean verify` green with 5773 unit tests (52 skipped), 0 failures, 0 errors, plus 2 integration tests (after phase 2 fixes: 5707 + 2).
