@@ -384,7 +384,7 @@ note text is never interpreted as a template. Exact texts in
 
 ## D-9 Reading: `read_knowledge` (FR-008, FR-008a, FR-009)
 
-**Decision**: one tool with two shapes, chosen by `name`:
+**Decision**: one tool with two shapes, chosen by `name` or `ref`:
 
 - **List/search** (no `name`): optional `query` (1–200 characters, one line), optional `topic`
   (1–60), `limit` 1–50 (default 20), `offset` ≥ 0 (default 0). Order: last change descending,
@@ -400,7 +400,7 @@ note text is never interpreted as a template. Exact texts in
   `masked` (count in the whole note), `writable` (name follows the record rule, contains no
   secret, and metadata is well-formed), `ref`, `warnings` (per note). Names, titles and topics as in D-8 (masked, one line,
   cut at 120) but not quoted (they are JSON strings).
-- **Note reference `ref`** (FR-004: every listed note stays readable): the displayed `name` is
+- **Note reference `ref`** (`NoteRefs`; FR-004: every listed note stays readable): the displayed `name` is
   masked and cut and therefore not always the exact name. Every hit carries `ref` =
   `r1.` + base64url of the first 15 bytes of HMAC-SHA-256(per-process random key, exact relative
   path) — 23 characters, stable for the life of the server process, revealing nothing about the
@@ -416,7 +416,8 @@ note text is never interpreted as a template. Exact texts in
 - **Page result**: `notes`, `offset`, `limit`, `total`, `nextOffset` (absent on the last page),
   `warnings` (directory-level: symbolic links ignored, files skipped, walk bounds reached; at most
   20 lines then `… and <n> more`).
-- **Read** (`name` given; `query`/`topic`/`limit` → `INVALID_INPUT`): `offset` is a character
+- **Read** (`name` or `ref` given — `NoteSelector.ByName`/`ByRef`; `query`/`topic`/`limit` →
+  `INVALID_INPUT`): `offset` is a character
   offset into the masked body (code units, adjusted down to a code point boundary). Returns
   `name`, `title`, `topics`, `source`, `lastWriter`, `lastChange`, `versionToken`, `masked`,
   `length` (masked body length), `offset`, `content` (≤ 20,000 characters **including** the
@@ -440,9 +441,9 @@ the masking, walk and ordering, and a single schema keeps the tool count at two.
 
 ## D-10 Recording: `record_knowledge` (FR-011 … FR-013, FR-016, FR-017)
 
-**Decision**: input `name`, `mode` (`create` | `append` | `replace`), `title`, `topics`,
-`content`, `versionToken`. Required: `name`, `mode`, `content`; `create` also `title`; `replace`
-also `versionToken`; `versionToken` with another mode → `INVALID_INPUT`. The input schema carries only structural
+**Decision**: input `name` or `ref` (D-9), `mode` (`create` | `append` | `replace`), `title`,
+`topics`, `content`, `versionToken`. Required: `mode`, `content` and exactly one of `name`/`ref`
+(`ref` only with `append`/`replace`); `create` also `title`; `replace` also `versionToken`; `versionToken` with another mode → `INVALID_INPUT`. The input schema carries only structural
 rules (D-13); `content` must not be empty, its size is bounded by the 256 KiB note bound. Steps in
 order:
 
@@ -455,8 +456,13 @@ order:
    topic, content; `append`: the section and a given title/topics. Any finding →
    `INVALID_INPUT` with one line per finding: `<kind> in name|title|topics|content line <n>`
    (plus `(key <key>)` for assignments); never the value.
-4. **Name rule** (D-4, `.md` suffix) → `INVALID_INPUT` naming the violated rule and the segment
-   number, not the name.
+   With `ref` instead of `name`, the name is not input; it is checked in step 4.
+4. **Target**: with `name`, the name rule (D-4, `.md` suffix) → `INVALID_INPUT` naming the
+   violated rule and the segment number, not the name. With `ref`, the ref is resolved against a
+   fresh listing (unknown → `NOT_FOUND` "list the notes again"); the resolved name gets the secret
+   check of step 3 and the name rule, a failure → `PRECONDITION_FAILED` "this note cannot be
+   written by the tool (`writable` is false)". From here on the call knows the exact masked name,
+   so the `PENDING` record (step 5) always names the note.
 
    Until step 3 has passed, the audit record and any log line carry the name as `***` (before
    the credentials are known, a name cannot be masked reliably); afterwards the masked name
@@ -469,10 +475,9 @@ order:
      free path for the file (a file with another case of `.md`, a directory, a symbolic link,
      checked with `NOFOLLOW_LINKS` segment by segment, also case-insensitively against the
      directory listing) → `PRECONDITION_FAILED` naming the occupying path (relative, masked).
-   - `append`/`replace` by `ref` (D-9): the `ref` is resolved against the current listing
-     (unknown → `NOT_FOUND` "list the notes again"); the resolved name must follow the record rule
-     and hold no secret, else `PRECONDITION_FAILED` "this note cannot be written by the tool
-     (`writable` is false)"; until then audit and logs carry the name as `***`.
+   - `append`/`replace` by `ref`: the `ref` is resolved again under the lock; if it no longer
+     resolves to the path found in step 4 → `NOT_FOUND` "the note was moved or removed; list the
+     notes again".
    - `append`/`replace`: not listed → `NOT_FOUND` (similar names); a `name` shared by two files
      in different Unicode forms → `CONFLICT` "use ref"; (a name outside the record
      rule never gets here: step 4 refuses it); over
@@ -523,11 +528,13 @@ order:
 
 **Decision**: `<knowledge>/.history/<note path>.md/<stamp>.md`, e.g. the note `partners/acme` →
 `.history/partners/acme.md/20261110T101500.123456789Z-000.md`. `<stamp>` is the write time in UTC
-with nanoseconds, followed by a three-digit counter (`-000`, `-001`, … if the name exists; beyond
-`-999` → `PRECONDITION_FAILED`). Order is by the **parsed** (instant, counter), not lexically;
-files that do not match the pattern are never pruned. A test writes more than ten versions within
-one clock instant (fixed clock) and asserts that the oldest are pruned. After adding, the
-versions of that note beyond the 10 newest are deleted (oldest first). Created owner-only
+with nanoseconds, followed by a three-digit counter: **one more than the greatest counter of a
+matching file with the same instant** (`-000` if none); gaps left by pruning are never reused, so
+a new version always sorts newest; beyond `-999` → `PRECONDITION_FAILED`. Order is by the
+**parsed** (instant, counter), not lexically; files that do not match the pattern are never
+pruned. After adding, the versions of that note beyond the 10 newest are deleted (oldest first).
+A test writes twelve versions within one clock instant (fixed clock) and asserts the contents of
+the ten kept. Created owner-only
 (D-3). The `.history` tree is hidden, so walk, search, instructions and the note count ignore it,
 but it counts towards the 100 MiB bound. `docs/setup.md` documents where it is and how to restore
 by hand (copy a version over the note).
@@ -589,8 +596,8 @@ same primitive. Same directory for the temporary file keeps the move on one file
 
 - One `auditId` per call, `step` `EXECUTE`, `capability` `record_knowledge`, `node` `-` (no INUBIT
   node; `AuditRecord.node` is required), `group` empty, `account` empty, `mcpClient` from the call.
-- Inputs in fixed order: `name` (masked, one line, cut at 120 — D-8; a name refused for a secret is
-  `***`), `mode`, `sizeBefore`, `sizeAfter` (absent when unknown). Never title, topics, content or
+- Inputs in fixed order: `name` (masked, one line, cut at 120 — D-8; a name refused for a secret,
+  and a refusal before a `ref` was resolved, is `***`; a `ref` itself is never audited), `mode`, `sizeBefore`, `sizeAfter` (absent when unknown). Never title, topics, content or
   a version token.
 - A refusal before step 5 of D-10 is one `REFUSED` record; afterwards `PENDING` then `EXECUTED`,
   `REFUSED` or `FAILED` with the same `auditId`. `reason` = error code and message (which never
@@ -603,7 +610,7 @@ same primitive. Same directory for the temporary file keeps the move on one file
 - **Schema-invalid calls**: the MCP SDK validates tool inputs before the handler
   (`McpServerFactory:114`, `validateToolInputs(true)`), so a call that violates the input schema
   never reaches the tool and writes nothing; it is not audited, as for every audited tool today.
-  The schema is kept to the structural rules (types, enum, required `name`/`mode`/`content`,
+  The schema is kept to the structural rules (types, enum, required `mode`/`content`,
   `additionalProperties`); every rule with a refusal worth auditing (combinations, bounds in code
   points, name rule, secrets) is checked by the service and audited. Recorded in the spec's plan
   decisions.

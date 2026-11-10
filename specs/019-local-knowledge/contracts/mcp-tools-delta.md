@@ -78,7 +78,7 @@ in different Unicode forms → `CONFLICT` ("use ref"); an unknown `ref` → `NOT
 
 ### Output schema (`schemas/read_knowledge.output.json`)
 
-Two shapes, `oneOf`: a listing (no `name` given) and a page of one note (`name` given).
+Two shapes, `oneOf`: a listing (neither `name` nor `ref` given) and a page of one note (`name` or `ref` given).
 
 ```json
 {

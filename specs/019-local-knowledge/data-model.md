@@ -54,11 +54,13 @@ get the listed members; everything else is unchanged.
 | `KnowledgeHistory` | file access | `Path add(Path note, NoteName name)`; `void undo(Path version)`; `int prune(NoteName name)` | add a new version, publish, then prune to 10; `undo` when publication fails (D-10, D-11) |
 | `KnowledgeAudit` | audit helper | `pending`, `refused`, `finished` | D-13 |
 | `KnowledgeAnnouncement` | text builder | `String paragraph(boolean recording)` | D-8; bounded |
-| `KnowledgeService` | use case | `SearchPage search(Search)`; `NotePage read(String name, int offset)`; `Recorded record(Record, Optional<String> client, String mcpClient)` | flow per D-9, D-10; all names in messages reduced (D-14) |
+| `NoteSelector` | sealed interface | `ByName(String name)`, `ByRef(String ref)` | exactly one of `name`/`ref` (D-9, D-10) |
+| `NoteRefs` | utility | `NoteRefs(SecureRandom)` (32-byte HMAC key per process); `String of(Path relative)`; `Optional<Note> resolve(String ref, Listing)` | `r1.` + base64url of 15 bytes of HMAC-SHA-256 (D-9) |
+| `KnowledgeService` | use case | `SearchPage search(Search)`; `NotePage read(NoteSelector target, int offset)`; `Recorded record(Record, Optional<String> client, String mcpClient)` | flow per D-9, D-10; all names in messages reduced (D-14) |
 | `Search` | record | `Optional<String> query`, `Optional<String> topic`, `int limit`, `int offset` | limit 1–50, offset ≥ 0 |
-| `SearchPage` / `Hit` | records | page: `hits`, `offset`, `limit`, `total`, `OptionalInt nextOffset`, `warnings`; hit: `name`, `title`, `topics`, `lastChange`, `source`, `Optional<String> versionToken`, `Optional<String> excerpt`, `int masked`, `boolean writable`, `warnings` | D-9 |
+| `SearchPage` / `Hit` | records | page: `hits`, `offset`, `limit`, `total`, `OptionalInt nextOffset`, `warnings`; hit: `name`, `ref`, `title`, `topics`, `lastChange`, `source`, `Optional<String> versionToken`, `Optional<String> excerpt`, `int masked`, `boolean writable`, `warnings` | D-9 |
 | `NotePage` | record | `name`, `title`, `topics`, `source`, `Optional<String> lastWriter`, `lastChange`, `versionToken`, `int masked`, `int length`, `int offset`, `String content`, `OptionalInt nextOffset`, `warnings` | page 20,000 characters (D-9) |
-| `Record` | record | `String name`, `Mode mode`, `Optional<String> title`, `Optional<List<String>> topics`, `String content`, `Optional<String> versionToken` | `Mode` = `CREATE`, `APPEND`, `REPLACE`; combination rules D-10 |
+| `Record` | record | `NoteSelector target`, `Mode mode`, `Optional<String> title`, `Optional<List<String>> topics`, `String content`, `Optional<String> versionToken` | `Mode` = `CREATE`, `APPEND`, `REPLACE`; `ByRef` only with `APPEND`/`REPLACE`; combination rules D-10 |
 | `Recorded` | record | `name`, `mode`, `lastChange`, `versionToken`, `long sizeBefore`, `long sizeAfter`, `int historyVersions`, `String auditId`, `List<String> warnings` | D-10 step 8 |
 | `KnowledgeLimits` | constants | `NOTE_BYTES = 262_144`, `TOTAL_BYTES = 104_857_600`, `READ_BYTES = 4_194_304`, `HISTORY = 10`, `LOCK_WAIT = 10 s`, `PAGE_CHARS = 20_000`, `EXCERPT_CHARS = 300`, `LINE_CHARS = 120`, `LIST_CHARS = 4_000`, `SEARCH_LIMIT_MAX = 50`, `WALK_DEPTH = 16`, `WALK_ENTRIES = 100_000`, `SIZE_WALK_ENTRIES = 1_000_000`, `START_PREPARE = 5 s` | referenced by docs test |
 
