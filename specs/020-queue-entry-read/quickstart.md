@@ -22,14 +22,17 @@ server).
 | Scenario (spec) | Expected |
 |---|---|
 | no group opts in: tool list and every tool unchanged (US2-1, SC-002) | `ToolAnnouncementTest`, `MainTest` (exact tool list), `ListNodesToolTest` (no `queue_entry_read`), full suite green |
-| opt-in on `test`, not on `prod`: tool announced; call for `prod/node1` → `NOT_CONFIGURED`, no request, no detection (US2-2, FR-002) | `ToolAnnouncementTest`, `QueueEntryServiceTest` (WireMock: zero requests) |
+| opt-in on `test`, not on `prod`: tool announced; call for `prod/node1` → `NOT_CONFIGURED`, no request, no detection (US2-2, FR-002) | `ToolAnnouncementTest`, `ReadQueueEntryWiringTest` (zero WireMock requests, no launch) |
 | announcement needs opt-in + not pinned to 6.1/other line + client home (FR-002); fallback: `V9_0` pin does not announce | `ToolAnnouncementTest` |
 | `unsupported.queueEntryRead`: booleans load; `"true"`, `1`, list → error without value; other key under `unsupported`, key on node or in `defaults` → unknown key (FR-003) | `ConfigLoaderTest` |
 | production group with opt-in → warning at startup and in `--check-config`; with an opt-in in the profile every group line ends with `queueEntryRead: off/enabled (unsupported)`; without any opt-in the summary is byte-for-byte unchanged (US2-3, US2-5, FR-017, SC-002) | `ConfigValidatorTest`, `ConfigSummaryTest` (existing golden texts unchanged), `MainTest` |
 | docs contain the FR-004 sentences; tool description has the short warning (US2-4, FR-004) | `QueueEntryDocsTest` |
 | input checks: `target` group id, `processId`, `fileName` (`/`, `\`, NUL, control chars, 256 chars), `maxChars` 0 / 100001 (FR-001) | `ReadQueueEntryToolTest` (schema), `QueueEntryServiceTest` |
+| 6.1 golden texts of `--check-config` unchanged after adding the capability; a 6.1 group with the opt-in lists it as refused (SC-002) | `ConfigSummaryTest`, `MainTest` (T003) |
+| queue rows from the recorded 8.1 answers (`log_queueLog_error.json`, `log_queueLog.json`): file name, size, error texts, Error state | `QueueEntryRowsContractTest` |
+| missing credentials → the node's usual credential error, no content request | `QueueEntryServiceTest`, `CliQueueEntryAdapterTest` |
 | lookup through queueLog: one ERROR row among others read; none → `NOT_FOUND`; rows without ERROR → `INVALID_INPUT` with states; two ERROR rows → `INVALID_INPUT` listing both, then with `fileName` read (US1-7, FR-005, edge cases) | `QueueEntryServiceTest`, `QueueEntryRowParserTest` (WireMock queueLog fixtures) |
-| 8.1 node → `SOAP_81` with the 8.1 client and JDK; 9.0 → `REST_90` with the 9.0 client; detected 6.1 / 9.1 / undeclared version → `UNSUPPORTED_VERSION`, no helper launched (US3-1…3, FR-006) | `CliQueueEntryAdapterTest` (FakeProcessLauncher: command, class path, JDK), `QueueEntryServiceTest`, `CapabilityMatrixTest`, `VersionGateTest` |
+| 8.1 node → `SOAP_81` with the 8.1 client and JDK; 9.0 → `REST_90` with the 9.0 client; detected 6.1 / 9.1 / undeclared version → `UNSUPPORTED_VERSION`, no helper launched (US3-1…3, FR-006) | `QueueEntryVersionSelectionTest` (FakeProcessLauncher: command, class path, JDK, variant), `QueueEntryServiceVersionTest`, `CapabilityMatrixTest`, `VersionGateTest` |
 | version not detectable: detection fails with `UNREACHABLE` / `TIMEOUT` / `TLS_ERROR` / `AUTH_FAILED` → the call fails with that code and message; during the back-off → the recorded code; no content request, no extra login (US3-4) | `VersionGateTest` (`admitWithDetection`: fresh failure rethrown, back-off replays the recorded code, other callers unchanged), `QueueEntryServiceTest` (no helper launched) |
 | no client home / no `lib/ibis.jar` / no JDK / class path separator in a path → `CLI_UNAVAILABLE` naming version and setting (US3-5) | `CliQueueEntryAdapterTest` |
 | helper protocol: request on stdin only (argv = class name), password never in argv, env or logs; frames with nonce; vendor noise ignored; forged frame without nonce ignored (FR-015, D-4) | `HelperRequestTest`, `HelperFramesTest`, `QueueEntryHelperTest` (in-process, fake vendor classes), `QueueEntryHelperProcessTest` (real child JVM) |
@@ -79,8 +82,10 @@ server).
 5. **Record** (once per version): neutralize the files from `INUBIT_LIVE_RECORD_DIR` as in
    research D-18 (`tools/synthesize_names.py`, `tools/neutralize.py`, manual replacement of
    business values, `NoCustomerIdentifiersTest`), copy them to
-   `src/test/resources/fixtures/queue-entry/v<8_1|9_0>/error_entry.*` with `.origin`
-   `recorded <date> <version> neutralized`; for 9.0 flip the matrix state in the same commit.
+   `src/test/resources/fixtures/queue-entry/v<8_1|9_0>/error_entry.*` and the negative case
+   (non-existent file name of the existing workflow) as `not_found_file.*`, with `.origin`
+   `recorded <date> <version> neutralized`; the owner reviews the diff; for 9.0 the recording and
+   the matrix flip go into one commit (`QueueEntryFixtureCatalogueTest`).
    Then the operator removes the 9.0 test entry in the Workbench.
 6. **Fallback** (no 9.0 test server or the operator declines): 9.0 stays refused "not yet
    verified" (FR-019); note it in the validation record below.

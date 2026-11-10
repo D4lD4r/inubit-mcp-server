@@ -93,9 +93,9 @@ one helper JVM (≈ 1–3 s start-up of the vendor client); bounded by `cliTimeo
 |---|---|---|
 | I. Safe by Default | ⚠️ a read through an undocumented vendor interface; must not change state | ✅ <ul><li>Off by default; per-group opt-in, refused with `NOT_CONFIGURED` before any request (FR-002, D-15).</li><li>Only the "View file" read: the helper calls login, `MultipartDownloadThread`, logout — nothing else exists in it (FR-007; test with a recording fake client); server-side review found only error-store reads; live check asserts the entry unchanged (SC-004).</li><li>Annotated read-only/idempotent; no write gate needed (reads only), production groups get a startup warning.</li><li>All inputs validated (schema + service) before any call; nothing reaches a shell (argument arrays, request on stdin, D-3/D-4).</li></ul> |
 | II. Secrets Stay Out | ⚠️ business payloads may contain credentials; helper needs credentials | ✅ <ul><li>Credentials and the one-time trust-store password only on the helper's stdin, zero-filled after writing; argv = class name (D-4).</li><li>Known credentials scrubbed, then name-based masking on full text before any cut (D-11); results scrubbed again by `ResultMapper`.</li><li>Helper output never logged; content never logged; error excerpts scrubbed and bounded (D-5, D-16).</li><li>Residual risk (credentials under neutral names) documented as FR-004 requires.</li></ul> |
-| III. Test-First | ✅ | ✅ <ul><li>Every task starts with failing tests (quickstart table).</li><li>Dedicated tests for each masking rule, for the opt-in refusal (no request sent), for "no credential in argv/env/log".</li><li>Offline: fake vendor classes, `FakeProcessLauncher`, WireMock; live test opt-in, production refused.</li></ul> |
+| III. Test-First | ✅ | ✅ <ul><li>Every task starts with failing tests (quickstart table).</li><li>Dedicated tests for each masking rule, for the opt-in refusal (no request sent), for "no credential in argv/env/log".</li><li>Offline: fake vendor classes, `FakeProcessLauncher`, WireMock; live test opt-in, production refused.</li><li>The queueLog parser is contract-tested over the recorded 8.1 answers (`fixtures/v8_1/rest/log_queueLog*.json`).</li><li>The 8.1 error-marker fixtures (missing file, login failure, TLS, 403) are reconstructed; the 8.1 live check (T034) records one cheap negative case (non-existent file name of an existing workflow; no login failure, no back-off) that replaces the reconstructed missing-file case (T035).</li></ul> |
 | IV. Use-Case-Oriented Tools | ✅ "why did this process fail" (spec US1) | ✅ one tool, task-oriented description with the short warning, typed input schema, documented output shape (contracts/mcp-tools-delta.md). |
-| V. Adapter Isolation & Version Compatibility | ⚠️ CLI-side channel where REST cannot; 9.0 without recording | ✅ <ul><li>REST for the lookup, CLI adapter (helper on the client installation) only for the content REST does not offer.</li><li>Version choice in `CapabilityMatrix` and `QueueEntryVariant` (adapter), never in tool logic (D-6).</li><li>Argument arrays, explicit timeout (`cliTimeout`), exit-code + frame evaluation, tested parser (D-3 … D-5).</li><li>8.1 and 9.0 declared supported only with recorded, neutralized contract fixtures; without the 9.0 recording 9.0 is refused (FR-019, D-20) — no deviation.</li></ul> |
+| V. Adapter Isolation & Version Compatibility | ⚠️ CLI-side channel where REST cannot; 9.0 without recording | ✅ <ul><li>REST for the lookup, CLI adapter (helper on the client installation) only for the content REST does not offer.</li><li>Version choice in `CapabilityMatrix` and `QueueEntryVariant` (adapter), never in tool logic (D-6).</li><li>Argument arrays, explicit timeout (`cliTimeout`), exit-code + frame evaluation, tested parser (D-3 … D-5).</li><li>8.1 and 9.0 declared supported only with recorded, neutralized contract fixtures of an ERROR entry (data stream and variables); the error markers beyond the recorded negative case stay reconstructed and are marked so by their `.origin`; without the 9.0 recording 9.0 is refused, and recording and matrix flip land in one commit (FR-019, D-20) — no deviation.</li></ul> |
 | VI. Bounded, Structured Output | ✅ | ✅ fixed JSON shape; text ≤ `maxChars`, variables 200 / 2,000 / 40,000, parts ≤ 10 MiB input, explicit truncation markers; actionable errors (D-12, contracts). |
 | VII. Observability & Auditability | ✅ (read tool: no audit) | ✅ one structured INFO line per call with node, process ID, file name, sizes, outcome; variant/client at DEBUG; no audit record (not state-changing) (D-16). |
 | Tech constraints: TLS for CLI connections; server verifies pins itself | ⚠️ vendor clients' trust handling is unreliable (8.1 ignores a missing store; 9.0 ignores StartCLI's argument) | ✅ the server verifies every `https` connection itself before the launch and restricts the helper to the verified certificate (D-7). |
@@ -135,8 +135,8 @@ src/main/java/de/dadecker/inubit/mcp/
 │                        # QueueEntryRow, QueueEntries, QueueEntryRef, EntryPart, RawEntryContent,
 │                        # RawVariable, ContentKind, BinarySignature, EntryContentClassifier,
 │                        # SecretTextMasker, SystemVariables, QueueEntryBounds, QueueEntryResult
-├── domain/port/         # QueueEntryContentPort (new), ProcessQueryPort (+queueEntries),
-│                        # Gateway, GatewayFactory (+queueEntryContent)
+├── domain/port/         # QueueEntryContentPort (new), ProcessQueryPort (+default queueEntries),
+│                        # Gateway, GatewayFactory (+default queueEntryContent)
 ├── application/         # QueueEntryService (new), VersionGate (note, cliOnlyStep, admitWithDetection),
 │                        # NodeOverview (name)
 ├── adapter/             # PortSet, V81PortSet, V81Gateway, AdapterGatewayFactory, StaleReportingPorts,
@@ -165,9 +165,11 @@ Stages, each ending with a green `mvn -o -q clean verify` and reviewed:
    value, production warning, summary line (FR-003, FR-017).
 2. **Capability and gate**: `QUEUE_ENTRY_READ`, matrix states incl. unknown map and notes,
    `VersionGate` (`admitWithDetection`: detection error passed through, back-off respected),
-   `NodeOverview`, `list_nodes` enum; `allowed()` only with opt-in + client.
-3. **Lookup**: `QueueEntryRowParser`, `ProcessQueryPort.queueEntries` through the port family;
-   WireMock tests on queueLog fixtures.
+   `NodeOverview`, `list_nodes` enum, `ConfigSummary.cliOnly` filter (opted-in groups only; 6.1
+   golden texts unchanged); `allowed()` only with opt-in + client.
+3. **Lookup**: `QueueEntryRowParser`, `ProcessQueryPort.queueEntries` (default refusing; 8.1
+   adapter, `StaleReportingPorts` forwarding); contract test over the recorded 8.1 queueLog
+   answers, synthetic rows only for missing cases.
 4. **Domain logic**: `EntryContentClassifier`, `SecretTextMasker` (rule by rule), `SystemVariables`,
    bounds (pure tests).
 5. **Process pipeline**: extract `ProcessRun` from `CliRunner` (existing tests as regression net);

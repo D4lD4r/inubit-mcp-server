@@ -54,15 +54,19 @@ decisions go to `specs/020-queue-entry-read/reviews/implementation.md`.
   `Unknown key 'archiveRead' at groups[0].unsupported`; `unsupported` on a node and in `defaults`
   → unknown key) and `config/EffectiveNodeConfigTest.java` (value survives every copy method);
   leak check on the error texts
-- [ ] T003 [P] Capability and matrix (FR-006, FR-019 fallback state, D-6): `domain/model/Capability.java`
+- [ ] T003 Capability and matrix (FR-006, FR-019 fallback state, D-6; after T002): `domain/model/Capability.java`
   `+ QUEUE_ENTRY_READ` (kind `READ`, label "reading Queue Manager entries");
   `domain/model/CapabilityMatrix.java`: 8.1 `SUPPORTED`; **9.0 `UNSUPPORTED` with the note "not
   yet verified"** (the fallback state; flipped only by T042); 6.1 unlisted; unknown map
   `QUEUE_ENTRY_READ → UNSUPPORTED`; `Entry` `+ Map<Capability, String> notes`;
   `application/VersionGate.java` (`cliOnlyStep` case; refusal text uses the entry note);
   `application/NodeOverview.java` (`name` = `queue_entry_read`);
-  `src/main/resources/schemas/list_nodes.output.json` enum `+ "queue_entry_read"`. Failing tests
-  first: `domain/model/CapabilityMatrixTest.java` (8.1 supported, 9.0 unsupported with note, 9.1
+  `src/main/resources/schemas/list_nodes.output.json` enum `+ "queue_entry_read"`;
+  `config/ConfigSummary.java` `cliOnly` (it loops `Capability.values()`, `ConfigSummary.java:327`)
+  lists `QUEUE_ENTRY_READ` only for groups with `queueEntryRead` (T002), so no existing 6.1 text
+  changes. Failing tests first: `config/ConfigSummaryTest.java` and `MainTest.java` regression
+  "existing 6.1 golden texts unchanged" plus a 6.1 group with the opt-in listing "reading Queue
+  Manager entries" as refused, `domain/model/CapabilityMatrixTest.java` (8.1 supported, 9.0 unsupported with note, 9.1
   and unknown unsupported, other capabilities' unknown rule unchanged),
   `application/VersionGateTest.java` (9.0 refusal "… is not yet verified for INUBIT 9.0", 6.1 and
   9.1 `UNSUPPORTED_VERSION` naming the supported lines 8.1, 9.0), `application/NodeOverviewTest.java`
@@ -90,8 +94,13 @@ decisions go to `specs/020-queue-entry-read/reviews/implementation.md`.
   `ISProcessId`, `ISUserName`, `ISServerName`, `ISNodeName`, `ISGlobalProcessId`,
   `ISOverwriteSubWorkflowPriority` and prefix `_hidden.`; `ISIN` is not system);
   `domain/port/QueueEntryContentPort.java`; `domain/port/ProcessQueryPort.java`
-  `+ QueueEntries queueEntries(String processId)` (implementations follow in T017). Failing tests
-  first: `domain/model/QueueEntryRowTest.java`, `SystemVariablesTest.java`, `QueueEntriesTest.java`
+  `+ default QueueEntries queueEntries(String processId)` that refuses (`UNSUPPORTED_VERSION`
+  "Reading Queue Manager entries is not available for this adapter line; nothing was sent"), so
+  the existing implementers and test fakes (`RunE2eTestToolTest`, `DiagnosisServiceTest.FakeProcesses`,
+  `CapabilityExtensionTest`, `FakeProcessControl`, `WriteRaceToolsTest`, `E2eTestServiceTest`)
+  compile unchanged; the real implementation follows in T012. Failing tests first:
+  `domain/model/QueueEntryRowTest.java`, `SystemVariablesTest.java`, `QueueEntriesTest.java`,
+  `domain/port/ProcessQueryPortTest.java` (default refuses without any call)
 - [ ] T006 Extract the process pipeline (D-3): new `adapter/cli/ProcessRun.java`
   (`CliResult run(LaunchSpec spec, byte[] stdin, Duration timeout, String processLabel)`: reserve,
   launch, drain stdout/stderr with the 1 MiB bound, write stdin then zero-fill it, wait, tree kill
@@ -168,13 +177,21 @@ INUBIT contact.
   `fileName` over 255 chars or with `/`, `\`, NUL, control chars, or a workflow with `@@@` or
   control chars → `UNEXPECTED_RESPONSE`); `adapter/rest/v81/V81ProcessQueryAdapter.java`
   `queueEntries` (same request as `findByProcessId`: `workflowId EQUAL <id>`, newest first, 100);
-  `adapter/cli/v61/V61ProcessQueryAdapter.java` and `adapter/RefusingPorts.java` refuse;
-  `adapter/StaleReportingPorts.java` forwards (stale on `UNEXPECTED_RESPONSE`). Synthetic queueLog
-  fixtures `src/test/resources/fixtures/queue-entry/v8_1/rows_*.json` (one ERROR row; ERROR + WAITING;
-  two ERROR rows; no ERROR row; empty; 255-char file name; bad file name) with `.origin`
-  `reconstructed` — failing tests first in `adapter/rest/v81/QueueEntryRowParserTest.java`,
-  `adapter/rest/v81/V81ProcessQueryAdapterTest.java` (WireMock request body), `adapter/StaleReportingPortsTest.java`,
-  `adapter/cli/v61/V61ProcessQueryAdapterTest.java`
+  `adapter/StaleReportingPorts.java` `Processes` **overrides and forwards** `queueEntries` (stale on
+  `UNEXPECTED_RESPONSE`; without the override the wrapped 8.1 port would hit the refusing
+  default); `adapter/RefusingPorts.java` overrides with its 6.1 refusal text;
+  `adapter/cli/v61/V61ProcessQueryAdapter.java` keeps the refusing default (T005).
+  **Contract test over the recorded 8.1 answers first**: `adapter/rest/v81/QueueEntryRowsContractTest.java`
+  serves `src/test/resources/fixtures/v8_1/rest/log_queueLog_error.json` and `log_queueLog.json`
+  through WireMock to `V81ProcessQueryAdapter.queueEntries` and asserts `fileName`, `fileSize` as
+  `long`, `userDefined1..5` error texts, `ERROR` state/raw state, `workflowName` uncut. Synthetic
+  queueLog rows `src/test/resources/fixtures/queue-entry/v8_1/rows_*.json` (`.origin`
+  `reconstructed`) only for what the recordings lack: two ERROR rows of one process; ERROR +
+  WAITING; no ERROR row; empty; 255-char file name; bad file name; workflow with `@@@`. Further
+  failing tests first in `adapter/rest/v81/QueueEntryRowParserTest.java`,
+  `adapter/rest/v81/V81ProcessQueryAdapterTest.java` (WireMock request body),
+  `adapter/StaleReportingPortsTest.java` (forwarding), `adapter/RefusingPortsTest.java`,
+  `adapter/cli/v61/V61ProcessQueryAdapterTest.java` (default refusal, nothing sent)
 
 ### Helper (plan stage 6)
 
@@ -192,7 +209,12 @@ INUBIT contact.
   nested/anonymous classes, JDK only): reads the stdin request (`qe=1`, percent-encoded
   `key=value` lines, `end`), validates it (exit 2 on a malformed request), frame writer
   `#QE1:<nonce> …`, `static int run(InputStream, PrintStream, ClassLoader)`, `main` =
-  `System.exit(run(…))`. Failing tests first: `adapter/cli/queue/QueueEntryHelperPackagingTest.java`
+  `System.exit(run(…))`. Test access (also for T015): `QueueEntryHelperTest` loads the helper
+  with a `URLClassLoader` over `target/classes/META-INF/inubit-mcp/queue-entry-helper/` (parent =
+  the test class loader, so the T013 fake vendor classes are visible) and calls
+  `run(InputStream, PrintStream, ClassLoader)` reflectively, passing that loader as the vendor
+  loader; `main` and `System.exit` are never called in-process. Failing tests first:
+  `adapter/cli/queue/QueueEntryHelperPackagingTest.java`
   (exactly one class file in the resource dir, class-file major version 61, also inside the
   shaded JAR at package time), `adapter/cli/queue/QueueEntryHelperTest.java` (malformed request →
   exit 2 without echoing values), `architecture/PackageBoundaryTest.java` new rule "the helper
@@ -205,8 +227,10 @@ INUBIT contact.
   `MultipartDownloadThread(client, user, fileName[+".wfsp"], objectType, null, null)`,
   `setOutputFile`, `start`, `join`, `exceptionOccured`/`getException`; frames `start`,
   `login ok|error`, `part … ok|error` (exception chain, message cut at 1,000), `api missing`,
-  `end`; exit codes 0/1/3/4 — main `src/helper/java/.../QueueEntryHelper.java`; failing tests
-  first in `adapter/cli/queue/QueueEntryHelperTest.java` (in-process with T013 fakes: both
+  `end`; exit codes 0/1/3/4; vendor classes resolved only through the `ClassLoader` argument
+  (`main` passes the system class loader) — main `src/helper/java/.../QueueEntryHelper.java`;
+  failing tests first in `adapter/cli/queue/QueueEntryHelperTest.java` (in-process via the
+  `URLClassLoader` of T014 with T013 fakes: both
   variants, only login/download/logout called (FR-007), variables-only request, part error with
   `@Start@Unable to download`, missing class → `api missing` exit 4, login failure exit 3,
   password and trust-store password never printed; leak check)
@@ -260,20 +284,27 @@ INUBIT contact.
   implementing `QueueEntryContentPort` (FR-006, FR-012, FR-014…FR-016, D-3…D-8, D-14):
   `CliRunner.select(server, version)`, `checkLaunch`, deadline = `cliTimeout` shared by
   `acquireForHelper`, `TlsPeer.handshake` (`https` only) and `ProcessRun`; `CredentialGuard`
-  permit accepted/rejected from the login frame; request on stdin; files read only if ≤ 10 MiB
+  permit accepted/rejected from the login frame; credentials from the node's `NodeSecrets`
+  (`current`) like its REST reads — unavailable → that error, nothing launched; request on stdin; files read only if ≤ 10 MiB
   (else `TooLarge`); `WfspParser`; DEBUG log of variant, client home and JDK only — failing tests
   first in `adapter/cli/queue/CliQueueEntryAdapterTest.java` (`FakeProcessLauncher.onLaunch` reads
   the request and writes the case files; success; variables-only; `.wfsp` > 10 MiB → `TooLarge`;
   `hanging()` → `TIMEOUT`, no partial content, temp dir gone; TLS mismatch → nothing launched;
   slot wait + process share one deadline; login failure → guard back-off; leak check on
   argv/env/logs) (depends on T006–T008, T017–T020)
-- [ ] T022 [US1] Port plumbing: `QueueEntryContentPort` in `adapter/PortSet.java`,
+- [ ] T022 [US1] Port plumbing: `domain/port/Gateway.java` `+ default QueueEntryContentPort
+  queueEntryContent()` throwing `CLI_UNAVAILABLE` with the node (the `artifacts()`/`imports()`/
+  `tags()` pattern, `Gateway.java:60-92`) and `domain/port/GatewayFactory.java` `+ default
+  QueueEntryContentPort queueEntryContent(NodeId server)` = `forServer(server).queueEntryContent()`
+  (pattern `GatewayFactory.java:86-97`), so existing gateway and factory fakes compile unchanged;
+  `adapter/PortSet.java` `+ queueEntryContent` component plus a compatibility constructor with the
+  previous seven components that fills in a refusing port, so `StaleReportingPortsTest`,
+  `AdapterGatewayFactoryTest`, `CapabilityExtensionTest` compile unchanged;
   `adapter/V81PortSet.java` (builds `CliQueueEntryAdapter` with the node's credentials, guard,
-  `CliRunner`, `ProcessRun`, limiter, `PrivateFileSystem`), `adapter/cli/v61/V61PortSet.java` and
-  `adapter/RefusingPorts.java` (refuse), `adapter/StaleReportingPorts.java`, `adapter/V81Gateway.java`,
-  `domain/port/Gateway.java`, `domain/port/GatewayFactory.java` (`queueEntryContent(NodeId)`),
-  `adapter/AdapterGatewayFactory.java`, `Wiring.java` (limiter and `PrivateFileSystem` passed in) —
-  failing tests first in `adapter/AdapterGatewayFactoryTest.java` (8.1 and 9.0 slots get the CLI
+  `CliRunner`, `ProcessRun`, limiter, `PrivateFileSystem`), `adapter/cli/v61/V61PortSet.java`
+  (compatibility constructor), `adapter/RefusingPorts.java` (refuses), `adapter/StaleReportingPorts.java`
+  (forwards), `adapter/V81Gateway.java` and `adapter/AdapterGatewayFactory.java` (override),
+  `Wiring.java` (limiter and `PrivateFileSystem` passed in) — failing tests first in `adapter/AdapterGatewayFactoryTest.java` (8.1 and 9.0 slots get the CLI
   adapter, 6.1 refuses), `adapter/StaleReportingPortsTest.java`, `adapter/RefusingPortsTest.java`
 
 ### Service and tool (plan stage 8)
@@ -288,9 +319,11 @@ INUBIT contact.
   candidates with file name, workflow, module, time; `fileName` given → that row, not ERROR →
   `INVALID_INPUT`, unknown → `NOT_FOUND`; "only N of M rows were read" when truncated); data
   part not requested when `fileSize` > 10 MiB; port call with the admitted version; `NotFound` →
-  re-read rows: gone → `NOT_FOUND` "left the Queue Manager", still there → partial — failing tests
-  first in `application/QueueEntryServiceTest.java` (fake ports; WireMock-free; US1-7, US2-2 zero
-  port calls, re-read both ways); texts per contracts/mcp-tools-delta.md "Errors"; leak check
+  re-read rows: gone → `NOT_FOUND` "left the Queue Manager", still there → partial; credentials
+  not yet available (spec edge case) → the same error as the node's other reads (naming the
+  missing secret, from the queueLog lookup's credential resolution), nothing launched — failing
+  tests first in `application/QueueEntryServiceTest.java` (fake ports; WireMock-free; US1-7,
+  US2-2 zero port calls, re-read both ways, missing credentials → no content-port call); texts per contracts/mcp-tools-delta.md "Errors"; leak check
 - [ ] T024 [US1] `QueueEntryService`, part 2 (FR-008…FR-011, FR-018, D-10…D-12, D-16): result
   `domain/model/QueueEntryResult.java` per contracts "Output"; classify; scrub with the injected
   `UnaryOperator<String> knownSecrets` on the full text, then `SecretTextMasker`, then bound;
@@ -351,10 +384,9 @@ unsupported status explicit (FR-002…FR-004, FR-017, SC-002, SC-005).
   Manager entries are read through an undocumented INUBIT interface without vendor support"
   (`termWarning`); `config/ConfigSummary.java`: **only if at least one group opts in**, every
   group line ends with `, queueEntryRead: off` / `, queueEntryRead: enabled (unsupported)`;
-  `cliOnly` lists `QUEUE_ENTRY_READ` only for opted-in groups — failing tests first in
+  (the `cliOnly` filter is already in T003) — failing tests first in
   `config/ConfigValidatorTest.java`, `config/ConfigSummaryTest.java` (existing golden texts
-  unchanged byte-for-byte; new golden text with an opt-in; 6.1-pinned group line unchanged
-  without opt-in), `MainTest.java` (`--check-config` with and without opt-in; startup log
+  unchanged byte-for-byte; new golden text with an opt-in), `MainTest.java` (`--check-config` with and without opt-in; startup log
   "Configuration: …" warning) (US2-3, US2-5, FR-017)
 - [ ] T029 [P] [US2] `docs/setup.md`: subsection `### Unsupported functions` after `### Workbench
   archives` with the table, the YAML example and the FR-004 text **verbatim** from
@@ -407,33 +439,45 @@ refused before any content request (FR-006, FR-019, US3-1…5).
   `INUBIT_LIVE_NODE`, `INUBIT_LIVE_QUEUE_ENTRY=<processId>[/<fileName>]`, skipped without them;
   production refused by `LiveTarget`; rows before/after equal in state, `startTime`, `fileSize`,
   `fileName`; captured log contains no returned value; optional `INUBIT_LIVE_RECORD_DIR` writes
-  raw `.data`, `.wfsp`, frames, exit code owner-only; one `[live] read_queue_entry …` line) and
+  raw `.data`, `.wfsp`, frames, exit code owner-only; with the record dir it also runs one cheap
+  negative case directly on the adapter: the existing entry's workflow with the fictitious file
+  name `Module-0000(0)@0@00000000` (login succeeds, so no `AUTH_FAILED` back-off; read-only),
+  recording the INUBIT "not found" frames; one `[live] read_queue_entry …` line) and
   `docs/live-tests.md` section "Queue entry read (feature 020)" plus a row in the tests table —
   failing tests first in `live/LiveTargetTest.java`-style offline checks of the env parsing and of
   the record-dir permissions (`live/QueueEntryLiveTestSupportTest.java`)
 - [ ] T034 **[LIVE] [OWNER]** 8.1 live check (SC-004, quickstart "Live check" steps 1–4): the owner
   names an existing ERROR entry on a non-production 8.1 test server (or approves the agent's
-  proposal of one); run `QueueEntryLiveTest` with `INUBIT_LIVE_RECORD_DIR`; result recorded in the
+  proposal of one); run `QueueEntryLiveTest` with `INUBIT_LIVE_RECORD_DIR` (records the entry and
+  the negative case "non-existent file name of an existing workflow"); result recorded in the
   quickstart validation record (fictitious ids only)
 - [ ] T035 **[OWNER]** Neutralize the 8.1 helper frames from T034 as in T027 and replace
-  `fixtures/queue-entry/v8_1/error_entry.frames`/`.exit` (`.origin` updated); the owner reviews the
-  diff before the commit; contract test green (depends on T027, T034)
+  `fixtures/queue-entry/v8_1/error_entry.frames`/`.exit` and the reconstructed
+  `fixtures/queue-entry/v8_1/not_found_file.*` by the recorded negative case (`.origin` updated
+  to `recorded … neutralized`); `QueueEntryHelperClassifierTest` and the contract test stay green
+  with the recorded marker (or the marker rule is corrected first); the owner reviews the diff
+  before the commit (depends on T027, T034)
 - [ ] T036 **[OWNER]** 9.0 ERROR entry (FR-019, D-20): the agent proposes one concrete trigger
   (which non-production 9.0 test server, which test workflow and Throw module, the fictitious
   payload incl. a variable `apiToken`, how the entry is created and later removed) and **waits for
   the owner's explicit approval of exactly that action**; then the owner or, after approval, the
   agent creates the entry. If the owner declines or no 9.0 test server exists → skip T037/T038
   and do T039
-- [ ] T037 **[LIVE] [OWNER]** 9.0 live check and recording (depends on T036): run
-  `QueueEntryLiveTest` against the 9.0 entry with `INUBIT_LIVE_RECORD_DIR`; neutralize as in T027
-  into `fixtures/queue-entry/v9_0/error_entry.*` (`.origin` `recorded <date> 9.0.x neutralized`);
-  the owner reviews the diff before the commit; afterwards the owner removes the test entry in
-  the Workbench (the tool never does); result in the quickstart validation record
-- [ ] T038 [US3] Enable 9.0 (depends on T037): `domain/model/CapabilityMatrix.java` 9.0
-  `QUEUE_ENTRY_READ` → `SUPPORTED` (note removed) in the same commit as the recording;
-  `QueueEntryV90ContractTest` switches to the recorded `error_entry` (US3-2, SC-001);
-  `ToolAnnouncementTest` (`V9_0` pin now announces), `QueueEntryFixtureCatalogueTest` (⇔ rule) and
-  `CapabilityMatrixTest` updated first
+- [ ] T037 **[LIVE] [OWNER]** 9.0 live check and recording, **prepared, not committed** (depends
+  on T036): run `QueueEntryLiveTest` against the 9.0 entry with `INUBIT_LIVE_RECORD_DIR` (entry
+  plus the negative case); with the 9.0 node opened only through a test declaration of the matrix,
+  since production 9.0 stays refused until T038; neutralize as in T027 in the private directory
+  into the future `fixtures/queue-entry/v9_0/error_entry.*` and `not_found_file.*` (`.origin`
+  `recorded <date> 9.0.x neutralized`); the owner reviews the neutralized files; afterwards the
+  owner removes the test entry in the Workbench (the tool never does); result in the quickstart
+  validation record
+- [ ] T038 [US3] Enable 9.0 in **one commit** (depends on T037): the reviewed recording files of
+  T037 under `src/test/resources/fixtures/queue-entry/v9_0/` **and** `domain/model/CapabilityMatrix.java`
+  9.0 `QUEUE_ENTRY_READ` → `SUPPORTED` (note removed) together, because
+  `QueueEntryFixtureCatalogueTest` requires "9.0 `SUPPORTED` ⇔ recorded `v9_0/error_entry.origin`"
+  in every commit; updated first: `QueueEntryV90ContractTest` (recorded `error_entry`, US3-2,
+  SC-001), `ToolAnnouncementTest` (`V9_0` pin now announces), `CapabilityMatrixTest`,
+  `QueueEntryFixtureCatalogueTest`
 - [ ] T039 **[OWNER]** FR-019 fallback (only if T036 is declined or impossible): record the owner's
   decision and date in `quickstart.md` (validation record) and `reviews/implementation.md`; 9.0 stays
   refused "not yet verified"; T040/T041 state it in docs and CHANGELOG; enabling 9.0 later is a
@@ -460,12 +504,12 @@ refused before any content request (FR-006, FR-019, US3-1…5).
 
 ## Dependencies
 
-- Phase 2 blocks everything: T002, T003, T005, T007, T008 in parallel; T004 after T003; T006
-  before T021.
+- Phase 2 blocks everything: T002, T005, T007, T008 in parallel; T003 after T002 (cliOnly filter
+  reads the opt-in); T004 after T003; T006 before T021.
 - US1: T009 ∥ T010 → T011; T012 needs T005; T013 → T014 → T015 → T016; T017 ∥ T018; T017 → T019;
   T020 needs T006; T021 needs T006–T008, T017–T020; T022 needs T021, T012; T023 needs T002, T004,
   T022; T024 needs T009–T011, T023; T025 needs T024; T026 needs T021, T024; T027 needs T026.
-- US2: T028 and T029 need T002 only; T030 needs T025 and T003.
+- US2: T028 needs T002 and T003; T029 needs T002; T030 needs T025 and T003.
 - US3: T031 needs T030; T032 needs T026, T031.
 - Phase 6: T033 needs T030; T034 needs T033 → T035 (also T027); T036 → T037 → T038; T039 only
   instead of T036–T038.
@@ -475,7 +519,7 @@ refused before any content request (FR-006, FR-019, US3-1…5).
 
 ## Parallel opportunities
 
-T002/T003/T005/T007/T008; T009/T010/T012/T013/T017/T018 once Phase 2 is green; T028/T029 alongside
+T002/T005/T007/T008 (then T003); T009/T010/T012/T013/T017/T018 once Phase 2 is green; T028/T029 alongside
 US1; T040/T041. Builds always sequential.
 
 ## Implementation strategy

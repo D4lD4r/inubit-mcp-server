@@ -315,14 +315,20 @@ A file system without private-file support → `CLI_UNAVAILABLE` (nothing launch
 ## D-9 Locating the entry and the candidate rules (FR-005, edge cases)
 
 **Decision**:
-- New method on `ProcessQueryPort`: `QueueEntries queueEntries(String processId)` — the same
+- New **default** method on `ProcessQueryPort`: `QueueEntries queueEntries(String processId)`
+  (the default refuses with `UNSUPPORTED_VERSION`, nothing sent, so existing implementers and test
+  fakes compile unchanged) — the same
   request as `findByProcessId` (`adapter/rest/v81/V81ProcessQueryAdapter.java:90-101`: queueLog,
   `workflowId EQUAL <id>`, newest first, at most `MAX_ROWS_PER_PROCESS` = 100) but parsed by a new
   `QueueEntryRowParser` that keeps what `QueueLogRowParser` drops: `fileName` (uncut; a value
   over 255 characters or with `/`, `\`, NUL or control characters → `UNEXPECTED_RESPONSE`),
   `fileSize` (long), `userDefined1..5` (each cut at 2,000 = `ItemBounds.MAX_MESSAGE_CHARS`) and
-  the uncut `workflowName`. Implemented in `V81ProcessQueryAdapter`; `V61ProcessQueryAdapter`,
-  `RefusingPorts` refuse; `StaleReportingPorts` forwards.
+  the uncut `workflowName`. Implemented in `V81ProcessQueryAdapter`; `StaleReportingPorts.Processes`
+  must override and forward it (else the wrapped 8.1 port would hit the default);
+  `RefusingPorts` overrides with its 6.1 text; `V61ProcessQueryAdapter` keeps the default. The
+  parser is contract-tested over the recorded 8.1 answers `fixtures/v8_1/rest/log_queueLog.json`
+  and `log_queueLog_error.json` (file name, size, `userDefined` texts, Error state); synthetic rows
+  only for what they lack (several ERROR rows, no ERROR row, bad names).
 - Candidates: rows with `ProcessState.ERROR`.
   - `fileName` given: the row with exactly that `fileName` among all rows of the process ID; none
     → `NOT_FOUND`; not ERROR → `INVALID_INPUT` "only ERROR entries are supported" with its state.
@@ -507,8 +513,14 @@ writes clear-text secrets to disk, which this tool does not).
 
 **Decision**:
 - `domain/port/QueueEntryContentPort`: `RawEntryContent read(QueueEntryRef ref, InubitVersion
-  version, Set<EntryPart> parts)` — added to `PortSet`, `Gateway`, `GatewayFactory`,
-  `AdapterGatewayFactory`, `V81Gateway`, `StaleReportingPorts`, `RefusingPorts`, `V61PortSet`.
+  version, Set<EntryPart> parts)`. `Gateway.queueEntryContent()` and
+  `GatewayFactory.queueEntryContent(NodeId)` are **default** methods following the
+  `artifacts()`/`imports()`/`tags()` pattern (`domain/port/Gateway.java:60-92`,
+  `GatewayFactory.java:86-97`: the gateway default throws `CLI_UNAVAILABLE`, the factory default
+  asks the gateway); `PortSet` gets the component plus a compatibility constructor with the
+  previous seven components (refusing port), so existing fakes and tests compile unchanged;
+  `V81PortSet`, `V81Gateway`, `AdapterGatewayFactory`, `StaleReportingPorts` (forward) and
+  `RefusingPorts` override.
 - Adapter `adapter/cli/queue/CliQueueEntryAdapter` (variant, selection, TLS, temp dir, helper run,
   classification, file reads, `WfspParser`), built in `V81PortSet.create` with the node's
   credentials, `CredentialGuard`, `CliRunner`, `ProcessRun`, limiter and `PrivateFileSystem`.
@@ -541,7 +553,11 @@ vendor noise lines), `<case>.exit`, `<case>.rows.json` (the queueLog answer of t
 4. run `NoCustomerIdentifiersTest` with the private lists and `tools/check-identifiers.py`; the
    owner reviews the diff before the commit.
 The helper frames for 8.1 are re-recorded by the live check (D-21) and neutralized the same way;
-until then `error_entry.frames` is `reconstructed` from the helper protocol.
+until then `error_entry.frames` is `reconstructed` from the helper protocol. The 8.1 error-marker
+fixtures (missing file, login failure, TLS, 403) are **reconstructed** — 8.1's missing-file text
+was never observed; the live check therefore also records one cheap negative case (D-21) that
+replaces the reconstructed `v8_1/not_found_file`, and the classifier's marker rule is checked
+against it.
 
 Synthetic cases (each with `.README`): `binary_zip`, `utf16_text`, `latin1_text`,
 `secrets_everywhere` (every FR-011 bullet), `many_variables` (250), `long_values`,
@@ -593,7 +609,10 @@ refused by `LiveTarget`):
   metadata, data (text or binary hint) and variables; the captured server log contains none of
   the returned values.
 - Optional `INUBIT_LIVE_RECORD_DIR=<private dir outside the repository>`: writes the raw
-  `.data`, `.wfsp`, helper frames and exit code there (owner-only) for D-18/D-20.
+  `.data`, `.wfsp`, helper frames and exit code there (owner-only) for D-18/D-20; it also runs
+  one negative case directly on the adapter: the existing entry's workflow with the fictitious
+  file name `Module-0000(0)@0@00000000` (read-only; the login succeeds, so it causes no
+  `AUTH_FAILED` back-off), recording INUBIT's "not found" answer for the version.
 - Prints one `[live] read_queue_entry <node> process <id>: data <n> bytes (<kind>), <m> variables,
   entry unchanged` line.
 - `docs/live-tests.md` gets a section "Queue entry read (feature 020)" and a row in the tests

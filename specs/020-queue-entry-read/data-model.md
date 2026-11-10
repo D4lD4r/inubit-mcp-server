@@ -23,7 +23,7 @@ profile without the opt-in.
 | `CapabilityMatrix` | changed | 8.1 `SUPPORTED`; 9.0 `SUPPORTED` with recording, else `UNSUPPORTED` + note; unknown map `QUEUE_ENTRY_READ → UNSUPPORTED`; `Entry` `+ Map<Capability, String> notes` | D-6, D-20 |
 | `QueueEntryRow` | new | `String processId`, `Optional<String> globalProcessId`, `ProcessState state`, `String rawState`, `Instant since`, `String workflow`, `Optional<String> module`, `Optional<String> moduleType`, `String fileName`, `long fileSize`, `SortedMap<String,String> errorTexts` (`userDefined1..5`, non-empty only, each ≤ 2,000) | `fileName` 1–255, no `/`, `\`, NUL, control chars; workflow without `@@@` or control chars; else the adapter throws `UNEXPECTED_RESPONSE` |
 | `QueueEntries` | new | `List<QueueEntryRow> rows`, `long total` | newest first, ≤ 100; `truncated()` = `total > rows.size()` |
-| `ProcessQueryPort` | changed | `+ QueueEntries queueEntries(String processId)` | same request as `findByProcessId` |
+| `ProcessQueryPort` | changed | `+ default QueueEntries queueEntries(String processId)` refusing (`UNSUPPORTED_VERSION`, nothing sent) | existing implementers and fakes unchanged; same request as `findByProcessId` in the 8.1 adapter |
 | `EntryPart` | new | `DATA`, `VARIABLES` | — |
 | `QueueEntryRef` | new | `NodeId node`, `String workflow`, `String fileName`, `long fileSize` | built from a `QueueEntryRow` only |
 | `RawEntryContent` | new | `PartResult<byte[]> data`, `PartResult<List<RawVariable>> variables` | `PartResult` = `Read(T)` \| `NotRequested(String reason)` \| `NotFound` \| `Failed(String reason)` \| `TooLarge(long bytes)`; reasons are fixed or scrubbed texts, never content |
@@ -41,7 +41,7 @@ profile without the opt-in.
 
 | Type | Change | Responsibility |
 |---|---|---|
-| `QueueEntryService` | new | `QueueEntryResult read(String target, String processId, Optional<String> fileName, OptionalInt maxChars)`: validate input → resolve one server (`TargetResolver.resolveSingleServer`) → opt-in (`NOT_CONFIGURED`) → `VersionGate.admit("read_queue_entry", …, QUEUE_ENTRY_READ, READ, {REST, CLI})` → `queueEntries` → candidate rules (D-9) → parts (10 MiB pre-check) → `QueueEntryContentPort.read` → re-read on `NotFound` → classify, scrub (`UnaryOperator<String> knownSecrets`), mask, bound → result; one INFO log line (D-16) |
+| `QueueEntryService` | new | `QueueEntryResult read(String target, String processId, Optional<String> fileName, OptionalInt maxChars)`: validate input → resolve one server (`TargetResolver.resolveSingleServer`) → opt-in (`NOT_CONFIGURED`) → `VersionGate.admitWithDetection("read_queue_entry", …, QUEUE_ENTRY_READ, READ, {REST, CLI})` → `queueEntries` → candidate rules (D-9) → parts (10 MiB pre-check) → `QueueEntryContentPort.read` → re-read on `NotFound` → classify, scrub (`UnaryOperator<String> knownSecrets`), mask, bound → result; one INFO log line (D-16) |
 | `NodeOverview` | changed | `name(QUEUE_ENTRY_READ) = "queue_entry_read"` |
 | `VersionGate` | changed | `cliOnlyStep` case; refusal text uses the matrix note when present; `+ admitWithDetection(…)`: a failed detection (fresh: rethrown after it was recorded; in back-off: the recorded `DetectionFailure` code) fails the call with that code instead of judging the version unknown (US3-4, D-6) |
 
@@ -65,8 +65,9 @@ profile without the opt-in.
 | `adapter/rest/v81/QueueEntryRowParser` | new | queueLog row → `QueueEntryRow` |
 | `V81ProcessQueryAdapter` | changed | `queueEntries` |
 | `V61ProcessQueryAdapter`, `RefusingPorts` | changed | refuse `queueEntries` / `read` |
-| `PortSet`, `V81PortSet`, `V61PortSet`, `StaleReportingPorts`, `V81Gateway`, `AdapterGatewayFactory` | changed | `+ QueueEntryContentPort queueEntries` |
-| `Gateway`, `GatewayFactory` (`domain/port`) | changed | `+ queueEntryContent(NodeId)` |
+| `PortSet` | changed | `+ QueueEntryContentPort queueEntryContent`; compatibility constructor with the previous seven components (refusing port) |
+| `V81PortSet`, `V61PortSet`, `StaleReportingPorts`, `V81Gateway`, `AdapterGatewayFactory` | changed | provide / forward the port (`V61PortSet` via the compatibility constructor); `StaleReportingPorts.Processes` also overrides `queueEntries` |
+| `Gateway`, `GatewayFactory` (`domain/port`) | changed | `+ default queueEntryContent()` (throws `CLI_UNAVAILABLE`) / `+ default queueEntryContent(NodeId)` (asks the gateway), as `artifacts()`/`imports()`/`tags()` |
 
 ## Helper (`src/helper/java`, Java 17 bytecode, JDK only)
 
