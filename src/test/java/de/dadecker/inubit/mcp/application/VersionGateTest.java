@@ -1352,6 +1352,116 @@ class VersionGateTest {
         assertNoLeak(v91, v61, v9x);
     }
 
+    // --- feature 020, T004: an undetectable version fails read_queue_entry (US3-4, D-6) -------
+
+    /** A detection error as the factory reports it, without URL or credentials. */
+    private static ToolErrorException plainDetectionError(ErrorCode code) {
+        return new ToolErrorException(ToolError.of(code, "Detection of dev/node1 failed: " + code,
+            "cause of " + code, "next step of " + code).withNode(AUTO));
+    }
+
+    private ToolErrorException admitQueueEntryReadFails() {
+        ToolErrorException e = catchThrowableOfType(ToolErrorException.class,
+            () -> gate().admitWithDetection("read_queue_entry", AUTO,
+                Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST));
+        assertThat(e).as("failed").isNotNull();
+        return e;
+    }
+
+    @Test
+    void aFailedDetectionOfThisCallIsPassedThroughWithItsOwnCodeAndMessage() {
+        for (ErrorCode code : List.of(ErrorCode.UNREACHABLE, ErrorCode.TIMEOUT,
+            ErrorCode.TLS_ERROR, ErrorCode.AUTH_FAILED, ErrorCode.UNEXPECTED_RESPONSE)) {
+            ToolErrorException error = plainDetectionError(code);
+            if (code == ErrorCode.TLS_ERROR) {
+                detection.failUnreported(error);
+            } else {
+                detection.fail(error);
+            }
+
+            assertThat(admitQueueEntryReadFails()).as(code.name()).isSameAs(error);
+            if (code != ErrorCode.TLS_ERROR) {
+                assertThat(versions.state(AUTO).detectionFailure()).as("recorded as today")
+                    .hasValueSatisfying(failure -> assertThat(failure.value().code())
+                        .isEqualTo(code));
+            }
+            clock.advance(Duration.ofSeconds(60));
+        }
+
+        assertThat(detection.calls).isEqualTo(5);
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+        assertThat(appender.list).as("not a version refusal").isEmpty();
+    }
+
+    @Test
+    void withinTheBackOffTheRecordedCodeIsReplayedWithoutASecondDetection() {
+        detection.fail(plainDetectionError(ErrorCode.UNREACHABLE));
+        admitQueueEntryReadFails();
+        clock.advance(Duration.ofSeconds(59));
+
+        ToolError replayed = admitQueueEntryReadFails().error();
+
+        assertThat(replayed.code()).isEqualTo(ErrorCode.UNREACHABLE);
+        assertThat(replayed.message()).isEqualTo("The INUBIT version of dev/node1 could not be"
+            + " detected (UNREACHABLE at 2026-10-18T08:00:00Z); read_queue_entry needs it");
+        assertThat(replayed.nextStep())
+            .isEqualTo("Fix the cause and retry in a minute, or set versionLine of dev/node1");
+        assertThat(replayed.node()).contains(AUTO);
+        assertThat(detection.calls).as("no second detection within the back-off").isEqualTo(1);
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+        assertNoLeak(replayed);
+
+        clock.advance(Duration.ofSeconds(1));
+        detection.answer("8.1.17");
+        Admission afterBackOff = gate().admitWithDetection("read_queue_entry", AUTO,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, REST);
+
+        assertThat(afterBackOff.version()).contains(version("8.1.17"));
+        assertThat(detection.calls).isEqualTo(2);
+    }
+
+    /** A failure another tool's admission recorded (and judged as unknown) is replayed, too. */
+    @Test
+    void aFailureRecordedByAnotherAdmissionIsReplayed() {
+        detection.fail(detectionError(ErrorCode.AUTH_FAILED));
+        Admission other = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+
+        ToolError replayed = admitQueueEntryReadFails().error();
+
+        assertThat(other.warnings()).containsExactly("the INUBIT version of dev/node1 is unknown"
+            + " (AUTH_FAILED at 2026-10-18T08:00:00Z); results are unverified");
+        assertThat(replayed.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(replayed.message()).isEqualTo("The INUBIT version of dev/node1 could not be"
+            + " detected (AUTH_FAILED at 2026-10-18T08:00:00Z); read_queue_entry needs it");
+        assertThat(Stream.of(replayed.message(), replayed.likelyCause(), replayed.nextStep()))
+            .allSatisfy(text -> assertThat(text).doesNotContain(BASE_URL, USERNAME, PASSWORD));
+        assertThat(detection.calls).isEqualTo(1);
+        assertNoLeak(replayed);
+    }
+
+    @Test
+    void aKnownVersionIsAdmittedAndAnUnsupportedOneRefusedAsByAdmit() {
+        detection.answer("8.1.17");
+
+        Admission detected = gate().admitWithDetection("read_queue_entry", AUTO,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST);
+        Admission cached = gate().admitWithDetection("read_queue_entry", AUTO,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST);
+        Admission pinned = gate().admitWithDetection("read_queue_entry", PINNED,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST);
+        ToolError v61 = refusal(() -> gate().admitWithDetection("read_queue_entry", V6_1,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST));
+
+        assertThat(detected.version()).contains(version("8.1.17"));
+        assertThat(detected.warnings()).isEmpty();
+        assertThat(cached.version()).contains(version("8.1.17"));
+        assertThat(pinned.version()).contains(version("8.1.17"));
+        assertThat(detection.calls).as("one detection, then the cached version").isEqualTo(1);
+        assertThat(v61.message()).startsWith("read_queue_entry: INUBIT 6.1 (versionLine V6_1)"
+            + " on old/node1 does not support reading Queue Manager entries");
+        assertNoLeak(v61);
+    }
+
     private void assertNoLeak(ToolError... errors) {
         for (ToolError error : errors) {
             TestSecrets.assertNoLeak(error.message());

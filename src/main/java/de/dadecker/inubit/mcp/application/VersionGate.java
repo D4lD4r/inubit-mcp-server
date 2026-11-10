@@ -29,6 +29,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -198,7 +199,11 @@ public final class VersionGate {
      */
     public Admission admit(NodeId node, Capability capability, Capability.Kind purpose,
         Set<Channel> channels) {
-        Evaluation evaluation = evaluate(node, capability, purpose, channels);
+        return admission(capability, evaluate(node, capability, purpose, channels,
+            Optional.empty()));
+    }
+
+    private Admission admission(Capability capability, Evaluation evaluation) {
         if (evaluation.refusal().isPresent()) {
             throw new ToolErrorException(evaluation.refusal().get());
         }
@@ -216,16 +221,33 @@ public final class VersionGate {
      */
     public Evaluation evaluate(NodeId node, Capability capability, Capability.Kind purpose,
         Set<Channel> channels) {
+        return evaluate(node, capability, purpose, channels, Optional.empty());
+    }
+
+    /**
+     * @param versionNeededBy the tool of {@link #admitWithDetection}; empty for today's
+     *     behaviour, which judges an undetectable version as unknown
+     */
+    private Evaluation evaluate(NodeId node, Capability capability, Capability.Kind purpose,
+        Set<Channel> channels, Optional<String> versionNeededBy) {
         Objects.requireNonNull(node, "node");
         Objects.requireNonNull(capability, "capability");
         Objects.requireNonNull(purpose, "purpose");
         Objects.requireNonNull(channels, "channels");
         if (capability != Capability.MONITORING && versions.needsDetection(node, purpose)) {
-            detect(node);
+            detect(node, versionNeededBy.isPresent());
         }
         NodeVersionState state = versions.state(node);
         Optional<InubitVersion> version = purpose == Capability.Kind.WRITE
             ? versions.writableVersion(node) : state.effectiveVersion();
+        if (versionNeededBy.isPresent() && version.isEmpty()
+            && state.setting() instanceof VersionSetting.Auto) {
+            // no detection in this call: the back-off of a recorded failure suppressed it
+            Optional<Timed<DetectionFailure>> failure = state.detectionFailure();
+            if (failure.isPresent()) {
+                throw undetectable(versionNeededBy.get(), node, failure.get());
+            }
+        }
         String versionName = name(state, version).orElse("INUBIT version unknown");
         try {
             return new Evaluation(version, versionName,
@@ -346,8 +368,32 @@ public final class VersionGate {
     public Admission admit(String tool, NodeId node, Capability capability,
         Capability.Kind purpose, Set<Channel> channels) {
         Objects.requireNonNull(tool, "tool");
+        return named(tool, () -> admit(node, capability, purpose, channels));
+    }
+
+    /**
+     * {@link #admit(String, NodeId, Capability, Capability.Kind, Set)} for a tool that needs the
+     * version of the node (feature 020, US3-4, research D-6): an undetectable version fails the
+     * call with the detection's error instead of being judged as unknown. A detection of this
+     * call that fails has been recorded in {@link NodeVersions} (which starts the back-off) and
+     * is rethrown with its own code and message. Within the back-off of a recorded failure, with
+     * no known version, the call fails with the recorded code and does not detect again (no
+     * extra login attempt), e.g. "The INUBIT version of dev/node1 could not be detected
+     * (UNREACHABLE at 2026-11-10T08:15:30Z); read_queue_entry needs it".
+     *
+     * @throws ToolErrorException as {@code admit}, and the detection's error as described
+     */
+    public Admission admitWithDetection(String tool, NodeId node, Capability capability,
+        Capability.Kind purpose, Set<Channel> channels) {
+        Objects.requireNonNull(tool, "tool");
+        return named(tool, () -> admission(capability,
+            evaluate(node, capability, purpose, channels, Optional.of(tool))));
+    }
+
+    /** Starts the message of this gate's refusal with {@code tool}. */
+    private static Admission named(String tool, Supplier<Admission> admission) {
         try {
-            return admit(node, capability, purpose, channels);
+            return admission.get();
         } catch (ToolErrorException e) {
             ToolError error = e.error();
             if (error.code() != ErrorCode.UNSUPPORTED_VERSION) {
@@ -363,15 +409,31 @@ public final class VersionGate {
      * Detects now. A failure other than {@code TLS_ERROR} has been reported to
      * {@link NodeVersions} (which starts the back-off) and is judged as an unknown version; a
      * cancelled call is passed through, as it was not reported.
+     *
+     * @param passFailures pass every failure through (feature 020, {@link #admitWithDetection})
      */
-    private void detect(NodeId node) {
+    private void detect(NodeId node, boolean passFailures) {
         try {
             gateways.detect(node);
         } catch (ToolErrorException e) {
-            if (e.error().code() == ErrorCode.TLS_ERROR || Thread.currentThread().isInterrupted()) {
+            if (passFailures || e.error().code() == ErrorCode.TLS_ERROR
+                || Thread.currentThread().isInterrupted()) {
                 throw e;
             }
         }
+    }
+
+    /** The recorded failure of a detection the back-off suppressed in this call (US3-4). */
+    private static ToolErrorException undetectable(String tool, NodeId node,
+        Timed<DetectionFailure> failure) {
+        ErrorCode code = failure.value().code();
+        return new ToolErrorException(ToolError.of(code,
+            "The INUBIT version of " + node + " could not be detected (" + code + " at "
+                + time(failure) + "); " + tool + " needs it",
+            "The last version detection of " + node + " failed less than a minute ago and is"
+                + " not repeated before then",
+            "Fix the cause and retry in a minute, or set versionLine of " + node)
+            .withNode(node));
     }
 
     /**

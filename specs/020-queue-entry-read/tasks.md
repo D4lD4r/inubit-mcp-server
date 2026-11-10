@@ -75,7 +75,7 @@ decisions go to `specs/020-queue-entry-read/reviews/implementation.md`.
   and unknown unsupported, other capabilities' unknown rule unchanged),
   `application/VersionGateTest.java` (9.0 refusal "… is not yet verified for INUBIT 9.0", 6.1 and
   9.1 `UNSUPPORTED_VERSION` naming the supported lines 8.1, 9.0), `application/NodeOverviewTest.java`
-- [ ] T004 `VersionGate.admitWithDetection(tool, node, capability, purpose, channels)` (US3-4, D-6,
+- [X] T004 `VersionGate.admitWithDetection(tool, node, capability, purpose, channels)` (US3-4, D-6,
   owner decision): a detection run in this call that fails is recorded in `NodeVersions` as today
   and then **rethrown with its own code and message**; during the 60 s back-off with a recorded
   `DetectionFailure` and no known version → `ToolError` with the recorded code, message "The
