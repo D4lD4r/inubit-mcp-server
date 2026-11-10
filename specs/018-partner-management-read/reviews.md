@@ -99,3 +99,14 @@ Review of the fix round: reviews/phase3-cr-fix-r1.md (APPROVED, 1 minor fixed). 
 ## Implementation — phase 4 build
 
 After T024 (f32d832): `mvn -o -q clean verify` green with 5810 unit tests (52 skipped), 0 failures, 0 errors, plus 2 integration tests (after phase 3 fixes: 5784 + 2).
+
+## Implementation — phase 4 code review (7f4b0d0..330c6e7)
+
+7 findings:
+1. `PartnerService.find` bounds the diagram lists against the uncut page before `PartnerBounds.page` drops partners; a returned partner's diagram can be cut from `systemDiagramsRead`.
+2. The service reserves `TOOL_FIELDS_CHARS = 64` for fields only the tool adds (mode, compared, offset); fields added later (T026) silently break the bound.
+3. `PartnerBounds.size` re-serializes the workflows and sums all partner sizes on every loop step.
+4. `Texts.cloud` cuts and measures a cloud's workflow list once per partner instead of once per cloud.
+5. List mode sorts per server and pages over servers concatenated; a stage result is not in list order across servers.
+6. `PartnerBounds.fit` keeps elements by set membership; equal duplicates of a kept element are all kept.
+7. `similarValues` bypass the text cut accounting (`truncated` not set for a cut suggestion).
