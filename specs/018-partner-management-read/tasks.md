@@ -288,7 +288,7 @@ secret equality by server groups (8.1 only), report failed servers.
   entries never matched; failed servers in `notCompared`, left out of every statement
   (FR-012…FR-014) — main `application/PartnerComparison.java`, test
   `application/PartnerComparisonTest.java` (US3-AS1…6, AS8, AS9, SC-003, table-driven)
-- [ ] T026 [US3] Comparison in `PartnerService` (after T021, T024, T025): fan-out over all targeted
+- [X] T026 [US3] Comparison in `PartnerService` (after T021, T024, T025): fan-out over all targeted
   and compared servers; `total`/`nextOffset` count matched partner keys across servers; a search
   hit on one server includes the partner from all; without a search term summary fields grouped
   like settings plus only differences (FR-012c); FR-005a in a comparison: `NOT_FOUND` only if the

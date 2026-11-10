@@ -2,11 +2,16 @@ package de.dadecker.inubit.mcp.application;
 
 import de.dadecker.inubit.mcp.application.InventoryCache.Key;
 import de.dadecker.inubit.mcp.application.InventoryCache.Snapshot;
+import de.dadecker.inubit.mcp.application.PartnerComparison.ComparedEntry;
+import de.dadecker.inubit.mcp.application.PartnerComparison.ComparedPartner;
+import de.dadecker.inubit.mcp.application.PartnerComparison.Grouped;
+import de.dadecker.inubit.mcp.application.PartnerComparison.SettingComparison;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.InventoryKind;
 import de.dadecker.inubit.mcp.domain.model.Names;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -29,9 +34,13 @@ import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort.UnreadableDiagra
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -114,6 +123,12 @@ import org.slf4j.LoggerFactory;
  *       {@code partnersReturned} and {@code valuesMasked} count what the result finally holds,
  *       after the size bound: {@code valuesMasked} the masked values shown (fields and the
  *       settings of the entries shown), not the partners' {@code maskedCount}.
+ *   <li>Comparison (T026, FR-012…FR-014, US3): {@link #answer} compares a stage target of
+ *       several servers, or a target with {@code compareWith}, through {@link PartnerComparison};
+ *       a single server stays {@link Found}. The search matches shown field values, never a
+ *       field masked on any server; list mode keeps the summary and only what differs. Every
+ *       server keeps its own audit record, counting the partners it holds on the page and the
+ *       masked values shown for it; a failed server is {@code notCompared}.
  * </ul>
  */
 public final class PartnerService {
@@ -141,6 +156,13 @@ public final class PartnerService {
         .thenComparing(match -> match.cloud().moduleName(), TEXT)
         .thenComparing(match -> shown(match.partner(), "Id"), TEXT)
         .thenComparing(match -> shown(match.partner(), "Name"), TEXT);
+    /** {@link #LIST_ORDER} of a comparison, on the first shown value of a differing field. */
+    private static final Comparator<ComparedPartner> COMPARED_ORDER = Comparator
+        .comparing((ComparedPartner partner) -> partner.diagram().diagramGroup(), TEXT)
+        .thenComparing(partner -> partner.diagram().name(), TEXT)
+        .thenComparing(ComparedPartner::cloud, TEXT)
+        .thenComparing(partner -> shown(partner, "Id"), TEXT)
+        .thenComparing(partner -> shown(partner, "Name"), TEXT);
 
     /**
      * What one server answered for one call.
@@ -159,10 +181,13 @@ public final class PartnerService {
      *                           entry or the diagram's own entry answers)
      * @param gateWarnings       how many of the first {@code warnings} are the version gate's
      *                           (FR-016: never cut by the size bound)
+     * @param version            the INUBIT version the version gate admitted the read on; empty
+     *                           if unknown (a comparison then makes no secret equality statement)
      */
     record ServerRead(String owner, List<DiagramRef> systemDiagrams, Instant collectedAt,
         boolean fromCache, List<SystemDiagramPartners> diagrams,
-        List<UnreadableDiagram> unreadableDiagrams, List<String> warnings, int gateWarnings) {
+        List<UnreadableDiagram> unreadableDiagrams, List<String> warnings, int gateWarnings,
+        Optional<InubitVersion> version) {
 
         ServerRead {
             Objects.requireNonNull(owner, "owner");
@@ -171,7 +196,18 @@ public final class PartnerService {
             diagrams = List.copyOf(diagrams);
             unreadableDiagrams = List.copyOf(unreadableDiagrams);
             warnings = List.copyOf(warnings);
+            Objects.requireNonNull(version, "version");
         }
+    }
+
+    /**
+     * The answer of one call: the partners of one server ({@link Found}), or the comparison of
+     * several ({@link Compared}, T026).
+     */
+    public sealed interface Answer permits Found, Compared {
+
+        /** The call id shared by every audit record of the call (FR-020). */
+        UUID callId();
     }
 
     /**
@@ -180,7 +216,8 @@ public final class PartnerService {
      *
      * @param callId                the call id shared by every audit record of the call (FR-020)
      * @param mode                  {@code search} with a search term, else {@code list}
-     * @param compared              whether the result is a comparison ({@code compareWith}, T026)
+     * @param compared              always {@code false}; a comparison answers {@link Compared}
+     *                              (T026)
      * @param servers               one per targeted server, in config order
      * @param referencableWorkflows per communication cloud that contributed a returned partner
      *                              (FR-007)
@@ -201,7 +238,7 @@ public final class PartnerService {
     public record Found(UUID callId, String mode, boolean compared, List<ServerView> servers,
         List<CloudWorkflows> referencableWorkflows, List<PartnerView> partners,
         Optional<List<String>> similarValues, int total, int offset, int limit,
-        OptionalInt nextOffset, boolean truncated) {
+        OptionalInt nextOffset, boolean truncated) implements Answer {
 
         public Found {
             Objects.requireNonNull(callId, "callId");
@@ -316,6 +353,113 @@ public final class PartnerService {
         Optional<Boolean> set) {
     }
 
+    /**
+     * The answer of a comparison (T026, FR-012…FR-014): a stage target of several servers, or
+     * {@code compareWith}. The fields of {@link Found}, in its order, with compared partners,
+     * then whether a server failed and which.
+     *
+     * @param compared              always {@code true}
+     * @param servers               one per targeted, then per compared server, in config order
+     * @param referencableWorkflows per communication cloud (and module id) of a returned partner:
+     *                              the workflows of every server holding the partner, as first
+     *                              seen
+     * @param partners              the page of matched partners (FR-012c): the comparison order
+     *                              with a search term, else the list order
+     * @param total                 the number of matched partners across all servers (FR-012c)
+     * @param incomplete            whether a server failed (FR-014)
+     * @param notCompared           the failed servers, in server order
+     */
+    public record Compared(UUID callId, String mode, boolean compared, List<ServerView> servers,
+        List<CloudWorkflows> referencableWorkflows, List<ComparedPartnerView> partners,
+        Optional<List<String>> similarValues, int total, int offset, int limit,
+        OptionalInt nextOffset, boolean truncated, boolean incomplete,
+        List<NotCompared> notCompared) implements Answer {
+
+        public Compared {
+            Objects.requireNonNull(callId, "callId");
+            Objects.requireNonNull(mode, "mode");
+            servers = List.copyOf(servers);
+            referencableWorkflows = List.copyOf(referencableWorkflows);
+            partners = List.copyOf(partners);
+            similarValues = similarValues.map(List::copyOf);
+            Objects.requireNonNull(nextOffset, "nextOffset");
+            notCompared = List.copyOf(notCompared);
+        }
+    }
+
+    /** A server left out of a comparison (FR-014); its error is in its {@link ServerView}. */
+    public record NotCompared(NodeId node, ErrorCode code) {
+    }
+
+    /** The partner key of a matched partner (FR-013): its key field and that field's value. */
+    public record KeyView(String field, String value) {
+    }
+
+    /**
+     * One partner matched across the servers that hold it, or alone on its server (FR-012,
+     * FR-013).
+     *
+     * @param moduleId    only when two clouds of the diagram share the module name on its server
+     * @param key         empty for a partner without key (compared on its server alone)
+     * @param onlyOn      the servers holding it, if not every answering server does
+     * @param fields      every field, grouped like settings
+     * @param entries     all, or those the entry filters match; in list mode each with the
+     *                    summary keys and only the differing settings (FR-012c)
+     * @param maskedCount the number of masked values per server, grouped (FR-009)
+     */
+    public record ComparedPartnerView(DiagramRef systemDiagram, String cloud,
+        Optional<String> moduleId, Optional<KeyView> key, Optional<List<NodeId>> onlyOn,
+        List<ComparedSettingView> fields, List<ComparedEntryView> entries,
+        GroupedCount maskedCount, List<PartnerComparison.Ambiguity> ambiguous) {
+
+        public ComparedPartnerView {
+            onlyOn = onlyOn.map(List::copyOf);
+            fields = List.copyOf(fields);
+            entries = List.copyOf(entries);
+            ambiguous = List.copyOf(ambiguous);
+        }
+    }
+
+    /**
+     * One entry of a compared partner, matched by protocol, workflow and position (FR-013).
+     *
+     * @param onlyOn               the servers holding it, if not every server holding the partner
+     *                             does
+     * @param format               the {@code format} attribute as a setting named
+     *                             {@link PartnerComparison#FORMAT}; in list mode only if it
+     *                             differs
+     * @param additionalParameters all; in list mode only the differing ones, absent if none
+     */
+    public record ComparedEntryView(String protocol, WorkflowView workflow, int position,
+        Optional<List<NodeId>> onlyOn, Optional<ComparedSettingView> format,
+        List<ComparedSettingView> protocolSettings,
+        Optional<List<ComparedSettingView>> additionalParameters) {
+
+        public ComparedEntryView {
+            onlyOn = onlyOn.map(List::copyOf);
+            protocolSettings = List.copyOf(protocolSettings);
+            additionalParameters = additionalParameters.map(List::copyOf);
+        }
+    }
+
+    /**
+     * A compared field or setting: shown values {@code equal} once or {@code differs} per server;
+     * a masked one {@code masked} with {@code set} per server and, if made, the one statement on
+     * the stored values: {@code sameOn} groups or why there is none ({@code equality}, FR-012a).
+     * Never carries a secret or its fingerprint.
+     *
+     * @param onlyOn the servers holding it, if not every server holding its partner or entry does
+     */
+    public record ComparedSettingView(String name, Optional<String> equal,
+        Optional<Map<String, String>> differs, Optional<Boolean> masked,
+        Optional<Map<String, Boolean>> set, Optional<List<List<NodeId>>> sameOn,
+        Optional<String> equality, Optional<List<NodeId>> onlyOn) {
+    }
+
+    /** A number equal on every server holding the partner, or per server (FR-009). */
+    public record GroupedCount(Optional<Integer> equal, Optional<Map<String, Integer>> differs) {
+    }
+
     private final GatewayFactory gateways;
     private final TargetResolver targets;
     private final FanOut fanOut;
@@ -385,15 +529,52 @@ public final class PartnerService {
      */
     public Found find(PartnerQuery query) {
         PartnerAudit audit = PartnerAudit.of(audits, query);
-        List<NodeId> targeted;
+        return found(audit, resolve(audit, query.target()), query);
+    }
+
+    /**
+     * {@link #find} on a single server; with a stage target of several servers or with
+     * {@code query.compareWith()}, the comparison of the targeted and the compared servers (T026,
+     * FR-012…FR-014): partners matched across the servers, a partner included if the search
+     * matches a shown field on at least one server and then shown from all; without a search term
+     * a summary of each with only the differences (FR-012c); {@code total} and
+     * {@code nextOffset} count matched partners. A failed server is not compared and makes the
+     * comparison incomplete. Audit and log as for {@link #find}, one record per server.
+     *
+     * @throws ToolErrorException {@code TARGET_UNKNOWN} for an unknown {@code target} or
+     *     {@code compareWith} before any server is contacted; {@code NOT_FOUND} if no answering
+     *     server has the {@code systemDiagram} (FR-005a, FR-019); {@code INTERNAL} if an audit
+     *     record could not be written
+     */
+    public Answer answer(PartnerQuery query) {
+        PartnerAudit audit = PartnerAudit.of(audits, query);
+        List<NodeId> targeted = resolve(audit, query.target());
+        Optional<List<NodeId>> compared = query.compareWith().map(other -> resolve(audit, other));
+        List<NodeId> servers = Stream.concat(targeted.stream(),
+                compared.stream().flatMap(List::stream))
+            .distinct()
+            .toList();
+        return compared.isEmpty() && servers.size() == 1 ? found(audit, servers, query)
+            : compared(audit, servers, query);
+    }
+
+    /**
+     * The servers of {@code target}; an unknown target is audited and logged as refused.
+     *
+     * @throws ToolErrorException {@code TARGET_UNKNOWN}
+     */
+    private List<NodeId> resolve(PartnerAudit audit, String target) {
         try {
-            targeted = targets.resolve(query.target());
+            return targets.resolve(target);
         } catch (ToolErrorException e) {
             PartnerAudit.Refusal refusal = audit.refused(e.error());
-            LOG.info("{} on {}: REFUSED {} (call {}{})", TOOL, LogText.loggable(query.target()),
+            LOG.info("{} on {}: REFUSED {} (call {}{})", TOOL, LogText.loggable(target),
                 e.error().code(), audit.callId(), refusal.recorded() ? "" : ", no audit record");
             throw refusal.exception();
         }
+    }
+
+    private Found found(PartnerAudit audit, List<NodeId> targeted, PartnerQuery query) {
         List<NodeResult<ServerRead>> results = read(targeted, query);
         Optional<ToolError> notFound = query.systemDiagram()
             .flatMap(name -> unknownSystemDiagram(name, results));
@@ -439,11 +620,13 @@ public final class PartnerService {
         List<PartnerBounds.Item> returned = bounded.value();
         ToolErrorException unaudited = null;
         for (NodeResult<ServerRead> result : results) {
+            List<PartnerView> shown = returned.stream()
+                .filter(item -> item.server().equals(result.node()))
+                .map(PartnerBounds.Item::partner)
+                .toList();
             try {
-                audit(audit, query, result, notFound.map(ToolError::code), returned.stream()
-                    .filter(item -> item.server().equals(result.node()))
-                    .map(PartnerBounds.Item::partner)
-                    .toList());
+                audit(audit, query, result, notFound.map(ToolError::code), shown.size(),
+                    shown.stream().mapToInt(PartnerService::maskedShown).sum());
             } catch (ToolErrorException e) {
                 unaudited = unaudited == null ? e : unaudited;
             }
@@ -471,6 +654,278 @@ public final class PartnerService {
     }
 
     /**
+     * The comparison of {@code servers} (T026): read as for {@link #found}, compared
+     * ({@link PartnerComparison}), then searched, filtered, ordered and paged by matched partner.
+     * T026 bounds the servers and reports a result over its budget as {@code truncated}; the
+     * compared partners are bounded with T027.
+     */
+    private Compared compared(PartnerAudit audit, List<NodeId> servers, PartnerQuery query) {
+        List<NodeResult<ServerRead>> results = read(servers, query);
+        Optional<ToolError> notFound = query.systemDiagram()
+            .flatMap(name -> unknownSystemDiagram(name, results));
+        boolean summary = query.search().isEmpty();
+        PartnerComparison.Result comparison = PartnerComparison.compare(results.stream()
+            .map(result -> result.payload()
+                .<PartnerComparison.ServerInput>map(read -> new PartnerComparison.Answered(
+                    result.node(), read.version(), read.diagrams()))
+                .orElseGet(() -> new PartnerComparison.Failed(result.node(),
+                    result.error().orElseThrow())))
+            .toList());
+        List<ComparedPartner> matched = notFound.isPresent() ? List.of()
+            : matched(comparison.partners(), query);
+        int total = matched.size();
+        int from = Math.min(query.offset(), total);
+        int limit = Math.min(query.limit(), limiter.maxItems());
+        List<ComparedPartner> page = matched.subList(from, Math.min(from + limit, total));
+        List<NodeId> answering = results.stream()
+            .filter(result -> result.payload().isPresent())
+            .map(NodeResult::node)
+            .toList();
+        PartnerBounds.Bounded<Optional<List<String>>> similar = PartnerBounds.similarValues(
+            query.search()
+                .filter(search -> total == 0 && !answering.isEmpty())
+                .map(search -> SimilarNames.of(search, similarCandidates(comparison),
+                    MAX_SIMILAR)));
+        int budget = limiter.maxChars();
+        PartnerBounds.Servers bounded = PartnerBounds.servers(
+            results.stream().map(PartnerService::serverView).toList(), results.stream()
+                .map(result -> result.payload().map(ServerRead::gateWarnings).orElse(0))
+                .toList(), List.of(), budget, sizeOf);
+        List<ComparedPartnerView> views = page.stream()
+            .map(partner -> comparedView(partner, summary))
+            .toList();
+        ToolErrorException unaudited = null;
+        for (NodeResult<ServerRead> result : results) {
+            NodeId node = result.node();
+            List<ComparedPartnerView> held = result.payload().isEmpty() ? List.of()
+                : views.stream()
+                    .filter(view -> view.onlyOn().map(on -> on.contains(node)).orElse(true))
+                    .toList();
+            try {
+                audit(audit, query, result, notFound.map(ToolError::code), held.size(),
+                    held.stream().mapToInt(view -> maskedShown(view, node)).sum());
+            } catch (ToolErrorException e) {
+                unaudited = unaudited == null ? e : unaudited;
+            }
+        }
+        if (unaudited != null) {
+            throw unaudited;
+        }
+        if (notFound.isPresent()) {
+            throw new ToolErrorException(notFound.get());
+        }
+        int next = from + page.size();
+        boolean truncated = bounded.cut() || similar.cut();
+        List<NotCompared> notCompared = comparison.notCompared().stream()
+            .map(failed -> new NotCompared(failed.node(), failed.error().code()))
+            .toList();
+        Compared result = new Compared(audit.callId(), summary ? "list" : "search", true,
+            bounded.value(), comparedWorkflows(page, results, answering), views, similar.value(),
+            total, query.offset(), limit, next < total ? OptionalInt.of(next) : OptionalInt.empty(),
+            truncated, comparison.incomplete(), notCompared);
+        // never reported as complete while over its bound
+        return truncated || sizeOf.applyAsInt(result) <= budget ? result
+            : new Compared(result.callId(), result.mode(), true, result.servers(),
+                result.referencableWorkflows(), result.partners(), result.similarValues(), total,
+                query.offset(), limit, result.nextOffset(), true, result.incomplete(),
+                result.notCompared());
+    }
+
+    /**
+     * The compared partners that match the search term on a shown value of at least one server
+     * (FR-012c) and the entry filters per entry key (FR-005a), each with only its matching
+     * entries under a filter: in comparison order with a search term, else in
+     * {@link #COMPARED_ORDER}. A field masked on any server is never searched (FR-011).
+     */
+    private static List<ComparedPartner> matched(List<ComparedPartner> partners,
+        PartnerQuery query) {
+        Optional<Pattern> term = query.search().map(PartnerService::containing);
+        boolean entryFilter = query.protocol().isPresent() || query.workflow().isPresent();
+        List<ComparedPartner> matched = new ArrayList<>();
+        for (ComparedPartner partner : partners) {
+            List<ComparedEntry> entries = partner.entries().stream()
+                .filter(entry -> matches(entry, query))
+                .toList();
+            if ((term.isEmpty() || matches(partner, term.get()))
+                && !(entryFilter && entries.isEmpty())) {
+                matched.add(new ComparedPartner(partner.diagram(), partner.cloud(),
+                    partner.moduleId(), partner.key(), partner.onlyOn(), partner.fields(),
+                    partner.maskedCount(), entries, partner.ambiguous()));
+            }
+        }
+        if (query.search().isEmpty()) {
+            matched.sort(COMPARED_ORDER);
+        }
+        return matched;
+    }
+
+    /** {@link #matches(ProtocolEntry, PartnerQuery)} for an entry key of a comparison. */
+    private static boolean matches(ComparedEntry entry, PartnerQuery query) {
+        return query.protocol().map(entry.protocol()::equalsIgnoreCase).orElse(true)
+            && query.workflow()
+                .map(workflow -> entry.workflow().filter(workflow::equalsIgnoreCase).isPresent())
+                .orElse(true);
+    }
+
+    /** Whether a shown value of a field of {@code partner}, on any server, contains the term. */
+    private static boolean matches(ComparedPartner partner, Pattern term) {
+        return partner.fields().stream()
+            .flatMap(PartnerService::shownValues)
+            .anyMatch(value -> term.matcher(value).find());
+    }
+
+    /** The shown values of {@code setting}: one if equal, else one per server; none if masked. */
+    private static Stream<String> shownValues(SettingComparison setting) {
+        return switch (setting) {
+            case SettingComparison.Plain plain -> switch (plain.value()) {
+                case Grouped.Equal<String> equal -> Stream.of(equal.value());
+                case Grouped.Differs<String> differs -> differs.values().values().stream();
+            };
+            case SettingComparison.Masked masked -> Stream.empty();
+        };
+    }
+
+    /**
+     * The first shown value of the field {@code name} of {@code partner} (the value of the first
+     * server where it differs); {@code null} if masked or missing.
+     */
+    private static String shown(ComparedPartner partner, String name) {
+        return partner.fields().stream()
+            .filter(field -> field.name().equals(name))
+            .flatMap(PartnerService::shownValues)
+            .findFirst()
+            .orElse(null);
+    }
+
+    /**
+     * Per communication cloud (and module id) of the page, the referencable workflows of every
+     * answering server holding the partner, as first seen (FR-007).
+     */
+    private static List<CloudWorkflows> comparedWorkflows(List<ComparedPartner> page,
+        List<NodeResult<ServerRead>> results, List<NodeId> answering) {
+        Map<CloudKey, Set<String>> clouds = new LinkedHashMap<>();
+        for (ComparedPartner partner : page) {
+            List<NodeId> holders = partner.onlyOn().isEmpty() ? answering : partner.onlyOn();
+            Set<String> workflows = clouds.computeIfAbsent(
+                new CloudKey(partner.diagram(), partner.cloud(), partner.moduleId()),
+                key -> new LinkedHashSet<>());
+            results.stream()
+                .filter(result -> holders.contains(result.node()))
+                .flatMap(result -> result.payload().stream())
+                .flatMap(read -> read.diagrams().stream())
+                .filter(diagram -> diagram.diagram().equals(partner.diagram()))
+                .flatMap(diagram -> diagram.clouds().stream())
+                .filter(cloud -> cloud.moduleName().equals(partner.cloud())
+                    && partner.moduleId().map(cloud.moduleId()::equals).orElse(true))
+                .forEach(cloud -> workflows.addAll(cloud.referencableWorkflows()));
+        }
+        return clouds.entrySet().stream()
+            .map(cloud -> new CloudWorkflows(cloud.getKey().diagram(), cloud.getKey().cloud(),
+                cloud.getKey().moduleId(), List.copyOf(cloud.getValue())))
+            .toList();
+    }
+
+    /** A communication cloud of a compared partner, told apart by module id where needed. */
+    private record CloudKey(DiagramRef diagram, String cloud, Optional<String> moduleId) {
+    }
+
+    /**
+     * {@code partner} in full, or in list mode (FR-012c) with every field and per entry the
+     * summary keys and the settings that differ; {@code format} and the additional parameters
+     * only where they differ.
+     */
+    private static ComparedPartnerView comparedView(ComparedPartner partner, boolean summary) {
+        return new ComparedPartnerView(partner.diagram(), partner.cloud(), partner.moduleId(),
+            partner.key().map(key -> new KeyView(key.field(), key.value())),
+            nodes(partner.onlyOn()), comparedViews(partner.fields().stream()),
+            partner.entries().stream().map(entry -> comparedView(entry, summary)).toList(),
+            switch (partner.maskedCount()) {
+                case Grouped.Equal<Integer> equal ->
+                    new GroupedCount(Optional.of(equal.value()), Optional.empty());
+                case Grouped.Differs<Integer> differs ->
+                    new GroupedCount(Optional.empty(), Optional.of(byNode(differs.values())));
+            }, partner.ambiguous());
+    }
+
+    private static ComparedEntryView comparedView(ComparedEntry entry, boolean summary) {
+        WorkflowView workflow = new WorkflowView(entry.workflow(),
+            entry.workflow().isPresent() ? Optional.empty() : Optional.of(true));
+        if (!summary) {
+            return new ComparedEntryView(entry.protocol(), workflow, entry.position(),
+                nodes(entry.onlyOn()), entry.format().map(PartnerService::comparedView),
+                comparedViews(entry.protocolSettings().stream()),
+                Optional.of(comparedViews(entry.additionalParameters().stream())));
+        }
+        List<ComparedSettingView> additional = comparedViews(entry.additionalParameters()
+            .stream().filter(PartnerService::differs));
+        return new ComparedEntryView(entry.protocol(), workflow, entry.position(),
+            nodes(entry.onlyOn()),
+            entry.format().filter(PartnerService::differs).map(PartnerService::comparedView),
+            comparedViews(entry.protocolSettings().stream()
+                .filter(setting -> SUMMARY_KEYS.contains(setting.name()) || differs(setting))),
+            additional.isEmpty() ? Optional.empty() : Optional.of(additional));
+    }
+
+    /**
+     * Whether {@code setting} is a difference of list mode (FR-012c): held only on some servers,
+     * shown with different values, or masked with a different {@code set} or with more than one
+     * group of stored values.
+     */
+    private static boolean differs(SettingComparison setting) {
+        return !setting.onlyOn().isEmpty() || switch (setting) {
+            case SettingComparison.Plain plain -> plain.value() instanceof Grouped.Differs<String>;
+            case SettingComparison.Masked masked ->
+                Set.copyOf(masked.set().values()).size() > 1 || masked.sameOn().size() > 1;
+        };
+    }
+
+    private static List<ComparedSettingView> comparedViews(Stream<SettingComparison> settings) {
+        return settings.map(PartnerService::comparedView).toList();
+    }
+
+    private static ComparedSettingView comparedView(SettingComparison setting) {
+        return switch (setting) {
+            case SettingComparison.Plain plain -> switch (plain.value()) {
+                case Grouped.Equal<String> equal -> new ComparedSettingView(plain.name(),
+                    Optional.of(equal.value()), Optional.empty(), Optional.empty(),
+                    Optional.empty(), Optional.empty(), Optional.empty(), nodes(plain.onlyOn()));
+                case Grouped.Differs<String> differs -> new ComparedSettingView(plain.name(),
+                    Optional.empty(), Optional.of(byNode(differs.values())), Optional.empty(),
+                    Optional.empty(), Optional.empty(), Optional.empty(), nodes(plain.onlyOn()));
+            };
+            case SettingComparison.Masked masked -> new ComparedSettingView(masked.name(),
+                Optional.empty(), Optional.empty(), Optional.of(true),
+                Optional.of(byNode(masked.set())),
+                masked.sameOn().isEmpty() ? Optional.empty() : Optional.of(masked.sameOn()),
+                masked.equality(), nodes(masked.onlyOn()));
+        };
+    }
+
+    /** {@code values} keyed by node id text, in their order. */
+    private static <T> Map<String, T> byNode(Map<NodeId, T> values) {
+        Map<String, T> byNode = new LinkedHashMap<>();
+        values.forEach((node, value) -> byNode.put(node.toString(), value));
+        return Collections.unmodifiableMap(byNode);
+    }
+
+    /** {@code onlyOn} as shown: absent when empty (every server holds it). */
+    private static Optional<List<NodeId>> nodes(List<NodeId> onlyOn) {
+        return onlyOn.isEmpty() ? Optional.empty() : Optional.of(onlyOn);
+    }
+
+    /** The masked values {@code partner} shows for {@code node}: those set or not set there. */
+    private static int maskedShown(ComparedPartnerView partner, NodeId node) {
+        String key = node.toString();
+        return (int) Stream.concat(partner.fields().stream(), partner.entries().stream()
+                .flatMap(entry -> Stream.of(entry.format().stream(),
+                        entry.protocolSettings().stream(),
+                        entry.additionalParameters().stream().flatMap(List::stream))
+                    .flatMap(Function.identity())))
+            .filter(setting -> setting.set().filter(set -> set.containsKey(key)).isPresent())
+            .count();
+    }
+
+    /**
      * The shown {@code Id} and {@code Name} values of every partner read, uncut (the size bound
      * cuts the similar values and reports it); a masked value is never a candidate (FR-011).
      */
@@ -485,6 +940,19 @@ public final class PartnerService {
             .map(Setting::value)
             .flatMap(value -> value instanceof SettingValue.Shown shown
                 ? Stream.of(shown.value()) : Stream.empty())
+            .toList();
+    }
+
+    /**
+     * The shown {@code Id} and {@code Name} values of the compared partners, uncut, by the rule of
+     * the comparison search ({@link #shownValues}): a field masked on any server is never a
+     * candidate, so every suggestion is a term the search can match.
+     */
+    private static List<String> similarCandidates(PartnerComparison.Result comparison) {
+        return comparison.partners().stream()
+            .flatMap(partner -> partner.fields().stream())
+            .filter(field -> SIMILAR_FIELDS.contains(field.name()))
+            .flatMap(PartnerService::shownValues)
             .toList();
     }
 
@@ -548,8 +1016,7 @@ public final class PartnerService {
      * @throws ToolErrorException {@code INTERNAL} if the record could not be written
      */
     private void audit(PartnerAudit audit, PartnerQuery query,
-        NodeResult<ServerRead> result, Optional<ErrorCode> notFound,
-        List<PartnerView> returned) {
+        NodeResult<ServerRead> result, Optional<ErrorCode> notFound, int returned, int masked) {
         Optional<ServerRead> read = result.payload();
         Optional<ErrorCode> reason = result.error().map(ToolError::code).or(() -> notFound);
         AuditOutcome outcome = reason
@@ -557,11 +1024,10 @@ public final class PartnerService {
             .orElse(AuditOutcome.EXECUTED);
         boolean fromCache = read.map(ServerRead::fromCache).orElse(false);
         int diagramsRead = read.map(server -> server.diagrams().size()).orElse(0);
-        int masked = returned.stream().mapToInt(PartnerService::maskedShown).sum();
         boolean written = false;
         try {
             audit.perServer(result.node(), outcome, reason, fromCache, diagramsRead,
-                returned.size(), masked);
+                returned, masked);
             written = true;
         } finally {
             LOG.info("{} on {}: {}{} (owner {}, systemDiagramsRead {}, partnersReturned {},"
@@ -569,7 +1035,7 @@ public final class PartnerService {
                 reason.map(code -> " " + code).orElse(""),
                 read.map(ServerRead::owner).or(query::owner)
                     .or(() -> owners.apply(result.node())).orElse("none"), diagramsRead,
-                returned.size(), masked, fromCache, audit.callId(),
+                returned, masked, fromCache, audit.callId(),
                 written ? "" : ", no audit record");
         }
     }
@@ -720,8 +1186,9 @@ public final class PartnerService {
     private ServerRead read(NodeId server, PartnerQuery query) {
         // a node without owner is never contacted, not even for the version detection
         String owner = query.owner().orElseGet(() -> configuredOwner(server));
-        List<String> warnings = new ArrayList<>(gate.admit(TOOL, server,
-            Capability.PARTNER_MANAGEMENT, Capability.Kind.READ, Set.of(Channel.REST)).warnings());
+        VersionGate.Admission admission = gate.admit(TOOL, server, Capability.PARTNER_MANAGEMENT,
+            Capability.Kind.READ, Set.of(Channel.REST));
+        List<String> warnings = new ArrayList<>(admission.warnings());
         int gateWarnings = warnings.size();
         AtomicBoolean read = new AtomicBoolean();
         Snapshot<List<DiagramRef>> list = cache.get(
@@ -754,7 +1221,7 @@ public final class PartnerService {
                 warnings.addAll(snapshot.value().warnings().getOrDefault(diagram, List.of())));
         }
         return new ServerRead(owner, list.value(), collectedAt, !read.get(), diagrams, unreadable,
-            warnings, gateWarnings);
+            warnings, gateWarnings, admission.version());
     }
 
     /**
