@@ -262,7 +262,7 @@ readiness and a failing-audit fake.
 
 ## Phase 7: User Story 3 – The operator keeps control; bounds and leaks (P2, plan stage 6)
 
-- [ ] T034 [P] [US3] `KnowledgeProfilesTest`: two profiles, two directories; each server's tools
+- [X] T034 [P] [US3] `KnowledgeProfilesTest`: two profiles, two directories; each server's tools
   and instructions see only their own notes (SC-003), and a record through each profile changes
   only that profile's directory (FR-001, US3 AS1) — test `KnowledgeProfilesTest.java`
 - [ ] T035 [P] `KnowledgeBoundsTest`: 5,000 notes and a 1 MiB note — instructions, search page and
