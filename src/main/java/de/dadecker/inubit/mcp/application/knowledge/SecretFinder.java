@@ -60,7 +60,7 @@ public final class SecretFinder {
     private static final Pattern ENCRYPTED_TOKEN =
         Pattern.compile("(?<![A-Za-z0-9+/])(?:AES-|AESG)[A-Za-z0-9+/=:-]+");
     private static final Pattern START_TAG =
-        Pattern.compile("<([\\p{L}_][\\p{L}\\p{N}_.:\\-]*)([^<>]*)>");
+        Pattern.compile("<([\\p{L}_][\\p{L}\\p{N}_.:\\-]*+)([^<>]*+)>");
     private static final Pattern ENCRYPTED_ATTRIBUTE = Pattern.compile(
         "(?i)(?:^|\\s)(?:encrypted\\s*=\\s*([\"'])true\\1|type\\s*=\\s*([\"'])password\\2)");
     private static final Pattern NAME_ATTRIBUTE =
@@ -231,7 +231,9 @@ public final class SecretFinder {
 
         /**
          * (b) A base64 keystore: runs of the base64 alphabet (padding ends a run); a run that
-         * ends its line continues with runs that fill the following lines (MIME-wrapped).
+         * ends its line continues with runs that fill the following lines (MIME-wrapped), as long
+         * as each has the width of the first and only the last is shorter. A block that does not
+         * decode is tried once more without its last run (a short prose line after it).
          */
         void keystores() {
             List<int[]> runs = new ArrayList<>();
@@ -252,19 +254,37 @@ public final class SecretFinder {
             int r = 0;
             while (r < runs.size()) {
                 int first = r;
-                int count = runs.get(r)[1] - runs.get(r)[0];
-                while (r + 1 < runs.size() && continues(runs.get(r), runs.get(r + 1))) {
+                int width = width(runs.get(r));
+                while (r + 1 < runs.size() && width(runs.get(r)) == width
+                    && width(runs.get(r + 1)) <= width && continues(runs.get(r), runs.get(r + 1))) {
                     r++;
-                    count += runs.get(r)[1] - runs.get(r)[0];
                 }
-                int start = runs.get(first)[0];
-                int end = runs.get(r)[1];
+                int last = r;
                 r++;
-                if (count >= KEYSTORE_BASE64 && KeyMaterial.decodeDocument(text.substring(start,
-                    end)).filter(KeyMaterial::isKeyMaterial).isPresent()) {
-                    add(Kind.KEY_MATERIAL, start, end, Optional.empty());
+                if (!keystore(runs, first, last) && last > first) {
+                    keystore(runs, first, last - 1);
                 }
             }
+        }
+
+        private static int width(int[] run) {
+            return run[1] - run[0];
+        }
+
+        /** Adds runs {@code first} to {@code last} if they are a keystore. */
+        private boolean keystore(List<int[]> runs, int first, int last) {
+            int count = 0;
+            for (int i = first; i <= last; i++) {
+                count += width(runs.get(i));
+            }
+            int start = runs.get(first)[0];
+            int end = runs.get(last)[1];
+            if (count >= KEYSTORE_BASE64 && KeyMaterial.decodeDocument(text.substring(start, end))
+                .filter(KeyMaterial::isKeyMaterial).isPresent()) {
+                add(Kind.KEY_MATERIAL, start, end, Optional.empty());
+                return true;
+            }
+            return false;
         }
 
         private boolean continues(int[] run, int[] next) {
@@ -282,7 +302,11 @@ public final class SecretFinder {
             while (start > 0 && (text.charAt(start - 1) == ' ' || text.charAt(start - 1) == '\t')) {
                 start--;
             }
-            return start == end + 1;
+            int after = next[1];
+            while (after < text.length() && isBlank(text.charAt(after))) {
+                after++;
+            }
+            return start == end + 1 && (after == text.length() || text.charAt(after) == '\n');
         }
 
         /** (c) An {@code AES-}/{@code AESG} token with at least 16 base64 characters. */

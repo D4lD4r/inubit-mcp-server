@@ -36,3 +36,16 @@ Build on 6d8cb9c: surefire 5581 tests, 0 failures, 0 errors, 52 skipped; failsaf
 
 Targeted after the fix: `ConfigValidatorKnowledgeTest` 16, `ConfigValidatorTest` 189 (1 skipped),
 `MainTest` 78 (3 skipped), 0 failures.
+
+## Implementation — phase 4 (T012–T016)
+
+Build on 54691ce: surefire 5679 tests, 0 failures, 0 errors, 52 skipped; failsafe 2 tests,
+0 failures. Code review of `11c91ee..54691ce` by a review agent (no findings in
+`NodeSecrets.awaitSettled` or `ProfileSecrets`).
+
+| # | Severity | Finding | Resolution |
+|---|---|---|---|
+| R1 | major | A MIME-wrapped base64 keystore was joined with a prose line directly before it (`Truststore`) or after it (`Hello`): the decoded bytes no longer started with the keystore header or did not decode, so the keystore was neither masked nor refused (fail-open) | a continuation run must fill its line; a block holds runs of the width of its first run, only the last may be shorter; a block that does not decode is tried once more without its last run; tests `aProseLineDirectlyBeforeAWrappedKeystoreIsNotPartOfIt`, `aProseLineDirectlyAfterAWrappedKeystoreIsNotPartOfIt` (fail without the fix) |
+| R2 | major | `START_TAG` backtracked quadratically on `<` followed by a long word without `>` (40,000 characters took about 5 s), against the linear bound of T012 | possessive quantifiers (same matches); test `aLongTagLikeWordWithoutClosingBracketIsScannedInLinearTime` (200,000 characters, 2 s bound; times out without the fix) |
+
+Targeted after the fixes: `SecretFinderTest` 67, 0 failures.

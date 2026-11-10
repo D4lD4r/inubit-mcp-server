@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.application.knowledge;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 import de.dadecker.inubit.mcp.application.knowledge.SecretFinder.Finding;
 import de.dadecker.inubit.mcp.application.knowledge.SecretFinder.Kind;
@@ -13,6 +14,7 @@ import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
@@ -333,6 +335,37 @@ class SecretFinderTest {
 
         String afterKey = "cert: " + wrapped + "\nnext: 1\n";
         assertThat(masked(afterKey)).isEqualTo("cert: ***\nnext: 1\n");
+    }
+
+    @Test
+    void aProseLineDirectlyBeforeAWrappedKeystoreIsNotPartOfIt() throws Exception {
+        String wrapped = Base64.getMimeEncoder(64, "\n".getBytes()).encodeToString(pkcs12());
+
+        assertThat(masked("Truststore\n" + wrapped)).isEqualTo("Truststore\n***");
+        assertThat(masked("## Truststore of node a\n" + wrapped))
+            .isEqualTo("## Truststore of node a\n***");
+        assertThat(masked("Truststore\n" + Base64.getEncoder().encodeToString(pkcs12())))
+            .isEqualTo("Truststore\n***");
+    }
+
+    @Test
+    void aProseLineDirectlyAfterAWrappedKeystoreIsNotPartOfIt() {
+        String wrapped = Base64.getMimeEncoder(64, "\n".getBytes()).encodeToString(jks());
+        assertThat(wrapped).doesNotEndWith("=").contains("\n");
+
+        assertThat(masked(wrapped + "\nCheck it")).isEqualTo("***\nCheck it");
+        assertThat(masked(wrapped + "\nHello")).isEqualTo("***\nHello");
+        assertThat(masked(wrapped + "\nDone\n")).startsWith("***\n");
+    }
+
+    @Test
+    void aLongTagLikeWordWithoutClosingBracketIsScannedInLinearTime() {
+        String word = "a".repeat(200_000);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(2), () -> {
+            assertThat(finder.find("<" + word)).isEmpty();
+            assertThat(finder.find("<" + word + "<")).isEmpty();
+        });
     }
 
     @Test

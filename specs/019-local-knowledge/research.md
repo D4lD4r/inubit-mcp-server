@@ -240,7 +240,9 @@ field or line, never the value.
     containing `-----END` and `PRIVATE KEY-----` (or the end of the text) is one span;
   - a base64 block: maximal runs of the base64 alphabet (`A–Z a–z 0–9 + / =`) delimited by any
     other character; consecutive lines that consist only of such a run (MIME-wrapped, optionally
-    indented) form one block; a block of at least 64 base64 characters whose
+    indented) form one block — all of the width of its first run, only the last shorter (phase 4
+    review: a prose word on the line before or after is not joined; a block that does not decode
+    is tried once more without its last run); a block of at least 64 base64 characters whose
     `KeyMaterial.decodeDocument` content `isKeyMaterial` is one span. Runs are scanned with a
     loop, not a regular expression (the stack issue noted at `SecretPaths.longBase64`).
 - **(c) INUBIT encrypted values** — confirmed against the recorded exports
