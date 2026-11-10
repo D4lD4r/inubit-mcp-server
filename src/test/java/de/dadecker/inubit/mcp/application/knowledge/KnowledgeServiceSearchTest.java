@@ -100,8 +100,10 @@ class KnowledgeServiceSearchTest {
         assertThat(sap.source()).isEqualTo("assistant (x)");
         assertThat(sap.lastChange()).isEqualTo(NEWER);
         assertThat(sap.ref()).isEqualTo(fixture.refs.of(Path.of("systems", "sap.md")));
-        assertThat(sap.versionToken()).contains(VersionToken.of(
-            FileTime.from(NEWER.plusNanos(123_456_789)), text));
+        // the token takes the stored time in full (NTFS keeps steps of 100 ns)
+        FileTime stored = Files.getLastModifiedTime(fixture.root.resolve("systems/sap.md"));
+        assertThat(stored.toInstant()).isAfter(NEWER);
+        assertThat(sap.versionToken()).contains(VersionToken.of(stored, text));
         assertThat(sap.excerpt()).contains("The RFC destination is SAP_PRD. ");
         assertThat(sap.masked()).isZero();
         assertThat(sap.writable()).isTrue();

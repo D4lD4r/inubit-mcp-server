@@ -133,3 +133,12 @@ withheld instructions list); the `recording` strict boolean, the overlap rules a
 display masking of the review tool.
 
 T041 (live check, quickstart steps 1–7) is left to the person.
+
+## CI of PR #72
+
+The Windows job failed in `KnowledgeServiceSearchTest.listsEveryNoteNewestFirstWithItsMetadata`:
+NTFS keeps file times in steps of 100 ns, so the stored time of a note set to `…123456789` ns
+is `…123456700`, and the expected version token, built from the time that was set, differed.
+The code was right (the token is always built from the stored time); the test now builds the
+expected token from the stored time and still asserts that it keeps the fraction of a second.
+(The first Windows run before had lost its runner, with no log.)
