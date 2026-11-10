@@ -25,6 +25,8 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * T012 (feature 012, research D-12, US3-4): a read tool is announced only if some node may run
  * its capability; {@code list_nodes}, {@code get_health} and {@code check_artifacts} always.
+ * Feature 020 (T030, FR-002, SC-002): {@code read_queue_entry} only for an opted-in node that may
+ * run the capability and has a client home.
  */
 class ToolAnnouncementTest {
 
@@ -107,6 +109,111 @@ class ToolAnnouncementTest {
             }, TestWiring.TEST_CONFIG_LOCATION, matrix)) {
             return wiring.toolHandlers().stream().map(ToolHandler::name).toList();
         }
+    }
+
+    /**
+     * Feature 020 (T030, FR-002, research D-15): the tools announced for one group {@code test}
+     * with {@code versionLine} and the group lines {@code groupLines} (indented as in the profile),
+     * one node and a {@code defaults.cliClients."9.0"} entry only if {@code nineEntry}.
+     */
+    private List<String> queueEntryTools(String versionLine, String groupLines,
+        boolean nineEntry) {
+        String defaults = nineEntry ? """
+            defaults:
+              cliClients:
+                "9.0":
+                  home: %s
+            """.formatted(temp.resolve("cli-9.0")) : "";
+        String yaml = """
+            profile:
+              name: acme
+            workspace: %s
+            %sgroups:
+              - name: test
+                versionLine: %s
+            %s
+                nodes:
+                  - name: node1
+                    baseUrl: https://localhost:1
+            """.formatted(temp.resolve("workspace"), defaults, versionLine, groupLines);
+        return toolNames(yaml, CapabilityMatrix.production());
+    }
+
+    private String cliHome() {
+        return "    cli:\n      home: " + temp.resolve("cli-test");
+    }
+
+    private static String optIn(String value) {
+        return "    unsupported:\n      queueEntryRead: " + value;
+    }
+
+    @Test
+    void withoutAnOptInTheToolListIsExactlyThatOfZeroEightZero() {
+        List<String> release080 = List.of("list_nodes", "get_health", "find_processes",
+            "query_logs", "list_inventory", "get_inventory_item", "export_artifacts",
+            "export_archives", "check_artifacts");
+
+        assertThat(queueEntryTools("AUTO", cliHome(), false)).containsExactlyElementsOf(release080);
+        assertThat(queueEntryTools("AUTO", optIn("false") + "\n" + cliHome(), false))
+            .containsExactlyElementsOf(release080);
+    }
+
+    @Test
+    void anOptedInAutoNodeWithAClientHomeAnnouncesTheQueueEntryRead() {
+        assertThat(queueEntryTools("AUTO", optIn("true") + "\n" + cliHome(), false))
+            .containsExactly("list_nodes", "get_health", "find_processes", "query_logs",
+                "read_queue_entry", "list_inventory", "get_inventory_item", "export_artifacts",
+                "export_archives", "check_artifacts");
+    }
+
+    @Test
+    void anOptedInEightOneNodeWithAClientHomeAnnouncesIt() {
+        assertThat(queueEntryTools("V8_1", optIn("true") + "\n" + cliHome(), false))
+            .contains("read_queue_entry");
+    }
+
+    @Test
+    void anOptedInSixOneNodeDoesNotAnnounceIt() {
+        assertThat(queueEntryTools("V6_1", optIn("true") + "\n" + cliHome(), false))
+            .doesNotContain("read_queue_entry");
+    }
+
+    @Test
+    void anOptedInNineZeroNodeDoesNotAnnounceItUnderTheFallback() {
+        // CapabilityMatrix.production(): 9.0 is "not yet verified" (FR-019 fallback)
+        assertThat(queueEntryTools("V9_0", optIn("true"), true))
+            .contains("export_artifacts").doesNotContain("read_queue_entry");
+    }
+
+    @Test
+    void anOptedInNodeWithoutAClientHomeDoesNotAnnounceIt() {
+        assertThat(queueEntryTools("AUTO", optIn("true"), false))
+            .doesNotContain("read_queue_entry", "export_artifacts");
+    }
+
+    @Test
+    void theOptInAndTheClientHomeMustBeOnTheSameNode() {
+        String yaml = """
+            profile:
+              name: acme
+            workspace: %s
+            groups:
+              - name: test
+                unsupported:
+                  queueEntryRead: true
+                nodes:
+                  - name: node1
+                    baseUrl: https://localhost:1
+              - name: prod
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: https://localhost:2
+            """.formatted(temp.resolve("workspace"), temp.resolve("cli-prod"));
+
+        assertThat(toolNames(yaml, CapabilityMatrix.production())).contains("export_artifacts")
+            .doesNotContain("read_queue_entry");
     }
 
     @Test

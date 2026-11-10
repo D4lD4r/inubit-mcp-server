@@ -399,7 +399,7 @@ unsupported status explicit (FR-002…FR-004, FR-017, SC-002, SC-005).
   (existing examples unchanged); overview bullet listing group-only settings — failing test first
   `config/QueueEntryDocsTest.java` (the bold sentences of the FR-004 text are present; setup
   example parses with `ConfigLoader`) (US2-4)
-- [ ] T030 [US2] Announcement and `list_nodes` (FR-002, D-6, D-15): `Wiring.java`
+- [X] T030 [US2] Announcement and `list_nodes` (FR-002, D-6, D-15): `Wiring.java`
   `anyQueueEntryReadNode()` = some node with `queueEntryRead` && `possiblyCapable(node,
   QUEUE_ENTRY_READ)` && `clientSelection.anyCandidate(node)`; register `ReadQueueEntryTool` only
   then; `allowed()` adds `QUEUE_ENTRY_READ` only with opt-in and client — failing tests first in

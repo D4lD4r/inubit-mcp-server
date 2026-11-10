@@ -146,7 +146,8 @@ import java.util.function.Supplier;
  * {@code query_logs}; US3: {@code list_inventory}, {@code get_inventory_item}; feature 003:
  * {@code export_artifacts}, only if a node may use a StartCLI client home (feature 017: for
  * some version, {@link ClientSelectionPort#anyCandidate}), and {@code check_artifacts};
- * feature 015: {@code export_archives} under the same condition as {@code export_artifacts}).
+ * feature 015: {@code export_archives} under the same condition as {@code export_artifacts};
+ * feature 020: {@code read_queue_entry} only if {@link #anyQueueEntryReadNode()}).
  * Feature 012 (research D-12): the read tools other than {@code list_nodes}, {@code get_health}
  * and {@code check_artifacts} are announced only if some node may run their capability
  * ({@link #possiblyCapable}).
@@ -590,6 +591,9 @@ final class Wiring implements AutoCloseable {
         if (anyPossiblyCapable(Capability.LOG_DIAGNOSIS)) {
             handlers.add(new QueryLogsTool(diagnosis));
         }
+        if (anyQueueEntryReadNode()) {
+            handlers.add(readQueueEntry);
+        }
         if (anyPossiblyCapable(Capability.INVENTORY)) {
             handlers.add(new ListInventoryTool(inventory));
             handlers.add(new GetInventoryItemTool(inventory));
@@ -722,7 +726,8 @@ final class Wiring implements AutoCloseable {
      * before its version is considered: the reads always, the workspace export with the StartCLI
      * client of its current version installed ({@code withClient}, feature 017), development
      * writes on a development stage, deployments in a group that receives them, end-to-end tests
-     * where allowed, process control with write access.
+     * where allowed, process control with write access; feature 020 (research D-15): reading
+     * Queue Manager entries with the group's {@code unsupported.queueEntryRead} and the client.
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
         Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
@@ -742,6 +747,9 @@ final class Wiring implements AutoCloseable {
         if (server.effectiveWriteEnabled()) {
             allowed.add(Capability.PROCESS_CONTROL);
         }
+        if (withClient && server.queueEntryRead()) {
+            allowed.add(Capability.QUEUE_ENTRY_READ);
+        }
         return allowed;
     }
 
@@ -752,6 +760,17 @@ final class Wiring implements AutoCloseable {
     boolean anyWriteEnabled() {
         return servers.stream().anyMatch(server -> server.effectiveWriteEnabled()
             && possiblyCapable(server, Capability.PROCESS_CONTROL));
+    }
+
+    /**
+     * Feature 020 (FR-002, research D-15): true if a node of a group with
+     * {@code unsupported.queueEntryRead} may read Queue Manager entries ({@link #possiblyCapable})
+     * and has a client home some version of it may use ({@link ClientSelectionPort#anyCandidate}).
+     */
+    private boolean anyQueueEntryReadNode() {
+        return servers.stream().anyMatch(server -> server.queueEntryRead()
+            && possiblyCapable(server, Capability.QUEUE_ENTRY_READ)
+            && clientSelection.anyCandidate(server.id()));
     }
 
     /** True if some node may run {@code capability} ({@link #possiblyCapable}). */

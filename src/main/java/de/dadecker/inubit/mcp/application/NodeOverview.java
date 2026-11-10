@@ -33,10 +33,11 @@ import java.util.function.BiFunction;
  *
  * <p>A capability is usable if its tools run on the node as the {@link VersionGate} would admit
  * them now: {@code SUPPORTED}, or {@code UNVERIFIED} for reads, no pin contradiction for writes,
- * and not refused by the known StartCLI client (FR-011). A read capability whose StartCLI part
- * the client refuses ({@code inventory}: modules and history) stays usable for its REST part
- * and is additionally listed as {@code "<name> (StartCLI parts)"} in {@code notUsable}; a write
- * is admitted for all its channels at once, so it is not usable at all.
+ * and not refused by the known StartCLI client (FR-011). A read capability admitted per channel
+ * whose StartCLI part the client refuses ({@code inventory}: modules and history) stays usable
+ * for its REST part and is additionally listed as {@code "<name> (StartCLI parts)"} in
+ * {@code notUsable}; a write, or a read admitted for all its channels at once
+ * ({@code queue_entry_read}), is not usable at all.
  *
  * <p>Feature 012 (research D-13): the block names the node's access, {@code cli_only} for a node
  * pinned to a CLI-only version (6.1), whose capabilities are judged on its matrix entry and run
@@ -118,9 +119,8 @@ public final class NodeOverview {
                     ? clientRefusal(id, state, judged, client) : Optional.empty();
             if (clientRefusal.isEmpty()) {
                 usable.add(name(capability));
-            } else if (capability.kind() == Capability.Kind.READ
-                && capability.channels().size() > 1) {
-                // a read is admitted per part: its REST part still runs
+            } else if (capability.admittedPerChannel()) {
+                // admitted per part: its REST part still runs
                 usable.add(name(capability));
                 notUsable.add(new NodeSummary.NotUsable(name(capability) + " (StartCLI parts)",
                     clientRefusal.get()));

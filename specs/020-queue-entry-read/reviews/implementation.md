@@ -293,3 +293,63 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
   against the real `ConfigSummary` output by `QueueEntryDocsTest`.
 - The verbatim FR-004 text links `tools.md#read_queue_entry`, which has no target yet. **T040 must
   add exactly this anchor** (`## read_queue_entry` in `docs/tools.md`), ideally with a test assertion.
+
+## T030 notes
+
+- Announcement: `Wiring.toolHandlers()` adds `read_queue_entry` only when some node satisfies all
+  three conditions: it is opted in (`unsupported.queueEntryRead: true`), `possiblyCapable(…,
+  QUEUE_ENTRY_READ)` holds, and a client home is configured
+  (`clientSelection.anyCandidate`). The tool comes directly after `query_logs`, next to the other
+  read-only tools. `allowed()` adds `QUEUE_ENTRY_READ` only with the opt-in **and** an installed
+  client (`withClient`, the same rule as `workspace_export`).
+- Under the 9.0 fallback (the matrix marks 9.0 as UNSUPPORTED), an opted-in node pinned to `V9_0`
+  does not announce the tool. In `list_nodes` it lists `queue_entry_read` under `notUsable`, with
+  the matrix reason. An opted-in `AUTO` node whose version has not been detected lists it under
+  `notUsable`, with the same "version unknown" reason as the other capabilities. A node that is
+  not opted in never mentions it.
+- SC-002 / SC-005: the no-opt-in tool list and `list_nodes` output were compared with 0.8.0 in
+  three ways:
+  1. **Source.** `git show v0.8.0:…/Wiring.java` against HEAD: `toolHandlers()` differs only by
+     the new opt-in block. `git diff --stat v0.8.0 HEAD -- src/main/resources/` shows one changed
+     line in `list_nodes.output.json` (the `CapabilityName` enum gains `"queue_entry_read"`, added
+     by T003 as `contracts/mcp-tools-delta.md` requires). The two `read_queue_entry` schemas are
+     new. No other tool description or schema changed.
+  2. **Tests.** `ToolAnnouncementTest.withoutAnOptInTheToolListIsExactlyThatOfZeroEightZero` and
+     `MainTest.withoutAnOptInTheToolListIsExactlyThatOfZeroEightZero` (real stdio `tools/list`)
+     assert the exact 0.8.0 name list and order, both without the key and with
+     `queueEntryRead: false`.
+     `ListNodesToolTest.queueEntryReadIsListedOnlyForNodesOfOptedInGroupsWithAClient` checks
+     that a group that is not opted in keeps exactly the 0.8.0 `usable` list and an empty
+     `notUsable` list. The existing `list_nodes`, ConfigSummary and `--check-config` goldens are
+     unchanged.
+  3. **Runtime, byte for byte (done once, not committed).** I built `git archive v0.8.0` and HEAD
+     outside the checkout. Each build was driven in-process through `Launcher.Context` with a
+     fake credential store, a fake StartCLI home and `updateCheck.enabled: false`. The run sent
+     `initialize`, `tools/list` and `tools/call list_nodes` over the same 4-group profile (AUTO
+     dev with write/development, V8_1 test with deploy, V9_0 next, V6_1 legacy). There was no
+     network: nodes were `*.example.test`, and `list_nodes` makes no requests. Results:
+     - The `initialize` and `list_nodes` responses are byte-identical to 0.8.0.
+     - The `tools/list` response has the same 16 names in the same order. It differs only by the
+       19 bytes of `,"queue_entry_read"` in the `list_nodes` output schema enum. Removing that
+       value gives the 0.8.0 response exactly.
+     - With `queueEntryRead: false` on one group, the output is byte-identical to the run without
+       the key.
+     - With an opt-in on dev, `read_queue_entry` appears after `query_logs`.
+- That one additive enum value in the announced output schema is the only difference from 0.8.0
+  on the no-opt-in path. It is contract-mandated (`contracts/mcp-tools-delta.md`:
+  "`list_nodes.output.json` enum + `"queue_entry_read"`"; one static schema for every profile)
+  and changes neither the tool list nor any `list_nodes` data.
+- Orchestrator decision on SC-002 (round 2): the byte-for-byte guarantee of plan.md:64 covers
+  the tool names and their order, the `list_nodes` data, the startup summary and
+  `--check-config`. The static `list_nodes` output schema gains the additive `queue_entry_read`
+  enum value as planned (D-6, the contract, plan.md:80, T003); T003 stays as it is. **Flagged
+  for the owner in the final report.**
+- Per-part rule in `list_nodes` (round 2): `read_queue_entry` asks the gate for REST and
+  StartCLI in one call (`QueueEntryService`), so a known incompatible StartCLI client refuses
+  every call. `Capability.admittedPerChannel()` marks the capabilities whose tools ask the gate
+  per channel (only `INVENTORY`); `NodeOverview` keeps `"<name> (StartCLI parts)"` for those.
+  `queue_entry_read` is then listed only under `notUsable`, with the client reason, never under
+  `usable`. `inventory` and every other capability behave as before (existing tests unchanged).
+  Test: `ListNodesToolTest.anIncompatibleClientMakesQueueEntryReadNotUsableAsAWhole`. Before the
+  fix the output-schema validation of `list_nodes` even rejected the result, because
+  `"queue_entry_read (StartCLI parts)"` is not an allowed value.

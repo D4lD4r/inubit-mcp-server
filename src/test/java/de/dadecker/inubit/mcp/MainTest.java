@@ -2044,6 +2044,48 @@ class MainTest {
             .noneMatch(line -> line.contains("queueEntryRead"));
     }
 
+    // --- feature 020 T030: read_queue_entry only under its opt-in (FR-002, SC-002) ----------
+
+    /** The {@code tools/list} names of a server started with {@code file}, in their order. */
+    private List<String> announcedTools(Path file) throws Exception {
+        List<String> names = new ArrayList<>();
+        serve(file, session -> session.toolsList(2).path("result").path("tools")
+            .forEach(tool -> names.add(tool.path("name").asString())));
+        return names;
+    }
+
+    /** {@link #validConfig()} with a client home on dev/node1 and {@code groupLines} on dev. */
+    private Path configWithClientHome(String groupLines) throws IOException {
+        String yaml = Files.readString(validConfig()).replace("  - name: dev\n",
+            "  - name: dev\n" + groupLines) + "    cli:\n      home: " + home.resolve("client")
+            + "\n";
+        return config(yaml);
+    }
+
+    @Test
+    void withoutAnOptInTheToolListIsExactlyThatOfZeroEightZero() throws Exception {
+        credentials();
+        List<String> release080 = List.of("list_nodes", "get_health", "find_processes",
+            "query_logs", "list_inventory", "get_inventory_item", "export_artifacts",
+            "export_archives", "check_artifacts");
+
+        assertThat(announcedTools(configWithClientHome(""))).containsExactlyElementsOf(release080);
+        assertThat(announcedTools(configWithClientHome(
+            "    unsupported:\n      queueEntryRead: false\n")))
+            .containsExactlyElementsOf(release080);
+    }
+
+    @Test
+    void anOptedInGroupWithAClientHomeAnnouncesReadQueueEntry() throws Exception {
+        credentials();
+
+        assertThat(announcedTools(configWithClientHome(
+            "    unsupported:\n      queueEntryRead: true\n")))
+            .containsExactly("list_nodes", "get_health", "find_processes", "query_logs",
+                "read_queue_entry", "list_inventory", "get_inventory_item", "export_artifacts",
+                "export_archives", "check_artifacts");
+    }
+
     @Test
     void aProfileWithoutAMarkedStageLogsNoPinPerServerLine() throws Exception {
         credentials();
@@ -2183,6 +2225,14 @@ class MainTest {
 
     /** An initialized server session for {@link #serve}. */
     private record Session(PipedOutputStream toServer, LineQueue protocol, JsonNode initialize) {
+
+        JsonNode toolsList(int id) throws Exception {
+            send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":" + id
+                + ",\"method\":\"tools/list\",\"params\":{}}");
+            JsonNode response = protocol.next();
+            assertThat(response.path("id").asInt()).isEqualTo(id);
+            return response;
+        }
 
         JsonNode call(int id, String tool, String arguments) throws Exception {
             send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"method\":\"tools/call\","
