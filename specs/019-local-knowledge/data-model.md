@@ -37,7 +37,7 @@ get the listed members; everything else is unchanged.
 | `model/SecretSpan` | New record | `int start`, `int end` | `0 ≤ start < end ≤ length` |
 | `port/ConfiguredSecrets` | New port | `Readiness prepare(Duration bound)`; `List<SecretSpan> occurrences(String text)` | D-7 |
 | `port/ConfiguredSecrets.Readiness` | New sealed type | `Ready`, `NotReady(List<Pending> pending)`; `Pending(String node, String store, String state)` | `state` = `waiting` or a failure kind in lower case; never a value |
-| `port/PrivateFileSystem` | Changed | `+ Optional<String> othersMayAccess(Path)` | POSIX bits / Windows `check` (D-3); empty for a missing path |
+| `port/PrivateFileSystem` | Changed | `+ Optional<String> othersMayAccess(Path)`; `+ FileChannel openLockFileNoFollow(Path)` | POSIX bits / Windows `check` (D-3), empty for a missing path; lock file as `openLockFile` (Windows `NOSHARE_DELETE`) plus `NOFOLLOW_LINKS`, `openLockFile` unchanged (D-12) |
 
 ## Application (`application/knowledge`, new sub-package)
 
@@ -71,7 +71,7 @@ get the listed members; everything else is unchanged.
 | `infra/SecretScrubber` | Changed | `+ List<SecretSpan> occurrences(String text)` | same matching as `scrub`; `scrub` uses it |
 | `adapter/NodeSecrets` | Changed | `+ Settled awaitSettled(Duration)`, `+ Settled awaitSettledE2e(Duration)`; `Cell.Refusal` keeps the classified outcome | never throw; `Held`, `NothingConfigured`, `Waiting`, `Failed(FailureKind)` (D-7) |
 | `adapter/ProfileSecrets` | New | implements `ConfiguredSecrets` over `Map<NodeId, NodeSecrets>` and the scrubber | parallel reads, bounded wait |
-| `adapter/os/*PrivateFileSystem` | Changed | `othersMayAccess` | POSIX / Windows (D-3) |
+| `adapter/os/*PrivateFileSystem` | Changed | `othersMayAccess`, `openLockFileNoFollow` | POSIX / Windows (D-3) |
 | `adapter/archive/v81/SecretRedactor`, `RepositoryArchive`, `SecretPaths` | Changed | import `domain.model.KeyMaterial` | behaviour unchanged |
 | `application/PackageWriter` | Changed | `+ static Path defaultDirectory(Path home, String profile)` | used by `Wiring` and `ConfigValidator` |
 | `Wiring` | Changed | `knowledgeService()`, tools in `toolHandlers()` | `record_knowledge` only with `recording()` |

@@ -497,8 +497,9 @@ except the first, which is **pending the person's confirmation**.
   topics of 1–60 characters (D-5).
 - FR-003: the permission warning covers group/other read or write; the `--check-config` count
   needs no credential (D-3).
-- FR-004b: "case folding" means NFC, then upper case, then lower case (Java has no Unicode case
-  folding); this is slightly more conservative (e.g. `ı` and `i` collide) (D-4).
+- FR-004b: "case folding" means NFC, then upper case followed by lower case repeated until the
+  name no longer changes (Java has no Unicode case folding); this is at least as coarse as full
+  case folding and slightly more conservative (e.g. `ı` and `i` collide) (D-4).
 - FR-010 (d): a YAML block scalar (`password: |` and the indented lines below) is one value (D-6).
 - FR-019, FR-020: "the audit record cannot be written" means the record written before the note;
   if the final record fails after the note was written, the earlier `PENDING` record stays and the
@@ -506,7 +507,11 @@ except the first, which is **pending the person's confirmation**.
   by the MCP layer before the tool runs and is not audited; the schema therefore holds only
   structural rules, and every other check is done and audited by the tool (D-13).
 - FR-014: a new history version is pruned only after the note was written; a failed write leaves
-  note and history unchanged (D-10).
+  note and history unchanged. Once the note is written, the call succeeds; if pruning then fails,
+  the result warns and the next successful write prunes (D-10).
+- Symbolic links (Edge Cases, FR-011): links that exist before a write are refused on every
+  internal path; a concurrent swap by a process of the same user is outside the threat model
+  (D-12).
 
 ## Assumptions
 

@@ -126,7 +126,7 @@ Two shapes, `oneOf`: a listing (no `name` given) and a page of one note (`name` 
       "properties": {
         "name": { "type": "string" },
         "title": { "type": "string" },
-        "topics": { "type": "array", "maxItems": 20, "items": { "type": "string" } },
+        "topics": { "type": "array", "items": { "type": "string" }, "description": "As in the note; hand-written notes may hold more than 20 (bounded by the 8 KiB metadata block)" },
         "lastChange": { "type": "string", "format": "date-time" },
         "source": { "type": "string" },
         "versionToken": { "type": "string", "description": "Absent for notes that cannot be read" },
@@ -219,7 +219,7 @@ value.
     "versionToken": { "type": "string" },
     "sizeBefore": { "type": "integer", "minimum": 0, "description": "Bytes; 0 for create" },
     "sizeAfter": { "type": "integer", "minimum": 0 },
-    "historyVersions": { "type": "integer", "minimum": 0, "maximum": 10 },
+    "historyVersions": { "type": "integer", "minimum": 0, "description": "Versions kept for this note; 10 at most unless pruning failed (then a warning says so)" },
     "auditId": { "type": "string" },
     "warnings": { "type": "array", "items": { "type": "string" } }
   },
@@ -234,8 +234,8 @@ value.
 | `INVALID_INPUT` | name outside the record rule or ending in `.md`; bounds of title/topics; mode/field combinations; the new text contains a secret — one line per finding: `<key material \| INUBIT encrypted value \| configured credential \| password assignment> in <name \| title \| topics \| content line n>[ (key <key>)]`, never the value |
 | `NOT_FOUND` | `append`/`replace` of a note that is not listed; up to five similar names (masked) |
 | `CONFLICT` | `create` of a name that exists (compared as in FR-004b), also when a file appears at the target while the note is written; `replace` with a stale `versionToken` (message names the current last change) |
-| `PRECONDITION_FAILED` | note > 256 KiB after the write; knowledge > 100 MiB after the write; current note > 4 MiB or unreadable; malformed metadata block; `replace` of a note that contains a secret ("remove it by hand first"); path occupied by a file, directory or symbolic link (also `.history`, `.lock` or a parent segment); the knowledge too large to measure; lock not acquired within 10 s; credentials not read yet; no atomic move on the file system; directory unusable |
-| `INTERNAL` | the audit record before the write cannot be written; unexpected I/O failure (note and history left as they were) |
+| `PRECONDITION_FAILED` | `content` alone > 256 KiB (checked first, before credentials and secret check); note > 256 KiB after the write; knowledge > 100 MiB after the write; current note > 4 MiB or unreadable; malformed metadata block; `replace` of a note that contains a secret ("remove it by hand first"); path occupied by a file, directory or symbolic link (also `.history`, `.lock` or a parent segment); the knowledge too large to measure; lock not acquired within 10 s; credentials not read yet; no atomic move or hard link on the file system; directory unusable |
+| `INTERNAL` | the audit record before the write cannot be written; unexpected I/O failure before the note is published (note and history left as they were). After publication there is no error: the result succeeds with warnings (pruning, final audit record) |
 
 No error carries note content, a title, a topic, an excerpt or a version token; names and paths
 in messages are masked, one line, at most 120 characters.

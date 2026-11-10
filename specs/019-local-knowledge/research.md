@@ -125,15 +125,23 @@ link and case behaviour as the workspace check of feature 003.
   end in `.md` in any letter case. The name is NFC-normalized before the check.
 - **Identity**: lookups (read, `append`, `replace`) compare the NFC name exactly against the
   listed names (`NoteName.equals` is code-point equality after NFC). `create` collides when
-  `fold(a).equals(fold(b))` with `fold(s) = normalize(NFC(s).toUpperCase(ROOT).toLowerCase(ROOT),
-  NFC)`. Java has no Unicode case folding, and the plan adds no library for it. Upper-then-lower
-  agrees with full case folding for `ß`/`ss`, the Greek final sigma and ordinary letters, and is
-  **more conservative** for a few letters (dotless `ı` and dotted `İ` fold together with `i`): it
-  may call two names equal that folding keeps apart, never the other way round. A false
-  collision costs a `CONFLICT` for a name a person would hardly tell apart anyway; the occupancy
-  check against the real directory listing (D-10) still catches whatever the file system itself
-  treats as equal. Recorded in the spec's plan decisions as the precise meaning of "case folding"
-  in FR-004b. Tests: `ß`/`SS`, `Σ`/`ς`/`σ`, `ı`/`i`, NFD/NFC `Störung`.
+  `fold(a).equals(fold(b))` with `fold(s)` = NFC, then `toUpperCase(ROOT)` followed by
+  `toLowerCase(ROOT)` **repeated until the string no longer changes** (at most four rounds;
+  `ẞ` → `ẞ` → `ß` → `SS` → `ss`), then NFC again. Java has no Unicode case folding, and the plan
+  adds no library for it (the constitution keeps dependencies minimal; ICU4J would be 13 MB for one
+  comparison). A single upper-then-lower round misses `ẞ` (U+1E9E) vs `ß`/`SS`; the fixpoint
+  closes that. The fixpoint is designed to be **at least as coarse** as full case folding of
+  `CaseFolding.txt` (C+F) for the letters the name rule allows: every C/F mapping of the table
+  maps a character to a string that Java's upper/lower mappings also reach, while some letters fold
+  together that the table keeps apart (dotless `ı`, dotted `İ` and `i`). A false collision costs a
+  `CONFLICT` for a name a person would hardly tell apart anyway; the occupancy check against the
+  real directory listing (D-10) still catches whatever the file system itself treats as equal.
+  `NoteNameTest` reads a test resource with the C and F lines of `CaseFolding.txt` (Unicode
+  15.1, the version of Java 21's character data; the Unicode License notice kept in its header —
+  the JDK does not ship the file) for `\p{L}` and asserts `fold(source) == fold(target)` for each; a mismatch fails
+  the build instead of going unnoticed. Recorded in the spec's plan decisions as the precise
+  meaning of "case folding" in FR-004b. Named tests: `ß`/`ẞ`/`SS`/`ss`, `Σ`/`ς`/`σ`, `ſ`/`s`,
+  Kelvin sign `K`/`k`, `ı`/`i`, `İ`/`i`, NFD/NFC `Störung`.
 - **NOT_FOUND suggestions**: the case-insensitive matches (`fold` equal) first, then
   `SimilarNames.of(name, names, 5)` (made `public`, it moves from package-private; behaviour
   unchanged), at most five, each masked and cut as in FR-006 (D-8).
@@ -226,7 +234,8 @@ field or line, never the value.
     (`U1lOMDAwMDA2`, module-0013, 0022), which cannot be told apart from an ordinary word. It only
     occurs as the content of a property marked `encrypted="true"`, so the rule adds: the content
     of an XML element that carries `encrypted="true"` or `type="Password"` (attribute order free,
-    either quote) is a secret, up to its closing tag or the end of the line.
+    either quote) is a secret, up to its matching closing tag (across lines; without one, to the
+    end of the text — fail closed).
   Token rule: `(?<![A-Za-z0-9+/=])(AES-|AESG)` followed by a run of `[A-Za-z0-9+/=:-]` that
   holds at least 16 base64 characters; the whole token is one span. No `{AES}`, `ENC(` or
   `!enc!` form occurs in the recordings; none is added (research of 017 found none either).
@@ -239,7 +248,10 @@ field or line, never the value.
   - XML attribute `key="…"`/`key='…'` (covered by the two forms above: the value is quoted);
   - XML element whose element name contains a key word (`<dbPassword>…</dbPassword>`) or that
     has an attribute `name="…"` containing a key word (`<Property name="Login.Password">…`):
-    the content up to the closing tag or the end of the line.
+    the content up to the matching closing tag of that element, **across lines**; a missing
+    closing tag masks to the end of the text (fail closed); a self-closing element has no
+    content. Tests cover each XML form with the value on its own line(s), a CDATA value and a
+    missing closing tag.
   Value extent: from the first non-space character after the separator; a quoted value (`"` or
   `'`) ends at the matching unescaped quote (or the end of the line); otherwise at the end of the
   line. Exempt: an empty value, the value `***`, a value that is a `${secret:…}` placeholder
@@ -250,8 +262,10 @@ field or line, never the value.
   an empty block.
   The span covers the value only, never the key (the key stays readable, and write findings name
   it, cut at 40 characters and masked).
-- **Determinism and bounds**: the finder runs on at most 4 MiB of text (FR-013 read bound); it is
-  linear in the text length apart from the base64 decoding, which is bounded by the block size.
+- **Determinism and bounds**: the finder runs on at most 4 MiB of text: notes are read only up to
+  the 4 MiB read bound (FR-013), and record input larger than the 256 KiB note bound is refused in
+  D-10 step 1, before any credential is read or text is scanned. It is linear in the text length
+  apart from the base64 decoding, which is bounded by the block size.
 
 **Rationale**: (b) reuses the export rule as FR-010 requires; (c) is the exact recorded shape plus
 the one further form the recordings show; (d) follows the spec's grammar literally, including the
@@ -409,7 +423,9 @@ also `versionToken`; `versionToken` with another mode → `INVALID_INPUT`. The i
 rules (D-13); `content` must not be empty, its size is bounded by the 256 KiB note bound. Steps in
 order:
 
-1. **Combination rules** (mode/field presence, D-5 bounds of title/topics) → `INVALID_INPUT`.
+1. **Combination rules** (mode/field presence, D-5 bounds of title/topics, empty `content`, a
+   malformed `versionToken`) → `INVALID_INPUT`; raw input that cannot fit the note bound
+   (`content` alone longer than 262,144 UTF-8 bytes) → `PRECONDITION_FAILED` naming the bound.
    These messages name the field and the rule only, never a value.
 2. **Credentials ready** (D-7) → else `PRECONDITION_FAILED`.
 3. **Secret check** of the new text (FR-013): `name` always; `create`/`replace`: title, every
@@ -455,10 +471,14 @@ order:
      (`PrivateFileSystem.createDirectories` on a single segment whose parent was just checked), never
      through `createDirectories` of a deep path (it follows links).
    - Write (D-11, D-12): (i) `append`/`replace` copy the current file to a **new** history version
-     (nothing existing is touched); (ii) publish the new note atomically; (iii) only then prune the
-     history to 10. If (ii) fails, the version added in (i) is deleted again, so the call leaves
-     note and history as they were (`INTERNAL`, audit `FAILED`); if (iii) fails, the note is
-     written and the result warns that older versions were not pruned.
+     (nothing existing is touched); (ii) publish the new note atomically — this is the **commit
+     point**; (iii) only then prune the history to 10. Before the commit point every failure
+     undoes (i) and leaves note and history as they were (`INTERNAL`, audit `FAILED`; if even the
+     undo fails, the extra version stays and the error says so). After the commit point no
+     failure turns the call into an error: the note is written and the result is a success whose
+     `warnings` name what failed (pruning — the history then holds more than 10 versions until the
+     next successful write prunes it; the final audit record, D-13); `historyVersions` reports the
+     versions actually kept.
 8. **Result**: `name`, `mode`, `lastChange`, `versionToken` (of the new file), `sizeBefore`
    (bytes; 0 for create), `sizeAfter`, `historyVersions` (kept for this note), `auditId`,
    `warnings` (e.g. the final audit record could not be written, D-13). Audit outcome
@@ -510,10 +530,20 @@ notes in a directory `a/`.
   directory cannot write notes atomically" — no non-atomic fallback. A test injects a file at the
   target between the occupancy check and publication (a hook in `KnowledgeDirectory`) and
   asserts `CONFLICT` and the injected file unchanged.
-- **Links on internal paths**: `.lock` is opened with `FileChannel.open(path, WRITE, CREATE,
-  NOFOLLOW_LINKS)` after an owner-only `PrivateFileSystem.createFile` (the existing
-  `openLockFile` follows links and is not used), `.history` segments and parent segments are
-  checked as in D-10 step 7. Tests make `.lock`, `.history`, a history segment and a parent
+- **Links on internal paths**: `.lock` is created owner-only with `PrivateFileSystem.createFile`
+  and opened with a new port method `PrivateFileSystem.openLockFileNoFollow(Path)`: as
+  `openLockFile` (Windows: `NOSHARE_DELETE`, so the lock file cannot be deleted and recreated
+  while held) plus `LinkOption.NOFOLLOW_LINKS`; a link there fails with `FileSystemException` →
+  `PRECONDITION_FAILED`. The existing `openLockFile` is unchanged (workspace locks). `.history`
+  segments and parent segments are checked as in D-10 step 7, and missing segments are created
+  one at a time with `createDirectory` (which never follows a link at the last segment: a link
+  there fails with `FileAlreadyExistsException`).
+- **Threat model**: the knowledge directory is private to the operating-system user (FR-003
+  warns otherwise). The link checks protect against links that already exist (made by hand, by a
+  sync tool or by an unpacked archive) — the spec's edge case. A process of the same user that
+  swaps a checked segment for a link between check and use is not defended against: it could write
+  the notes directly anyway. `SecureDirectoryStream` would close that window on Linux only (not on
+  Windows, not reliably on macOS) and is not used; recorded in the spec's plan decisions. Tests make `.lock`, `.history`, a history segment and a parent
   segment symbolic links (POSIX) and assert the refusal and that nothing is written outside. Temporary files left by a crash are deleted on the next
   write if older than one hour.
 - `append` reads the current file under the lock, so it builds on the content current at that

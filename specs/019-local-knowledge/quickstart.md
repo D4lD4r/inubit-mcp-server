@@ -32,10 +32,15 @@
 | D-12: links on `.lock`, `.history`, a history segment or a parent segment refused; nothing written outside the directory | `KnowledgeDirectoryTest`, `KnowledgeLockTest`, `KnowledgeHistoryTest` (POSIX only) |
 | D-12: a file appears at the target between check and publish → `CONFLICT`, the file unchanged | `KnowledgeServiceRecordTest` (test hook) |
 | D-10, FR-014: publish fails → note and history unchanged; prune only after success | `KnowledgeServiceRecordTest`, `KnowledgeHistoryTest` |
-| D-10: size walk beyond 1,000,000 entries or depth 16 → `PRECONDITION_FAILED` (fail closed) | `KnowledgeBoundsTest` |
+| D-9: listing deeper than 16 levels or beyond 100,000 entries → listed up to the limit, warning | `KnowledgeDirectoryTest` |
+| D-10: size walk beyond 1,000,000 entries → `PRECONDITION_FAILED` (fail closed); files deeper than 16 levels still counted | `KnowledgeBoundsTest` |
+| D-10 step 1: `content` over 256 KiB refused before credentials are read or text is scanned | `KnowledgeServiceRecordTest` (fake readiness not called) |
+| D-10 commit point: pruning fails after publish → success with warning, `historyVersions` 11 | `KnowledgeServiceRecordTest`, `KnowledgeHistoryTest` |
+| D-6: multiline XML secret values (element, `encrypted="true"`, `type="Password"`, `name="…Password"`, CDATA, missing closing tag) | `SecretFinderTest` |
+| D-12: `.lock` as a link refused; Windows lock file not deletable while held | `KnowledgeLockTest`, `OsPrivateFileSystemTest` (`openLockFileNoFollow`) |
 | D-13: pre-write audit fails → `INTERNAL`, nothing written; final audit fails → note written, `PENDING` stays, warning | `KnowledgeServiceRecordTest` (failing audit fake) |
 | D-5, D-6: `source`/`lastWriter` and YAML block values masked | `NoteMetadataTest`, `SecretFinderTest`, `KnowledgeSecretLeakTest` |
-| D-4: fold collisions (`ı`/`i`, NFC forms) | `NoteNameTest` |
+| D-4: fold collisions (`ß`/`ẞ`/`SS`, `ı`/`i`, NFC forms) and the `CaseFolding.txt` table | `NoteNameTest` |
 | D-10 step 4: an invalid name holding a secret is refused without echo, audit shows `***` | `KnowledgeServiceRecordTest`, `KnowledgeSecretLeakTest` |
 | US3 AS1, SC-003: two profiles | `KnowledgeProfilesTest` |
 | US3 AS2, FR-009: hand edit visible | `KnowledgeServiceReadTest` |
