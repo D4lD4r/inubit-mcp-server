@@ -86,7 +86,7 @@ key.
 | `variables` | List<String> — distinct `ISPartnerProtocol.*` / `ISPartnerParameter.*`, sorted |
 | `partnerManagementNode` | boolean |
 | `systemDiagrams` | Optional<List<{diagram, cloud}>> — the clouds whose `referencableWorkflows` contain the workflow |
-| `unavailable` | Optional<ToolError> — why the system diagrams were not read (gate, channel, error) |
+| `unavailable` | Optional<{code, message, nextStep}> — why the system diagrams were not read (gate, channel, error), or the first that could not be read |
 
 ### `PartnerQuery`
 `target`, `compareWith?`, `owner?`, `search?`, `systemDiagram?`, `protocol?`, `workflow?`,

@@ -31,11 +31,19 @@ import de.dadecker.inubit.mcp.domain.model.UnavailableInventoryPart;
 import de.dadecker.inubit.mcp.domain.model.VersionEntry;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.partner.CommunicationCloud;
+import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
+import de.dadecker.inubit.mcp.domain.model.partner.PartnerQuery;
+import de.dadecker.inubit.mcp.domain.model.partner.PartnerUsage;
+import de.dadecker.inubit.mcp.domain.model.partner.PartnerUsage.CloudUse;
+import de.dadecker.inubit.mcp.domain.model.partner.SystemDiagramPartners;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
+import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
+import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort.UnreadableDiagram;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.infra.ResultJson;
@@ -50,6 +58,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -100,6 +109,16 @@ class InventoryServiceTest {
      */
     private volatile Consumer<NodeId> acquisition = server -> { };
 
+    /** Feature 018 (US4): the Partner Management each server's partner port returns. */
+    private final Map<NodeId, PartnerManagementPort.Result> partnerData =
+        new ConcurrentHashMap<>();
+    /** Feature 018 (US4): the error each server's partner port throws. */
+    private final Map<NodeId, ToolError> partnerFailures = new ConcurrentHashMap<>();
+    /** Feature 018 (US4): {@code server|owner|[system diagrams]} per partner port read. */
+    private final List<String> partnerReads = new CopyOnWriteArrayList<>();
+    /** The partner service of the last {@link #service()}, sharing its cache and gate. */
+    private PartnerService partnerService;
+
     private FakeInventory port(NodeId server) {
         return ports.computeIfAbsent(server, FakeInventory::new);
     }
@@ -138,6 +157,17 @@ class InventoryServiceTest {
             }
 
             @Override
+            public PartnerManagementPort partners(NodeId server) {
+                return (owner, systemDiagrams) -> {
+                    partnerReads.add(server + "|" + owner + "|" + systemDiagrams.stream()
+                        .map(DiagramRef::name).toList());
+                    FakeInventory.fail(partnerFailures.get(server));
+                    return partnerData.getOrDefault(server,
+                        new PartnerManagementPort.Result(List.of(), List.of(), Map.of()));
+                };
+            }
+
+            @Override
             public ProcessControlPort processControl(NodeId server) {
                 throw new AssertionError("no process control here");
             }
@@ -148,10 +178,19 @@ class InventoryServiceTest {
             }
         };
         InventoryCache cache = new InventoryCache(clock, server -> Duration.ofMinutes(10));
+        VersionGate gate = gateWithoutClients(versions, detection, matrix);
+        // feature 018 (FR-015): get_inventory_item is not audited, not even its partner read
+        PartnerAudit.Dependencies noAudit = new PartnerAudit.Dependencies(record -> {
+            throw new AssertionError("get_inventory_item writes no audit record");
+        }, clock, "default", UUID::randomUUID);
+        partnerService = new PartnerService(gateways, new TargetResolver(SERVERS), new FanOut(),
+            limiter, cache, server -> Optional.of("OWNERS"), server -> timeout,
+            server -> EXPORT_TIMEOUT, ResultJson::size, Terminology.DEFAULT, gate, secretTiming,
+            noAudit);
         return new InventoryService(gateways, new TargetResolver(SERVERS), new FanOut(), limiter,
             cache, server -> Optional.of("OWNERS"), server -> timeout, server -> EXPORT_TIMEOUT,
-            server -> CLI_TIMEOUT, KILL_GRACES, ResultJson::size, Terminology.DEFAULT,
-            gateWithoutClients(versions, detection, matrix), secretTiming);
+            server -> CLI_TIMEOUT, KILL_GRACES, ResultJson::size, Terminology.DEFAULT, gate,
+            secretTiming, partnerService);
     }
 
     private static ListRequest list(String target, InventoryKind kind) {
@@ -458,6 +497,210 @@ class InventoryServiceTest {
         assertThat(listing.page().items().get(0).name()).hasSizeLessThanOrEqualTo(
             ItemBounds.MAX_FIELD_CHARS).endsWith(ItemBounds.TRUNCATION_MARKER);
         assertThat(listing.page().truncated()).isTrue();
+    }
+
+    // --- get_inventory_item: partner usage (feature 018, US4, FR-015) --------------------------
+
+    private static final DiagramRef MAP_1 = new DiagramRef("Workflow-Map-0001", "GRP-19");
+    private static final DiagramRef MAP_2 = new DiagramRef("Partner-Map-0002", "GRP-20");
+    private static final List<String> PARTNER_VARIABLES = List.of(
+        "ISPartnerParameter.FTPProtocol", "ISPartnerProtocol.ServerName",
+        "ISPartnerProtocol.UserName");
+
+    /**
+     * {@link #standardData} plus a second system diagram; Workflow-0101 uses three partner
+     * variables and a PartnerManagement module and is named by one cloud of each system diagram.
+     */
+    private void partnerData(NodeId server) {
+        standardData(server);
+        FakeInventory port = port(server);
+        List<InventoryItem> diagrams = new ArrayList<>(port.diagrams);
+        diagrams.add(InventoryItem.diagram(server, MAP_2.name(), "systemdiagram",
+            MAP_2.diagramGroup(), "OWNERS"));
+        port.diagrams = List.copyOf(diagrams);
+        port.metadata.put("Workflow-0101", new InventoryPort.DiagramMetadata(
+            Optional.of(true), Optional.of("head comment"), Optional.of("OWNERS"),
+            PARTNER_VARIABLES, true));
+        partnerData.put(server, new PartnerManagementPort.Result(List.of(
+            new SystemDiagramPartners(MAP_1, List.of(
+                cloud("Module-0901", "Workflow-0110", "Workflow-0101"),
+                cloud("Module-0902", "Workflow-0110"))),
+            new SystemDiagramPartners(MAP_2, List.of(
+                // like the workflow filter of find_partners: case-insensitive
+                cloud("Module-0903", "workflow-0101")))),
+            List.of(), Map.of()));
+    }
+
+    private static CommunicationCloud cloud(String name, String... workflows) {
+        return new CommunicationCloud(name, name + "-id", List.of(), List.of(workflows),
+            List.of());
+    }
+
+    private static PartnerQuery partnerQuery(String target) {
+        return new PartnerQuery(target, Optional.empty(), Optional.empty(), Optional.empty(),
+            Optional.empty(), Optional.empty(), Optional.empty(), 0, PartnerQuery.DEFAULT_LIMIT,
+            false, Optional.empty());
+    }
+
+    @Test
+    void aTechnicalWorkflowListsItsPartnerVariablesAndTheCloudsWhoseWorkflowsNameIt() {
+        // US4-AS1
+        partnerData(DEV);
+
+        Lookup lookup = payload(service().item(item("dev/node1", InventoryKind.DIAGRAM,
+            "Workflow-0101")).get(0));
+
+        assertThat(lookup.item().partnerUsage()).contains(new PartnerUsage(PARTNER_VARIABLES,
+            true, Optional.of(List.of(new CloudUse(MAP_1, "Module-0901"),
+                new CloudUse(MAP_2, "Module-0903"))), Optional.empty()));
+        assertThat(partnerReads).containsExactly(
+            "dev/node1|OWNERS|[Workflow-Map-0001, Partner-Map-0002]");
+        assertThat(lookup.item().versions()).as("the rest of the detail").isPresent();
+    }
+
+    @Test
+    void thePartnerReadFillsAndUsesTheCacheOfFindPartners() {
+        // FR-015, FR-018: the system diagrams come from the cache of find_partners
+        partnerData(DEV);
+        InventoryService service = service();
+
+        service.item(item("dev/node1", InventoryKind.DIAGRAM, "Workflow-0101"));
+        clock.advance(Duration.ofMinutes(2));
+        Lookup again = payload(service.item(item("dev/node1", InventoryKind.DIAGRAM,
+            "Workflow-0101")).get(0));
+        NodeResult<PartnerService.ServerRead> found =
+            partnerService.read(partnerQuery("dev/node1")).get(0);
+
+        assertThat(partnerReads).as("one read for both lookups and find_partners").hasSize(1);
+        assertThat(found.payload().orElseThrow().fromCache()).isTrue();
+        assertThat(again.collectedAt()).as("the oldest part: the cached partner read")
+            .isEqualTo(T0);
+        assertThat(again.item().partnerUsage().orElseThrow().systemDiagrams().orElseThrow())
+            .hasSize(2);
+
+        service.item(new ItemRequest("dev/node1", InventoryKind.DIAGRAM, "Workflow-0101",
+            true));
+
+        assertThat(partnerReads).as("refresh reads again").hasSize(2);
+    }
+
+    @Test
+    void aWorkflowWithoutPartnerVariablesAndModuleSaysSoAndReadsNoSystemDiagram() {
+        // US4-AS2
+        partnerData(DEV);
+
+        Lookup lookup = payload(service().item(item("dev/node1", InventoryKind.DIAGRAM,
+            "Workflow-0110")).get(0));
+
+        assertThat(lookup.item().partnerUsage()).contains(new PartnerUsage(List.of(), false,
+            Optional.empty(), Optional.empty()));
+        assertThat(partnerReads).isEmpty();
+        assertThat(port(DEV).diagramLoads).as("only the inventory's diagram list").hasValue(1);
+    }
+
+    @Test
+    void onlyATechnicalWorkflowHasAPartnerUsage() {
+        partnerData(DEV);
+        port(DEV).details.put("Workflow-Map-0001", new InventoryPort.DiagramDetail(
+            "Workflow-Map-0001", Optional.of("systemdiagram"), Optional.of("head"), List.of()));
+        port(DEV).metadata.put("Workflow-Map-0001", new InventoryPort.DiagramMetadata(
+            Optional.of(true), Optional.empty(), Optional.empty(), PARTNER_VARIABLES, true));
+        InventoryService service = service();
+
+        Lookup system = payload(service.item(item("dev/node1", InventoryKind.DIAGRAM,
+            "Workflow-Map-0001")).get(0));
+        Lookup module = payload(service.item(item("dev/node1", InventoryKind.MODULE,
+            "Module-0030")).get(0));
+
+        assertThat(system.item().partnerUsage()).isEmpty();
+        assertThat(module.item().partnerUsage()).isEmpty();
+        assertThat(partnerReads).isEmpty();
+    }
+
+    @Test
+    void aRefusedPartnerManagementStillListsTheVariablesAndSaysWhyNoSystemDiagramWasRead() {
+        // FR-015: no channel or a refused version -> the error kind and the next step
+        Map<Capability, SupportState> supported = new EnumMap<>(Capability.class);
+        for (Capability capability : Capability.values()) {
+            supported.put(capability, SupportState.SUPPORTED);
+        }
+        supported.remove(Capability.PARTNER_MANAGEMENT);
+        matrix = new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
+            new VersionRange(8, 1, 8, 1), supported)), Map.of());
+        partnerData(DEV);
+
+        NodeResult<Lookup> result = service().item(item("dev/node1", InventoryKind.DIAGRAM,
+            "Workflow-0101")).get(0);
+
+        PartnerUsage usage = payload(result).item().partnerUsage().orElseThrow();
+        assertThat(usage.variables()).isEqualTo(PARTNER_VARIABLES);
+        assertThat(usage.partnerManagementNode()).isTrue();
+        assertThat(usage.systemDiagrams()).isEmpty();
+        assertThat(usage.unavailable()).hasValueSatisfying(unavailable -> {
+            assertThat(unavailable.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+            assertThat(unavailable.message()).startsWith("get_inventory_item: ")
+                .contains("partner");
+            assertThat(unavailable.nextStep()).isNotBlank();
+        });
+        assertThat(partnerReads).isEmpty();
+        assertThat(payload(result).item().versions()).isPresent();
+    }
+
+    @Test
+    void aFailedPartnerReadBecomesItsUnavailablePartNextToTheRestOfTheDetail() {
+        partnerData(DEV);
+        partnerFailures.put(DEV, ToolError.of(ErrorCode.UNREACHABLE, "connection refused",
+            "the server is down", "check the server").withNode(DEV));
+
+        Lookup lookup = payload(service().item(item("dev/node1", InventoryKind.DIAGRAM,
+            "Workflow-0101")).get(0));
+
+        PartnerUsage usage = lookup.item().partnerUsage().orElseThrow();
+        assertThat(usage.systemDiagrams()).isEmpty();
+        assertThat(usage.unavailable()).contains(new PartnerUsage.Unavailable(
+            ErrorCode.UNREACHABLE, "connection refused", "check the server"));
+        assertThat(lookup.item().versions()).isPresent();
+    }
+
+    @Test
+    void anUnreadableSystemDiagramIsNamedNextToTheCloudsOfTheReadOnes() {
+        partnerData(DEV);
+        partnerData.put(DEV, new PartnerManagementPort.Result(List.of(
+            new SystemDiagramPartners(MAP_1, List.of(cloud("Module-0901", "Workflow-0101")))),
+            List.of(new UnreadableDiagram(MAP_2, ErrorCode.UNEXPECTED_RESPONSE,
+                "the export has no workflow.xml")), Map.of()));
+
+        Lookup lookup = payload(service().item(item("dev/node1", InventoryKind.DIAGRAM,
+            "Workflow-0101")).get(0));
+
+        PartnerUsage usage = lookup.item().partnerUsage().orElseThrow();
+        assertThat(usage.systemDiagrams()).contains(List.of(
+            new CloudUse(MAP_1, "Module-0901")));
+        assertThat(usage.unavailable()).hasValueSatisfying(unavailable -> {
+            assertThat(unavailable.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            assertThat(unavailable.message()).contains("'Partner-Map-0002'")
+                .contains("the export has no workflow.xml");
+            assertThat(unavailable.nextStep()).contains("find_partners");
+        });
+    }
+
+    @Test
+    void anUnverifiedPartnerManagementAddsItsWarningToTheLookup() {
+        // FR-016: the "not verified for partner management" warning of find_partners
+        Map<Capability, SupportState> states = new EnumMap<>(Capability.class);
+        for (Capability capability : Capability.values()) {
+            states.put(capability, SupportState.SUPPORTED);
+        }
+        states.put(Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED);
+        matrix = new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
+            new VersionRange(8, 1, 8, 1), states)), Map.of());
+        partnerData(DEV);
+
+        Lookup lookup = payload(service().item(item("dev/node1", InventoryKind.DIAGRAM,
+            "Workflow-0101")).get(0));
+
+        assertThat(lookup.warnings()).singleElement().asString().containsIgnoringCase("partner");
+        assertThat(lookup.item().partnerUsage().orElseThrow().systemDiagrams()).isPresent();
     }
 
     // --- get_inventory_item: diagrams -------------------------------------------------------
@@ -955,8 +1198,12 @@ class InventoryServiceTest {
         assertThat(service.listDeadline(InventoryKind.MODULE, DEV))
             .isEqualTo(probe.plus(export).plus(EXPORT_TIMEOUT).plus(TIMEOUT.multipliedBy(4))
                 .plus(grace));
+        // feature 018 (FR-015): a technical workflow's partner read adds the read of
+        // find_partners (guard wait, detection, system diagram list: 3 x timeout, plus
+        // cliExportTimeout)
         assertThat(service.itemDeadline(InventoryKind.DIAGRAM, DEV))
-            .isEqualTo(probe.plus(export).plus(TIMEOUT.multipliedBy(6)).plus(grace));
+            .isEqualTo(probe.plus(export).plus(TIMEOUT.multipliedBy(6))
+                .plus(TIMEOUT.multipliedBy(3)).plus(EXPORT_TIMEOUT).plus(grace));
         assertThat(service.itemDeadline(InventoryKind.MODULE, DEV))
             .isEqualTo(probe.plus(export.multipliedBy(2)).plus(EXPORT_TIMEOUT)
                 .plus(TIMEOUT.multipliedBy(5)).plus(grace));
@@ -1087,7 +1334,7 @@ class InventoryServiceTest {
             return modules;
         }
 
-        private static void fail(ToolError error) {
+        static void fail(ToolError error) {
             if (error != null) {
                 throw new ToolErrorException(error);
             }

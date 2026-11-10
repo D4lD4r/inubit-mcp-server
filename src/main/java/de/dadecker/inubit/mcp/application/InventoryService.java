@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.application;
 import de.dadecker.inubit.mcp.application.InventoryBounds.Bounded;
 import de.dadecker.inubit.mcp.application.InventoryCache.Key;
 import de.dadecker.inubit.mcp.application.InventoryCache.Snapshot;
+import de.dadecker.inubit.mcp.application.PartnerService.CloudReferences;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -19,12 +20,14 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.UnavailableInventoryPart;
 import de.dadecker.inubit.mcp.domain.model.VersionEntry;
+import de.dadecker.inubit.mcp.domain.model.partner.PartnerUsage;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort.DiagramDetail;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort.DiagramMetadata;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort.ModuleEntry;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort.VersionHistory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
+import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort.UnreadableDiagram;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -70,6 +73,13 @@ import java.util.stream.Stream;
  *       (active, check-in comment, owner) and the version history of the diagram's group;
  *       {@code lastChange} is the check-in time of the newest version. A REST failure fails the
  *       server; a failed history becomes an {@code unavailable} part next to the rest.
+ *   <li>Partner usage (feature 018, story 4, FR-015): a technical workflow's detail lists its
+ *       {@code ISPartnerProtocol.*}/{@code ISPartnerParameter.*} variables and whether it has a
+ *       {@code PartnerManagement} module (REST export); only if it has one of them, the clouds
+ *       of the owner's system diagrams whose {@code ReferencableTWFs} name it are read through
+ *       {@link PartnerService} (the cache of {@code find_partners}, not audited). A refusal or a
+ *       failed read becomes {@code partnerUsage.unavailable}, the gate's warnings join the
+ *       server's warnings.
  *   <li>Module usage (T126, finding F1): which technical workflows use a module comes from
  *       the module nodes of every technical workflow of the owner ({@code modelByName}, read
  *       {@value #USAGE_CONCURRENCY} at a time within {@code cliExportTimeout},
@@ -94,8 +104,9 @@ import java.util.stream.Stream;
  *       back-off); a call with a StartCLI part (module lists, all details) adds the gate's
  *       client probe ({@code cliTimeout} plus the time to stop StartCLI, FR-002), always, for
  *       the same reason; a node whose credentials are not held yet adds the
- *       {@link SecretTiming} allowance for their first read (feature 010, 011); plus
- *       {@link #FAN_OUT_GRACE}.
+ *       {@link SecretTiming} allowance for their first read (feature 010, 011); a diagram
+ *       detail adds the partner read of a technical workflow ({@code 3 × timeout} plus
+ *       {@code cliExportTimeout}, feature 018); plus {@link #FAN_OUT_GRACE}.
  * </ul>
  */
 public final class InventoryService {
@@ -183,6 +194,7 @@ public final class InventoryService {
     private final Terminology terms;
     private final VersionGate gate;
     private final SecretTiming secretTiming;
+    private final PartnerService partners;
 
     /**
      * @param owners         the effective {@code inventory.owner} of each node; empty if none is
@@ -197,13 +209,15 @@ public final class InventoryService {
      * @param terms          the display names of the levels in messages
      * @param gate           feature 009: the version gate
      * @param secretTiming   feature 010: the fan-out allowance for fetching the secrets
+     * @param partners       feature 018: reads the clouds naming a technical workflow, through
+     *                       the cache of {@code find_partners} (FR-015)
      */
     public InventoryService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
         ResultLimiter limiter, InventoryCache cache, Function<NodeId, Optional<String>> owners,
         Function<NodeId, Duration> timeouts, Function<NodeId, Duration> exportTimeouts,
         Function<NodeId, Duration> cliTimeouts, Duration exportStopGrace,
         ToIntFunction<Object> sizeOf, Terminology terms, VersionGate gate,
-        SecretTiming secretTiming) {
+        SecretTiming secretTiming, PartnerService partners) {
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.targets = Objects.requireNonNull(targets, "targets");
         this.fanOut = Objects.requireNonNull(fanOut, "fanOut");
@@ -218,6 +232,7 @@ public final class InventoryService {
         this.terms = Objects.requireNonNull(terms, "terms");
         this.gate = Objects.requireNonNull(gate, "gate");
         this.secretTiming = Objects.requireNonNull(secretTiming, "secretTiming");
+        this.partners = Objects.requireNonNull(partners, "partners");
     }
 
     /**
@@ -291,12 +306,15 @@ public final class InventoryService {
      * (guard wait, detection, login, diagram list, login); plus grace. A stopped export or probe
      * thus ends before the deadline and becomes a partial result, not a {@code TIMEOUT}. The
      * detection and the probe: feature 009; plus the read allowance of a node whose credentials
-     * are not held yet (feature 010, 011).
+     * are not held yet (feature 010, 011). A diagram also adds the partner read of a technical
+     * workflow (feature 018, FR-015): {@code 3 × timeout} (guard wait, detection, system diagram
+     * list) and {@code cliExportTimeout}, the read budget of {@code find_partners}.
      */
     Duration itemDeadline(InventoryKind kind, NodeId server) {
         Duration timeout = timeouts.apply(server);
         Duration deadline = probe(server).plus(kind == InventoryKind.DIAGRAM
             ? export(server).plus(timeout.multipliedBy(6))
+                .plus(timeout.multipliedBy(3)).plus(exportTimeouts.apply(server))
             : export(server).multipliedBy(2).plus(usageBudget(server))
                 .plus(timeout.multipliedBy(5)));
         return deadline.plus(FAN_OUT_GRACE).plus(secretTiming.allowance(server));
@@ -417,13 +435,34 @@ public final class InventoryService {
             unavailable.add(UnavailableInventoryPart.of(UnavailableInventoryPart.VERSIONS,
                 e.error()));
         }
+        Optional<PartnerUsage> partnerUsage = Optional.empty();
+        if (diagram.type().equalsIgnoreCase(TECHNICAL)) {
+            PartnerUsage usage = new PartnerUsage(metadata.partnerVariables(),
+                metadata.partnerManagementNode(), Optional.empty(), Optional.empty());
+            if (usage.usesPartners()) {
+                try {
+                    CloudReferences references = partners.referencingClouds(server, owner,
+                        diagram.name(), request.refresh());
+                    collectedAt = oldest(collectedAt, references.collectedAt());
+                    warnings = Stream.concat(warnings.stream(), references.warnings().stream())
+                        .distinct().toList();
+                    usage = new PartnerUsage(usage.variables(), usage.partnerManagementNode(),
+                        Optional.of(references.clouds()), unreadable(references.unreadable()));
+                } catch (ToolErrorException e) {
+                    usage = new PartnerUsage(usage.variables(), usage.partnerManagementNode(),
+                        Optional.empty(), Optional.of(new PartnerUsage.Unavailable(
+                            e.error().code(), e.error().message(), e.error().nextStep())));
+                }
+            }
+            partnerUsage = Optional.of(usage);
+        }
         InventoryDetail detail = new InventoryDetail(server, InventoryKind.DIAGRAM,
             diagram.name(), Optional.of(diagram.type()), Optional.of(diagram.group()),
             metadata.owner().orElse(owner), metadata.active(),
             versions.flatMap(InventoryService::newestCheckin), Optional.empty(), Optional.empty(),
             Optional.empty(), metadata.checkinComment(), Optional.empty(), versions,
-            Optional.of(nodes.modules()), Optional.empty(), Optional.empty(), unavailable,
-            false);
+            Optional.of(nodes.modules()), Optional.empty(), Optional.empty(), partnerUsage,
+            unavailable, false);
         return NodeResult.success(server,
             new Lookup(collectedAt, InventoryBounds.detail(detail, budget, sizeOf), warnings));
     }
@@ -497,9 +536,30 @@ public final class InventoryService {
             module.active(), module.lastChange(), Optional.of(workflows),
             Optional.of(workflows.size()), Optional.of(usage.value().complete()),
             found.checkinComment(), found.userComment(), versions, Optional.empty(),
-            Optional.of(found.connector()), Optional.empty(), unavailable, false);
+            Optional.of(found.connector()), Optional.empty(), Optional.empty(), unavailable,
+            false);
         return NodeResult.success(server,
             new Lookup(collectedAt, InventoryBounds.detail(detail, budget, sizeOf), warnings));
+    }
+
+    /**
+     * Why not every system diagram was read: the first unreadable one with its error code and
+     * message, and how many more there are; empty if all were read.
+     */
+    private static Optional<PartnerUsage.Unavailable> unreadable(
+        List<UnreadableDiagram> diagrams) {
+        if (diagrams.isEmpty()) {
+            return Optional.empty();
+        }
+        UnreadableDiagram first = diagrams.get(0);
+        String name = Names.quote(first.systemDiagram().name());
+        return Optional.of(new PartnerUsage.Unavailable(first.code(), "System diagram " + name
+            + " in diagram group " + Names.quote(first.systemDiagram().diagramGroup())
+            + " could not be read: " + first.message()
+            + (diagrams.size() > 1 ? "; " + (diagrams.size() - 1) + " more could not be read"
+                : ""),
+            "Call find_partners with systemDiagram " + name + " for its error, or try again"
+                + " with refresh"));
     }
 
     /** Module names that more than one module of the index has. */

@@ -322,7 +322,7 @@ system diagrams/clouds whose `ReferencableTWFs` contain the workflow.
   fields, `EMPTY` extended; adjust test fakes that build `DiagramMetadata`) — main
   `adapter/rest/v81/DiagramExportParser.java`, `domain/port/InventoryPort.java`, test
   `adapter/rest/v81/DiagramExportParserTest.java`
-- [ ] T029 [US4] (after T018, T028) `PartnerUsage` (`domain/model/partner/PartnerUsage.java`) and
+- [x] T029 [US4] (after T018, T028) `PartnerUsage` (`domain/model/partner/PartnerUsage.java`) and
   `PartnerService.referencingClouds(NodeId server, String owner,
   String workflowName, boolean refresh)` → clouds whose `referencableWorkflows` contain the
   workflow; `InventoryDetail.partnerUsage` (`variables`, `partnerManagementNode`, `systemDiagrams`

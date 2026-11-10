@@ -23,6 +23,7 @@ import de.dadecker.inubit.mcp.domain.model.partner.CommunicationCloud;
 import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
 import de.dadecker.inubit.mcp.domain.model.partner.Partner;
 import de.dadecker.inubit.mcp.domain.model.partner.PartnerQuery;
+import de.dadecker.inubit.mcp.domain.model.partner.PartnerUsage.CloudUse;
 import de.dadecker.inubit.mcp.domain.model.partner.ProtocolEntry;
 import de.dadecker.inubit.mcp.domain.model.partner.Setting;
 import de.dadecker.inubit.mcp.domain.model.partner.SettingValue;
@@ -129,12 +130,17 @@ import org.slf4j.LoggerFactory;
  *       field masked on any server; list mode keeps the summary and only what differs. Every
  *       server keeps its own audit record, counting the partners it holds on the page and the
  *       masked values shown for it; a failed server is {@code notCompared}.
+ *   <li>Story 4 (T029, FR-015): {@link #referencingClouds} gives {@code get_inventory_item} the
+ *       clouds whose {@code referencableWorkflows} name a technical workflow, from the same read
+ *       and cache, admitted for {@code get_inventory_item} and not audited (names only).
  * </ul>
  */
 public final class PartnerService {
 
     static final Duration FAN_OUT_GRACE = Duration.ofSeconds(1);
     private static final String TOOL = "find_partners";
+    /** The tool whose details read the clouds naming a workflow (story 4, FR-015). */
+    private static final String INVENTORY_TOOL = "get_inventory_item";
     private static final String SYSTEM_DIAGRAM = "systemdiagram";
     private static final Logger LOG = LoggerFactory.getLogger(PartnerService.class);
     /** Error codes audited as {@code REFUSED} (research D-8); every other error is FAILED. */
@@ -197,6 +203,25 @@ public final class PartnerService {
             unreadableDiagrams = List.copyOf(unreadableDiagrams);
             warnings = List.copyOf(warnings);
             Objects.requireNonNull(version, "version");
+        }
+    }
+
+    /**
+     * The clouds naming one workflow ({@link #referencingClouds}).
+     *
+     * @param clouds      in the order of the system diagram list and of the clouds
+     * @param unreadable  the system diagrams that gave no data (D-4)
+     * @param collectedAt the oldest collection time of the cached parts used
+     * @param warnings    the version gate's warnings for the Partner Management (FR-016)
+     */
+    record CloudReferences(List<CloudUse> clouds, List<UnreadableDiagram> unreadable,
+        Instant collectedAt, List<String> warnings) {
+
+        CloudReferences {
+            clouds = List.copyOf(clouds);
+            unreadable = List.copyOf(unreadable);
+            Objects.requireNonNull(collectedAt, "collectedAt");
+            warnings = List.copyOf(warnings);
         }
     }
 
@@ -1217,7 +1242,32 @@ public final class PartnerService {
     private List<NodeResult<ServerRead>> read(List<NodeId> servers, PartnerQuery query) {
         Set<NodeId> pending = secretTiming.pending(servers);
         return secretTiming.explainTimeouts(fanOut.run(servers, this::deadline,
-            server -> read(server, query)), pending);
+            server -> read(TOOL, server, query)), pending);
+    }
+
+    /**
+     * The clouds of {@code owner}'s system diagrams on {@code server} whose
+     * {@code referencableWorkflows} contain {@code workflowName}, case-insensitively like the
+     * {@code workflow} filter (story 4, FR-015): the read of {@code find_partners} on the
+     * calling thread, admitted by the version gate for {@code get_inventory_item}, through the
+     * same cache and not audited (names only).
+     *
+     * @throws ToolErrorException the version gate's refusal or a failed read
+     */
+    CloudReferences referencingClouds(NodeId server, String owner, String workflowName,
+        boolean refresh) {
+        PartnerQuery query = new PartnerQuery(server.toString(), Optional.empty(),
+            Optional.of(owner), Optional.empty(), Optional.empty(), Optional.empty(),
+            Optional.empty(), 0, PartnerQuery.DEFAULT_LIMIT, refresh, Optional.empty());
+        ServerRead read = read(INVENTORY_TOOL, server, query);
+        List<CloudUse> clouds = read.diagrams().stream()
+            .flatMap(diagram -> diagram.clouds().stream()
+                .filter(cloud -> cloud.referencableWorkflows().stream()
+                    .anyMatch(workflowName::equalsIgnoreCase))
+                .map(cloud -> new CloudUse(diagram.diagram(), cloud.moduleName())))
+            .toList();
+        return new CloudReferences(clouds, read.unreadableDiagrams(), read.collectedAt(),
+            read.warnings().subList(0, read.gateWarnings()));
     }
 
     /**
@@ -1230,10 +1280,10 @@ public final class PartnerService {
             .plus(FAN_OUT_GRACE).plus(secretTiming.allowance(server));
     }
 
-    private ServerRead read(NodeId server, PartnerQuery query) {
+    private ServerRead read(String tool, NodeId server, PartnerQuery query) {
         // a node without owner is never contacted, not even for the version detection
         String owner = query.owner().orElseGet(() -> configuredOwner(server));
-        VersionGate.Admission admission = gate.admit(TOOL, server, Capability.PARTNER_MANAGEMENT,
+        VersionGate.Admission admission = gate.admit(tool, server, Capability.PARTNER_MANAGEMENT,
             Capability.Kind.READ, Set.of(Channel.REST));
         List<String> warnings = new ArrayList<>(admission.warnings());
         int gateWarnings = warnings.size();

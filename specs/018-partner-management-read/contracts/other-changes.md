@@ -16,7 +16,17 @@ Output `item` gains an optional field, present only for a technical workflow:
 
 - No `variables` and no node → `partnerUsage` has `variables: []`, `partnerManagementNode:
   false`, no `systemDiagrams`, and no system diagram is read.
-- Not audited (names only). Uses the cache of `find_partners`.
+- Otherwise the configured owner's system diagrams are read (admitted like `find_partners`;
+  a refused gate or a failed read gives `unavailable` without `systemDiagrams`, an `UNVERIFIED`
+  gate adds its warning). A cloud is listed when one of its `referencableWorkflows` equals the
+  workflow name, ignoring case, in the order of the system diagram list.
+- A system diagram that cannot be read does not hide the others: `systemDiagrams` lists the clouds
+  found, and `unavailable` names the first unreadable diagram (and how many more), so both fields
+  can be present.
+- Not audited (names only). Uses the cache of `find_partners` (`refresh` reads again).
+- Bounded like the rest of the detail: names cut to 200 characters, `unavailable` texts to 500;
+  over budget the variables and system diagrams keep a prefix of at most an eighth of the budget
+  each, before any version is dropped.
 - Schema `get_inventory_item.output.json` changes additively.
 
 ## `list_nodes`

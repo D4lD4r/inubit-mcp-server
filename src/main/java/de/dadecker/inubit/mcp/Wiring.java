@@ -377,28 +377,30 @@ final class Wiring implements AutoCloseable {
         // feature 018 (research D-6): the partner reads use dedicated scopes of the same cache
         InventoryCache inventoryCache =
             new InventoryCache(clock.clock(), id -> byId.get(id).inventory().cacheTtl());
+        // feature 018 (FR-020): every call audited in the shared audit log
+        AuditLog audit = new AuditLog(config.auditDirectory(), scrubber, privateFiles);
+        PartnerAudit.Dependencies partnerAudits = new PartnerAudit.Dependencies(audit,
+            clock.clock(), profile.name(), UUID::randomUUID);
+        PartnerService partners = new PartnerService(gateways, targets, fanOut, limiter,
+            inventoryCache, id -> byId.get(id).inventory().owner(), timeouts::get,
+            id -> byId.get(id).cliExportTimeout(), ResultJson::size, terms, versionGate,
+            secretTiming, partnerAudits);
+        // feature 018 (FR-015): a technical workflow's partner usage reads through partners
         this.inventory = new InventoryService(gateways, targets, fanOut, limiter, inventoryCache,
             id -> byId.get(id).inventory().owner(), timeouts::get,
             id -> byId.get(id).cliExportTimeout(), id -> byId.get(id).cliTimeout(),
             CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, terms, versionGate,
-            secretTiming);
+            secretTiming, partners);
         // feature 010 (research R-16): built per lookup, so that the account of an AWS node is
         // the username fetched after startup; a lookup never fetches. Unknown ids give null,
         // which the guard treats as no write access
         Function<NodeId, WritePolicy> policies = id -> byId.containsKey(id)
             ? policy(byId.get(id), secrets.get(id)) : null;
-        AuditLog audit = new AuditLog(config.auditDirectory(), scrubber, privateFiles);
         this.processControl = new ProcessControlService(
             new WriteGuard(targets, policies, gateways, versionGate), policies,
             gateways, new ConfirmationRegistry(clock.clock()), audit, clock.clock(),
             UUID::randomUUID, profile.name());
-        // feature 018 (FR-020): every call audited in the shared audit log
-        PartnerAudit.Dependencies partnerAudits = new PartnerAudit.Dependencies(audit,
-            clock.clock(), profile.name(), UUID::randomUUID);
-        this.findPartners = new FindPartnersTool(new PartnerService(gateways, targets, fanOut,
-            limiter, inventoryCache, id -> byId.get(id).inventory().owner(), timeouts::get,
-            id -> byId.get(id).cliExportTimeout(), ResultJson::size, terms, versionGate,
-            secretTiming, partnerAudits), partnerAudits);
+        this.findPartners = new FindPartnersTool(partners, partnerAudits);
         // feature 003: the workspace history uses the system git (not the StartCLI launcher)
         Path workspace = config.workspace();
         this.exportArtifacts = new ExportArtifactsTool(new WorkspaceService(workspace,

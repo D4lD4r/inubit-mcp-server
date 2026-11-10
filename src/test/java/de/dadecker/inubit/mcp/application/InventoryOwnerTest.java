@@ -40,6 +40,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -115,14 +116,19 @@ class InventoryOwnerTest {
         };
         Map<NodeId, Optional<String>> owners = Map.of(NODE1, Optional.empty(),
             NODE2, Optional.of("INTEGRATION"));
-        return new InventoryService(gateways, new TargetResolver(List.of(NODE1, NODE2), CUSTOM),
-            new FanOut(), ResultLimiter.withDefaults(),
-            new InventoryCache(new MutableClock(Instant.parse("2026-10-01T08:00:00Z")),
-                node -> Duration.ofMinutes(10)),
-            owners::get, node -> Duration.ofSeconds(5), node -> Duration.ofSeconds(120),
+        MutableClock clock = new MutableClock(Instant.parse("2026-10-01T08:00:00Z"));
+        InventoryCache cache = new InventoryCache(clock, node -> Duration.ofMinutes(10));
+        VersionGate gate = gateWithoutClients(versions, detection,
+            CapabilityMatrix.production());
+        TargetResolver targets = new TargetResolver(List.of(NODE1, NODE2), CUSTOM);
+        PartnerService partners = new PartnerService(gateways, targets, new FanOut(),
+            ResultLimiter.withDefaults(), cache, owners::get, node -> Duration.ofSeconds(5),
+            node -> Duration.ofSeconds(120), ResultJson::size, CUSTOM, gate, SecretTiming.NONE,
+            new PartnerAudit.Dependencies(record -> { }, clock, "default", UUID::randomUUID));
+        return new InventoryService(gateways, targets, new FanOut(), ResultLimiter.withDefaults(),
+            cache, owners::get, node -> Duration.ofSeconds(5), node -> Duration.ofSeconds(120),
             node -> Duration.ofSeconds(30), Duration.ofSeconds(4), ResultJson::size, CUSTOM,
-            gateWithoutClients(versions, detection, CapabilityMatrix.production()),
-            SecretTiming.NONE);
+            gate, SecretTiming.NONE, partners);
     }
 
     private static void assertNotConfigured(NodeResult<?> result) {

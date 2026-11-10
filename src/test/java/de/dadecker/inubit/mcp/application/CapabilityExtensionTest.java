@@ -203,12 +203,18 @@ class CapabilityExtensionTest {
             ResultLimiter.withDefaults(), timeouts, id -> byId.get(id).cliTimeout(),
             id -> byId.get(id).hangingThreshold(), clock,
             ResultJson::size, gate, SecretTiming.NONE);
+        InventoryCache cache = new InventoryCache(clock,
+            id -> byId.get(id).inventory().cacheTtl());
+        PartnerService partners = new PartnerService(gateways, targets, new FanOut(),
+            ResultLimiter.withDefaults(), cache, id -> byId.get(id).inventory().owner(),
+            timeouts, id -> byId.get(id).cliExportTimeout(), ResultJson::size,
+            Terminology.DEFAULT, gate, SecretTiming.NONE, new PartnerAudit.Dependencies(
+                record -> { }, clock, "default", UUID::randomUUID));
         InventoryService inventory = new InventoryService(gateways, targets, new FanOut(),
-            ResultLimiter.withDefaults(), new InventoryCache(clock,
-                id -> byId.get(id).inventory().cacheTtl()), id -> byId.get(id).inventory().owner(),
+            ResultLimiter.withDefaults(), cache, id -> byId.get(id).inventory().owner(),
             timeouts, id -> byId.get(id).cliExportTimeout(), id -> byId.get(id).cliTimeout(),
             CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, Terminology.DEFAULT, gate,
-            SecretTiming.NONE);
+            SecretTiming.NONE, partners);
         HealthService health = new HealthService(gateways, targets, new FanOut(), timeouts,
             clock, gate, versions, (node, version, timeout) -> {
                 throw new AssertionError("no client probe expected for " + node);
