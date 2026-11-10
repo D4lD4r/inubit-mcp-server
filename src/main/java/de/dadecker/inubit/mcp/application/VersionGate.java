@@ -62,7 +62,8 @@ import org.slf4j.LoggerFactory;
  * (FR-015). Its texts are built here from the node id, versions and error codes only, never from
  * the detection's error (FR-016; {@code V81VersionDetector} suggests {@code versionLine: V8_1}
  * unconditionally, which FR-005 forbids); they name the node level with the profile's
- * terminology (feature 002, FR-007).
+ * terminology (feature 002, FR-007). A refusal on a version whose matrix entry carries a note for
+ * the capability uses it, e.g. "… is not yet verified for INUBIT 9.0" (feature 020).
  *
  * <p>The purpose of a call is a {@link Capability.Kind} ({@code READ} or {@code WRITE}).
  *
@@ -498,6 +499,18 @@ public final class VersionGate {
         String likelyCause = purpose == Capability.Kind.WRITE
             ? terms.render("The {node} runs a version for which no verified write access exists")
             : "This server declares " + capability.label() + " unsupported for that version";
+        String otherNode = terms.render("Use another {node} whose INUBIT version supports ")
+            + capability.label()
+            + terms.render(" (list_nodes shows the usable capabilities per {node}), or wait"
+            + " for a version of this server that supports that INUBIT version");
+        Optional<String> note = matrix.note(version, capability);
+        if (note.isPresent()) {
+            // feature 020 (FR-019 fallback): e.g. "… is not yet verified for INUBIT 9.0"
+            return refuse(node, capability,
+                name.get() + " on " + node + ": " + capability.label() + " is " + note.get()
+                    + " for INUBIT " + majorMinor(state, version),
+                likelyCause, otherNode);
+        }
         if (matrix.isCliOnly(version)) {
             String release = majorMinor(state, version);
             String step = cliOnlyStep(capability, release);
@@ -507,15 +520,22 @@ public final class VersionGate {
                     + " on " + node + " does not support " + capability.label()
                     + (capability == Capability.INVENTORY
                         ? "; modules of INUBIT " + release + " cannot be looked up" : "")
-                    + "; " + step,
+                    + supportedLines(capability) + "; " + step,
                 likelyCause, capitalized(step));
         }
         return refuse(node, capability,
-            name.get() + " on " + node + " does not support " + capability.label() + " yet",
-            likelyCause,
-            terms.render("Use another {node} whose INUBIT version supports ") + capability.label()
-                + terms.render(" (list_nodes shows the usable capabilities per {node}), or wait"
-                + " for a version of this server that supports that INUBIT version"));
+            name.get() + " on " + node + " does not support " + capability.label() + " yet"
+                + supportedLines(capability),
+            likelyCause, otherNode);
+    }
+
+    /**
+     * Feature 020 (US3-3): a refusal of reading Queue Manager entries names the supported lines,
+     * e.g. "; supported: 8.1, 9.0"; empty for every other capability.
+     */
+    private String supportedLines(Capability capability) {
+        return capability == Capability.QUEUE_ENTRY_READ
+            ? "; supported: " + String.join(", ", matrix.lines(capability)) : "";
     }
 
     /**
@@ -532,6 +552,7 @@ public final class VersionGate {
                 terms.render("use the Workbench, or another {node} with a different INUBIT"
                     + " version");
             case DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL -> "use the Workbench";
+            case QUEUE_ENTRY_READ -> "use the Queue Manager in the Workbench";
         };
     }
 

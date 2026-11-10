@@ -20,7 +20,8 @@ import java.util.Set;
  *
  * <p>An entry may declare channels per capability that replace the capability's own
  * {@link Capability#channels()}, and may be {@code cliOnly}: the node is reached through StartCLI
- * only (feature 012, research D-3).
+ * only (feature 012, research D-3). It may carry a note per capability that the refusal uses,
+ * e.g. "not yet verified" (feature 020, research D-6).
  */
 public final class CapabilityMatrix {
 
@@ -29,7 +30,7 @@ public final class CapabilityMatrix {
      * without declared {@code channels} uses its own channels.
      */
     public record Entry(VersionRange range, Map<Capability, SupportState> states,
-        Map<Capability, Set<Channel>> channels, boolean cliOnly) {
+        Map<Capability, Set<Channel>> channels, boolean cliOnly, Map<Capability, String> notes) {
 
         public Entry {
             Objects.requireNonNull(range, "range");
@@ -37,6 +38,13 @@ public final class CapabilityMatrix {
             Map<Capability, Set<Channel>> copy = new EnumMap<>(Capability.class);
             channels.forEach((capability, declared) -> copy.put(capability, Set.copyOf(declared)));
             channels = Map.copyOf(copy);
+            notes = Map.copyOf(notes);
+        }
+
+        /** An entry without notes. */
+        public Entry(VersionRange range, Map<Capability, SupportState> states,
+            Map<Capability, Set<Channel>> channels, boolean cliOnly) {
+            this(range, states, channels, cliOnly, Map.of());
         }
 
         /** An entry without declared channels that is not CLI-only. */
@@ -61,10 +69,18 @@ public final class CapabilityMatrix {
             Capability.PROCESS_DIAGNOSIS, Set.of(Channel.CLI)),
         true);
 
+    /**
+     * 9.0: as 8.1, except reading Queue Manager entries, which stays refused until its 9.0
+     * recording exists (feature 020, FR-019 fallback, research D-20).
+     */
+    private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0),
+        with(ALL_SUPPORTED, Capability.QUEUE_ENTRY_READ, SupportState.UNSUPPORTED), Map.of(),
+        false, Map.of(Capability.QUEUE_ENTRY_READ, "not yet verified"));
+
+    /** Unknown versions: reading Queue Manager entries is refused, not run with a warning. */
     private static final CapabilityMatrix PRODUCTION = new CapabilityMatrix(
-        List.of(V6_1, new Entry(new VersionRange(8, 1, 8, 1), ALL_SUPPORTED),
-            new Entry(new VersionRange(9, 0, 9, 0), ALL_SUPPORTED)),
-        READS_UNVERIFIED);
+        List.of(V6_1, new Entry(new VersionRange(8, 1, 8, 1), ALL_SUPPORTED), V9_0),
+        with(READS_UNVERIFIED, Capability.QUEUE_ENTRY_READ, SupportState.UNSUPPORTED));
 
     private final List<Entry> entries;
     private final Map<Capability, SupportState> unknown;
@@ -83,7 +99,9 @@ public final class CapabilityMatrix {
     /**
      * The production declaration of research D-3: 6.1.x CLI-only with every capability
      * unsupported; 8.1.x and (feature 017, research D-9) 9.0.x all supported; any other known
-     * version and unknown versions: reads unverified, writes unsupported.
+     * version and unknown versions: reads unverified, writes unsupported. Feature 020 (research
+     * D-6): reading Queue Manager entries is supported on 8.1 only; on 9.0 it is unsupported with
+     * the note "not yet verified", on any other and on unknown versions unsupported.
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;
@@ -105,6 +123,28 @@ public final class CapabilityMatrix {
         return entry(version).map(Entry::channels)
             .map(declared -> declared.get(capability))
             .orElse(capability.channels());
+    }
+
+    /**
+     * The note of the entry containing {@code version} for {@code capability}, e.g. "not yet
+     * verified"; empty for an unknown version and a version outside every range.
+     */
+    public Optional<String> note(Optional<InubitVersion> version, Capability capability) {
+        Objects.requireNonNull(capability, "capability");
+        return entry(version).map(e -> e.notes().get(capability));
+    }
+
+    /**
+     * The version lines that declare {@code capability} {@code SUPPORTED} or carry a note for it
+     * (supported once verified), in declaration order: "8.1", or "7.8–7.9" for a wider range.
+     */
+    public List<String> lines(Capability capability) {
+        Objects.requireNonNull(capability, "capability");
+        return entries.stream()
+            .filter(e -> e.states().get(capability) == SupportState.SUPPORTED
+                || e.notes().containsKey(capability))
+            .map(e -> line(e.range()))
+            .toList();
     }
 
     /** Whether {@code version} is reached through StartCLI only; an unknown version is not. */
@@ -137,6 +177,19 @@ public final class CapabilityMatrix {
     private Optional<Entry> entry(Optional<InubitVersion> version) {
         return version.flatMap(
             v -> entries.stream().filter(e -> e.range().contains(v)).findFirst());
+    }
+
+    private static String line(VersionRange range) {
+        String from = range.fromMajor() + "." + range.fromMinor();
+        String to = range.toMajor() + "." + range.toMinor();
+        return from.equals(to) ? from : from + "–" + to;
+    }
+
+    private static Map<Capability, SupportState> with(Map<Capability, SupportState> states,
+        Capability capability, SupportState state) {
+        Map<Capability, SupportState> copy = new EnumMap<>(states);
+        copy.put(capability, state);
+        return copy;
     }
 
     private static Map<Capability, SupportState> checked(Map<Capability, SupportState> states) {

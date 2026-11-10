@@ -56,6 +56,16 @@ class NodeOverviewTest {
                 reason -> assertThat(reason).endsWith(" does not support log diagnosis yet"));
     }
 
+    /** Feature 020 (T003, D-6): the capability's name in {@code list_nodes}. */
+    @Test
+    void queueEntryReadIsListedAsQueueEntryRead() {
+        NodeSummary.Capabilities capabilities = capabilities(CapabilityMatrix.production(),
+            EnumSet.of(Capability.QUEUE_ENTRY_READ));
+
+        assertThat(capabilities.usable()).containsExactly("queue_entry_read");
+        assertThat(capabilities.notUsable()).isEmpty();
+    }
+
     @Test
     void everyListedNodeHasItsStartCliChoiceWhichTheStartupSummaryLacks() {
         // feature 017 (FR-015, research D-18): always present in list_nodes; final for a pin
@@ -74,11 +84,17 @@ class NodeOverviewTest {
 
     /** The capabilities of a {@code V8_1} node that allows both diagnosis capabilities only. */
     private static NodeSummary.Capabilities capabilities(CapabilityMatrix matrix) {
+        return capabilities(matrix, DIAGNOSIS);
+    }
+
+    /** The capabilities of a {@code V8_1} node that allows {@code allowed} only. */
+    private static NodeSummary.Capabilities capabilities(CapabilityMatrix matrix,
+        Set<Capability> allowed) {
         NodeVersions versions = new NodeVersions(new MutableClock(Instant.EPOCH),
             id -> VersionSetting.V8_1, id -> Duration.ofMinutes(5));
         NodeSummary node = TestNodeConfig.node().versionLine(VersionSetting.V8_1).build()
             .summary(path -> false, false);
-        return new NodeOverview(List.of(node), versions, matrix, (id, withClient) -> DIAGNOSIS,
+        return new NodeOverview(List.of(node), versions, matrix, (id, withClient) -> allowed,
             TestClientSelection.none()).nodes()
             .getFirst().version().orElseThrow().capabilities();
     }

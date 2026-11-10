@@ -744,6 +744,50 @@ class MainTest {
     }
 
     @Test
+    void checkConfigListsReadingQueueManagerEntriesAsRefusedOnlyForAnOptedInV61Group()
+        throws IOException {
+        // feature 020 (T003, D-6): the 6.1 text of a group without the opt-in is unchanged
+        credentials();
+        entries.put("INUBIT_ACME_TEST_USERNAME", USERNAME);
+        entries.put("INUBIT_ACME_TEST_PASSWORD", PASSWORD);
+        Path file = config("""
+            profile:
+              name: acme
+            groups:
+              - name: dev
+                versionLine: V6_1
+                unsupported:
+                  queueEntryRead: true
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+              - name: test
+                versionLine: V6_1
+                nodes:
+                  - name: node1
+                    baseUrl: https://node2.example.test:8443
+            """);
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out() + err()).isZero();
+        String refused = "available: none; refused: monitoring, process diagnosis, log"
+            + " diagnosis, inventory, workspace export, development writes, deployment,"
+            + " end-to-end test, process control";
+        assertThat(out())
+            .contains("dev/node1: read-only, cli: unavailable, inubit: V6_1 (INUBIT 6.1, StartCLI"
+                + " only; " + refused + ", reading Queue Manager entries), secrets:"
+                + " credentialStore (macOS Keychain), username ←")
+            .contains("test/node1: read-only, cli: unavailable, inubit: V6_1 (INUBIT 6.1,"
+                + " StartCLI only; " + refused + "), secrets: credentialStore (macOS Keychain),"
+                + " username ←")
+            .contains("Result: OK")
+            .doesNotContain("jsonrpc");
+        TestSecrets.assertNoLeak(out());
+        TestSecrets.assertNoLeak(err());
+    }
+
+    @Test
     @DisabledOnOs(value = OS.WINDOWS, disabledReason = "a POSIX shell substitute of startcli.sh;"
         + " the Windows launch of a 6.1 session is covered by CliRunnerTest and V61ConnectionTest")
     void checkConfigWarnsAboutWhatTheStartCliClientOfAV61NodeCannotDo() throws IOException {

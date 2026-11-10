@@ -21,7 +21,9 @@ public enum Capability {
     DEPLOYMENT(Kind.WRITE, Set.of(Channel.CLI, Channel.REST)),
     E2E_TEST(Kind.WRITE, Set.of(Channel.SOAP, Channel.REST)),
     /** REST read plus StartCLI. */
-    PROCESS_CONTROL(Kind.WRITE, Set.of(Channel.REST, Channel.CLI));
+    PROCESS_CONTROL(Kind.WRITE, Set.of(Channel.REST, Channel.CLI)),
+    /** {@code read_queue_entry}: REST lookup plus a helper on the INUBIT client (feature 020). */
+    QUEUE_ENTRY_READ(Kind.READ, Set.of(Channel.REST, Channel.CLI));
 
     /** Whether the capability only reads from INUBIT or changes it. */
     public enum Kind {
@@ -61,6 +63,7 @@ public enum Capability {
             case DEPLOYMENT -> "deployment";
             case E2E_TEST -> "end-to-end test";
             case PROCESS_CONTROL -> "process control";
+            case QUEUE_ENTRY_READ -> "reading Queue Manager entries";
         };
     }
 }

@@ -59,7 +59,7 @@ decisions go to `specs/020-queue-entry-read/reviews/implementation.md`.
   `Unknown key 'archiveRead' at groups[0].unsupported`; `unsupported` on a node and in `defaults`
   → unknown key) and `config/EffectiveNodeConfigTest.java` (value survives every copy method);
   leak check on the error texts
-- [ ] T003 Capability and matrix (FR-006, FR-019 fallback state, D-6; after T002): `domain/model/Capability.java`
+- [X] T003 Capability and matrix (FR-006, FR-019 fallback state, D-6; after T002): `domain/model/Capability.java`
   `+ QUEUE_ENTRY_READ` (kind `READ`, label "reading Queue Manager entries");
   `domain/model/CapabilityMatrix.java`: 8.1 `SUPPORTED`; **9.0 `UNSUPPORTED` with the note "not
   yet verified"** (the fallback state; flipped only by T038); 6.1 unlisted; unknown map

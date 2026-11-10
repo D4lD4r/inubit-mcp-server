@@ -585,6 +585,25 @@ class ConfigSummaryTest {
     }
 
     @Test
+    void aV61NodeOfAGroupWithTheQueueEntryOptInAlsoRefusesReadingQueueManagerEntries() {
+        // feature 020 (T003, D-6): only an opted-in group lists the capability; the golden texts
+        // above stay byte-for-byte unchanged
+        String summary = render(V6_1.replace("    nodes:",
+            "    unsupported:\n      queueEntryRead: true\n    nodes:"));
+
+        assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
+            + " (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process"
+            + " diagnosis, log diagnosis, inventory, workspace export, development writes,"
+            + " deployment, end-to-end test, process control, reading Queue Manager entries),"
+            + " secrets: credentialStore (macOS Keychain), username ←");
+        assertThat(summary).as("8.1 lines are unchanged")
+            .contains("test/node3: read-only, cli: available, inubit: V8_1, secrets:"
+                + " credentialStore (macOS Keychain), username ←");
+        assertThat(summary).contains("Result: OK");
+        TestSecrets.assertNoLeak(summary);
+    }
+
+    @Test
     void theCapabilitiesOfAV61NodeAreJudgedOnTheMatrixEntryOfItsPin() {
         // what T040 will declare: a capability is available only if SUPPORTED, as the gate admits
         CapabilityMatrix matrix = new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(

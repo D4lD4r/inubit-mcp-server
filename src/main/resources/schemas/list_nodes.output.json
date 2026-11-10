@@ -198,7 +198,8 @@
     },
     "CapabilityName": {
       "enum": ["monitoring", "process_diagnosis", "log_diagnosis", "inventory",
-        "workspace_export", "development_writes", "deployment", "e2e_test", "process_control"]
+        "workspace_export", "development_writes", "deployment", "e2e_test", "process_control",
+        "queue_entry_read"]
     },
     "Level": {
       "type": "object",

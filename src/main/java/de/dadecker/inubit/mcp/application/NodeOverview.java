@@ -274,6 +274,7 @@ public final class NodeOverview {
             case DEPLOYMENT -> "deployment";
             case E2E_TEST -> "e2e_test";
             case PROCESS_CONTROL -> "process_control";
+            case QUEUE_ENTRY_READ -> "queue_entry_read";
         };
     }
 }

@@ -222,7 +222,8 @@ class CapabilityExtensionTest {
             UUID::randomUUID, "acme");
         NodeOverview overview = new NodeOverview(servers.stream()
             .map(server -> server.summary(path -> false, false)).toList(), versions, MATRIX,
-            (id, withClient) -> EnumSet.allOf(Capability.class),
+            // feature 020: reading Queue Manager entries needs a group opt-in none of these has
+            (id, withClient) -> EnumSet.complementOf(EnumSet.of(Capability.QUEUE_ENTRY_READ)),
             TestClientSelection.of(id -> true));
         client = McpTestClient.start(List.of(
             new ListNodesTool(McpTestClient.TEST_PROFILE, overview::nodes),

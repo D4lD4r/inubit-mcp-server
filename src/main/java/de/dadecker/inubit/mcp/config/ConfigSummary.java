@@ -146,7 +146,7 @@ public final class ConfigSummary {
                 .append(", cli: ").append(cliAvailable(server) ? "available" : "unavailable")
                 .append(clientChoice(server, terms))
                 .append(", inubit: ").append(server.versionLine().text())
-                .append(cliOnly(server.versionLine()));
+                .append(cliOnly(server));
             Optional.ofNullable(clients.get(server.id()))
                 .ifPresent(client -> out.append(client(server.versionLine(), client,
                     Optional.ofNullable(options.get(server.id())))));
@@ -315,16 +315,21 @@ public final class ConfigSummary {
      * Feature 012 (FR-014, research D-13): {@code  (INUBIT 6.1, StartCLI only; available: <names>
      * | none; refused: <names> | none)} for a setting pinned to a CLI-only version, else empty.
      * Judged on the pin as the version gate and {@code list_nodes} do: on a CLI-only version a
-     * capability runs only if the matrix declares it {@code SUPPORTED}.
+     * capability runs only if the matrix declares it {@code SUPPORTED}. Reading Queue Manager
+     * entries is listed only for a group with {@code unsupported.queueEntryRead} (feature 020).
      */
-    private String cliOnly(VersionSetting setting) {
-        Optional<InubitVersion> pin = NodeVersionState.initial(setting).effectiveVersion();
+    private String cliOnly(EffectiveNodeConfig server) {
+        Optional<InubitVersion> pin =
+            NodeVersionState.initial(server.versionLine()).effectiveVersion();
         if (!matrix.isCliOnly(pin)) {
             return "";
         }
         List<String> available = new ArrayList<>();
         List<String> refused = new ArrayList<>();
         for (Capability capability : Capability.values()) {
+            if (capability == Capability.QUEUE_ENTRY_READ && !server.queueEntryRead()) {
+                continue;
+            }
             (matrix.state(pin, capability) == SupportState.SUPPORTED ? available : refused)
                 .add(capability.label());
         }
