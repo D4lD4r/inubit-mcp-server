@@ -268,6 +268,19 @@ public final class OsPrivateFileSystem implements PrivateFileSystem {
         return FileChannel.open(file, StandardOpenOption.WRITE);
     }
 
+    @Override
+    public FileChannel openLockFileNoFollow(Path file) throws IOException {
+        if (mode == Mode.WINDOWS) {
+            try {
+                return FileChannel.open(file, StandardOpenOption.WRITE,
+                    ExtendedOpenOption.NOSHARE_DELETE, LinkOption.NOFOLLOW_LINKS);
+            } catch (UnsupportedOperationException e) {
+                // a simulated Windows host in the tests
+            }
+        }
+        return FileChannel.open(file, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
+    }
+
     private String user(Path path) throws FileSystemException {
         return userSid.get().orElseThrow(() -> new FileSystemException(path.toString(), null,
             "the user of the process token cannot be read"));

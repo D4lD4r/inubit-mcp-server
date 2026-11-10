@@ -63,3 +63,5 @@ before search, cut and page, logs, package boundaries, level words or the start-
 
 Targeted after the fixes: `KnowledgeServiceSearchTest` 17 (1 skipped), `TerminologyRenderingTest`
 8, `ReadKnowledgeToolTest` 11, 0 failures.
+Build on 74ec687: surefire 5830 tests, 0 failures, 0 errors, 56 skipped; failsafe 2 tests,
+0 failures.

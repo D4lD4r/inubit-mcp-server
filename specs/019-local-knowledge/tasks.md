@@ -210,7 +210,7 @@ read and paging match quickstart rows US1 AS1–AS6 and D-9.
 **Independent test**: quickstart rows US2 AS1–AS10 and the D-10 … D-13 rows pass with a fake
 readiness and a failing-audit fake.
 
-- [ ] T025 [P] [US2] `PrivateFileSystem.openLockFileNoFollow(Path)`: as `openLockFile` (Windows
+- [X] T025 [P] [US2] `PrivateFileSystem.openLockFileNoFollow(Path)`: as `openLockFile` (Windows
   `NOSHARE_DELETE`) plus `NOFOLLOW_LINKS`; `openLockFile` unchanged — main
   `domain/port/PrivateFileSystem.java`, `adapter/os/OsPrivateFileSystem.java`, test
   `adapter/os/OsPrivateFileSystemTest.java` (link refused, POSIX; Windows simulation)

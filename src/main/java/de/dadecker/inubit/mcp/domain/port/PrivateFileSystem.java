@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.domain.port;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
@@ -105,5 +106,14 @@ public interface PrivateFileSystem {
      */
     default FileChannel openLockFile(Path file) throws IOException {
         return FileChannel.open(file, StandardOpenOption.WRITE);
+    }
+
+    /**
+     * Opens an existing lock file of the local knowledge for writing without following a link
+     * in its place (feature 019 D-11): a link is refused and its target left untouched; like
+     * {@link #openLockFile} the file cannot be deleted on Windows while it is open.
+     */
+    default FileChannel openLockFileNoFollow(Path file) throws IOException {
+        return FileChannel.open(file, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
     }
 }

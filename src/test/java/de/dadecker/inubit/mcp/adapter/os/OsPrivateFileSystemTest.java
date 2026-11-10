@@ -6,9 +6,12 @@ import static org.assertj.core.api.Assumptions.assumeThat;
 
 import de.dadecker.inubit.mcp.adapter.os.AclApi.Principal;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystemException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
@@ -476,5 +479,55 @@ class OsPrivateFileSystemTest {
         assertThat(files.check(root)).isEmpty();
         files.tightenOnPosix(root);
         assertThat(acl.calls).isEmpty();
+    }
+
+    // --- feature 019 (T025, research D-12): the knowledge lock file, never through a link ------
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void theKnowledgeLockFileIsOpenedForWritingAndCanBeLocked() throws IOException {
+        Path file = Files.createFile(root.resolve(".lock"));
+
+        try (FileChannel channel = new OsPrivateFileSystem(false).openLockFileNoFollow(file);
+             FileLock lock = channel.tryLock()) {
+            assertThat(lock).isNotNull();
+            assertThat(lock.isValid()).isTrue();
+        }
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void aLinkInPlaceOfTheKnowledgeLockFileIsRefusedAndItsTargetUntouched() throws IOException {
+        Path target = Files.writeString(root.resolve("target"), "kept");
+        Path link = Files.createSymbolicLink(root.resolve(".lock"), target);
+
+        assertThatThrownBy(() -> new OsPrivateFileSystem(false).openLockFileNoFollow(link))
+            .as("ELOOP: a plain IOException on some JDKs")
+            .isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> windows().openLockFileNoFollow(link))
+            .as("simulated Windows: the fallback keeps NOFOLLOW_LINKS")
+            .isInstanceOf(IOException.class);
+        assertThat(Files.readString(target)).isEqualTo("kept");
+        assertThat(acl.calls).isEmpty();
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void theWorkspaceLockFileStillFollowsALink() throws IOException {
+        Path target = Files.createFile(root.resolve("target"));
+        Path link = Files.createSymbolicLink(root.resolve("deploy.lock"), target);
+
+        try (FileChannel channel = new OsPrivateFileSystem(false).openLockFile(link)) {
+            assertThat(channel.isOpen()).isTrue();
+        }
+    }
+
+    @Test
+    void aMissingKnowledgeLockFileIsNotCreated() {
+        Path missing = root.resolve(".lock");
+
+        assertThatThrownBy(() -> windows().openLockFileNoFollow(missing))
+            .isInstanceOf(NoSuchFileException.class);
+        assertThat(missing).doesNotExist();
     }
 }
