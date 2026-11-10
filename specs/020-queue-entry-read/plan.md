@@ -99,9 +99,10 @@ one helper JVM (≈ 1–3 s start-up of the vendor client); bounded by `cliTimeo
 | VI. Bounded, Structured Output | ✅ | ✅ fixed JSON shape; text ≤ `maxChars`, variables 200 / 2,000 / 40,000, parts ≤ 10 MiB input, explicit truncation markers; actionable errors (D-12, contracts). |
 | VII. Observability & Auditability | ✅ (read tool: no audit) | ✅ one structured INFO line per call with node, process ID, file name, sizes, outcome; variant/client at DEBUG; no audit record (not state-changing) (D-16). |
 | Tech constraints: TLS for CLI connections; server verifies pins itself | ⚠️ vendor clients' trust handling is unreliable (8.1 ignores a missing store; 9.0 ignores StartCLI's argument) | ✅ the server verifies every `https` connection itself before the launch and restricts the helper to the verified certificate (D-7). |
+| Tech constraints: language "Java, using a current LTS release (21 or newer)" | ⚠️ the 8.1 client runs on JDK 17 | ⚠️ justified deviation: the server stays Java 21; only the helper class `QueueEntryHelper` is compiled with `release 17` (Java 17 bytecode, JDK-only) because it runs in the 8.1 client's JDK 17 → Complexity Tracking, row "A second compiler execution (Java 17)" (D-2). |
 | Tech constraints: dependencies minimal, single artifact | ✅ | ✅ no new dependency or plugin; the helper is a resource in the same JAR (D-2). |
 
-**Result**: PASS, no deviation (Complexity Tracking empty).
+**Result**: PASS with one justified deviation (helper bytecode Java 17, technology constraints; Complexity Tracking).
 
 ## Project Structure
 
@@ -200,7 +201,7 @@ Stages, each ending with a green `mvn -o -q clean verify` and reviewed:
 
 ## Complexity Tracking
 
-No constitution deviation. Notable design weight, kept deliberately:
+One justified deviation (first row: technology constraint "Java 21 or newer" for the helper only) and one notable design weight, kept deliberately:
 
 | Item | Why needed | Simpler alternative rejected because |
 |---|---|---|

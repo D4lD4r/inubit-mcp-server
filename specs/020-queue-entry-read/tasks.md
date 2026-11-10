@@ -48,7 +48,12 @@ decisions go to `specs/020-queue-entry-read/reviews/implementation.md`.
   non-boolean value → `Invalid value at groups[i].unsupported.queueEntryRead in <source>: expected
   true or false`", never echoing the value); `config/EffectiveNodeConfig.java` `+ boolean
   queueEntryRead` resolved from the group only (default `false`) and passed through both
-  constructors, `withTimeout`, `withCli`, `entryProbe` (and `testing/TestNodeConfig` callers).
+  constructors, `withTimeout`, `withCli`, `entryProbe`; the existing secondary constructor
+  (`EffectiveNodeConfig.java:93-102`) keeps its signature and passes `false`; the direct test
+  callers `src/test/java/de/dadecker/inubit/mcp/adapter/TestNodeConfig.java`,
+  `config/EffectiveNodeConfigCliForTest.java`, `adapter/cli/StartCliPinProbeTest.java` and
+  `adapter/cli/CliRunnerTest.java` either use that unchanged secondary constructor or get the
+  extra `false` argument (no behaviour change).
   Failing tests first in `config/ConfigLoaderTest.java` (`true`/`false`/empty/`null` load;
   `"true"`, `1`, `0`, `yes`, list, mapping → error without the value; `unsupported.archiveRead` →
   `Unknown key 'archiveRead' at groups[0].unsupported`; `unsupported` on a node and in `defaults`
@@ -57,7 +62,7 @@ decisions go to `specs/020-queue-entry-read/reviews/implementation.md`.
 - [ ] T003 Capability and matrix (FR-006, FR-019 fallback state, D-6; after T002): `domain/model/Capability.java`
   `+ QUEUE_ENTRY_READ` (kind `READ`, label "reading Queue Manager entries");
   `domain/model/CapabilityMatrix.java`: 8.1 `SUPPORTED`; **9.0 `UNSUPPORTED` with the note "not
-  yet verified"** (the fallback state; flipped only by T042); 6.1 unlisted; unknown map
+  yet verified"** (the fallback state; flipped only by T038); 6.1 unlisted; unknown map
   `QUEUE_ENTRY_READ → UNSUPPORTED`; `Entry` `+ Map<Capability, String> notes`;
   `application/VersionGate.java` (`cliOnlyStep` case; refusal text uses the entry note);
   `application/NodeOverview.java` (`name` = `queue_entry_read`);
@@ -365,7 +370,7 @@ INUBIT contact.
   `NoCustomerIdentifiersTest` with the private lists and `python3 -I tools/check-identifiers.py
   --all` pass. **The owner reviews the diff of `fixtures/queue-entry/v8_1/error_entry.*` before
   it is committed.** `.origin` `recorded 2026-11-10 8.1.17 neutralized` (frames stay
-  `reconstructed` until T040); `QueueEntryV81ContractTest` gets the `error_entry` case (US1-1:
+  `reconstructed` until T035); `QueueEntryV81ContractTest` gets the `error_entry` case (US1-1:
   metadata, text, all variables with system flags, masking). Done when the owner approved the
   diff and the build is green
 
