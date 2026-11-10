@@ -55,7 +55,7 @@ person's choice on 2026-11-10: option (A), fail closed (plan.md "Decision"). Tas
 - [X] T004 [P] `Masked` and `SecretSpan` records (D-6): masking of spans to `***`, count, merging
   overlapping spans, never splitting a surrogate pair — main `domain/model/Masked.java`,
   `domain/model/SecretSpan.java`, test `domain/model/MaskedTest.java`
-- [ ] T005 `SecretScrubber.occurrences(String)` returning the spans of held values (D-6 (a)),
+- [X] T005 `SecretScrubber.occurrences(String)` returning the spans of held values (D-6 (a)),
   behaviour of the existing scrub methods unchanged — main `infra/SecretScrubber.java`, test
   `infra/SecretScrubberTest.java`
 - [ ] T006 [P] `SimilarNames` made `public` (behaviour unchanged): first a red test in
