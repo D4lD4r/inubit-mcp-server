@@ -53,6 +53,8 @@ import de.dadecker.inubit.mcp.application.NodeOverview;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.VersionGate;
 import de.dadecker.inubit.mcp.application.PackageWriter;
+import de.dadecker.inubit.mcp.application.PartnerAudit;
+import de.dadecker.inubit.mcp.application.PartnerService;
 import de.dadecker.inubit.mcp.application.ProcessControlService;
 import de.dadecker.inubit.mcp.application.ReleaseDiscovery;
 import de.dadecker.inubit.mcp.application.ReleasePlanner;
@@ -103,6 +105,7 @@ import de.dadecker.inubit.mcp.mcp.UpdateNotice;
 import de.dadecker.inubit.mcp.mcp.tools.CheckArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.ExportArchivesTool;
 import de.dadecker.inubit.mcp.mcp.tools.ExportArtifactsTool;
+import de.dadecker.inubit.mcp.mcp.tools.FindPartnersTool;
 import de.dadecker.inubit.mcp.mcp.tools.FindProcessesTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetHealthTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetInventoryItemTool;
@@ -184,6 +187,8 @@ final class Wiring implements AutoCloseable {
     private final UpdateStatus updateStatus = new UpdateStatus();
     private final DiagnosisService diagnosis;
     private final InventoryService inventory;
+    /** Feature 018: offered where partner management is possibly available (FR-001). */
+    private final FindPartnersTool findPartners;
     private final ProcessControlService processControl;
     private final ClientSelectionPort clientSelection;
     private final ExportArtifactsTool exportArtifacts;
@@ -369,8 +374,10 @@ final class Wiring implements AutoCloseable {
         this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,
             id -> byId.get(id).cliTimeout(), hangingThresholds::get, clock.clock(),
             ResultJson::size, versionGate, secretTiming);
-        this.inventory = new InventoryService(gateways, targets, fanOut, limiter,
-            new InventoryCache(clock.clock(), id -> byId.get(id).inventory().cacheTtl()),
+        // feature 018 (research D-6): the partner reads use dedicated scopes of the same cache
+        InventoryCache inventoryCache =
+            new InventoryCache(clock.clock(), id -> byId.get(id).inventory().cacheTtl());
+        this.inventory = new InventoryService(gateways, targets, fanOut, limiter, inventoryCache,
             id -> byId.get(id).inventory().owner(), timeouts::get,
             id -> byId.get(id).cliExportTimeout(), id -> byId.get(id).cliTimeout(),
             CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, terms, versionGate,
@@ -385,6 +392,13 @@ final class Wiring implements AutoCloseable {
             new WriteGuard(targets, policies, gateways, versionGate), policies,
             gateways, new ConfirmationRegistry(clock.clock()), audit, clock.clock(),
             UUID::randomUUID, profile.name());
+        // feature 018 (FR-020): every call audited in the shared audit log
+        PartnerAudit.Dependencies partnerAudits = new PartnerAudit.Dependencies(audit,
+            clock.clock(), profile.name(), UUID::randomUUID);
+        this.findPartners = new FindPartnersTool(new PartnerService(gateways, targets, fanOut,
+            inventoryCache, id -> byId.get(id).inventory().owner(), timeouts::get,
+            id -> byId.get(id).cliExportTimeout(), terms, versionGate, secretTiming,
+            partnerAudits), partnerAudits);
         // feature 003: the workspace history uses the system git (not the StartCLI launcher)
         Path workspace = config.workspace();
         this.exportArtifacts = new ExportArtifactsTool(new WorkspaceService(workspace,
@@ -573,6 +587,10 @@ final class Wiring implements AutoCloseable {
         if (anyPossiblyCapable(Capability.INVENTORY)) {
             handlers.add(new ListInventoryTool(inventory));
             handlers.add(new GetInventoryItemTool(inventory));
+        }
+        // feature 018 (research D-1): REST like get_inventory_item; 6.1 refuses the capability
+        if (anyPossiblyCapable(Capability.PARTNER_MANAGEMENT)) {
+            handlers.add(findPartners);
         }
         // feature 017 (research D-7): a client home some version of the node may use
         if (servers.stream().anyMatch(server -> clientSelection.anyCandidate(server.id())

@@ -237,7 +237,7 @@ a lower-case name part; check every value and the leak check over result, log, a
   server (server, owner, outcome, counts, call id) without settings or secrets (FR-020, FR-021).
   **Done when** Op-4 passes and the captured log and audit lines pass the leak check — main
   `application/PartnerService.java`, test `application/PartnerServiceAuditTest.java`
-- [ ] T022 [US1] `FindPartnersTool` (name `find_partners`, hints `ToolHints.readOnly("Find partners
+- [X] T022 [US1] `FindPartnersTool` (name `find_partners`, hints `ToolHints.readOnly("Find partners
   in the INUBIT Partner Management", true, true)`), schemas
   `src/main/resources/schemas/find_partners.input.json` / `.output.json` exactly as
   `contracts/find_partners.md` (single-server shape; a target with several servers or a

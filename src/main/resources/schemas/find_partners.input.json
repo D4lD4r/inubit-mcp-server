@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "required": ["target"],
+  "properties": {
+    "target": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}(/[a-z0-9][a-z0-9-]{0,31})?$",
+                "description": "Id of one {group} (all its {nodes}) or of one {node} (`<{group}>/<{node}>`)" },
+    "compareWith": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}(/[a-z0-9][a-z0-9-]{0,31})?$",
+                     "description": "Id of another {group} or {node} to compare with; must not equal or overlap target" },
+    "owner": { "type": "string", "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
+               "description": "INUBIT user or user group owning the system diagrams, for every {node}; default: inventory.owner of each {node}" },
+    "search": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*$",
+                "description": "Part of a partner's Id, name or other non-secret partner field (case-insensitive); without it, all partners are listed" },
+    "systemDiagram": { "type": "string", "pattern": "^[^\\u0000-\\u001F\\u007F]{1,200}$",
+                       "description": "Only this system diagram (name, exact, case-insensitive, any diagram group)" },
+    "protocol": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$",
+                  "description": "Only entries of this protocol (the entry's protocol attribute, e.g. FTP; exact, case-insensitive)" },
+    "workflow": { "type": "string", "pattern": "^[^\\u0000-\\u001F\\u007F]{1,200}$",
+                  "description": "Only entries referencing this technical workflow (name, exact, case-insensitive)" },
+    "offset": { "type": "integer", "minimum": 0, "default": 0 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+    "refresh": { "type": "boolean", "default": false, "description": "Bypass the cache" }
+  },
+  "additionalProperties": false
+}

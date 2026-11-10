@@ -120,7 +120,7 @@ class PartnerServiceSearchTest {
             List.of(ftp("Workflow-0001", "ftp1.example.test", "login1", "FTP"),
                 ftp("Workflow-0002", "ftp1.example.test", "login1", "FTP"))));
         assertThat(found.referencableWorkflows())
-            .containsExactly(new CloudWorkflows(ONE, CLOUD, WORKFLOWS));
+            .containsExactly(new CloudWorkflows(ONE, CLOUD, Optional.empty(), WORKFLOWS));
         assertNoSecretIn(found);
     }
 
@@ -192,9 +192,9 @@ class PartnerServiceSearchTest {
         assertThat(found.partners()).extracting(PartnerView::moduleId)
             .containsOnly(Optional.empty());
         assertThat(found.referencableWorkflows()).containsExactly(
-            new CloudWorkflows(ONE, CLOUD, WORKFLOWS),
-            new CloudWorkflows(TWO_CLOUDS, CLOUD, WORKFLOWS),
-            new CloudWorkflows(TWO_CLOUDS, "Module-0902", WORKFLOWS));
+            new CloudWorkflows(ONE, CLOUD, Optional.empty(), WORKFLOWS),
+            new CloudWorkflows(TWO_CLOUDS, CLOUD, Optional.empty(), WORKFLOWS),
+            new CloudWorkflows(TWO_CLOUDS, "Module-0902", Optional.empty(), WORKFLOWS));
     }
 
     @Test
@@ -218,6 +218,9 @@ class PartnerServiceSearchTest {
             new CloudCount(CLOUD, Optional.of("33"), 1),
             new CloudCount(CLOUD, Optional.of("213"), 1),
             new CloudCount("Module-0902", Optional.empty(), 0));
+        assertThat(found.referencableWorkflows()).containsExactly(
+            new CloudWorkflows(ONE, CLOUD, Optional.of("33"), List.of("Workflow-0001")),
+            new CloudWorkflows(ONE, CLOUD, Optional.of("213"), List.of("Workflow-0001")));
     }
 
     // --- Op-1, FR-007 -------------------------------------------------------------------------
@@ -240,7 +243,7 @@ class PartnerServiceSearchTest {
                 List.of(new CloudCount("Module-0903", Optional.empty(), 0))));
         assertThat(server.withoutPartnerManagement()).containsExactly(WITHOUT);
         assertThat(found.referencableWorkflows())
-            .containsExactly(new CloudWorkflows(ONE, CLOUD, WORKFLOWS));
+            .containsExactly(new CloudWorkflows(ONE, CLOUD, Optional.empty(), WORKFLOWS));
         assertThat(found.partners()).extracting(PartnerServiceSearchTest::id)
             .containsExactly("ACME-0002");
     }

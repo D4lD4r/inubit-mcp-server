@@ -31,6 +31,7 @@ and is not a baseline failure. It is recorded here in case it comes back.
 - From T017 (for T021): per-server REFUSED/FAILED records carry no `reason`; add `Optional<String> reason` to `PartnerAudit.perServer` and pass the server's error code (code only, no message) so the audit shows why a server was not answered.
 - From T019 (for T022): `CloudWorkflows` (`referencableWorkflows[]`) names a cloud only by module name; give it the same optional `moduleId` as `PartnerView`/`CloudCount` (only when two clouds of one diagram share a name) and put it in the contract.
 - From T020 (for T026): test a `systemDiagram` filter on two answering servers where only one has the diagram: no call-level NOT_FOUND, the other server is marked.
+- From T022 (for T024 and T026): `FindPartnersTool` writes interim values: `compared` always false, `offset`/`limit` only echoed, `total` = partners returned, `truncated` false, no `nextOffset`; a stage with two answering servers returns merged partners in the single-server shape. T024 must take total/nextOffset/truncated from the paged service result, T026 must set `compared` and the comparison shape; their tests replace the interim ones.
 
 ## Implementation — phase 2 build
 

@@ -116,6 +116,7 @@ class PartnerServiceAuditTest {
             .containsExactly(NODE1.value(), NODE2.value());
         UUID callId = port.records.get(0).callId().orElseThrow();
         assertThat(port.records).extracting(AuditRecord::callId).containsOnly(Optional.of(callId));
+        assertThat(found.callId()).as("the result names the call id").isEqualTo(callId);
         assertThat(port.records).extracting(AuditRecord::outcome)
             .containsExactly(AuditOutcome.EXECUTED, AuditOutcome.REFUSED);
         assertThat(port.records).extracting(AuditRecord::reason)

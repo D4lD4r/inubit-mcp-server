@@ -309,4 +309,29 @@ class WiringAuditTest {
         assertThat(accounts(audit("import_artifacts"))).containsOnly(ENV_USER);
         assertThat(importedWorkflows()).contains("Deploying User: " + ENV_USER + "@@@");
     }
+
+    @Test
+    void findPartnersRefusalsBeforeAnyServerIsContactedAreInTheSharedAuditLog()
+        throws IOException {
+        // feature 018 (T022, FR-020): one record per refused call, its node the target as given
+        startEnvironmentServer();
+
+        JsonNode overlap = call("find_partners", Map.of("target", "dev",
+            "compareWith", "dev/node1"));
+        JsonNode unknown = call("find_partners", Map.of("target", "qa"));
+
+        assertThat(overlap.toString()).as("refused").contains("INVALID_INPUT");
+        assertThat(unknown.toString()).as("refused").contains("TARGET_UNKNOWN");
+        List<JsonNode> records = audit("find_partners");
+        assertThat(records).extracting(record -> record.path("node").asString())
+            .containsExactly("dev", "qa");
+        assertThat(records).extracting(record -> record.path("outcome").asString())
+            .containsOnly("REFUSED");
+        assertThat(records).allSatisfy(record -> {
+            assertThat(record.path("profile").asString()).isEqualTo("acme");
+            assertThat(record.path("callId").asString()).isNotEmpty();
+            assertThat(record.path("mcpClient").asString()).isEqualTo("mcp-test-client/1.0");
+        });
+        assertThat(inubit.getAllServeEvents()).as("no server was contacted").isEmpty();
+    }
 }

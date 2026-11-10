@@ -1438,7 +1438,8 @@ class MainTest {
         assertThat(tools.path("result").path("tools"))
             .extracting(tool -> tool.path("name").asString())
             .containsExactlyInAnyOrder("list_nodes", "get_health", "find_processes",
-                "query_logs", "list_inventory", "get_inventory_item", "check_artifacts");
+                "query_logs", "list_inventory", "get_inventory_item", "find_partners",
+                "check_artifacts");
         JsonNode server = servers.path("result").path("structuredContent").path("groups").path(0)
             .path("nodes").path(0);
         assertThat(server.path("id").asString()).isEqualTo("dev/node1");

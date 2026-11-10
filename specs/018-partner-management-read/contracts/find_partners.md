@@ -43,10 +43,12 @@ Offered when at least one server is possibly capable of `PARTNER_MANAGEMENT`; th
           "message": "the export of this name returned a diagram of another group or owner" } ],
       "warnings": ["9.0.3 on qa/node1 is not verified for partner management; …",
                    "an entry of partner ACME-0001 in Module-0901 references an unknown workflow"],
-      "error": null }                // ToolError {code, message, cause, nextStep} for a failed server
+      "error": {…} }                 // only for a failed server: ToolError {code, message,
+                                      // likelyCause, nextStep, node}; absent otherwise
   ],
   "referencableWorkflows": [         // FR-007, per communication cloud that contributed a partner
     { "systemDiagram": {"name": "…", "diagramGroup": "…"}, "cloud": "Module-0901",
+      "moduleId": "33",              // only when two clouds of one diagram share a name
       "workflows": ["Workflow-0001"] }
   ],
   "partners": [ /* single server: Partner; comparison: ComparedPartner (below) */ ],

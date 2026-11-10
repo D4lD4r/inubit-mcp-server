@@ -34,6 +34,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -131,6 +132,7 @@ public final class PartnerService {
     /**
      * The answer of one call (T019, T020).
      *
+     * @param callId                the call id shared by every audit record of the call (FR-020)
      * @param servers               one per targeted server, in config order
      * @param referencableWorkflows per communication cloud that contributed a partner (FR-007)
      * @param partners              the matching partners in export order
@@ -138,10 +140,12 @@ public final class PartnerService {
      *                              {@link #MAX_SIMILAR} non-masked {@code Id} and {@code Name}
      *                              values of the system diagrams read, closest first (FR-005b)
      */
-    public record Found(List<ServerView> servers, List<CloudWorkflows> referencableWorkflows,
-        List<PartnerView> partners, Optional<List<String>> similarValues) {
+    public record Found(UUID callId, List<ServerView> servers,
+        List<CloudWorkflows> referencableWorkflows, List<PartnerView> partners,
+        Optional<List<String>> similarValues) {
 
         public Found {
+            Objects.requireNonNull(callId, "callId");
             servers = List.copyOf(servers);
             referencableWorkflows = List.copyOf(referencableWorkflows);
             partners = List.copyOf(partners);
@@ -188,8 +192,13 @@ public final class PartnerService {
     public record CloudCount(String cloud, Optional<String> moduleId, int partners) {
     }
 
-    /** The referencable workflows of a communication cloud that contributed a partner. */
-    public record CloudWorkflows(DiagramRef systemDiagram, String cloud, List<String> workflows) {
+    /**
+     * The referencable workflows of a communication cloud that contributed a partner.
+     *
+     * @param moduleId only when another cloud of the same system diagram has the same name
+     */
+    public record CloudWorkflows(DiagramRef systemDiagram, String cloud,
+        Optional<String> moduleId, List<String> workflows) {
 
         public CloudWorkflows {
             workflows = List.copyOf(workflows);
@@ -334,7 +343,7 @@ public final class PartnerService {
         Optional<List<String>> similar = query.search()
             .filter(search -> partners.isEmpty())
             .map(search -> SimilarNames.of(search, similarCandidates(results), MAX_SIMILAR));
-        return new Found(servers, workflows, partners, similar);
+        return new Found(audit.callId(), servers, workflows, partners, similar);
     }
 
     /**
@@ -374,7 +383,7 @@ public final class PartnerService {
                 if (!matches.isEmpty()) {
                     partners.addAll(matches);
                     workflows.add(new CloudWorkflows(diagram.diagram(), cloud.moduleName(),
-                        cloud.referencableWorkflows()));
+                        moduleId(diagram, cloud), cloud.referencableWorkflows()));
                 }
             }
         }
