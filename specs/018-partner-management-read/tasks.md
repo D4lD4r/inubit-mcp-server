@@ -349,7 +349,7 @@ system diagrams/clouds whose `ReferencableTWFs` contain the workflow.
 - [x] T031 [P] `PartnerServicePerformanceTest`: 1,000-partner fixture, parse + mask + fingerprint +
   page ≤ 5 s beyond the read; a repeated call within the TTL makes no request (SC-005) — test
   `application/PartnerServicePerformanceTest.java`
-- [ ] T032 Docs (FR-022): `docs/tools.md` new `find_partners` section (inputs, output, clouds,
+- [x] T032 Docs (FR-022): `docs/tools.md` new `find_partners` section (inputs, output, clouds,
   summary keys, masking incl. `fieldType`, equality statement and its limits — different stored
   forms reported as differing, 8.1 only — workflows by name only, name collisions of the REST
   export), capability table row, "All eighteen tools" (and `DevelopmentToolsReferenceTest`),
