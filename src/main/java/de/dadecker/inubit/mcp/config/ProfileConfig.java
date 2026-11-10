@@ -22,6 +22,7 @@ import java.util.TreeSet;
  *                  {@link ConfigLoader} sets the default {@code ~/.inubit-mcp/<profile>/workspace},
  *                  {@link ConfigValidator} checks it and creates it if missing
  * @param updateCheck the check for a newer release of this server (feature 016)
+ * @param knowledge the local knowledge of feature 019; {@link ConfigLoader} fills its defaults
  */
 public record ProfileConfig(
     ProfileSection profile,
@@ -33,7 +34,8 @@ public record ProfileConfig(
     LogLevel logLevel,
     ResultLimits resultLimits,
     Path workspace,
-    UpdateCheckConfig updateCheck) {
+    UpdateCheckConfig updateCheck,
+    KnowledgeConfig knowledge) {
 
     public ProfileConfig {
         profile = Optionals.orDefault(profile, ProfileSection.EMPTY);
@@ -46,6 +48,7 @@ public record ProfileConfig(
         resultLimits = Optionals.orDefault(resultLimits, ResultLimits.DEFAULT);
         Objects.requireNonNull(workspace, "workspace");
         updateCheck = Optionals.orDefault(updateCheck, UpdateCheckConfig.DEFAULT);
+        Objects.requireNonNull(knowledge, "knowledge");
     }
 
     /**

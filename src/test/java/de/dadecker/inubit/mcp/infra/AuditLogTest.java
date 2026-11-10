@@ -453,6 +453,11 @@ class AuditLogTest {
             public boolean ownedByCurrentUser(Path path) throws IOException {
                 return FILES.ownedByCurrentUser(path);
             }
+
+            @Override
+            public Optional<String> othersMayAccess(Path path) throws IOException {
+                return FILES.othersMayAccess(path);
+            }
         };
         AuditLog log = new AuditLog(directory, scrubber, leaving);
 

@@ -163,6 +163,44 @@ public final class OsPrivateFileSystem implements PrivateFileSystem {
     }
 
     @Override
+    public Optional<String> othersMayAccess(Path path) throws IOException {
+        if (!Files.exists(path)) {
+            return Optional.empty();
+        }
+        if (mode == Mode.WINDOWS) {
+            List<String> principals = check(path);
+            return principals.isEmpty() ? Optional.empty()
+                : Optional.of("accessible to " + String.join(", ", principals));
+        }
+        if (mode == Mode.NONE) {
+            return Optional.empty();
+        }
+        Set<PosixFilePermission> bits = Files.getPosixFilePermissions(path);
+        String group = access(bits.contains(PosixFilePermission.GROUP_READ),
+            bits.contains(PosixFilePermission.GROUP_WRITE));
+        String others = access(bits.contains(PosixFilePermission.OTHERS_READ),
+            bits.contains(PosixFilePermission.OTHERS_WRITE));
+        if (group.isEmpty() && others.isEmpty()) {
+            return Optional.empty();
+        }
+        if (group.equals(others)) {
+            return Optional.of(group + " by group and others");
+        }
+        if (others.isEmpty()) {
+            return Optional.of(group + " by group");
+        }
+        if (group.isEmpty()) {
+            return Optional.of(others + " by others");
+        }
+        return Optional.of(group + " by group, " + others + " by others");
+    }
+
+    private static String access(boolean read, boolean write) {
+        return read && write ? "readable and writable" : read ? "readable"
+            : write ? "writable" : "";
+    }
+
+    @Override
     public boolean ownedByCurrentUser(Path path) throws IOException {
         if (mode == Mode.WINDOWS) {
             try {
@@ -228,6 +266,19 @@ public final class OsPrivateFileSystem implements PrivateFileSystem {
             }
         }
         return FileChannel.open(file, StandardOpenOption.WRITE);
+    }
+
+    @Override
+    public FileChannel openLockFileNoFollow(Path file) throws IOException {
+        if (mode == Mode.WINDOWS) {
+            try {
+                return FileChannel.open(file, StandardOpenOption.WRITE,
+                    ExtendedOpenOption.NOSHARE_DELETE, LinkOption.NOFOLLOW_LINKS);
+            } catch (UnsupportedOperationException e) {
+                // a simulated Windows host in the tests
+            }
+        }
+        return FileChannel.open(file, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
     }
 
     private String user(Path path) throws FileSystemException {

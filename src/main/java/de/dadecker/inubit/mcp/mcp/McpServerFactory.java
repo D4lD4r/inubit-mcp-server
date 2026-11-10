@@ -62,6 +62,7 @@ public final class McpServerFactory {
     private final ResultMapper resultMapper;
     private final SchemaRenderer schemaRenderer;
     private final UpdateNotice updateNotice;
+    private final String knowledge;
 
     /**
      * @param profile the profile whose name, description and terminology the server info, the
@@ -75,6 +76,17 @@ public final class McpServerFactory {
     /** As above, with the update notice of feature 016 (FR-017 to FR-019). */
     public McpServerFactory(String version, ProfileInfo profile, List<ToolHandler> handlers,
         SchemaResources schemas, ResultMapper resultMapper, UpdateNotice updateNotice) {
+        this(version, profile, handlers, schemas, resultMapper, updateNotice, "");
+    }
+
+    /**
+     * As above, with the knowledge paragraph of feature 019 (research D-8): appended as it is
+     * after the profile paragraph, never rendered as a template; empty for none.
+     */
+    public McpServerFactory(String version, ProfileInfo profile, List<ToolHandler> handlers,
+        SchemaResources schemas, ResultMapper resultMapper, UpdateNotice updateNotice,
+        String knowledge) {
+        this.knowledge = Objects.requireNonNull(knowledge, "knowledge");
         this.updateNotice = Objects.requireNonNull(updateNotice, "updateNotice");
         this.version = Objects.requireNonNull(version, "version");
         this.profile = Objects.requireNonNull(profile, "profile");
@@ -124,8 +136,10 @@ public final class McpServerFactory {
 
     /**
      * The server {@code instructions} of the {@code initialize} result: the profile, its
-     * description and the terminology (research D-5); feature 016 (FR-018): a newer release known
-     * at start closes them.
+     * description and the terminology (research D-5); feature 019 (research D-8): then the
+     * knowledge paragraph, after an empty line; feature 016 (FR-018): a newer release known at
+     * start closes them, after an empty line if the knowledge paragraph (which may end with a
+     * list) precedes it.
      */
     String instructions() {
         // the description is inserted after rendering: it is text from the file, not a template
@@ -136,7 +150,9 @@ public final class McpServerFactory {
                 + " tools take the id of one {group} or one {node} in `target`; write tools (if"
                 + " offered) take exactly one {node} id in `node`. Results use the fields `group`"
                 + " and `node` for these levels. Call list_nodes first to learn the valid ids.")
-            + updateNotice.instructionsSentence().map(sentence -> " " + sentence).orElse("");
+            + (knowledge.isEmpty() ? "" : "\n\n" + knowledge)
+            + updateNotice.instructionsSentence()
+                .map(sentence -> (knowledge.isEmpty() ? " " : "\n\n") + sentence).orElse("");
     }
 
     /**

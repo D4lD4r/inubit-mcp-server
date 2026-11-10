@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.ExportArchive.ModuleXml;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ExportArchive.WorkflowXml;
 import de.dadecker.inubit.mcp.adapter.archive.v81.SecretRedactor.Kind;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
+import de.dadecker.inubit.mcp.domain.model.KeyMaterial;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;

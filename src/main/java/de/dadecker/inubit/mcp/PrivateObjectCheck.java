@@ -2,6 +2,8 @@ package de.dadecker.inubit.mcp;
 
 import de.dadecker.inubit.mcp.application.DeployLock;
 import de.dadecker.inubit.mcp.application.DeploymentLedger;
+import de.dadecker.inubit.mcp.config.KnowledgeConfig;
+import de.dadecker.inubit.mcp.config.KnowledgeStatus;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.infra.AuditLog;
@@ -64,6 +66,37 @@ final class PrivateObjectCheck {
                 + "}", "deployment ledgers and locks").forEach(file -> warn(warnings,
                     file.getFileName().toString().endsWith(DeployLock.SUFFIX)
                         ? "deployment lock" : "deployment ledger", file, false));
+        }
+        return warnings;
+    }
+
+    /**
+     * The start-time warnings for the knowledge directory (feature 019, FR-003,
+     * contracts/configuration-delta.md): not usable (not a directory, not readable), else who
+     * else may access it — on POSIX the group and other bits with the {@code chmod} remedy, on
+     * Windows the access list in the wording above. None for a missing directory or a relative
+     * path (the validator reports that); nothing is changed.
+     */
+    List<String> knowledgeWarnings(Path knowledge, boolean windows) {
+        KnowledgeStatus status = KnowledgeStatus.probe(new KnowledgeConfig(knowledge, true), 0);
+        if (status.state() != KnowledgeStatus.State.OK) {
+            return knowledge.isAbsolute() ? status.problem().map(problem ->
+                List.of("The knowledge directory " + knowledge + " is not usable: " + problem
+                    + "; the knowledge tools report it until it is fixed")).orElse(List.of())
+                : List.of();
+        }
+        List<String> warnings = new ArrayList<>();
+        if (windows) {
+            warn(warnings, "knowledge directory", knowledge, true);
+            return warnings;
+        }
+        try {
+            files.othersMayAccess(knowledge).ifPresent(finding -> warnings.add(
+                "The knowledge directory " + knowledge + " is " + finding + "; run chmod 700 "
+                    + knowledge + " (the server does not change permissions)"));
+        } catch (IOException e) {
+            warnings.add("the access of the knowledge directory " + knowledge
+                + " could not be checked (" + describe(e) + ")");
         }
         return warnings;
     }

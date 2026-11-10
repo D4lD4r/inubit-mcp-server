@@ -159,6 +159,7 @@ class GitCliTest {
         git.init();
         Path marker = root.resolve("hook-ran");
         Path hook = root.resolve(".git/hooks/pre-commit");
+        Files.createDirectories(hook.getParent()); // git 2.56+ no longer creates .git/hooks
         Files.writeString(hook, "#!/bin/sh\ntouch '" + marker + "'\nexit 1\n");
         if (POSIX) {
             Files.setPosixFilePermissions(hook, PosixFilePermissions.fromString("rwx------"));
