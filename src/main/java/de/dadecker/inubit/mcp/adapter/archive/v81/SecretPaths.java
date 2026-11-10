@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.adapter.archive.v81;
 import de.dadecker.inubit.mcp.adapter.archive.v81.SecretRedactor.Kind;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Node;
+import de.dadecker.inubit.mcp.domain.model.KeyMaterial;
 import de.dadecker.inubit.mcp.domain.model.SecretPlaceholder;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -212,29 +213,8 @@ final class SecretPaths {
             return true;
         }
         // a keystore can also sit base64-encoded in an untyped property (stage-2 review)
-        return longBase64(value) && KeyMaterial.decodeDocument(value)
+        return KeyMaterial.longBase64(value) && KeyMaterial.decodeDocument(value)
             .filter(KeyMaterial::isKeyMaterial).isPresent();
-    }
-
-    /**
-     * At least 64 characters of the base64 alphabet, white space allowed — a loop, not a regular
-     * expression with a group loop, which overflows the stack on long values.
-     */
-    static boolean longBase64(String value) {
-        int count = 0;
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
-            if (Character.isWhitespace(c)) {
-                continue;
-            }
-            boolean base64 = c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
-                || c == '+' || c == '/' || c == '=';
-            if (!base64) {
-                return false;
-            }
-            count++;
-        }
-        return count >= 64;
     }
 
     /** True if {@code value} is one X.509 certificate (base64 DER or PEM) and nothing else. */

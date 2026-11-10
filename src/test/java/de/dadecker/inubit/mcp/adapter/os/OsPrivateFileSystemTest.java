@@ -6,9 +6,12 @@ import static org.assertj.core.api.Assumptions.assumeThat;
 
 import de.dadecker.inubit.mcp.adapter.os.AclApi.Principal;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystemException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
@@ -19,6 +22,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /**
  * Feature 013 (T011, FR-007, research R-8): the private files and directories of the server.
@@ -155,6 +160,51 @@ class OsPrivateFileSystemTest {
         widen(directory, "rwxrwxrwx");
 
         assertThat(new OsPrivateFileSystem(false).check(directory)).isEmpty();
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "rwx------ | ''",
+        "rwx--x--x | ''",
+        "rwxr-x--- | readable by group",
+        "rwx----w- | writable by others",
+        "rwxrw---- | readable and writable by group",
+        "rwxr--r-- | readable by group and others",
+        "rwxrwxrwx | readable and writable by group and others",
+        "rwxr--rw- | readable by group, readable and writable by others",
+    })
+    @DisabledOnOs(OS.WINDOWS)
+    void othersMayAccessReportsGroupAndOtherReadAndWriteBitsNotExecuteAlone(String bits,
+        String finding) throws IOException {
+        Path directory = Files.createDirectory(root.resolve("d"));
+        widen(directory, bits);
+
+        assertThat(new OsPrivateFileSystem(false).othersMayAccess(directory))
+            .isEqualTo(finding.isEmpty() ? Optional.empty() : Optional.of(finding));
+    }
+
+    @Test
+    void othersMayAccessIsEmptyForAMissingPathAndWithoutPermissionSupport() throws IOException {
+        Path missing = root.resolve("missing");
+
+        assertThat(new OsPrivateFileSystem(false).othersMayAccess(missing)).isEmpty();
+        assertThat(windows().othersMayAccess(missing)).isEmpty();
+        assertThat(new OsPrivateFileSystem(OsPrivateFileSystem.Mode.NONE, acl,
+            Optional::empty).othersMayAccess(root)).isEmpty();
+    }
+
+    @Test
+    void onWindowsOthersMayAccessJoinsThePrincipalsCheckReports() throws IOException {
+        Path directory = Files.createDirectory(root.resolve("d"));
+        assertThat(windows().othersMayAccess(directory)).isEmpty();
+
+        acl.allowed = Optional.of(List.of(new Principal(USER, "HOST\\operator"),
+            new Principal(SYSTEM, "NT AUTHORITY\\SYSTEM"),
+            new Principal("S-1-5-32-545", "BUILTIN\\Users"),
+            new Principal("S-1-1-0", "Everyone")));
+
+        assertThat(windows().othersMayAccess(directory))
+            .contains("accessible to BUILTIN\\Users, Everyone");
     }
 
     @Test
@@ -429,5 +479,55 @@ class OsPrivateFileSystemTest {
         assertThat(files.check(root)).isEmpty();
         files.tightenOnPosix(root);
         assertThat(acl.calls).isEmpty();
+    }
+
+    // --- feature 019 (T025, research D-12): the knowledge lock file, never through a link ------
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void theKnowledgeLockFileIsOpenedForWritingAndCanBeLocked() throws IOException {
+        Path file = Files.createFile(root.resolve(".lock"));
+
+        try (FileChannel channel = new OsPrivateFileSystem(false).openLockFileNoFollow(file);
+             FileLock lock = channel.tryLock()) {
+            assertThat(lock).isNotNull();
+            assertThat(lock.isValid()).isTrue();
+        }
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void aLinkInPlaceOfTheKnowledgeLockFileIsRefusedAndItsTargetUntouched() throws IOException {
+        Path target = Files.writeString(root.resolve("target"), "kept");
+        Path link = Files.createSymbolicLink(root.resolve(".lock"), target);
+
+        assertThatThrownBy(() -> new OsPrivateFileSystem(false).openLockFileNoFollow(link))
+            .as("ELOOP: a plain IOException on some JDKs")
+            .isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> windows().openLockFileNoFollow(link))
+            .as("simulated Windows: the fallback keeps NOFOLLOW_LINKS")
+            .isInstanceOf(IOException.class);
+        assertThat(Files.readString(target)).isEqualTo("kept");
+        assertThat(acl.calls).isEmpty();
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void theWorkspaceLockFileStillFollowsALink() throws IOException {
+        Path target = Files.createFile(root.resolve("target"));
+        Path link = Files.createSymbolicLink(root.resolve("deploy.lock"), target);
+
+        try (FileChannel channel = new OsPrivateFileSystem(false).openLockFile(link)) {
+            assertThat(channel.isOpen()).isTrue();
+        }
+    }
+
+    @Test
+    void aMissingKnowledgeLockFileIsNotCreated() {
+        Path missing = root.resolve(".lock");
+
+        assertThatThrownBy(() -> windows().openLockFileNoFollow(missing))
+            .isInstanceOf(NoSuchFileException.class);
+        assertThat(missing).doesNotExist();
     }
 }

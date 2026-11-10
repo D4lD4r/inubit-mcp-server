@@ -343,6 +343,7 @@ public final class ConfigLoader {
         rejectEmptyListEntries(rootObject, "", source);
         requireStrictArchivesOptIn(rootObject, source);
         requireStrictUpdateCheck(rootObject, source);
+        requireStrictKnowledgeRecording(rootObject, source);
         List<String> urlProblems = new ArrayList<>();
         sanitizeUrls(rootObject, source, urlProblems);
         if (!rootObject.hasNonNull("auditDirectory")) {
@@ -351,6 +352,7 @@ public final class ConfigLoader {
         if (!rootObject.hasNonNull("workspace")) {
             rootObject.put("workspace", defaultWorkspace(rootObject).toString());
         }
+        fillKnowledgeDefaults(rootObject);
         try {
             return new LoadedConfig(source, mapper.treeToValue(rootObject, ProfileConfig.class),
                 credentialKeys, urlProblems);
@@ -396,6 +398,29 @@ public final class ConfigLoader {
         String directory = name.isString() && ProfileInfo.isValidName(name.asString())
             ? name.asString() : NO_PROFILE_AUDIT_DIRECTORY;
         return userHome.resolve(".inubit-mcp").resolve(directory).resolve("workspace");
+    }
+
+    /**
+     * Feature 019 (research D-1): an absent or empty {@code knowledge} block, directory or
+     * recording gets its default — {@code <home>/.inubit-mcp/<profile.name>/knowledge} (with
+     * {@link #NO_PROFILE_AUDIT_DIRECTORY} for an invalid name, as for the workspace) and recording
+     * on. A block that is not a mapping is left to the binding.
+     */
+    private void fillKnowledgeDefaults(ObjectNode root) {
+        JsonNode block = root.get("knowledge");
+        if (block == null || block.isNull()) {
+            block = root.putObject("knowledge");
+        }
+        if (!(block instanceof ObjectNode knowledge)) {
+            return;
+        }
+        if (!knowledge.hasNonNull("directory")) {
+            knowledge.put("directory",
+                defaultWorkspace(root).resolveSibling("knowledge").toString());
+        }
+        if (!knowledge.hasNonNull("recording")) {
+            knowledge.put("recording", true);
+        }
     }
 
     /**
@@ -622,6 +647,18 @@ public final class ConfigLoader {
         JsonNode enabled = root.path("updateCheck").path("enabled");
         if (!enabled.isMissingNode() && !enabled.isNull() && !enabled.isBoolean()) {
             throw new ConfigException("Invalid value at updateCheck.enabled in " + source
+                + ": expected true or false");
+        }
+    }
+
+    /**
+     * Feature 019 (contracts/configuration-delta.md): {@code knowledge.recording} must be a YAML
+     * boolean, so that a quoted {@code "false"} does not leave recording on. Never echoed.
+     */
+    private static void requireStrictKnowledgeRecording(ObjectNode root, Path source) {
+        JsonNode recording = root.path("knowledge").path("recording");
+        if (!recording.isMissingNode() && !recording.isNull() && !recording.isBoolean()) {
+            throw new ConfigException("Invalid value at knowledge.recording in " + source
                 + ": expected true or false");
         }
     }

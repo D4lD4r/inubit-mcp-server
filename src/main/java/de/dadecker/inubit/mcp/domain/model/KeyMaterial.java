@@ -1,4 +1,4 @@
-package de.dadecker.inubit.mcp.adapter.archive.v81;
+package de.dadecker.inubit.mcp.domain.model;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -16,8 +16,11 @@ import java.util.zip.GZIPInputStream;
  * PKCS#7 content), PEM private keys, and file names ending in {@code .jks}, {@code .jceks},
  * {@code .p12}, {@code .pfx}, {@code .keystore} or {@code .key}. PKCS#12 is accepted in DER and
  * in BER with indefinite lengths.
+ *
+ * <p>Shared by the archive export (feature 015) and the local knowledge (feature 019, research
+ * D-6 (b)).
  */
-final class KeyMaterial {
+public final class KeyMaterial {
 
     private static final Pattern KEY_NAME =
         Pattern.compile("(?i).*\\.(jks|jceks|p12|pfx|keystore|key)$");
@@ -32,12 +35,12 @@ final class KeyMaterial {
     }
 
     /** True if {@code name} (a file or document name) names a keystore or key file. */
-    static boolean hasKeyName(String name) {
+    public static boolean hasKeyName(String name) {
         return name != null && KEY_NAME.matcher(name.strip()).matches();
     }
 
     /** True if {@code content} is a JKS/JCEKS/PKCS#12 keystore or holds a PEM private key. */
-    static boolean isKeyMaterial(byte[] content) {
+    public static boolean isKeyMaterial(byte[] content) {
         if (startsWith(content, JKS) || startsWith(content, JCEKS) || isPkcs12(content)) {
             return true;
         }
@@ -49,7 +52,7 @@ final class KeyMaterial {
      * The decoded content of an {@code InternalDocument} value (base64, gzip-compressed or not),
      * or empty if it is not base64.
      */
-    static Optional<byte[]> decodeDocument(String value) {
+    public static Optional<byte[]> decodeDocument(String value) {
         byte[] decoded;
         try {
             decoded = Base64.getMimeDecoder().decode(value.strip());
@@ -64,6 +67,31 @@ final class KeyMaterial {
             }
         }
         return Optional.of(decoded);
+    }
+
+    /**
+     * At least 64 characters of the base64 alphabet, white space allowed — a loop, not a regular
+     * expression with a group loop, which overflows the stack on long values.
+     */
+    public static boolean longBase64(String value) {
+        int count = 0;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (Character.isWhitespace(c)) {
+                continue;
+            }
+            if (!isBase64(c)) {
+                return false;
+            }
+            count++;
+        }
+        return count >= 64;
+    }
+
+    /** True for a character of the base64 alphabet ({@code A–Z a–z 0–9 + / =}). */
+    public static boolean isBase64(char c) {
+        return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
+            || c == '+' || c == '/' || c == '=';
     }
 
     private static boolean startsWith(byte[] content, byte[] prefix) {

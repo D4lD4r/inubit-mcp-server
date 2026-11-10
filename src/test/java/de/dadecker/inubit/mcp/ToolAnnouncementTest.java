@@ -25,11 +25,13 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * T012 (feature 012, research D-12, US3-4): a read tool is announced only if some node may run
  * its capability; {@code list_nodes}, {@code get_health} and {@code check_artifacts} always.
+ * Feature 019 (research D-15): {@code read_knowledge} always, right after {@code get_health},
+ * and {@code record_knowledge} after it with {@code knowledge.recording} on (the default).
  */
 class ToolAnnouncementTest {
 
     private static final List<String> ALWAYS = List.of("list_nodes", "get_health",
-        "check_artifacts");
+        "read_knowledge", "record_knowledge", "check_artifacts");
     private static final List<String> READS = List.of("find_processes", "query_logs",
         "list_inventory", "get_inventory_item", "export_artifacts", "export_archives",
         "find_partners");
@@ -108,6 +110,12 @@ class ToolAnnouncementTest {
             }, TestWiring.TEST_CONFIG_LOCATION, matrix)) {
             return wiring.toolHandlers().stream().map(ToolHandler::name).toList();
         }
+    }
+
+    @Test
+    void theKnowledgeToolsFollowGetHealthEvenWithoutAnyReadTool() {
+        assertThat(toolNames("V6_1", "V6_1", CapabilityMatrix.production()).subList(0, 4))
+            .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge");
     }
 
     @Test

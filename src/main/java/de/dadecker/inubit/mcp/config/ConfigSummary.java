@@ -94,6 +94,26 @@ public final class ConfigSummary {
         Map<NodeId, ClientVersion> clients, Map<NodeId, CliClientOptions> options,
         ParameterCheck.Result parameters, EntryCheck.Result entries,
         List<CheckedClient> checked) {
+        return render(loaded, report, clients, options, parameters, entries, checked,
+            Optional.empty());
+    }
+
+    /**
+     * @param knowledge shown as the {@code Knowledge:} line after the workspace (feature 019,
+     *                  T011); the launcher always gives it
+     */
+    public String render(LoadedConfig loaded, ValidationReport report,
+        Map<NodeId, ClientVersion> clients, Map<NodeId, CliClientOptions> options,
+        ParameterCheck.Result parameters, EntryCheck.Result entries,
+        List<CheckedClient> checked, KnowledgeStatus knowledge) {
+        return render(loaded, report, clients, options, parameters, entries, checked,
+            Optional.of(knowledge));
+    }
+
+    private String render(LoadedConfig loaded, ValidationReport report,
+        Map<NodeId, ClientVersion> clients, Map<NodeId, CliClientOptions> options,
+        ParameterCheck.Result parameters, EntryCheck.Result entries,
+        List<CheckedClient> checked, Optional<KnowledgeStatus> knowledge) {
         ProfileConfig config = loaded.config();
         Terminology terms = config.terminology().effectiveOrDefault();
         StringBuilder out = new StringBuilder();
@@ -123,6 +143,7 @@ public final class ConfigSummary {
                 case WorkspaceDirectory.Usable usable -> usable.created() ? "created" : "ok";
                 case WorkspaceDirectory.Unusable unusable -> unusable.problem();
             }).orElse("not usable: see the errors")).append(")\n");
+        knowledge.ifPresent(status -> out.append(status.line()).append('\n'));
         // feature 004: shown once a node is a development stage or allows end-to-end tests
         boolean development = config.resolvableNodes().stream().map(
             EffectiveNodeConfig::developmentPolicy).anyMatch(policy -> policy.enabled()

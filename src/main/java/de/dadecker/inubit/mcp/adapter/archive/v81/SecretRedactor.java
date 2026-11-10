@@ -5,6 +5,7 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.ExportArchive.RepositoryFile;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ExportArchive.WorkflowGroupXml;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ExportArchive.WorkflowXml;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
+import de.dadecker.inubit.mcp.domain.model.KeyMaterial;
 import de.dadecker.inubit.mcp.domain.model.SecretPlaceholder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;

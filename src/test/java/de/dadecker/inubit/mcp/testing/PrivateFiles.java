@@ -5,6 +5,7 @@ import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 /** {@link PrivateFileSystem}s for tests (feature 013, FR-007). */
 public final class PrivateFiles {
@@ -73,6 +74,11 @@ public final class PrivateFiles {
             public boolean ownedByCurrentUser(Path path) throws IOException {
                 return host.ownedByCurrentUser(path);
             }
+
+            @Override
+            public Optional<String> othersMayAccess(Path path) throws IOException {
+                return host.othersMayAccess(path);
+            }
         };
     }
 
@@ -118,6 +124,11 @@ public final class PrivateFiles {
             public boolean ownedByCurrentUser(Path path) throws IOException {
                 return host.ownedByCurrentUser(path);
             }
+
+            @Override
+            public Optional<String> othersMayAccess(Path path) throws IOException {
+                return host.othersMayAccess(path);
+            }
         };
     }
 
@@ -154,6 +165,11 @@ public final class PrivateFiles {
             @Override
             public List<String> check(Path path) {
                 return List.of();
+            }
+
+            @Override
+            public Optional<String> othersMayAccess(Path path) {
+                return Optional.empty();
             }
 
             @Override

@@ -91,6 +91,40 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
         FAILED
     }
 
+    /**
+     * How a read of this node stands, for {@link #awaitSettled} (feature 019, research D-7); never
+     * a value.
+     */
+    public sealed interface Settled {
+
+        /** The credentials are held, their secrets registered with the scrubber. */
+        record Held() implements Settled {
+        }
+
+        /**
+         * Nothing is configured: every wanted name or entry does not exist, so there is nothing to
+         * mask (also the end-to-end read of a node without end-to-end names or entries).
+         */
+        record NothingConfigured() implements Settled {
+        }
+
+        /** The read has not ended within the bound, or the waiting caller was interrupted. */
+        record Waiting() implements Settled {
+        }
+
+        /**
+         * The read failed (also within {@link #BACK_OFF} after it); {@code kind} is the first kind
+         * other than {@code NOT_FOUND}, else {@code NOT_FOUND} (a name was found beside a missing
+         * one); an unexpected failure of the read is {@code UNREACHABLE}.
+         */
+        record Failed(FailureKind kind) implements Settled {
+        }
+    }
+
+    private static final Settled HELD = new Settled.Held();
+    private static final Settled NOTHING_CONFIGURED = new Settled.NothingConfigured();
+    private static final Settled WAITING = new Settled.Waiting();
+
     /** Upper bound of a Parameter Store call and of the shared fetch (010 FR-011). */
     public static final Duration STORE_TIMEOUT = Duration.ofSeconds(10);
 
@@ -122,6 +156,8 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
     private final SecretScrubber scrubber;
     private final Clock clock;
     private final Duration timeout;
+    /** The kind of store, for messages ("AWS Parameter Store", "macOS Keychain"). */
+    private final String storeName;
     /** Username, password and trust store password. */
     private final Cell<NodeCredentials> main;
     /** The end-to-end test credentials; {@code null} for an AWS node without such names. */
@@ -131,8 +167,8 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
     private record Values(Map<String, String> values, Map<String, String> names) {
     }
 
-    /** A recorded failure and when it happened. */
-    private record Refusal(ToolError error, Instant at) {
+    /** A recorded failure, when it happened and how it is classified. */
+    private record Refusal(ToolError error, Instant at, Settled settled) {
     }
 
     /** The outcome of one fetch. */
@@ -142,9 +178,26 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
     private record Success<T>(T credentials, List<String> unencrypted) implements Attempt<T> {
     }
 
-    /** @param detail scrubbed before logging; never part of {@code error} */
-    private record Failed<T>(ToolError error, String outcome, String detail)
+    /**
+     * @param detail scrubbed before logging; never part of {@code error}
+     * @param settled the classification for {@link #awaitSettled}
+     */
+    private record Failed<T>(ToolError error, String outcome, String detail, Settled settled)
         implements Attempt<T> {
+
+        /** {@code settled} is {@code kind}. */
+        Failed(ToolError error, String outcome, String detail, FailureKind kind) {
+            this(error, outcome, detail, new Settled.Failed(kind));
+        }
+
+        /** Classifies the failed kinds; nothing configured if every one is {@code NOT_FOUND}. */
+        Failed(ToolError error, String outcome, String detail, List<FailureKind> kinds,
+            boolean nothingFound) {
+            this(error, outcome, detail, nothingFound && kinds.stream()
+                .allMatch(kind -> kind == FailureKind.NOT_FOUND) ? NOTHING_CONFIGURED
+                : new Settled.Failed(kinds.stream().filter(kind -> kind != FailureKind.NOT_FOUND)
+                    .findFirst().orElse(FailureKind.NOT_FOUND)));
+        }
     }
 
     /** With {@code timeout} instead of {@link #STORE_TIMEOUT}, so tests need not wait 10 s. */
@@ -158,6 +211,7 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
         this.scrubber = Objects.requireNonNull(scrubber, "scrubber");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.timeout = Objects.requireNonNull(timeout, "timeout");
+        this.storeName = "AWS Parameter Store";
         StoreLocation location = new StoreLocation(source.region(), source.awsProfile());
         Objects.requireNonNull(store, "store");
         List<Wanted> kinds = new ArrayList<>();
@@ -187,7 +241,7 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
         this.scrubber = Objects.requireNonNull(scrubber, "scrubber");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.timeout = Objects.requireNonNull(timeout, "timeout");
-        Objects.requireNonNull(store, "store");
+        this.storeName = Objects.requireNonNull(store, "store").kind().displayName();
         List<String> kinds = new ArrayList<>(List.of(USERNAME, PASSWORD));
         if (config.tls().trustStore().isPresent()) {
             kinds.add(TRUST_STORE_PASSWORD);
@@ -259,6 +313,11 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
         return node;
     }
 
+    /** The kind of store the node reads from, e.g. {@code AWS Parameter Store}; never a value. */
+    public String storeName() {
+        return storeName;
+    }
+
     /** How long a caller waits at most for a read of this node: the store's timeout. */
     public Duration timeout() {
         return timeout;
@@ -316,6 +375,24 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
      */
     public Optional<E2eCredentials> e2e(Duration bound) {
         return e2e == null ? Optional.empty() : e2e.current(bound);
+    }
+
+    /**
+     * How the read of the node's credentials stands (feature 019, research D-7); starts or joins
+     * it as {@link #current} does, shares its back-off, and never throws.
+     *
+     * @param bound how long to wait for the read; at most {@link #timeout()} is waited
+     */
+    public Settled awaitSettled(Duration bound) {
+        return main.awaitSettled(bound);
+    }
+
+    /**
+     * As {@link #awaitSettled}, for the end-to-end test credentials ({@link #e2e});
+     * {@code NothingConfigured} for a node without end-to-end names or entries.
+     */
+    public Settled awaitSettledE2e(Duration bound) {
+        return e2e == null ? NOTHING_CONFIGURED : e2e.awaitSettled(bound);
     }
 
     /** Registers the secrets with the scrubber, then builds the credentials. */
@@ -439,29 +516,16 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
                 if (held != null) {
                     return held;
                 }
-                if (refusal != null && clock.instant().isBefore(refusal.at().plus(BACK_OFF))) {
+                if (backingOff()) {
                     throw new ToolErrorException(refusal.error());
                 }
-                if (inFlight == null) {
-                    inFlight = start();
-                }
-                fetch = inFlight;
+                fetch = joinOrStart();
             }
-            Duration wait = bound.compareTo(timeout) < 0 ? bound : timeout;
             try {
                 try {
-                    return fetch.get(wait.toNanos(), TimeUnit.NANOSECONDS);
+                    return await(fetch, bound);
                 } catch (TimeoutException e) {
-                    if (!wait.equals(timeout)) {
-                        throw new ToolErrorException(pending());
-                    }
-                    // The fetch's own bound (armed before this wait) has expired as well, so its
-                    // outcome is due; report it instead of "still fetching".
-                    try {
-                        return fetch.get(SETTLE_GRACE.toNanos(), TimeUnit.NANOSECONDS);
-                    } catch (TimeoutException late) {
-                        throw new ToolErrorException(pending());
-                    }
+                    throw new ToolErrorException(pending());
                 }
             } catch (ExecutionException e) {
                 if (e.getCause() instanceof ToolErrorException error) {
@@ -475,6 +539,64 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
                         + " from " + source.waitingFor(),
                     "The overall deadline of the request expired",
                     "Retry").withNode(node));
+            }
+        }
+
+        /** {@link NodeSecrets#awaitSettled}: as {@link #current}, classified, never throws. */
+        Settled awaitSettled(Duration bound) {
+            Objects.requireNonNull(bound, "bound");
+            CompletableFuture<T> fetch;
+            synchronized (lock) {
+                if (held != null) {
+                    return HELD;
+                }
+                if (backingOff()) {
+                    return refusal.settled();
+                }
+                fetch = joinOrStart();
+            }
+            try {
+                return await(fetch, bound) instanceof Optional<?> optional && optional.isEmpty()
+                    ? NOTHING_CONFIGURED : HELD;
+            } catch (TimeoutException e) {
+                return WAITING;
+            } catch (ExecutionException e) {
+                // settle recorded the refusal before the fetch completed
+                synchronized (lock) {
+                    return held != null ? HELD : refusal != null ? refusal.settled() : WAITING;
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return WAITING;
+            }
+        }
+
+        /** Whether a failed fetch is still returned at once; called under {@link #lock}. */
+        private boolean backingOff() {
+            return refusal != null && clock.instant().isBefore(refusal.at().plus(BACK_OFF));
+        }
+
+        /** The fetch in flight, started if there is none; called under {@link #lock}. */
+        private CompletableFuture<T> joinOrStart() {
+            if (inFlight == null) {
+                inFlight = start();
+            }
+            return inFlight;
+        }
+
+        /** Waits at most {@code min(bound, timeout)} for {@code fetch}. */
+        private T await(CompletableFuture<T> fetch, Duration bound)
+            throws TimeoutException, ExecutionException, InterruptedException {
+            Duration wait = bound.compareTo(timeout) < 0 ? bound : timeout;
+            try {
+                return fetch.get(wait.toNanos(), TimeUnit.NANOSECONDS);
+            } catch (TimeoutException e) {
+                if (!wait.equals(timeout)) {
+                    throw e;
+                }
+                // The fetch's own bound (armed before this wait) has expired as well, so its
+                // outcome is due; report it instead of "still fetching".
+                return fetch.get(SETTLE_GRACE.toNanos(), TimeUnit.NANOSECONDS);
             }
         }
 
@@ -556,7 +678,8 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
                         held = success.credentials();
                     }
                 } else {
-                    refusal = new Refusal(((Failed<T>) outcome).error(), clock.instant());
+                    Failed<T> failed = (Failed<T>) outcome;
+                    refusal = new Refusal(failed.error(), clock.instant(), failed.settled());
                 }
             }
             log(outcome, Duration.ofNanos(System.nanoTime() - started).toMillis(),
@@ -648,7 +771,7 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
             if (answer instanceof Fetched.CallFailed(Fetched.Failure failure)
                 && callLevel(failure.kind())) {
                 return new Failed<>(callError(subject, failure.kind()), failure.kind().name(),
-                    failure.logDetail());
+                    failure.logDetail(), failure.kind());
             }
             List<Problem> problems = new ArrayList<>();
             Map<String, String> values = new HashMap<>();
@@ -694,10 +817,13 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
             String detail = problems.stream()
                 .map(problem -> problem.wanted().name() + ": " + problem.logDetail())
                 .collect(Collectors.joining("; "));
-            Optional<FailureKind> callKind = problems.stream().map(Problem::kind)
-                .filter(NodeSecrets::callLevel).findFirst();
+            List<FailureKind> kinds = problems.stream().map(Problem::kind).toList();
+            boolean nothingFound = problems.size() == wanted.size();
+            Optional<FailureKind> callKind = kinds.stream().filter(NodeSecrets::callLevel)
+                .findFirst();
             if (callKind.isPresent()) {
-                return new Failed<>(callError(subject, callKind.get()), outcome, detail);
+                return new Failed<>(callError(subject, callKind.get()), outcome, detail, kinds,
+                    nothingFound);
             }
             String failures = problems.stream().map(problem -> what(problem.kind()) + " for "
                     + problem.wanted().name()
@@ -708,13 +834,14 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
             String steps = problems.stream().map(this::nextStep).distinct()
                 .collect(Collectors.joining("; "));
             return new Failed<>(ToolError.of(ErrorCode.AUTH_FAILED,
-                unavailable(subject) + failures, causes, steps).withNode(node), outcome, detail);
+                unavailable(subject) + failures, causes, steps).withNode(node), outcome, detail,
+                kinds, nothingFound);
         }
 
         @Override
         public Failed<T> unreachable(String subject, String detail, boolean timedOut) {
             return new Failed<>(callError(subject, FailureKind.UNREACHABLE),
-                FailureKind.UNREACHABLE.name(), detail);
+                FailureKind.UNREACHABLE.name(), detail, FailureKind.UNREACHABLE);
         }
 
         private ToolError callError(String subject, FailureKind kind) {
@@ -882,13 +1009,13 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
                 }
             }
             if (!problems.isEmpty()) {
-                return failed(subject, problems, read);
+                return failed(subject, problems, read, null, values.isEmpty());
             }
             try {
                 return new Success<>(build.apply(new Values(values, read)), List.of());
             } catch (Refused refused) {
                 return failed(subject, List.of(new EntryProblem("", refused.name, refused.kind,
-                    "", refused.failure, false)), read, refused);
+                    "", refused.failure, false)), read, refused, false);
             }
         }
 
@@ -941,13 +1068,10 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
             return Optional.empty();
         }
 
+        /** @param nothingFound whether no entry was found (then every problem may be absence) */
         private Failed<T> failed(String subject, List<EntryProblem> problems,
-            Map<String, String> read) {
-            return failed(subject, problems, read, null);
-        }
-
-        private Failed<T> failed(String subject, List<EntryProblem> problems,
-            Map<String, String> read, Refused refused) {
+            Map<String, String> read, Refused refused, boolean nothingFound) {
+            List<FailureKind> kinds = problems.stream().map(EntryProblem::kind).toList();
             String outcome = problems.stream().map(problem -> problem.kind().name()).distinct()
                 .collect(Collectors.joining(","));
             String detail = problems.stream()
@@ -958,12 +1082,13 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
             if (callKind.isPresent()) {
                 String reason = problems.stream().filter(problem -> problem.kind()
                     == callKind.get()).map(EntryProblem::logDetail).findFirst().orElse("");
-                return new Failed<>(callError(subject, callKind.get(), reason), outcome, detail);
+                return new Failed<>(callError(subject, callKind.get(), reason), outcome, detail,
+                    kinds, nothingFound);
             }
             if (refused != null) {
                 return new Failed<>(ToolError.of(ErrorCode.AUTH_FAILED,
                     unavailable(subject) + refused.failure, "A credential rule is broken",
-                    refused.step).withNode(node), outcome, detail);
+                    refused.step).withNode(node), outcome, detail, kinds, nothingFound);
             }
             String failures = problems.stream().map(problem -> what(problem.kind()) + " for "
                     + problem.entry()
@@ -974,7 +1099,8 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
             String steps = problems.stream().map(this::nextStep).distinct()
                 .collect(Collectors.joining("; "));
             return new Failed<>(ToolError.of(ErrorCode.AUTH_FAILED,
-                unavailable(subject) + failures, causes, steps).withNode(node), outcome, detail);
+                unavailable(subject) + failures, causes, steps).withNode(node), outcome, detail,
+                kinds, nothingFound);
         }
 
         /** @param reason the store's own reason; scrubbed, it never contains a value */
@@ -1000,13 +1126,13 @@ public final class NodeSecrets implements CredentialGuard.Rereadable {
         public Failed<T> unreachable(String subject, String detail, boolean timedOut) {
             if (timedOut) {
                 return new Failed<>(callError(subject, FailureKind.TIMEOUT, detail),
-                    FailureKind.TIMEOUT.name(), detail);
+                    FailureKind.TIMEOUT.name(), detail, FailureKind.TIMEOUT);
             }
             return new Failed<>(ToolError.of(ErrorCode.AUTH_FAILED,
                 unavailable(subject) + "the read failed",
                 "Reading the " + storeName() + " failed unexpectedly",
                 "Retry; if it fails again, the log of the MCP server names the cause")
-                .withNode(node), "FAILED", detail);
+                .withNode(node), "FAILED", detail, FailureKind.UNREACHABLE);
         }
 
         private String unavailable(String subject) {

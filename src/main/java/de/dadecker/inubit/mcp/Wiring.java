@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp;
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
 import de.dadecker.inubit.mcp.adapter.NodeSecrets;
 import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
+import de.dadecker.inubit.mcp.adapter.ProfileSecrets;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
@@ -67,6 +68,12 @@ import de.dadecker.inubit.mcp.application.UpdateStatus;
 import de.dadecker.inubit.mcp.application.WorkspaceService;
 import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
 import de.dadecker.inubit.mcp.application.WriteGuard;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeAnnouncement;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeAudit;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeDirectory;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeLimits;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeService;
+import de.dadecker.inubit.mcp.application.knowledge.NoteRefs;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialNames;
@@ -113,6 +120,8 @@ import de.dadecker.inubit.mcp.mcp.tools.DeployReleaseTool;
 import de.dadecker.inubit.mcp.mcp.tools.ImportArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.KillProcessTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListInventoryTool;
+import de.dadecker.inubit.mcp.mcp.tools.ReadKnowledgeTool;
+import de.dadecker.inubit.mcp.mcp.tools.RecordKnowledgeTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestoreBackupTool;
@@ -121,6 +130,7 @@ import de.dadecker.inubit.mcp.mcp.tools.RunE2eTestTool;
 import de.dadecker.inubit.mcp.mcp.tools.TagArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
 import java.nio.file.Path;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -195,6 +205,9 @@ final class Wiring implements AutoCloseable {
     /** Feature 015: offered under the condition of {@code export_artifacts} (research R-16). */
     private final ExportArchivesTool exportArchives;
     private final CheckArtifactsTool checkArtifacts;
+    /** Feature 019: the profile's local knowledge, read with all its credentials known (D-7). */
+    private final KnowledgeService knowledge;
+    private final boolean knowledgeRecording;
     private final ImportArtifactsTool importArtifacts;
     private final RestoreBackupTool restoreBackup;
     /** Feature 005: the stage chain of the configuration (empty: none). */
@@ -396,6 +409,18 @@ final class Wiring implements AutoCloseable {
         // which the guard treats as no write access
         Function<NodeId, WritePolicy> policies = id -> byId.containsKey(id)
             ? policy(byId.get(id), secrets.get(id)) : null;
+        // feature 019 (research D-7, option A): notes are shown only with every configured
+        // credential of the profile known; a tool call waits as long as the slowest store. With
+        // recording on, notes are written under the knowledge lock and audited in the shared log
+        // (D-10); with it off the service is read-only
+        ProfileSecrets profileSecrets = new ProfileSecrets(secrets, scrubber);
+        this.knowledgeRecording = config.knowledge().recording();
+        this.knowledge = new KnowledgeService(
+            new KnowledgeDirectory(config.knowledge().directory(), privateFiles, clock.clock()),
+            profileSecrets, new NoteRefs(new SecureRandom()), profileSecrets.timeout(),
+            knowledgeRecording ? new KnowledgeService.Writing(privateFiles, clock.clock(),
+                new KnowledgeAudit.Dependencies(audit, clock.clock(), profile.name(),
+                    UUID::randomUUID)) : null);
         this.processControl = new ProcessControlService(
             new WriteGuard(targets, policies, gateways, versionGate), policies,
             gateways, new ConfirmationRegistry(clock.clock()), audit, clock.clock(),
@@ -495,7 +520,8 @@ final class Wiring implements AutoCloseable {
                 new BackupStore(backups, clock.clock(), privateFiles), ledger, audit,
                 profile.name(), clock.clock(), UUID::randomUUID, workspace,
                 new DiagramGroupTagger(workspace), new PackageWriter(
-                    deployments.resolveSibling("packages"), clock.clock(), privateFiles)));
+                    PackageWriter.defaultDirectory(Path.of(System.getProperty("user.home")),
+                        profile.name()), clock.clock(), privateFiles)));
             deployer = Optional.of(nodeDeployer);
             DeployService deploy = new DeployService(new DeployService.Dependencies(workspace,
                 deployments, profile.name(), new DeployGuard(chain, targets, group ->
@@ -579,6 +605,12 @@ final class Wiring implements AutoCloseable {
         List<ToolHandler> handlers = new ArrayList<>();
         handlers.add(new ListNodesTool(profile, overview::nodes));
         handlers.add(new GetHealthTool(health, updateStatus::current));
+        // feature 019 (research D-15): for every profile, also without nodes; recording only
+        // with knowledge.recording on
+        handlers.add(new ReadKnowledgeTool(knowledge));
+        if (knowledgeRecording) {
+            handlers.add(new RecordKnowledgeTool(knowledge));
+        }
         // feature 012 (research D-12): a read tool only if some node may run its capability
         if (anyPossiblyCapable(Capability.PROCESS_DIAGNOSIS)) {
             handlers.add(new FindProcessesTool(diagnosis));
@@ -636,11 +668,35 @@ final class Wiring implements AutoCloseable {
         return serverFactory(version, handlers, UpdateNotice.NONE);
     }
 
-    /** As above, with the update notice of feature 016 (FR-017 to FR-019). */
+    /**
+     * As above, with the update notice of feature 016 (FR-017 to FR-019) and the knowledge
+     * paragraph as {@link #knowledgeOverview()} finds the notes now.
+     */
     McpServerFactory serverFactory(String version, List<ToolHandler> handlers,
         UpdateNotice updateNotice) {
+        return serverFactory(version, handlers, updateNotice, knowledgeOverview());
+    }
+
+    /** As above, with the knowledge paragraph of {@code knowledgeState} (feature 019, D-8). */
+    McpServerFactory serverFactory(String version, List<ToolHandler> handlers,
+        UpdateNotice updateNotice, KnowledgeAnnouncement.State knowledgeState) {
         return new McpServerFactory(version, profile, handlers, SchemaResources.forClasspath(),
-            new ResultMapper(scrubber), updateNotice);
+            new ResultMapper(scrubber), updateNotice,
+            KnowledgeAnnouncement.paragraph(knowledgeRecording, knowledgeState));
+    }
+
+    /**
+     * What the local knowledge holds at start for the instructions (feature 019, research D-7,
+     * D-8): with notes, the profile's credentials are read first, for at most
+     * {@link KnowledgeLimits#START_PREPARE}; without notes nothing is read.
+     */
+    KnowledgeAnnouncement.State knowledgeOverview() {
+        return knowledgeOverview(KnowledgeLimits.START_PREPARE);
+    }
+
+    /** As above, waiting at most {@code bound} for the credentials (tests use a short one). */
+    KnowledgeAnnouncement.State knowledgeOverview(Duration bound) {
+        return knowledge.overview(bound);
     }
 
     GatewayFactory gateways() {

@@ -238,6 +238,28 @@ class ConfigSummaryTest {
                 + " \\(not usable: see the errors\\)\n");
     }
 
+    // --- feature 019 T011: the knowledge line (FR-003, research D-3) ---------------------------
+
+    @Test
+    void theKnowledgeLineFollowsTheWorkspaceLineAndIsOnlyShownWhenGiven() {
+        Path workspace = HOME.resolve(".inubit-mcp/acme/workspace");
+        Path knowledge = HOME.resolve(".inubit-mcp/acme/knowledge");
+        LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, false).parse(CONFIG, SOURCE);
+        ValidationReport report = new ConfigValidator(exists, env, false,
+            Path.of(System.getProperty("java.io.tmpdir")), source -> List.of(), NO_DISK)
+            .validate(loaded);
+        KnowledgeStatus status = new KnowledgeStatus(knowledge, KnowledgeStatus.State.OK,
+            Optional.empty(), false, 12);
+
+        String summary = new ConfigSummary(exists, windows).render(loaded, report, Map.of(),
+            Map.of(), ParameterCheck.Result.NONE, EntryCheck.Result.none(StoreKind.KEYCHAIN),
+            List.of(), status);
+
+        assertThat(summary).contains("Workspace: " + workspace + " (ok)\nKnowledge: " + knowledge
+            + " (ok), recording off, 12 notes\n");
+        assertThat(render(CONFIG)).doesNotContain("Knowledge:");
+    }
+
     @Test
     void listsEveryServerWithWriteFlagCliAvailabilityAndVariableNames() {
         String summary = render(CONFIG);

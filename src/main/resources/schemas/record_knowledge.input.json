@@ -1,0 +1,37 @@
+{
+  "type": "object",
+  "required": ["mode", "content"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Note name: up to 4 segments separated by /, each 1-100 letters, digits, _ . - and spaces, not starting with . (e.g. partners/acme); without .md"
+    },
+    "ref": {
+      "type": "string",
+      "description": "append/replace: the ref of a hit, instead of name (exact also when the listed name was shortened)"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["create", "append", "replace"],
+      "description": "create a new note, append a section, or replace the content"
+    },
+    "title": {
+      "type": "string",
+      "description": "One line, 1-200 characters; required for create, kept if left out otherwise"
+    },
+    "topics": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Up to 20 topics, one line of 1-60 characters each, without , [ ]; kept if left out (append, replace)"
+    },
+    "content": {
+      "type": "string",
+      "description": "Markdown text: the note body (create, replace) or the section to add (append); the note may hold at most 256 KiB"
+    },
+    "versionToken": {
+      "type": "string",
+      "description": "Required for replace: the versionToken read last; refused if the note changed since"
+    }
+  },
+  "additionalProperties": false
+}

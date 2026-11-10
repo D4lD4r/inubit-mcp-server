@@ -19,6 +19,9 @@ import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
 import de.dadecker.inubit.mcp.application.ReleaseSource;
 import de.dadecker.inubit.mcp.application.UpdateCache;
 import de.dadecker.inubit.mcp.application.UpdateCheck;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeAnnouncement;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeDirectory;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeLimits;
 import de.dadecker.inubit.mcp.config.CheckedClient;
 import de.dadecker.inubit.mcp.config.CliClient;
 import de.dadecker.inubit.mcp.config.ConfigException;
@@ -31,6 +34,8 @@ import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.EntryCheck;
 import de.dadecker.inubit.mcp.config.GroupConfig;
 import de.dadecker.inubit.mcp.config.JdkRelease;
+import de.dadecker.inubit.mcp.config.KnowledgeConfig;
+import de.dadecker.inubit.mcp.config.KnowledgeStatus;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.config.ParameterCheck;
 import de.dadecker.inubit.mcp.config.ParameterStore;
@@ -69,6 +74,7 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -250,7 +256,7 @@ final class Launcher {
             // it and the client probe's processes end with this process
             ProcessContainment containment = context.containment().get();
             CliSystem system = context.windows() ? new WindowsSystem() : new PosixSystem();
-            ValidationReport report = validator(otherProfiles,
+            ValidationReport report = validator(otherProfiles, loader,
                 context.windows() ? startCliHost(system, containment) : StartCliHost.unchecked())
                 .validate(loaded);
             Map<NodeId, ClientVersion> clients = new HashMap<>();
@@ -272,12 +278,12 @@ final class Launcher {
             ValidationReport checked = entries.addTo(parameters.addTo(withProbes));
             context.out().print(new ConfigSummary(context.exists(), context.windows())
                 .render(loaded, checked, clients, options, parameters, entries,
-                    checkedClients));
+                    checkedClients, knowledgeStatus(loaded.config().knowledge())));
             context.out().flush();
             return checked.hasErrors() ? EXIT_ERROR : EXIT_OK;
         }
         ValidationReport report = withPrivateObjects(loaded.config(),
-            validator(otherProfiles, StartCliHost.unchecked()).validate(loaded));
+            validator(otherProfiles, loader, StartCliHost.unchecked()).validate(loaded));
         if (report.hasErrors()) {
             printFindings("Configuration errors in " + loaded.source() + " (the MCP server does not"
                 + " start):", report.errors());
@@ -300,12 +306,32 @@ final class Launcher {
     /**
      * {@code report} with a warning per existing private object of the server that grants access
      * to other principals (feature 013, FR-007, US3 AS4): the default audit directory and its
-     * logs, the deployment ledgers and locks; nothing is changed.
+     * logs, the deployment ledgers and locks; and the knowledge directory if others may access
+     * it or it is not usable (feature 019, FR-003); nothing is changed.
      */
+    /**
+     * The knowledge line of {@code --check-config} (feature 019, research D-3): the notes are
+     * counted by a walk that reads no note and no credential; 0 if the walk fails.
+     */
+    private static KnowledgeStatus knowledgeStatus(KnowledgeConfig knowledge) {
+        KnowledgeStatus probed = KnowledgeStatus.probe(knowledge, 0);
+        if (probed.state() != KnowledgeStatus.State.OK) {
+            return probed;
+        }
+        try {
+            return KnowledgeStatus.probe(knowledge,
+                new KnowledgeDirectory(knowledge.directory()).status().notes());
+        } catch (IOException e) {
+            return probed;
+        }
+    }
+
     private ValidationReport withPrivateObjects(ProfileConfig config, ValidationReport report) {
-        List<String> found = new PrivateObjectCheck(context.privateFiles(),
-            System.getProperty("user.name", "")).warnings(config.auditDirectory(),
-            context.userHome(), config.profile().name());
+        PrivateObjectCheck check = new PrivateObjectCheck(context.privateFiles(),
+            System.getProperty("user.name", ""));
+        List<String> found = new ArrayList<>(check.warnings(config.auditDirectory(),
+            context.userHome(), config.profile().name()));
+        found.addAll(check.knowledgeWarnings(config.knowledge().directory(), context.windows()));
         if (found.isEmpty()) {
             return report;
         }
@@ -314,10 +340,12 @@ final class Launcher {
         return new ValidationReport(report.errors(), warnings, report.workspace());
     }
 
-    private ConfigValidator validator(List<LoadedConfig> otherProfiles, StartCliHost host) {
+    private ConfigValidator validator(List<LoadedConfig> otherProfiles, ConfigLoader loader,
+        StartCliHost host) {
         return new ConfigValidator(context.exists(), context.environment(), context.windows(),
             Path.of(System.getProperty("java.io.tmpdir")), source -> otherProfiles,
-            workspace -> WorkspaceDirectory.prepare(workspace, context.privateFiles()), host);
+            workspace -> WorkspaceDirectory.prepare(workspace, context.privateFiles()), host)
+            .withServerPaths(context.userHome(), loader.defaultDirectory());
     }
 
     /**
@@ -525,7 +553,8 @@ final class Launcher {
                 notice = new UpdateNotice(wiring.updateStatus()::current, cache, dialogs);
             }
             McpServerFactory factory = wiring.serverFactory(BuildInfo.version(),
-                toolHandlers.apply(wiring), notice);
+                toolHandlers.apply(wiring), notice,
+                knowledgeAtStart(wiring, KnowledgeLimits.START_PREPARE));
             try (McpServerFactory.RunningServer server = factory.start(context.in(),
                 context.out()); UpdateCheck closing = check) {
                 LOG.info("INUBIT MCP server {} started for profile {} with {} node(s)",
@@ -630,5 +659,19 @@ final class Launcher {
             throw new UsageException("--config and --profile cannot be combined");
         }
         return new Arguments(config, profile, checkConfig, version);
+    }
+
+    /**
+     * The knowledge state for the instructions (feature 019, research D-7, D-8): with notes, waits
+     * at most {@code bound} for the profile's credentials and, when they are not read by then,
+     * logs the pending nodes at INFO; the reads continue in the background.
+     */
+    static KnowledgeAnnouncement.State knowledgeAtStart(Wiring wiring, Duration bound) {
+        KnowledgeAnnouncement.State state = wiring.knowledgeOverview(bound);
+        if (state instanceof KnowledgeAnnouncement.NotReady notReady) {
+            LOG.info("Knowledge note list withheld from the instructions: credentials of {} not"
+                + " read yet", String.join(", ", notReady.nodes()));
+        }
+        return state;
     }
 }

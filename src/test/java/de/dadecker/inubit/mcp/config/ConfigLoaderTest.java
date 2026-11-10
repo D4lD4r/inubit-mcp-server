@@ -1284,6 +1284,78 @@ class ConfigLoaderTest {
         }
     }
 
+    /** Feature 019 (T008, research D-1, contracts/configuration-delta.md). */
+    @Nested
+    class Knowledge {
+
+        private LoadedConfig parse(String yaml) {
+            return loader().parse(yaml, home.resolve("k.yaml"));
+        }
+
+        @Test
+        void withoutTheBlockTheKnowledgeLiesInTheProfilesDirectoryAndRecordingIsOn() {
+            for (String block : List.of("", "knowledge:\n", "knowledge: {}\n",
+                "knowledge:\n  directory:\n  recording:\n")) {
+                KnowledgeConfig knowledge = parse(MINIMAL + block).config().knowledge();
+
+                assertThat(knowledge.directory()).as(block)
+                    .isEqualTo(home.resolve(".inubit-mcp/acme/knowledge"));
+                assertThat(knowledge.recording()).as(block).isTrue();
+            }
+        }
+
+        @Test
+        void aGivenDirectoryIsUsedWithTheHomeExpanded() {
+            assertThat(parse(MINIMAL + "knowledge:\n  directory: ~/Notes/inubit/acme\n").config()
+                .knowledge().directory()).isEqualTo(home.resolve("Notes/inubit/acme"));
+            assertThat(parse(MINIMAL + "knowledge:\n  directory: /srv/notes\n").config()
+                .knowledge().directory()).isEqualTo(Path.of("/srv/notes"));
+            // relative paths are loaded as given; ConfigValidator reports them
+            assertThat(parse(MINIMAL + "knowledge:\n  directory: notes\n").config()
+                .knowledge().directory()).isEqualTo(Path.of("notes"));
+        }
+
+        @Test
+        void recordingCanBeTurnedOff() {
+            assertThat(parse(MINIMAL + "knowledge:\n  recording: false\n").config().knowledge()
+                .recording()).isFalse();
+            assertThat(parse(MINIMAL + "knowledge:\n  recording: true\n").config().knowledge()
+                .recording()).isTrue();
+        }
+
+        @Test
+        void anInvalidProfileNameNeverBecomesPartOfTheDefaultDirectory() {
+            ProfileConfig config = parse(MINIMAL.replace("name: acme", "name: \"../../etc\""))
+                .config();
+
+            assertThat(config.knowledge().directory())
+                .isEqualTo(home.resolve(".inubit-mcp/(invalid profile.name)/knowledge"));
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"\"yes\"", "yes", "\"false\"", "0", "[true]"})
+        void aNonBooleanRecordingIsRejectedWithoutEchoingIt(String value) {
+            assertThatThrownBy(() -> parse(MINIMAL + "knowledge:\n  recording: " + value + "\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessage("Invalid value at knowledge.recording in " + home.resolve("k.yaml")
+                    + ": expected true or false");
+        }
+
+        @Test
+        void unknownKeysAndOtherPlacesAreRejected() {
+            assertThatThrownBy(() -> parse(MINIMAL + "knowledge:\n  path: /x\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'path' at knowledge");
+            assertThatThrownBy(() -> parse(MINIMAL + "defaults:\n  knowledge:\n"
+                + "    recording: false\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'knowledge' at defaults");
+            assertThatThrownBy(() -> parse(MINIMAL + "knowledge:\n  directory: [a, b]\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("knowledge.directory");
+        }
+    }
+
     /** Feature 016 (T012, contracts/configuration-delta.md). */
     @Nested
     class UpdateCheck {

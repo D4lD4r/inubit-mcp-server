@@ -7,8 +7,9 @@ of feature 002 with the deltas of feature 003
 ([development stage](../specs/004-development-stage/contracts/configuration-delta.md)), 005
 ([stage chain](../specs/005-stage-chain-deployment/contracts/configuration-delta.md)), 009
 ([INUBIT version](../specs/009-inubit-version-detection/contracts/configuration-delta.md)), 010
-([secret sources](../specs/010-secret-sources/contracts/configuration-delta.md)) and 011
-([credential stores](../specs/011-os-credential-stores/contracts/configuration-delta.md)); this
+([secret sources](../specs/010-secret-sources/contracts/configuration-delta.md)), 011
+([credential stores](../specs/011-os-credential-stores/contracts/configuration-delta.md)) and 019
+([local knowledge](../specs/019-local-knowledge/contracts/configuration-delta.md)); this
 guide walks through it. All host names below are examples (`*.example.test`).
 
 ## 1. Prerequisites
@@ -762,12 +763,12 @@ workflows' secrets out of INUBIT.
 
 Every call of `restart_process` or `kill_process` that reaches the tool — refused, previewed,
 executed or failed — is appended to the audit log before the result is returned; so is every
-call of the development tools, of `deploy_release` and of `export_archives`
-([Development settings](#development-settings),
+call of the development tools, of `deploy_release`, of `export_archives` and of
+`record_knowledge` ([Development settings](#development-settings),
 [Stage chain and deployments](#stage-chain-and-deployments),
-[Workbench archives](#workbench-archives)), and every call of the read tool `find_partners`
-(feature 018), because it reads partner data; if one of its records cannot be written, the call
-returns `INTERNAL` and no partner data. Calls whose arguments violate the
+[Workbench archives](#workbench-archives), [Local knowledge](#local-knowledge)), and every call
+of the read tool `find_partners` (feature 018), because it reads partner data; if one of its
+records cannot be written, the call returns `INTERNAL` and no partner data. Calls whose arguments violate the
 input schema (group id instead of a node id, malformed process id or code, reason over 500
 chars, unknown property) are rejected by the MCP SDK before the tool runs and are not audited;
 they cannot change anything.
@@ -788,8 +789,9 @@ they cannot change anything.
 - Fields: `auditId`, `timestamp`, `profile` (the profile name), `node`, `group`, `capability`
   (`restart_process`, `kill_process`, the development tools `import_artifacts`,
   `restore_backup`, `set_active`, `tag_artifacts`, `run_e2e_test`, `backup_retention` for the
-  removal of old backups, `deploy_release`, `export_archives` and `find_partners`), `step`
-  (`PREVIEW` for the
+  removal of old backups, `deploy_release`, `export_archives`, `find_partners` and
+  `record_knowledge` — node `-`, inputs the masked note name, `mode`, `sizeBefore`,
+  `sizeAfter`), `step` (`PREVIEW` for the
   first call of a two-step confirmation, `EXECUTE` otherwise), `inputs` (for restart and kill:
   `processId`, `confirmationCode` / `issuedConfirmationCode` as `sha256:` + 16 hex chars only,
   `reason`; for `export_archives`: `owner`, `diagramGroup`, `targetFolder`, `workflow.<n>`,
@@ -913,6 +915,74 @@ other Java extensions, `Formatter:calculateDateDifference`, licensed Saxon featu
 reads only workspace files, sees no environment variables or system properties of the server,
 ends after **60 s** and writes at most 64 MiB of output. Inline stylesheets of assignments are not
 run. Details: [tools.md](tools.md#check_artifacts).
+
+### Local knowledge
+
+Feature 019: each profile has a **local knowledge**, Markdown notes with operating knowledge and
+research results on this computer. The assistant reads it with `read_knowledge` and, after you
+agreed, writes to it with `record_knowledge` ([tools.md](tools.md#the-local-knowledge-feature-019)).
+The server's instructions tell the assistant about it and list the notes (newest first, at most
+4,000 characters). Nothing is sent anywhere; neither tool contacts INUBIT.
+
+```yaml
+knowledge:
+  directory: ~/Notes/inubit/acme   # default: ~/.inubit-mcp/<profile.name>/knowledge
+  recording: false                 # default true; false: read only, record_knowledge not offered
+```
+
+- Both keys and the block are optional; any other key is an error. `knowledge.directory` is
+  bound like `workspace`: `~` is expanded and the path must be absolute afterwards. `recording` must be
+  `true` or `false` (not `"false"` or `0`). They are read at start only; no environment variable
+  or command-line switch changes them.
+- The folder must be a folder of its own: it must not be, lie inside or contain the workspace, the
+  audit directory, the backup, deployment ledger or package directory, the configuration
+  directory, the folder of the configuration file, or the workspace, audit, data or knowledge
+  directory of another profile in the default configuration directory; it must not be or contain
+  `~/.inubit-mcp` (inside `~/.inubit-mcp/<profile.name>` is fine). Each violation is a
+  configuration error naming both paths. Two files of the same profile may share it.
+- **Notes**: every `.md` file in the folder and its subfolders, except files and folders whose
+  name starts with `.` (and hidden ones on Windows) and symbolic links; the note name is the path
+  without `.md`, e.g. `partners/acme` for `partners/acme.md`. Write notes by hand with any editor;
+  a metadata block at the top (`title`, `topics`, …; see
+  [tools.md](tools.md#the-local-knowledge-feature-019)) is optional. Every call reads the folder
+  again, so a hand-written note is found at once; the note list in the instructions is built at
+  start.
+- **Permissions**: the server creates nothing at start or when reading. The first
+  `record_knowledge` creates the folder and missing parents `rwx------`, and every note, history
+  version and the lock file `rw-------` (on Windows owner-only ACLs). A note the assistant writes
+  becomes owner-only, also a hand-written one that was readable by others; existing folders keep
+  their permissions. If the folder is readable or writable by group or others, the server warns at
+  start and in `--check-config` (`… run chmod 700 <folder> (the server does not change
+  permissions)`). A folder that is not a directory or not readable is reported as not usable; the
+  server still starts and the knowledge tools report it until it is fixed.
+- **Bounds**: a note holds at most 256 KiB after a write; notes over 4 MiB are listed but not read
+  or searched; the folder, history included, holds at most 100 MiB (a write beyond is refused).
+  A read page holds 20,000 characters, a search excerpt 300; names, titles and topics are cut at
+  120 characters in the instructions. Writes of all server processes of the profile take turns
+  through the lock file `.lock`; a write waits at most 10 s for it.
+- **History and restoring by hand**: before `append` or `replace` the current note is kept in
+  `<folder>/.history/<note name>.md/<UTC time>-<counter>.md`, e.g.
+  `.history/partners/acme.md/20261110T101500.123456789Z-000.md`; the 10 newest versions per note
+  are kept, older ones are deleted. No tool deletes or renames a note. To restore a version, copy
+  it over the note by hand (`cp .history/partners/acme.md/<version>.md partners/acme.md`). To
+  delete or rename a note, do it by hand as well.
+- **Secrets**: do not write passwords or other secrets into notes. The tools show recognized
+  secrets as `***` and refuse to write text that contains one; the recognition is pattern-based
+  and misses a secret in plain prose (see [SECURITY.md](../SECURITY.md)). The notes are stored
+  unencrypted.
+- **Credentials read for the knowledge**: to mask the profile's own credentials in notes, the
+  first `read_knowledge` or `record_knowledge` call reads the credentials of **every** node of the
+  profile (credential store or Parameter Store; on macOS the access dialogs of nodes the session
+  does not contact otherwise may appear). With at least one note, these reads start already at
+  server start, which waits up to 5 s for them before it lists the notes in the instructions (the
+  dialogs stay open and the reads go on; without notes nothing is read at start). While a
+  credential cannot be read — dialog denied, entry not readable, Parameter Store unreachable (e.g.
+  offline without VPN) — the knowledge tools refuse with `PRECONDITION_FAILED` and the note list
+  is withheld from the instructions (logged at INFO). Nodes without configured entries do not
+  block.
+- `--check-config` shows, after the `Workspace:` line,
+  `Knowledge: <folder> (ok | absent | not a directory | not readable), recording on|off, <n>
+  notes`; it prints no note name or title and reads no credential for it.
 
 ### Development settings
 
@@ -2077,7 +2147,8 @@ java -jar target/inubit-mcp-server-*.jar --profile acme --check-config
 
 It validates the file, reads the credential store entries and the Parameter Store parameters of
 the nodes (see [The `secrets:` part](#the-secrets-part)) and prints to **stdout** the profile,
-its terminology, the credential store entry scheme, the audit directory and the workspace, then — if
+its terminology, the credential store entry scheme, the audit directory, the workspace and the
+local knowledge ([Local knowledge](#local-knowledge)), then — if
 a group has a `deploy` record — a `Chains:` block (one line per stage chain, then the exclusions
 of each target, see [Stage chain and deployments](#stage-chain-and-deployments)), then per group
 a line with its name, `(production)` for a production group and the archive state of the group
@@ -2107,6 +2178,7 @@ Terminology: Umgebung/Umgebungen, Knoten/Knoten
 Credential store entries: service inubit-mcp, account INUBIT_ACME_<UMGEBUNG>[_<KNOTEN>]_<KIND> (macOS Keychain)
 Audit directory: /Users/jdoe/.inubit-mcp/acme/audit
 Workspace: /Users/jdoe/.inubit-mcp/acme/workspace (ok)
+Knowledge: /Users/jdoe/.inubit-mcp/acme/knowledge (absent), recording on, 0 notes
 Umgebung test: archives: allowed
   Knoten test/node1: write enabled (confirmation SERVER), cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_TEST_USERNAME ok, password ← INUBIT_ACME_TEST_PASSWORD ok
   Knoten test/node2: write enabled (confirmation SERVER), cli: available, inubit: AUTO, client: 8.1.17 (4.0.1–8.1.17), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_TEST_USERNAME ok, password ← INUBIT_ACME_TEST_PASSWORD ok

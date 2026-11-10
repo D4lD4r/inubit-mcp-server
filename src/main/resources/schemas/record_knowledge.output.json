@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "required": ["name", "mode", "lastChange", "versionToken", "sizeBefore", "sizeAfter",
+    "historyVersions", "auditId", "warnings"],
+  "properties": {
+    "name": { "type": "string" },
+    "mode": { "type": "string", "enum": ["create", "append", "replace"] },
+    "lastChange": { "type": "string", "format": "date-time" },
+    "versionToken": { "type": "string" },
+    "sizeBefore": { "type": "integer", "minimum": 0, "description": "Bytes; 0 for create" },
+    "sizeAfter": { "type": "integer", "minimum": 0 },
+    "historyVersions": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Versions kept for this note; 10 at most unless pruning failed (then a warning says so)"
+    },
+    "auditId": { "type": "string" },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}
