@@ -98,10 +98,15 @@ Validation before any INUBIT contact (FR-002): ids resolve through `TargetResolv
 ## Application types
 
 ### `PartnerSnapshot` (cached value, D-6)
-`List<SystemDiagramPartners> diagrams`, `Set<DiagramRef> covered`. Stored in `InventoryCache` under
+`String owner`, `List<SystemDiagramPartners> diagrams`, `Set<DiagramRef> covered`,
+`List<UnreadableDiagram> unreadableDiagrams`, `Map<DiagramRef, List<String>> warnings` (T018: a
+cache hit keeps the per-diagram errors and the reader's warnings per diagram of the read it stores;
+the port's `Result` returns the warnings per diagram). Stored in `InventoryCache` under
 `Key(node, InventoryKind.DIAGRAM, scope)`, scope `partners:<owner>` or
-`partners:<owner>|<group>/<name>`; the owner's system diagram list under `systemdiagrams:<owner>`. A call needing set S is
-served by a fresh snapshot whose `covered` ⊇ S.
+`partners:<owner>|<group>/<name>`; the owner's system diagram list under `systemdiagrams:<owner>`. A
+call of owner O needing set S is served by a fresh snapshot with `owner` = O and `covered` ⊇ S
+(`answers(O, S)`; two scopes can read the same, e.g. owner `a|g/n` and owner `a` with diagram
+`g/n`); it returns only the diagrams, unreadable entries and warnings of S.
 
 ### `PartnerComparison` result (D-10)
 Per matched partner:

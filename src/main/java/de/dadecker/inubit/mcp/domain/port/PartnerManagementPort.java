@@ -5,7 +5,9 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
 import de.dadecker.inubit.mcp.domain.model.partner.SystemDiagramPartners;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Reads the Partner Managements of system diagrams of one server (feature 018, research D-4). Only
@@ -34,16 +36,17 @@ public interface PartnerManagementPort {
      * @param diagrams           the masked Partner Managements of the diagrams that were read, in
      *                           request order (a diagram without Partner Management has no clouds)
      * @param unreadableDiagrams one per requested diagram that gave no data, in request order
-     * @param warnings           the warnings of every diagram that was read, in request order;
-     *                           they name partner key, cloud and setting, never a value
+     * @param warnings           per diagram that was read and gave warnings, its warnings; they
+     *                           name partner key, cloud and setting, never a value
      */
     record Result(List<SystemDiagramPartners> diagrams, List<UnreadableDiagram> unreadableDiagrams,
-        List<String> warnings) {
+        Map<DiagramRef, List<String>> warnings) {
 
         public Result {
             diagrams = List.copyOf(diagrams);
             unreadableDiagrams = List.copyOf(unreadableDiagrams);
-            warnings = List.copyOf(warnings);
+            warnings = warnings.entrySet().stream().collect(Collectors.toUnmodifiableMap(
+                Map.Entry::getKey, entry -> List.copyOf(entry.getValue())));
         }
     }
 

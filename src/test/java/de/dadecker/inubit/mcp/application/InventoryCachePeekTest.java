@@ -13,6 +13,7 @@ import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -99,17 +100,36 @@ class InventoryCachePeekTest {
     }
 
     @Test
+    void aPartnerSnapshotAnswersOnlyItsOwnerAndTheDiagramsItCovers() {
+        PartnerSnapshot snapshot = new PartnerSnapshot("owner", List.of(), Set.of(ORDERS),
+            List.of(), Map.of());
+
+        assertThat(snapshot.answers("owner", List.of(ORDERS))).isTrue();
+        assertThat(snapshot.answers("owner", List.of())).isTrue();
+        assertThat(snapshot.answers("Owner", List.of(ORDERS))).isFalse();
+        assertThat(snapshot.answers("owner", List.of(ORDERS, new DiagramRef("Other", "Shop"))))
+            .isFalse();
+    }
+
+    @Test
     void aPartnerSnapshotIsImmutable() {
         List<SystemDiagramPartners> diagrams =
             new ArrayList<>(List.of(new SystemDiagramPartners(ORDERS, List.of())));
         Set<DiagramRef> covered = new HashSet<>(Set.of(ORDERS));
 
-        PartnerSnapshot snapshot = new PartnerSnapshot(diagrams, covered);
+        List<String> warnings = new ArrayList<>(List.of("a warning"));
+        Map<DiagramRef, List<String>> byDiagram = new HashMap<>(Map.of(ORDERS, warnings));
+
+        PartnerSnapshot snapshot = new PartnerSnapshot("owner", diagrams, covered, List.of(),
+            byDiagram);
         diagrams.clear();
         covered.clear();
+        warnings.clear();
+        byDiagram.clear();
 
         assertThat(snapshot.diagrams()).hasSize(1);
         assertThat(snapshot.covered()).containsExactly(ORDERS);
+        assertThat(snapshot.warnings()).containsExactly(Map.entry(ORDERS, List.of("a warning")));
         assertThatThrownBy(() -> snapshot.covered().add(new DiagramRef("Other", "Shop")))
             .isInstanceOf(UnsupportedOperationException.class);
     }

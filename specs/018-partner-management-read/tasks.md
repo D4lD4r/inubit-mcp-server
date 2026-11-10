@@ -175,7 +175,9 @@ decisions go to `specs/018-partner-management-read/reviews.md` ("Implementation 
 ### Cache and audit (D-6, D-8)
 
 - [X] T015 (after T004, T006) `InventoryCache.peek(Key)` returns a fresh snapshot without loading (empty if absent
-  or expired); `PartnerSnapshot(List<SystemDiagramPartners> diagrams, Set<DiagramRef> covered)`;
+  or expired); `PartnerSnapshot(String owner, List<SystemDiagramPartners> diagrams,
+  Set<DiagramRef> covered, List<UnreadableDiagram> unreadableDiagrams, Map<DiagramRef,
+  List<String>> warnings)` (owner, unreadable diagrams and warnings added in T018);
   scopes on `InventoryKind.DIAGRAM` (no new `InventoryKind`): `systemdiagrams:<owner>`,
   `partners:<owner>`, `partners:<owner>|<group>/<name>` as constants of `PartnerSnapshot` — main
   `application/InventoryCache.java`, `application/PartnerSnapshot.java`, test
@@ -201,7 +203,7 @@ naming system diagram, diagram group and communication cloud; secrets only "set"
 **Independent test**: WireMock with one system diagram of 3 synthetic partners; search by Id and by
 a lower-case name part; check every value and the leak check over result, log, audit and errors.
 
-- [ ] T018 [US1] `PartnerService` read path (after T012–T015): resolve target via
+- [X] T018 [US1] `PartnerService` read path (after T012–T015): resolve target via
   `TargetResolver`; owner per server (`inventory.owner`, an explicit `owner` for all; none →
   `NOT_CONFIGURED` for that server only, FR-002a); gate `VersionGate.admit(…, PARTNER_MANAGEMENT,
   READ, {REST})` (6.1 → `UNSUPPORTED_VERSION`, 9.x → warning); the owner's system diagrams via the

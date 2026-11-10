@@ -184,8 +184,9 @@ class V81PartnerManagementAdapterContractTest {
 
         assertThat(result.diagrams()).extracting(d -> d.diagram())
             .containsExactly(SYNTHETIC, RECORDED);
-        assertThat(result.warnings()).singleElement().satisfies(warning -> assertThat(warning)
-            .contains("GRP-PM/SystemDiagram-02", "unresolved"));
+        assertThat(result.warnings()).containsOnlyKeys(SYNTHETIC);
+        assertThat(result.warnings().get(SYNTHETIC)).singleElement().satisfies(warning ->
+            assertThat(warning).contains("GRP-PM/SystemDiagram-02", "unresolved"));
         assertThat(wireMock.getAllServeEvents()).hasSize(2);
     }
 
@@ -206,8 +207,9 @@ class V81PartnerManagementAdapterContractTest {
         assertThat(result.unreadableDiagrams()).containsExactly(new UnreadableDiagram(RECORDED,
             ErrorCode.UNEXPECTED_RESPONSE, "the export of this name returned a diagram of another"
                 + " group or owner; the name is not unique"));
-        assertThat(result.warnings()).singleElement().satisfies(warning -> assertThat(warning)
-            .doesNotContain(RECORDED.name()));
+        assertThat(result.warnings()).containsOnlyKeys(SYNTHETIC);
+        assertThat(result.warnings().get(SYNTHETIC)).singleElement().satisfies(warning ->
+            assertThat(warning).doesNotContain(RECORDED.name()));
     }
 
     @ParameterizedTest(name = "{0}")

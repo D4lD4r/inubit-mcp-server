@@ -13,6 +13,7 @@ import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
 import de.dadecker.inubit.mcp.domain.model.partner.SystemDiagramPartners;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -60,7 +61,7 @@ public final class V81PartnerManagementAdapter implements PartnerManagementPort 
         Objects.requireNonNull(owner, "owner");
         List<SystemDiagramPartners> diagrams = new ArrayList<>();
         List<UnreadableDiagram> unreadable = new ArrayList<>();
-        List<String> warnings = new ArrayList<>();
+        Map<DiagramRef, List<String>> warnings = new HashMap<>();
         for (DiagramRef diagram : systemDiagrams) {
             RestResponse export = client.get(EXPORT + InubitHttpClient.encodePathSegment(
                 diagram.name()), Map.of(), MediaRange.ANY, 404);
@@ -79,7 +80,9 @@ public final class V81PartnerManagementAdapter implements PartnerManagementPort 
             }
             PartnerManagementReader.Result read = partners(diagram, root);
             diagrams.add(read.partners());
-            warnings.addAll(read.warnings());
+            if (!read.warnings().isEmpty()) {
+                warnings.put(diagram, read.warnings());
+            }
         }
         return new Result(diagrams, unreadable, warnings);
     }

@@ -164,8 +164,11 @@ use ACME, `*.example.test` and `Workflow-0001`.
   system diagram list, `partners:<owner>` for all of the owner's Partner Managements and
   `partners:<owner>|<group>/<name>` for one system diagram. A call for one system diagram first asks
   `InventoryCache.peek(partners:<owner>)` (new: a fresh snapshot without loading) and uses it if
-  present; otherwise it loads its own key. The value is `PartnerSnapshot(List<SystemDiagramPartners>
-  diagrams, Set<DiagramRef> covered)`; diagrams without a cloud are those whose `clouds` is empty.
+  present; otherwise it loads its own key. The value is `PartnerSnapshot(String owner,
+  List<SystemDiagramPartners> diagrams, Set<DiagramRef> covered, List<UnreadableDiagram>
+  unreadableDiagrams, Map<DiagramRef, List<String>> warnings)`; diagrams without a cloud are those
+  whose `clouds` is empty. An entry serves a call only if its `owner` equals the call's owner and
+  `covered` contains every diagram the call needs (the key alone can collide).
   Single-flight, TTL (`inventory.cacheTtl`) and "failures are not cached" come from
   `InventoryCache` unchanged; `refresh: true` bypasses.
 - **Rationale**: reuses the tested cache and its TTL resolution; coverage is explicit in the key.
