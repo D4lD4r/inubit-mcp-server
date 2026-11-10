@@ -250,8 +250,10 @@ uses the 8.1 implementation and the 8.1 client installation; a call against a 9.
   text. Values are
   classified like the data stream (FR-009); a binary value is shown as size and hint. Bounds: at
   most 200 variables (system variables included), 2,000 characters per value and 40,000 characters for all values together,
-  each with an explicit truncation marker. The whole result is therefore at most about 140,000
-  characters.
+  each with an explicit truncation marker. All limits apply to the masked text; names are not
+  counted in the 40,000. The whole result therefore stays below about 190,000 characters.
+  A data stream or variable set larger than 10 MiB is not processed: that part is reported as
+  unavailable ("too large", with its size) as in FR-012.
 - **FR-011**: Masking, applied to the data stream and to every variable value before the result
   is built:
   - a variable whose name contains (case-insensitive) `password`, `passwd`, `pwd`, `secret`,
@@ -262,7 +264,12 @@ uses the 8.1 implementation and the 8.1 client installation; a call against a 9.
     terms is replaced by `${secret:data.<name>}`, leaving the rest of the text unchanged: for an
     element, the whole content between start and end tag (child elements included); for a JSON
     key whose value is an object or array, the whole value; for `name=value`, the value up to the
-    first `&`, `;`, whitespace or line end;
+    first `&`, `;`, whitespace or line end, or, if it starts with a quote, up to the matching
+    quote; if a secret-named start tag has no matching end tag (cut-off or broken text), the
+    value is masked up to the next `<` or the end of the text; a self-closing element has
+    nothing to mask;
+  - a header-style line `name: value` whose name contains one of the same terms (for example
+    `X-Api-Key:` or `Cookie:` in a stored HTTP message) is masked to the end of the line;
   - an HTTP `Authorization` or `Proxy-Authorization` value and every `Basic`/`Bearer` credential
     in text is replaced by `${secret:authorization}`;
   - the known credentials of the profile are scrubbed as in every other result.
@@ -270,11 +277,12 @@ uses the 8.1 implementation and the 8.1 client installation; a call against a 9.
 - **FR-012**: When the content or variables cannot be retrieved while the entry exists, the
   result MUST still contain the metadata and MUST mark each missing part as unavailable with a
   reason.
-- **FR-013**: Errors MUST use the existing error codes: `INVALID_INPUT` (several candidates, not
+- **FR-013**: Errors MUST use the existing error codes, including: `INVALID_INPUT` (several candidates, not
   ERROR, bad input), `NOT_FOUND`, `NOT_CONFIGURED` (group without the opt-in),
   `UNSUPPORTED_VERSION`, `CLI_UNAVAILABLE`, `AUTH_FAILED`, `FORBIDDEN`, `TIMEOUT`, `UNREACHABLE`,
   `TLS_ERROR`, `UNEXPECTED_RESPONSE` (whose message says that the unsupported interface may have
-  changed).
+  changed), `TARGET_UNKNOWN`, `SECRET_UNRESOLVED` and `MAINTENANCE_MODE` as the other read tools
+  use them.
 - **FR-014**: Requests to the server MUST verify TLS exactly like the server's other client
   connections (trust store or pinned certificate, hostname verification setting of the group).
 - **FR-015**: Credentials MUST be passed to the client side the same way StartCLI gets them
@@ -293,10 +301,12 @@ uses the 8.1 implementation and the 8.1 client installation; a call against a 9.
   (Constitution V). The 8.1 recording comes from the spike server; for 9.0 an ERROR entry is
   created on a non-production 9.0 test server (by the operator, or by the agent only after the
   operator approves that concrete action) and its response is recorded during this feature. The
-  feature is not complete before both recordings exist as fixtures. Fallback if no 9.0 ERROR
+  feature is not complete before the 8.1 recording exists and either the 9.0 recording exists
+  or the fallback below is applied. Fallback if no 9.0 ERROR
   entry can be recorded (no 9.0 test server, or the operator declines): the feature ships with a
   9.0 server refused with `UNSUPPORTED_VERSION` ("not yet verified"), the 9.0 code stays, and
-  enabling it after the recording is a follow-up change.
+  enabling it after the recording is a follow-up change; under the fallback 9.0 counts as an
+  unsupported version line for FR-002, and SC-001 and US3 scenario 2 apply to 8.1 only.
 - **FR-020**: All repository artifacts of this feature (tests, fixtures, documentation) MUST use
   fictitious names only.
 
