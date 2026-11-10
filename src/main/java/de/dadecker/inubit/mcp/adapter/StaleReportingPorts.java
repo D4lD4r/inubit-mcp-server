@@ -10,6 +10,7 @@ import de.dadecker.inubit.mcp.domain.model.Page;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
+import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
@@ -153,6 +154,12 @@ final class StaleReportingPorts {
         public ProcessRows findByProcessId(String processId, Instant now,
             Duration hangingThreshold) {
             return call(() -> delegate.findByProcessId(processId, now, hangingThreshold));
+        }
+
+        /** Forwarded: the default would refuse without asking the wrapped port. */
+        @Override
+        public QueueEntries queueEntries(String processId) {
+            return call(() -> delegate.queueEntries(processId));
         }
     }
 

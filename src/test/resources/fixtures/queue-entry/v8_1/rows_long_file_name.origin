@@ -1,0 +1,2 @@
+reconstructed fixtures/v8_1/rest/log_queueLog_error.json (recorded 8.1.17): the same row shape with fictitious values; an ERROR row with a file name of exactly 255 characters (feature 020, research D-9).
+Not recorded: hand-written for a lookup case the recordings lack.

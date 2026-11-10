@@ -49,6 +49,14 @@ class RefusingPortsTest {
     }
 
     @Test
+    void queueEntriesRefusesWithTheSixOneRefusalWithoutContact() {
+        // feature 020 T012 (research D-9): overridden, not the adapter-line default
+        assertThatThrownBy(() -> refusing.queueEntries("4711"))
+            .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error()).isEqualTo(refusing.refusal().error()));
+    }
+
+    @Test
     void theRefusalNamesTheNodeAndThatNothingWasSent() {
         assertThatThrownBy(() -> refusing.query(null))
             .isInstanceOfSatisfying(ToolErrorException.class, e -> {

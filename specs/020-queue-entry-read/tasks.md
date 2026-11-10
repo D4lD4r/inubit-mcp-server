@@ -177,7 +177,7 @@ INUBIT contact.
 
 ### Lookup (plan stage 3)
 
-- [ ] T012 [US1] queueLog lookup (FR-005, FR-008, D-9): new `adapter/rest/v81/QueueEntryRowParser.java`
+- [X] T012 [US1] queueLog lookup (FR-005, FR-008, D-9): new `adapter/rest/v81/QueueEntryRowParser.java`
   (keeps uncut `fileName`, `workflowName`, `fileSize` as long, `userDefined1..5` cut at 2,000; a
   `fileName` over 255 chars or with `/`, `\`, NUL, control chars, or a workflow with `@@@` or
   control chars → `UNEXPECTED_RESPONSE`); `adapter/rest/v81/V81ProcessQueryAdapter.java`

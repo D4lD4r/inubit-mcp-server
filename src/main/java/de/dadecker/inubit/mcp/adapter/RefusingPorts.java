@@ -10,6 +10,7 @@ import de.dadecker.inubit.mcp.domain.model.Page;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
+import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
@@ -63,6 +64,11 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
     @Override
     public ProcessRows findByProcessId(String processId, Instant now,
         Duration hangingThreshold) {
+        throw refusal();
+    }
+
+    @Override
+    public QueueEntries queueEntries(String processId) {
         throw refusal();
     }
 

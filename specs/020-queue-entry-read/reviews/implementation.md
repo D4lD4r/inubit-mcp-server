@@ -57,3 +57,10 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
 - Residual gap (minor finding T011-r1): a rule 6 quoted value with a backslash-escaped quote of
   the same kind (`password="a\"b"`) is masked only up to the escaped quote. To be listed with the
   masking residual risk in `docs/tools.md` (T040), unless fixed earlier.
+
+## T012 – notes for later tasks
+
+- Synthetic queueLog rows are named `fixtures/queue-entry/v8_1/rows_<case>.json` + `.origin`
+  (as T012 asks); the T026 catalogue test must accept these names next to `<case>.rows.json`.
+- `module`, `moduleType`, `globalProcessId` are not cut by the parser (only `userDefined1..5`);
+  bounds on output fields belong to the result mapping (T024).

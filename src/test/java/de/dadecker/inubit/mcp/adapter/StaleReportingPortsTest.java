@@ -1,10 +1,12 @@
 package de.dadecker.inubit.mcp.adapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
@@ -142,6 +144,40 @@ class StaleReportingPortsTest {
             }
         }
         assertThat(versions.events()).isEmpty();
+    }
+
+    @Test
+    void queueEntriesIsForwardedAndAnUnexpectedResponseMarksTheNodeStale() {
+        // feature 020 T012 (research D-9): without the override the wrapped 8.1 port would
+        // never be asked and the refusing default would answer
+        QueueEntries answer = new QueueEntries(List.of(), 0);
+        List<Object> asked = new ArrayList<>();
+        ProcessQueryPort answering = (ProcessQueryPort) Proxy.newProxyInstance(
+            ProcessQueryPort.class.getClassLoader(), new Class<?>[] {ProcessQueryPort.class},
+            (proxy, method, args) -> {
+                if (method.getName().equals("queueEntries")) {
+                    asked.add(args[0]);
+                    return answer;
+                }
+                throw new AssertionError(method + " was not expected");
+            });
+        PortSet others = throwingPorts(failure(ErrorCode.NOT_FOUND));
+
+        assertThat(stale.ports(new PortSet(answering, others.logs(), others.inventory(),
+            others.processControl(), others.artifacts(), others.imports(), others.tags()))
+            .processes().queueEntries("4711")).isSameAs(answer);
+        assertThat(asked).containsExactly("4711");
+        assertThat(versions.events()).isEmpty();
+
+        ToolErrorException notFound = failure(ErrorCode.NOT_FOUND);
+        assertThat(catchThrowable(() -> stale.ports(throwingPorts(notFound)).processes()
+            .queueEntries("4711"))).isSameAs(notFound);
+        assertThat(versions.events()).isEmpty();
+
+        ToolErrorException unexpected = failure(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(catchThrowable(() -> stale.ports(throwingPorts(unexpected)).processes()
+            .queueEntries("4711"))).isSameAs(unexpected);
+        assertThat(versions.events()).containsExactly("stale dev/node1");
     }
 
     @Test
