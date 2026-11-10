@@ -158,3 +158,20 @@ Fix round (uncommitted on 8d9efe8), one line per finding:
 1. Fixed: `PartnerService.referencingClouds` runs the read on its own virtual thread and waits at most `referenceBudget` (`3 × timeout + cliExportTimeout`, the term `itemDeadline` adds for it); a longer read is a `TIMEOUT` (message names the server and the budget, next step `cliExportTimeout`) that `InventoryService` turns into `partnerUsage.unavailable`, keeping versions, modules, variables and the node; the read is not cancelled and fills the shared cache, so the next call (or `find_partners`) joins or finds it. Contract `other-changes.md` and the `itemDeadline` Javadoc say so. Test: `InventoryServiceTest.aPartnerReadPastItsBudgetIsATimeoutOfThePartnerUsageOnlyAndFillsTheCacheLater` (partner port blocked past a 300 ms budget; fails with the fix reverted).
 
 Review of the fix round: reviews/phase6-cr-fix-r1.md (APPROVED). Full build `mvn -o -q clean verify` green: 5896 unit tests (52 skipped) + 2 integration tests.
+
+## Implementation — final build (T033)
+
+After T032 (23eeb08): `mvn -o -q clean verify -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-018-tmp`
+green with 5908 unit tests (surefire), 0 failures, 0 errors, 52 skipped, plus 2 failsafe tests.
+Against T001 (5495 + 2) that is 413 more unit tests, with the same skips. `python3 -I -m unittest
+discover -s tools/tests` is green with 441 tests (T001: 438; the 3 new ones come from T002, the
+anonymizer keeping `fieldType`). `python3 tools/check-identifiers.py --all` passes.
+
+Found and fixed in phase 7: `PartnerSecretLeakTest` (T030) showed that an unexpected answer to a
+Partner Management export carried an excerpt of its body in the `ToolError`. That body may quote
+partner data. `V81PartnerManagementAdapter.export` now drops the excerpt (FR-008; contract test
+`aFailedExportIsReportedWithoutAnExcerptOfItsAnswer`).
+
+Open follow-up, outside 018: `V81InventoryAdapter.diagramMetadata` (the system diagram export of
+`get_inventory_item`) can still quote the export body in an `UNEXPECTED_RESPONSE` excerpt (T030
+review).
