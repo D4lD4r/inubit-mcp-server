@@ -123,7 +123,7 @@ decisions go to `specs/020-queue-entry-read/reviews/implementation.md`.
   no slot — FR-016 interpretation, owner decision) — failing tests first in
   `adapter/cli/CliConcurrencyLimiterTest.java` (third helper run on an 8.1 node waits and times out;
   a 6.1 StartCLI run and helper runs share the slots; `acquire` on 8.1 still a no-op)
-- [ ] T008 [P] `adapter/cli/TlsPeer.java` (`List<X509Certificate> handshake(EffectiveNodeConfig,
+- [X] T008 [P] `adapter/cli/TlsPeer.java` (`List<X509Certificate> handshake(EffectiveNodeConfig,
   Duration)` with `SslContexts.forServer`: trust store, pin, hostname verification; errors with the
   probe's texts) extracted from `adapter/cli/HandshakeStartCliPinProbe.java`, which now uses it
   (D-7) — failing tests first in `adapter/cli/TlsPeerTest.java` (local TLS server on 127.0.0.1 with a
