@@ -95,3 +95,7 @@ Fix round (uncommitted on 675b0d6), one line per finding:
 10. Fixed: the search term is compiled once per call as `Pattern.quote(term)` with `CASE_INSENSITIVE | UNICODE_CASE` and found in each shown field; test with U+0130 (lower-casing changes the length) in the value and in the term, and a term with a regex metacharacter.
 
 Review of the fix round: reviews/phase3-cr-fix-r1.md (APPROVED, 1 minor fixed). Full build `mvn -o -q clean verify` green: 5784 unit tests (52 skipped) + 2 integration tests.
+
+## Implementation — phase 4 build
+
+After T024 (f32d832): `mvn -o -q clean verify` green with 5810 unit tests (52 skipped), 0 failures, 0 errors, plus 2 integration tests (after phase 3 fixes: 5784 + 2).
