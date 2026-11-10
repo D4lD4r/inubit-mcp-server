@@ -146,3 +146,10 @@ Review of the fix round: reviews/phase5-cr-fix-r1.md (APPROVED after 3 rounds, 2
 ## Implementation — phase 6 build
 
 After T029 (59fdd34): `mvn -o -q clean verify` green with 5895 unit tests (52 skipped), 0 failures, 0 errors, plus 2 integration tests (after phase 5 fixes: 5883 + 2).
+
+## Implementation — phase 6 code review (c413018..964105b)
+
+1 finding:
+1. [medium] `InventoryService` reads the partner usage of a technical workflow (`PartnerService.referencingClouds`) on the fan-out thread within `itemDeadline` (timeout plus `3 × timeout + cliExportTimeout`), but nothing bounds the partner read itself: the adapter exports the owner's system diagrams one after another, each bounded only by `timeout`, so with many or slow system diagrams `FanOut` stops the whole call and `get_inventory_item` answers `TIMEOUT`, losing versions, modules and partner variables, instead of a partial result with `partnerUsage.unavailable` (FR-015; the stopped-export rule at `InventoryService.java:306`). A failed load is not cached, so every retry times out again. No test with a partner read past its budget.
+
+Decisions judged (accepted): the partner-variable regex and its iterative linear scan of attribute values and text (names only, never values); `PartnerUsage` serializes as the contract shape (empty optionals absent, `usesPartners` no property, `systemDiagram` as the new `$defs/DiagramRef`); the configured owner as explicit `PartnerQuery.owner`; cache keys shared with `find_partners` (a `refresh` replaces the whole-owner entry, `forDiagrams` prefers it); the gate admitted for `get_inventory_item` with only its warnings passed on, de-duplicated; every `ToolErrorException` caught; unreadable-diagram messages carry names, codes and the server only, so no audit; `InventoryBounds` caps each partner list at an eighth of the budget before `fit`, cuts texts to 200/500 with `truncated`, drops `partnerUsage.unavailable` after the generic `unavailable`; one shared `PartnerService` in `Wiring`. Verdict: CHANGES REQUESTED.
