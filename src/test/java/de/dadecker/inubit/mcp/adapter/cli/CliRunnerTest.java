@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.adapter.cli;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
@@ -298,6 +299,7 @@ class CliRunnerTest {
     void aTrustStorePathWithAQuoteIsPassedOnlyAsArgument(String name) {
         // Java 9+ reads ' and " in JAVA_TOOL_OPTIONS as quotes; an unpaired one stops the JVM
         // (Windows CI, WindowsCommandLineInjectionTest TRUST_STORE with APOSTROPHE)
+        assumeFalse(Platform.windows() && name.contains("\""), "no \" in a Windows path");
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
         Path trustStore = cliHome.resolve(name);
 
@@ -885,6 +887,7 @@ class CliRunnerTest {
     @ValueSource(strings = {"trust's.p12", "trust\"s.p12"})
     void aClientWithItsOwnTrustStoreOptionGetsATrustStorePathWithAQuoteOnlyAsArgument(
         String name) {
+        assumeFalse(Platform.windows() && name.contains("\""), "no \" in a Windows path");
         Path trustStore = cliHome.resolve(name);
 
         FakeProcessLauncher.FakeProcess process =
