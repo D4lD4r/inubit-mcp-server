@@ -172,7 +172,7 @@ read and paging match quickstart rows US1 AS1–AS6 and D-9.
   `NoteRefs` (per-process HMAC key, `r1.` + 20 characters, `resolve` against a listing) — main
   `knowledge/VersionToken.java`, `knowledge/NoteRefs.java`, tests `knowledge/VersionTokenTest.java`,
   `knowledge/NoteRefsTest.java` (stable within a process, different across keys, no name in it)
-- [ ] T020 [US1] `KnowledgeService.search` and `read` with `NoteSelector` (D-9): masking before
+- [X] T020 [US1] `KnowledgeService.search` and `read` with `NoteSelector` (D-9): masking before
   paging/searching (FR-008a), literal case-insensitive query, topic by `fold`, AND, order, limit/
   offset, excerpt ≤ 300, `masked`, `writable`, `ref`; read pages of 20,000 including the marker,
   `nextOffset`, lookup by exact NFC name or `ref`, `NOT_FOUND` with up to five masked similar
