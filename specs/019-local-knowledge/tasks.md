@@ -218,7 +218,7 @@ readiness and a failing-audit fake.
   `.lock` created owner-only and opened with `openLockFileNoFollow` — main
   `knowledge/KnowledgeLock.java`, test `knowledge/KnowledgeLockTest.java` (threads, timeout,
   link)
-- [ ] T027 [P] [US2] `KnowledgeHistory` (D-11): `add` (counter one above the greatest for the
+- [X] T027 [P] [US2] `KnowledgeHistory` (D-11): `add` (counter one above the greatest for the
   instant, owner-only, segments created one at a time), `undo`, `prune` to 10 by parsed (instant,
   counter), unmatched files never pruned — main `knowledge/KnowledgeHistory.java`, test
   `knowledge/KnowledgeHistoryTest.java` (twelve same-instant versions with contents, link on
