@@ -97,7 +97,7 @@ prints the line without reading a credential.
   of the same profile gets the existing warning only, a symbolic-link root is resolved; error
   texts per configuration-delta.md; leak check — main `config/ConfigValidator.java`, test
   `config/ConfigValidatorKnowledgeTest.java`
-- [ ] T010 [P] [US3] `PrivateFileSystem.othersMayAccess(Path)` (D-3): POSIX group/other read or
+- [X] T010 [P] [US3] `PrivateFileSystem.othersMayAccess(Path)` (D-3): POSIX group/other read or
   write, Windows ACL `check`; empty for a missing path — main `domain/port/PrivateFileSystem.java`,
   `adapter/os/OsPrivateFileSystem.java` (and the other `*PrivateFileSystem` implementations), test
   `adapter/os/OsPrivateFileSystemTest.java`

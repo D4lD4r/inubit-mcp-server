@@ -240,6 +240,11 @@ class PrivateObjectCheckTest {
         }
 
         @Override
+        public Optional<String> othersMayAccess(Path path) {
+            throw new AssertionError("not asked");
+        }
+
+        @Override
         public Optional<String> currentUserSid() {
             return userSid;
         }

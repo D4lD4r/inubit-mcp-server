@@ -73,6 +73,16 @@ public interface PrivateFileSystem {
     List<String> check(Path path) throws IOException;
 
     /**
+     * Who else may read or write the existing {@code path} (feature 019, FR-003, research D-3);
+     * nothing is changed. POSIX: the group and other read and write bits, e.g. {@code readable by
+     * group and others} or {@code readable by group, readable and writable by others} (execute
+     * alone is not reported). Windows: {@code accessible to <principals>} as {@link #check}
+     * reports them. Empty if nobody else may, if {@code path} does not exist, or on a file system
+     * with neither.
+     */
+    Optional<String> othersMayAccess(Path path) throws IOException;
+
+    /**
      * True if the owner of {@code path} is the current user: on Windows the user of the process
      * token (also on an elevated account, whose new objects may be owned by
      * {@code BUILTIN\Administrators} otherwise), elsewhere the account {@code user.name}.
