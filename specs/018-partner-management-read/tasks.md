@@ -278,7 +278,7 @@ a lower-case name part; check every value and the leak check over result, log, a
 secret equality by server groups (8.1 only), report failed servers.
 **Independent test**: two fake stages × two servers with known differences (T010).
 
-- [ ] T025 [US3] `PartnerComparison` (pure, D-10; after T006, T009, T010, T014, T015): partner key
+- [X] T025 [US3] `PartnerComparison` (pure, D-10; after T006, T009, T010, T014, T015): partner key
   (diagram, cloud, `Id`; without a non-masked `Id` the first configured non-masked field present on
   both sides); entry key (protocol, resolved workflow name) + position; settings and entry
   attributes such as `format` as `equal`/`differs`; masked: `set` per server and `sameOn` groups by
