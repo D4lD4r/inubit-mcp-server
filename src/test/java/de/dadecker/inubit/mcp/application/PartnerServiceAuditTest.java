@@ -12,7 +12,6 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerFixtures;
 import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerManagementReader;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree;
 import de.dadecker.inubit.mcp.application.PartnerService.Found;
-import de.dadecker.inubit.mcp.application.PartnerService.PartnerView;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -111,7 +110,8 @@ class PartnerServiceAuditTest {
     void oneRecordAndOneLinePerServerShareTheCallId() {
         Found found = service(port).find(query("dev", Optional.of("acme"), Optional.empty()));
 
-        int masked = found.partners().stream().mapToInt(PartnerView::maskedCount).sum();
+        // the masked values shown: 3 of ACME-0001, 3 of ACME-0002, 6 of ACME-0003 in full
+        int masked = 12;
         assertThat(port.records).extracting(AuditRecord::node)
             .containsExactly(NODE1.value(), NODE2.value());
         UUID callId = port.records.get(0).callId().orElseThrow();
@@ -124,7 +124,6 @@ class PartnerServiceAuditTest {
         assertThat(port.records.get(0).details()).containsExactly(Map.entry("fromCache", false),
             Map.entry("systemDiagramsRead", 1), Map.entry("partnersReturned", 3),
             Map.entry("valuesMasked", masked));
-        assertThat(masked).isPositive();
         assertThat(port.records.get(1).details()).containsExactly(Map.entry("fromCache", false),
             Map.entry("systemDiagramsRead", 0), Map.entry("partnersReturned", 0),
             Map.entry("valuesMasked", 0));
@@ -164,7 +163,8 @@ class PartnerServiceAuditTest {
         Found found = service(port).find(page);
 
         assertThat(found.total()).isEqualTo(3);
-        int masked = found.partners().get(0).maskedCount();
+        // ACME-0002 in full: Note, the FTP Password, the AS4 Password
+        int masked = 3;
         assertThat(port.records).singleElement().satisfies(record -> assertThat(record.details())
             .containsEntry("partnersReturned", 1).containsEntry("valuesMasked", masked));
         assertThat(lines()).singleElement().asString()

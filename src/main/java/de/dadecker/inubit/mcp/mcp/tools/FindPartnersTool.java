@@ -31,20 +31,22 @@ import java.util.UUID;
  * {@code INVALID_INPUT} with one {@code REFUSED} audit record whose node is the target as
  * requested; every other audit is written by the service.
  *
- * <p>{@code compareWith}, {@code protocol} and {@code workflow} are in the schema but not
- * implemented yet: a call with one of them is refused the same way, naming the parameter, before
- * any server is contacted (phase 3 review; T023 and T026 lift this refusal).
+ * <p>{@code compareWith} is in the schema but not implemented yet: a call with it is refused the
+ * same way before any server is contacted (phase 3 review; T026 lifts this refusal).
  */
 public final class FindPartnersTool implements ToolHandler {
 
     static final String DESCRIPTION = "Find partners in the INUBIT Partner Management of the"
         + " owner's system diagrams on one {group} or {node}. With search: partners whose Id,"
-        + " name or another non-secret partner field contains the term (case-insensitive);"
-        + " without: all partners. Each partner is shown with its system diagram, communication"
-        + " cloud, partner fields and, per protocol entry, the referenced technical workflow,"
-        + " the protocol settings and the additional parameters. Passwords, keys and other"
-        + " secrets are only shown as set or not set. Lists the system diagrams read and, if"
-        + " nothing matches, similar partner Ids and names. Read-only; every call is audited.";
+        + " name or another non-secret partner field contains the term (case-insensitive), each"
+        + " with its system diagram, communication cloud, partner fields and, per protocol"
+        + " entry, the referenced technical workflow, the protocol settings and the additional"
+        + " parameters. Without search: every partner as a summary (per entry only protocol,"
+        + " workflow, ServerName and Login), ordered by system diagram, communication cloud, Id"
+        + " and name. systemDiagram, protocol and workflow narrow both; with protocol or"
+        + " workflow only the matching entries are shown. Passwords, keys and other secrets are"
+        + " only shown as set or not set. Lists the system diagrams read and, if a search"
+        + " matches nothing, similar partner Ids and names. Read-only; every call is audited.";
 
     private final PartnerService service;
     private final PartnerAudit.Dependencies audits;
@@ -103,19 +105,13 @@ public final class FindPartnersTool implements ToolHandler {
         return Result.of(service.find(query), query);
     }
 
-    /**
-     * @throws ToolErrorException {@code INVALID_INPUT} naming the first of {@code compareWith},
-     *     {@code protocol}, {@code workflow} that is given
-     */
+    /** @throws ToolErrorException {@code INVALID_INPUT} if {@code compareWith} is given */
     private static void refuseUnsupported(PartnerQuery query) {
-        Optional<String> parameter = query.compareWith().map(value -> "compareWith")
-            .or(() -> query.protocol().map(value -> "protocol"))
-            .or(() -> query.workflow().map(value -> "workflow"));
-        if (parameter.isPresent()) {
+        if (query.compareWith().isPresent()) {
             throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
-                parameter.get() + " is not supported yet",
-                "This version of find_partners does not implement " + parameter.get() + " yet",
-                "Call again without " + parameter.get()));
+                "compareWith is not supported yet",
+                "This version of find_partners does not implement compareWith yet",
+                "Call again without compareWith"));
         }
     }
 

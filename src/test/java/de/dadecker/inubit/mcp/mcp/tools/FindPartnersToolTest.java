@@ -66,7 +66,8 @@ import tools.jackson.databind.json.JsonMapper;
  * Feature 018 T022: {@code find_partners} over MCP (contracts/find_partners.md, single-server
  * shape) on the real {@link PartnerService} with fake ports serving the synthetic exports of
  * {@link PartnerFixtures} and a recording audit log: hints and schemas, the defaults of the tool,
- * the unresolved workflow shape, Op-2, Op-5 and the audited input refusals (FR-002, FR-020).
+ * the unresolved workflow shape, Op-2, Op-5 and the audited input refusals (FR-002, FR-020);
+ * T023: the list summary and the entry filters.
  */
 @Timeout(60)
 class FindPartnersToolTest {
@@ -247,7 +248,7 @@ class FindPartnersToolTest {
     }
 
     @Test
-    void withoutASearchTermTheModeIsListAndEveryPartnerIsReturned() {
+    void withoutASearchTermTheModeIsListAndEveryPartnerIsASummary() {
         JsonNode result = call(Map.of("target", "dev/node1"));
 
         assertMatchesOutputSchema("find_partners", result);
@@ -255,7 +256,41 @@ class FindPartnersToolTest {
         assertThat(content.path("mode").asString()).isEqualTo("list");
         assertThat(content.path("partners")).hasSize(3);
         assertThat(content.path("total").asInt()).isEqualTo(3);
+        JsonNode partner = content.path("partners").get(2);
+        assertThat(partner.path("fields")).hasSize(2);
+        assertThat(partner.path("maskedCount").asInt()).isEqualTo(6);
+        assertThat(partner.path("entries").get(0)).isEqualTo(JSON.readTree("""
+            {"protocol":"WebService","workflow":{"name":"Workflow-0003"},
+             "protocolSettings":[{"name":"ServerName","value":"http://host3.example.test/path1"},
+                                 {"name":"Login","value":"login3"}]}"""));
         assertNoSecretIn(result);
+    }
+
+    @Test
+    void protocolAndWorkflowFilterTheEntriesInBothModes() {
+        JsonNode listed = call(Map.of("target", "dev/node1", "protocol", "ftp"));
+        JsonNode searched = call(Map.of("target", "dev/node1", "search", "acme",
+            "workflow", "WORKFLOW-0003"));
+
+        assertMatchesOutputSchema("find_partners", listed);
+        assertMatchesOutputSchema("find_partners", searched);
+        JsonNode content = listed.path("structuredContent");
+        assertThat(content.path("partners")).extracting(FindPartnersToolTest::id)
+            .containsExactly("ACME-0001", "ACME-0002");
+        assertThat(content.path("partners").get(1).path("entries"))
+            .extracting(entry -> entry.path("protocol").asString()).containsExactly("FTP");
+        content = searched.path("structuredContent");
+        assertThat(content.path("mode").asString()).isEqualTo("search");
+        assertThat(content.path("partners")).extracting(FindPartnersToolTest::id)
+            .containsExactly("ACME-0002", "ACME-0003");
+        assertThat(content.path("partners").get(1).path("entries")).singleElement()
+            .satisfies(entry -> assertThat(entry.has("additionalParameters")).isTrue());
+        assertThat(audit).extracting(AuditRecord::outcome)
+            .containsExactly(AuditOutcome.EXECUTED, AuditOutcome.EXECUTED);
+        assertThat(audit.get(0).inputs()).containsEntry("protocol", "ftp");
+        assertThat(audit.get(1).inputs()).containsEntry("workflow", "WORKFLOW-0003");
+        assertNoSecretIn(listed);
+        assertNoSecretIn(searched);
     }
 
     @Test
@@ -415,43 +450,31 @@ class FindPartnersToolTest {
     void theLimitsOfTheSchemaAreInclusive() {
         JsonNode result = call(Map.of("target", "dev/node1", "search", "s".repeat(200),
             "limit", 100));
-        JsonNode longestProtocol = toolError(call(Map.of("target", "dev/node1",
-            "protocol", "P".repeat(64))));
+        JsonNode longestProtocol = call(Map.of("target", "dev/node1",
+            "protocol", "P".repeat(64)));
 
         assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
-        assertThat(longestProtocol.path("message").asString())
-            .as("passed the schema, refused by the tool")
-            .isEqualTo("protocol is not supported yet");
+        assertThat(longestProtocol.path("isError").asBoolean()).as(longestProtocol.toString())
+            .isFalse();
+        assertThat(longestProtocol.path("structuredContent").path("partners"))
+            .as("no entry has this protocol: an empty result, not NOT_FOUND").isEmpty();
     }
 
-    /**
-     * Interim (phase 3 review): T023 (protocol, workflow) and T026 (compareWith) remove this
-     * refusal and this test.
-     */
+    /** Interim (phase 3 review): T026 removes this refusal and this test. */
     @Test
-    void compareWithProtocolAndWorkflowAreAuditedAsNotSupportedYetWithoutAnyRead() {
-        Map<String, Map<String, Object>> calls = new LinkedHashMap<>();
-        calls.put("compareWith", Map.of("target", "dev/node1", "compareWith", "dev/node2"));
-        calls.put("protocol", Map.of("target", "dev/node1", "protocol", "FTP"));
-        calls.put("workflow", Map.of("target", "dev/node1", "workflow", "Workflow-0001",
-            "search", "acme"));
+    void compareWithIsAuditedAsNotSupportedYetWithoutAnyRead() {
+        JsonNode error = toolError(call(Map.of("target", "dev/node1", "compareWith",
+            "dev/node2")));
 
-        calls.forEach((parameter, arguments) -> {
-            JsonNode error = toolError(call(arguments));
-            assertThat(error.path("code").asString()).isEqualTo("INVALID_INPUT");
-            assertThat(error.path("message").asString())
-                .isEqualTo(parameter + " is not supported yet");
-        });
-
-        assertThat(audit).hasSize(3).allSatisfy(record -> {
+        assertThat(error.path("code").asString()).isEqualTo("INVALID_INPUT");
+        assertThat(error.path("message").asString()).isEqualTo("compareWith is not supported yet");
+        assertThat(audit).singleElement().satisfies(record -> {
             assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED);
             assertThat(record.node()).isEqualTo("dev/node1");
             assertThat(record.reason()).hasValueSatisfying(reason ->
                 assertThat(reason).startsWith("INVALID_INPUT: "));
+            assertThat(record.inputs().keySet()).containsExactly("target", "compareWith");
         });
-        assertThat(audit).extracting(record -> record.inputs().keySet().stream().toList())
-            .containsExactly(List.of("target", "compareWith"), List.of("target", "protocol"),
-                List.of("target", "search", "workflow"));
         assertThat(portReads).isEmpty();
     }
 

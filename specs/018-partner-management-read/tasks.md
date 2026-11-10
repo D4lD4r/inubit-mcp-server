@@ -256,7 +256,7 @@ a lower-case name part; check every value and the leak check over result, log, a
 **Independent test**: 120 synthetic partners; default and custom page size, each filter; order,
 `nextOffset`, totals, size bound.
 
-- [ ] T023 [US2] List mode (after T019): summary per partner (system diagram name and group, cloud
+- [X] T023 [US2] List mode (after T019): summary per partner (system diagram name and group, cloud
   module name, partner fields, per entry protocol, workflow, `ServerName`, `Login` if present —
   FR-006, keys as constant `PartnerService.SUMMARY_KEYS`); order "system diagram group and name,
   communication cloud module name, then partner

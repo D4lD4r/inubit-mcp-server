@@ -18,6 +18,7 @@ import de.dadecker.inubit.mcp.domain.model.partner.CommunicationCloud;
 import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
 import de.dadecker.inubit.mcp.domain.model.partner.Partner;
 import de.dadecker.inubit.mcp.domain.model.partner.PartnerQuery;
+import de.dadecker.inubit.mcp.domain.model.partner.ProtocolEntry;
 import de.dadecker.inubit.mcp.domain.model.partner.Setting;
 import de.dadecker.inubit.mcp.domain.model.partner.SettingValue;
 import de.dadecker.inubit.mcp.domain.model.partner.SystemDiagramPartners;
@@ -28,6 +29,7 @@ import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort.UnreadableDiagra
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
@@ -77,8 +79,21 @@ import org.slf4j.LoggerFactory;
  *       its clouds and their partner counts, those without a Partner Management, the unreadable
  *       ones and the warnings; per cloud that contributed a returned partner, its referencable
  *       workflows.
- *   <li>Paging (FR-017, phase 3 review): the matches of all servers in server order, then
- *       export order; {@code offset} and {@code limit} select the partners returned, with the
+ *   <li>Filters (T023, FR-005a), in both modes and AND-combined with the search: an entry
+ *       matches if its {@code protocol} attribute equals {@code protocol} (never an additional
+ *       parameter such as {@code FTPProtocol}) and its resolved workflow name equals
+ *       {@code workflow}, each case-insensitively; an unresolved workflow never matches. With
+ *       either filter a partner is a match only through a matching entry, and shows only its
+ *       matching entries. No match is an empty result, never {@code NOT_FOUND}.
+ *   <li>List mode (T023, FR-006): without a search term each partner is a summary: its system
+ *       diagram, communication cloud and all fields, and per entry only the protocol, the
+ *       workflow and the protocol settings {@link #SUMMARY_KEYS} that are present (a masked one
+ *       stays masked). The matches of a server are ordered by system diagram group and name,
+ *       communication cloud module name, partner {@code Id}, then {@code Name}
+ *       (case-insensitive; a masked or missing value last; ties in export order). A search keeps
+ *       the export order (contracts/find_partners.md, "Guarantees").
+ *   <li>Paging (FR-017, phase 3 review): the matches of all servers in server order, then in the
+ *       order above; {@code offset} and {@code limit} select the partners returned, with the
  *       number of matches as {@code total} and {@code nextOffset} while more follow. The size
  *       bound ({@code resultLimits}) follows in T024.
  *   <li>Similar values (T020, FR-005b, FR-011, FR-019): a search without hits on a call where
@@ -89,6 +104,8 @@ import org.slf4j.LoggerFactory;
  *   <li>Audit and log (T021, FR-020, FR-021, research D-8): one {@link PartnerAudit} per call
  *       with one call id; one record and one INFO line per targeted server, also for cache hits;
  *       an audit record that cannot be written ends the call in {@code INTERNAL} without data.
+ *       {@code valuesMasked} counts the masked values the returned page shows (fields and the
+ *       settings of the entries shown), not the partners' {@code maskedCount}.
  * </ul>
  */
 public final class PartnerService {
@@ -104,6 +121,18 @@ public final class PartnerService {
     static final int MAX_SIMILAR = 5;
     /** The partner fields similar values are taken from (FR-005b). */
     private static final Set<String> SIMILAR_FIELDS = Set.of("Id", "Name");
+    /** The protocol settings a list entry shows, for every protocol (FR-006, research D-2). */
+    static final List<String> SUMMARY_KEYS = List.of("ServerName", "Login");
+    /** A shown text first, case-insensitively; a masked or missing value last. */
+    private static final Comparator<String> TEXT =
+        Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER);
+    /** The order of list mode (FR-006, US2-AS1); {@code List.sort} keeps ties in export order. */
+    private static final Comparator<Match> LIST_ORDER = Comparator
+        .comparing((Match match) -> match.diagram().diagram().diagramGroup(), TEXT)
+        .thenComparing(match -> match.diagram().diagram().name(), TEXT)
+        .thenComparing(match -> match.cloud().moduleName(), TEXT)
+        .thenComparing(match -> shown(match.partner(), "Id"), TEXT)
+        .thenComparing(match -> shown(match.partner(), "Name"), TEXT);
 
     /**
      * What one server answered for one call.
@@ -143,6 +172,7 @@ public final class PartnerService {
      * @param referencableWorkflows per communication cloud that contributed a returned partner
      *                              (FR-007)
      * @param partners              the page of matching partners: server order, then export order
+     *                              (search) or the list order (list mode, a summary each)
      * @param similarValues         only when a search matched nothing and at least one server
      *                              answered: up to {@link #MAX_SIMILAR} non-masked {@code Id} and
      *                              {@code Name} values of the system diagrams read, closest first
@@ -164,8 +194,9 @@ public final class PartnerService {
         }
     }
 
-    /** The matching partners of one communication cloud, with its referencable workflows. */
-    private record CloudMatches(CloudWorkflows workflows, List<PartnerView> partners) {
+    /** A matching partner with the entries it shows (all, or those the entry filters match). */
+    private record Match(SystemDiagramPartners diagram, CommunicationCloud cloud, Partner partner,
+        List<ProtocolEntry> entries) {
     }
 
     /**
@@ -221,9 +252,11 @@ public final class PartnerService {
     }
 
     /**
-     * One partner in full (FR-004).
+     * One partner in full (FR-004), or as a summary in list mode (FR-006).
      *
-     * @param moduleId only when another cloud of the same system diagram has the same name
+     * @param moduleId    only when another cloud of the same system diagram has the same name
+     * @param maskedCount the masked values of the whole partner, also of entries not shown
+     * @param entries     in export order: all, or only those the entry filters match
      */
     public record PartnerView(DiagramRef systemDiagram, String cloud, Optional<String> moduleId,
         List<SettingView> fields, int maskedCount, List<EntryView> entries) {
@@ -234,13 +267,17 @@ public final class PartnerService {
         }
     }
 
-    /** One {@code ReferencedTWF} in export order; {@code format} shown uninterpreted. */
+    /**
+     * One {@code ReferencedTWF} in export order; {@code format} shown uninterpreted. A list
+     * summary has no {@code format} and no {@code additionalParameters}, and of the
+     * {@code protocolSettings} only the {@link #SUMMARY_KEYS} present.
+     */
     public record EntryView(String protocol, WorkflowView workflow, Optional<String> format,
-        List<SettingView> protocolSettings, List<SettingView> additionalParameters) {
+        List<SettingView> protocolSettings, Optional<List<SettingView>> additionalParameters) {
 
         public EntryView {
             protocolSettings = List.copyOf(protocolSettings);
-            additionalParameters = List.copyOf(additionalParameters);
+            additionalParameters = additionalParameters.map(List::copyOf);
         }
     }
 
@@ -302,10 +339,11 @@ public final class PartnerService {
 
     /**
      * The partners of every server of {@code query.target()} whose non-masked fields contain
-     * {@code query.search()}, case-insensitively (every partner without a search term), each in
-     * full (FR-004, FR-005, FR-007, FR-011); the page {@code query.offset()},
-     * {@code query.limit()} of them (FR-017). A search without hits gets similar values if a
-     * server answered (FR-005b).
+     * {@code query.search()}, case-insensitively, each in full (FR-004, FR-005, FR-007, FR-011);
+     * without a search term every partner as a summary in list order (FR-006); either narrowed by
+     * the {@code protocol} and {@code workflow} entry filters (FR-005a); the page
+     * {@code query.offset()}, {@code query.limit()} of them (FR-017). A search without hits gets
+     * similar values if a server answered (FR-005b).
      *
      * <p>Audit and log (T021, FR-020, FR-021): one {@link PartnerAudit} per call; an unknown
      * target is one {@code REFUSED} record; otherwise one record and one INFO line per server,
@@ -332,12 +370,11 @@ public final class PartnerService {
         List<NodeResult<ServerRead>> results = read(targeted, query);
         Optional<ToolError> notFound = query.systemDiagram()
             .flatMap(name -> unknownSystemDiagram(name, results));
-        Optional<Pattern> term = query.search().map(PartnerService::containing);
-        List<List<CloudMatches>> matched = results.stream()
-            .map(result -> notFound.isEmpty() ? matched(result, term) : List.<CloudMatches>of())
+        boolean summary = query.search().isEmpty();
+        List<List<Match>> matched = results.stream()
+            .map(result -> notFound.isEmpty() ? matched(result, query) : List.<Match>of())
             .toList();
-        int total = matched.stream().flatMap(List::stream)
-            .mapToInt(cloud -> cloud.partners().size()).sum();
+        int total = matched.stream().mapToInt(List::size).sum();
         int from = Math.min(query.offset(), total);
         int to = Math.min(from + query.limit(), total);
         List<ServerView> servers = new ArrayList<>();
@@ -347,17 +384,20 @@ public final class PartnerService {
         int position = 0;
         for (int i = 0; i < results.size(); i++) {
             NodeResult<ServerRead> result = results.get(i);
-            List<PartnerView> returned = new ArrayList<>();
-            for (CloudMatches cloud : matched.get(i)) {
-                int size = cloud.partners().size();
-                List<PartnerView> page = cloud.partners().subList(
-                    Math.clamp(from - position, 0, size), Math.clamp(to - position, 0, size));
-                position += size;
-                if (!page.isEmpty()) {
-                    returned.addAll(page);
-                    workflows.add(cloud.workflows());
-                }
-            }
+            List<Match> server = matched.get(i);
+            int size = server.size();
+            List<Match> page = server.subList(Math.clamp(from - position, 0, size),
+                Math.clamp(to - position, 0, size));
+            position += size;
+            List<PartnerView> returned = page.stream()
+                .map(match -> partnerView(match, summary))
+                .toList();
+            page.stream()
+                .map(match -> new CloudWorkflows(match.diagram().diagram(),
+                    match.cloud().moduleName(), moduleId(match.diagram(), match.cloud()),
+                    match.cloud().referencableWorkflows()))
+                .distinct()
+                .forEach(workflows::add);
             servers.add(serverView(result));
             partners.addAll(returned);
             try {
@@ -398,25 +438,55 @@ public final class PartnerService {
             .toList();
     }
 
-    /** The partners of {@code result} that match {@code term} per cloud, in export order. */
-    private static List<CloudMatches> matched(NodeResult<ServerRead> result,
-        Optional<Pattern> term) {
-        List<CloudMatches> matched = new ArrayList<>();
+    /**
+     * The partners of {@code result} that match the search term and the entry filters of
+     * {@code query}: in export order with a search term, else in {@link #LIST_ORDER}.
+     */
+    private static List<Match> matched(NodeResult<ServerRead> result, PartnerQuery query) {
+        Optional<Pattern> term = query.search().map(PartnerService::containing);
+        boolean entryFilter = query.protocol().isPresent() || query.workflow().isPresent();
+        List<Match> matched = new ArrayList<>();
         for (SystemDiagramPartners diagram : result.payload().map(ServerRead::diagrams)
             .orElse(List.of())) {
             for (CommunicationCloud cloud : diagram.clouds()) {
-                List<PartnerView> partners = cloud.partners().stream()
-                    .filter(partner -> term.isEmpty() || matches(partner, term.get()))
-                    .map(partner -> partnerView(diagram, cloud, partner))
-                    .toList();
-                if (!partners.isEmpty()) {
-                    matched.add(new CloudMatches(new CloudWorkflows(diagram.diagram(),
-                        cloud.moduleName(), moduleId(diagram, cloud),
-                        cloud.referencableWorkflows()), partners));
+                for (Partner partner : cloud.partners()) {
+                    List<ProtocolEntry> entries = partner.entries().stream()
+                        .filter(entry -> matches(entry, query))
+                        .toList();
+                    if ((term.isEmpty() || matches(partner, term.get()))
+                        && !(entryFilter && entries.isEmpty())) {
+                        matched.add(new Match(diagram, cloud, partner, entries));
+                    }
                 }
             }
         }
+        if (query.search().isEmpty()) {
+            matched.sort(LIST_ORDER);
+        }
         return matched;
+    }
+
+    /**
+     * Whether {@code entry} has the protocol and the resolved workflow name of the query's
+     * filters (exact, case-insensitive); an unresolved workflow never matches a name.
+     */
+    private static boolean matches(ProtocolEntry entry, PartnerQuery query) {
+        return query.protocol().map(entry.protocol()::equalsIgnoreCase).orElse(true)
+            && query.workflow()
+                .map(workflow -> entry.workflow().name().filter(workflow::equalsIgnoreCase)
+                    .isPresent())
+                .orElse(true);
+    }
+
+    /** The shown value of the partner field {@code name}; {@code null} if masked or missing. */
+    private static String shown(Partner partner, String name) {
+        return partner.fields().stream()
+            .filter(field -> field.name().equals(name))
+            .map(Setting::value)
+            .flatMap(value -> value instanceof SettingValue.Shown shown
+                ? Stream.of(shown.value()) : Stream.empty())
+            .findFirst()
+            .orElse(null);
     }
 
     /**
@@ -437,7 +507,7 @@ public final class PartnerService {
             .orElse(AuditOutcome.EXECUTED);
         boolean fromCache = read.map(ServerRead::fromCache).orElse(false);
         int diagramsRead = read.map(server -> server.diagrams().size()).orElse(0);
-        int masked = returned.stream().mapToInt(PartnerView::maskedCount).sum();
+        int masked = returned.stream().mapToInt(PartnerService::maskedShown).sum();
         boolean written = false;
         try {
             audit.perServer(result.node(), outcome, reason, fromCache, diagramsRead,
@@ -524,13 +594,28 @@ public final class PartnerService {
             result.error());
     }
 
-    private static PartnerView partnerView(SystemDiagramPartners diagram,
-        CommunicationCloud cloud, Partner partner) {
-        return new PartnerView(diagram.diagram(), cloud.moduleName(), moduleId(diagram, cloud),
-            settingViews(partner.fields()), partner.maskedCount(), partner.entries().stream()
-                .map(entry -> new EntryView(entry.protocol(), workflowView(entry.workflow()),
-                    entry.format(), settingViews(entry.protocolSettings()),
-                    settingViews(entry.additionalParameters())))
+    /** The masked values {@code partner} shows: in its fields and in the entries shown. */
+    private static int maskedShown(PartnerView partner) {
+        return (int) Stream.concat(partner.fields().stream(), partner.entries().stream()
+                .flatMap(entry -> Stream.concat(entry.protocolSettings().stream(),
+                    entry.additionalParameters().stream().flatMap(List::stream))))
+            .filter(setting -> setting.masked().isPresent())
+            .count();
+    }
+
+    /** {@code match} in full, or as a list summary (FR-006). */
+    private static PartnerView partnerView(Match match, boolean summary) {
+        return new PartnerView(match.diagram().diagram(), match.cloud().moduleName(),
+            moduleId(match.diagram(), match.cloud()), settingViews(match.partner().fields()),
+            match.partner().maskedCount(), match.entries().stream()
+                .map(entry -> summary
+                    ? new EntryView(entry.protocol(), workflowView(entry.workflow()),
+                        Optional.empty(), settingViews(entry.protocolSettings().stream()
+                            .filter(setting -> SUMMARY_KEYS.contains(setting.name()))
+                            .toList()), Optional.empty())
+                    : new EntryView(entry.protocol(), workflowView(entry.workflow()),
+                        entry.format(), settingViews(entry.protocolSettings()),
+                        Optional.of(settingViews(entry.additionalParameters()))))
                 .toList());
     }
 

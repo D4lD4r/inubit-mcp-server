@@ -71,7 +71,7 @@
       "items": {
         "$ref": "#/$defs/Partner"
       },
-      "description": "The matching partners in export order"
+      "description": "The matching partners: with search in export order, each in full; without search ordered by system diagram group and name, communication cloud, partner Id, then Name, each as a summary"
     },
     "similarValues": {
       "type": "array",
@@ -300,7 +300,7 @@
           "items": {
             "$ref": "#/$defs/Entry"
           },
-          "description": "The protocol entries in export order, never merged"
+          "description": "The protocol entries in export order, never merged; with protocol or workflow only the matching ones"
         }
       },
       "additionalProperties": false
@@ -310,8 +310,7 @@
       "required": [
         "protocol",
         "workflow",
-        "protocolSettings",
-        "additionalParameters"
+        "protocolSettings"
       ],
       "properties": {
         "protocol": {
@@ -337,19 +336,22 @@
           "description": "The referenced technical workflow; name null and unresolved true if the reference does not resolve"
         },
         "format": {
-          "type": "string"
+          "type": "string",
+          "description": "Absent in a list summary"
         },
         "protocolSettings": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/Setting"
-          }
+          },
+          "description": "In a list summary only ServerName and Login, if present"
         },
         "additionalParameters": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/Setting"
-          }
+          },
+          "description": "Absent in a list summary"
         }
       },
       "additionalProperties": false

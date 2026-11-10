@@ -175,8 +175,8 @@ class PartnerServiceSearchTest {
             List.of(shown("ServerName", "http://host3.example.test/path1"),
                 shown("Auth", "true"), shown("Login", "login3"), masked("Password", true),
                 masked("SSLKeyStore", false)),
-            List.of(shown("WSSecurityUsername", "ws-login3"),
-                masked("WSSecurityPassword", true)))); // no type, no `encrypted`
+            Optional.of(List.of(shown("WSSecurityUsername", "ws-login3"),
+                masked("WSSecurityPassword", true))))); // no type, no `encrypted`
         assertNoSecretIn(find("acme"));
     }
 
@@ -556,7 +556,8 @@ class PartnerServiceSearchTest {
         return new EntryView("FTP", resolved(workflow), Optional.of("format-1"),
             List.of(shown("ServerName", server), shown("Login", login), masked("Password", true),
                 shown("FileName", "FileName-1")),
-            List.of(shown("FTPAuth", "false"), shown("FTPProtocol", ftpProtocol)));
+            Optional.of(List.of(shown("FTPAuth", "false"),
+                shown("FTPProtocol", ftpProtocol))));
     }
 
     private PartnerService service() {
