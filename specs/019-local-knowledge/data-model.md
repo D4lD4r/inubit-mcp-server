@@ -20,7 +20,7 @@ get the listed members; everything else is unchanged.
 
 | Type | Change | Fields | Rules |
 |---|---|---|---|
-| `KnowledgeConfig` | New record | `Path directory`, `Optional<Boolean> recording` | `recording()` = `recording.orElse(true)`; `directory` filled by the loader (D-1) |
+| `KnowledgeConfig` | New record | `Path directory`, `boolean recording` | both filled by the loader when absent (default directory, recording `true`); a non-boolean `recording` is refused before binding (D-1) |
 | `ProfileConfig` | Changed | `+ KnowledgeConfig knowledge` | JSON property `knowledge`; never null after loading |
 | `ConfigLoader` | Changed | default `knowledge.directory`; `requireStrictKnowledgeRecording` | quoted boolean → load error |
 | `ConfigValidator` | Changed | `checkKnowledge(…)` | errors per D-2; uses `canonical` |

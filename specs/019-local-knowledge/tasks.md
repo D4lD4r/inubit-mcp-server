@@ -81,9 +81,9 @@ person's choice on 2026-11-10: option (A), fail closed (plan.md "Decision"). Tas
 **Independent test**: a profile with and without the block loads; overlaps fail; `--check-config`
 prints the line without reading a credential.
 
-- [ ] T008 [US3] `KnowledgeConfig` (directory, strict boolean `recording`, default on) in
+- [X] T008 [US3] `KnowledgeConfig` (directory, strict boolean `recording`, default on) in
   `ProfileConfig`; `ConfigLoader` default `~/.inubit-mcp/<profile>/knowledge`, `~` expanded,
-  relative paths refused (configuration-delta.md), `recording: "yes"` refused — main
+  relative paths loaded as given (refused by `ConfigValidator`, T009), `recording: "yes"` refused — main
   `config/KnowledgeConfig.java`, `config/ProfileConfig.java`, `config/ConfigLoader.java`, test
   `config/ConfigLoaderTest.java`
 - [ ] T009 [US3] `ConfigValidator.checkKnowledge` (FR-002, D-2): after `canonical()`, the
