@@ -265,6 +265,35 @@ class CliRunnerTest {
     }
 
     @Test
+    void theTrustStoreAlsoReachesTheClientThroughJavaToolOptions() throws Exception {
+        // the INUBIT 9.0.10 client ignores --trustStoreFilePath for its login connection
+        // (T047 finding F-1, 2026-11-09); the JVM-wide trust store reaches it
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+        Path trustStore = trustStoreFile("trust.p12", "PKCS12");
+
+        run(launcher, server().trustStore(trustStore).build());
+
+        assertThat(launcher.last().spec().startCliArguments())
+            .containsSubsequence("--trustStoreFilePath", trustStore.toString());
+        assertThat(launcher.last().spec().environment()).containsEntry("JAVA_TOOL_OPTIONS",
+            TOOL_OPTIONS + " -Djavax.net.ssl.trustStore=" + trustStore
+                + " -Djavax.net.ssl.trustStoreType=PKCS12");
+    }
+
+    @Test
+    void aTrustStorePathWithWhitespaceIsPassedOnlyAsArgument() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
+        Path trustStore = cliHome.resolve("trust store.p12");
+
+        run(launcher, server().trustStore(trustStore).build());
+
+        assertThat(launcher.last().spec().startCliArguments())
+            .containsSubsequence("--trustStoreFilePath", trustStore.toString());
+        assertThat(launcher.last().spec().environment())
+            .containsEntry("JAVA_TOOL_OPTIONS", TOOL_OPTIONS);
+    }
+
+    @Test
     void thePasswordPlusNewlineIsWrittenToStdinWhichIsThenClosed() {
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("processErrorStart_ok");
 
@@ -817,6 +846,23 @@ class CliRunnerTest {
             "--trustStoreFilePath", trustStore.toString(), URL);
         assertThat(process.spec().environment())
             .containsEntry("JAVA_TOOL_OPTIONS", TOOL_OPTIONS);
+    }
+
+    @Test
+    void aClientWithItsOwnTrustStoreOptionAlsoGetsTheTrustStoreThroughJavaToolOptions()
+        throws Exception {
+        // the INUBIT 9.0.10 client ignores --trustStoreFilePath for its login connection
+        // (T047 finding F-1, 2026-11-09); the JVM-wide trust store reaches it
+        Path trustStore = trustStoreFile("trust.p12", "PKCS12");
+
+        FakeProcessLauncher.FakeProcess process =
+            session(server().trustStore(trustStore).build(), ALL_OPTIONS);
+
+        assertStartCli(process.spec(), "-u", USER,
+            "--trustStoreFilePath", trustStore.toString(), URL);
+        assertThat(process.spec().environment()).containsEntry("JAVA_TOOL_OPTIONS",
+            TOOL_OPTIONS + " -Djavax.net.ssl.trustStore=" + trustStore
+                + " -Djavax.net.ssl.trustStoreType=PKCS12");
     }
 
     @Test

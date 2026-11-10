@@ -7,6 +7,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- StartCLI on INUBIT 9.0 with a configured `tls.trustStore`: the 9.0.10 client ignores
+  `--trustStoreFilePath` for its login connection, so every StartCLI call (module inventory,
+  `export_artifacts`, process and write tools) failed with `PKIX path building failed`. The trust
+  store now also reaches StartCLI as `-Djavax.net.ssl.trustStore`/`-Djavax.net.ssl.trustStoreType`
+  in `JAVA_TOOL_OPTIONS` (not for a path with whitespace, which only the argument can carry).
+  Found in the INUBIT 9.0 live check (feature 017, T047).
+- The 9.0 client's TLS failure (`Authentication failed: Could not establish a secure connection
+  to the process engine.` with a TLS cause) is reported as `TLS_ERROR` instead of
+  `UNEXPECTED_RESPONSE`.
+
 ## [0.8.0] - 2026-11-07
 
 Feature 012: read-only INUBIT 6.1 nodes, reached through StartCLI only. Feature 013: the
