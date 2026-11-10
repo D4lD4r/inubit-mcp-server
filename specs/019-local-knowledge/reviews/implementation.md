@@ -86,3 +86,28 @@ records, the lock, schemas, wiring, package boundaries or level words).
 Targeted after the fixes: `KnowledgeServiceRecordTest` 39 (1 skipped), `KnowledgeDirectoryTest` 38
 (3 skipped), `KnowledgeLockTest` 9, `KnowledgeHistoryTest`, `RecordKnowledgeToolTest`,
 `KnowledgeToolsWiringTest`, 0 failures. The full build follows at the phase 7 checkpoint.
+
+## Implementation — phase 7 (T034–T036)
+
+T036 found a leak in the code of phase 5: a nested note name such as `kinds/AES-…` or
+`kinds/<keystore>` was shown unmasked, because `/` separates the segments but belongs to the
+base64 alphabet (the lookbehind of the encrypted-value rule and the keystore runs took the
+preceding segment along). `SecretFinder.findInName`/`maskName` scan every run of whole segments;
+every name masking and the name check of `record_knowledge` use them (fixed in 415ed5c; the leak
+test fails without it).
+
+Build on 415ed5c (the phase 6 fixes included): surefire 5944 tests, 0 failures, 0 errors,
+58 skipped; failsafe 3 tests, 0 failures.
+Code review of `f87993d..415ed5c` by a review agent (no findings on the two-profile test, the
+bounds tests, the other name call sites, the record name bound, or the 5,000-note listing).
+
+| # | Severity | Finding | Resolution |
+|---|---|---|---|
+| R1 | major | the title of a note without a metadata `title` (also of an unreadable note) was its last name segment masked alone: of `notes/AES-q8Zr/7Kp2…` the name showed `notes/***`, the title `7Kp2…`, in hits, pages, the instructions and the search | the title is the last segment of the masked name; the leak test has such a note (fails without the fix) |
+| R2 | minor | `findInName` is cubic in the number of segments: a `read_knowledge` name of 1,000 slashes cost about 3 s of CPU for its `NOT_FOUND` message | `maskName` masks a name with more segments than the walk lists (`WALK_DEPTH`) as a whole; `record_knowledge` bounds the name before (step 1); test `aNameDeeperThanAnyNoteIsMaskedWholeAndInTime` (times out without the fix) |
+| R3 | minor | the leak test built the PKCS#12 twice (random salt and MAC), so its wrapped form was never checked | built once; a slice of the second wrapped line is a leak string, and the test asserts that the note holds it |
+| R4 | — | reported: a name secret `******` would be an invalid file name on Windows | not a finding: the display of the review tool masked `password=leakNameValue`; the names hold only `%`, `+`, `-`, `=` and base64 letters |
+
+Targeted after the fixes: the knowledge tests (`Knowledge*Test`, `SecretFinderTest`,
+`RecordKnowledgeToolTest`, `ReadKnowledgeToolTest`) 266, 0 failures. The full build follows at
+the phase 8 checkpoint.

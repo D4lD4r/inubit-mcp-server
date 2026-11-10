@@ -464,4 +464,17 @@ class SecretFinderTest {
             .containsExactly(Kind.CONFIGURED_CREDENTIAL);
         assertThat(finder.maskName("partners/acme")).isEqualTo(new Masked("partners/acme", 0));
     }
+
+    @Test
+    void aNameDeeperThanAnyNoteIsMaskedWholeAndInTime() {
+        // the walk lists names of at most WALK_DEPTH segments
+        String deepest = "a/".repeat(KnowledgeLimits.WALK_DEPTH - 1) + "a";
+
+        assertThat(finder.maskName(deepest)).isEqualTo(new Masked(deepest, 0));
+        assertThat(finder.maskName(deepest + "/a")).isEqualTo(new Masked("***", 1));
+        assertTimeoutPreemptively(Duration.ofMillis(500), () -> {
+            assertThat(finder.maskName("/".repeat(1000))).isEqualTo(new Masked("***", 1));
+            assertThat(finder.maskName("a/".repeat(499) + "a")).isEqualTo(new Masked("***", 1));
+        });
+    }
 }

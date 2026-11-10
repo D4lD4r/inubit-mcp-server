@@ -288,7 +288,9 @@ public final class KnowledgeService {
         String rawName = file.name().value();
         String maskedName = finder.maskName(rawName).text();
         boolean nameSecret = !maskedName.equals(rawName);
-        String fileName = Shown.of(finder, file.name().lastSegment());
+        // the last segment of the masked name: a secret split by "/" is found only as a whole
+        String fileName = Shown.cut(Shown.line(
+            maskedName.substring(maskedName.lastIndexOf('/') + 1)));
         Instant lastChange = file.modified().toInstant().truncatedTo(ChronoUnit.SECONDS);
         if (note.state() != Note.State.OK || note.text().isEmpty()) {
             return new View(note, Shown.cut(Shown.line(maskedName)), fileName, List.of(), BY_HAND,

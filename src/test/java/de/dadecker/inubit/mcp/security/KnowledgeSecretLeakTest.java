@@ -60,11 +60,18 @@ class KnowledgeSecretLeakTest {
         + "\n-----END RSA PRIVATE KEY-----";
     /** A JCEKS keystore in base64 without {@code +} and {@code /}: usable as a file name. */
     private static final String JCEKS = Base64.getEncoder().encodeToString(jceks());
-    private static final String PKCS12 = Base64.getEncoder().encodeToString(pkcs12());
+    /** Built once: a PKCS#12 holds a random salt and MAC. */
+    private static final byte[] PKCS12_BYTES = pkcs12();
+    private static final String PKCS12 = Base64.getEncoder().encodeToString(PKCS12_BYTES);
+    /** From the second line of the wrapped form: past the header every empty store shares. */
+    private static final String PKCS12_LINE = PKCS12.substring(64, 100);
     private static final String AES = "U1lOVEgtQUVTLTAwMDAwMDAx";
     private static final String AESG = "U1lOQUVTRzAwMDAwMDE";
     private static final String AESG_TAIL = "U1lOVEgtQUVTRy0wMDE";
     private static final String ENCRYPTED_12 = "Xq7Lm2Np9Rt4";
+    /** The part after a "/" inside an encrypted value of a name: the title of a note without. */
+    private static final String SPLIT_TAIL = "7Kp2mXv9TnQwL4s";
+    private static final String SPLIT_NAME = "notes/AES-q8Zr/" + SPLIT_TAIL;
     /** Single-line secrets, one hand-written note each with the secret in every field. */
     private static final List<String> FIELD_SECRETS = Stream.concat(forms(PASSWORD).stream(),
         Stream.of(JCEKS, PKCS12, "AES-" + AES, "AESGs1-y+" + AESG + ":U1lOVEhJVjE:" + AESG_TAIL
@@ -91,14 +98,14 @@ class KnowledgeSecretLeakTest {
         A wrapped truststore:
         %s
         """.formatted(ENCRYPTED_12, Base64.getMimeEncoder(64, "\n".getBytes(
-            StandardCharsets.US_ASCII)).encodeToString(pkcs12()));
+            StandardCharsets.US_ASCII)).encodeToString(PKCS12_BYTES));
     /** What must never be shown: every value and every form, and parts of the long ones. */
     private static final List<String> LEAKS = Stream.concat(forms(PASSWORD).stream(), Stream.of(
-        PEM_BODY, JCEKS, JCEKS.substring(0, 12), PKCS12, PKCS12.substring(24, 64), AES, AESG,
+        PEM_BODY, JCEKS, JCEKS.substring(0, 12), PKCS12, PKCS12_LINE, AES, AESG,
         AESG_TAIL, ENCRYPTED_12, "leakFieldColon", "leakFieldEquals", "leakFieldJson",
         "leakFieldAttribute", "leakNameValue", "leakBlockValue", "leakBlockSecondLine",
         "leakXmlValue", "leakPropertyValue", "leakTypeValue", "leakAttributeValue",
-        "leakNewValue")).toList();
+        "leakNewValue", SPLIT_TAIL)).toList();
 
     @TempDir
     Path temp;
@@ -168,6 +175,7 @@ class KnowledgeSecretLeakTest {
                 + FIELD_SECRETS.get(i) + " in a line.\n");
         }
         note("blocks", "---\ntitle: Blocks\ntopics: [plain]\n---\n" + BLOCKS);
+        note(SPLIT_NAME, "A note without metadata: its title is its last name segment.\n");
         for (String secret : NAME_SECRETS) {
             note(secret, "A note whose name holds a secret.\n");
             note("kinds/" + secret, "A nested note whose name holds a secret.\n");
@@ -281,7 +289,9 @@ class KnowledgeSecretLeakTest {
             PASSWORD)));
 
         assertThat(instructions).contains("Notes (newest first):");
-        int notes = FIELD_SECRETS.size() + 1 + 2 * NAME_SECRETS.size();
+        int notes = FIELD_SECRETS.size() + 2 + 2 * NAME_SECRETS.size();
+        assertThat(BLOCKS).as("the wrapped truststore holds the checked line")
+            .contains(PKCS12_LINE);
         assertThat(hits).hasSize(notes);
         // an assignment masked inside a quoted value leaves its block malformed: shown as body
         assertThat(topic.path("total").asInt()).isPositive();

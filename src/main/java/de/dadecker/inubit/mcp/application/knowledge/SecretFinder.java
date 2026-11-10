@@ -109,7 +109,8 @@ public final class SecretFinder {
      * Every secret in the note name {@code name}: those of every run of whole segments (the whole
      * name included), because {@code /} separates the segments but belongs to the base64
      * alphabet, so that an encrypted value or a keystore (whose base64 may hold {@code /} itself)
-     * right after a segment would be missed (019-T036).
+     * right after a segment would be missed (019-T036). Cubic in the number of segments: callers
+     * bound the name ({@code record_knowledge} at step 1, {@link #maskName} by segments).
      */
     public List<Finding> findInName(String name) {
         List<Integer> starts = new ArrayList<>();
@@ -135,8 +136,15 @@ public final class SecretFinder {
             .toList();
     }
 
-    /** The note name {@code name} with every finding of {@link #findInName} masked. */
+    /**
+     * The note name {@code name} with every finding of {@link #findInName} masked; a name with
+     * more segments than any note can have ({@link KnowledgeLimits#WALK_DEPTH}) is masked whole,
+     * so that a given name costs bounded time.
+     */
     public Masked maskName(String name) {
+        if (name.chars().filter(c -> c == '/').count() >= KnowledgeLimits.WALK_DEPTH) {
+            return new Masked(Masked.MASK_TOKEN, 1);
+        }
         return Masked.of(name, findInName(name).stream().map(Finding::span).toList());
     }
 
