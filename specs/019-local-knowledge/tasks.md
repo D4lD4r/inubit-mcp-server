@@ -52,7 +52,7 @@ person's choice on 2026-11-10: option (A), fail closed (plan.md "Decision"). Tas
   `Störung`, plus the `CaseFolding.txt` (Unicode 15.1, C+F lines of letters, license header kept)
   table test — main `domain/model/NoteName.java`, test `domain/model/NoteNameTest.java`, resource
   `src/test/resources/unicode/CaseFolding-15.1.0-CF.txt`
-- [ ] T004 [P] `Masked` and `SecretSpan` records (D-6): masking of spans to `***`, count, merging
+- [X] T004 [P] `Masked` and `SecretSpan` records (D-6): masking of spans to `***`, count, merging
   overlapping spans, never splitting a surrogate pair — main `domain/model/Masked.java`,
   `domain/model/SecretSpan.java`, test `domain/model/MaskedTest.java`
 - [ ] T005 `SecretScrubber.occurrences(String)` returning the spans of held values (D-6 (a)),
