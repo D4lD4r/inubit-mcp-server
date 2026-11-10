@@ -170,3 +170,9 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
   queue-entry helper was not started" (the "was not started" form of the contract's pre-launch
   texts). The permit is closed without `accepted()`/`rejected()`, exactly as `CliRunner.guarded`
   leaves it when the launch throws, so it counts as no login result.
+
+## T022 notes
+
+- Credentials reach `CliQueueEntryAdapter` as `node::credentials` (the held credentials the node's guard is bound to); `Slot.ports()` already awaits `NodeSecrets.current` before any port exists, and the port set is rebuilt on rotation.
+- The 7-port `PortSet` compatibility constructor refuses queue-entry reads with `RefusingPorts.refusal()`, whose text names INUBIT 6.1. Production never uses it for 8.1/9.0 (`Wiring` uses `v81Default(host, processRun, limiter).withV90()`), but test registries built with `v81Default()` / `V81PortSet.create(node)` give that 6.1 wording — later tests (T023+) must not assert on it for 8.1/9.0 nodes.
+- Process deviation: tests were written first but not run red; evidence of their strength: they do not compile without the new API, and two deliberate mutations (plain 8.1 set in `withV90`, separate guard) failed.

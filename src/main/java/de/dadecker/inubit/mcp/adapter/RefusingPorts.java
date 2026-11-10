@@ -1,7 +1,9 @@
 package de.dadecker.inubit.mcp.adapter;
 
+import de.dadecker.inubit.mcp.domain.model.EntryPart;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
 import de.dadecker.inubit.mcp.domain.model.LogQuery;
@@ -11,6 +13,8 @@ import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
+import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
+import de.dadecker.inubit.mcp.domain.model.RawEntryContent;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
@@ -20,11 +24,13 @@ import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * The ports an INUBIT 6.1 node does not offer (feature 012, research D-4): every method throws
@@ -33,7 +39,7 @@ import java.util.Objects;
  * {@link PortSet}.
  */
 public final class RefusingPorts implements ProcessQueryPort, LogPort, InventoryPort,
-    ProcessControlPort, ArtifactPort, ImportPort, TagPort {
+    ProcessControlPort, ArtifactPort, ImportPort, TagPort, QueueEntryContentPort {
 
     private final NodeId node;
 
@@ -161,6 +167,11 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
 
     @Override
     public void tag(String tag, String diagramGroup, String owner, WritePermit permit) {
+        throw refusal();
+    }
+
+    @Override
+    public RawEntryContent read(QueueEntryRef ref, InubitVersion version, Set<EntryPart> parts) {
         throw refusal();
     }
 }

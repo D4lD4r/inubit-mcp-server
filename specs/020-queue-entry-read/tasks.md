@@ -297,7 +297,7 @@ INUBIT contact.
   `hanging()` → `TIMEOUT`, no partial content, temp dir gone; TLS mismatch → nothing launched;
   slot wait + process share one deadline; login failure → guard back-off; leak check on
   argv/env/logs) (depends on T006–T008, T017–T020)
-- [ ] T022 [US1] Port plumbing: `domain/port/Gateway.java` `+ default QueueEntryContentPort
+- [X] T022 [US1] Port plumbing: `domain/port/Gateway.java` `+ default QueueEntryContentPort
   queueEntryContent()` throwing `CLI_UNAVAILABLE` with the node (the `artifacts()`/`imports()`/
   `tags()` pattern, `Gateway.java:60-92`) and `domain/port/GatewayFactory.java` `+ default
   QueueEntryContentPort queueEntryContent(NodeId server)` = `forServer(server).queueEntryContent()`

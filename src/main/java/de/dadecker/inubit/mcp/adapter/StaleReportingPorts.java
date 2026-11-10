@@ -1,7 +1,9 @@
 package de.dadecker.inubit.mcp.adapter;
 
+import de.dadecker.inubit.mcp.domain.model.EntryPart;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
 import de.dadecker.inubit.mcp.domain.model.LogQuery;
@@ -11,6 +13,8 @@ import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
+import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
+import de.dadecker.inubit.mcp.domain.model.RawEntryContent;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
@@ -21,12 +25,14 @@ import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -57,7 +63,7 @@ final class StaleReportingPorts {
         return new PortSet(new Processes(ports.processes()), new Logs(ports.logs()),
             new Inventory(ports.inventory()), new ProcessControl(ports.processControl()),
             new Artifacts(ports.artifacts()), new Imports(ports.imports()),
-            new Tags(ports.tags()));
+            new Tags(ports.tags()), new QueueEntryContent(ports.queueEntryContent()));
     }
 
     private <T> T call(Supplier<T> call) {
@@ -309,6 +315,20 @@ final class StaleReportingPorts {
         @Override
         public void tag(String tag, String diagramGroup, String owner, WritePermit permit) {
             runWrite(permit, () -> delegate.tag(tag, diagramGroup, owner, permit));
+        }
+    }
+
+    final class QueueEntryContent implements QueueEntryContentPort {
+        private final QueueEntryContentPort delegate;
+
+        QueueEntryContent(QueueEntryContentPort delegate) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public RawEntryContent read(QueueEntryRef ref, InubitVersion version,
+            Set<EntryPart> parts) {
+            return call(() -> delegate.read(ref, version, parts));
         }
     }
 }

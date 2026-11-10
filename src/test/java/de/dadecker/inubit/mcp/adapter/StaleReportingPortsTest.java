@@ -4,9 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
 import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.EntryPart;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
+import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
+import de.dadecker.inubit.mcp.domain.model.RawEntryContent;
+import de.dadecker.inubit.mcp.domain.model.RawEntryContent.PartResult;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
@@ -17,6 +22,7 @@ import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
 import de.dadecker.inubit.mcp.testing.TestPermits;
@@ -26,6 +32,7 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -178,6 +185,50 @@ class StaleReportingPortsTest {
         assertThat(catchThrowable(() -> stale.ports(throwingPorts(unexpected)).processes()
             .queueEntries("4711"))).isSameAs(unexpected);
         assertThat(versions.events()).containsExactly("stale dev/node1");
+    }
+
+    @Test
+    void queueEntryContentIsForwardedAndAnUnexpectedResponseMarksTheNodeStale() {
+        // feature 020 T022 (research D-17): the content port is wrapped like every other port
+        QueueEntryRef ref = new QueueEntryRef(NODE, "Workflow-0001", "Order-0001.xml", 772);
+        InubitVersion version = InubitVersion.parse("8.1.17").orElseThrow();
+        Set<EntryPart> parts = Set.of(EntryPart.DATA);
+        RawEntryContent answer = new RawEntryContent(new PartResult.Read<>(new byte[] {1}),
+            new PartResult.NotRequested<>("not requested"));
+        List<Object> asked = new ArrayList<>();
+        QueueEntryContentPort answering = (r, v, p) -> {
+            asked.addAll(List.of(r, v, p));
+            return answer;
+        };
+
+        PortSet wrapped = stale.ports(withContent(answering));
+        assertThat(wrapped.queueEntryContent()).isInstanceOf(
+            StaleReportingPorts.QueueEntryContent.class);
+        assertThat(wrapped.queueEntryContent().read(ref, version, parts)).isSameAs(answer);
+        assertThat(asked).containsExactly(ref, version, parts);
+        assertThat(versions.events()).isEmpty();
+
+        for (RuntimeException other : List.of(failure(ErrorCode.NOT_FOUND),
+            failure(ErrorCode.TIMEOUT), new IllegalStateException("bug"))) {
+            assertThat(catchThrowable(() -> stale.ports(withContent(throwing(
+                QueueEntryContentPort.class, other))).queueEntryContent().read(ref, version,
+                    parts))).isSameAs(other);
+        }
+        assertThat(versions.events()).isEmpty();
+
+        ToolErrorException unexpected = failure(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(catchThrowable(() -> stale.ports(withContent(throwing(
+            QueueEntryContentPort.class, unexpected))).queueEntryContent().read(ref, version,
+                parts))).isSameAs(unexpected);
+        assertThat(versions.events()).containsExactly("stale dev/node1");
+    }
+
+    /** A port set of throwing ports whose queue-entry content port is {@code content}. */
+    private static PortSet withContent(QueueEntryContentPort content) {
+        PortSet others = throwingPorts(failure(ErrorCode.NOT_FOUND));
+        return new PortSet(others.processes(), others.logs(), others.inventory(),
+            others.processControl(), others.artifacts(), others.imports(), others.tags(),
+            content);
     }
 
     @Test

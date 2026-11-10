@@ -14,11 +14,14 @@ import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliClientSelector;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.CliSystem;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
 import de.dadecker.inubit.mcp.adapter.cli.HandshakeStartCliPinProbe;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.queue.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
 import de.dadecker.inubit.mcp.adapter.os.JnaDriveTypeApi;
@@ -321,20 +324,29 @@ final class Wiring implements AutoCloseable {
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
         // feature 017 (research D-4): StartCLI is chosen per call by the effective version; a
         // write's process is started under the node's write lock (FR-018, research D-24)
-        CliRunner cliRunner = new CliRunner(launcher, environment, windows,
-            windows ? new WindowsSystem() : new PosixSystem(), containment, cliResources,
-            new HandshakeStartCliPinProbe(), versions::effectiveVersion, versions, versions);
+        CliSystem cliSystem = windows ? new WindowsSystem() : new PosixSystem();
+        CliRunner cliRunner = new CliRunner(launcher, environment, windows, cliSystem,
+            containment, cliResources, new HandshakeStartCliPinProbe(),
+            versions::effectiveVersion, versions, versions);
         // feature 009 (research D-16): the 8.1 port set, as default for every version; feature
         // 017 (research D-14): explicitly for 9.0 too; feature 012 (research D-4): the 6.1 port
         // set and health port, CLI-only (no REST client)
         Map<NodeId, NodeSecrets> secrets = secrets(servers, credentialStore, scrubber, clock,
             parameterStore);
-        // one client-option probe and one concurrency limiter for all 6.1 nodes (D-8, D-9)
+        // one client-option probe for all 6.1 nodes and one concurrency limiter for every node's
+        // 6.1 sessions and queue-entry helpers (D-8, D-9; feature 020 research D-17)
         CliClientProbe clientOptions = new CliClientProbe(cliRunner, byId::get, matrix,
             clock.clock());
         CliConcurrencyLimiter cliLimiter = new CliConcurrencyLimiter(matrix);
+        // feature 020 (research D-17): the queue-entry helper of the 8.1/9.0 port set runs on
+        // the runner's host (environment, system, containment, private resources) and takes its
+        // StartCLI slot from that limiter; credentials and guard are the node's (port set)
+        HelperInstallation.Host helperHost = new HelperInstallation.Host(windows, environment,
+            cliSystem, containment, cliResources, Path.of(System.getProperty("java.io.tmpdir")));
+        PortSetRegistry portSets = PortSetRegistry.v81Default(helperHost,
+            new ProcessRun(launcher, cliResources), cliLimiter);
         this.gateways = new AdapterGatewayFactory(servers, secrets, scrubber, clock.clock(),
-            cliRunner, versions, PortSetRegistry.v81Default().withV90()
+            cliRunner, versions, portSets.withV90()
                 .register(V61PortSet.RANGE, V61PortSet.factory(clientOptions, cliLimiter),
                     V61QueryRules.INSTANCE, V61PortSet.cliHealth(clientOptions, cliLimiter)));
         // feature 009 (research D-7): the StartCLI client probe, on the same runner so that a

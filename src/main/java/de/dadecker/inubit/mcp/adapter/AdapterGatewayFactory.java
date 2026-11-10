@@ -31,6 +31,7 @@ import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueryRules;
+import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.time.Clock;
@@ -72,15 +73,17 @@ import org.slf4j.LoggerFactory;
  * the {@link PortSetRegistry} factory for the node's effective version, read from the
  * {@link VersionObserver} whenever ports are requested ({@link #processes}, {@link #logs},
  * {@link #inventory}, {@link #processControl}, {@link #artifacts}, {@link #imports},
- * {@link #tags} and the gateway's port methods). The selection itself never detects: the version
- * gate detects before it admits a call, so the ports requested after the admission belong to the
- * detected version. The port set is built once per selected range and rebuilt when the effective
+ * {@link #tags}, {@link #queueEntryContent} and the gateway's port methods). The selection itself
+ * never detects: the version gate detects before it admits a call, so the ports requested after
+ * the admission belong to the detected version. The port set is built once per selected range
+ * and rebuilt when the effective
  * version moves to another range (e.g. after a re-detection). The monitoring port (US1) is not
  * part of the port set and is handed out without waiting for a detection. The StartCLI-backed
  * ports run with the factory's {@link CliRunner} and the server's {@link CredentialGuard}, shared
  * with its REST client. Production registers the 8.1 port set as default for every version
- * ({@link PortSetRegistry#v81Default()}), explicitly for the 9.0 range too
- * ({@link PortSetRegistry#withV90()}), and the CLI-only 6.1 range.
+ * ({@code PortSetRegistry.v81Default(host, processRun, limiter)}, with the queue-entry helper of
+ * feature 020), explicitly for the 9.0 range too ({@link PortSetRegistry#withV90()}), and the
+ * CLI-only 6.1 range.
  *
  * <p>CLI-only ranges (feature 012, research D-4): for a node whose effective version selects a
  * range registered with a {@link PortSetRegistry.CliHealthFactory}, the port set and the
@@ -199,6 +202,11 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
     @Override
     public TagPort tags(NodeId server) {
         return slot(server).ports().tags();
+    }
+
+    @Override
+    public QueueEntryContentPort queueEntryContent(NodeId server) {
+        return slot(server).ports().queueEntryContent();
     }
 
     @Override
