@@ -255,7 +255,7 @@ readiness and a failing-audit fake.
 - [X] T032 [US2] Wiring: `record_knowledge` offered only with `recording: true`; instructions say
   read-only otherwise (FR-012); tool count 19 — main `Wiring.java`, tests
   `KnowledgeToolsWiringTest.java`, `ToolAnnouncementTest.java`, `ServerIdentityTest.java`
-- [ ] T033 [US2] `KnowledgeCrossProcessIT` (failsafe): two JVMs append to one note; both appends
+- [X] T033 [US2] `KnowledgeCrossProcessIT` (failsafe): two JVMs append to one note; both appends
   present, history holds both previous versions — test `KnowledgeCrossProcessIT.java`
 
 **Checkpoint**: build green; code-review phase 6.
