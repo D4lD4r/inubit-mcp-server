@@ -36,7 +36,7 @@ get the listed members; everything else is unchanged.
 | `model/Masked` | New record | `String text`, `int count`; `MASK_TOKEN = "***"` | `count` = merged spans replaced |
 | `model/SecretSpan` | New record | `int start`, `int end` | `0 ≤ start < end ≤ length` |
 | `port/ConfiguredSecrets` | New port | `Readiness prepare(Duration bound)`; `List<SecretSpan> occurrences(String text)` | D-7 |
-| `port/ConfiguredSecrets.Readiness` | New sealed type | `Ready`, `NotReady(List<Pending> pending)`; `Pending(String node, String store, String state)` | `state` = `waiting` or a failure kind in lower case; never a value |
+| `port/ConfiguredSecrets.Readiness` | New sealed type | `Ready`, `NotReady(List<Pending> pending)` (never empty); `ConfiguredSecrets.Pending(String node, String store, String state)` | `state` = `waiting` or a failure kind in lower case; never a value |
 | `port/PrivateFileSystem` | Changed | `+ Optional<String> othersMayAccess(Path)`; `+ FileChannel openLockFileNoFollow(Path)` | POSIX bits / Windows `check` (D-3), empty for a missing path; lock file as `openLockFile` (Windows `NOSHARE_DELETE`) plus `NOFOLLOW_LINKS`, `openLockFile` unchanged (D-12) |
 
 ## Application (`application/knowledge`, new sub-package)

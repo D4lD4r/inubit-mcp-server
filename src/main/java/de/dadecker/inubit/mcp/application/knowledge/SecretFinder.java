@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.domain.model.KeyMaterial;
 import de.dadecker.inubit.mcp.domain.model.Masked;
 import de.dadecker.inubit.mcp.domain.model.SecretPlaceholder;
 import de.dadecker.inubit.mcp.domain.model.SecretSpan;
+import de.dadecker.inubit.mcp.domain.port.ConfiguredSecrets;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -14,9 +15,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * The secret rules of the local knowledge on free text (feature 019, FR-010, research D-6): key
- * material (b), INUBIT encrypted values (c) and the values of assignments (d). A finding covers
- * the value only; keys stay readable. Used for masking on read and for refusing on write.
+ * The secret rules of the local knowledge on free text (feature 019, FR-010, research D-6, D-7):
+ * configured credentials (a), key material (b), INUBIT encrypted values (c) and the values of
+ * assignments (d). A finding covers the value only; keys stay readable. Used for masking on read
+ * and for refusing on write.
+ *
+ * <p>Rule (a) covers the credentials {@link ConfiguredSecrets} knows at the time of the call;
+ * waiting for all of them ({@link ConfiguredSecrets#prepare}) is the caller's job.
  */
 public final class SecretFinder {
 
@@ -63,6 +68,12 @@ public final class SecretFinder {
     private static final Pattern BLOCK_INDICATOR =
         Pattern.compile("[|>](?:[1-9][+-]?|[+-][1-9]?)?(?:\\s+#.*)?");
 
+    private final ConfiguredSecrets secrets;
+
+    public SecretFinder(ConfiguredSecrets secrets) {
+        this.secrets = Objects.requireNonNull(secrets, "secrets");
+    }
+
     /**
      * Every secret in {@code text}, ordered by position.
      *
@@ -75,6 +86,9 @@ public final class SecretFinder {
                 + " longer than the bound of " + KnowledgeLimits.READ_BYTES);
         }
         Scan scan = new Scan(text);
+        for (SecretSpan span : secrets.occurrences(text)) {
+            scan.add(Kind.CONFIGURED_CREDENTIAL, span.start(), span.end(), Optional.empty());
+        }
         scan.privateKeys();
         scan.keystores();
         scan.encryptedTokens();

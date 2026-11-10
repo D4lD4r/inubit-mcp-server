@@ -132,7 +132,7 @@ prints the line without reading a credential.
   (`|`, `>`, indicators) as one span; keys stay readable; at most 4 MiB input — main
   `knowledge/SecretFinder.java`, test `knowledge/SecretFinderTest.java` (each form, CDATA,
   multiline, `${secret:…}` exempt, empty block, findings never contain the value)
-- [ ] T013 [D-7] `ConfiguredSecrets` port (`prepare`, `occurrences`, readiness states per D-7) and rule
+- [X] T013 [D-7] `ConfiguredSecrets` port (`prepare`, `occurrences`, readiness states per D-7) and rule
   (a) in `SecretFinder` through the port; `FakeConfiguredSecrets` (test) with `Held`, `Waiting`,
   `Failed`, `NothingConfigured` — main `domain/port/ConfiguredSecrets.java`,
   `knowledge/SecretFinder.java`, test `testing/FakeConfiguredSecrets.java`,

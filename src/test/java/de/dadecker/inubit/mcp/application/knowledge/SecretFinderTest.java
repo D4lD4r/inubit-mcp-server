@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import de.dadecker.inubit.mcp.application.knowledge.SecretFinder.Finding;
 import de.dadecker.inubit.mcp.application.knowledge.SecretFinder.Kind;
 import de.dadecker.inubit.mcp.domain.model.Masked;
+import de.dadecker.inubit.mcp.testing.FakeConfiguredSecrets;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.security.KeyStore;
@@ -21,13 +22,13 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * Feature 019 (T012, FR-010 (b)–(d), research D-6): the secret rules on free text.
+ * Feature 019 (T012, T013, FR-010, research D-6, D-7): the secret rules on free text.
  */
 class SecretFinderTest {
 
     private static final String VALUE = "s3cr3t-Value-42";
 
-    private final SecretFinder finder = new SecretFinder();
+    private final SecretFinder finder = new SecretFinder(FakeConfiguredSecrets.nothingConfigured());
 
     private String masked(String text) {
         return finder.mask(text).text();
@@ -50,6 +51,45 @@ class SecretFinderTest {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         store.store(out, "changeit".toCharArray());
         return out.toByteArray();
+    }
+
+    // (a) configured credentials
+
+    @Test
+    void aConfiguredCredentialIsFoundInEveryPosition() {
+        SecretFinder configured = new SecretFinder(FakeConfiguredSecrets.held("Hunter2pw"));
+        String text = "Login with Hunter2pw.\nurl=https://u:Hunter2pw@host\nxHunter2pwx\n";
+
+        assertThat(configured.mask(text)).isEqualTo(new Masked(
+            "Login with ***.\nurl=https://u:***@host\nx***x\n", 3));
+        assertThat(configured.find(text)).extracting(Finding::kind, Finding::line, Finding::key)
+            .containsExactly(org.assertj.core.groups.Tuple.tuple(Kind.CONFIGURED_CREDENTIAL, 1,
+                    Optional.empty()),
+                org.assertj.core.groups.Tuple.tuple(Kind.CONFIGURED_CREDENTIAL, 2,
+                    Optional.empty()),
+                org.assertj.core.groups.Tuple.tuple(Kind.CONFIGURED_CREDENTIAL, 3,
+                    Optional.empty()));
+    }
+
+    @Test
+    void aConfiguredCredentialAndAnAssignmentOfItAreMaskedOnce() {
+        SecretFinder configured = new SecretFinder(FakeConfiguredSecrets.held("Hunter2pw"));
+
+        assertThat(configured.find("password: Hunter2pw")).extracting(Finding::kind)
+            .containsExactlyInAnyOrder(Kind.CONFIGURED_CREDENTIAL, Kind.ASSIGNMENT);
+        assertThat(configured.mask("password: Hunter2pw"))
+            .isEqualTo(new Masked("password: ***", 1));
+    }
+
+    @Test
+    void theFinderMasksWhatIsKnownAndLeavesReadinessToTheCaller() {
+        FakeConfiguredSecrets secrets = FakeConfiguredSecrets.waiting("node1", "credential store");
+        SecretFinder waiting = new SecretFinder(secrets);
+
+        assertThat(waiting.find("Hunter2pw")).isEmpty();
+        secrets.hold("Hunter2pw");
+        assertThat(waiting.mask("Hunter2pw")).isEqualTo(new Masked("***", 1));
+        assertThat(secrets.prepared()).isEmpty();
     }
 
     // (d) assignments, one line
