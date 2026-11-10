@@ -207,7 +207,7 @@ INUBIT contact.
   (`testing/FakeInubitScript.java`: login result, per-file content or exception text, recorded call
   list); `testing/FakeInubitClient.java` installs a client home whose `lib/` holds a JAR of these
   classes (built at test time) and a `conf/` directory — tests `testing/FakeInubitClientTest.java`
-- [ ] T014 [US1] Helper build and protocol skeleton (D-2, D-4): `pom.xml` execution
+- [X] T014 [US1] Helper build and protocol skeleton (D-2, D-4): `pom.xml` execution
   `compile-queue-entry-helper` (`<release>17</release>`, `compileSourceRoots` `src/helper/java`,
   `outputDirectory` `${project.build.outputDirectory}/META-INF/inubit-mcp/queue-entry-helper`);
   `src/helper/java/de/dadecker/inubit/mcp/helper/QueueEntryHelper.java` (one top-level class, no

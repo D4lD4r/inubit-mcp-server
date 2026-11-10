@@ -386,6 +386,29 @@
         </pluginManagement>
 
         <plugins>
+            <!-- feature 020 (research D-2): the queue-entry helper runs in the JVM of the INUBIT
+                 client (8.1: JDK 17), so its single class is compiled for Java 17 into a resource
+                 directory; it ships inside the JAR but is not a class of the server. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>compile-queue-entry-helper</id>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <release>17</release>
+                            <compileSourceRoots>
+                                <compileSourceRoot>${project.basedir}/src/helper/java</compileSourceRoot>
+                            </compileSourceRoots>
+                            <outputDirectory>${project.build.outputDirectory}/META-INF/inubit-mcp/queue-entry-helper</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
