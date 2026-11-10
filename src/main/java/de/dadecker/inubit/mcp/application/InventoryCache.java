@@ -35,8 +35,11 @@ import java.util.function.Supplier;
  *   <li>A waiter that is interrupted (fan-out deadline) gets {@code TIMEOUT}; the load itself
  *       continues in its own caller and is cached when it completes.
  * </ul>
+ *
+ * <p>Not final only so that a test can stand in for a cache under contention (feature 018,
+ * {@code PartnerService}).
  */
-public final class InventoryCache {
+public class InventoryCache {
 
     /** Scope of a whole list (diagrams or modules) of a server. */
     public static final String ALL = "all";

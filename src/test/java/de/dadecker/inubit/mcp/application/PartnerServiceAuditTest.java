@@ -156,6 +156,22 @@ class PartnerServiceAuditTest {
     }
 
     @Test
+    void theRecordAndTheLineCountOnlyThePartnersOnThePage() {
+        PartnerQuery page = new PartnerQuery("dev/node1", Optional.empty(), Optional.empty(),
+            Optional.of("acme"), Optional.empty(), Optional.empty(), Optional.empty(), 1, 1, false,
+            Optional.empty());
+
+        Found found = service(port).find(page);
+
+        assertThat(found.total()).isEqualTo(3);
+        int masked = found.partners().get(0).maskedCount();
+        assertThat(port.records).singleElement().satisfies(record -> assertThat(record.details())
+            .containsEntry("partnersReturned", 1).containsEntry("valuesMasked", masked));
+        assertThat(lines()).singleElement().asString()
+            .contains("partnersReturned 1, valuesMasked " + masked + ",");
+    }
+
+    @Test
     void anUnknownTargetIsOneRefusedRecordWithoutServerAndOneLine() {
         ToolErrorException e = catchThrowableOfType(ToolErrorException.class,
             () -> service(port).find(query("dev/node9", Optional.of("acme"), Optional.empty())));

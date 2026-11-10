@@ -1,17 +1,14 @@
 package de.dadecker.inubit.mcp.mcp.tools;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import de.dadecker.inubit.mcp.application.PartnerAudit;
 import de.dadecker.inubit.mcp.application.PartnerService;
 import de.dadecker.inubit.mcp.application.PartnerService.CloudWorkflows;
-import de.dadecker.inubit.mcp.application.PartnerService.EntryView;
 import de.dadecker.inubit.mcp.application.PartnerService.Found;
 import de.dadecker.inubit.mcp.application.PartnerService.PartnerView;
 import de.dadecker.inubit.mcp.application.PartnerService.ServerView;
-import de.dadecker.inubit.mcp.application.PartnerService.SettingView;
-import de.dadecker.inubit.mcp.application.PartnerService.WorkflowView;
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
-import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
 import de.dadecker.inubit.mcp.domain.model.partner.PartnerQuery;
 import de.dadecker.inubit.mcp.mcp.CallContext;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
@@ -20,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 
 /**
@@ -32,6 +30,10 @@ import java.util.UUID;
  * but {@link PartnerQuery} refuses (e.g. a {@code compareWith} that overlaps {@code target}) is
  * {@code INVALID_INPUT} with one {@code REFUSED} audit record whose node is the target as
  * requested; every other audit is written by the service.
+ *
+ * <p>{@code compareWith}, {@code protocol} and {@code workflow} are in the schema but not
+ * implemented yet: a call with one of them is refused the same way, naming the parameter, before
+ * any server is contacted (phase 3 review; T023 and T026 lift this refusal).
  */
 public final class FindPartnersTool implements ToolHandler {
 
@@ -93,62 +95,47 @@ public final class FindPartnersTool implements ToolHandler {
                 workflow, args.integer("offset", 0),
                 args.integer("limit", PartnerQuery.DEFAULT_LIMIT), args.flag("refresh"),
                 context.client());
+            refuseUnsupported(query);
         } catch (ToolErrorException e) {
             throw new PartnerAudit(audits, target, compareWith, owner, search, systemDiagram,
-                protocol, workflow, context.client()).refused(e.error());
+                protocol, workflow, context.client()).refused(e.error()).exception();
         }
         return Result.of(service.find(query), query);
     }
 
     /**
-     * The single-server shape of the contract. Until paging (T024) every matching partner is
-     * returned: {@code total} is their number and nothing is cut.
-     *
-     * @param mode {@code search} with a search term, else {@code list}
+     * @throws ToolErrorException {@code INVALID_INPUT} naming the first of {@code compareWith},
+     *     {@code protocol}, {@code workflow} that is given
      */
-    record Result(UUID callId, String mode, boolean compared, List<ServerView> servers,
-        List<CloudWorkflows> referencableWorkflows, List<Partner> partners,
-        Optional<List<String>> similarValues, int total, int offset, int limit,
-        boolean truncated) {
-
-        static Result of(Found found, PartnerQuery query) {
-            return new Result(found.callId(), query.search().isPresent() ? "search" : "list",
-                false, found.servers(), found.referencableWorkflows(),
-                found.partners().stream().map(Partner::of).toList(), found.similarValues(),
-                found.partners().size(), query.offset(), query.limit(), false);
-        }
-    }
-
-    /** {@link PartnerView} with the contract's workflow shape. */
-    record Partner(DiagramRef systemDiagram, String cloud, Optional<String> moduleId,
-        List<SettingView> fields, int maskedCount, List<Entry> entries) {
-
-        static Partner of(PartnerView partner) {
-            return new Partner(partner.systemDiagram(), partner.cloud(), partner.moduleId(),
-                partner.fields(), partner.maskedCount(),
-                partner.entries().stream().map(Entry::of).toList());
-        }
-    }
-
-    /** {@link EntryView} with the contract's workflow shape. */
-    record Entry(String protocol, Workflow workflow, Optional<String> format,
-        List<SettingView> protocolSettings, List<SettingView> additionalParameters) {
-
-        static Entry of(EntryView entry) {
-            return new Entry(entry.protocol(), Workflow.of(entry.workflow()), entry.format(),
-                entry.protocolSettings(), entry.additionalParameters());
+    private static void refuseUnsupported(PartnerQuery query) {
+        Optional<String> parameter = query.compareWith().map(value -> "compareWith")
+            .or(() -> query.protocol().map(value -> "protocol"))
+            .or(() -> query.workflow().map(value -> "workflow"));
+        if (parameter.isPresent()) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
+                parameter.get() + " is not supported yet",
+                "This version of find_partners does not implement " + parameter.get() + " yet",
+                "Call again without " + parameter.get()));
         }
     }
 
     /**
-     * {@code {"name": "…"}}, or {@code {"name": null, "unresolved": true}} for an entry whose
-     * workflow reference does not resolve: {@code name} is written even when empty.
+     * The single-server shape of the contract: the page of the service with {@code total} and
+     * {@code nextOffset}. Until the size bound (T024) nothing is cut, so {@code truncated} is
+     * false.
+     *
+     * @param mode {@code search} with a search term, else {@code list}
      */
-    record Workflow(@JsonInclude(JsonInclude.Include.ALWAYS) Optional<String> name,
-        Optional<Boolean> unresolved) {
+    record Result(UUID callId, String mode, boolean compared, List<ServerView> servers,
+        List<CloudWorkflows> referencableWorkflows, List<PartnerView> partners,
+        Optional<List<String>> similarValues, int total, int offset, int limit,
+        OptionalInt nextOffset, boolean truncated) {
 
-        static Workflow of(WorkflowView workflow) {
-            return new Workflow(workflow.name(), workflow.unresolved());
+        static Result of(Found found, PartnerQuery query) {
+            return new Result(found.callId(), query.search().isPresent() ? "search" : "list",
+                false, found.servers(), found.referencableWorkflows(), found.partners(),
+                found.similarValues(), found.total(), query.offset(), query.limit(),
+                found.nextOffset(), false);
         }
     }
 }

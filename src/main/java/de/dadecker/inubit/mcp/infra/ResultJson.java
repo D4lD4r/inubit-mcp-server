@@ -2,11 +2,13 @@ package de.dadecker.inubit.mcp.infra;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import de.dadecker.inubit.mcp.application.PartnerService;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.LogType;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
 import de.dadecker.inubit.mcp.domain.model.partner.SecretFingerprint;
+import java.util.Optional;
 import tools.jackson.core.JsonGenerator;
 import tools.jackson.databind.MapperFeature;
 import tools.jackson.databind.SerializationContext;
@@ -17,7 +19,8 @@ import tools.jackson.databind.ser.std.ToStringSerializer;
 
 /**
  * The JSON form of tool results (contracts/mcp-tools.md): record components in declaration order,
- * empty {@code Optional}s and {@code null}s omitted, ids and log types as strings (e.g.
+ * empty {@code Optional}s and {@code null}s omitted (except the {@code name} of an unresolved
+ * workflow of {@code find_partners}), ids and log types as strings (e.g.
  * {@code systemLog}), {@code java.time} values as ISO-8601. A {@link SecretFingerprint} is
  * refused (feature 018: it never reaches a result). Shared by the MCP result mapping and by the
  * mappers that bound an item's serialized size ({@code ItemBounds.MAX_ITEM_CHARS}), so that both
@@ -35,6 +38,7 @@ public final class ResultJson {
             .addSerializer(LogType.class, new ToStringSerializer(LogType.class))
             .addSerializer(SecretFingerprint.class, new RefusingFingerprintSerializer()))
         .addMixIn(NodeSummary.StartCli.class, StartCliJson.class)
+        .addMixIn(PartnerService.WorkflowView.class, WorkflowViewJson.class)
         .build();
 
     /**
@@ -44,6 +48,15 @@ public final class ResultJson {
     private abstract static class StartCliJson {
         @JsonProperty("final")
         abstract boolean finalChoice();
+    }
+
+    /**
+     * {@code find_partners} (feature 018): an unresolved workflow is written as
+     * {@code {"name": null, "unresolved": true}}, so {@code name} is kept when empty.
+     */
+    private abstract static class WorkflowViewJson {
+        @JsonInclude(JsonInclude.Include.ALWAYS)
+        abstract Optional<String> name();
     }
 
     /** Refuses every {@link SecretFingerprint}; the message names the type, never the value. */

@@ -59,9 +59,10 @@ class PartnerAuditTest {
     void refusedAppendsOneRefusedRecordNamingTheTargetAsRequested() {
         PartnerAudit audit = audit("qa");
 
-        ToolErrorException refused = audit.refused(INVALID);
+        PartnerAudit.Refusal refused = audit.refused(INVALID);
 
-        assertThat(refused.error()).isEqualTo(INVALID);
+        assertThat(refused.exception().error()).isEqualTo(INVALID);
+        assertThat(refused.recorded()).isTrue();
         AuditRecord record = port.records.getFirst();
         assertThat(port.records).hasSize(1);
         assertThat(record.auditId()).isEqualTo(FIRST);
@@ -229,9 +230,9 @@ class PartnerAuditTest {
             Optional.empty(), Optional.of("acme"), Optional.empty(), Optional.empty(),
             Optional.empty(), Optional.empty());
 
-        ToolErrorException refused = audit.refused(INVALID);
+        PartnerAudit.Refusal refused = audit.refused(INVALID);
 
-        assertThat(refused.error()).isEqualTo(INVALID);
+        assertThat(refused.exception().error()).isEqualTo(INVALID);
         AuditRecord record = port.records.getFirst();
         assertThat(port.records).hasSize(1);
         assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED);
@@ -246,9 +247,9 @@ class PartnerAuditTest {
             Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
             Optional.empty(), Optional.empty());
 
-        ToolErrorException refused = audit.refused(INVALID);
+        PartnerAudit.Refusal refused = audit.refused(INVALID);
 
-        assertThat(refused.error()).isEqualTo(INVALID);
+        assertThat(refused.exception().error()).isEqualTo(INVALID);
         AuditRecord record = port.records.getFirst();
         assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED);
         assertThat(record.node()).isEqualTo("   ");
@@ -261,8 +262,10 @@ class PartnerAuditTest {
         PartnerAudit audit = audit("qa");
         port.failing = true;
 
-        ToolError error = audit.refused(INVALID).error();
+        PartnerAudit.Refusal refused = audit.refused(INVALID);
 
+        assertThat(refused.recorded()).isFalse();
+        ToolError error = refused.exception().error();
         assertThat(error.code()).isEqualTo(ErrorCode.INTERNAL);
         assertThat(error.message()).contains(CALL.toString()).contains("INVALID_INPUT")
             .contains(INVALID.message());

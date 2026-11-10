@@ -57,6 +57,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
@@ -135,6 +136,22 @@ class PartnerServiceSearchTest {
             .containsExactly("ACME-0002");
         assertThat(find("ACME").partners()).extracting(PartnerServiceSearchTest::id)
             .containsExactly("ACME-0001", "ACME-0002", "ACME-0003");
+    }
+
+    @Test
+    void searchMatchesCaseInsensitivelyAlsoWhereLowerCasingChangesTheLength() {
+        // U+0130 lower-cases to "i" plus a combining dot in Locale.ROOT, i.e. to two chars
+        export(new DiagramXml(GROUP, ONE.name(), OWNER, List.of(new CloudXml("44", CLOUD,
+            List.of(new FieldXml("Id", "String"), new FieldXml("Name", "String")),
+            List.of(new TwfXml("1", "35", "Workflow-0009")),
+            List.of(named("ACME-0010", "ACME \u0130nternational"),
+                named("ACME-0011", "ACME International"))))));
+
+        assertThat(find("acme international").partners()).extracting(PartnerServiceSearchTest::id)
+            .containsExactly("ACME-0010", "ACME-0011");
+        assertThat(find("\u0130NTERNATIONAL").partners())
+            .extracting(PartnerServiceSearchTest::id).containsExactly("ACME-0010", "ACME-0011");
+        assertThat(find("a.me").partners()).as("the term is literal, not a pattern").isEmpty();
     }
 
     @Test
@@ -295,6 +312,17 @@ class PartnerServiceSearchTest {
     }
 
     @Test
+    void noSimilarValuesWhenNoServerAnswered() {
+        export(PartnerFixtures.detail());
+
+        Found found = service().find(query("dev/node2", Optional.of("acme-0004")));
+
+        assertThat(found.servers()).extracting(server -> server.error().map(ToolError::code))
+            .containsExactly(Optional.of(ErrorCode.NOT_CONFIGURED));
+        assertThat(found.similarValues()).isEmpty();
+    }
+
+    @Test
     void aMaskedNameIsNeverASimilarValue() {
         // a cloud whose Name field is not plain: every Name in it is masked
         export(new DiagramXml(GROUP, ONE.name(), OWNER, List.of(new CloudXml("44", CLOUD,
@@ -359,6 +387,35 @@ class PartnerServiceSearchTest {
         assertThat(e.error().nextStep()).contains("'SystemDiagram-01'");
         assertThat(noneAnswered.servers()).extracting(server -> server.error().map(ToolError::code))
             .containsExactly(Optional.of(ErrorCode.NOT_CONFIGURED));
+    }
+
+    // --- paging (FR-017, phase 3 review) ----------------------------------------------------
+
+    @Test
+    void offsetAndLimitPageTheMatchesOfAllServersInServerOrder() {
+        export(PartnerFixtures.detail());
+        owners.put(NODE2, Optional.of(OWNER));
+
+        Found first = service().find(query("dev", Optional.empty(), 2, 3));
+        Found last = service().find(query("dev", Optional.empty(), 5, 3));
+        Found beyond = service().find(query("dev", Optional.of("acme"), 6, 3));
+
+        assertThat(first.partners()).extracting(PartnerServiceSearchTest::id)
+            .containsExactly("ACME-0003", "ACME-0001", "ACME-0002");
+        assertThat(first.total()).isEqualTo(6);
+        assertThat(first.nextOffset()).isEqualTo(OptionalInt.of(5));
+        assertThat(first.referencableWorkflows()).as("the cloud of each server on the page")
+            .hasSize(2);
+        assertThat(last.partners()).extracting(PartnerServiceSearchTest::id)
+            .containsExactly("ACME-0003");
+        assertThat(last.total()).isEqualTo(6);
+        assertThat(last.nextOffset()).isEmpty();
+        assertThat(beyond.partners()).isEmpty();
+        assertThat(beyond.referencableWorkflows()).isEmpty();
+        assertThat(beyond.total()).isEqualTo(6);
+        assertThat(beyond.nextOffset()).isEmpty();
+        assertThat(beyond.similarValues()).as("the search matched, only not on this page")
+            .isEmpty();
     }
 
     // --- FR-011 -------------------------------------------------------------------------------
@@ -434,6 +491,11 @@ class PartnerServiceSearchTest {
         return result;
     }
 
+    private static PartnerXml named(String id, String name) {
+        return new PartnerXml(List.of(Leaf.plain("Id", id), Leaf.plain("Name", name)),
+            List.of());
+    }
+
     private static PartnerXml acme(String id) {
         return new PartnerXml(List.of(Leaf.plain("Id", id), Leaf.plain("Name", "ACME Corp")),
             List.of());
@@ -452,6 +514,13 @@ class PartnerServiceSearchTest {
         return new PartnerQuery(target, Optional.empty(), Optional.empty(), search,
             systemDiagram, Optional.empty(), Optional.empty(), 0, PartnerQuery.DEFAULT_LIMIT,
             false, Optional.empty());
+    }
+
+    private static PartnerQuery query(String target, Optional<String> search, int offset,
+        int limit) {
+        return new PartnerQuery(target, Optional.empty(), Optional.empty(), search,
+            Optional.empty(), Optional.empty(), Optional.empty(), offset, limit, false,
+            Optional.empty());
     }
 
     /**

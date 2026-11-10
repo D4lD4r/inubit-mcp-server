@@ -219,6 +219,31 @@ class FindPartnersToolTest {
 
         assertThat(content.path("offset").asInt()).isEqualTo(5);
         assertThat(content.path("limit").asInt()).isEqualTo(7);
+        assertThat(content.path("partners")).as("an offset beyond the matches").isEmpty();
+        assertThat(content.path("total").asInt()).isEqualTo(3);
+        assertThat(content.has("nextOffset")).isFalse();
+    }
+
+    @Test
+    void offsetAndLimitSelectThePageWithTotalAndNextOffset() {
+        JsonNode first = call(Map.of("target", "dev/node1", "limit", 2));
+        JsonNode last = call(Map.of("target", "dev/node1", "offset", 2, "limit", 2));
+
+        assertMatchesOutputSchema("find_partners", first);
+        assertMatchesOutputSchema("find_partners", last);
+        JsonNode content = first.path("structuredContent");
+        assertThat(content.path("partners")).extracting(FindPartnersToolTest::id)
+            .containsExactly("ACME-0001", "ACME-0002");
+        assertThat(content.path("total").asInt()).isEqualTo(3);
+        assertThat(content.path("nextOffset").asInt()).isEqualTo(2);
+        assertThat(content.path("truncated").asBoolean(true)).isFalse();
+        content = last.path("structuredContent");
+        assertThat(content.path("partners")).extracting(FindPartnersToolTest::id)
+            .containsExactly("ACME-0003");
+        assertThat(content.path("total").asInt()).isEqualTo(3);
+        assertThat(content.has("nextOffset")).isFalse();
+        assertThat(audit).extracting(record -> record.details().get("partnersReturned"))
+            .containsExactly(2, 1);
     }
 
     @Test
@@ -389,9 +414,45 @@ class FindPartnersToolTest {
     @Test
     void theLimitsOfTheSchemaAreInclusive() {
         JsonNode result = call(Map.of("target", "dev/node1", "search", "s".repeat(200),
-            "protocol", "P".repeat(64), "limit", 100));
+            "limit", 100));
+        JsonNode longestProtocol = toolError(call(Map.of("target", "dev/node1",
+            "protocol", "P".repeat(64))));
 
         assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
+        assertThat(longestProtocol.path("message").asString())
+            .as("passed the schema, refused by the tool")
+            .isEqualTo("protocol is not supported yet");
+    }
+
+    /**
+     * Interim (phase 3 review): T023 (protocol, workflow) and T026 (compareWith) remove this
+     * refusal and this test.
+     */
+    @Test
+    void compareWithProtocolAndWorkflowAreAuditedAsNotSupportedYetWithoutAnyRead() {
+        Map<String, Map<String, Object>> calls = new LinkedHashMap<>();
+        calls.put("compareWith", Map.of("target", "dev/node1", "compareWith", "dev/node2"));
+        calls.put("protocol", Map.of("target", "dev/node1", "protocol", "FTP"));
+        calls.put("workflow", Map.of("target", "dev/node1", "workflow", "Workflow-0001",
+            "search", "acme"));
+
+        calls.forEach((parameter, arguments) -> {
+            JsonNode error = toolError(call(arguments));
+            assertThat(error.path("code").asString()).isEqualTo("INVALID_INPUT");
+            assertThat(error.path("message").asString())
+                .isEqualTo(parameter + " is not supported yet");
+        });
+
+        assertThat(audit).hasSize(3).allSatisfy(record -> {
+            assertThat(record.outcome()).isEqualTo(AuditOutcome.REFUSED);
+            assertThat(record.node()).isEqualTo("dev/node1");
+            assertThat(record.reason()).hasValueSatisfying(reason ->
+                assertThat(reason).startsWith("INVALID_INPUT: "));
+        });
+        assertThat(audit).extracting(record -> record.inputs().keySet().stream().toList())
+            .containsExactly(List.of("target", "compareWith"), List.of("target", "protocol"),
+                List.of("target", "search", "workflow"));
+        assertThat(portReads).isEmpty();
     }
 
     // --- support -------------------------------------------------------------------------------
@@ -427,6 +488,10 @@ class FindPartnersToolTest {
         DiagramRef ref = new DiagramRef(diagram.name(), diagram.group());
         exports.put(ref, PartnerManagementReader.read(ref,
             XmlTree.parse(PartnerFixtures.workflowXml(diagram)).root()));
+    }
+
+    private static String id(JsonNode partner) {
+        return partner.path("fields").get(0).path("value").asString();
     }
 
     /** No synthetic secret, not even its first 12 characters, in either channel. */

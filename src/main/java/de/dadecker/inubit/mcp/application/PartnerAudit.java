@@ -121,24 +121,38 @@ public final class PartnerAudit {
     }
 
     /**
+     * The outcome of {@link #refused}.
+     *
+     * @param exception what the call throws: the refusal, or {@code INTERNAL} if its record could
+     *                  not be written
+     * @param recorded  whether the {@code REFUSED} record was written
+     */
+    public record Refusal(ToolErrorException exception, boolean recorded) {
+
+        public Refusal {
+            Objects.requireNonNull(exception, "exception");
+        }
+    }
+
+    /**
      * Audits a refusal before any server is contacted as one {@code REFUSED} record.
      *
-     * @return {@code error}, or {@code INTERNAL} naming the {@code callId} and carrying the
-     *     refusal's code and message if the record could not be written
+     * @return {@code error} as written, or {@code INTERNAL} naming the {@code callId} and carrying
+     *     the refusal's code and message if the record could not be written
      */
-    public ToolErrorException refused(ToolError error) {
+    public Refusal refused(ToolError error) {
         try {
             d.port().append(record(bounded(target), requestedGroup(), AuditOutcome.REFUSED,
                 Optional.of(error.code() + ": " + error.message()), Map.of()));
         } catch (RuntimeException e) {
             LOG.error("Audit record of call {} for a refusal ({}) could not be written ({})",
                 callId, error.code(), e.getClass().getSimpleName());
-            return new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
+            return new Refusal(new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
                 "The audit record of call " + callId + " could not be written; the call was"
                     + " refused anyway (" + error.code() + ": " + error.message()
-                    + "); no partner data was read", AUDIT_CAUSE, AUDIT_NEXT_STEP));
+                    + "); no partner data was read", AUDIT_CAUSE, AUDIT_NEXT_STEP)), false);
         }
-        return new ToolErrorException(error);
+        return new Refusal(new ToolErrorException(error), true);
     }
 
     /**

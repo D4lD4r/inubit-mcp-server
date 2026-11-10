@@ -30,14 +30,15 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
@@ -69,16 +70,22 @@ import org.slf4j.LoggerFactory;
  *       returned. {@code refresh} bypasses both caches; concurrent calls share one read
  *       ({@link InventoryCache}).
  *   <li>Search and details (T019, FR-004, FR-005, FR-007, FR-011): a partner matches if one of
- *       its non-masked fields contains the search term, case-insensitively; masked values and
- *       entry settings are never searched. Each match is shown in full with its system diagram
- *       and communication cloud; a masked value only as "set"/"not set", never with its
- *       fingerprint. Per server: every system diagram read with its clouds and their partner
- *       counts, those without a Partner Management, the unreadable ones and the warnings; per
- *       cloud that contributed a match, its referencable workflows.
- *   <li>Similar values (T020, FR-005b, FR-011, FR-019): a search without hits lists up to five
- *       similar shown {@code Id} and {@code Name} values ({@link SimilarNames}), never a masked
- *       one; a {@code systemDiagram} that no answering server has ends the call with
- *       {@code NOT_FOUND} naming up to five similar system diagram names.
+ *       its non-masked fields contains the search term, case-insensitively (Unicode, char by
+ *       char); masked values and entry settings are never searched. Each match is shown in
+ *       full with its system diagram and communication cloud; a masked value only as
+ *       "set"/"not set", never with its fingerprint. Per server: every system diagram read with
+ *       its clouds and their partner counts, those without a Partner Management, the unreadable
+ *       ones and the warnings; per cloud that contributed a returned partner, its referencable
+ *       workflows.
+ *   <li>Paging (FR-017, phase 3 review): the matches of all servers in server order, then
+ *       export order; {@code offset} and {@code limit} select the partners returned, with the
+ *       number of matches as {@code total} and {@code nextOffset} while more follow. The size
+ *       bound ({@code resultLimits}) follows in T024.
+ *   <li>Similar values (T020, FR-005b, FR-011, FR-019): a search without hits on a call where
+ *       at least one server answered lists up to five similar shown {@code Id} and {@code Name}
+ *       values ({@link SimilarNames}), never a masked one; a {@code systemDiagram} that no
+ *       answering server has ends the call with {@code NOT_FOUND} naming up to five similar
+ *       system diagram names.
  *   <li>Audit and log (T021, FR-020, FR-021, research D-8): one {@link PartnerAudit} per call
  *       with one call id; one record and one INFO line per targeted server, also for cache hits;
  *       an audit record that cannot be written ends the call in {@code INTERNAL} without data.
@@ -90,7 +97,6 @@ public final class PartnerService {
     private static final String TOOL = "find_partners";
     private static final String SYSTEM_DIAGRAM = "systemdiagram";
     private static final Logger LOG = LoggerFactory.getLogger(PartnerService.class);
-    private static final int MAX_LOGGED = 500;
     /** Error codes audited as {@code REFUSED} (research D-8); every other error is FAILED. */
     private static final Set<ErrorCode> REFUSALS =
         EnumSet.of(ErrorCode.NOT_CONFIGURED, ErrorCode.UNSUPPORTED_VERSION);
@@ -134,15 +140,19 @@ public final class PartnerService {
      *
      * @param callId                the call id shared by every audit record of the call (FR-020)
      * @param servers               one per targeted server, in config order
-     * @param referencableWorkflows per communication cloud that contributed a partner (FR-007)
-     * @param partners              the matching partners in export order
-     * @param similarValues         only when a search matched nothing: up to
-     *                              {@link #MAX_SIMILAR} non-masked {@code Id} and {@code Name}
-     *                              values of the system diagrams read, closest first (FR-005b)
+     * @param referencableWorkflows per communication cloud that contributed a returned partner
+     *                              (FR-007)
+     * @param partners              the page of matching partners: server order, then export order
+     * @param similarValues         only when a search matched nothing and at least one server
+     *                              answered: up to {@link #MAX_SIMILAR} non-masked {@code Id} and
+     *                              {@code Name} values of the system diagrams read, closest first
+     *                              (FR-005b)
+     * @param total                 the number of matching partners on all servers
+     * @param nextOffset            the offset of the next page, if more matches follow
      */
     public record Found(UUID callId, List<ServerView> servers,
         List<CloudWorkflows> referencableWorkflows, List<PartnerView> partners,
-        Optional<List<String>> similarValues) {
+        Optional<List<String>> similarValues, int total, OptionalInt nextOffset) {
 
         public Found {
             Objects.requireNonNull(callId, "callId");
@@ -150,7 +160,12 @@ public final class PartnerService {
             referencableWorkflows = List.copyOf(referencableWorkflows);
             partners = List.copyOf(partners);
             similarValues = similarValues.map(List::copyOf);
+            Objects.requireNonNull(nextOffset, "nextOffset");
         }
+    }
+
+    /** The matching partners of one communication cloud, with its referencable workflows. */
+    private record CloudMatches(CloudWorkflows workflows, List<PartnerView> partners) {
     }
 
     /**
@@ -288,12 +303,14 @@ public final class PartnerService {
     /**
      * The partners of every server of {@code query.target()} whose non-masked fields contain
      * {@code query.search()}, case-insensitively (every partner without a search term), each in
-     * full (FR-004, FR-005, FR-007, FR-011). A search without hits gets similar values
-     * (FR-005b).
+     * full (FR-004, FR-005, FR-007, FR-011); the page {@code query.offset()},
+     * {@code query.limit()} of them (FR-017). A search without hits gets similar values if a
+     * server answered (FR-005b).
      *
      * <p>Audit and log (T021, FR-020, FR-021): one {@link PartnerAudit} per call; an unknown
      * target is one {@code REFUSED} record; otherwise one record and one INFO line per server,
-     * also for a cache hit or a failed server (its error code as reason, never the message).
+     * also for a cache hit or a failed server (its error code as reason, never the message),
+     * counting the partners returned on the page.
      *
      * @throws ToolErrorException {@code TARGET_UNKNOWN} before any server is contacted;
      *     {@code NOT_FOUND} with up to {@link #MAX_SIMILAR} similar system diagram names if no
@@ -307,24 +324,39 @@ public final class PartnerService {
         try {
             targeted = targets.resolve(query.target());
         } catch (ToolErrorException e) {
-            ToolErrorException refused = audit.refused(e.error());
-            LOG.info("{} on {}: REFUSED {} (call {}{})", TOOL, loggable(query.target()),
-                e.error().code(), audit.callId(),
-                refused.error().equals(e.error()) ? "" : ", no audit record");
-            throw refused;
+            PartnerAudit.Refusal refusal = audit.refused(e.error());
+            LOG.info("{} on {}: REFUSED {} (call {}{})", TOOL, LogText.loggable(query.target()),
+                e.error().code(), audit.callId(), refusal.recorded() ? "" : ", no audit record");
+            throw refusal.exception();
         }
         List<NodeResult<ServerRead>> results = read(targeted, query);
         Optional<ToolError> notFound = query.systemDiagram()
             .flatMap(name -> unknownSystemDiagram(name, results));
-        Optional<String> term = query.search().map(PartnerService::folded);
+        Optional<Pattern> term = query.search().map(PartnerService::containing);
+        List<List<CloudMatches>> matched = results.stream()
+            .map(result -> notFound.isEmpty() ? matched(result, term) : List.<CloudMatches>of())
+            .toList();
+        int total = matched.stream().flatMap(List::stream)
+            .mapToInt(cloud -> cloud.partners().size()).sum();
+        int from = Math.min(query.offset(), total);
+        int to = Math.min(from + query.limit(), total);
         List<ServerView> servers = new ArrayList<>();
         List<CloudWorkflows> workflows = new ArrayList<>();
         List<PartnerView> partners = new ArrayList<>();
         ToolErrorException unaudited = null;
-        for (NodeResult<ServerRead> result : results) {
+        int position = 0;
+        for (int i = 0; i < results.size(); i++) {
+            NodeResult<ServerRead> result = results.get(i);
             List<PartnerView> returned = new ArrayList<>();
-            if (notFound.isEmpty()) {
-                collect(result, term, returned, workflows);
+            for (CloudMatches cloud : matched.get(i)) {
+                int size = cloud.partners().size();
+                List<PartnerView> page = cloud.partners().subList(
+                    Math.clamp(from - position, 0, size), Math.clamp(to - position, 0, size));
+                position += size;
+                if (!page.isEmpty()) {
+                    returned.addAll(page);
+                    workflows.add(cloud.workflows());
+                }
             }
             servers.add(serverView(result));
             partners.addAll(returned);
@@ -340,10 +372,12 @@ public final class PartnerService {
         if (notFound.isPresent()) {
             throw new ToolErrorException(notFound.get());
         }
+        boolean answered = results.stream().anyMatch(result -> result.payload().isPresent());
         Optional<List<String>> similar = query.search()
-            .filter(search -> partners.isEmpty())
+            .filter(search -> total == 0 && answered)
             .map(search -> SimilarNames.of(search, similarCandidates(results), MAX_SIMILAR));
-        return new Found(audit.callId(), servers, workflows, partners, similar);
+        return new Found(audit.callId(), servers, workflows, partners, similar, total,
+            to < total ? OptionalInt.of(to) : OptionalInt.empty());
     }
 
     /**
@@ -364,29 +398,25 @@ public final class PartnerService {
             .toList();
     }
 
-    /** {@code value} for a log line: at most 500 chars, control characters as {@code ?}. */
-    private static String loggable(String value) {
-        String bounded = value.length() <= MAX_LOGGED ? value : value.substring(0, MAX_LOGGED);
-        return bounded.replaceAll("\\p{Cntrl}", "?");
-    }
-
-    /** The partners of {@code result} that match {@code term}, with their clouds' workflows. */
-    private static void collect(NodeResult<ServerRead> result, Optional<String> term,
-        List<PartnerView> partners, List<CloudWorkflows> workflows) {
+    /** The partners of {@code result} that match {@code term} per cloud, in export order. */
+    private static List<CloudMatches> matched(NodeResult<ServerRead> result,
+        Optional<Pattern> term) {
+        List<CloudMatches> matched = new ArrayList<>();
         for (SystemDiagramPartners diagram : result.payload().map(ServerRead::diagrams)
             .orElse(List.of())) {
             for (CommunicationCloud cloud : diagram.clouds()) {
-                List<PartnerView> matches = cloud.partners().stream()
+                List<PartnerView> partners = cloud.partners().stream()
                     .filter(partner -> term.isEmpty() || matches(partner, term.get()))
                     .map(partner -> partnerView(diagram, cloud, partner))
                     .toList();
-                if (!matches.isEmpty()) {
-                    partners.addAll(matches);
-                    workflows.add(new CloudWorkflows(diagram.diagram(), cloud.moduleName(),
-                        moduleId(diagram, cloud), cloud.referencableWorkflows()));
+                if (!partners.isEmpty()) {
+                    matched.add(new CloudMatches(new CloudWorkflows(diagram.diagram(),
+                        cloud.moduleName(), moduleId(diagram, cloud),
+                        cloud.referencableWorkflows()), partners));
                 }
             }
         }
+        return matched;
     }
 
     /**
@@ -455,16 +485,22 @@ public final class PartnerService {
                     + ", or call without systemDiagram"));
     }
 
-    /** Whether a non-masked field of {@code partner} contains {@code term} (already folded). */
-    private static boolean matches(Partner partner, String term) {
+    /** Whether a non-masked field of {@code partner} contains {@code term}. */
+    private static boolean matches(Partner partner, Pattern term) {
         return partner.fields().stream()
             .map(Setting::value)
             .anyMatch(value -> value instanceof SettingValue.Shown shown
-                && folded(shown.value()).contains(term));
+                && term.matcher(shown.value()).find());
     }
 
-    private static String folded(String text) {
-        return text.toLowerCase(Locale.ROOT);
+    /**
+     * {@code search} as a literal, matched case-insensitively char by char with Unicode case
+     * rules; unlike lower-casing both sides, this also holds where lower-casing changes the
+     * length (e.g. U+0130).
+     */
+    private static Pattern containing(String search) {
+        return Pattern.compile(Pattern.quote(search),
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     }
 
     private static ServerView serverView(NodeResult<ServerRead> result) {
@@ -603,8 +639,9 @@ public final class PartnerService {
     /**
      * The entry of {@code scope} if it answers {@code owner} and {@code needed}; an entry made for
      * other diagrams (an older system diagram list) or for another owner or diagram whose scope
-     * reads the same is read again. Each further round either runs this call's read, which
-     * answers, or joins a read in flight.
+     * reads the same is read again once through the cache. If that joined another call's read,
+     * which again does not answer, this call reads on its own without the cache, so a call makes
+     * at most two cache rounds and at most one read of its own.
      */
     private Snapshot<PartnerSnapshot> covering(NodeId server, String owner, String scope,
         List<DiagramRef> needed, boolean refresh, AtomicBoolean read) {
@@ -616,10 +653,15 @@ public final class PartnerService {
                 result.unreadableDiagrams(), result.warnings());
         };
         Snapshot<PartnerSnapshot> snapshot = cache.get(key, refresh, loader);
-        while (!snapshot.value().answers(owner, needed)) {
+        if (!snapshot.value().answers(owner, needed)) {
             snapshot = cache.get(key, true, loader);
         }
-        return snapshot;
+        if (snapshot.value().answers(owner, needed)) {
+            return snapshot;
+        }
+        // not cached; the audit's clock is the cache's clock (Wiring)
+        Instant started = audits.clock().instant();
+        return new Snapshot<>(loader.get(), started, started);
     }
 
     private List<DiagramRef> systemDiagrams(NodeId server, String owner) {

@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerFixtures;
 import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerManagementReader;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree;
 import de.dadecker.inubit.mcp.application.InventoryCache.Key;
+import de.dadecker.inubit.mcp.application.InventoryCache.Snapshot;
 import de.dadecker.inubit.mcp.application.PartnerService.ServerRead;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -47,6 +48,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -409,6 +411,23 @@ class PartnerServiceReadTest {
     }
 
     @Test
+    void anEntryThatKeepsNotAnsweringEndsInOneReadOfTheCallsOwn() {
+        // phase 3 review: a concurrent call's read for other diagrams wins every round
+        ContendedCache contended = new ContendedCache();
+
+        ServerRead read = success(service(FakeVersionDetection.pinned81(), contended)
+            .read(query(Optional.empty(), false)));
+
+        assertThat(contended.partnerRefreshes).as("the first round and one refreshed round only")
+            .containsExactly(false, true);
+        assertThat(portReads).extracting(PortRead::diagrams)
+            .containsExactly(List.of(ONE, TWO, ONE_ELSEWHERE));
+        assertThat(read.diagrams()).extracting(SystemDiagramPartners::diagram)
+            .containsExactly(ONE, TWO, ONE_ELSEWHERE);
+        assertThat(read.fromCache()).isFalse();
+    }
+
+    @Test
     void anEntryReadForAnotherOwnerIsNotServedEvenIfItsScopeReadsTheSame() {
         // owner "a|g/n" gives partners:a|g/n, like owner "a" with the system diagram g/n
         DiagramRef diagram = new DiagramRef("n", "g");
@@ -513,6 +532,10 @@ class PartnerServiceReadTest {
     }
 
     private PartnerService service(VersionGate gate) {
+        return service(gate, cache);
+    }
+
+    private PartnerService service(VersionGate gate, InventoryCache cache) {
         return new PartnerService(new Gateways(), new TargetResolver(List.of(NODE1, NODE2)),
             new FanOut(), cache, this::owner, node -> Duration.ofSeconds(5),
             node -> Duration.ofSeconds(120), Terminology.DEFAULT, gate, SecretTiming.NONE,
@@ -541,6 +564,36 @@ class PartnerServiceReadTest {
                 .filter(entry -> diagrams.contains(entry.getKey())
                     && !unreadable.containsKey(entry.getKey()))
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)));
+    }
+
+    /**
+     * A cache under contention: every Partner Management entry it hands out was read by another
+     * call for another system diagram, without calling the loader; the system diagram list comes
+     * from a real cache. More than ten rounds count as unbounded.
+     */
+    private final class ContendedCache extends InventoryCache {
+
+        final List<Boolean> partnerRefreshes = new CopyOnWriteArrayList<>();
+
+        ContendedCache() {
+            super(clock, node -> TTL);
+        }
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T> Snapshot<T> get(Key key, boolean refresh, Supplier<T> loader) {
+            if (!key.scope().startsWith(PartnerSnapshot.PARTNERS_SCOPE)) {
+                return super.get(key, refresh, loader);
+            }
+            partnerRefreshes.add(refresh);
+            if (partnerRefreshes.size() > 10) {
+                throw new AssertionError("unbounded rounds on " + key);
+            }
+            DiagramRef other = new DiagramRef("SystemDiagram-99", "GRP-PM");
+            return (Snapshot<T>) new Snapshot<>(new PartnerSnapshot(CONFIGURED,
+                List.of(new SystemDiagramPartners(other, CLOUDS)), Set.of(other), List.of(),
+                Map.of()), T0, T0.plus(TTL));
+        }
     }
 
     /** Only the inventory list and the partner port; every other port is an assertion error. */
