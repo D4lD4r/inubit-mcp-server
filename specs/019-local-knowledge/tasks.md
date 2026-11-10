@@ -137,7 +137,7 @@ prints the line without reading a credential.
   `Failed`, `NothingConfigured` — main `domain/port/ConfiguredSecrets.java`,
   `knowledge/SecretFinder.java`, test `testing/FakeConfiguredSecrets.java`,
   `knowledge/SecretFinderTest.java`
-- [ ] T014 [D-7] `NodeSecrets.awaitSettled(Duration)` / `awaitSettledE2e(Duration)`: never throw;
+- [X] T014 [D-7] `NodeSecrets.awaitSettled(Duration)` / `awaitSettledE2e(Duration)`: never throw;
   `Held`, `NothingConfigured`, `Waiting`, `Failed(FailureKind)`; `Cell.Refusal` keeps the
   classified outcome (D-7, private `Cell.settle` keeps its name); existing behaviour of the reads
   unchanged — main `adapter/NodeSecrets.java`, test `adapter/NodeSecretsTest.java`

@@ -479,4 +479,65 @@ class NodeSecretsCredentialStoreTest {
         assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(3));
         assertThat(secrets.held()).isPresent();
     }
+
+    // --- awaitSettled (feature 019 T014, research D-7) ---
+
+    private static NodeSecrets.Settled failed(FailureKind kind) {
+        return new NodeSecrets.Settled.Failed(kind);
+    }
+
+    @Test
+    void noEntriesAtAllAreNothingConfigured() {
+        NodeSecrets secrets = secrets();
+
+        assertThat(secrets.awaitSettled(LONG))
+            .isEqualTo(new NodeSecrets.Settled.NothingConfigured());
+        assertThat(secrets.awaitSettledE2e(LONG))
+            .isEqualTo(new NodeSecrets.Settled.NothingConfigured());
+    }
+
+    @Test
+    void foundEntriesAreHeld() {
+        store.put(GROUP_USER, "jdoe").put(GROUP_PW, "group-Pw-2")
+            .put("INUBIT_ACME_DEV_E2E_USERNAME", "e2e-user")
+            .put("INUBIT_ACME_DEV_E2E_PASSWORD", "e2e-Pw-4");
+        NodeSecrets secrets = secrets();
+
+        assertThat(secrets.awaitSettled(LONG)).isEqualTo(new NodeSecrets.Settled.Held());
+        assertThat(secrets.awaitSettledE2e(LONG)).isEqualTo(new NodeSecrets.Settled.Held());
+        assertThat(scrubber.scrub("group-Pw-2 e2e-Pw-4")).isEqualTo("*** ***");
+    }
+
+    @Test
+    void aPasswordWithoutAUsernameIsAFailureNotNothingConfigured() {
+        store.put(GROUP_PW, "group-Pw-2");
+
+        assertThat(secrets().awaitSettled(LONG)).isEqualTo(failed(FailureKind.NOT_FOUND));
+    }
+
+    @Test
+    void oneEndToEndEntryIsAFailureNotNothingConfigured() {
+        store.put("INUBIT_ACME_DEV_E2E_PASSWORD", "e2e-Pw-4");
+
+        assertThat(secrets().awaitSettledE2e(LONG)).isEqualTo(failed(FailureKind.NOT_FOUND));
+    }
+
+    @Test
+    void aStoreFailureIsItsKind() {
+        for (FailureKind kind : new FailureKind[] {FailureKind.ACCESS_DENIED,
+            FailureKind.STORE_NOT_AVAILABLE, FailureKind.TIMEOUT}) {
+            FakeCredentialStore failing = new FakeCredentialStore();
+            failing.fail(NODE_USER, kind, "detail");
+
+            assertThat(new NodeSecrets(config().build(), failing, scrubber, clock, LONG)
+                .awaitSettled(LONG)).as(kind.name()).isEqualTo(failed(kind));
+        }
+    }
+
+    @Test
+    void aRefusedValueIsInvalidValue() {
+        store.put(GROUP_USER, "jdoe").put(GROUP_PW, "abc");
+
+        assertThat(secrets().awaitSettled(LONG)).isEqualTo(failed(FailureKind.INVALID_VALUE));
+    }
 }
