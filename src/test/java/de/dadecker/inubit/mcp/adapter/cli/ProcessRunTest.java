@@ -104,6 +104,20 @@ class ProcessRunTest {
     }
 
     @Test
+    void withANodeTheErrorsCarryAndNameIt() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of("", "", 0).hanging();
+
+        ToolError error = errorOf(() -> new ProcessRun(launcher, resources)
+            .run(SPEC, request(), Duration.ofMillis(200), HELPER, NODE));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(error.message())
+            .isEqualTo("The queue-entry helper did not finish within 200 ms on test/node1");
+        assertThat(error.node()).contains(NODE);
+        assertNoLeak(error);
+    }
+
+    @Test
     void aProcessIgnoringDestroyIsKilledForciblyAfterTheGrace() {
         FakeProcessLauncher launcher = FakeProcessLauncher.of("", "", 0).ignoringDestroy();
 

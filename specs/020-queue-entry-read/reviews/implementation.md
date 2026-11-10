@@ -137,3 +137,36 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
   `processLabel`); a failure while copying the helper class has its own `CLI_UNAVAILABLE` text
   ("could not be copied into its private temporary directory"), separate from the private-directory
   failure.
+
+## T021 notes
+
+- Deadline clamp (from T007): `CliQueueEntryAdapter.remaining(deadline)` clamps at zero with
+  `Duration.isNegative()` → `Duration.ZERO`; `Duration` has no `max`, so there is no
+  `max(ZERO, left)` form.
+- Test double: the adapter tests use a new `FakeProcessLauncher.responding(Function<byte[],
+  Answer>)` instead of `onLaunch` as tasks.md names it. The helper reads the request (with the
+  nonce and the output paths) from stdin, which is only complete once stdin is closed, after the
+  launch; `onLaunch` only sees the `LaunchSpec`. The responder gets the stdin bytes, writes the
+  case files and answers with frames carrying the request's nonce.
+- Data-only reads: the helper protocol (D-4) always fetches the variables; a read of the data
+  alone still runs the variables part and the adapter reports the variables as `NotRequested`.
+- Reported length vs. file (T021-r1 minor, D-12 "row and file disagree → not read"): a part the
+  helper reports as `Written(bytes)` is checked in this order: a file over 10 MiB is `TooLarge`
+  whatever length was reported (nothing of it is read); otherwise a file that does not have the
+  reported length — including a missing file with a reported length > 0 — fails the part with
+  the fixed, content-free `LENGTH_MISMATCH` text. A missing file reported as 0 stays an empty
+  part (empty data stream; for the variables the `WfspParser` failure).
+- Guard wait (T021-r1 minor, D-14): `CredentialGuard` offers only the unbounded `acquire()`
+  (also used by `CliRunner` and `InubitHttpClient`), so no bounded acquire was added and the
+  guard's semantics are unchanged. The wait (another attempt's login while the credentials are
+  unconfirmed, or a credential re-read) can therefore lie outside the single `cliTimeout`
+  deadline while the StartCLI slot is held; it ends with that other attempt, itself bounded by
+  its deadline, or the re-read. The run then gets only the remaining deadline. The permit is
+  still taken after slot and handshake and settled only by the login result. Documented in the
+  `CliQueueEntryAdapter` class Javadoc.
+- Deadline passed during the guard wait (T021-r2 minor, D-14): if nothing of the deadline is left
+  once `guard.acquire()` returns, the helper is not launched and no request (no credentials) is
+  written; the call ends in `TIMEOUT` "cliTimeout (<n>) on <node> passed before the login; the
+  queue-entry helper was not started" (the "was not started" form of the contract's pre-launch
+  texts). The permit is closed without `accepted()`/`rejected()`, exactly as `CliRunner.guarded`
+  leaves it when the launch throws, so it counts as no login result.

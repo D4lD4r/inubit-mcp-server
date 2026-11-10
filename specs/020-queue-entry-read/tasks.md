@@ -283,7 +283,7 @@ INUBIT contact.
   `adapter/cli/queue/HelperInstallationTest.java` (argument arrays POSIX and simulated Windows,
   each precondition), `HelperTrustStoreTest.java` (one entry, loads with the password, file
   owner-only); leak check
-- [ ] T021 [US1] `adapter/cli/queue/QueueEntryVariant.java` (`forVersion(MajorMinor)`: 8.1 →
+- [X] T021 [US1] `adapter/cli/queue/QueueEntryVariant.java` (`forVersion(MajorMinor)`: 8.1 →
   `SOAP_81`, 9.0 → `REST_90`, else `UNSUPPORTED_VERSION`; `objectType(workflow)` =
   `queue_manager@@@<workflow>@@@error`) and `adapter/cli/queue/CliQueueEntryAdapter.java`
   implementing `QueueEntryContentPort` (FR-006, FR-012, FR-014…FR-016, D-3…D-8, D-14):

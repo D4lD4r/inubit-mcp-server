@@ -192,6 +192,15 @@ public final class ProcessRun {
         return run(spec, stdin, timeout, Call.of(processLabel));
     }
 
+    /**
+     * As above, for {@code node}: the errors carry it and the {@code TIMEOUT} and shutdown texts
+     * name it ({@code … on <node>}).
+     */
+    public CliResult run(LaunchSpec spec, byte[] stdin, Duration timeout, String processLabel,
+        NodeId node) {
+        return run(spec, stdin, timeout, Call.of(processLabel).forNode(node));
+    }
+
     /** As above, reporting and keeping the output as {@code call} says. */
     CliResult run(LaunchSpec spec, byte[] stdin, Duration timeout, Call call) {
         try {
