@@ -596,18 +596,15 @@ public final class CliRunner {
     }
 
     /**
-     * {@code -Djavax.net.ssl.trustStore=<path> -Djavax.net.ssl.trustStoreType=<type>} with a
-     * leading space. {@code JAVA_TOOL_OPTIONS} is split at whitespace without quoting on Java
-     * 7/8, so a path with whitespace is never passed.
-     */
-    /**
      * The trust store for {@code JAVA_TOOL_OPTIONS} next to {@code --trustStoreFilePath}: the
      * INUBIT 9.0.10 client ignores that option for its login connection (T047 live check,
      * finding F-1), the JVM-wide trust store reaches it. Empty without a trust store and for a
-     * path with whitespace, which only the argument can carry (as before).
+     * path with whitespace or a quote, which only the argument can carry (as before): Java 9
+     * and newer read {@code '} and {@code "} in {@code JAVA_TOOL_OPTIONS} as quotes, and an
+     * unpaired one stops the JVM before StartCLI runs.
      */
     private static String jvmTrustStore(Optional<Path> trustStore) {
-        return trustStore.filter(path -> !hasWhitespace(path))
+        return trustStore.filter(path -> !hasWhitespace(path) && !hasQuote(path))
             .map(CliRunner::trustStoreProperties).orElse("");
     }
 
@@ -615,6 +612,15 @@ public final class CliRunner {
         return path.toString().chars().anyMatch(Character::isWhitespace);
     }
 
+    private static boolean hasQuote(Path path) {
+        return path.toString().chars().anyMatch(c -> c == '\'' || c == '"');
+    }
+
+    /**
+     * {@code -Djavax.net.ssl.trustStore=<path> -Djavax.net.ssl.trustStoreType=<type>} with a
+     * leading space. {@code JAVA_TOOL_OPTIONS} is split at whitespace without quoting on Java
+     * 7/8, so a path with whitespace is never passed.
+     */
     private static String trustStoreProperties(Path trustStore) {
         String path = trustStore.toString();
         if (hasWhitespace(trustStore)) {
