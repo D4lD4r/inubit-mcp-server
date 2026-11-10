@@ -252,7 +252,7 @@ INUBIT contact.
   `adapter/cli/queue/HelperFrames.java` (frames of one nonce; other lines ignored; frame with a
   wrong nonce ignored; unknown frame type, duplicate `end`, missing `end` reported) — failing tests
   first in `adapter/cli/queue/HelperRequestTest.java`, `HelperFramesTest.java`; leak check
-- [ ] T018 [P] [US1] `adapter/cli/queue/WfspParser.java` (FR-010, D-13): StAX with the
+- [X] T018 [P] [US1] `adapter/cli/queue/WfspParser.java` (FR-010, D-13): StAX with the
   `adapter/rest/XmlSupport` secure settings (no DTD, no external entities); root `Properties`,
   `Property` with required `name`, optional `type`, text as value, empty element = empty value;
   file order; any other structure → failure with the fixed reason "unexpected format; the

@@ -110,3 +110,16 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
 - No helper bug found. Mutation check: without `System.exit` in `main` both lingering-thread
   cases fail with `TIMEOUT` (the child JVM does not end).
 - For T020 (from T016-r1): once `HelperInstallation` exists, run at least one child-JVM case with its real argument array (incl. `--add-opens`), either here or in T020's tests.
+
+## T018 notes
+
+- Result contract: `WfspParser.parse(byte[])` never throws for any content. It returns
+  `PartResult.Read` with the variables in file order (`List.copyOf`, unmodifiable) or
+  `PartResult.Failed` with the fixed `UNEXPECTED_FORMAT` reason; the StAX message is never used,
+  as it may quote content. The null-argument check is the only exception.
+- Single root: StAX refuses a document with no root or a second root element, so the parser
+  keeps no `rootSeen` flag (removed in T018-r2; proven by tests and a mutation check).
+- Size limit: the parser reads whatever bytes it gets; capping the `.wfsp` size is T021's job.
+- Invalid UTF-8 makes the JDK print a content-free `[Fatal Error] :-1:-1: <byte-position message>`
+  line to stderr (same as the existing `XmlTree.parse`). Stderr is the log channel (Constitution
+  VII), so the protocol is unaffected. Candidate for later cleanup (e.g. a silent error handler).
