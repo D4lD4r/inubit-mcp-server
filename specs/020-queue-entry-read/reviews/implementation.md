@@ -56,6 +56,24 @@ classes, 3 tests; total 6214 ≥ 5582 (phase 2).
 
 Phase 3 code review over `git diff 95cb080 232a1d2`: no findings.
 
+## Phase 4 checkpoint (T028–T030, 2026-11-10)
+
+Tasks T028–T030 approved (T028 and T030 in round 2, T029 in round 1).
+
+| Check | Command | Result |
+|---|---|---|
+| Java build | `mvn -o -q clean verify -DargLine=-Djava.io.tmpdir=<tmp outside the checkout>` | green (exit 0) |
+| Python tools | `python3 -I -m unittest discover -s tools/tests` | green, 411 tests OK |
+
+Test count: surefire 391 classes, 6238 tests, 0 failures, 0 errors, 52 skipped; failsafe 2
+classes, 3 tests; total 6241 ≥ 6214 (phase 3).
+
+SC-002 comparison: see "T030 notes" (v0.8.0 vs HEAD, same scripted stdio session; `initialize` and
+`list_nodes` data byte-identical, tool names and order identical, only the planned additive
+`list_nodes` output-schema enum value differs).
+
+Phase 4 code review over `git diff a0d7c86 cab7dd9`: no findings.
+
 ## T010 – residual masking gaps (for T040 docs)
 
 Accepted in review (minor, not required by D-11): JSON embedded as an escaped string
