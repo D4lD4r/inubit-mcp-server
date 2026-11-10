@@ -321,6 +321,85 @@ class ConfigSummaryTest {
             "\nStage prod (production): archives: refused (no archives.productionOptIn)\n");
     }
 
+    // --- feature 020 T028: unsupported.queueEntryRead (FR-017, US2-3, US2-5) ---------------------
+
+    private static final String TEST_OPT_IN = CONFIG.replace("    cli:\n      home: /opt/client\n",
+        "    unsupported:\n      queueEntryRead: true\n    cli:\n      home: /opt/client\n");
+    private static final String PROD_OPT_IN = CONFIG.replace("    production: true\n",
+        "    production: true\n    unsupported:\n      queueEntryRead: true\n");
+
+    @Test
+    void withoutAnyOptInNoLineMentionsReadingQueueEntries() {
+        String unset = CONFIG.replace("    production: true\n",
+            "    production: true\n    unsupported:\n      queueEntryRead: false\n");
+
+        assertThat(unset).isNotEqualTo(CONFIG);
+        assertThat(render(CONFIG)).doesNotContain("queueEntryRead");
+        assertThat(render(unset)).as("an explicit false is the same as no opt-in")
+            .isEqualTo(render(CONFIG));
+    }
+
+    @Test
+    void anOptInAppendsTheStateToEveryGroupLineAndChangesNothingElse() {
+        String summary = render(TEST_OPT_IN);
+
+        assertThat(TEST_OPT_IN).isNotEqualTo(CONFIG);
+        assertThat(summary).as("contracts/configuration-delta.md → Summary").isEqualTo(
+            render(CONFIG).replace("\nGroup test: archives: allowed\n",
+                "\nGroup test: archives: allowed, queueEntryRead: enabled (unsupported)\n")
+                .replace("\nGroup prod (production): archives: refused (no"
+                    + " archives.productionOptIn)\n", "\nGroup prod (production): archives:"
+                    + " refused (no archives.productionOptIn), queueEntryRead: off\n"));
+        assertThat(summary).as("no warning for a group without production: true")
+            .doesNotContain("is enabled on production");
+        TestSecrets.assertNoLeak(summary);
+    }
+
+    @Test
+    void anOptInOnAProductionGroupShowsTheStateAndTheWarning() {
+        String summary = render(PROD_OPT_IN);
+
+        assertThat(summary).contains("\nGroup test: archives: allowed, queueEntryRead: off\n",
+            "\nGroup prod (production): archives: refused (no archives.productionOptIn),"
+                + " queueEntryRead: enabled (unsupported)\n",
+            "Warnings:\n", "\n  - unsupported.queueEntryRead is enabled on production group prod:"
+                + " Queue Manager entries are read through an undocumented INUBIT interface"
+                + " without vendor support\n", "Result: OK");
+        TestSecrets.assertNoLeak(summary);
+    }
+
+    @Test
+    void anOptInOfAGroupWithoutAResolvableNodeStillShowsTheStateOfTheOtherGroups() {
+        // contracts/configuration-delta.md → Summary: "at least one group of the profile"
+        String summary = render(CONFIG + """
+              - name: qa
+                unsupported:
+                  queueEntryRead: true
+                nodes:
+                  - name: inubit01
+            """);
+
+        assertThat(summary).contains("\nGroup test: archives: allowed, queueEntryRead: off\n",
+            "\nGroup prod (production): archives: refused (no archives.productionOptIn),"
+                + " queueEntryRead: off\n");
+        assertThat(summary).as("the group without a resolvable node has no line")
+            .doesNotContain("Group qa");
+    }
+
+    @Test
+    void theQueueEntryReadStateUsesTheProfileTerminology() {
+        String summary = render(PROD_OPT_IN.replace("profile:\n  name: acme\n", "profile:\n"
+            + "  name: acme\nterminology:\n  group: { singular: stage, plural: stages }\n"
+            + "  node: { singular: server, plural: servers }\n"));
+
+        assertThat(summary).contains("\nStage test: archives: allowed, queueEntryRead: off\n",
+            "\nStage prod (production): archives: refused (no archives.productionOptIn),"
+                + " queueEntryRead: enabled (unsupported)\n",
+            "\n  - unsupported.queueEntryRead is enabled on production stage prod: Queue Manager"
+                + " entries are read through an undocumented INUBIT interface without vendor"
+                + " support\n");
+    }
+
     @Test
     void showsTheCredentialPrefixAndTheAuditDirectoryOfTheProfile() {
         // 002 US2: what keeps this profile apart from others running side by side

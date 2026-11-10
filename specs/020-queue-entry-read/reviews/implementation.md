@@ -268,3 +268,19 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
   password is `***`.
 - The fixtures were generated once by a script outside the repository (not committed); the
   `.origin` of each case states `reconstructed synthetic content …`.
+
+## T028 notes
+
+- Summary suffix condition (FR-017, contract followed literally): the `, queueEntryRead: …` suffix
+  appears on every group line once **any group of the profile** has
+  `unsupported.queueEntryRead: true`, read from `ProfileConfig.groups()` with the same default as
+  `EffectiveNodeConfig` (`Defaults.BUILTIN_QUEUE_ENTRY_READ`), not from `resolvableNodes()`. An
+  opted-in group without a resolvable node (e.g. a node without `baseUrl`) has no group line of
+  its own but still switches the suffix on for the others (`ConfigSummaryTest`).
+- The per-line value (`off` / `enabled (unsupported)`) is taken from the first resolvable node of
+  the group, since the setting is group-level only (research: no node-level key).
+- An explicit `queueEntryRead: false` is the same as no opt-in: the summary stays byte-for-byte
+  that of 0.8.0 and no existing golden text changed.
+- The production warning (`ConfigValidator.checkQueueEntryReadOptIn`) is a terminology warning
+  (`termWarning`, `{group}` follows the profile's terminology); it appears under `Warnings:` in
+  `--check-config` and as `Configuration: …` in the startup log, never as an error (exit 0).

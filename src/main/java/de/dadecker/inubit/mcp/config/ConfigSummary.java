@@ -47,7 +47,9 @@ import java.util.function.Predicate;
  * shows the client options of such a node inside its client part.
  * Feature 015 (research R-15): every group line ends with {@code archives: allowed},
  * {@code archives: refused (no archives.productionOptIn)} or
- * {@code archives: allowed (archives.productionOptIn)}.
+ * {@code archives: allowed (archives.productionOptIn)}. Feature 020 (FR-017): once some group
+ * has {@code unsupported.queueEntryRead: true}, every group line ends with
+ * {@code , queueEntryRead: off} or {@code , queueEntryRead: enabled (unsupported)}.
  * Groups and nodes are named with the profile's display names (FR-007). Values and URLs are never
  * printed.
  */
@@ -132,13 +134,18 @@ public final class ConfigSummary {
         config.groups().forEach(group -> group.deploy()
             .ifPresent(deploy -> deploys.putIfAbsent(group.name(), deploy)));
         appendChains(out, config, deploys);
+        // feature 020 (FR-017): the state is shown once some group of the profile opts in, even
+        // one without a resolvable node
+        boolean queueEntryRead = config.groups().stream().anyMatch(g -> g.unsupported()
+            .queueEntryRead().orElse(Defaults.BUILTIN_QUEUE_ENTRY_READ));
         GroupId group = null;
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
             if (!server.id().group().equals(group)) {
                 group = server.id().group();
                 out.append(terms.render("{Group} ")).append(group)
                     .append(server.production() ? " (production)" : "").append(": archives: ")
-                    .append(archives(server)).append('\n');
+                    .append(archives(server))
+                    .append(queueEntryRead ? queueEntryRead(server) : "").append('\n');
             }
             out.append("  ").append(terms.render("{Node} ")).append(server.id()).append(": ")
                 .append(writeFlag(server))
@@ -383,6 +390,12 @@ public final class ConfigSummary {
         }
         return server.archivesProductionOptIn() ? "allowed (archives.productionOptIn)"
             : "refused (no archives.productionOptIn)";
+    }
+
+    /** Feature 020 (FR-017): a group setting, so any node of the group tells. */
+    private static String queueEntryRead(EffectiveNodeConfig server) {
+        return server.queueEntryRead() ? ", queueEntryRead: enabled (unsupported)"
+            : ", queueEntryRead: off";
     }
 
     private static String writeFlag(EffectiveNodeConfig server) {

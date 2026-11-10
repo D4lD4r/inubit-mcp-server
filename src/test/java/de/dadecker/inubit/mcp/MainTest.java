@@ -315,6 +315,73 @@ class MainTest {
     }
 
     @Test
+    void checkConfigShowsTheQueueEntryReadStateOnlyOnceAGroupOptsIn() throws IOException {
+        // feature 020 (T028, FR-017, US2-3, US2-5): without any opt-in the output above stays
+        // byte-for-byte; with one, every group line ends with the state and a production group
+        // gets the warning
+        credentials();
+        entries.put("INUBIT_ACME_PROD_USERNAME", "prod-user");
+        entries.put("INUBIT_ACME_PROD_PASSWORD", "prod-Password-3");
+        Files.createDirectories(home.resolve("workspace"));
+        String profile = """
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+              - name: prod
+                production: true
+            %s    nodes:
+                  - name: node2
+                    baseUrl: https://node2.example.test:8443
+            """;
+        Path without = config(profile.formatted(home.resolve("audit"), home.resolve("workspace"),
+            ""));
+
+        assertThat(run("--check-config", "--config", without.toString())).as(out()).isZero();
+        assertThat(out()).doesNotContain("queueEntryRead", "Warnings:")
+            .contains("Group dev: archives: allowed\n",
+                "Group prod (production): archives: refused (no archives.productionOptIn)\n");
+
+        Path file = config(profile.formatted(home.resolve("audit"), home.resolve("workspace"),
+            "    unsupported:\n      queueEntryRead: true\n"));
+        stdout.reset();
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(err()).isZero();
+        assertThat(out()).isEqualTo("""
+            Configuration: %s
+            Profile: acme
+            Terminology: group/groups, node/nodes
+            Credential store entries: service inubit-mcp, account \
+            INUBIT_ACME_<GROUP>[_<NODE>]_<KIND> (macOS Keychain)
+            Audit directory: %s
+            Workspace: %s (ok)
+            Group dev: archives: allowed, queueEntryRead: off
+              Node dev/node1: read-only, cli: unavailable, inubit: V8_1, \
+            secrets: credentialStore (macOS Keychain), \
+            username ← INUBIT_ACME_DEV_USERNAME ok, password ← INUBIT_ACME_DEV_PASSWORD ok
+            Group prod (production): archives: refused (no archives.productionOptIn), \
+            queueEntryRead: enabled (unsupported)
+              Node prod/node2: read-only, cli: unavailable, inubit: AUTO, \
+            secrets: credentialStore (macOS Keychain), \
+            username ← INUBIT_ACME_PROD_USERNAME ok, password ← INUBIT_ACME_PROD_PASSWORD ok
+            Warnings:
+              - unsupported.queueEntryRead is enabled on production group prod: Queue Manager \
+            entries are read through an undocumented INUBIT interface without vendor support
+            Result: OK
+            """.formatted(file, home.resolve("audit"), home.resolve("workspace")));
+        assertThat(out()).doesNotContain("prod-user", "prod-Password-3");
+        TestSecrets.assertNoLeak(out());
+        TestSecrets.assertNoLeak(err());
+    }
+
+    @Test
     void checkConfigExitsOneOnAMissingEntryAndNamesItButStartsTheServer() throws IOException {
         // feature 011 (T017, US4-2, quickstart Q15): an error of --check-config, never a value;
         // the server itself starts (the entry is read on first use)
@@ -1945,6 +2012,36 @@ class MainTest {
         assertThat(lines).filteredOn(line -> line.contains("tls.pinPerServer"))
             .containsExactly("Stages with one pinned certificate per server (tls.pinPerServer):"
                 + " int");
+    }
+
+    @Test
+    void aQueueEntryReadOptInOnAProductionGroupIsWarnedAboutInTheStartupLog() throws Exception {
+        // feature 020 (T028, US2-5, contracts/configuration-delta.md → Validation)
+        credentials();
+        Path file = config("""
+            profile:
+              name: acme
+            auditDirectory: %s
+            groups:
+              - name: dev
+                production: true
+                unsupported:
+                  queueEntryRead: true
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+            """.formatted(home.resolve("audit")));
+
+        List<String> lines = startupLogOfAnInitializedServer(file);
+
+        assertThat(lines).filteredOn(line -> line.contains("queueEntryRead")).containsExactly(
+            "Configuration: unsupported.queueEntryRead is enabled on production group dev: Queue"
+                + " Manager entries are read through an undocumented INUBIT interface without"
+                + " vendor support");
+        lines.forEach(TestSecrets::assertNoLeak);
+        assertThat(startupLogOfAnInitializedServer(validConfig()))
+            .noneMatch(line -> line.contains("queueEntryRead"));
     }
 
     @Test

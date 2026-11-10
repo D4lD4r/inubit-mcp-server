@@ -384,7 +384,7 @@ unsupported status explicit (FR-002…FR-004, FR-017, SC-002, SC-005).
 `--check-config` byte-for-byte as before; opt-in on `test` only → tool announced, call for
 `prod/node1` → `NOT_CONFIGURED`, zero requests (WireMock).
 
-- [ ] T028 [P] [US2] `config/ConfigValidator.java` `checkQueueEntryReadOptIn`: warning on a
+- [X] T028 [P] [US2] `config/ConfigValidator.java` `checkQueueEntryReadOptIn`: warning on a
   `production: true` group "unsupported.queueEntryRead is enabled on production {group} %s: Queue
   Manager entries are read through an undocumented INUBIT interface without vendor support"
   (`termWarning`); `config/ConfigSummary.java`: **only if at least one group opts in**, every

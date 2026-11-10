@@ -165,6 +165,7 @@ public final class ConfigValidator {
         checkOneDevelopmentNodePerGroup(config, findings);
         checkRepositorySwitch(config, findings);
         checkArchivesOptIn(config, findings);
+        checkQueueEntryReadOptIn(config, findings);
         checkE2eNodeNames(config, findings);
         checkChain(config, findings);
         boolean cliConfigured = !config.defaults().cliClients().isEmpty()
@@ -1001,6 +1002,21 @@ public final class ConfigValidator {
                 && group.archives().productionOptIn().equals(Optional.of(true))) {
                 findings.termWarning("archives.productionOptIn has no effect on {group} %s"
                     + " (not production)", group.name());
+            }
+        }
+    }
+
+    /**
+     * Feature 020 (US2-5, contracts/configuration-delta.md → Validation): {@code
+     * unsupported.queueEntryRead: true} on a group with {@code production: true} is a warning.
+     */
+    private static void checkQueueEntryReadOptIn(ProfileConfig config, Findings findings) {
+        for (GroupConfig group : config.groups()) {
+            if (group.production()
+                && group.unsupported().queueEntryRead().equals(Optional.of(true))) {
+                findings.termWarning("unsupported.queueEntryRead is enabled on production {group}"
+                    + " %s: Queue Manager entries are read through an undocumented INUBIT"
+                    + " interface without vendor support", group.name());
             }
         }
     }

@@ -9,6 +9,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import de.dadecker.inubit.mcp.testing.WindowsAcl;
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -2786,6 +2787,61 @@ class ConfigValidatorTest {
         @Test
         void theOptInOnAProductionGroupAndAFalseOrAbsentOptInAreNoFinding() {
             for (String yaml : List.of(profile(true, optIn(true)), profile(true, optIn(false)),
+                profile(false, optIn(false)), profile(false, ""), profile(true, ""))) {
+                ValidationReport report = validate(yaml);
+
+                assertThat(report.errors()).as(yaml).isEmpty();
+                assertThat(report.warnings()).as(yaml).isEmpty();
+            }
+        }
+    }
+
+    /** Feature 020 (T028, US2-5, contracts/configuration-delta.md → Validation). */
+    @Nested
+    class QueueEntryRead {
+
+        private static String profile(boolean production, String unsupported) {
+            return """
+                profile:
+                  name: acme
+                groups:
+                  - name: prod
+                    production: %s
+                %s    nodes:
+                      - name: node1
+                        baseUrl: https://inubit.example.test:8443
+                """.formatted(production, unsupported);
+        }
+
+        private static String optIn(boolean value) {
+            return "    unsupported:\n      queueEntryRead: " + value + "\n";
+        }
+
+        @Test
+        void theOptInOnAProductionGroupIsAWarning() {
+            ValidationReport report = validate(profile(true, optIn(true)));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("unsupported.queueEntryRead is enabled"
+                + " on production group prod: Queue Manager entries are read through an"
+                + " undocumented INUBIT interface without vendor support");
+            TestSecrets.assertNoLeak(String.join("\n", report.warnings()));
+        }
+
+        @Test
+        void theWarningUsesTheProfileTerminology() {
+            ValidationReport report = validate(profile(true, optIn(true)).replace(
+                "groups:\n", "terminology:\n  group: { singular: stage, plural: stages }\n"
+                    + "  node: { singular: server, plural: servers }\ngroups:\n"));
+
+            assertThat(report.warnings()).containsExactly("unsupported.queueEntryRead is enabled"
+                + " on production stage prod: Queue Manager entries are read through an"
+                + " undocumented INUBIT interface without vendor support");
+        }
+
+        @Test
+        void theOptInOnANonProductionGroupAndAFalseOrAbsentOptInAreNoFinding() {
+            for (String yaml : List.of(profile(false, optIn(true)), profile(true, optIn(false)),
                 profile(false, optIn(false)), profile(false, ""), profile(true, ""))) {
                 ValidationReport report = validate(yaml);
 
