@@ -12,8 +12,9 @@ import java.util.Optional;
  *
  * <p><b>Extension point:</b> the user-story phases add one accessor per port here:
  * {@link #monitoring()} (US1), {@link #processes()} and {@link #logs()} (US2),
- * {@link #inventory()} (US3), {@link #processControl()} (US4), and feature 003 adds
- * {@link #artifacts()}, implemented by the version-specific adapters.
+ * {@link #inventory()} (US3), {@link #processControl()} (US4), feature 003 adds
+ * {@link #artifacts()} and feature 018 {@link #partners()}, implemented by the version-specific
+ * adapters.
  * Application services obtain gateways only through {@link GatewayFactory}, so supporting 9.x is an
  * adapter change, not a change of the tool logic.
  */
@@ -89,5 +90,19 @@ public interface Gateway {
             "Tags are not available for " + node(),
             "This adapter line has no tag adapter",
             "Use a node with an INUBIT 8.1 CLI installation (cliHome)").withNode(node()));
+    }
+
+    /**
+     * The Partner Managements of this server's system diagrams (feature 018, research D-4). The
+     * default is for gateways without a partner management adapter.
+     *
+     * @throws ToolErrorException {@code UNSUPPORTED_VERSION} with the server id, unless the
+     *     version-specific gateway provides an adapter
+     */
+    default PartnerManagementPort partners() {
+        throw new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
+            "partner management is not available for this INUBIT version on " + node(),
+            "This adapter line has no partner management adapter",
+            "Call list_nodes for what this node supports").withNode(node()));
     }
 }

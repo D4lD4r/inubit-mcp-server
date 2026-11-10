@@ -24,13 +24,16 @@ the credentials from the credential store of the system of feature 011
 parameter, field or error code; see
 [Credentials from the credential store](#credentials-from-the-credential-store-feature-011)),
 `export_archives` of feature 015
-[its delta](../specs/015-workbench-archives/contracts/mcp-tools-delta.md), and the read-only
+[its delta](../specs/015-workbench-archives/contracts/mcp-tools-delta.md), the read-only
 INUBIT 6.1 nodes of feature 012
 [its delta](../specs/012-inubit-61-cli-reads/contracts/mcp-tools-delta.md) (see
-[INUBIT 6.1](#inubit-61-feature-012)), and the local knowledge of feature 019
+[INUBIT 6.1](#inubit-61-feature-012)), `find_partners` and the partner usage in
+`get_inventory_item` of feature 018
+[its contract](../specs/018-partner-management-read/contracts/find_partners.md) (see
+[`find_partners`](#find_partners)), and the local knowledge of feature 019
 [its delta](../specs/019-local-knowledge/contracts/mcp-tools-delta.md) (see
 [The local knowledge](#the-local-knowledge-feature-019)).
-All nineteen tools are described here; each section quotes the description the server announces
+All twenty tools are described here; each section quotes the description the server announces
 in `tools/list` for a profile `acme` without description and with the default terminology
 (Group/Node).
 
@@ -77,7 +80,8 @@ General rules:
 | [`find_processes`](#find_processes) | failed, waiting or hanging process instances | read-only, idempotent, open world | yes (REST `queueLog`) |
 | [`query_logs`](#query_logs) | INUBIT log entries by time, workflow, severity, process id, text | read-only, idempotent, open world | yes (REST) |
 | [`list_inventory`](#list_inventory) | diagrams or modules filtered by name, type, group | read-only, idempotent, open world | yes (diagrams: REST; modules: StartCLI export) |
-| [`get_inventory_item`](#get_inventory_item) | one diagram or module: versions, tags, active flag, modules used | read-only, idempotent, open world | yes (REST + StartCLI export with history) |
+| [`get_inventory_item`](#get_inventory_item) | one diagram or module: versions, tags, active flag, modules used; for a technical workflow its partner usage | read-only, idempotent, open world | yes (REST + StartCLI export with history; REST model export of the owner's system diagrams for the partner usage) |
+| [`find_partners`](#find_partners) | partners of the INUBIT Partner Management of the owner's system diagrams: search, list, compare across nodes; secrets only as set or not set | read-only, idempotent, open world | yes (REST model export of the owner's system diagrams, in memory) |
 | [`restart_process`](#restart_process--kill_process) | restart ONE process instance in ERROR on ONE node | **destructive**, non-idempotent, open world | yes (REST state read + StartCLI `processErrorStart`) |
 | [`kill_process`](#restart_process--kill_process) | delete ONE process instance on ONE node | **destructive**, non-idempotent, open world | yes (REST state read + StartCLI `kill`) |
 | [`export_artifacts`](#export_artifacts) | export technical workflows, modules or repository files into the local workspace and its history | read-only for INUBIT, non-idempotent (records a history entry), open world | yes (StartCLI `export`, read-only) |
@@ -102,9 +106,10 @@ when every production group lacks `archives.productionOptIn` (it refuses them pe
 `list_nodes`, `get_health` and `read_knowledge` are always offered; `record_knowledge` unless
 the profile sets `knowledge.recording: false` (feature 019, see
 [The local knowledge](#the-local-knowledge-feature-019)). `find_processes`, `query_logs`,
-`list_inventory`, `get_inventory_item`, `export_artifacts` and `export_archives` are not offered
-when no configured node may run their capability (feature 012), e.g. in a profile of INUBIT 6.1
-nodes only (see [tool announcement](#tool-announcement)).
+`list_inventory`, `get_inventory_item`, `find_partners`, `export_artifacts` and `export_archives`
+are not offered when no configured node may run their capability (feature 012), e.g. in a profile
+of INUBIT 6.1 nodes only (see [tool announcement](#tool-announcement)). `find_partners` needs no
+StartCLI installation and no write setting (feature 018).
 
 The development tools of feature 004 are **offered only if at least one node is a development
 stage** (`development.enabled: true`, never on production groups; see
@@ -135,6 +140,7 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 | `query_logs` | `log_diagnosis` | read | REST | supported | runs with a warning | refused |
 | `list_inventory` `DIAGRAM` | `inventory` | read | REST | supported | runs with a warning | refused |
 | `list_inventory` `MODULE`, `get_inventory_item` (diagram details via REST; the module list and every version history via StartCLI) | `inventory` | read | REST + StartCLI | supported | the REST part runs with a warning; the StartCLI part also needs the client check | refused |
+| `find_partners`, the partner usage of `get_inventory_item` (feature 018) | `partner_management` | read | REST | 8.1: supported; 9.0: **runs with a warning** (not verified on 9.0) | runs with a warning | refused |
 | `export_artifacts`, `export_archives` | `workspace_export` | read on INUBIT | StartCLI | supported | runs with a warning if the client check passes (refused on 9.1 with an 8.1 client) | refused |
 | `check_artifacts` | – (its optional module lookup: `inventory` over StartCLI) | read | none, optional module lookup | runs | runs; the module lookup as `inventory` | runs; the module lookup is skipped |
 | `import_artifacts`, `restore_backup` of a development backup, `set_active`, `tag_artifacts` | `development_writes` | write | StartCLI + REST | supported | refused | refused |
@@ -145,13 +151,17 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 A deployment backup restored on a node that is also a development stage is checked as
 `development_writes`; both capabilities have the same states in this version. Refusal and
 warning texts name the capability in words: `monitoring`, `process diagnosis`, `log diagnosis`,
-`inventory`, `workspace export`, `development writes`, `deployment`, `end-to-end test`,
-`process control`. Before feature 012, `find_processes` and `query_logs` shared the capability
-`diagnosis`; `list_nodes` and `--check-config` now show the two capabilities instead, with the
-same states on every version other than 6.1.
+`inventory`, `partner management`, `workspace export`, `development writes`, `deployment`,
+`end-to-end test`, `process control`. Before feature 012, `find_processes` and `query_logs`
+shared the capability `diagnosis`; `list_nodes` and `--check-config` now show the two
+capabilities instead, with the same states on every version other than 6.1.
 
 INUBIT 9.0 (feature 017) has the capabilities of 8.1, with the same result shapes and without
-the "not verified" warning. Its StartCLI-backed parts need a StartCLI client whose declared range
+the "not verified" warning — except `partner_management` (feature 018): the Partner Management
+export has been checked on INUBIT 8.1 only, so on 9.0 `find_partners` and the partner usage of
+`get_inventory_item` run with the warning `INUBIT 9.0.3 on qa/node1 is not verified for partner
+management; results may be incomplete`, and `list_nodes` shows a 9.0 node as
+`partially_supported`. Its StartCLI-backed parts need a StartCLI client whose declared range
 includes 9.0 (the INUBIT 9.0 client, on Java 21, usually configured as
 `defaults.cliClients."9.0"`, see
 [setup.md](setup.md#startcli-client-per-inubit-version-defaultscliclients)); with an 8.1 client
@@ -287,7 +297,8 @@ additionally not offered when every node that could run it by configuration is p
 line or a concrete version) to a version that does not support its capability, e.g. a profile
 whose only development nodes are `V9_X`. Since feature 012 the same rule applies to the read tools
 `find_processes` (process diagnosis), `query_logs` (log diagnosis), `list_inventory` and
-`get_inventory_item` (inventory), `export_artifacts` and `export_archives` (workspace export),
+`get_inventory_item` (inventory), `find_partners` (partner management), `export_artifacts` and
+`export_archives` (workspace export),
 e.g. in a profile whose only nodes are pinned to INUBIT 6.1; `list_nodes`, `get_health`,
 `check_artifacts` and `read_knowledge` are always offered (`record_knowledge` unless
 `knowledge.recording: false`). `AUTO` nodes count as possibly capable; a later detection
@@ -327,15 +338,16 @@ access exists` for writes:
 | `get_health`, `find_processes` | `monitoring`, `process diagnosis` | `use the Workbench, or another node with a different INUBIT version` |
 | `query_logs` | `log diagnosis` | `read the logs of INUBIT 6.1 in the Workbench` |
 | `list_inventory`, `get_inventory_item` | `inventory; modules of INUBIT 6.1 cannot be looked up` | `use the Workbench, or another node with a different INUBIT version` |
+| `find_partners` | `partner management` | `use the Workbench, or another node with a different INUBIT version` |
 | `export_artifacts`, `export_archives` | `workspace export` | `use the Workbench export` |
 | `restart_process`, `kill_process`, the development tools, `deploy_release`, `run_e2e_test` | `process control`, `development writes`, `deployment`, `end-to-end test` | `use the Workbench` |
 | `find_processes` with `tag` | `find_processes: INUBIT 6.1 does not support the input tag; nothing was sent` (this whole message; the 6.1 process listing has no tag column) | `Omit tag for this node, or filter by workflow` |
 | `check_artifacts` | no refusal: the module lookup is skipped, see [`check_artifacts`](#check_artifacts) | – |
 
 The tools that return one entry per node (`get_health`, `find_processes`, `query_logs`,
-`list_inventory`, `get_inventory_item`) refuse a 6.1 node in its own entry (`error`), and the
-other nodes of a group are still served. Every refusal is logged on stderr; refusals of write
-tools are audited as `REFUSED`.
+`list_inventory`, `get_inventory_item`, `find_partners`) refuse a 6.1 node in its own entry
+(`error`), and the other nodes of a group are still served. Every refusal is logged on stderr;
+refusals of write tools and of `find_partners` are audited as `REFUSED`.
 
 ## Common shapes: Page and ToolError
 
@@ -363,7 +375,7 @@ other nodes are still reported.
 | `likelyCause` | the most likely cause |
 | `nextStep` | what to do, e.g. which credential store entry, parameter or setting to fix |
 | `node` | the node id, when the error belongs to one node |
-| `excerpt` | at most 500 chars of the unexpected INUBIT or StartCLI output, scrubbed of secrets |
+| `excerpt` | at most 500 chars of the unexpected INUBIT or StartCLI output, scrubbed of secrets; never for a Partner Management export (`find_partners`, the partner usage of `get_inventory_item`), whose answer could quote partner data |
 
 | `code` | Meaning |
 |---|---|
@@ -374,10 +386,10 @@ other nodes are still reported.
 | `AUTH_FAILED` | INUBIT rejected the credentials (HTTP 401, StartCLI login failure; on INUBIT 9 the next step of a StartCLI login failure adds "On INUBIT 9 the user must exist in the internal user management; users that log in only through OAuth cannot use StartCLI", feature 017), a recent rejection is not retried (account-lockout protection), or the credentials could not be read: from the credential store (entry missing, access denied, invalid value, no usable store; [feature 011](#credentials-from-the-credential-store-feature-011)) or from AWS Parameter Store (parameter missing, access denied, invalid value, AWS login; [feature 010](#credentials-from-aws-parameter-store-feature-010)) |
 | `FORBIDDEN` | HTTP 403: the account lacks the INUBIT permission or license |
 | `MAINTENANCE_MODE` | HTTP 503 while the server is in maintenance mode |
-| `NOT_FOUND` | the name, id or process instance does not exist (for `get_inventory_item` with `similarNames`) |
+| `NOT_FOUND` | the name, id or process instance does not exist (for `get_inventory_item` with `similarNames`; for `find_partners` an unknown `systemDiagram`, with similar names in `nextStep`) |
 | `INVALID_INPUT` | the arguments are well-formed but not valid (time format, a filter the log type does not support, a group id for a write tool, …) |
 | `CLI_UNAVAILABLE` | StartCLI cannot be used: no `cliHome` or JDK, an unusable `java.io.tmpdir`, or on Windows a refused setting ([StartCLI on Windows](#startcli-on-windows)). Feature 017: with `cliClients` configured or on INUBIT 9, a missing client names the version (`No CLI home is configured for test/node1 (INUBIT 9.0.7)`, next step `Add defaults.cliClients."9.0".home (the INUBIT 9.0 client directory) or set cliHome`); when an `AUTO` node is found to run another version while the call waits, nothing is launched: `The StartCLI client for test/node1 changed to the client for INUBIT 9.0 during this call; the new client has not been checked yet`, next step `Call the tool again` |
-| `UNEXPECTED_RESPONSE` | INUBIT or StartCLI answered in an unexpected way (status, format); see `excerpt` |
+| `UNEXPECTED_RESPONSE` | INUBIT or StartCLI answered in an unexpected way (status, format); see `excerpt` (none for a Partner Management export: check the INUBIT system log, feature 018) |
 | `WRITE_DISABLED` | only `restart_process` / `kill_process`: `write.enabled` is not `true` for the node (see their refusal table) |
 | `PRODUCTION_PROTECTED`, `CONFIRMATION_INVALID`, `PRECONDITION_FAILED` | refusals of `restart_process` / `kill_process` (see their refusal table), of the development tools, of `deploy_release` and (`PRODUCTION_PROTECTED` only) of `export_archives`; `PRECONDITION_FAILED` also when the workspace is busy (another workspace operation is running) or not usable |
 | `CONFIRMATION_REQUIRED` | reserved in the catalogue, not returned by this version: the first write call returns a `challenge` |
@@ -566,7 +578,7 @@ part of the result.
    "startCli":{"clientDirectory":"/opt/inubit/client","source":"defaults","address":"servlet_path","final":true},
    "version":{"setting":"AUTO","access":"rest_and_cli","server":{"version":"8.1.17","source":"detected","at":"2026-10-18T09:12:03Z"},
     "client":{"version":"8.1.17","supportedFrom":"4.0.1","supportedTo":"8.1.17","comparison":"match"},
-    "status":"supported","capabilities":{"usable":["monitoring","process_diagnosis","log_diagnosis","inventory","workspace_export","development_writes"],"notUsable":[]}}}]}]}
+    "status":"supported","capabilities":{"usable":["monitoring","process_diagnosis","log_diagnosis","inventory","partner_management","workspace_export","development_writes"],"notUsable":[]}}}]}]}
 ```
 
 | `NodeSummary` field | Meaning |
@@ -589,7 +601,7 @@ part of the result.
 | `access` | how the node is reached: `rest_and_cli`, or `cli_only` (StartCLI only) for a node pinned to INUBIT 6.1 (feature 012) |
 | `server` | `{version, source, at?}` with `source` `detected` (an `AUTO` node, detected before a tool call), `observed` (read by `get_health`, also on a pinned node) or `pinned` (the pin, without `at`; `6.1` for `V6_1`, `8.1` for `V8_1`, `9.0` for `V9_0`, `9.x` for `V9_X`); or only `{"state": "not_yet_detected"}` (call `get_health`), or `{"state": "unknown", "reason": "<error code>", "at": …}` after a failed detection. Times are ISO-8601 to the second |
 | `client` | the StartCLI client as in `get_health`: `{version, supportedFrom?, supportedTo?, comparison}` with `comparison` `match`, `mismatch` or `not_comparable` (the server version is unknown or has no patch, e.g. `V8_1`); or only `state`: `not_available` (no StartCLI installation), `not_yet_detected` (not probed yet; after a timed-out probe with `reason` `TIMEOUT` and `at`) or `unknown` (the probe failed: error code in `reason`, `at`) |
-| `status` | `supported` (every capability the configuration allows is supported), `partially_supported` (some are usable, others are unverified or not usable), `unsupported` (none is usable) or `unknown` (an `AUTO` node whose version is not yet detected or unknown) |
+| `status` | `supported` (every capability the configuration allows is supported), `partially_supported` (some are usable, others are unverified or not usable; e.g. an INUBIT 9.0 node, on which `partner_management` is unverified, feature 018), `unsupported` (none is usable) or `unknown` (an `AUTO` node whose version is not yet detected or unknown) |
 | `capabilities` | `usable`: the capabilities whose tools run on the node now (supported, or unverified for reads except on INUBIT 6.1, and not refused by the client), out of those its configuration allows (the reads always; `workspace_export` with a StartCLI installation; `development_writes` on a development stage; `deployment` in a group that receives deployments; `e2e_test` where `e2eTests` allows it; `process_control` with write access). `notUsable`: `[{capability, reason}]` with the reason the call would be refused; `inventory (StartCLI parts)` when `inventory` runs for its REST part but the client refuses its StartCLI parts (module list, version histories) |
 | `warnings` | only when non-empty: a pin contradicted by `get_health`, a client that differs from the server or excludes it (see [the warnings](#inubit-versions-and-capabilities-feature-009)) |
 
@@ -611,7 +623,7 @@ A node detected as INUBIT 9.1.0 with an 8.1.17 client:
 {"setting":"AUTO","access":"rest_and_cli","server":{"version":"9.1.0","source":"detected","at":"2026-10-18T09:12:03Z"},
  "client":{"version":"8.1.17","supportedFrom":"4.0.1","supportedTo":"8.1.17","comparison":"mismatch"},
  "status":"partially_supported",
- "capabilities":{"usable":["monitoring","process_diagnosis","log_diagnosis","inventory"],
+ "capabilities":{"usable":["monitoring","process_diagnosis","log_diagnosis","inventory","partner_management"],
   "notUsable":[{"capability":"inventory (StartCLI parts)","reason":"StartCLI client 8.1.17 of next/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.1.0"},
    {"capability":"workspace_export","reason":"StartCLI client 8.1.17 of next/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.1.0"},
    {"capability":"development_writes","reason":"INUBIT 9.1.0 on next/node1 does not support development writes yet"}]},
@@ -631,6 +643,7 @@ its pin, and in this version no capability is supported on 6.1 (see
    {"capability":"process_diagnosis","reason":"INUBIT 6.1 (versionLine V6_1) on legacy/node1 does not support process diagnosis"},
    {"capability":"log_diagnosis","reason":"INUBIT 6.1 (versionLine V6_1) on legacy/node1 does not support log diagnosis"},
    {"capability":"inventory","reason":"INUBIT 6.1 (versionLine V6_1) on legacy/node1 does not support inventory"},
+   {"capability":"partner_management","reason":"INUBIT 6.1 (versionLine V6_1) on legacy/node1 does not support partner management"},
    {"capability":"workspace_export","reason":"INUBIT 6.1 (versionLine V6_1) on legacy/node1 does not support workspace export"}]}}
 ```
 
@@ -1123,6 +1136,7 @@ string[], "error"?: ToolError } ] }`; `warnings` as for `list_inventory`.
 | `modules` | the modules (nodes) used: `name`, `type`, `nodeId` | — |
 | `connector` | — | `input`, `output`, `scheduled` |
 | `unavailable` | parts that could not be obtained, e.g. `{ "part": "versions", "reason": "CLI_UNAVAILABLE: …", likelyCause, nextStep }` | same; also without a using workflow: `NOT_FOUND` "not used by any technical workflow" if `usageComplete`, otherwise the reason the usage index is incomplete (INUBIT exports module history only with the group of a workflow that uses it) |
+| `partnerUsage` | only for a **technical workflow** (feature 018): its use of the INUBIT Partner Management, see below; absent for every other diagram type | — |
 | `truncated` | true if texts, the oldest versions or list entries were cut to keep the result bounded | |
 
 - **Not found**: `error.code = NOT_FOUND` and an `item` with `node`, `kind`, `name`, `owner`
@@ -1132,6 +1146,34 @@ string[], "error"?: ToolError } ] }`; `warnings` as for `list_inventory`.
 - A REST failure (diagram list, nodes, export) of a diagram detail fails that server (`error`);
   a failed or timed-out version history only adds an `unavailable` entry, a failed usage index
   only `usageComplete: false`.
+- **Partner usage** (feature 018, `partnerUsage` of a technical workflow; names only, no
+  partner data):
+  - `variables`: the distinct `ISPartnerProtocol.*` and `ISPartnerParameter.*` variables the
+    workflow uses, sorted; `partnerManagementNode`: whether it has a module of type
+    `PartnerManagement`. Both come from the REST export the detail reads anyway.
+  - Only if the workflow has one of them, the owner's system diagrams are read (the read of
+    [`find_partners`](#find_partners), through **the same cache**, `refresh` bypasses it too):
+    `systemDiagrams` lists each communication cloud whose referencable technical workflows
+    (`ReferencableTWFs`) name the workflow (case-insensitively, by name only), as
+    `{systemDiagram: {name, diagramGroup}, cloud}` in the order of the system diagram list;
+    `[]` if none does. Without variables and module no system diagram is read and
+    `systemDiagrams` is absent.
+  - `unavailable` (`{code, message, nextStep}`) says why the system diagrams were not read —
+    the partner management is refused on the node (e.g. `UNSUPPORTED_VERSION`), the read failed
+    (its error code; a failed export carries no excerpt) — or names the first system diagram
+    that **could not be read** ("System diagram 'SystemDiagram-02' in diagram group 'GRP-PM'
+    could not be read: …; 1 more could not be read", next step "Call find_partners with
+    systemDiagram 'SystemDiagram-02' for its error, or try again with refresh") **next to the
+    clouds of the system diagrams that were read** in `systemDiagrams`. A missing cloud is
+    therefore only certain when `unavailable` is absent.
+  - The detail waits for the read at most `3 × timeout + cliExportTimeout` (the read budget of
+    `find_partners`); a longer read gives `unavailable` `TIMEOUT` ("The system diagrams of
+    dev/node1 were not read within … ms", next step "Retry in a moment, or raise
+    cliExportTimeout"), the rest of the detail stays, and **the read goes on and fills the
+    cache** for the next call.
+  - The version warning of the partner management (e.g. on INUBIT 9.0) joins the node's
+    `warnings`; `collectedAt` is the older of the detail and the system diagram read.
+  - The partner usage is **not audited** (it shows names only); `find_partners` is.
 - **Deadlines per server** (a stopped export then is a partial result, not a server
   `TIMEOUT`); `export` = `cliExportTimeout` + 4 s to stop StartCLI, `t` = `timeout`, plus 1 s
   grace:
@@ -1140,14 +1182,16 @@ string[], "error"?: ToolError } ] }`; `warnings` as for `list_inventory`.
   |---|---|
   | `list_inventory` `DIAGRAM` | 2 t |
   | `list_inventory` `MODULE` | export + `cliExportTimeout` (usage index) + 3 t |
-  | `get_inventory_item` `DIAGRAM` | export + 5 t |
+  | `get_inventory_item` `DIAGRAM` | export + 5 t, plus 3 t + `cliExportTimeout` for the partner usage (feature 018) |
   | `get_inventory_item` `MODULE` | 2 × export + `cliExportTimeout` (usage index) + 4 t |
 
   While a node's credentials are not read yet, each deadline is longer by the read bound plus
   1 s: 61 s for the credential store, 11 s for AWS Parameter Store (features 010, 011).
-- Bounds: texts are cut to 200 chars; if the detail exceeds the server's share of
+- Bounds: texts are cut to 200 chars (the texts of `unavailable`, also of
+  `partnerUsage.unavailable`, to 500); if the detail exceeds the server's share of
   `resultLimits.maxChars`, the list of `workflows` is cut to a quarter of it first
-  (`workflowCount` stays), then the oldest versions are dropped (`truncated: true`).
+  (`workflowCount` stays) and the `variables` and `systemDiagrams` of `partnerUsage` to an eighth
+  of it each, then the oldest versions are dropped (`truncated: true`).
 
 **Example prompts** (quickstart V8):
 
@@ -1157,6 +1201,256 @@ string[], "error"?: ToolError } ] }`; `warnings` as for `list_inventory`.
 - "Where is the module Example-Mapping used?" → `get_inventory_item(target: "dev", kind:
   "MODULE", name: "Example-Mapping")`: `workflows`, `workflowCount`, `usageComplete` and the
   module's versions.
+- "Which partner clouds can call Workflow-0001 on dev?" → `get_inventory_item(target: "dev",
+  kind: "DIAGRAM", name: "Workflow-0001")`: `partnerUsage` with its partner variables and the
+  communication clouds that reference it; the partners themselves with
+  `find_partners(target: "dev", workflow: "Workflow-0001")`.
+
+## `find_partners`
+
+> [acme] Find partners in the INUBIT Partner Management of the owner's system diagrams on one group
+> or node. With search: partners whose Id, name or another non-secret partner field contains the
+> term (case-insensitive), each with its system diagram, communication cloud, partner fields and,
+> per protocol entry, the referenced technical workflow, the protocol settings and the additional
+> parameters. Without search: every partner as a summary (per entry only protocol, workflow,
+> ServerName and Login), ordered by system diagram, communication cloud, Id and name. systemDiagram,
+> protocol and workflow narrow both; with protocol or workflow only the matching entries are shown.
+> Passwords, keys and other secrets are only shown as set or not set. Lists the system diagrams read
+> and, if a search matches nothing, similar partner Ids and names. One group of several nodes, or
+> compareWith (another group or node), compares the partners across the nodes: matched by system
+> diagram, communication cloud and partner key, each field and setting shown once if equal, else per
+> node (differs); secrets per node as set, with sameOn naming the nodes storing the same value;
+> onlyOn names the nodes holding a partner, entry or setting if not all do (a partner without key or
+> with an ambiguous key is compared alone on its node). The search matches a partner if a field
+> shown on any node contains the term; a field masked on any node is not searched. Without search
+> the comparison lists each partner with its summary and only the differences. Each failed node is
+> named in notCompared and the result is incomplete. Read-only; every call is audited.
+
+Feature 018 ([its contract](../specs/018-partner-management-read/contracts/find_partners.md)).
+Reads the **INUBIT Partner Management** — the partners configured in the communication clouds of
+system diagrams — of the owner's system diagrams on one node, on every node of one group, or on
+two targets to compare them. It lists or searches partners with their protocol entries (the
+referenced technical workflow, the protocol settings, the additional parameters), and compares
+them across nodes field by field. Secrets are never shown.
+
+The tool is annotated read-only, idempotent and open world (title "Find partners in the INUBIT
+Partner Management"). It is offered when a node may run the capability `partner_management`
+(see [INUBIT versions](#inubit-versions-and-capabilities-feature-009)), i.e. under the condition
+of `get_inventory_item`; it needs no StartCLI installation and no write setting.
+
+**Channel.** Per node one REST diagram list (the owner's system diagrams) and, per system
+diagram, one REST model export (`GET /ibis/rest/model/export/<name>`), read **in memory**:
+nothing is written to disk, and nothing is exported through INUBIT's Partner Management export, so
+the read leaves no export in INUBIT. The exports of one node run one after the other and **share
+one `cliExportTimeout`** (default 120 s; each request is also bounded by `timeout`): an operator
+raises `cliExportTimeout` for an owner with many system diagrams (see
+[setup.md](setup.md#inventory-settings)).
+
+**Input** (`find_partners.input.json`):
+
+| Property | Rules |
+|---|---|
+| `target` (required) | id of one group (all its nodes) or of one node |
+| `compareWith` | id of another group or node to compare with; must not equal or overlap `target` (`INVALID_INPUT`) |
+| `owner` | INUBIT user or user group owning the system diagrams (`^[A-Za-z0-9_.][A-Za-z0-9_.\- ]{0,199}$`), for every node; default `inventory.owner` of each node |
+| `search` | 1–200 characters, no control characters: part of a partner's `Id`, name or another non-secret partner field, case-insensitive; without it every partner is listed |
+| `systemDiagram` | only this system diagram: its name, exact, case-insensitive, any diagram group |
+| `protocol` | only the entries of this protocol (the entry's `protocol` attribute, e.g. `FTP`; 1–64 characters `[A-Za-z0-9_-]`, exact, case-insensitive) |
+| `workflow` | only the entries referencing this technical workflow: its name, exact, case-insensitive |
+| `offset`, `limit` | `offset` ≥ 0 (default 0), `limit` 1–100 (default 20, capped by `resultLimits.maxItems`) |
+| `refresh` | `true` bypasses the cache (default `false`) |
+
+**Two modes.** With `search` (`mode: "search"`) each matching partner comes **in full**: its
+system diagram (`{name, diagramGroup}`), communication cloud (`cloud`, the module name; `moduleId`
+only when two clouds of one system diagram share a name), its partner `fields`, `maskedCount`, and
+per protocol entry (in export order, never merged) `protocol`, `workflow` (`{name}`; `{name:
+null, unresolved: true}` with a warning if the reference does not resolve), `format`,
+`protocolSettings` and `additionalParameters`. Without `search` (`mode: "list"`) every partner
+comes as a **summary**: its fields stay complete, but each entry carries only `protocol`,
+`workflow` and the summary keys `ServerName` and `Login` (if present); the list is ordered by
+system diagram (diagram group, name), communication cloud, partner `Id`, then `Name`.
+`systemDiagram`, `protocol` and `workflow` narrow both modes; with `protocol` or `workflow` only
+the matching entries are shown.
+
+**Output** (`find_partners.output.json`):
+
+| Field | Meaning |
+|---|---|
+| `callId` | the id shared by the audit records of this call |
+| `mode`, `compared` | `search` or `list`; whether nodes were compared (a group of several nodes, or `compareWith`) |
+| `servers` | one entry per targeted node, then per compared node, in config order (see below) |
+| `referencableWorkflows` | per communication cloud that contributed a partner: `{systemDiagram, cloud, moduleId?, workflows}`, the technical workflows its entries can reference |
+| `partners` | the page of matching partners: `Partner` on a single node, `ComparedPartner` in a comparison (see below) |
+| `similarValues` | only when a search matched nothing: up to five similar non-secret partner Ids and names |
+| `total`, `offset`, `limit`, `nextOffset`, `truncated` | paging: `total` is the number of matching partners (in a comparison: of matched partner keys); `nextOffset` is absent on the last page; `truncated` is `true` if the result was cut to stay within `resultLimits.maxChars` |
+| `incomplete`, `notCompared` | only in a comparison, see **Comparison across nodes** below |
+
+Per entry of `servers`: `node`, `group`, `owner` (whose system diagrams were read),
+`collectedAt` (when the cached data was collected), `fromCache`, `systemDiagramsRead` (every
+system diagram read, each with its communication clouds and their number of `partners` — `0` for
+a cloud without partners; no clouds for a system diagram without Partner Management),
+`withoutPartnerManagement` (the system diagrams read that hold no Partner Management),
+`unreadableDiagrams` (system diagrams whose export returned another diagram than the requested one,
+`UNEXPECTED_RESPONSE`, or no diagram at all, `NOT_FOUND`, each with `code` and `message`; the
+node's other system diagrams are still answered), `warnings` (the version warning, references that
+do not resolve) and, for a failed node only, `error` (a `ToolError`, the node has no data then).
+Any other failure of one export (an HTTP error, a timeout, a missing or malformed workflow, a
+Partner Management that cannot be read) fails the **whole node**: it is the node's `error`.
+
+```json
+{"callId":"…","mode":"search","compared":false,
+ "servers":[{"node":"dev/node1","group":"dev","owner":"OWNERS","collectedAt":"2026-10-18T09:12:03Z",
+   "fromCache":false,"systemDiagramsRead":[{"name":"SystemDiagram-01","diagramGroup":"GRP-PM",
+     "clouds":[{"cloud":"Module-0901","partners":2}]}],"withoutPartnerManagement":[],
+   "unreadableDiagrams":[],"warnings":[]}],
+ "referencableWorkflows":[{"systemDiagram":{"name":"SystemDiagram-01","diagramGroup":"GRP-PM"},
+   "cloud":"Module-0901","workflows":["Workflow-0001"]}],
+ "partners":[{"systemDiagram":{"name":"SystemDiagram-01","diagramGroup":"GRP-PM"},
+   "cloud":"Module-0901","fields":[{"name":"Id","value":"ACME-0001"},{"name":"Name","value":"ACME"}],
+   "maskedCount":1,
+   "entries":[{"protocol":"FTP","workflow":{"name":"Workflow-0001"},
+     "protocolSettings":[{"name":"ServerName","value":"ftp.example.test"},
+       {"name":"Login","value":"acme"},{"name":"Password","masked":true,"set":true}],
+     "additionalParameters":[{"name":"FTPProtocol","value":"SFTP"}]}]}],
+ "total":1,"offset":0,"limit":20,"truncated":false}
+```
+
+**Secrets (masking).** A secret is never shown, searched or suggested: it appears as
+`{"name": …, "masked": true, "set": true|false}`, and `maskedCount` counts the masked values of a
+partner (the result says how many values were masked, not why). A value is masked if
+
+- its name or path matches the secret rules of the workspace export (passwords, keys, tokens, …);
+- it is a field or setting of `type="Password"` (with or without `encrypted`) or `encrypted="true"`
+  (also the encrypted values of INUBIT's older encoding), or of a key store or certificate type;
+- its name contains `password`, `passwd`, `pwd`, `secret`, `token`, `keystore`, `privatekey`,
+  `passphrase`, `credential`, `apikey` or `accesskey` (e.g. `SSLKeyStore`, shown as not set when
+  empty);
+- its value is key material (a PEM private key, a JKS, JCEKS or PKCS#12 key store in base64);
+- it is a partner field whose declared **`fieldType`** is not `String` (`Password` and every type
+  the server does not know are masked).
+
+**Comparison across nodes.** A `target` group of several nodes, or `compareWith`, compares the
+partners of every node (`compared: true`):
+
+- **Matching.** Partners are matched by system diagram, communication cloud (module name) and
+  partner key (`key: {field, value}`). The **key field is decided per cloud**: `Id`, or without
+  it the first partner field every node holding the cloud declares and that at least one partner
+  holds as a shown, non-blank value; a masked value is never a key. Entries are matched by
+  protocol, workflow name and position (`position` among the entries of that protocol and
+  workflow).
+- **Statements.** Each field and setting appears once as `equal` if it is equal on every node
+  holding it, else as `differs` with the value per node. `onlyOn` names the nodes holding a
+  partner, entry or setting if not every answering node does (absent otherwise). `maskedCount`
+  is `{"equal": n}` or `{"differs": {…}}`. Without `search` a `ComparedPartner` holds its summary
+  fields plus **only the differences** (differing values, masked settings whose `set` or `sameOn`
+  differ, `onlyOn` entries; `format` and `additionalParameters` only if they differ).
+- **Ambiguous and keyless partners.** A partner without key (key field masked, absent or blank)
+  and every partner of an ambiguous key (several partners of that key on one node, or two clouds
+  of that module name there; listed in `ambiguous` with the node, the number of partners and the
+  module ids) is **compared alone** on its node and carries `onlyOn: [<its node>]`. There
+  `onlyOn` means "compared alone", **not "absent on the other nodes"**; the `ambiguous` list or
+  the missing `key` tells the two apart. An entry whose workflow does not resolve is compared
+  alone likewise.
+- **Search.** A comparison search matches a partner if a field **shown** on any compared node
+  contains the term. A field **masked on any compared node is not searched**, even where it is
+  shown on another node (e.g. a field of type `Password` on one node and `String` on the other).
+- **Failed nodes and unreadable system diagrams.** A failed node is named in `notCompared`
+  (`{node, code}`, its full error in `servers`) and `incomplete` is `true`; `onlyOn` and every
+  statement consider the answering nodes only. A system diagram that a node **could not read**
+  because of a name collision or HTTP 404 (see below) is listed in that node's
+  `unreadableDiagrams` and in `notCompared` (`{node, code, systemDiagram}`), the result is
+  `incomplete`, and that node is left out of the statements of that system diagram's partners
+  only: it neither holds nor lacks them. Any other failed export fails the whole node.
+
+```json
+{"key":{"field":"Id","value":"ACME-0001"},"cloud":"Module-0901",
+ "systemDiagram":{"name":"SystemDiagram-01","diagramGroup":"GRP-PM"},
+ "fields":[{"name":"Name","equal":"ACME"}],
+ "entries":[{"protocol":"FTP","workflow":{"name":"Workflow-0001"},"position":0,
+   "protocolSettings":[
+     {"name":"ServerName","differs":{"qa/node1":"a.example.test","prod/node1":"b.example.test"}},
+     {"name":"Login","equal":"acme"},
+     {"name":"Password","masked":true,"set":{"qa/node1":true,"prod/node1":true},
+      "sameOn":[["qa/node1"],["prod/node1"]]}]}],
+ "maskedCount":{"equal":1}}
+```
+
+**Equality of secrets.** For a masked value set on at least two compared nodes, `sameOn` groups
+the nodes that store the same value — the **only statement about stored secrets**. It is computed
+from a keyed fingerprint (HMAC-SHA256 with a random key of the server process) held in memory
+only, together with the cached masked data; neither the fingerprint nor the key ever leaves the
+process. Its limits:
+
+- It compares the **stored form**: the same secret stored in different forms (e.g. encrypted with
+  INUBIT's older encoding on one node and with AES on another) is reported as **differing**.
+  `sameOn: [["qa/node1"],["prod/node1"]]` therefore means "stored differently", not necessarily
+  "a different password".
+- It is made **on INUBIT 8.1 only**. If a node holding the value runs another or an unknown
+  version, there is no `sameOn` but `"equality": "not verified on 9.0.3"` (or `on an unknown
+  version`). A set value without fingerprint (one with child elements) gets neither.
+
+**Workflows by name only.** The export of a system diagram names the referenced technical
+workflows without their diagram group, so `workflow`, the entries' `workflow` and
+`referencableWorkflows` match technical workflows **by name only** (case-insensitive); two
+workflows of the same name in different diagram groups cannot be told apart.
+
+**Name collisions of the REST export.** The REST model export selects a diagram **by name only**.
+When the export of a system diagram's name returns a diagram of another diagram group or owner,
+several diagrams of that name in the group, or not the requested one, that system diagram is
+reported **unreadable** (`unreadableDiagrams`, `UNEXPECTED_RESPONSE`, e.g. "the export of this
+name returned a diagram of another group or owner; the name is not unique"); a system diagram
+deleted or renamed since it was listed is `NOT_FOUND` (HTTP 404). Only these two cases make a
+single system diagram unreadable; the node's other system diagrams are still answered. Rename one
+of the colliding diagrams in the Workbench to read it.
+
+**Errors.** Call level (`isError`, no partner data): `INVALID_INPUT`, `TARGET_UNKNOWN`,
+`NOT_FOUND` (the `systemDiagram` exists on no answering node: "No system diagram named
+'SystemDiagram-09' on dev/node1 (owner OWNERS)", up to five similar names in `nextStep`) and
+`INTERNAL` (also when an audit record could not be written: "The audit record of call <callId>
+could not be written; no partner data is returned"). Per node in `servers[].error`, the other
+nodes are answered: `NOT_CONFIGURED` (no owner), `UNSUPPORTED_VERSION` (INUBIT 6.1),
+`UNREACHABLE`, `TLS_ERROR`, `AUTH_FAILED`, `FORBIDDEN`, `MAINTENANCE_MODE`, `TIMEOUT`,
+`UNEXPECTED_RESPONSE`. **An error of a Partner Management export carries no `excerpt`** of
+INUBIT's answer, because it could quote partner data; its next step points to the INUBIT system
+log ("Check the INUBIT system log for the time of the call (the answer to a Partner Management
+export is not quoted)").
+
+**Deadline per node**: `3 × timeout` (guard wait, version detection, system diagram list) +
+`cliExportTimeout` (the exports) + 1 s grace; while a node's credentials are not read yet, longer
+by the read bound plus 1 s (61 s for the credential store, 11 s for AWS Parameter Store). A node
+past its deadline is `TIMEOUT` ("raise its timeout").
+
+**Cache.** The system diagram list and the masked partner data of each system diagram are cached
+per node and owner for `inventory.cacheTtl` (default 10 minutes), shared with the partner usage of
+[`get_inventory_item`](#get_inventory_item); concurrent calls share one read, `refresh: true` reads
+again, `collectedAt` and `fromCache` per node tell where the data came from. The cache holds masked
+data and the fingerprints only, in memory.
+
+**Bounds.** Texts are cut to 200 characters with `…[truncated]` (a search still matches the full
+value); the whole result stays within `resultLimits.maxChars`: the per-node lists of system
+diagrams and the workflows per cloud are cut first, then in the last partners of the page the
+`additionalParameters`, then the `protocolSettings` down to `ServerName` and `Login`, then
+partners from the end of the page (the first is kept). Every cut sets `truncated: true`.
+
+**Audit.** Every call is audited, `capability: find_partners`, step `EXECUTE`: one record per
+targeted or compared node, all with the call's `callId` and their counts in `details`
+(`fromCache`, `systemDiagramsRead`, `partnersReturned`, `valuesMasked`); outcome `EXECUTED` (also
+from the cache), `REFUSED` (`NOT_CONFIGURED`, `UNSUPPORTED_VERSION`) or `FAILED` (any other error),
+with the error code as reason. A refusal before any node is contacted (`INVALID_INPUT`,
+`TARGET_UNKNOWN`) is one `REFUSED` record. Inputs: `target`, `compareWith`, `owner`, `search`,
+`systemDiagram`, `protocol`, `workflow` (each cut to 500 characters); never a partner value, a
+setting or a secret. No audit record, no partner data: see [setup.md](setup.md#audit-log).
+
+**Example prompts**:
+
+- "Which partners of ACME do we have on dev?" → `find_partners(target: "dev", search: "ACME")`.
+- "List the partners of SystemDiagram-01 that call Workflow-0001 on qa" →
+  `find_partners(target: "qa", systemDiagram: "SystemDiagram-01", workflow: "Workflow-0001")`.
+- "Is partner ACME-0001 configured the same on qa and prod?" → `find_partners(target: "qa",
+  compareWith: "prod", search: "ACME-0001")`: the differing settings per node and, for the
+  password, `set` per node and `sameOn`.
+- "Which partners differ between the nodes of prod?" → `find_partners(target: "prod")`: per
+  partner its summary and only the differences.
 
 ## `restart_process` / `kill_process`
 

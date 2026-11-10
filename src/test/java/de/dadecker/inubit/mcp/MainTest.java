@@ -727,8 +727,8 @@ class MainTest {
 
         assertThat(exit).as(out() + err()).isZero();
         String refused = "available: none; refused: monitoring, process diagnosis, log"
-            + " diagnosis, inventory, workspace export, development writes, deployment,"
-            + " end-to-end test, process control)";
+            + " diagnosis, inventory, partner management, workspace export, development writes,"
+            + " deployment, end-to-end test, process control)";
         assertThat(out())
             .contains("dev/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI"
                 + " only; " + refused + ", client: 6.1.0 (4.0.1–6.1.0; options: no trust-store"
@@ -1550,7 +1550,7 @@ class MainTest {
             .extracting(tool -> tool.path("name").asString())
             .containsExactlyInAnyOrder("list_nodes", "get_health", "read_knowledge",
                 "record_knowledge", "find_processes", "query_logs", "list_inventory",
-                "get_inventory_item", "check_artifacts");
+                "get_inventory_item", "find_partners", "check_artifacts");
         JsonNode server = servers.path("result").path("structuredContent").path("groups").path(0)
             .path("nodes").path(0);
         assertThat(server.path("id").asString()).isEqualTo("dev/node1");

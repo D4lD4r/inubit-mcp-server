@@ -21,6 +21,19 @@ class ToolHintsTest {
             .isEqualTo(new ToolHints("Check", true, false, true, false));
     }
 
+    /**
+     * Feature 018 (T022): find_partners reads only and may be repeated; open world, since it talks
+     * to INUBIT.
+     */
+    @Test
+    void findPartnersIsReadOnlyIdempotentAndOpenWorld() {
+        ToolHints hints = ToolHints.readOnly("Find partners in the INUBIT Partner Management",
+            true, true);
+
+        assertThat(hints).isEqualTo(new ToolHints(
+            "Find partners in the INUBIT Partner Management", true, false, true, true));
+    }
+
     /** Feature 015 (research R-1): export_archives writes local files but changes nothing in INUBIT. */
     @Test
     void localWriteIsNeitherReadOnlyNorDestructiveNorIdempotentButOpenWorld() {

@@ -95,6 +95,22 @@ Reports are especially welcome for:
   shown before the credentials were read.
 - **TLS and certificate pinning**: connections that succeed although the chain, the pin or the host
   name check should fail, or a pin that can be bypassed.
+- **Partner Management** (`find_partners`; the partner usage of `get_inventory_item` shows names
+  only): the tool reads the partners of the owner's system diagrams in memory (nothing is written to
+  disk) and returns their shown values, so **partner host names, logins, ports, paths and other
+  non-secret settings reach the conversation** and with it the AI provider of the MCP client — by
+  design, as any other tool result. **Secrets never do**: passwords, partner fields whose
+  `fieldType` is not `String` (e.g. `Password`), encrypted values, key stores, certificates' private
+  keys and other key material, and values whose names mark them as secret are shown only as set or
+  not set, are not searched and are not suggested as similar values. Equal secrets on several nodes
+  are recognized only through a keyed fingerprint (HMAC-SHA256 with a random key of the server
+  process) that stays in memory and in the in-memory cache; neither the fingerprint nor the key is
+  returned, logged, audited or written. Every call is audited (request inputs and counts only, never
+  a partner value); without its audit record no partner data is returned. An error of a Partner
+  Management export carries no excerpt of INUBIT's answer, since it could quote partner data.
+  Reports are welcome for a secret value, or anything derived from it, reaching a tool result, an
+  error, a log line, an audit record or a file, and for partner data returned without an audit
+  record.
 - Isolation between profiles (credentials, audit directories, workspaces, knowledge folders,
   backups, packages, confirmation codes, temporary data).
 

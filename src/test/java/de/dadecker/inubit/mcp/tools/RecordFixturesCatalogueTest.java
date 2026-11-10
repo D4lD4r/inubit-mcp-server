@@ -190,17 +190,21 @@ class RecordFixturesCatalogueTest {
     /** The 9.0 REST cases and the media range their production adapter sends (D-11). */
     static final Map<String, MediaRange> V90_ACCEPT = v90Accept();
 
-    /** The cases {@code tools/record-fixtures.sh --list} printed before feature 017. */
+    /**
+     * The cases {@code tools/record-fixtures.sh --list} printed before feature 017, plus the two
+     * system diagram cases of feature 018 (research D-1).
+     */
     private static final List<String> V81_LIST = List.of("log_processLog", "log_systemLog",
         "log_queueLog", "log_connectionLog", "log_schedulerLog", "log_auditLog",
         "log_keyManagerLog", "log_webserviceManager", "log_systemLog_filtered",
         "log_queueLog_error", "metrics", "healthcheck", "ready", "system_info", "version",
         "model_models_owner", "modelByName_sample", "model_export_sample",
-        "processErrorStart_unknown", "processErrorStart_unknown_default_locale", "kill_unknown",
-        "unknown_command", "login_failed", "unreachable", "ps_error", "ps_waiting", "ps_all",
+        "model_export_systemdiagram", "processErrorStart_unknown",
+        "processErrorStart_unknown_default_locale", "kill_unknown", "unknown_command", "login_failed", "unreachable", "ps_error", "ps_waiting", "ps_all",
         "ps_queued", "ps_no_selector", "ps_filter_workflow", "ps_filter_space", "v61_help",
         "v61_version", "v61_health_session", "v61_ps_all", "v61_ps_error", "v61_ps_waiting",
-        "v61_ps_queued", "v61_ps_limit5", "export_history_sample", "export_modules_sample");
+        "v61_ps_queued", "v61_ps_limit5", "export_history_sample", "export_modules_sample",
+        "export_systemdiagram");
 
     private static Map<String, MediaRange> v90Accept() {
         Map<String, MediaRange> accept = new LinkedHashMap<>();

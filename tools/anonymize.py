@@ -14,6 +14,22 @@ Reads one recording (REST body, CLI stdout/stderr, ...) and writes an anonymized
                                     "EXECUTION ERROR"/"CONNECTION ERROR" -> <message n>, except
                                     known INUBIT system messages (KNOWN_CLI_MESSAGES)
 
+* PartnerManagementSettings      -> always, in any XML (also when stored as an escaped XML string):
+  (system diagrams, feature 018)    every value of the subtree except empty, true, false, up to
+                                    five digits and FTP, FTPS, SFTP, HTTP, HTTPS, WebService, NONE;
+                                    element names and the attributes name (while it looks like a
+                                    key), type, encrypted, protocol and fieldType (a type, not
+                                    data) stay. Secrets (type Password, encrypted="true",
+                                    secret-like names, key material) -> AES-/AESG + synthetic
+                                    base64 or legacy-secret-<n>; partner Id -> ACME-<nnnn>, Name ->
+                                    ACME Partner <n>; host/URL settings -> host<n>.example.test
+                                    (URLs keep their scheme); login/user -> login<n>; workflow
+                                    references -> Workflow-<nnnn>; the attribute format ->
+                                    format-<n>; anything else -> <SettingName>-<n>.
+                                    --partner-limit N keeps the first N entries of each Partners
+                                    list. A document that mentions the subtree but cannot be
+                                    parsed is refused (nothing written).
+
 XML documents can be trimmed before anonymization (--xml-limit Workflow=3 keeps the first three
 Workflow elements, --xml-drop WorkflowModule removes those subtrees). ZIP archives are rewritten
 with only the entries named by --zip-keep, each trimmed and anonymized.
@@ -31,11 +47,15 @@ and delete it after recording.
 Usage:
   anonymize.py [--state FILE] [--user NAME]... [--keep NAME]... [--host NAME]...
                [--format auto|json|text] [--xml-limit NAME=N]... [--xml-drop NAME]...
-               [INPUT [OUTPUT]]
-  anonymize.py --zip-keep ENTRY... [--xml-limit ...] [--xml-drop ...] INPUT.zip OUTPUT.zip
+               [--partner-limit N] [INPUT [OUTPUT]]
+  anonymize.py --zip-keep ENTRY... [--xml-limit ...] [--xml-drop ...] [--partner-limit N]
+               INPUT.zip OUTPUT.zip
   anonymize.py --verify [--secrets-stdin] FILE...
                                     # exit 1 if a file (or ZIP entry) still contains an
-                                    # identifying value or one of the secrets read from stdin
+                                    # identifying value or one of the secrets read from stdin,
+                                    # or a PartnerManagementSettings value that is neither
+                                    # harmless nor a synthetic placeholder, or a kept fieldType
+                                    # that does not match ^[A-Za-z][A-Za-z0-9_.]{0,40}$
   anonymize.py --self-test
 
 Values found by --verify are never printed, only the rule and the line number.
@@ -45,6 +65,7 @@ Standard library only.
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
 import io
 import json
@@ -57,6 +78,7 @@ import zipfile
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+from xml.parsers import expat
 
 HOST_PLACEHOLDER = "inubit.example.test"
 EMAIL_DOMAIN = "example.test"
@@ -162,13 +184,17 @@ class State:
     messages: dict[str, str] = field(default_factory=dict)
     subjects: dict[str, str] = field(default_factory=dict)
     tags: dict[str, str] = field(default_factory=dict)
+    # Partner Management (feature 018): "secret:<original>" / "value:<original>" -> placeholder,
+    # and the last number used per placeholder kind.
+    partner: dict[str, str] = field(default_factory=dict)
+    partner_counters: dict[str, int] = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: Path | None) -> "State":
         if path is None or not path.exists():
             return cls()
         data = json.loads(path.read_text(encoding="utf-8"))
-        keys = ("users", "ips", "messages", "subjects", "tags")
+        keys = ("users", "ips", "messages", "subjects", "tags", "partner", "partner_counters")
         return cls(**{k: dict(data.get(k, {})) for k in keys})
 
     def save(self, path: Path | None) -> None:
@@ -180,8 +206,9 @@ class State:
 
 
 class Anonymizer:
-    def __init__(self, state: State, users=(), keep=(), hosts=()):
+    def __init__(self, state: State, users=(), keep=(), hosts=(), partner_limit: int | None = None):
         self.state = state
+        self.partner_limit = partner_limit
         self.keep = {k.lower() for k in keep} | RESERVED_NAMES
         # "<GROUP>_<login>" (e.g. OWNERS_jdoe) for every kept user-group name.
         groups = "|".join(re.escape(k) for k in keep if k) or "(?!)"
@@ -331,6 +358,7 @@ class Anonymizer:
                 self.collect_users_json(data)
                 result = self.transform_json(data)
                 return json.dumps(result, indent=2, ensure_ascii=False) + "\n"
+        content = neutralize_partner_management(content, self.state, self.partner_limit)
         self.collect_users_text(content)
         content = XML_TEXT_RE.sub(self._xml_text, content)
         content = INUBIT_SEGMENT_RE.sub(self._inubit_segment, content)
@@ -458,6 +486,390 @@ def readable_texts(path: Path) -> list[tuple[str, str]]:
     return [(str(path), path.read_text(encoding="utf-8", errors="replace"))]
 
 
+# ----- Partner Management (feature 018) -----------------------------------------------------
+#
+# A system diagram's workflow.xml carries a PartnerManagementSettings map (partner names and codes,
+# host names, logins, passwords). Its XML encoding is only known after the first recording, so the
+# neutralization does not rely on it: inside every element named PartnerManagementSettings (by tag
+# or by name attribute) it keeps the element names and the attributes name (while it looks like a
+# key), type, encrypted, protocol and fieldType, and replaces every other attribute value and text
+# by a synthetic value, except the harmless values of _partner_harmless. The kind of placeholder
+# follows the nearest setting name; it never depends on the original value (no hash, no length).
+
+PARTNER_MARKER = "PartnerManagementSettings"
+PARTNER_KEPT_ATTRIBUTES = {"type", "encrypted", "protocol"}  # "name" only while it is a key
+# The attribute fieldType of a partner field declaration (PartnerFields) is a type, not data: it
+# stays, and --verify accepts it only in this form.
+PARTNER_FIELD_TYPE_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.]{0,40}")
+PARTNER_TOKENS = set("FTP FTPS SFTP HTTP HTTPS WebService NONE".split())  # protocol tokens
+PARTNER_KEY_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+PARTNER_SECRET_NAME_RE = re.compile(
+    r"password|passwd|pwd|secret|token|keystore|privatekey|passphrase|credential|apikey|accesskey",
+    re.IGNORECASE)
+PARTNER_HOST_NAME_RE = re.compile(r"(?:server(?:name)?|host(?:name)?|url|uri|endpoint)$",
+                                  re.IGNORECASE)
+PARTNER_LOGIN_NAME_RE = re.compile(r"(?:login|user(?:name)?|userid)$", re.IGNORECASE)
+PARTNER_KEY_MATERIAL_RE = re.compile(r"-----BEGIN |[A-Za-z0-9+/]{40,}")
+PARTNER_URL_RE = re.compile(r"([A-Za-z][A-Za-z0-9+.-]*)://")
+PARTNER_LIST = "Partners"
+PARTNER_TWF_LISTS = {"ReferencedTWFs", "ReferencableTWFs"}
+PARTNER_PROTOCOL_MAPS = {"ProtocolSettings", "AdditionalParameterSettings"}
+# Keys of the entries directly below Partners / *TWFs that name the structure, not a partner or
+# a workflow; any other name there is treated as data (maps keyed by partner or workflow name).
+PARTNER_STRUCTURE_KEYS = {"Partner", "Fields", "ReferencedTWF", "ReferencableTWF", "TWF", "Entry",
+                          "Item"}
+# Generic element names that name no setting (the setting name is looked up above them).
+PARTNER_GENERIC_TAGS = {"Property", "Entry", "ListEntry", "Item", "Value", "Values", "Map", "List",
+                        "Element", "Key", "Field", "Setting"}
+SYNTHETIC_SECRET_SEED = "synthetic-secret-"
+# Kinds of non-secret placeholders in the order they are numbered (the first kind of an original
+# value wins, so a partner key that equals the partner's Id or Name gets the same placeholder).
+PARTNER_KIND_ORDER = ("id", "name", "workflow", "url", "host", "login", "key")
+PARTNER_PLACEHOLDER_RES = [re.compile(p) for p in (
+    r"ACME-\d{4,}", r"ACME Partner \d+", r"Workflow-\d{4,}", r"host\d+\.example\.test",
+    r"[a-z][a-z0-9+.-]*://host\d+\.example\.test/path\d+", r"login\d+", r"Partner-\d+")]
+PARTNER_GENERIC_PLACEHOLDER_RE = re.compile(r"([A-Za-z0-9_.]+)-\d+")
+PARTNER_SECRET_PLACEHOLDER_RE = re.compile(r"(?:AESG|AES-)([A-Za-z0-9+/]+={0,2})")
+
+
+class PartnerXmlError(Exception):
+    """The input mentions PartnerManagementSettings where it cannot be neutralized."""
+
+
+def _partner_local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1].rsplit(":", 1)[-1]
+
+
+def _partner_key(element: ET.Element) -> str:
+    name = element.get("name")
+    return name if name is not None else _partner_local(element.tag)
+
+
+def _partner_harmless(value: str) -> bool:
+    return (value == "" or value in ("true", "false") or value in PARTNER_TOKENS
+            or (value.isascii() and value.isdigit() and len(value) <= 5))
+
+
+def _partner_is_marker(element: ET.Element) -> bool:
+    return _partner_local(element.tag) == PARTNER_MARKER or element.get("name") == PARTNER_MARKER
+
+
+def _partner_data_name(ctx: list, i: int) -> bool:
+    """True if the name attribute of ctx[i] is data (a partner, a workflow) rather than a key."""
+    name = ctx[i].get("name")
+    if name is None or name == "" or (name.isascii() and name.isdigit() and len(name) <= 5):
+        return False
+    if not PARTNER_KEY_RE.fullmatch(name):
+        return True
+    return (i > 0 and _partner_key(ctx[i - 1]) in PARTNER_TWF_LISTS | {PARTNER_LIST}
+            and name not in PARTNER_STRUCTURE_KEYS)
+
+
+def _partner_setting_name(ctx: list, upto: int) -> str:
+    """The nearest key-like name attribute, or the nearest specific element name."""
+    for j in range(upto, -1, -1):
+        name = ctx[j].get("name")
+        if name is not None:
+            if name and not name.isdigit() and not _partner_data_name(ctx, j):
+                return name
+            continue
+        tag = _partner_local(ctx[j].tag)
+        if tag not in PARTNER_GENERIC_TAGS:
+            return tag
+    return "Value"
+
+
+def _partner_sanitized(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.]", "", name)[:40] or "Value"
+
+
+def _partner_within(ctx: list, upto: int, keys: set[str]) -> bool:
+    return any(_partner_key(ctx[j]) in keys for j in range(upto + 1))
+
+
+def _partner_classify_value(ctx: list, k: int, value: str, setting: str | None = None):
+    """Placeholder kind of a value of ctx[k] (None: keep it); `setting` names an attribute."""
+    stripped = value.strip()
+    if not stripped:
+        return None
+    own = ctx[k]
+    name = setting or _partner_setting_name(ctx, k)
+    if (own.get("type", "").lower() == "password" or own.get("encrypted", "").lower() == "true"
+            or PARTNER_SECRET_NAME_RE.search(name) or stripped.startswith(("AES-", "AESG"))
+            or PARTNER_KEY_MATERIAL_RE.search(stripped)):
+        return "secret"
+    if _partner_harmless(stripped):
+        return None
+    if setting == "format":  # of a ReferencedTWF: meaning unknown, no workflow reference (D-2)
+        return "generic:format"
+    in_twf = _partner_within(ctx, k, PARTNER_TWF_LISTS)
+    if _partner_within(ctx, k, {PARTNER_LIST}) and not in_twf:
+        if name.lower() == "id":
+            return "id"
+        if name.lower() == "name":
+            return "name"
+    if PARTNER_URL_RE.match(stripped):
+        return "url"
+    if PARTNER_HOST_NAME_RE.search(name):
+        return "host"
+    if PARTNER_LOGIN_NAME_RE.search(name):
+        return "login"
+    if in_twf and not _partner_within(ctx, k, PARTNER_PROTOCOL_MAPS):
+        return "workflow"
+    return "generic:" + _partner_sanitized(name)
+
+
+def _partner_classify_name(ctx: list, k: int):
+    """Placeholder kind of the name attribute of ctx[k] (None: it is a key and stays)."""
+    if k == 0 or not _partner_data_name(ctx, k):
+        return None
+    if (_partner_within(ctx, k - 1, PARTNER_TWF_LISTS)
+            and not _partner_within(ctx, k - 1, PARTNER_PROTOCOL_MAPS)):
+        return "workflow"
+    if _partner_key(ctx[k - 1]) == PARTNER_LIST:
+        return "key"
+    return "generic:" + _partner_sanitized(_partner_setting_name(ctx, k - 1))
+
+
+def _partner_next(state: State, counter: str) -> int:
+    state.partner_counters[counter] = state.partner_counters.get(counter, 0) + 1
+    return state.partner_counters[counter]
+
+
+def partner_placeholder(state: State, kind: str, original: str) -> str:
+    """Deterministic placeholder from the State mapping; equal originals get equal placeholders."""
+    key = ("secret:" if kind == "secret" else "value:") + original
+    if key in state.partner:
+        return state.partner[key]
+    if kind == "secret":
+        n = _partner_next(state, "secret")
+        synthetic = base64.b64encode(f"{SYNTHETIC_SECRET_SEED}{n:04d}".encode()).decode()
+        if original.startswith("AESG"):
+            placeholder = "AESG" + synthetic
+        elif original.startswith("AES-"):
+            placeholder = "AES-" + synthetic
+        else:
+            placeholder = f"legacy-secret-{n}"
+    elif kind == "id":
+        placeholder = f"ACME-{_partner_next(state, 'id'):04d}"
+    elif kind == "name":
+        placeholder = f"ACME Partner {_partner_next(state, 'name')}"
+    elif kind == "workflow":
+        placeholder = f"Workflow-{_partner_next(state, 'workflow'):04d}"
+    elif kind == "url":
+        n = _partner_next(state, "host")
+        scheme = PARTNER_URL_RE.match(original).group(1).lower()
+        placeholder = f"{scheme}://host{n}.example.test/path{n}"
+    elif kind == "host":
+        placeholder = f"host{_partner_next(state, 'host')}.example.test"
+    elif kind == "login":
+        placeholder = f"login{_partner_next(state, 'login')}"
+    elif kind == "key":
+        placeholder = f"Partner-{_partner_next(state, 'key')}"
+    else:
+        name = kind.split(":", 1)[1]
+        placeholder = f"{name}-{_partner_next(state, kind)}"
+    state.partner[key] = placeholder
+    return placeholder
+
+
+def _is_secret_placeholder(value: str) -> bool:
+    if re.fullmatch(r"legacy-secret-\d+", value):
+        return True
+    match = PARTNER_SECRET_PLACEHOLDER_RE.fullmatch(value)
+    if not match:
+        return False
+    try:
+        decoded = base64.b64decode(match.group(1), validate=True)
+    except ValueError:
+        return False
+    return decoded.startswith(SYNTHETIC_SECRET_SEED.encode())
+
+
+def _is_partner_placeholder(value: str, kind: str, names: set[str]) -> bool:
+    value = value.strip()
+    if kind == "secret" or _is_secret_placeholder(value):
+        return _is_secret_placeholder(value)
+    if any(pattern.fullmatch(value) for pattern in PARTNER_PLACEHOLDER_RES):
+        return True
+    generic = PARTNER_GENERIC_PLACEHOLDER_RE.fullmatch(value)
+    return bool(generic and generic.group(1) in names)
+
+
+def _parse_xml(text: str, lines: dict | None = None) -> ET.Element:
+    """ElementTree of `text` without namespace processing (tags keep their prefix, so the
+    document is written back as it was); `lines` receives id(element) -> line number."""
+    parser = expat.ParserCreate()
+    parser.buffer_text = True
+    stack: list[ET.Element] = []
+    roots: list[ET.Element] = []
+
+    def start(tag, attributes):
+        element = ET.Element(tag, attributes)
+        if lines is not None:
+            lines[id(element)] = parser.CurrentLineNumber
+        (stack[-1].append(element) if stack else roots.append(element))
+        stack.append(element)
+
+    def data(text):
+        if not stack:
+            return
+        top = stack[-1]
+        if len(top):
+            top[-1].tail = (top[-1].tail or "") + text
+        else:
+            top.text = (top.text or "") + text
+
+    parser.StartElementHandler = start
+    parser.EndElementHandler = lambda tag: stack.pop()
+    parser.CharacterDataHandler = data
+    parser.Parse(text, True)
+    return roots[0]
+
+
+def _parse_nested(value: str) -> ET.Element | None:
+    """The XML document stored as an (escaped) string value, or None."""
+    if not value.strip().startswith("<"):
+        return None
+    try:
+        return _parse_xml(value.strip())
+    except expat.ExpatError:
+        return None
+
+
+class _PartnerWalk:
+    """Finds the PartnerManagementSettings subtrees and the values in them (slots)."""
+
+    def __init__(self, lines: dict, limit: int | None = None):
+        self.lines = lines
+        self.limit = limit
+        self.slots: list[tuple] = []        # (kind, original, line, apply)
+        self.finalizers: list = []          # write nested XML strings back, innermost first
+        self.names: set[str] = {"Value"}    # setting names a generic placeholder may carry
+        self.unparsed: list[int] = []       # lines of marker mentions that are not XML
+        self.field_types: list[tuple] = []  # (kept fieldType value, line)
+
+    def line(self, element: ET.Element, fallback: int) -> int:
+        return self.lines.get(id(element), fallback)
+
+    def outer(self, element: ET.Element, fallback: int = 0) -> None:
+        line = self.line(element, fallback)
+        if _partner_is_marker(element):
+            self.subtree(element, [], line)
+            return
+        for attribute, value in list(element.attrib.items()):
+            if PARTNER_MARKER in value and value.strip() != PARTNER_MARKER:
+                self.nested_outer(value, line,
+                                  lambda text, e=element, a=attribute: e.set(a, text))
+        text = element.text or ""
+        if PARTNER_MARKER in text and text.strip() != PARTNER_MARKER:
+            self.nested_outer(text, line, lambda text, e=element: setattr(e, "text", text))
+        for child in element:
+            self.outer(child, line)
+            if child.tail and PARTNER_MARKER in child.tail:
+                self.unparsed.append(line)
+
+    def nested_outer(self, value: str, line: int, setter) -> None:
+        nested = _parse_nested(value)
+        if nested is None:
+            self.unparsed.append(line)
+            return
+        self.outer(nested, line)
+        self.finalizers.append(lambda: setter(ET.tostring(nested, encoding="unicode")))
+
+    def slot(self, kind, original: str, line: int, apply) -> None:
+        if kind:
+            self.slots.append((kind, original.strip(), line, apply))
+
+    def subtree(self, element: ET.Element, ctx: list, fallback: int) -> None:
+        ctx = ctx + [element]
+        k = len(ctx) - 1
+        line = self.line(element, fallback)
+        if self.limit is not None and _partner_key(element) == PARTNER_LIST:
+            for extra in list(element)[self.limit:]:
+                element.remove(extra)
+        if element.get("name") is not None:
+            self.slot(_partner_classify_name(ctx, k), element.get("name"), line,
+                      lambda v, e=element: e.set("name", v))
+        self.names.add(_partner_sanitized(_partner_setting_name(ctx, k)))
+        for attribute, value in list(element.attrib.items()):
+            local = _partner_local(attribute)
+            if (attribute == "name" or local in PARTNER_KEPT_ATTRIBUTES or attribute == "xmlns"
+                    or attribute.startswith("xmlns:")):
+                continue
+            if local == "fieldType":
+                self.field_types.append((value, line))
+                continue
+            setting = None if local == "value" else local
+            if setting:
+                self.names.add(_partner_sanitized(setting))
+            self.slot(_partner_classify_value(ctx, k, value, setting), value, line,
+                      lambda v, e=element, a=attribute: e.set(a, v))
+        if element.text and element.text.strip():
+            nested = _parse_nested(element.text)
+            if nested is not None:
+                self.subtree(nested, ctx, line)
+                self.finalizers.append(lambda e=element, n=nested: setattr(
+                    e, "text", ET.tostring(n, encoding="unicode")))
+            else:
+                self.slot(_partner_classify_value(ctx, k, element.text), element.text, line,
+                          lambda v, e=element: setattr(e, "text", v))
+        for child in list(element):
+            self.subtree(child, ctx, line)
+            if child.tail and child.tail.strip():
+                self.slot(_partner_classify_value(ctx, k, child.tail), child.tail,
+                          self.line(child, line), lambda v, c=child: setattr(c, "tail", v))
+
+
+def neutralize_partner_management(content: str, state: State, limit: int | None = None) -> str:
+    """Replaces the values of every PartnerManagementSettings subtree (see above); --partner-limit
+    keeps the first `limit` entries of each Partners list. Other documents stay as they are."""
+    if PARTNER_MARKER not in content:
+        return content
+    lines: dict = {}
+    try:
+        root = _parse_xml(content, lines)
+    except expat.ExpatError as error:
+        raise SystemExit(f"anonymize.py: the input mentions {PARTNER_MARKER} but is not "
+                         f"well-formed XML (line {error.lineno}); nothing written") from None
+    walk = _PartnerWalk(lines, limit)
+    walk.outer(root)
+    if walk.unparsed:
+        raise SystemExit(f"anonymize.py: {PARTNER_MARKER} is mentioned in a value that is not "
+                         f"XML (line {walk.unparsed[0]}); nothing written")
+    order = {kind: index for index, kind in enumerate(PARTNER_KIND_ORDER)}
+    for _, (kind, original, _, apply) in sorted(
+            enumerate(walk.slots),
+            key=lambda item: (order.get(item[1][0], len(order)), item[0])):
+        apply(partner_placeholder(state, kind, original))
+    for finalize in walk.finalizers:
+        finalize()
+    ET.indent(root, space="    ")
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode") + "\n"
+
+
+def partner_findings(text: str) -> list[tuple[int, str]]:
+    """(line, rule) for every value of a PartnerManagementSettings subtree that is neither
+    harmless nor a synthetic placeholder, and for every kept fieldType that does not match
+    PARTNER_FIELD_TYPE_RE. Never returns the value."""
+    if PARTNER_MARKER not in text:
+        return []
+    lines: dict = {}
+    try:
+        root = _parse_xml(text, lines)
+    except expat.ExpatError as error:
+        return [(error.lineno, "partner management (not well-formed XML)")]
+    walk = _PartnerWalk(lines)
+    walk.outer(root)
+    findings = [(line, "partner management (value that is not XML)") for line in walk.unparsed]
+    for kind, original, line, _ in walk.slots:
+        if not _is_partner_placeholder(original, kind, walk.names):
+            findings.append((line, "partner secret" if kind == "secret" else "partner value"))
+    findings.extend((line, "partner field type") for value, line in walk.field_types
+                    if not PARTNER_FIELD_TYPE_RE.fullmatch(value))
+    return sorted(findings)
+
+
 # ----- verification -------------------------------------------------------------------------
 
 
@@ -481,6 +893,9 @@ def verify(paths: list[Path], anonymizer: Anonymizer, secrets: list[str] = ()) -
             for rule in rules:
                 findings += 1
                 print(f"{label}:{number}: remaining {rule}", file=sys.stderr)
+        for number, rule in partner_findings(text):
+            findings += 1
+            print(f"{label}:{number}: remaining {rule}", file=sys.stderr)
     return 1 if findings else 0
 
 
@@ -657,6 +1072,36 @@ def self_test() -> int:
         if verify([target], Anonymizer(State()), ["hunter2"]) != 0:
             failures.append("verify: clean ZIP reported")
 
+    partner_xml = (
+        '<W><Property name="PartnerManagementSettings" type="Map">'
+        '<Property name="PartnerFields" type="List">'
+        '<Property fieldType="String" name="Id" showInTable="true"/></Property>'
+        '<Property name="Partners" type="List">'
+        '<Property name="Partner" type="Map"><Property name="Id">9900000000001</Property>'
+        '<Property name="Name">Zeta Netz GmbH</Property></Property>'
+        '<Property name="Partner" type="Map"><Property name="Id">9900000000002</Property>'
+        '<Property name="ServerName">sftp.zeta.invalid</Property>'
+        '<Property name="Password" type="Password" encrypted="true">AES-emV0YS1zZWNyZXQ=</Property>'
+        '<Property name="Port">22</Property><Property name="ReferencedTWFs" type="List">'
+        '<Property format="ZetaFormat" name="ReferencedTWF" type="Map"/></Property>'
+        '</Property></Property></Property></W>')
+    partner_out = Anonymizer(State(), partner_limit=1).anonymize(partner_xml, "text")
+    check("partner management", partner_out,
+          contains=[">ACME-0001<", ">ACME Partner 1<", 'name="PartnerManagementSettings"'],
+          absent=["9900000000", "Zeta", "ACME-0002", "emV0YS1zZWNyZXQ"])
+    full_out = Anonymizer(State()).anonymize(partner_xml, "text")
+    check("partner secrets and hosts", full_out,
+          contains=[">host1.example.test<", ">22<", 'encrypted="true">AES-'],
+          absent=["zeta", "emV0YS1zZWNyZXQ"])
+    check("partner field type and format", full_out,
+          contains=['fieldType="String"', 'format="format-1"'], absent=["Workflow-"])
+    if partner_findings(full_out) or not partner_findings(partner_xml):
+        failures.append("verify: partner management values are not checked")
+    if [rule for _, rule in partner_findings(
+            full_out.replace('fieldType="String"', 'fieldType="Zeta Netz"'))] != [
+            "partner field type"]:
+        failures.append("verify: a kept fieldType that is no type is not reported")
+
     if failures:
         for failure in failures:
             print("FAIL " + failure, file=sys.stderr)
@@ -677,6 +1122,12 @@ def env_usernames() -> list[str]:
             if name.startswith("INUBIT_") and name.endswith("_USERNAME") and value]
 
 
+def positive_int(text: str) -> int:
+    if not text.isdigit() or int(text) < 1:
+        raise argparse.ArgumentTypeError("expected a positive number")
+    return int(text)
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--self-test", action="store_true", help="run the built-in checks")
@@ -694,6 +1145,9 @@ def main(argv: list[str]) -> int:
                         help="keep only the first N elements with this local name")
     parser.add_argument("--xml-drop", action="append", default=[], metavar="NAME",
                         help="remove all elements with this local name")
+    parser.add_argument("--partner-limit", type=positive_int, metavar="N",
+                        help="keep only the first N entries of each Partners list of a "
+                             "PartnerManagementSettings subtree")
     parser.add_argument("--zip-keep", action="append", default=[], metavar="ENTRY",
                         help="treat INPUT as ZIP and keep only these entries")
     parser.add_argument("--secrets-stdin", action="store_true",
@@ -706,7 +1160,8 @@ def main(argv: list[str]) -> int:
 
     state = State.load(args.state)
     anonymizer = Anonymizer(state, users=env_usernames() + args.user,
-                            keep=args.keep + env_keep_names(), hosts=args.host)
+                            keep=args.keep + env_keep_names(), hosts=args.host,
+                            partner_limit=args.partner_limit)
     if args.verify:
         if not args.paths:
             parser.error("--verify needs at least one file")

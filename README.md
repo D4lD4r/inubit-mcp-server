@@ -3,10 +3,11 @@
 A local [Model Context Protocol](https://modelcontextprotocol.io) server (stdio, Java 21) that lets
 an AI assistant such as Claude Code operate and diagnose **INUBIT 8.1** and **INUBIT 9.0**
 integration servers: check health, find failed or hanging process instances and read the matching
-logs, inspect the inventory of diagrams and modules, and — only where explicitly allowed — restart
-or kill a single process instance. On a configured **development stage** it brings workspace changes
-back into INUBIT, switches workflows on or off, tags tested states, restores backups and sends SOAP
-test messages. Along a configured **stage chain** it deploys a tagged release into the next group,
+logs, inspect the inventory of diagrams and modules and the partners of the Partner Management,
+and — only where explicitly allowed — restart or kill a single process instance. On a configured
+**development stage** it brings workspace changes back into INUBIT, switches workflows on or off,
+tags tested states, restores backups and sends SOAP test messages. Along a configured **stage
+chain** it deploys a tagged release into the next group,
 node by node — or, for a package-only group such as production, prepares import packages for a
 person. It uses the INUBIT REST API wherever possible and the INUBIT command-line client (StartCLI)
 only where REST cannot do the job. Nodes of an older **INUBIT 6.1** installation can be configured
@@ -27,7 +28,8 @@ computer — that the assistant searches before researching in INUBIT and, after
 | `find_processes` | failed (`ERROR`), waiting, queued or hanging process instances | REST |
 | `query_logs` | log entries (systemLog, queueLog, auditLog, …) by time, workflow, severity, process id, text | REST |
 | `list_inventory` | diagrams or modules of the configured owner, filtered by name, type, INUBIT group | REST (diagrams), StartCLI (modules) |
-| `get_inventory_item` | one diagram or module: versions, tags, active flag, modules used | REST + StartCLI |
+| `get_inventory_item` | one diagram or module: versions, tags, active flag, modules used; for a technical workflow its partner variables and the communication clouds that reference it | REST + StartCLI |
+| `find_partners` | partners of the INUBIT Partner Management in the owner's system diagrams: search or list them with their protocol entries, or compare them across nodes; passwords, keys and other secrets only as set or not set; every call audited | REST (model export) |
 | `restart_process` | restart ONE process instance in `ERROR` on ONE node (two-step confirmation) | REST + StartCLI |
 | `kill_process` | kill ONE process instance on ONE node (two-step confirmation) | REST + StartCLI |
 | `export_artifacts` | export technical workflows (by diagram group), modules, or repository files and folders (by path) into a local, git-versioned workspace as readable files, with the repository files the exported artifacts reference (also indirectly); secrets replaced by placeholders, key material withheld | StartCLI `export` (read-only) |
@@ -48,7 +50,7 @@ own explicit setting:
 | `list_nodes`, `get_health`, `check_artifacts` | always |
 | `read_knowledge` | always |
 | `record_knowledge` | unless the profile sets `knowledge.recording: false` |
-| `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item` | a node is not pinned to an INUBIT version that refuses the tool (none of them is offered, e.g., in a profile of INUBIT 6.1 nodes only) |
+| `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item`, `find_partners` | a node is not pinned to an INUBIT version that refuses the tool (none of them is offered, e.g., in a profile of INUBIT 6.1 nodes only) |
 | `export_artifacts`, `export_archives` | a node has a StartCLI installation and is not pinned to an INUBIT version that refuses the export |
 | `restart_process`, `kill_process` | a node has effective write access (`write.enabled`) |
 | `import_artifacts`, `restore_backup`, `set_active`, `tag_artifacts` | a node has `development.enabled: true` (never on production) |
@@ -86,7 +88,8 @@ development stages and the stage chain: [docs/setup.md](docs/setup.md).
   comes back and nothing it was bound to has changed. Deployments always need it.
 - **Audit.** Every write call that reaches the server (refused, previewed, executed or failed) is
   appended to an owner-only JSON Lines audit log per profile; if the record cannot be written, the
-  action is not executed.
+  action is not executed. So is every call of `find_partners`, which reads partner data; without
+  its records it returns no partner data.
 - **Credential guard.** After a rejected login the server re-reads that node's credentials once
   and allows one login with changed values, then does not retry them for 60 s, so an assistant
   cannot lock the INUBIT account out: at most two failed logins per node per 60 s, and a changed
@@ -99,6 +102,11 @@ development stages and the stage chain: [docs/setup.md](docs/setup.md).
   profile or the conversation: the YAML file names entries or parameters only (a credential value
   there is a startup error), no tool takes or returns a secret, and no AWS access key is
   configured. StartCLI receives the password on stdin, never as a process argument.
+- **Partner data, but no partner secrets.** `find_partners` reads the Partner Management in
+  memory: partner hosts, logins and other shown values reach the conversation; passwords,
+  encrypted values and key material never do — they are shown as set or not set, and only
+  compared by a keyed fingerprint held in memory ([SECURITY.md](SECURITY.md)). The partner usage
+  of `get_inventory_item` shows names only.
 - **Local artifact history, never pushed.** `export_artifacts` writes only to the local workspace
   and its local git history; secrets are replaced before anything is written, and nothing is ever
   sent anywhere. `check_artifacts` runs stylesheets without access to the server's environment,

@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.domain.model;
 
+import de.dadecker.inubit.mcp.domain.model.partner.PartnerUsage;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -22,14 +23,18 @@ import java.util.Optional;
  *       sorted by name; {@code workflowCount}; {@code usageComplete}: whether the server's usage
  *       index could be built completely, T126) and the versions from the history export of the
  *       group of the first using workflow that is in the diagram list.
+ *   <li>Technical workflows (feature 018, FR-015): {@code partnerUsage}, the partner variables
+ *       and {@code PartnerManagement} module from the REST export and the communication clouds
+ *       of the owner's system diagrams whose {@code ReferencableTWFs} name the workflow.
  *   <li>Not found: only {@code server}, {@code kind}, {@code name}, {@code owner} and up to five
  *       {@code similarNames} (Story 3 / AS 5).
  *   <li>There is no "active version": INUBIT 8.1 does not expose one (FR-016).
  * </ul>
  *
- * @param versions    newest first; absent if unavailable (then {@code unavailable} says why)
- * @param unavailable parts that could not be obtained, e.g. the version history
- * @param truncated   true if text or list entries were cut to keep the result bounded
+ * @param versions     newest first; absent if unavailable (then {@code unavailable} says why)
+ * @param partnerUsage technical workflows only: how the workflow uses the Partner Management
+ * @param unavailable  parts that could not be obtained, e.g. the version history
+ * @param truncated    true if text or list entries were cut to keep the result bounded
  */
 public record InventoryDetail(
     NodeId node,
@@ -49,6 +54,7 @@ public record InventoryDetail(
     Optional<List<ModuleRef>> modules,
     Optional<ConnectorFlags> connector,
     Optional<List<String>> similarNames,
+    Optional<PartnerUsage> partnerUsage,
     List<UnavailableInventoryPart> unavailable,
     boolean truncated) {
 
@@ -79,6 +85,7 @@ public record InventoryDetail(
                     + " similar names, got " + names.size());
             }
         });
+        partnerUsage = partnerUsage == null ? Optional.empty() : partnerUsage;
         unavailable = List.copyOf(unavailable);
     }
 
@@ -88,6 +95,7 @@ public record InventoryDetail(
         return new InventoryDetail(node, kind, name, Optional.empty(), Optional.empty(), owner,
             Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
             Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-            Optional.empty(), Optional.empty(), Optional.of(similarNames), List.of(), false);
+            Optional.empty(), Optional.empty(), Optional.of(similarNames), Optional.empty(),
+            List.of(), false);
     }
 }

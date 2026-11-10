@@ -33,7 +33,8 @@ class ToolAnnouncementTest {
     private static final List<String> ALWAYS = List.of("list_nodes", "get_health",
         "read_knowledge", "record_knowledge", "check_artifacts");
     private static final List<String> READS = List.of("find_processes", "query_logs",
-        "list_inventory", "get_inventory_item", "export_artifacts", "export_archives");
+        "list_inventory", "get_inventory_item", "export_artifacts", "export_archives",
+        "find_partners");
 
     /** The production matrix after the flip of the 6.1 capabilities (T040). */
     private static final CapabilityMatrix FLIPPED = new CapabilityMatrix(List.of(
@@ -154,7 +155,7 @@ class ToolAnnouncementTest {
 
         assertThat(names).containsAll(ALWAYS).contains("find_processes")
             .doesNotContain("query_logs", "list_inventory", "get_inventory_item",
-                "export_artifacts", "export_archives");
+                "export_artifacts", "export_archives", "find_partners");
     }
 
     @Test

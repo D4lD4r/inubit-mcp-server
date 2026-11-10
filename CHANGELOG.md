@@ -7,10 +7,41 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Feature 018: read the INUBIT Partner Management. Derived from INUBIT 8.1 exports and tested
+against fixtures; on INUBIT 9.0 it runs unverified.
+
 Feature 019: a local knowledge per profile. Not yet checked live in an MCP client (the live check
 of `specs/019-local-knowledge/quickstart.md` is open).
 
 ### Added
+
+- `find_partners` (feature 018), a read-only tool for the partners of the INUBIT Partner
+  Management in the owner's system diagrams, on one node, one group or two targets
+  (`compareWith`). It reads each system diagram with one REST model export, in memory only, and
+  never writes to INUBIT or to disk.
+  - With `search`: the partners whose `Id`, name or another non-secret field contains the term,
+    each in full (fields, and per protocol entry the referenced technical workflow, the protocol
+    settings and the additional parameters); without it: every partner as a summary (per entry
+    `protocol`, `workflow`, `ServerName`, `Login`). `systemDiagram`, `protocol` and `workflow`
+    narrow both; paging with `total`, `nextOffset` and `truncated`; similar Ids and names when a
+    search matches nothing; the system diagrams read with their communication clouds.
+  - A comparison across nodes matches partners by system diagram, communication cloud and partner
+    key and shows each value once if equal, else per node (`differs`), with `onlyOn`,
+    `notCompared` and `incomplete` for failed nodes and system diagrams that could not be read.
+  - Secrets (passwords, fields whose `fieldType` is not `String`, encrypted values, key material)
+    are shown only as set or not set; on INUBIT 8.1 `sameOn` says which nodes store the same
+    value, from a keyed fingerprint held in memory only. The same secret stored in different
+    forms is reported as differing.
+  - Every call is audited: one record per node with the new audit fields `callId` and `details`
+    (counts only); without its audit record the call returns no partner data. Records of the
+    other tools are unchanged.
+- `get_inventory_item` shows for a technical workflow its `partnerUsage`: the partner variables
+  it uses, whether it has a `PartnerManagement` module and the communication clouds of the owner's
+  system diagrams that reference it (names only, not audited), or in `unavailable` why they were
+  not read.
+- The capability `partner_management` in `list_nodes` (and, as `partner management`, among the
+  refused capabilities of a 6.1 node in `--check-config`): supported on INUBIT 8.1, unverified on
+  9.0 and later versions (runs with a warning), refused on 6.1.
 
 - A **local knowledge** per profile (feature 019): Markdown notes with operating knowledge and
   research results in a folder on this computer, `knowledge.directory` (default
@@ -44,6 +75,12 @@ of `specs/019-local-knowledge/quickstart.md` is open).
 
 ### Changed
 
+- `list_nodes` reports an INUBIT 9.0 node as `partially_supported` instead of `supported`,
+  because partner management is not verified on INUBIT 9.0.
+- `cliExportTimeout` also bounds the Partner Management read of one node (its system diagram
+  exports share it); raise it for owners with many system diagrams.
+- An error of a Partner Management export carries no `excerpt` of INUBIT's answer, which could
+  quote partner data; its next step points to the INUBIT system log.
 - **Credential reads for the local knowledge** (feature 019, decided as "fail closed"): to mask
   the profile's own credentials in notes, the first `read_knowledge` or `record_knowledge` call
   reads the credentials of every node of the profile, so access dialogs of nodes the session does
@@ -52,7 +89,7 @@ of `specs/019-local-knowledge/quickstart.md` is open).
   until then the list is withheld). This changes the rule of 0.7.0 that no credential is read at
   start, for profiles with notes. While a credential cannot be read (dialog denied, Parameter
   Store unreachable), both knowledge tools refuse with `PRECONDITION_FAILED`.
-- `docs/tools.md` describes nineteen tools.
+- `docs/tools.md` describes twenty tools.
 
 ## [0.8.0] - 2026-11-07
 

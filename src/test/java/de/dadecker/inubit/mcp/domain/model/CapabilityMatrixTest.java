@@ -29,9 +29,13 @@ class CapabilityMatrixTest {
             .isEqualTo(SupportState.SUPPORTED);
     }
 
-    /** Feature 017 (T004, research D-9): 9.0 is declared like 8.1, REST and CLI. */
+    /**
+     * Feature 017 (T004, research D-9): 9.0 is declared like 8.1, REST and CLI; partner
+     * management is the exception of feature 018 (below).
+     */
     @ParameterizedTest
-    @EnumSource(Capability.class)
+    @EnumSource(value = Capability.class, names = "PARTNER_MANAGEMENT",
+        mode = EnumSource.Mode.EXCLUDE)
     void everyCapabilityIsSupportedOn90LikeOn81(Capability capability) {
         assertThat(production.state(version("9.0.7"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -43,6 +47,43 @@ class CapabilityMatrixTest {
             .isEqualTo(production.channels(version("8.1.17"), capability))
             .isEqualTo(capability.channels());
         assertThat(production.isCliOnly(version("9.0.7"))).isFalse();
+    }
+
+    /**
+     * Feature 018 (FR-016, research D-7): partner management is supported on 8.1 only, runs with
+     * a warning on 9.0, every other and an unknown version, and is refused on 6.1.
+     */
+    @Test
+    void partnerManagementIsSupportedOn81UnverifiedOn90AndOthersAndUnsupportedOn61() {
+        Capability partners = Capability.PARTNER_MANAGEMENT;
+        assertThat(production.state(version("8.1.17"), partners))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.stateOfLine(8, OptionalInt.of(1), partners))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.state(version("9.0.7"), partners))
+            .isEqualTo(SupportState.UNVERIFIED);
+        assertThat(production.stateOfLine(9, OptionalInt.of(0), partners))
+            .isEqualTo(SupportState.UNVERIFIED);
+        assertThat(production.stateOfLine(9, OptionalInt.empty(), partners)).as("V9_X")
+            .isEqualTo(SupportState.UNVERIFIED);
+        assertThat(production.state(version("9.1.0"), partners))
+            .isEqualTo(SupportState.UNVERIFIED);
+        assertThat(production.state(Optional.empty(), partners))
+            .isEqualTo(SupportState.UNVERIFIED);
+        assertThat(production.state(version("6.1.0.89-HF1"), partners))
+            .isEqualTo(SupportState.UNSUPPORTED);
+        assertThat(production.stateOfLine(6, OptionalInt.of(1), partners))
+            .isEqualTo(SupportState.UNSUPPORTED);
+        assertThat(production.channels(version("9.0.7"), partners))
+            .isEqualTo(production.channels(version("8.1.17"), partners))
+            .containsExactly(Channel.REST);
+    }
+
+    /** Feature 018 (FR-012a, research D-5): equal stored secrets are comparable on 8.1 only. */
+    @Test
+    void storedSecretsAreComparableOn81Only() {
+        assertThat(CapabilityMatrix.COMPARABLE_SECRET_LINES)
+            .containsExactly(new MajorMinor(8, 1));
     }
 
     /** Feature 017 (T004, research D-9): {@code V9_X} still selects no 9.0 support. */
@@ -103,7 +144,8 @@ class CapabilityMatrixTest {
     void readAndWriteCapabilitiesFollowTheToolClassification() {
         assertThat(Capability.values()).filteredOn(c -> c.kind() == Kind.READ)
             .containsExactly(Capability.MONITORING, Capability.PROCESS_DIAGNOSIS,
-                Capability.LOG_DIAGNOSIS, Capability.INVENTORY, Capability.WORKSPACE_EXPORT);
+                Capability.LOG_DIAGNOSIS, Capability.INVENTORY, Capability.PARTNER_MANAGEMENT,
+                Capability.WORKSPACE_EXPORT);
         assertThat(Capability.values()).filteredOn(c -> c.kind() == Kind.WRITE)
             .containsExactly(Capability.DEVELOPMENT_WRITE, Capability.DEPLOYMENT,
                 Capability.E2E_TEST, Capability.PROCESS_CONTROL);
@@ -129,6 +171,8 @@ class CapabilityMatrixTest {
         assertThat(Capability.LOG_DIAGNOSIS.channels()).containsExactlyInAnyOrder(Channel.REST);
         assertThat(Capability.INVENTORY.channels())
             .containsExactlyInAnyOrder(Channel.REST, Channel.CLI);
+        assertThat(Capability.PARTNER_MANAGEMENT.channels())
+            .containsExactlyInAnyOrder(Channel.REST);
         assertThat(Capability.WORKSPACE_EXPORT.channels()).containsExactlyInAnyOrder(Channel.CLI);
         assertThat(Capability.DEVELOPMENT_WRITE.channels())
             .containsExactlyInAnyOrder(Channel.CLI, Channel.REST);
