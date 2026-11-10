@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.InventoryKind;
+import de.dadecker.inubit.mcp.domain.model.Names;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeResult;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
@@ -34,6 +35,8 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * The use case behind {@code find_partners} (feature 018). T018: the read path.
@@ -67,6 +70,10 @@ import java.util.function.Supplier;
  *       fingerprint. Per server: every system diagram read with its clouds and their partner
  *       counts, those without a Partner Management, the unreadable ones and the warnings; per
  *       cloud that contributed a match, its referencable workflows.
+ *   <li>Similar values (T020, FR-005b, FR-011, FR-019): a search without hits lists up to five
+ *       similar shown {@code Id} and {@code Name} values ({@link SimilarNames}), never a masked
+ *       one; a {@code systemDiagram} that no answering server has ends the call with
+ *       {@code NOT_FOUND} naming up to five similar system diagram names.
  * </ul>
  */
 public final class PartnerService {
@@ -74,11 +81,17 @@ public final class PartnerService {
     static final Duration FAN_OUT_GRACE = Duration.ofSeconds(1);
     private static final String TOOL = "find_partners";
     private static final String SYSTEM_DIAGRAM = "systemdiagram";
+    /** Upper bound of similar values and similar system diagram names (FR-005b, FR-019). */
+    static final int MAX_SIMILAR = 5;
+    /** The partner fields similar values are taken from (FR-005b). */
+    private static final Set<String> SIMILAR_FIELDS = Set.of("Id", "Name");
 
     /**
      * What one server answered for one call.
      *
      * @param owner              the owner its system diagrams were read for
+     * @param systemDiagrams     all of the owner's system diagrams, also those a
+     *                           {@code systemDiagram} filter left out (FR-019)
      * @param collectedAt        the oldest collection time of the cached parts used
      * @param fromCache          whether this call made no read on the server: the system diagram
      *                           list and the Partner Managements came from the cache or from the
@@ -89,12 +102,13 @@ public final class PartnerService {
      *                           requested diagrams in list order (the same whether the owner's
      *                           entry or the diagram's own entry answers)
      */
-    record ServerRead(String owner, Instant collectedAt, boolean fromCache,
-        List<SystemDiagramPartners> diagrams, List<UnreadableDiagram> unreadableDiagrams,
-        List<String> warnings) {
+    record ServerRead(String owner, List<DiagramRef> systemDiagrams, Instant collectedAt,
+        boolean fromCache, List<SystemDiagramPartners> diagrams,
+        List<UnreadableDiagram> unreadableDiagrams, List<String> warnings) {
 
         ServerRead {
             Objects.requireNonNull(owner, "owner");
+            systemDiagrams = List.copyOf(systemDiagrams);
             Objects.requireNonNull(collectedAt, "collectedAt");
             diagrams = List.copyOf(diagrams);
             unreadableDiagrams = List.copyOf(unreadableDiagrams);
@@ -103,19 +117,23 @@ public final class PartnerService {
     }
 
     /**
-     * The answer of one call (T019).
+     * The answer of one call (T019, T020).
      *
      * @param servers               one per targeted server, in config order
      * @param referencableWorkflows per communication cloud that contributed a partner (FR-007)
      * @param partners              the matching partners in export order
+     * @param similarValues         only when a search matched nothing: up to
+     *                              {@link #MAX_SIMILAR} non-masked {@code Id} and {@code Name}
+     *                              values of the system diagrams read, closest first (FR-005b)
      */
     public record Found(List<ServerView> servers, List<CloudWorkflows> referencableWorkflows,
-        List<PartnerView> partners) {
+        List<PartnerView> partners, Optional<List<String>> similarValues) {
 
         public Found {
             servers = List.copyOf(servers);
             referencableWorkflows = List.copyOf(referencableWorkflows);
             partners = List.copyOf(partners);
+            similarValues = similarValues.map(List::copyOf);
         }
     }
 
@@ -245,16 +263,21 @@ public final class PartnerService {
     /**
      * The partners of every server of {@code query.target()} whose non-masked fields contain
      * {@code query.search()}, case-insensitively (every partner without a search term), each in
-     * full (FR-004, FR-005, FR-007, FR-011).
+     * full (FR-004, FR-005, FR-007, FR-011). A search without hits gets similar values
+     * (FR-005b).
      *
-     * @throws ToolErrorException {@code TARGET_UNKNOWN} before any server is contacted
+     * @throws ToolErrorException {@code TARGET_UNKNOWN} before any server is contacted;
+     *     {@code NOT_FOUND} with up to {@link #MAX_SIMILAR} similar system diagram names if no
+     *     server that answered has a system diagram named {@code query.systemDiagram()} (FR-019)
      */
     public Found find(PartnerQuery query) {
         Optional<String> term = query.search().map(PartnerService::folded);
         List<ServerView> servers = new ArrayList<>();
         List<CloudWorkflows> workflows = new ArrayList<>();
         List<PartnerView> partners = new ArrayList<>();
-        for (NodeResult<ServerRead> result : read(query)) {
+        List<NodeResult<ServerRead>> results = read(query);
+        query.systemDiagram().ifPresent(name -> requireSystemDiagram(name, results));
+        for (NodeResult<ServerRead> result : results) {
             servers.add(serverView(result));
             for (SystemDiagramPartners diagram : result.payload().map(ServerRead::diagrams)
                 .orElse(List.of())) {
@@ -271,7 +294,58 @@ public final class PartnerService {
                 }
             }
         }
-        return new Found(servers, workflows, partners);
+        Optional<List<String>> similar = query.search()
+            .filter(search -> partners.isEmpty())
+            .map(search -> SimilarNames.of(search, similarCandidates(results), MAX_SIMILAR));
+        return new Found(servers, workflows, partners, similar);
+    }
+
+    /**
+     * The shown {@code Id} and {@code Name} values of every partner read; a masked value is never
+     * a candidate (FR-011).
+     */
+    private static List<String> similarCandidates(List<NodeResult<ServerRead>> results) {
+        return results.stream()
+            .flatMap(result -> result.payload().stream())
+            .flatMap(read -> read.diagrams().stream())
+            .flatMap(diagram -> diagram.clouds().stream())
+            .flatMap(cloud -> cloud.partners().stream())
+            .flatMap(partner -> partner.fields().stream())
+            .filter(field -> SIMILAR_FIELDS.contains(field.name()))
+            .map(Setting::value)
+            .flatMap(value -> value instanceof SettingValue.Shown shown
+                ? Stream.of(shown.rendered()) : Stream.empty())
+            .toList();
+    }
+
+    /**
+     * @throws ToolErrorException {@code NOT_FOUND} if at least one server answered and none of
+     *     them has a system diagram called {@code name} (any case, any diagram group)
+     */
+    private static void requireSystemDiagram(String name, List<NodeResult<ServerRead>> results) {
+        List<NodeResult<ServerRead>> answered = results.stream()
+            .filter(result -> result.payload().isPresent())
+            .toList();
+        List<String> names = answered.stream()
+            .flatMap(result -> result.payload().orElseThrow().systemDiagrams().stream())
+            .map(DiagramRef::name)
+            .toList();
+        if (answered.isEmpty() || names.stream().anyMatch(name::equalsIgnoreCase)) {
+            return;
+        }
+        List<String> similar = SimilarNames.of(name, names, MAX_SIMILAR);
+        String where = answered.stream()
+            .map(result -> result.node() + " (owner " + result.payload().orElseThrow().owner()
+                + ")")
+            .collect(Collectors.joining(", "));
+        throw new ToolErrorException(ToolError.of(ErrorCode.NOT_FOUND,
+            "No system diagram named " + Names.quote(name) + " on " + where,
+            "The name is misspelled, or the system diagram belongs to another owner",
+            similar.isEmpty()
+                ? "Call without systemDiagram to see the system diagrams read"
+                : "Use one of the similar system diagrams "
+                    + similar.stream().map(Names::quote).collect(Collectors.joining(", "))
+                    + ", or call without systemDiagram"));
     }
 
     /** Whether a non-masked field of {@code partner} contains {@code term} (already folded). */
@@ -397,7 +471,8 @@ public final class PartnerService {
             needed.forEach(diagram ->
                 warnings.addAll(snapshot.value().warnings().getOrDefault(diagram, List.of())));
         }
-        return new ServerRead(owner, collectedAt, !read.get(), diagrams, unreadable, warnings);
+        return new ServerRead(owner, list.value(), collectedAt, !read.get(), diagrams, unreadable,
+            warnings);
     }
 
     /**

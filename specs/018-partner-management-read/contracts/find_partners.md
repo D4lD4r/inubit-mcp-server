@@ -106,7 +106,8 @@ settings whose `set` or `sameOn` differ, and `onlyOn` entries (FR-012c).
 ## Errors
 
 Call level (no partner data): `INVALID_INPUT`, `TARGET_UNKNOWN`, `NOT_FOUND` (unknown
-`systemDiagram` on every answering server, with `similarNames`), `INTERNAL` (also: an audit record
+`systemDiagram` on every answering server; up to five similar system diagram names in `nextStep`,
+as `ToolError` has no list field), `INTERNAL` (also: an audit record
 could not be written; message names the `callId`).
 
 Server level (in `servers[].error`, others answered): `NOT_CONFIGURED` (no owner),

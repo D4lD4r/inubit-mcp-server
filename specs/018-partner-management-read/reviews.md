@@ -30,6 +30,7 @@ and is not a baseline failure. It is recorded here in case it comes back.
 - From T016 review (for T017): `AuditRecord` still requires a node, but the contract wants a refusal before any server is contacted written "without node"; decide in T017 (e.g. the requested target, as `ArchiveExportAudit` does, or make node optional) and keep `details` values to booleans and integers (a null value is written as text "null").
 - From T017 (for T021): per-server REFUSED/FAILED records carry no `reason`; add `Optional<String> reason` to `PartnerAudit.perServer` and pass the server's error code (code only, no message) so the audit shows why a server was not answered.
 - From T019 (for T022): `CloudWorkflows` (`referencableWorkflows[]`) names a cloud only by module name; give it the same optional `moduleId` as `PartnerView`/`CloudCount` (only when two clouds of one diagram share a name) and put it in the contract.
+- From T020 (for T026): test a `systemDiagram` filter on two answering servers where only one has the diagram: no call-level NOT_FOUND, the other server is marked.
 
 ## Implementation — phase 2 build
 

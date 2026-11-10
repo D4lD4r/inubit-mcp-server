@@ -226,7 +226,7 @@ a lower-case name part; check every value and the leak check over result, log, a
   Management marked, clouds without partners with count 0, `referencableWorkflows` per
   contributing cloud (FR-007). **Done when** US1-AS1…5 and Op-1 pass with the leak check — main
   `application/PartnerService.java`, test `application/PartnerServiceSearchTest.java`
-- [ ] T020 [US1] Similar values and `NOT_FOUND` on one server (after T019): no hit → up to five from
+- [X] T020 [US1] Similar values and `NOT_FOUND` on one server (after T019): no hit → up to five from
   non-masked `Id`/`Name` via `SimilarNames.of(term, candidates, 5)` (FR-005b); unknown
   `systemDiagram` filter → `NOT_FOUND` with up to five similar system diagram names (FR-019) —
   main `application/PartnerService.java`, test `application/PartnerServiceSearchTest.java`

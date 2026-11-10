@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.assertj.core.api.Assertions.tuple;
 
 import de.dadecker.inubit.mcp.adapter.archive.v81.PartnerFixtures;
@@ -27,6 +28,7 @@ import de.dadecker.inubit.mcp.domain.model.InventoryItem;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
+import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.partner.CommunicationCloud;
 import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
 import de.dadecker.inubit.mcp.domain.model.partner.Partner;
@@ -249,6 +251,107 @@ class PartnerServiceSearchTest {
             .extracting(DiagramRead::name).containsExactly(ONE.name());
     }
 
+    // --- T020: similar values (FR-005b) and an unknown system diagram (FR-019) ---------------
+
+    @Test
+    void aSearchWithoutHitsListsSimilarIdsAndNamesClosestFirst() {
+        export(PartnerFixtures.detail());
+
+        Found found = find("acme-0004");
+
+        assertThat(found.partners()).isEmpty();
+        assertThat(found.servers().get(0).systemDiagramsRead())
+            .extracting(DiagramRead::name).containsExactly(ONE.name());
+        assertThat(found.similarValues())
+            .contains(List.of("ACME-0001", "ACME-0002", "ACME-0003"));
+        assertThat(find("acme logistix").similarValues()).contains(List.of("ACME Logistics"));
+        assertThat(find("zzzz").similarValues()).contains(List.of());
+    }
+
+    @Test
+    void atMostFiveSimilarValuesAreListed() {
+        export(PartnerFixtures.list(12));
+
+        assertThat(find("acme-0000").similarValues()).contains(
+            List.of("ACME-0001", "ACME-0002", "ACME-0003", "ACME-0004", "ACME-0005"));
+    }
+
+    @Test
+    void similarValuesOnlyWhenASearchFoundNothing() {
+        export(PartnerFixtures.detail());
+
+        assertThat(find("acme-0001").similarValues()).isEmpty();
+        assertThat(service().find(query("dev/node1", Optional.empty(), Optional.empty()))
+            .similarValues()).isEmpty();
+    }
+
+    @Test
+    void aMaskedNameIsNeverASimilarValue() {
+        // a cloud whose Name field is not plain: every Name in it is masked
+        export(new DiagramXml(GROUP, ONE.name(), OWNER, List.of(new CloudXml("44", CLOUD,
+            List.of(new FieldXml("Id", "String"), new FieldXml("Name", "Password")),
+            List.of(new TwfXml("1", "35", "Workflow-0009")),
+            List.of(new PartnerXml(List.of(Leaf.plain("Id", "ACME-0007"),
+                Leaf.plain("Name", "Hidden Partner Name")), List.of()))))));
+
+        Found nearMaskedName = find("hidden partner nam");
+
+        assertThat(nearMaskedName.partners()).isEmpty();
+        assertThat(nearMaskedName.similarValues()).contains(List.of());
+        assertThat(find("acme-0008").similarValues()).contains(List.of("ACME-0007"));
+        assertThat(ResultJson.mapper().writeValueAsString(nearMaskedName))
+            .doesNotContain("Hidden");
+    }
+
+    @Test
+    void aSecretIsNeverASimilarValue() {
+        export(PartnerFixtures.detail());
+
+        for (String secret : List.of(PartnerFixtures.SECRET_FIELD_VALUE,
+            PartnerFixtures.LEGACY_PASSWORD, PartnerFixtures.WS_SECURITY_PASSWORD,
+            PartnerFixtures.AES_PASSWORD)) {
+            Found nearSecret = find(secret.substring(0, secret.length() - 1) + "9");
+
+            assertThat(nearSecret.partners()).as(secret).isEmpty();
+            assertThat(nearSecret.similarValues()).as(secret).contains(List.of());
+            assertNoSecretIn(nearSecret);
+        }
+    }
+
+    @Test
+    void anUnknownSystemDiagramIsNotFoundWithAtMostFiveSimilarNames() {
+        for (int n = 1; n <= 7; n++) {
+            export(new DiagramXml(GROUP, "SystemDiagram-0" + n, OWNER, List.of()));
+        }
+
+        ToolErrorException e = catchThrowableOfType(ToolErrorException.class,
+            () -> service().find(query("dev/node1", Optional.empty(),
+                Optional.of("SystemDiagram-00"))));
+
+        assertThat(e.error().code()).isEqualTo(ErrorCode.NOT_FOUND);
+        assertThat(e.error().message()).contains("'SystemDiagram-00'", NODE1.toString(), OWNER);
+        assertThat(e.error().nextStep()).contains("'SystemDiagram-01'", "'SystemDiagram-05'")
+            .doesNotContain("SystemDiagram-06").doesNotContain("SystemDiagram-07");
+    }
+
+    @Test
+    void aSystemDiagramFilterIgnoresCaseAndIsNotFoundOnlyIfNoAnsweringServerHasIt() {
+        export(PartnerFixtures.detail());
+
+        Found found = service().find(query("dev/node1", Optional.of("acme-0001"),
+            Optional.of("systemdiagram-01")));
+        ToolErrorException e = catchThrowableOfType(ToolErrorException.class,
+            () -> service().find(query("dev", Optional.empty(), Optional.of("SystemDiagram-1"))));
+        Found noneAnswered = service().find(query("dev/node2", Optional.empty(),
+            Optional.of("SystemDiagram-1")));
+
+        assertThat(found.partners()).extracting(PartnerView::systemDiagram).containsExactly(ONE);
+        assertThat(e.error().code()).isEqualTo(ErrorCode.NOT_FOUND);
+        assertThat(e.error().nextStep()).contains("'SystemDiagram-01'");
+        assertThat(noneAnswered.servers()).extracting(server -> server.error().map(ToolError::code))
+            .containsExactly(Optional.of(ErrorCode.NOT_CONFIGURED));
+    }
+
     // --- FR-011 -------------------------------------------------------------------------------
 
     @Test
@@ -332,8 +435,13 @@ class PartnerServiceSearchTest {
     }
 
     private static PartnerQuery query(String target, Optional<String> search) {
+        return query(target, search, Optional.empty());
+    }
+
+    private static PartnerQuery query(String target, Optional<String> search,
+        Optional<String> systemDiagram) {
         return new PartnerQuery(target, Optional.empty(), Optional.empty(), search,
-            Optional.empty(), Optional.empty(), Optional.empty(), 0, PartnerQuery.DEFAULT_LIMIT,
+            systemDiagram, Optional.empty(), Optional.empty(), 0, PartnerQuery.DEFAULT_LIMIT,
             false, Optional.empty());
     }
 
