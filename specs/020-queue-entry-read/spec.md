@@ -78,13 +78,24 @@ hint) and the variables. Testable offline with a fake INUBIT client.
    `authorization`) or an HTTP `Authorization` header among the variables, **When** the tool
    returns them, **Then** each such value is replaced by `${secret:variables.<name>}` and never
    appears in the result or the server log.
+5. **Given** a configured INUBIT credential of the profile appears literally in the data stream or
+   a variable value, **When** the tool returns it, **Then** it is scrubbed the same way as in all
+   other tool results.
 6. **Given** a data stream that contains a credential in an element, attribute or key named like a
    secret (for example a WS-Security `<wsse:Password>` or a JSON `"password": "…"`), **When** the
    tool returns the stream, **Then** that value is replaced by `${secret:data.<name>}` and the rest
    of the stream is unchanged.
-5. **Given** a configured INUBIT credential of the profile appears literally in the data stream or
-   a variable value, **When** the tool returns it, **Then** it is scrubbed the same way as in all
-   other tool results.
+7. **Given** two ERROR entries for process ID `1234` (a sub-workflow and its caller), **When** the
+   tool is called without `fileName`, **Then** it fails with `INVALID_INPUT` listing both entries
+   (file name, workflow, module, time); **When** it is called again with one of the file names,
+   **Then** that entry is read.
+8. **Given** an ERROR entry whose variables INUBIT reports as missing while the data stream is
+   returned, **When** the tool is called, **Then** the result contains the metadata and the data
+   stream and marks the variables as unavailable with the reason.
+9. **Given** an entry with 250 variables, **When** the tool is called, **Then** 200 variables are
+   returned with a truncation marker naming the total count.
+10. **Given** the server does not answer within `cliTimeout`, **When** the tool is called,
+    **Then** it fails with `TIMEOUT` and no partial content.
 
 ---
 
@@ -114,6 +125,8 @@ refused for other groups.
    any support or stability guarantee from the vendor, that it may stop working or behave
    differently after any INUBIT update, and that results must not be relied on for anything but
    diagnosis.
+5. **Given** the opt-in on a group with `production: true`, **When** the server starts, **Then**
+   the startup log and `--check-config` show it as a warning.
 
 ---
 
@@ -158,13 +171,15 @@ uses the 8.1 implementation and the 8.1 client installation; a call against a 9.
 - **Entries exist, none in ERROR** (WAITING, RETRY, QUEUED, PROCESSING), or `fileName` names an
   entry that is not in ERROR: refused with `INVALID_INPUT` ("only ERROR entries are supported")
   listing their states; no content request is sent.
-- **Entry disappears between lookup and download** (restarted or deleted by someone):
-  `NOT_FOUND` with the hint that the entry left the Queue Manager.
-- **Data stream or variables not retrievable while the row exists** (store inconsistent, vendor
-  interface changed): the result still contains the metadata and marks the missing part as
-  unavailable with the reason; it is not a failure of the whole call.
-- **Vendor interface answers in an unexpected way** (changed after an INUBIT update):
-  `UNEXPECTED_RESPONSE` whose message says that the unsupported interface may have changed.
+- **Content response cannot be parsed as a whole** (for example the unsupported interface
+  changed after an INUBIT update): `UNEXPECTED_RESPONSE`, whose message says that the
+  unsupported interface may have changed.
+- **Content response parsed, one part missing or reported as an error by INUBIT** (data stream or
+  variables): the result contains the metadata and marks that part as unavailable with the
+  reason (FR-012); not a failure of the whole call.
+- **Content request reports that the entry does not exist**: the queue row is read again; row
+  gone → `NOT_FOUND` ("the entry left the Queue Manager"); row still there → partial result as in
+  the previous case.
 - **Empty data stream** (size 0): the result says so; no content field.
 - **Text or binary**: decided by FR-009's rule only (signature, NUL byte, share of control
   characters); INUBIT returns no reliable content type or encoding for the entry, so none is
@@ -221,15 +236,20 @@ uses the 8.1 implementation and the 8.1 client installation; a call against a 9.
   bytes, and the error text columns of the queue row.
 - **FR-009**: The data stream is **binary** if it starts with a known signature (ZIP, GZIP, PDF,
   PNG, JPEG, GIF, Java serialized object) or if its first 8 KiB contain a NUL byte or more than
-  10 % control characters other than TAB, CR and LF; otherwise it is **text**, decoded as UTF-8
-  if valid, otherwise as ISO-8859-1, with the charset named. Text MUST be returned cut at
+  10 % control bytes (0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F, 0x7F; bytes 0x80 and above never count);
+  the window is the first min(8 KiB, size) bytes. Otherwise it is **text**, decoded as UTF-8 if the
+  whole stream is valid UTF-8, otherwise as ISO-8859-1, with the charset named. UTF-16 text is
+  classified as binary (NUL bytes) on purpose. Text MUST be returned cut at
   `maxChars` with an explicit truncation marker and the full size in bytes; binary content MUST be
   returned only as size, detected kind (where a signature matched) and a hint, never as content.
-- **FR-010**: The result MUST contain the workflow variables of the entry, each with `name`,
-  `system` (`true` for INUBIT's own properties: names starting with `IS` followed by an upper-case
-  letter, or with `_hidden.`), `type` where INUBIT names one, and `value` as text. Values are
+- **FR-010**: The result MUST contain the workflow variables of the entry, each with `name`
+  (cut at 200 characters), `system` (`true` for INUBIT's own properties: the names `ISFileSize`,
+  `ISCurrentTime`, `ISWorkflowName`, `ISModuleName`, `ISModuleId`, `ISProcessId`, `ISUserName`,
+  `ISServerName`, `ISNodeName`, `ISGlobalProcessId`, `ISOverwriteSubWorkflowPriority`, and every
+  name starting with `_hidden.`; all others `false`), `type` where INUBIT names one, and `value` as
+  text. Values are
   classified like the data stream (FR-009); a binary value is shown as size and hint. Bounds: at
-  most 200 variables, 2,000 characters per value and 40,000 characters for all values together,
+  most 200 variables (system variables included), 2,000 characters per value and 40,000 characters for all values together,
   each with an explicit truncation marker. The whole result is therefore at most about 140,000
   characters.
 - **FR-011**: Masking, applied to the data stream and to every variable value before the result
@@ -238,8 +258,11 @@ uses the 8.1 implementation and the 8.1 client installation; a call against a 9.
     `token`, `apikey`, `api_key`, `credential`, `authorization`, `private`, `keystore` or
     `cookie` gets the value `${secret:variables.<name>}`;
   - in text (data stream and variable values), the value of an XML element or attribute and of a
-    JSON key or `name=value` pair whose local name matches the same list is replaced by
-    `${secret:data.<name>}`, leaving the rest of the text unchanged;
+    JSON key or `name=value` pair whose local name contains (case-insensitive) one of the same
+    terms is replaced by `${secret:data.<name>}`, leaving the rest of the text unchanged: for an
+    element, the whole content between start and end tag (child elements included); for a JSON
+    key whose value is an object or array, the whole value; for `name=value`, the value up to the
+    first `&`, `;`, whitespace or line end;
   - an HTTP `Authorization` or `Proxy-Authorization` value and every `Basic`/`Bearer` credential
     in text is replaced by `${secret:authorization}`;
   - the known credentials of the profile are scrubbed as in every other result.
@@ -270,7 +293,10 @@ uses the 8.1 implementation and the 8.1 client installation; a call against a 9.
   (Constitution V). The 8.1 recording comes from the spike server; for 9.0 an ERROR entry is
   created on a non-production 9.0 test server (by the operator, or by the agent only after the
   operator approves that concrete action) and its response is recorded during this feature. The
-  feature is not complete before both recordings exist as fixtures.
+  feature is not complete before both recordings exist as fixtures. Fallback if no 9.0 ERROR
+  entry can be recorded (no 9.0 test server, or the operator declines): the feature ships with a
+  9.0 server refused with `UNSUPPORTED_VERSION` ("not yet verified"), the 9.0 code stays, and
+  enabling it after the recording is a follow-up change.
 - **FR-020**: All repository artifacts of this feature (tests, fixtures, documentation) MUST use
   fictitious names only.
 
