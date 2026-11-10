@@ -200,7 +200,7 @@ INUBIT contact.
 
 ### Helper (plan stage 6)
 
-- [ ] T013 [P] [US1] Fake vendor client for tests (D-19): `src/test/java/com/inubit/ibis/soap/IBISSoapClient.java`,
+- [X] T013 [P] [US1] Fake vendor client for tests (D-19): `src/test/java/com/inubit/ibis/soap/IBISSoapClient.java`,
   `.../configuration/utils/ConnectionData.java`, `.../client/rest/InubitClientFactory.java`,
   `.../configuration/utils/io/MultipartDownloadThread.java`, `.../utils/I_IBISClientInterface.java`
   with the signatures seen by `javap` (research "Spike facts"), driven by a script object

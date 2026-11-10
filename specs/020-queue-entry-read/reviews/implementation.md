@@ -64,3 +64,8 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
   (as T012 asks); the T026 catalogue test must accept these names next to `<case>.rows.json`.
 - `module`, `moduleType`, `globalProcessId` are not cut by the parser (only `userDefined1..5`);
   bounds on output fields belong to the result mapping (T024).
+
+## T013 notes (binding for T015, T034)
+
+- The fake 9.0 client (`InubitClientFactory`) is a private nested class: the helper must look up vendor client methods on `I_IBISClientInterface`, never on `client.getClass()`.
+- `MultipartDownloadThread` constructor parameter types are not known from the spike (only argument values). The helper must select the six-argument constructor by parameter count (not by exact `getConstructor` types); the 8.1 live check (T034) confirms the real signature.
