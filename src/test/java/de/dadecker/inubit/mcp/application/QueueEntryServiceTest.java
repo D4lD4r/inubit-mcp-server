@@ -17,6 +17,7 @@ import de.dadecker.inubit.mcp.domain.model.ProcessState;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryBounds;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
+import de.dadecker.inubit.mcp.domain.model.QueueEntryResult;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRow;
 import de.dadecker.inubit.mcp.domain.model.RawEntryContent;
 import de.dadecker.inubit.mcp.domain.model.RawEntryContent.PartResult;
@@ -26,13 +27,17 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
+import de.dadecker.inubit.mcp.infra.ResultJson;
+import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +45,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
@@ -51,9 +57,10 @@ import org.junit.jupiter.params.provider.ValueSource;
  * Feature 020 (T023): {@code read_queue_entry} up to the content read — input checks, target,
  * opt-in before the gate and any request, the gate with detection, the candidate rules of
  * research D-9, the 10 MiB pre-check, the port call with the admitted version and the re-read
- * after "not found" (contracts/mcp-tools-delta.md "Errors"). Fakes of
- * {@link ProcessQueryPort#queueEntries} and {@link QueueEntryContentPort}; no WireMock, no
- * process.
+ * after "not found" (contracts/mcp-tools-delta.md "Errors"). T024: the result built from it —
+ * classification, scrubbing of known credentials, masking, bounds (FR-008…FR-011, D-10…D-12;
+ * contracts/mcp-tools-delta.md "Output"). Fakes of {@link ProcessQueryPort#queueEntries} and
+ * {@link QueueEntryContentPort}; no WireMock, no process.
  */
 class QueueEntryServiceTest {
 
@@ -65,6 +72,7 @@ class QueueEntryServiceTest {
     private static final Instant NOW = Instant.parse("2026-11-10T09:00:00Z");
     private static final Instant SINCE = Instant.parse("2026-11-10T08:15:30Z");
     private static final String FILE = "Module-0001(4711)@1234@0a1b2c3d";
+    private static final String ORDER = "<Order><Id>Order-0001</Id></Order>";
     private static final InubitVersion V8_1_17 = InubitVersion.parse("8.1.17").orElseThrow();
 
     private final MutableClock clock = new MutableClock(NOW);
@@ -76,13 +84,18 @@ class QueueEntryServiceTest {
         .answer(TEST, "8.1.17").answer(TEST2, "8.1.17").answer(PROD, "8.1.17");
     private final FakeRows rows = new FakeRows();
     private final FakeContent content = new FakeContent();
+    private final SecretScrubber scrubber = new SecretScrubber();
+
+    {
+        scrubber.register(TestSecrets.CONFIGURED_PASSWORD);
+    }
 
     private final QueueEntryService service = new QueueEntryService(
         new TargetResolver(List.of(TEST, TEST2, PROD, LEGACY)),
         node -> !node.group().value().equals("prod"),
         FakeVersionDetection.gateWithoutClients(versions, detection,
             CapabilityMatrix.production()),
-        node -> rows.port(node), node -> content.port(node));
+        node -> rows.port(node), node -> content.port(node), scrubber::scrub);
 
     private final List<ToolError> errors = new ArrayList<>();
 
@@ -214,7 +227,7 @@ class QueueEntryServiceTest {
             new TargetResolver(List.of(LEGACY)), node -> false,
             FakeVersionDetection.gateWithoutClients(versions, detection,
                 CapabilityMatrix.production()),
-            node -> rows.port(node), node -> content.port(node));
+            node -> rows.port(node), node -> content.port(node), scrubber::scrub);
 
         ToolError error = errorOf(() -> withoutOptIn.readRaw(LEGACY.value(), PID,
             Optional.empty(), OptionalInt.empty()));
@@ -242,7 +255,7 @@ class QueueEntryServiceTest {
         QueueEntryService service90 = new QueueEntryService(new TargetResolver(List.of(TEST)),
             node -> true, FakeVersionDetection.gateWithoutClients(versions, nineZero,
                 CapabilityMatrix.production()),
-            node -> rows.port(node), node -> content.port(node));
+            node -> rows.port(node), node -> content.port(node), scrubber::scrub);
 
         ToolError error = errorOf(() -> service90.readRaw(TEST.value(), PID, Optional.empty(),
             OptionalInt.empty()));
@@ -627,6 +640,508 @@ class QueueEntryServiceTest {
             assertThat(call.node()).isEqualTo(TEST2);
             assertThat(call.ref().node()).isEqualTo(TEST2);
         });
+    }
+
+    // --- result shaping (T024) ----------------------------------------------------------------
+
+    /** US1-1: metadata, the data stream as text and the variables, in the contract's shape. */
+    @Test
+    void us1_1_resultHasMetadataTextAndVariablesInTheContractShape() {
+        QueueEntryResult result = shaped(new RawEntryContent(new PartResult.Read<>(utf8(ORDER)),
+            new PartResult.Read<>(List.of(
+                new RawVariable("ISFileSize", Optional.of("Long"), "772"),
+                new RawVariable("var.order", Optional.of("XmlDocument"), ORDER)))));
+
+        assertThat(json(result)).isEqualTo("{\"node\":\"test/node1\",\"entry\":{"
+            + "\"processId\":\"1234\",\"globalProcessId\":\"0f0e0d0c-0000-4000-8000-000000000001\","
+            + "\"workflow\":\"Workflow-0001\",\"module\":\"Module-0001\",\"moduleType\":\"Throw\","
+            + "\"state\":\"ERROR\",\"rawState\":\"Error\",\"since\":\"2026-11-10T08:15:30Z\","
+            + "\"fileName\":\"" + FILE + "\",\"sizeBytes\":772,"
+            + "\"errorTexts\":{\"userDefined1\":\"ACME-ERROR\"}},"
+            + "\"data\":{\"available\":true,\"kind\":\"text\",\"charset\":\"UTF-8\","
+            + "\"sizeBytes\":" + ORDER.length() + ",\"totalChars\":" + ORDER.length()
+            + ",\"returnedChars\":" + ORDER.length() + ",\"truncated\":false,"
+            + "\"text\":\"" + ORDER + "\"},"
+            + "\"variables\":{\"available\":true,\"totalCount\":2,\"returnedCount\":2,"
+            + "\"truncated\":false,\"items\":["
+            + "{\"name\":\"ISFileSize\",\"system\":true,\"type\":\"Long\",\"kind\":\"text\","
+            + "\"value\":\"772\",\"masked\":false},"
+            + "{\"name\":\"var.order\",\"system\":false,\"type\":\"XmlDocument\",\"kind\":\"text\","
+            + "\"value\":\"" + ORDER + "\",\"masked\":false}]},"
+            + "\"warnings\":[\"Read through an unsupported, undocumented INUBIT interface;"
+            + " diagnosis only\"]}");
+    }
+
+    @Test
+    void entryOmitsWhatTheRowDoesNotKnow() {
+        rows.answer(entries(row(PID, FILE, ProcessState.ERROR, "Error")));
+        content.answer(read());
+
+        QueueEntryResult result = service.read(TEST.value(), PID, Optional.empty(),
+            OptionalInt.empty());
+
+        assertThat(json(result.entry())).isEqualTo("{\"processId\":\"1234\","
+            + "\"workflow\":\"Workflow-0001\",\"module\":\"Module-0001\",\"state\":\"ERROR\","
+            + "\"rawState\":\"Error\",\"since\":\"2026-11-10T08:15:30Z\",\"fileName\":\"" + FILE
+            + "\",\"sizeBytes\":772,\"errorTexts\":{}}");
+    }
+
+    /** US1-2: cut at maxChars, marked, with the full size. */
+    @Test
+    void us1_2_textLongerThanMaxCharsIsCutAndMarked() {
+        String text = "a".repeat(150) + "b".repeat(100);
+
+        QueueEntryResult.Data data = shaped(data(utf8(text)), OptionalInt.of(150)).data();
+
+        assertThat(data.text()).contains("a".repeat(150));
+        assertThat(data.returnedChars()).contains(150);
+        assertThat(data.totalChars()).contains(250);
+        assertThat(data.sizeBytes()).contains(250L);
+        assertThat(data.truncated()).contains(true);
+    }
+
+    @Test
+    void textOf20001CharsIsCutAtTheDefault() {
+        QueueEntryResult.Data data = shaped(data(utf8("t".repeat(20_001)))).data();
+
+        assertThat(data.text().orElseThrow()).hasSize(20_000);
+        assertThat(data.returnedChars()).contains(20_000);
+        assertThat(data.totalChars()).contains(20_001);
+        assertThat(data.truncated()).contains(true);
+    }
+
+    @Test
+    void textOfExactlyMaxCharsIsNotTruncated() {
+        QueueEntryResult.Data data = shaped(data(utf8("t".repeat(20_000)))).data();
+
+        assertThat(data.returnedChars()).contains(20_000);
+        assertThat(data.truncated()).contains(false);
+    }
+
+    @Test
+    void cutNeverSplitsASurrogatePair() {
+        String text = "x".repeat(9) + "\uD83D\uDE00" + "y";
+
+        QueueEntryResult.Data data = shaped(data(utf8(text)), OptionalInt.of(10)).data();
+
+        assertThat(data.text()).contains("x".repeat(9));
+        assertThat(data.returnedChars()).contains(9);
+        assertThat(data.totalChars()).contains(12);
+        assertThat(data.truncated()).contains(true);
+    }
+
+    /** US1-3: binary content only as size, detected kind and hint. */
+    @Test
+    void us1_3_binaryZipIsReturnedAsSizeKindAndHintOnly() {
+        byte[] zip = {0x50, 0x4B, 0x03, 0x04, 'a', 'b', 'c', 'd', 'e', 'f'};
+
+        assertThat(json(shaped(data(zip)).data())).isEqualTo("{\"available\":true,"
+            + "\"kind\":\"binary\",\"sizeBytes\":10,\"detected\":\"ZIP\","
+            + "\"hint\":\"Binary content is not returned\"}");
+    }
+
+    @Test
+    void binaryWithoutSignatureHasNoDetectedKind() {
+        assertThat(json(shaped(data(new byte[] {'a', 0, 'b'})).data())).isEqualTo(
+            "{\"available\":true,\"kind\":\"binary\",\"sizeBytes\":3,"
+                + "\"hint\":\"Binary content is not returned\"}");
+    }
+
+    @Test
+    void emptyDataStreamHasNoContentField() {
+        assertThat(json(shaped(data(new byte[0])).data())).isEqualTo(
+            "{\"available\":true,\"kind\":\"empty\",\"sizeBytes\":0}");
+    }
+
+    @Test
+    void latin1TextIsDecodedAndItsCharsetNamed() {
+        byte[] latin1 = "Grüße an Order-0001".getBytes(StandardCharsets.ISO_8859_1);
+
+        QueueEntryResult.Data data = shaped(data(latin1)).data();
+
+        assertThat(data.kind()).contains("text");
+        assertThat(data.charset()).contains("ISO-8859-1");
+        assertThat(data.text()).contains("Grüße an Order-0001");
+        assertThat(data.sizeBytes()).contains((long) latin1.length);
+    }
+
+    /** US1-4: credential-named variables and an Authorization header among the variables. */
+    @Test
+    void us1_4_credentialNamedVariablesBecomePlaceholders() {
+        String secret = TestSecrets.CREDENTIAL_PAYLOAD_VALUE;
+        String basic = Base64.getEncoder().encodeToString(("acme:" + secret)
+            .getBytes(StandardCharsets.UTF_8));
+
+        List<QueueEntryResult.Variable> items = items(shaped(variables(
+            variable("password", secret),
+            variable("apiToken", secret),
+            new RawVariable("Authorization", Optional.of("String"), "Basic " + basic),
+            variable("X-Api-Key", secret),
+            variable("ns:clientSecret", "PK\u0003\u0004" + secret),
+            variable("headers", "Accept: text/xml\nAuthorization: Basic " + basic + "\n"))));
+
+        assertThat(items).hasSize(6);
+        assertThat(items.subList(0, 5)).allSatisfy(item -> {
+            assertThat(item.masked()).isTrue();
+            assertThat(item.kind()).isEqualTo("text");
+            assertThat(item.value()).contains("${secret:variables." + item.name()
+                .replace(':', '_') + "}");
+            assertThat(item.sizeBytes()).isEmpty();
+            assertThat(item.detected()).isEmpty();
+        });
+        assertThat(items.get(2).type()).contains("String");
+        assertThat(items.get(5).masked()).isFalse();
+        assertThat(items.get(5).value()).contains("Accept: text/xml\nAuthorization:"
+            + " ${secret:authorization}\n");
+        assertThat(json(items.get(1))).isEqualTo("{\"name\":\"apiToken\",\"system\":false,"
+            + "\"kind\":\"text\",\"value\":\"${secret:variables.apiToken}\",\"masked\":true}");
+        TestSecrets.assertNoLeak(json(items));
+        assertThat(json(items)).doesNotContain(basic);
+    }
+
+    /** Fail-safe (FR-011): a term before the last {@code :} also makes a variable secret. */
+    @Test
+    void aVariableIsSecretIfItsFullNameContainsATerm() {
+        String secret = TestSecrets.CREDENTIAL_PAYLOAD_VALUE;
+
+        List<QueueEntryResult.Variable> items = items(shaped(variables(
+            variable("token:id", secret),
+            variable("password:old", secret),
+            variable("order:id", "Order-0001"))));
+
+        assertThat(items.subList(0, 2)).allSatisfy(item -> assertThat(item.masked()).isTrue());
+        assertThat(items.get(0).value()).contains("${secret:variables.token_id}");
+        assertThat(items.get(1).value()).contains("${secret:variables.password_old}");
+        assertThat(items.get(2).masked()).isFalse();
+        assertThat(items.get(2).value()).contains("Order-0001");
+        TestSecrets.assertNoLeak(json(items));
+    }
+
+    /** US1-5: a configured credential in the data stream or a value is scrubbed. */
+    @Test
+    void us1_5_knownCredentialsAreScrubbed() {
+        String password = TestSecrets.CONFIGURED_PASSWORD;
+        RawEntryContent raw = new RawEntryContent(
+            new PartResult.Read<>(utf8("<Login><User>acme</User><Pass>" + password
+                + "</Pass></Login>")),
+            new PartResult.Read<>(List.of(variable("lastCall", "acme/" + password + "@globex"),
+                variable("note" + password, "x"))));
+
+        QueueEntryResult result = shaped(raw);
+
+        assertThat(result.data().text()).contains("<Login><User>acme</User><Pass>***</Pass>"
+            + "</Login>");
+        assertThat(items(result).get(0).value()).contains("acme/***@globex");
+        assertThat(items(result).get(1).name()).isEqualTo("note***");
+        TestSecrets.assertNoLeak(json(result));
+    }
+
+    /** US1-6: secret-named elements, attributes and JSON keys in the data stream. */
+    @Test
+    void us1_6_secretNamedValuesInTheDataStreamAreMasked() {
+        String secret = TestSecrets.CREDENTIAL_PAYLOAD_VALUE;
+        String soap = "<soap:Envelope><soap:Header><wsse:Security><wsse:Username>acme"
+            + "</wsse:Username><wsse:Password>" + secret + "</wsse:Password>"
+            + "</wsse:Security></soap:Header><soap:Body><Order-0001/></soap:Body>"
+            + "</soap:Envelope>";
+
+        assertThat(shaped(data(utf8(soap))).data().text()).contains("<soap:Envelope>"
+            + "<soap:Header><wsse:Security><wsse:Username>acme</wsse:Username>"
+            + "<wsse:Password>${secret:data.Password}</wsse:Password></wsse:Security>"
+            + "</soap:Header><soap:Body><Order-0001/></soap:Body></soap:Envelope>");
+        // the whole UsernameToken (a secret-named element) becomes one placeholder
+        assertThat(shaped(data(utf8("<wsse:UsernameToken><wsse:Password>" + secret
+            + "</wsse:Password></wsse:UsernameToken>"))).data().text())
+            .contains("<wsse:UsernameToken>${secret:data.UsernameToken}</wsse:UsernameToken>");
+
+        String jsonText = "{\"order\": \"Order-0001\", \"password\": \"" + secret + "\"}";
+        assertThat(shaped(data(utf8(jsonText))).data().text()).contains("{\"order\":"
+            + " \"Order-0001\", \"password\": \"${secret:data.password}\"}");
+    }
+
+    /** Masking runs on the full text before the cut: no piece of a secret survives the cut. */
+    @Test
+    void dataIsMaskedBeforeItIsCut() {
+        String token = "abcdefghijklmnopqrstuvwxyz012345";
+        // a cut first would leave 12 characters of the token, below rule 7's minimum of 16
+        String text = "x".repeat(80) + " Bearer " + token;
+
+        String returned = shaped(data(utf8(text)), OptionalInt.of(100)).data().text()
+            .orElseThrow();
+
+        assertThat(returned).hasSize(100).startsWith("x".repeat(80) + " Bearer ${secret:aut")
+            .doesNotContain("abcd");
+    }
+
+    @Test
+    void knownCredentialSplitAcrossTheCutPositionIsStillScrubbed() {
+        String password = TestSecrets.CONFIGURED_PASSWORD;
+        String text = "x".repeat(95) + password + "tail";
+
+        QueueEntryResult result = shaped(new RawEntryContent(new PartResult.Read<>(utf8(text)),
+            new PartResult.Read<>(List.of(variable("v", "y".repeat(1_998) + password)))),
+            OptionalInt.of(100));
+
+        assertThat(result.data().text()).contains("x".repeat(95) + "***ta");
+        assertThat(items(result).get(0).value()).contains("y".repeat(1_998) + "**");
+        assertThat(json(result)).doesNotContain(password.substring(0, 4));
+    }
+
+    /** US1-8: variables missing while the data stream is returned. */
+    @Test
+    void us1_8_missingVariablesAreUnavailableWithTheReason() {
+        rows.answer(entries(errorRow(FILE)));
+        rows.answer(entries(errorRow(FILE)));
+        content.answer(new RawEntryContent(new PartResult.Read<>(utf8(ORDER)),
+            new PartResult.NotFound<>()));
+
+        QueueEntryResult result = service.read(TEST.value(), PID, Optional.empty(),
+            OptionalInt.empty());
+
+        assertThat(result.data().text()).contains(ORDER);
+        assertThat(json(result.variables())).isEqualTo("{\"available\":false,"
+            + "\"reason\":\"INUBIT did not find the content of this entry\"}");
+        assertThat(result.entry().fileName()).isEqualTo(FILE);
+    }
+
+    @Test
+    void unavailablePartsCarryTheirReason() {
+        String format = "unexpected format; the unsupported INUBIT interface may have changed";
+        QueueEntryResult result = shaped(new RawEntryContent(
+            new PartResult.Failed<>("INUBIT reported an error: Unable to download "
+                + TestSecrets.CONFIGURED_PASSWORD),
+            new PartResult.Failed<>(format)));
+
+        assertThat(json(result.data())).isEqualTo("{\"available\":false,"
+            + "\"reason\":\"INUBIT reported an error: Unable to download ***\"}");
+        assertThat(json(result.variables())).isEqualTo("{\"available\":false,"
+            + "\"reason\":\"" + format + "\"}");
+
+        result = shaped(new RawEntryContent(new PartResult.NotFound<>(),
+            new PartResult.TooLarge<>(11_000_000)), rows -> rows.answer(entries(errorRow(FILE))));
+        assertThat(result.data().reason()).contains("INUBIT did not find the content of this"
+            + " entry");
+        assertThat(result.variables().reason()).contains("too large (11000000 bytes; limit"
+            + " 10 MiB)");
+    }
+
+    @Test
+    void dataLargerThan10MiBIsTooLargeWithTheRowSize() {
+        QueueEntryRow big = new QueueEntryRow(PID, Optional.empty(), ProcessState.ERROR, "Error",
+            SINCE, "Workflow-0001", Optional.empty(), Optional.empty(), FILE, 12_582_912,
+            new TreeMap<>());
+        rows.answer(entries(big));
+        content.answer(new RawEntryContent(new PartResult.NotRequested<>("not requested"),
+            new PartResult.Read<>(List.of(variable("v", "1")))));
+
+        QueueEntryResult result = service.read(TEST.value(), PID, Optional.empty(),
+            OptionalInt.empty());
+
+        assertThat(json(result.data())).isEqualTo("{\"available\":false,"
+            + "\"reason\":\"too large (12582912 bytes; limit 10 MiB)\"}");
+        assertThat(result.variables().returnedCount()).contains(1);
+    }
+
+    @Test
+    void errorTextsOfTheRowAreScrubbed() {
+        rows.answer(entries(new QueueEntryRow(PID, Optional.empty(), ProcessState.ERROR,
+            "Error", SINCE, "Workflow-0001", Optional.empty(), Optional.empty(), FILE, 1,
+            new TreeMap<>(Map.of("userDefined2", "login acme/"
+                + TestSecrets.CONFIGURED_PASSWORD)))));
+        content.answer(read());
+
+        QueueEntryResult result = service.read(TEST.value(), PID, Optional.empty(),
+            OptionalInt.empty());
+
+        assertThat(result.entry().errorTexts()).containsExactly(
+            Map.entry("userDefined2", "login acme/***"));
+    }
+
+    /** US1-9: 250 variables → the first 200 with a truncation marker naming the total. */
+    @Test
+    void us1_9_atMost200VariablesAreReturned() {
+        RawVariable[] many = IntStream.range(0, 250)
+            .mapToObj(i -> variable("var" + i, "v" + i)).toArray(RawVariable[]::new);
+
+        QueueEntryResult.Variables variables = shaped(variables(many)).variables();
+
+        assertThat(variables.totalCount()).contains(250);
+        assertThat(variables.returnedCount()).contains(200);
+        assertThat(variables.truncated()).contains(true);
+        assertThat(variables.items().orElseThrow()).hasSize(200)
+            .extracting(QueueEntryResult.Variable::name)
+            .startsWith("var0", "var1").endsWith("var199");
+    }
+
+    @Test
+    void systemVariablesAreMarked() {
+        List<QueueEntryResult.Variable> items = items(shaped(variables(
+            variable("ISFileSize", "772"), variable("ISOverwriteSubWorkflowPriority", "false"),
+            variable("_hidden.state", "1"), variable("isFileSize", "772"),
+            variable("ISFileSizeX", "772"))));
+
+        assertThat(items).extracting(QueueEntryResult.Variable::system)
+            .containsExactly(true, true, true, false, false);
+    }
+
+    @Test
+    void variableNamesAreCutAt200WithoutSplittingASurrogatePair() {
+        List<QueueEntryResult.Variable> items = items(shaped(variables(
+            variable("n".repeat(201), "1"), variable("m".repeat(199) + "\uD83D\uDE00", "2"),
+            variable("k".repeat(200), "3"))));
+
+        assertThat(items.get(0).name()).isEqualTo("n".repeat(200));
+        assertThat(items.get(0).nameTruncated()).contains(true);
+        assertThat(items.get(1).name()).isEqualTo("m".repeat(199));
+        assertThat(items.get(1).nameTruncated()).contains(true);
+        assertThat(items.get(2).name()).isEqualTo("k".repeat(200));
+        assertThat(items.get(2).nameTruncated()).isEmpty();
+    }
+
+    @Test
+    void eachValueIsCutAt2000Characters() {
+        List<QueueEntryResult.Variable> items = items(shaped(variables(
+            variable("long", "l".repeat(2_500)), variable("exact", "e".repeat(2_000)))));
+
+        assertThat(items.get(0).value()).contains("l".repeat(2_000));
+        assertThat(items.get(0).truncated()).contains(true);
+        assertThat(items.get(0).totalChars()).contains(2_500);
+        assertThat(items.get(1).value()).contains("e".repeat(2_000));
+        assertThat(items.get(1).truncated()).isEmpty();
+        assertThat(items.get(1).totalChars()).isEmpty();
+    }
+
+    @Test
+    void allValuesTogetherAreBoundedAt40000Characters() {
+        RawVariable[] values = IntStream.range(0, 23)
+            .mapToObj(i -> variable("v" + i, "a".repeat(1_900))).toArray(RawVariable[]::new);
+
+        List<QueueEntryResult.Variable> items = items(shaped(variables(values)));
+
+        assertThat(items.subList(0, 21)).allSatisfy(item -> {
+            assertThat(item.value()).contains("a".repeat(1_900));
+            assertThat(item.truncated()).isEmpty();
+        });
+        assertThat(items.get(21).value()).contains("a".repeat(100));
+        assertThat(items.get(21).truncated()).contains(true);
+        assertThat(items.get(21).totalChars()).contains(1_900);
+        assertThat(items.get(22).value()).contains("");
+        assertThat(items.get(22).truncated()).contains(true);
+        assertThat(items.get(22).totalChars()).contains(1_900);
+        assertThat(items.stream().mapToInt(item -> item.value().orElse("").length()).sum())
+            .isEqualTo(40_000);
+    }
+
+    @Test
+    void valuesAreMaskedBeforeTheyAreBounded() {
+        String token = "abcdefghijklmnopqrstuvwxyz012345";
+        List<QueueEntryResult.Variable> items = items(shaped(variables(
+            variable("cut", "z".repeat(1_990) + " Bearer " + token),
+            new RawVariable("var.config", Optional.of("XmlDocument"), "<Config><password>"
+                + "s".repeat(3_000) + "</password></Config>"))));
+
+        assertThat(items.get(0).value().orElseThrow()).hasSize(2_000).doesNotContain("abcd");
+        assertThat(items.get(1).value()).contains("<Config><password>${secret:data.password}"
+            + "</password></Config>");
+        assertThat(items.get(1).truncated()).isEmpty();
+        assertThat(items.get(1).masked()).isFalse();
+    }
+
+    @Test
+    void binaryAndEmptyValuesAreShownWithoutContent() {
+        List<QueueEntryResult.Variable> items = items(shaped(variables(
+            variable("zipped", "PK\u0003\u0004rest"), variable("raw", "a\u0000b"),
+            variable("empty", ""))));
+
+        assertThat(json(items.get(0))).isEqualTo("{\"name\":\"zipped\",\"system\":false,"
+            + "\"kind\":\"binary\",\"sizeBytes\":8,\"detected\":\"ZIP\",\"masked\":false}");
+        assertThat(json(items.get(1))).isEqualTo("{\"name\":\"raw\",\"system\":false,"
+            + "\"kind\":\"binary\",\"sizeBytes\":3,\"masked\":false}");
+        assertThat(json(items.get(2))).isEqualTo("{\"name\":\"empty\",\"system\":false,"
+            + "\"kind\":\"empty\",\"sizeBytes\":0,\"masked\":false}");
+    }
+
+    @Test
+    void warningsAreTheFixedWarningThenTheGateWarnings() {
+        QueueEntryResult result = service.result(new RawEntryRead(TEST, errorRow(FILE), read(),
+            20_000, List.of("INUBIT 8.1.99 on test/node1 is not verified")));
+
+        assertThat(result.warnings()).containsExactly("Read through an unsupported,"
+            + " undocumented INUBIT interface; diagnosis only",
+            "INUBIT 8.1.99 on test/node1 is not verified");
+    }
+
+    /** SC-003: secrets in every place of the content never reach the result. */
+    @Test
+    void resultDoesNotLeakSecrets() {
+        String password = TestSecrets.CONFIGURED_PASSWORD;
+        String payload = TestSecrets.CREDENTIAL_PAYLOAD_VALUE;
+        String trust = TestSecrets.TRUST_STORE_PASSWORD;
+        String basic = Base64.getEncoder().encodeToString(("acme:" + payload)
+            .getBytes(StandardCharsets.UTF_8));
+        String text = "<Envelope><Password>" + payload + "</Password>"
+            + "<Config keystorePassword=\"" + trust + "\" user=\"acme\"/>"
+            + "<Body>{\"apiKey\": \"" + payload + "\", \"order\": \"Order-0001\"}</Body>"
+            + "<Url>https://globex.example.test/x?token=" + payload + "&amp;a=1</Url>"
+            + "<Login>" + password + "</Login></Envelope>\n"
+            + "Authorization: Basic " + basic + "\nX-Api-Key: " + payload + "\n"
+            + "Cookie: session=" + payload + "\n";
+        RawEntryContent raw = new RawEntryContent(new PartResult.Read<>(utf8(text)),
+            new PartResult.Read<>(List.of(variable("password", payload),
+                variable("trustStorePassword", trust), variable("body", text),
+                variable("login", password))));
+
+        for (int maxChars : new int[] {1, 25, 60, 100, 1_000, 100_000}) {
+            QueueEntryResult result = shaped(raw, OptionalInt.of(maxChars));
+            String json = json(result);
+            TestSecrets.assertNoLeak(json);
+            assertThat(json).doesNotContain(basic);
+        }
+    }
+
+    private QueueEntryResult shaped(RawEntryContent raw) {
+        return shaped(raw, OptionalInt.empty());
+    }
+
+    private QueueEntryResult shaped(RawEntryContent raw, OptionalInt maxChars) {
+        rows.answer(entries(errorRow(FILE)));
+        content.answer(raw);
+        return service.read(TEST.value(), PID, Optional.empty(), maxChars);
+    }
+
+    /** As {@link #shaped(RawEntryContent)}, with {@code more} rows scripted for a re-read. */
+    private QueueEntryResult shaped(RawEntryContent raw,
+        Consumer<FakeRows> more) {
+        rows.answer(entries(errorRow(FILE)));
+        more.accept(rows);
+        content.answer(raw);
+        return service.read(TEST.value(), PID, Optional.empty(), OptionalInt.empty());
+    }
+
+    private static RawEntryContent data(byte[] bytes) {
+        return new RawEntryContent(new PartResult.Read<>(bytes),
+            new PartResult.Read<>(List.<RawVariable>of()));
+    }
+
+    private static RawEntryContent variables(RawVariable... variables) {
+        return new RawEntryContent(new PartResult.Read<>(new byte[0]),
+            new PartResult.Read<>(List.of(variables)));
+    }
+
+    private static RawVariable variable(String name, String value) {
+        return new RawVariable(name, Optional.empty(), value);
+    }
+
+    private static List<QueueEntryResult.Variable> items(QueueEntryResult result) {
+        return result.variables().items().orElseThrow();
+    }
+
+    private static byte[] utf8(String text) {
+        return text.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static String json(Object value) {
+        return ResultJson.mapper().writeValueAsString(value);
     }
 
     // --- leak check ---------------------------------------------------------------------------

@@ -22,4 +22,19 @@ public final class QueueEntryBounds {
 
     private QueueEntryBounds() {
     }
+
+    /**
+     * The first {@code max} characters of {@code text}, one fewer if the cut would split a
+     * surrogate pair; no marker is added.
+     */
+    public static String cut(String text, int max) {
+        if (text.length() <= max) {
+            return text;
+        }
+        int end = Math.max(max, 0);
+        if (end > 0 && Character.isHighSurrogate(text.charAt(end - 1))) {
+            end--;
+        }
+        return text.substring(0, end);
+    }
 }

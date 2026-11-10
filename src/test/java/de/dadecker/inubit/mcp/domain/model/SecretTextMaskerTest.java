@@ -62,6 +62,17 @@ class SecretTextMaskerTest {
         assertThat(SecretTextMasker.secretName("secret:user")).isFalse();
     }
 
+    @Test
+    void theVariableTermTestAlsoReadsTheFullName() {
+        assertThat(SecretTextMasker.secretVariableName("token:id")).isTrue();
+        assertThat(SecretTextMasker.secretVariableName("password:old")).isTrue();
+        assertThat(SecretTextMasker.secretVariableName("ns:clientSecret")).isTrue();
+        assertThat(SecretTextMasker.secretVariableName("X-Api-Key")).isTrue();
+        assertThat(SecretTextMasker.secretVariableName("order:id")).isFalse();
+        assertThat(SecretTextMasker.secretVariableName("pass:word")).isFalse();
+        assertThat(SecretTextMasker.secretVariableName("")).isFalse();
+    }
+
     // placeholder
 
     @Test
@@ -689,6 +700,8 @@ class SecretTextMaskerTest {
     void nullIsRefused() {
         assertThatNullPointerException().isThrownBy(() -> SecretTextMasker.mask(null));
         assertThatNullPointerException().isThrownBy(() -> SecretTextMasker.secretName(null));
+        assertThatNullPointerException()
+            .isThrownBy(() -> SecretTextMasker.secretVariableName(null));
         assertThatNullPointerException()
             .isThrownBy(() -> SecretTextMasker.placeholder("data", null));
     }

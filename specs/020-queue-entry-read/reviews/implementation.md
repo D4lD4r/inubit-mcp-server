@@ -203,3 +203,23 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
   `GatewayFactory` fake and never see the 6.1-worded refusal of the 7-port `PortSet` (T022 note).
 - Mutation check: opt-in after the gate, no `TooLarge` substitution, no re-read check, data always
   requested, unbounded lists — each fails at least one test.
+
+## T024 notes
+
+- FR-010 "size and hint" for a binary variable (review T024-r1, finding 1): read as `kind: binary`
+  plus `sizeBytes` and `detected`, the shape of contracts/mcp-tools-delta.md and data-model.md,
+  which carry no separate `hint` field; `kind: binary` is the hint. The owner may add a `hint`
+  field to contract and data model later (before T025 renders the tool).
+- WS-Security (finding 2, for the D-22 docs task): a real envelope nests `wsse:Password` in
+  `wsse:UsernameToken`, a secret-named element (term `token`), so FR-011 rule 1 masks the whole
+  token: the result shows `${secret:data.UsernameToken}` and hides the `wsse:Username` too. The
+  contract example (`${secret:data.Password}`) only fits a simplified fragment. US1-6 test fixture:
+  the SOAP case uses `wsse:Username`/`wsse:Password` directly in `wsse:Security` (the spec's
+  example names only `wsse:Password`); a second case asserts the `UsernameToken` placeholder.
+- Credential-named variables (finding 4): fail-safe, the term test runs on the whole variable
+  name, not only the local name after the last `:` (`SecretTextMasker.secretVariableName`), so
+  `token:id` and `password:old` become placeholders. `secretName` (local name only) stays as is
+  for the masking rules on XML/JSON/header names.
+- INFO line (finding 3): once a row is selected, its node and file name are logged even when a
+  later step (content port, re-read, shaping) fails and no `fileName` was passed; the failure's
+  message and content never reach the line.

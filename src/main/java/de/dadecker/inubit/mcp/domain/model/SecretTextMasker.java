@@ -89,9 +89,22 @@ public final class SecretTextMasker {
      * {@code -} counts as {@code _}, so the header {@code X-Api-Key} contains {@code api_key}.
      */
     public static boolean secretName(String name) {
-        String local = localName(name).toLowerCase(Locale.ROOT).replace('-', '_');
+        return containsTerm(localName(name));
+    }
+
+    /**
+     * True if the whole name, not only its local name after the last {@code :}, contains a secret
+     * term (as {@link #secretName}); fail-safe for variable names such as {@code token:id}, which
+     * are not XML qualified names. Implies {@link #secretName}.
+     */
+    public static boolean secretVariableName(String name) {
+        return containsTerm(name);
+    }
+
+    private static boolean containsTerm(String name) {
+        String normalized = name.toLowerCase(Locale.ROOT).replace('-', '_');
         for (String term : TERMS) {
-            if (local.contains(term)) {
+            if (normalized.contains(term)) {
                 return true;
             }
         }

@@ -2,6 +2,9 @@ package de.dadecker.inubit.mcp.application;
 
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.ContentKind;
+import de.dadecker.inubit.mcp.domain.model.EntryContentClassifier;
+import de.dadecker.inubit.mcp.domain.model.EntryContentClassifier.Classified;
 import de.dadecker.inubit.mcp.domain.model.EntryPart;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
@@ -11,22 +14,39 @@ import de.dadecker.inubit.mcp.domain.model.ProcessState;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryBounds;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
+import de.dadecker.inubit.mcp.domain.model.QueueEntryResult;
+import de.dadecker.inubit.mcp.domain.model.QueueEntryResult.Data;
+import de.dadecker.inubit.mcp.domain.model.QueueEntryResult.Entry;
+import de.dadecker.inubit.mcp.domain.model.QueueEntryResult.Variable;
+import de.dadecker.inubit.mcp.domain.model.QueueEntryResult.Variables;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRow;
 import de.dadecker.inubit.mcp.domain.model.RawEntryContent;
 import de.dadecker.inubit.mcp.domain.model.RawEntryContent.PartResult;
+import de.dadecker.inubit.mcp.domain.model.RawVariable;
+import de.dadecker.inubit.mcp.domain.model.SecretTextMasker;
+import de.dadecker.inubit.mcp.domain.model.SystemVariables;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The use case behind {@code read_queue_entry} (feature 020, FR-001, FR-002, FR-005, FR-012,
@@ -52,9 +72,17 @@ import java.util.regex.Pattern;
  *   <li>A part reported {@link PartResult.NotFound}: the rows are read again; the entry gone →
  *       {@code NOT_FOUND} ("left the Queue Manager"), still there → the partial read.</li>
  * </ol>
- * The result is the {@link RawEntryRead}: the selected row and the unshaped content. Classifying,
- * masking and bounding it into the tool's result and the INFO log line are the second part of
- * this service (T024), built on {@link #readRaw}.
+ * {@link #read} then shapes the {@link RawEntryRead} into the {@link QueueEntryResult}
+ * (FR-008…FR-011, D-10…D-12): each text (the data stream, a variable value) is classified on its
+ * bytes (a value on its UTF-8 bytes), cleared of the configured credentials ({@code knownSecrets},
+ * the {@code SecretScrubber}), masked ({@link SecretTextMasker}) and only then cut, never inside a
+ * surrogate pair, so no piece of a secret survives the cut. Of the variables the first
+ * {@value QueueEntryBounds#MAX_VARIABLES} are returned; a credential-named one (a term anywhere in
+ * its name) only as its placeholder; names are cut at
+ * {@value QueueEntryBounds#MAX_NAME_CHARS}, each value at
+ * {@value QueueEntryBounds#MAX_VALUE_CHARS} and all values together at
+ * {@value QueueEntryBounds#MAX_VALUES_CHARS} characters. Every call logs one INFO line with the
+ * node, process ID, file name, sizes and outcome, never content (FR-018, D-16).
  *
  * <p>Thread-safe; it keeps no state of its own.
  */
@@ -63,7 +91,11 @@ public final class QueueEntryService {
     /** The tool name, the start of the gate's refusals. */
     static final String TOOL = "read_queue_entry";
 
+    private static final Logger LOG = LoggerFactory.getLogger(QueueEntryService.class);
     private static final Pattern PROCESS_ID = Pattern.compile("^[1-9][0-9]{0,18}$");
+    private static final String NOT_FOUND_REASON = "INUBIT did not find the content of this entry";
+    private static final String VARIABLES_SCOPE = "variables";
+    private static final String UNKNOWN = "-";
     private static final String LOOK_UP_AGAIN = "Look the instance up again with find_processes";
 
     /**
@@ -92,20 +124,183 @@ public final class QueueEntryService {
     private final VersionGate gate;
     private final Function<NodeId, ProcessQueryPort> processes;
     private final Function<NodeId, QueueEntryContentPort> contents;
+    private final UnaryOperator<String> knownSecrets;
 
     /**
-     * @param optedIn   whether the node's group sets {@code unsupported.queueEntryRead: true}
-     * @param processes the process query port of a node (the queueLog lookup)
-     * @param contents  the queue-entry content port of a node
+     * @param optedIn      whether the node's group sets {@code unsupported.queueEntryRead: true}
+     * @param processes    the process query port of a node (the queueLog lookup)
+     * @param contents     the queue-entry content port of a node
+     * @param knownSecrets replaces the configured credentials in a text (the
+     *                     {@code SecretScrubber}); applied before masking and cutting
      */
     public QueueEntryService(TargetResolver targets, Predicate<NodeId> optedIn, VersionGate gate,
         Function<NodeId, ProcessQueryPort> processes,
-        Function<NodeId, QueueEntryContentPort> contents) {
+        Function<NodeId, QueueEntryContentPort> contents, UnaryOperator<String> knownSecrets) {
         this.targets = Objects.requireNonNull(targets, "targets");
         this.optedIn = Objects.requireNonNull(optedIn, "optedIn");
         this.gate = Objects.requireNonNull(gate, "gate");
         this.processes = Objects.requireNonNull(processes, "processes");
         this.contents = Objects.requireNonNull(contents, "contents");
+        this.knownSecrets = Objects.requireNonNull(knownSecrets, "knownSecrets");
+    }
+
+    /**
+     * Reads the entry and shapes it into the tool's result; logs one INFO line either way.
+     *
+     * @throws ToolErrorException as described in the class description
+     */
+    public QueueEntryResult read(String target, String processId, Optional<String> fileName,
+        OptionalInt maxChars) {
+        RawEntryRead raw = null;
+        AtomicReference<QueueEntryRef> selected = new AtomicReference<>();
+        Optional<NodeId> failedOn = Optional.empty();
+        String outcome = "INTERNAL";
+        try {
+            raw = readRaw(target, processId, fileName, maxChars, selected::set);
+            QueueEntryResult result = result(raw);
+            outcome = raw.content().data() instanceof PartResult.Read
+                && raw.content().variables() instanceof PartResult.Read ? "OK" : "PARTIAL";
+            return result;
+        } catch (ToolErrorException e) {
+            failedOn = e.error().node();
+            outcome = e.error().code().name();
+            throw e;
+        } finally {
+            log(raw, Optional.ofNullable(selected.get()), failedOn, processId, fileName,
+                outcome);
+        }
+    }
+
+    /** The entry read, classified, scrubbed, masked and bounded (FR-008…FR-011). */
+    QueueEntryResult result(RawEntryRead raw) {
+        List<String> warnings = new ArrayList<>();
+        warnings.add(QueueEntryResult.WARNING);
+        warnings.addAll(raw.warnings());
+        return new QueueEntryResult(raw.node(), entry(raw.row()),
+            data(raw.content().data(), raw.maxChars()), variables(raw.content().variables()),
+            warnings);
+    }
+
+    private Entry entry(QueueEntryRow row) {
+        TreeMap<String, String> errorTexts = new TreeMap<>();
+        row.errorTexts().forEach((key, text) -> errorTexts.put(key, knownSecrets.apply(text)));
+        return new Entry(row.processId(), row.globalProcessId(), row.workflow(), row.module(),
+            row.moduleType(), row.state(), row.rawState(), row.since(), row.fileName(),
+            row.fileSize(), errorTexts);
+    }
+
+    private Data data(PartResult<byte[]> part, int maxChars) {
+        if (!(part instanceof PartResult.Read<byte[]> read)) {
+            return Data.unavailable(reason(part));
+        }
+        byte[] bytes = read.value();
+        Classified classified = EntryContentClassifier.classify(bytes);
+        return switch (classified.kind()) {
+            case EMPTY -> Data.empty();
+            case BINARY -> Data.binary(bytes.length, classified.detected());
+            case TEXT -> {
+                String masked = masked(classified.text().orElseThrow());
+                yield Data.text(classified.charset().map(Charset::name).orElseThrow(),
+                    bytes.length, masked.length(), QueueEntryBounds.cut(masked, maxChars));
+            }
+        };
+    }
+
+    private Variables variables(PartResult<List<RawVariable>> part) {
+        if (!(part instanceof PartResult.Read<List<RawVariable>> read)) {
+            return Variables.unavailable(reason(part));
+        }
+        List<RawVariable> all = read.value();
+        List<Variable> items = new ArrayList<>();
+        int budget = QueueEntryBounds.MAX_VALUES_CHARS;
+        for (RawVariable variable : all.subList(0,
+            Math.min(all.size(), QueueEntryBounds.MAX_VARIABLES))) {
+            Variable item = variable(variable, budget);
+            budget -= item.value().map(String::length).orElse(0);
+            items.add(item);
+        }
+        return Variables.of(all.size(), items);
+    }
+
+    /** One variable; its value takes at most {@code budget} characters. */
+    private Variable variable(RawVariable variable, int budget) {
+        String name = knownSecrets.apply(variable.name());
+        String shownName = QueueEntryBounds.cut(name, QueueEntryBounds.MAX_NAME_CHARS);
+        Optional<Boolean> nameTruncated = shownName.length() < name.length()
+            ? Optional.of(true) : Optional.empty();
+        boolean system = SystemVariables.isSystem(variable.name());
+        Optional<String> type = variable.type().map(knownSecrets);
+        if (SecretTextMasker.secretVariableName(variable.name())) {
+            return text(shownName, nameTruncated, system, type,
+                SecretTextMasker.placeholder(VARIABLES_SCOPE, name), true, budget);
+        }
+        byte[] bytes = variable.value().getBytes(StandardCharsets.UTF_8);
+        Classified classified = EntryContentClassifier.classify(bytes);
+        if (classified.kind() == ContentKind.TEXT) {
+            return text(shownName, nameTruncated, system, type,
+                masked(classified.text().orElseThrow()), false, budget);
+        }
+        return new Variable(shownName, nameTruncated, system, type,
+            QueueEntryResult.kindName(classified.kind()), Optional.empty(),
+            Optional.of((long) bytes.length), classified.detected(), false, Optional.empty(),
+            Optional.empty());
+    }
+
+    private static Variable text(String name, Optional<Boolean> nameTruncated, boolean system,
+        Optional<String> type, String value, boolean masked, int budget) {
+        String shown = QueueEntryBounds.cut(value,
+            Math.min(QueueEntryBounds.MAX_VALUE_CHARS, budget));
+        boolean truncated = shown.length() < value.length();
+        return new Variable(name, nameTruncated, system, type,
+            QueueEntryResult.kindName(ContentKind.TEXT), Optional.of(shown), Optional.empty(),
+            Optional.empty(), masked,
+            truncated ? Optional.of(value.length()) : Optional.empty(),
+            truncated ? Optional.of(true) : Optional.empty());
+    }
+
+    /** The configured credentials replaced, then the secret-named values masked. */
+    private String masked(String text) {
+        return SecretTextMasker.mask(knownSecrets.apply(text));
+    }
+
+    private String reason(PartResult<?> part) {
+        return switch (part) {
+            case PartResult.NotFound<?> notFound -> NOT_FOUND_REASON;
+            case PartResult.TooLarge<?> tooLarge -> "too large (" + tooLarge.bytes()
+                + " bytes; limit " + QueueEntryBounds.MAX_DATA_BYTES / (1024 * 1024) + " MiB)";
+            case PartResult.Failed<?> failed -> knownSecrets.apply(failed.reason());
+            case PartResult.NotRequested<?> notRequested ->
+                knownSecrets.apply(notRequested.reason());
+            case PartResult.Read<?> read -> throw new IllegalArgumentException("Part was read");
+        };
+    }
+
+    /**
+     * The one INFO line of a call: inputs only once validated, the node and file name of the
+     * selected row (also when a later step failed) or of the valid input, sizes of the parts
+     * read; never content.
+     */
+    private void log(RawEntryRead raw, Optional<QueueEntryRef> selected,
+        Optional<NodeId> failedOn, String processId, Optional<String> fileName, String outcome) {
+        String node = selected.map(QueueEntryRef::node).or(() -> failedOn)
+            .map(NodeId::toString).orElse(UNKNOWN);
+        String process = processId != null && PROCESS_ID.matcher(processId).matches()
+            ? processId : UNKNOWN;
+        String file = selected.isPresent() ? selected.get().fileName()
+            : fileName == null ? UNKNOWN
+            : fileName.filter(QueueEntryRow::isValidFileName).orElse(UNKNOWN);
+        String data = UNKNOWN;
+        String variables = UNKNOWN;
+        if (raw != null) {
+            if (raw.content().data() instanceof PartResult.Read<byte[]> read) {
+                data = String.valueOf(read.value().length);
+            }
+            if (raw.content().variables() instanceof PartResult.Read<List<RawVariable>> read) {
+                variables = String.valueOf(read.value().size());
+            }
+        }
+        LOG.info("{} on {}: process {}, file {}, data {} bytes, variables {}, outcome {}", TOOL,
+            node, process, knownSecrets.apply(file), data, variables, outcome);
     }
 
     /**
@@ -116,6 +311,12 @@ public final class QueueEntryService {
      */
     RawEntryRead readRaw(String target, String processId, Optional<String> fileName,
         OptionalInt maxChars) {
+        return readRaw(target, processId, fileName, maxChars, row -> { });
+    }
+
+    /** As the method above; {@code selected} is told the entry as soon as it is selected. */
+    private RawEntryRead readRaw(String target, String processId, Optional<String> fileName,
+        OptionalInt maxChars, Consumer<QueueEntryRef> selected) {
         Objects.requireNonNull(target, "target");
         Objects.requireNonNull(processId, "processId");
         Objects.requireNonNull(fileName, "fileName");
@@ -132,6 +333,7 @@ public final class QueueEntryService {
             TOOL + " on " + node + " was admitted without a version"));
         ProcessQueryPort port = processes.apply(node);
         QueueEntryRow row = select(node, processId, fileName, port.queueEntries(processId));
+        selected.accept(QueueEntryRef.of(node, row));
         RawEntryContent content = read(node, row, version);
         if (content.data() instanceof PartResult.NotFound
             || content.variables() instanceof PartResult.NotFound) {

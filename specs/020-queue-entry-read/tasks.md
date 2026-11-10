@@ -329,7 +329,7 @@ INUBIT contact.
   missing secret, from the queueLog lookup's credential resolution), nothing launched — failing
   tests first in `application/QueueEntryServiceTest.java` (fake ports; WireMock-free; US1-7,
   US2-2 zero port calls, re-read both ways, missing credentials → no content-port call); texts per contracts/mcp-tools-delta.md "Errors"; leak check
-- [ ] T024 [US1] `QueueEntryService`, part 2 (FR-008…FR-011, FR-018, D-10…D-12, D-16): result
+- [X] T024 [US1] `QueueEntryService`, part 2 (FR-008…FR-011, FR-018, D-10…D-12, D-16): result
   `domain/model/QueueEntryResult.java` per contracts "Output"; classify; scrub with the injected
   `UnaryOperator<String> knownSecrets` on the full text, then `SecretTextMasker`, then bound;
   variables: credential-named → `${secret:variables.<name>}` (`masked: true`), others classified
