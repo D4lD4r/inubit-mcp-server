@@ -29,6 +29,7 @@ and is not a baseline failure. It is recorded here in case it comes back.
 - From T015 review (for T018): `partnersScope(owner, diagram)` keys can collide (`a/b`+`c` vs `a`+`b/c`); serve a cached `PartnerSnapshot` only if its `covered` contains every requested `DiagramRef`, never on the key alone.
 - From T016 review (for T017): `AuditRecord` still requires a node, but the contract wants a refusal before any server is contacted written "without node"; decide in T017 (e.g. the requested target, as `ArchiveExportAudit` does, or make node optional) and keep `details` values to booleans and integers (a null value is written as text "null").
 - From T017 (for T021): per-server REFUSED/FAILED records carry no `reason`; add `Optional<String> reason` to `PartnerAudit.perServer` and pass the server's error code (code only, no message) so the audit shows why a server was not answered.
+- From T019 (for T022): `CloudWorkflows` (`referencableWorkflows[]`) names a cloud only by module name; give it the same optional `moduleId` as `PartnerView`/`CloudCount` (only when two clouds of one diagram share a name) and put it in the contract.
 
 ## Implementation — phase 2 build
 

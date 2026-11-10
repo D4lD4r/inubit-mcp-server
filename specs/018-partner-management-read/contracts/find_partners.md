@@ -28,7 +28,13 @@ Offered when at least one server is possibly capable of `PARTNER_MANAGEMENT`; th
   "compared": false,                 // true with a stage of several servers or compareWith
   "servers": [                       // one per targeted and compared server
     { "node": "qa/node1", "group": "qa", "owner": "…", "collectedAt": "…", "fromCache": true,
-      "systemDiagramsRead": [{"name": "…", "diagramGroup": "…"}],
+      "systemDiagramsRead": [{"name": "…", "diagramGroup": "…",
+                              "clouds": [{"cloud": "Module-0901", "moduleId": "33",
+                                          "partners": 0}]}],
+                                      // moduleId only when two clouds of one diagram share a name
+                                      // every cloud with its total partner count (FR-007: a
+                                      // cloud without partners shows 0); empty for a diagram
+                                      // without Partner Management
       "withoutPartnerManagement": [{"name": "…", "diagramGroup": "…"}],
       "unreadableDiagrams": [         // per diagram, the server is still answered (D-4); also
                                       // UNEXPECTED_RESPONSE "…holds several diagrams of this name
@@ -55,6 +61,7 @@ Offered when at least one server is possibly capable of `PARTNER_MANAGEMENT`; th
 
 ```jsonc
 { "systemDiagram": {"name": "…", "diagramGroup": "…"}, "cloud": "Module-0901",
+  "moduleId": "33",                  // only when two clouds of one diagram share a name
   "fields": [{"name": "Id", "value": "ACME-0001"}, {"name": "Secret", "masked": true, "set": true}],
   "maskedCount": 2,
   "entries": [

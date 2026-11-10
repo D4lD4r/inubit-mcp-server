@@ -218,7 +218,7 @@ a lower-case name part; check every value and the leak check over result, log, a
   the TTL makes none; `refresh` reads again; a server without owner fails alone — main
   `application/PartnerService.java`, test `application/PartnerServiceReadTest.java` (Op-3, Op-5
   `NOT_CONFIGURED`)
-- [ ] T019 [US1] Search and details (after T018): case-insensitive substring over non-masked
+- [X] T019 [US1] Search and details (after T018): case-insensitive substring over non-masked
   partner fields (FR-005, FR-011); full details per partner (FR-004: diagram, group, cloud, fields
   with masked ones as "set"/"not set", entries with protocol, workflow, `format`, settings,
   parameters, `maskedCount`); unresolved workflow as `{"name": null, "unresolved": true}`, reader

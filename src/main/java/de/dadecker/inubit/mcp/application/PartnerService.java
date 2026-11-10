@@ -5,15 +5,21 @@ import de.dadecker.inubit.mcp.application.InventoryCache.Snapshot;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.InventoryKind;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeResult;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.partner.CommunicationCloud;
 import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
+import de.dadecker.inubit.mcp.domain.model.partner.Partner;
 import de.dadecker.inubit.mcp.domain.model.partner.PartnerQuery;
+import de.dadecker.inubit.mcp.domain.model.partner.Setting;
+import de.dadecker.inubit.mcp.domain.model.partner.SettingValue;
 import de.dadecker.inubit.mcp.domain.model.partner.SystemDiagramPartners;
+import de.dadecker.inubit.mcp.domain.model.partner.WorkflowRef;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort.UnreadableDiagram;
@@ -21,6 +27,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -53,6 +60,13 @@ import java.util.function.Supplier;
  *       again. Only the requested diagrams, their unreadable entries and their warnings are
  *       returned. {@code refresh} bypasses both caches; concurrent calls share one read
  *       ({@link InventoryCache}).
+ *   <li>Search and details (T019, FR-004, FR-005, FR-007, FR-011): a partner matches if one of
+ *       its non-masked fields contains the search term, case-insensitively; masked values and
+ *       entry settings are never searched. Each match is shown in full with its system diagram
+ *       and communication cloud; a masked value only as "set"/"not set", never with its
+ *       fingerprint. Per server: every system diagram read with its clouds and their partner
+ *       counts, those without a Partner Management, the unreadable ones and the warnings; per
+ *       cloud that contributed a match, its referencable workflows.
  * </ul>
  */
 public final class PartnerService {
@@ -86,6 +100,109 @@ public final class PartnerService {
             unreadableDiagrams = List.copyOf(unreadableDiagrams);
             warnings = List.copyOf(warnings);
         }
+    }
+
+    /**
+     * The answer of one call (T019).
+     *
+     * @param servers               one per targeted server, in config order
+     * @param referencableWorkflows per communication cloud that contributed a partner (FR-007)
+     * @param partners              the matching partners in export order
+     */
+    public record Found(List<ServerView> servers, List<CloudWorkflows> referencableWorkflows,
+        List<PartnerView> partners) {
+
+        public Found {
+            servers = List.copyOf(servers);
+            referencableWorkflows = List.copyOf(referencableWorkflows);
+            partners = List.copyOf(partners);
+        }
+    }
+
+    /**
+     * What one server answered; a failed server has only {@code node}, {@code group} and
+     * {@code error}.
+     *
+     * @param systemDiagramsRead       every system diagram read, also those without a Partner
+     *                                 Management (FR-007)
+     * @param withoutPartnerManagement the system diagrams read that hold no Partner Management
+     * @param warnings                 the version gate's and the reader's warnings
+     */
+    public record ServerView(NodeId node, GroupId group, Optional<String> owner,
+        Optional<Instant> collectedAt, Optional<Boolean> fromCache,
+        List<DiagramRead> systemDiagramsRead, List<DiagramRef> withoutPartnerManagement,
+        List<UnreadableDiagram> unreadableDiagrams, List<String> warnings,
+        Optional<ToolError> error) {
+
+        public ServerView {
+            systemDiagramsRead = List.copyOf(systemDiagramsRead);
+            withoutPartnerManagement = List.copyOf(withoutPartnerManagement);
+            unreadableDiagrams = List.copyOf(unreadableDiagrams);
+            warnings = List.copyOf(warnings);
+        }
+    }
+
+    /** A system diagram read, with each communication cloud and its number of partners. */
+    public record DiagramRead(String name, String diagramGroup, List<CloudCount> clouds) {
+
+        public DiagramRead {
+            clouds = List.copyOf(clouds);
+        }
+    }
+
+    /**
+     * A communication cloud (module name) and the number of partners it holds, 0 if none.
+     *
+     * @param moduleId only when another cloud of the same system diagram has the same name
+     */
+    public record CloudCount(String cloud, Optional<String> moduleId, int partners) {
+    }
+
+    /** The referencable workflows of a communication cloud that contributed a partner. */
+    public record CloudWorkflows(DiagramRef systemDiagram, String cloud, List<String> workflows) {
+
+        public CloudWorkflows {
+            workflows = List.copyOf(workflows);
+        }
+    }
+
+    /**
+     * One partner in full (FR-004).
+     *
+     * @param moduleId only when another cloud of the same system diagram has the same name
+     */
+    public record PartnerView(DiagramRef systemDiagram, String cloud, Optional<String> moduleId,
+        List<SettingView> fields, int maskedCount, List<EntryView> entries) {
+
+        public PartnerView {
+            fields = List.copyOf(fields);
+            entries = List.copyOf(entries);
+        }
+    }
+
+    /** One {@code ReferencedTWF} in export order; {@code format} shown uninterpreted. */
+    public record EntryView(String protocol, WorkflowView workflow, Optional<String> format,
+        List<SettingView> protocolSettings, List<SettingView> additionalParameters) {
+
+        public EntryView {
+            protocolSettings = List.copyOf(protocolSettings);
+            additionalParameters = List.copyOf(additionalParameters);
+        }
+    }
+
+    /**
+     * The referenced workflow: its {@code name}, or {@code unresolved} {@code true} without a
+     * name if the entry's {@code referencableTWFId} names no referencable workflow.
+     */
+    public record WorkflowView(Optional<String> name, Optional<Boolean> unresolved) {
+    }
+
+    /**
+     * A field or setting: {@code value} if shown (cut at {@code ItemBounds.MAX_FIELD_CHARS}), else
+     * {@code masked} {@code true} with {@code set}. Never carries a secret or its fingerprint.
+     */
+    public record SettingView(String name, Optional<String> value, Optional<Boolean> masked,
+        Optional<Boolean> set) {
     }
 
     private final GatewayFactory gateways;
@@ -123,6 +240,104 @@ public final class PartnerService {
         this.terms = Objects.requireNonNull(terms, "terms");
         this.gate = Objects.requireNonNull(gate, "gate");
         this.secretTiming = Objects.requireNonNull(secretTiming, "secretTiming");
+    }
+
+    /**
+     * The partners of every server of {@code query.target()} whose non-masked fields contain
+     * {@code query.search()}, case-insensitively (every partner without a search term), each in
+     * full (FR-004, FR-005, FR-007, FR-011).
+     *
+     * @throws ToolErrorException {@code TARGET_UNKNOWN} before any server is contacted
+     */
+    public Found find(PartnerQuery query) {
+        Optional<String> term = query.search().map(PartnerService::folded);
+        List<ServerView> servers = new ArrayList<>();
+        List<CloudWorkflows> workflows = new ArrayList<>();
+        List<PartnerView> partners = new ArrayList<>();
+        for (NodeResult<ServerRead> result : read(query)) {
+            servers.add(serverView(result));
+            for (SystemDiagramPartners diagram : result.payload().map(ServerRead::diagrams)
+                .orElse(List.of())) {
+                for (CommunicationCloud cloud : diagram.clouds()) {
+                    List<PartnerView> matches = cloud.partners().stream()
+                        .filter(partner -> term.isEmpty() || matches(partner, term.get()))
+                        .map(partner -> partnerView(diagram, cloud, partner))
+                        .toList();
+                    if (!matches.isEmpty()) {
+                        partners.addAll(matches);
+                        workflows.add(new CloudWorkflows(diagram.diagram(), cloud.moduleName(),
+                            cloud.referencableWorkflows()));
+                    }
+                }
+            }
+        }
+        return new Found(servers, workflows, partners);
+    }
+
+    /** Whether a non-masked field of {@code partner} contains {@code term} (already folded). */
+    private static boolean matches(Partner partner, String term) {
+        return partner.fields().stream()
+            .map(Setting::value)
+            .anyMatch(value -> value instanceof SettingValue.Shown shown
+                && folded(shown.value()).contains(term));
+    }
+
+    private static String folded(String text) {
+        return text.toLowerCase(Locale.ROOT);
+    }
+
+    private static ServerView serverView(NodeResult<ServerRead> result) {
+        Optional<ServerRead> read = result.payload();
+        List<SystemDiagramPartners> diagrams = read.map(ServerRead::diagrams).orElse(List.of());
+        return new ServerView(result.node(), result.node().group(), read.map(ServerRead::owner),
+            read.map(ServerRead::collectedAt), read.map(ServerRead::fromCache),
+            diagrams.stream()
+                .map(diagram -> new DiagramRead(diagram.diagram().name(),
+                    diagram.diagram().diagramGroup(), diagram.clouds().stream()
+                        .map(cloud -> new CloudCount(cloud.moduleName(),
+                            moduleId(diagram, cloud), cloud.partners().size()))
+                        .toList()))
+                .toList(),
+            diagrams.stream()
+                .filter(diagram -> diagram.clouds().isEmpty())
+                .map(SystemDiagramPartners::diagram)
+                .toList(),
+            read.map(ServerRead::unreadableDiagrams).orElse(List.of()),
+            read.map(ServerRead::warnings).orElse(List.of()),
+            result.error());
+    }
+
+    private static PartnerView partnerView(SystemDiagramPartners diagram,
+        CommunicationCloud cloud, Partner partner) {
+        return new PartnerView(diagram.diagram(), cloud.moduleName(), moduleId(diagram, cloud),
+            settingViews(partner.fields()), partner.maskedCount(), partner.entries().stream()
+                .map(entry -> new EntryView(entry.protocol(), workflowView(entry.workflow()),
+                    entry.format(), settingViews(entry.protocolSettings()),
+                    settingViews(entry.additionalParameters())))
+                .toList());
+    }
+
+    /** The module id of {@code cloud} if another cloud of {@code diagram} has its name. */
+    private static Optional<String> moduleId(SystemDiagramPartners diagram,
+        CommunicationCloud cloud) {
+        long named = diagram.clouds().stream()
+            .filter(other -> other.moduleName().equals(cloud.moduleName()))
+            .count();
+        return named > 1 ? Optional.of(cloud.moduleId()) : Optional.empty();
+    }
+
+    private static WorkflowView workflowView(WorkflowRef workflow) {
+        return new WorkflowView(workflow.name(),
+            workflow.name().isPresent() ? Optional.empty() : Optional.of(true));
+    }
+
+    private static List<SettingView> settingViews(List<Setting> settings) {
+        return settings.stream().map(setting -> switch (setting.value()) {
+            case SettingValue.Shown shown -> new SettingView(setting.name(),
+                Optional.of(shown.rendered()), Optional.empty(), Optional.empty());
+            case SettingValue.Masked masked -> new SettingView(setting.name(), Optional.empty(),
+                Optional.of(true), Optional.of(masked.set()));
+        }).toList();
     }
 
     /**
