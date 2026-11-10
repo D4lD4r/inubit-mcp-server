@@ -65,7 +65,7 @@ person's choice on 2026-11-10: option (A), fail closed (plan.md "Decision"). Tas
   `application/PackageWriter.java`, tests `knowledge/SimilarNamesAccessTest.java` (new),
   `application/SimilarNamesTest.java` (new, pins the behaviour today covered through
   `InventoryServiceTest`), `application/PackageWriterTest.java`
-- [ ] T007 [P] `knowledge/package-info.java` and `KnowledgeLimits` (data-model.md constants, incl.
+- [X] T007 [P] `knowledge/package-info.java` and `KnowledgeLimits` (data-model.md constants, incl.
   `SIZE_WALK_ENTRIES = 1_000_000`): first `KnowledgeLimitsTest` asserting every value of
   data-model.md and the relations between them (e.g. read page < note read bound, excerpt <
   instructions bound) — red, then the class; `PackageBoundaryTest` stays green without a new rule
