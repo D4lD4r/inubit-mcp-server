@@ -60,10 +60,13 @@ choice.
 - [ ] T005 [P] `SecretScrubber.occurrences(String)` returning the spans of held values (D-6 (a)),
   behaviour of the existing scrub methods unchanged — main `infra/SecretScrubber.java`, test
   `infra/SecretScrubberTest.java`
-- [ ] T006 [P] `SimilarNames` made `public` (behaviour unchanged); `PackageWriter.defaultDirectory`
+- [ ] T006 [P] `SimilarNames` made `public` (behaviour unchanged): first a red test in
+  `knowledge/SimilarNamesAccessTest.java` that calls `SimilarNames.of` from the
+  sub-package (does not compile while package-private), then the modifier; `PackageWriter.defaultDirectory`
   (D-2, the export default used by FR-002) — main `application/SimilarNames.java`,
-  `application/PackageWriter.java`, tests `application/SimilarNamesTest.java` (new; today
-  covered through `InventoryServiceTest`), `application/PackageWriterTest.java`
+  `application/PackageWriter.java`, tests `knowledge/SimilarNamesAccessTest.java` (new),
+  `application/SimilarNamesTest.java` (new, pins the behaviour today covered through
+  `InventoryServiceTest`), `application/PackageWriterTest.java`
 - [ ] T007 [P] `knowledge/package-info.java` and `KnowledgeLimits` (data-model.md constants, incl.
   `SIZE_WALK_ENTRIES = 1_000_000`): first `KnowledgeLimitsTest` asserting every value of
   data-model.md and the relations between them (e.g. read page < note read bound, excerpt <
@@ -113,14 +116,19 @@ prints the line without reading a credential.
 
 ## Decision gate (D-7; after Phase 3, before Phase 4)
 
-- [ ] T016 The person confirms the D-7 option (plan.md "Decision needed"); record the answer in
-  spec.md "Plan decisions" and research D-7. (A): the [D-7] tasks as written. (C): as (A), but
-  T024 without the start-time `prepare` (the instructions show the count and the
-  credentials-not-ready text whenever nodes are configured); docs say so. (B): before any task of
-  Phase 4 starts, reconcile spec (SC-002 narrowed by the person), plan, research D-7, data-model,
-  contracts (`credentialsChecked: partial` in both output schemas), quickstart and the affected
-  tasks (T013 to T015, T020 to T022, T024, T030, T031, T036 to T038) in one commit with a review
-  round (`reviews/tasks-d7.md`). The answer gates Phases 4 to 8.
+- [ ] T016 The person confirms the D-7 option (plan.md "Decision needed"). For every option, one
+  commit before any task of Phase 4 records the answer in spec.md "Plan decisions", plan.md
+  ("Decision needed" no longer pending; Constitution Check) and research D-7, and reconciles every
+  artifact the option changes, with a review round (`reviews/tasks-d7.md`):
+  (A): nothing beyond that; the [D-7] tasks as written.
+  (C): FR-006 wording in the spec as the person agrees; configuration-delta.md (no start-time
+  wait or INFO line), data-model.md (`START_PREPARE` removed), quickstart (offline rows and live
+  check step 3), T024 (no start-time `prepare`; the instructions show the count and the
+  credentials-not-ready text whenever nodes are configured), T037/T038 and T041.
+  (B): SC-002 narrowed in the spec by the person; data-model, contracts (`credentialsChecked:
+  partial` in both output schemas, no readiness refusal, no start-time wait), quickstart and the
+  affected tasks (T013 to T015, T020 to T022, T024, T030, T031, T036 to T038, T041).
+  The answer gates Phases 4 to 8.
 
 ## Phase 4: Secrets (plan stage 3; FR-010, FR-008a, FR-013)
 
@@ -201,7 +209,8 @@ read and paging match quickstart rows US1 AS1–AS6 and D-9.
   count 18 — main `Wiring.java`, `mcp/McpServerFactory.java`, tests `ServerIdentityTest.java`,
   `ToolAnnouncementTest.java`
 - [ ] T024 [D-7] [US1] Start-time `prepare` in `Launcher` (only when notes exist, ≤ 5 s; otherwise
-  the announcement's credentials-not-ready text) — main `Launcher.java`, tests `MainTest.java`,
+  the announcement's credentials-not-ready text; the INFO line of configuration-delta.md when not
+  ready, asserted through a `ListAppender`; leak check) — main `Launcher.java`, tests `MainTest.java`,
   `KnowledgeToolsWiringTest.java`
 
 **Checkpoint**: build green; code-review phase 5.
