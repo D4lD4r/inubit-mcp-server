@@ -64,3 +64,17 @@ Review of the fix round: reviews/phase2-cr-fix-r1.md (APPROVED, 3 minors fixed a
 ## Implementation — phase 3 build
 
 After T022 (5097278): `mvn -o -q clean verify` green with 5773 unit tests (52 skipped), 0 failures, 0 errors, plus 2 integration tests (after phase 2 fixes: 5707 + 2).
+
+## Implementation — phase 3 code review (f19caac..3466933)
+
+10 findings:
+1. `FindPartnersTool` accepts `compareWith`, `protocol`, `workflow`, but `PartnerService` ignores them; filtered or compared calls silently return unfiltered single-server data.
+2. No paging or result bound while the tool is wired: `offset`/`limit` only echoed, every matching partner returned in full.
+3. Fan-out deadline gives one `cliExportTimeout` for all sequential exports of a server, whatever the number of system diagrams.
+4. `PartnerService.covering` loops with `refresh=true` without a bound; each round is a full export.
+5. `PartnerService.loggable` replaces only C0/DEL (not C1 NEL, U+2028/U+2029) and can split a surrogate pair.
+6. `loggable` is a copy of `ArchiveExportService.loggable`.
+7. Whether a target refusal's record was written is inferred from `ToolError` equality.
+8. `similarValues` is `[]` when no server answered.
+9. `FindPartnersTool` mirrors `PartnerView`/`EntryView`/`WorkflowView` only for one `@JsonInclude`.
+10. Case-insensitive search via `toLowerCase(Locale.ROOT)` on both sides is not full case-insensitive matching.
