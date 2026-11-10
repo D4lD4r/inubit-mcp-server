@@ -308,7 +308,9 @@ public final class InventoryService {
      * detection and the probe: feature 009; plus the read allowance of a node whose credentials
      * are not held yet (feature 010, 011). A diagram also adds the partner read of a technical
      * workflow (feature 018, FR-015): {@code 3 × timeout} (guard wait, detection, system diagram
-     * list) and {@code cliExportTimeout}, the read budget of {@code find_partners}.
+     * list) and {@code cliExportTimeout}, the read budget of {@code find_partners}, which
+     * {@link PartnerService#referencingClouds} waits at most (a longer read is a {@code TIMEOUT}
+     * of the partner usage only).
      */
     Duration itemDeadline(InventoryKind kind, NodeId server) {
         Duration timeout = timeouts.apply(server);

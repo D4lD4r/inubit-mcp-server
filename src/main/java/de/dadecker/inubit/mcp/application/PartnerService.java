@@ -47,6 +47,10 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -1248,18 +1252,20 @@ public final class PartnerService {
     /**
      * The clouds of {@code owner}'s system diagrams on {@code server} whose
      * {@code referencableWorkflows} contain {@code workflowName}, case-insensitively like the
-     * {@code workflow} filter (story 4, FR-015): the read of {@code find_partners} on the
-     * calling thread, admitted by the version gate for {@code get_inventory_item}, through the
-     * same cache and not audited (names only).
+     * {@code workflow} filter (story 4, FR-015): the read of {@code find_partners}, admitted by
+     * the version gate for {@code get_inventory_item}, through the same cache and not audited
+     * (names only). The read runs on its own thread and is awaited for at most
+     * {@link #referenceBudget}; a read that takes longer is a {@code TIMEOUT} of this part only
+     * (the rest of the detail stays), and goes on to fill the cache for the next call.
      *
-     * @throws ToolErrorException the version gate's refusal or a failed read
+     * @throws ToolErrorException the version gate's refusal, a failed read or {@code TIMEOUT}
      */
     CloudReferences referencingClouds(NodeId server, String owner, String workflowName,
         boolean refresh) {
         PartnerQuery query = new PartnerQuery(server.toString(), Optional.empty(),
             Optional.of(owner), Optional.empty(), Optional.empty(), Optional.empty(),
             Optional.empty(), 0, PartnerQuery.DEFAULT_LIMIT, refresh, Optional.empty());
-        ServerRead read = read(INVENTORY_TOOL, server, query);
+        ServerRead read = awaitReference(server, query);
         List<CloudUse> clouds = read.diagrams().stream()
             .flatMap(diagram -> diagram.clouds().stream()
                 .filter(cloud -> cloud.referencableWorkflows().stream()
@@ -1268,6 +1274,47 @@ public final class PartnerService {
             .toList();
         return new CloudReferences(clouds, read.unreadableDiagrams(), read.collectedAt(),
             read.warnings().subList(0, read.gateWarnings()));
+    }
+
+    /**
+     * How long {@link #referencingClouds} waits for the read: {@code 3 × timeout} (guard wait,
+     * detection, system diagram list) plus the export budget ({@code cliExportTimeout}), as
+     * {@code InventoryService.itemDeadline} allows for it.
+     */
+    Duration referenceBudget(NodeId server) {
+        return timeouts.apply(server).multipliedBy(3).plus(exportTimeouts.apply(server));
+    }
+
+    private ServerRead awaitReference(NodeId server, PartnerQuery query) {
+        CompletableFuture<ServerRead> read = new CompletableFuture<>();
+        Thread.ofVirtual().name("partner-usage " + server).start(() -> {
+            try {
+                read.complete(read(INVENTORY_TOOL, server, query));
+            } catch (RuntimeException | Error e) {
+                read.completeExceptionally(e);
+            }
+        });
+        Duration budget = referenceBudget(server);
+        try {
+            return read.get(budget.toNanos(), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException e) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT,
+                "The system diagrams of " + server + " were not read within " + budget.toMillis()
+                    + " ms",
+                "Many or large system diagrams, or a slow server; the read goes on and fills the"
+                    + " cache",
+                "Retry in a moment, or raise cliExportTimeout").withNode(server));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT,
+                "The read of the system diagrams of " + server + " was stopped",
+                "The call reached its deadline", "Retry in a moment").withNode(server));
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw (Error) e.getCause();
+        }
     }
 
     /**

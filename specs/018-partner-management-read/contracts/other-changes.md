@@ -23,6 +23,9 @@ Output `item` gains an optional field, present only for a technical workflow:
 - A system diagram that cannot be read does not hide the others: `systemDiagrams` lists the clouds
   found, and `unavailable` names the first unreadable diagram (and how many more), so both fields
   can be present.
+- The read is awaited for at most `3 × timeout + cliExportTimeout`; a longer read gives
+  `unavailable` with `TIMEOUT` (the rest of the detail stays) and goes on to fill the cache, so a
+  later call finds it there.
 - Not audited (names only). Uses the cache of `find_partners` (`refresh` reads again).
 - Bounded like the rest of the detail: names cut to 200 characters, `unavailable` texts to 500;
   over budget the variables and system diagrams keep a prefix of at most an eighth of the budget

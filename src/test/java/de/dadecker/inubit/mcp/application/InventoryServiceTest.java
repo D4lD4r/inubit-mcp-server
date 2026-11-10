@@ -61,6 +61,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -103,6 +105,8 @@ class InventoryServiceTest {
     private SecretTiming secretTiming = SecretTiming.NONE;
     /** The REST timeout of every server. */
     private Duration timeout = TIMEOUT;
+    /** The {@code cliExportTimeout} of every server. */
+    private Duration exportTimeout = EXPORT_TIMEOUT;
     /**
      * Feature 010: runs on every acquisition of an inventory port, where
      * {@code AdapterGatewayFactory} waits for the first fetch of an AWS node.
@@ -114,6 +118,8 @@ class InventoryServiceTest {
         new ConcurrentHashMap<>();
     /** Feature 018 (US4): the error each server's partner port throws. */
     private final Map<NodeId, ToolError> partnerFailures = new ConcurrentHashMap<>();
+    /** Feature 018 (phase 6 review): a partner port read waits for this latch, if set. */
+    private volatile CountDownLatch partnerGate;
     /** Feature 018 (US4): {@code server|owner|[system diagrams]} per partner port read. */
     private final List<String> partnerReads = new CopyOnWriteArrayList<>();
     /** The partner service of the last {@link #service()}, sharing its cache and gate. */
@@ -162,6 +168,7 @@ class InventoryServiceTest {
                     partnerReads.add(server + "|" + owner + "|" + systemDiagrams.stream()
                         .map(DiagramRef::name).toList());
                     FakeInventory.fail(partnerFailures.get(server));
+                    awaitPartnerGate();
                     return partnerData.getOrDefault(server,
                         new PartnerManagementPort.Result(List.of(), List.of(), Map.of()));
                 };
@@ -185,10 +192,10 @@ class InventoryServiceTest {
         }, clock, "default", UUID::randomUUID);
         partnerService = new PartnerService(gateways, new TargetResolver(SERVERS), new FanOut(),
             limiter, cache, server -> Optional.of("OWNERS"), server -> timeout,
-            server -> EXPORT_TIMEOUT, ResultJson::size, Terminology.DEFAULT, gate, secretTiming,
+            server -> exportTimeout, ResultJson::size, Terminology.DEFAULT, gate, secretTiming,
             noAudit);
         return new InventoryService(gateways, new TargetResolver(SERVERS), new FanOut(), limiter,
-            cache, server -> Optional.of("OWNERS"), server -> timeout, server -> EXPORT_TIMEOUT,
+            cache, server -> Optional.of("OWNERS"), server -> timeout, server -> exportTimeout,
             server -> CLI_TIMEOUT, KILL_GRACES, ResultJson::size, Terminology.DEFAULT, gate,
             secretTiming, partnerService);
     }
@@ -536,6 +543,19 @@ class InventoryServiceTest {
             List.of());
     }
 
+    private void awaitPartnerGate() {
+        CountDownLatch gate = partnerGate;
+        if (gate == null) {
+            return;
+        }
+        try {
+            assertThat(gate.await(20, TimeUnit.SECONDS)).as("partner gate opened").isTrue();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
+    }
+
     private static PartnerQuery partnerQuery(String target) {
         return new PartnerQuery(target, Optional.empty(), Optional.empty(), Optional.empty(),
             Optional.empty(), Optional.empty(), Optional.empty(), 0, PartnerQuery.DEFAULT_LIMIT,
@@ -660,6 +680,46 @@ class InventoryServiceTest {
         assertThat(usage.unavailable()).contains(new PartnerUsage.Unavailable(
             ErrorCode.UNREACHABLE, "connection refused", "check the server"));
         assertThat(lookup.item().versions()).isPresent();
+    }
+
+    @Test
+    void aPartnerReadPastItsBudgetIsATimeoutOfThePartnerUsageOnlyAndFillsTheCacheLater() {
+        // phase 6 review: the slow read neither stops the detail nor is lost for the next call
+        partnerData(DEV);
+        timeout = Duration.ofMillis(50);
+        exportTimeout = Duration.ofMillis(150);
+        partnerGate = new CountDownLatch(1);
+        InventoryService service = service();
+
+        long start = System.nanoTime();
+        Lookup lookup = payload(service.item(item("dev/node1", InventoryKind.DIAGRAM,
+            "Workflow-0101")).get(0));
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+        PartnerUsage usage = lookup.item().partnerUsage().orElseThrow();
+        assertThat(usage.variables()).isEqualTo(PARTNER_VARIABLES);
+        assertThat(usage.partnerManagementNode()).isTrue();
+        assertThat(usage.systemDiagrams()).isEmpty();
+        assertThat(usage.unavailable()).hasValueSatisfying(unavailable -> {
+            assertThat(unavailable.code()).isEqualTo(ErrorCode.TIMEOUT);
+            assertThat(unavailable.message()).contains("dev/node1", "300 ms");
+            assertThat(unavailable.nextStep()).contains("cliExportTimeout");
+        });
+        assertThat(lookup.item().versions()).as("the rest of the detail").isPresent();
+        assertThat(lookup.item().modules()).isPresent();
+        assertThat(elapsed).as("waited the budget, not the read").isLessThan(
+            Duration.ofSeconds(10));
+
+        partnerGate.countDown();
+        // the budgets are read per call: the next call may wait for the released read
+        timeout = TIMEOUT;
+        exportTimeout = EXPORT_TIMEOUT;
+        Lookup again = payload(service.item(item("dev/node1", InventoryKind.DIAGRAM,
+            "Workflow-0101")).get(0));
+
+        assertThat(again.item().partnerUsage().orElseThrow().systemDiagrams()).contains(List.of(
+            new CloudUse(MAP_1, "Module-0901"), new CloudUse(MAP_2, "Module-0903")));
+        assertThat(partnerReads).as("the first read went on and filled the cache").hasSize(1);
     }
 
     @Test
