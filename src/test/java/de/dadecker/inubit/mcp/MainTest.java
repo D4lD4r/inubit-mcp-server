@@ -297,6 +297,7 @@ class MainTest {
             INUBIT_ACME_<GROUP>[_<NODE>]_<KIND> (macOS Keychain)
             Audit directory: %s
             Workspace: %s (ok)
+            Knowledge: %s (absent), recording on, 0 notes
             Group dev: archives: allowed
               Node dev/node1: read-only, cli: unavailable, inubit: V8_1, \
             secrets: credentialStore (macOS Keychain), \
@@ -310,7 +311,8 @@ class MainTest {
             INUBIT_ACME_QA_NODE2_USERNAME; move them to the credential store or Parameter Store \
             (docs/migration-environment-variables.md)
             Result: OK
-            """.formatted(file, home.resolve("audit"), home.resolve("workspace")));
+            """.formatted(file, home.resolve("audit"), home.resolve("workspace"),
+                home.resolve(".inubit-mcp/acme/knowledge")));
         assertThat(storesCreated).as("T015: no Parameter Store without an AWS node").hasValue(0);
     }
 
@@ -1226,6 +1228,55 @@ class MainTest {
         stdout.reset();
         assertThat(run("--config", file.toString())).isEqualTo(1);
         assertThat(err()).contains("does not start", error);
+    }
+
+    // --- feature 019 T011: the knowledge line and the start-time warnings (FR-003) -----------
+
+    @Test
+    void checkConfigShowsTheAbsentDefaultKnowledgeDirectoryWithoutCreatingIt() throws IOException {
+        credentials();
+        Path file = validConfig();
+        Path knowledge = home.resolve(".inubit-mcp/acme/knowledge");
+
+        assertThat(run("--check-config", "--config", file.toString())).as(out()).isZero();
+
+        assertThat(out()).contains("Knowledge: " + knowledge + " (absent), recording on,"
+            + " 0 notes\n");
+        assertThat(knowledge).doesNotExist();
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void aKnowledgeDirectoryOthersMayReadIsAWarningAtCheckAndStartAndIsNotChanged()
+        throws IOException {
+        credentials();
+        Path knowledge = Files.createDirectories(home.resolve("Notes/acme"));
+        Files.setPosixFilePermissions(knowledge, PosixFilePermissions.fromString("rwxr-xr-x"));
+        // a configuration file in the home directory would hold ~/Notes (FR-002)
+        Path file = Files.createDirectories(home.resolve(".config/inubit-mcp"))
+            .resolve("acme.yaml");
+        Files.writeString(file, """
+            profile:
+              name: acme
+            knowledge:
+              directory: %s
+              recording: false
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+            """.formatted(knowledge));
+        String warning = "The knowledge directory " + knowledge + " is readable by group and"
+            + " others; run chmod 700 " + knowledge + " (the server does not change permissions)";
+
+        assertThat(run("--check-config", "--config", file.toString())).as(out()).isZero();
+
+        assertThat(out()).contains(warning)
+            .contains("Knowledge: " + knowledge + " (ok), recording off, 0 notes\n");
+        assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(knowledge)))
+            .isEqualTo("rwxr-xr-x");
     }
 
     // --- 002 research D-9: profile selection --------------------------------------------------

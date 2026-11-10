@@ -31,6 +31,7 @@ import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.EntryCheck;
 import de.dadecker.inubit.mcp.config.GroupConfig;
 import de.dadecker.inubit.mcp.config.JdkRelease;
+import de.dadecker.inubit.mcp.config.KnowledgeStatus;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.config.ParameterCheck;
 import de.dadecker.inubit.mcp.config.ParameterStore;
@@ -272,7 +273,7 @@ final class Launcher {
             ValidationReport checked = entries.addTo(parameters.addTo(withProbes));
             context.out().print(new ConfigSummary(context.exists(), context.windows())
                 .render(loaded, checked, clients, options, parameters, entries,
-                    checkedClients));
+                    checkedClients, KnowledgeStatus.probe(loaded.config().knowledge(), 0)));
             context.out().flush();
             return checked.hasErrors() ? EXIT_ERROR : EXIT_OK;
         }
@@ -300,12 +301,15 @@ final class Launcher {
     /**
      * {@code report} with a warning per existing private object of the server that grants access
      * to other principals (feature 013, FR-007, US3 AS4): the default audit directory and its
-     * logs, the deployment ledgers and locks; nothing is changed.
+     * logs, the deployment ledgers and locks; and the knowledge directory if others may access
+     * it or it is not usable (feature 019, FR-003); nothing is changed.
      */
     private ValidationReport withPrivateObjects(ProfileConfig config, ValidationReport report) {
-        List<String> found = new PrivateObjectCheck(context.privateFiles(),
-            System.getProperty("user.name", "")).warnings(config.auditDirectory(),
-            context.userHome(), config.profile().name());
+        PrivateObjectCheck check = new PrivateObjectCheck(context.privateFiles(),
+            System.getProperty("user.name", ""));
+        List<String> found = new ArrayList<>(check.warnings(config.auditDirectory(),
+            context.userHome(), config.profile().name()));
+        found.addAll(check.knowledgeWarnings(config.knowledge().directory(), context.windows()));
         if (found.isEmpty()) {
             return report;
         }

@@ -101,7 +101,7 @@ prints the line without reading a credential.
   write, Windows ACL `check`; empty for a missing path — main `domain/port/PrivateFileSystem.java`,
   `adapter/os/OsPrivateFileSystem.java` (and the other `*PrivateFileSystem` implementations), test
   `adapter/os/OsPrivateFileSystemTest.java`
-- [ ] T011 [US3] `KnowledgeStatus` record (`OK`, `ABSENT`, `PROBLEM` with `not a directory` or
+- [X] T011 [US3] `KnowledgeStatus` record (`OK`, `ABSENT`, `PROBLEM` with `not a directory` or
   `not readable`, `recording`, `notes`) and its `ConfigSummary` line `Knowledge: <path> (<status>),
   recording on|off, <n> notes`, tested with constructed values; in `Launcher` the start-time
   warnings of configuration-delta.md: the permission warning (T010) and "not usable: not a

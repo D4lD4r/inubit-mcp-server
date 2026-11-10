@@ -32,6 +32,60 @@ class PrivateObjectCheckTest {
     private final List<Path> checked = new ArrayList<>();
     private final Map<Path, IOException> unreadable = new HashMap<>();
     private Optional<String> userSid = Optional.empty();
+    private final Map<Path, String> othersMay = new HashMap<>();
+
+    // --- feature 019 T011: the knowledge directory (FR-003, contracts/configuration-delta.md) --
+
+    @Test
+    void onPosixAKnowledgeDirectoryOthersMayAccessIsNamedWithChmod() throws IOException {
+        Path knowledge = Files.createDirectories(home.resolve("Notes/acme"));
+        othersMay.put(knowledge, "readable by group and others");
+
+        assertThat(check().knowledgeWarnings(knowledge, false)).containsExactly(
+            "The knowledge directory " + knowledge + " is readable by group and others; run"
+                + " chmod 700 " + knowledge + " (the server does not change permissions)");
+        assertThat(checked).as("no access list on POSIX").isEmpty();
+    }
+
+    @Test
+    void onWindowsTheKnowledgeDirectoryGetsThe013Wording() throws IOException {
+        Path knowledge = Files.createDirectories(home.resolve("Notes/acme"));
+        granted.put(knowledge, List.of("BUILTIN\\Users"));
+
+        assertThat(check().knowledgeWarnings(knowledge, true)).containsExactly(
+            "the knowledge directory " + knowledge + " grants access to BUILTIN\\Users; the"
+                + " server does not change it. Restrict it to jdoe and SYSTEM with: icacls \""
+                + knowledge + "\" /inheritance:r /grant:r \"jdoe:(OI)(CI)F\""
+                + " \"*S-1-5-18:(OI)(CI)F\" /remove \"BUILTIN\\Users\"");
+    }
+
+    @Test
+    void aMissingOrPrivateKnowledgeDirectoryGivesNoWarning() throws IOException {
+        assertThat(check().knowledgeWarnings(home.resolve("missing"), false)).isEmpty();
+        assertThat(check().knowledgeWarnings(home.resolve("missing"), true)).isEmpty();
+        Path knowledge = Files.createDirectories(home.resolve("Notes/acme"));
+        assertThat(check().knowledgeWarnings(knowledge, false)).isEmpty();
+        assertThat(check().knowledgeWarnings(Path.of("relative"), false)).isEmpty();
+    }
+
+    @Test
+    void aKnowledgePathThatIsNoDirectoryIsNotUsable() throws IOException {
+        Path file = Files.createFile(home.resolve("knowledge"));
+
+        assertThat(check().knowledgeWarnings(file, false)).containsExactly(
+            "The knowledge directory " + file + " is not usable: not a directory; the knowledge"
+                + " tools report it until it is fixed");
+    }
+
+    @Test
+    void aKnowledgeDirectoryWhoseAccessCannotBeReadIsReported() throws IOException {
+        Path knowledge = Files.createDirectories(home.resolve("Notes/acme"));
+        unreadable.put(knowledge, new AccessDeniedException(knowledge.toString()));
+
+        assertThat(check().knowledgeWarnings(knowledge, false)).singleElement().asString()
+            .startsWith("the access of the knowledge directory " + knowledge
+                + " could not be checked (");
+    }
 
     @Test
     void theDefaultAuditDirectoryAndItsLogWithOtherPrincipalsAreNamedWithTheRemedy()
@@ -240,8 +294,11 @@ class PrivateObjectCheckTest {
         }
 
         @Override
-        public Optional<String> othersMayAccess(Path path) {
-            throw new AssertionError("not asked");
+        public Optional<String> othersMayAccess(Path path) throws IOException {
+            if (unreadable.containsKey(path)) {
+                throw unreadable.get(path);
+            }
+            return Optional.ofNullable(othersMay.get(path));
         }
 
         @Override

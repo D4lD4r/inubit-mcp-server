@@ -24,7 +24,7 @@ get the listed members; everything else is unchanged.
 | `ProfileConfig` | Changed | `+ KnowledgeConfig knowledge` | JSON property `knowledge`; never null after loading |
 | `ConfigLoader` | Changed | default `knowledge.directory`; `requireStrictKnowledgeRecording` | quoted boolean → load error |
 | `ConfigValidator` | Changed | `checkKnowledge(…)` | errors per D-2; uses `canonical` |
-| `KnowledgeStatus` | New record | `Path path`, `State state` (`OK`, `ABSENT`, `PROBLEM`), `Optional<String> problem`, `boolean recording`, `int notes` | rendered by `ConfigSummary` as the `Knowledge:` line (D-3) |
+| `KnowledgeStatus` | New record | `Path path`, `State state` (`OK`, `ABSENT`, `PROBLEM`), `Optional<String> problem`, `boolean recording`, `int notes`; `probe(KnowledgeConfig, int notes)` (no walk; a relative path is `not usable: see the errors`), `line()` | rendered by `ConfigSummary` as the `Knowledge:` line (D-3); `PrivateObjectCheck.knowledgeWarnings` reuses `probe` for the start-time warnings |
 | `ConfigSummary` | Changed | `render(…, KnowledgeStatus)` | line after `Workspace:` |
 
 ## Domain (`domain`)

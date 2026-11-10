@@ -64,6 +64,7 @@ Knowledge: /Users/op/Notes/inubit/acme (not readable), recording on, 0 notes
 
 - No note name, title or content is printed; no credential is read (FR-003, D-3).
 - The count is the number of notes `read_knowledge` would list (D-9).
+- A relative `knowledge.directory` shows `(not usable: see the errors)`, as the `Workspace:` line.
 
 ## Instructions at start (D-7, D-8)
 
