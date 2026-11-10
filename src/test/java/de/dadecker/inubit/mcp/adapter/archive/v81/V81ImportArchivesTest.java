@@ -374,4 +374,115 @@ class V81ImportArchivesTest {
             archives.connectionOrdered(WORKFLOW, bytes(sent)),
             archives.connectionOrdered(WORKFLOW, bytes(variableMoved(sent))))).isFalse();
     }
+
+    // --- what INUBIT normalizes when it stores a workflow or a stylesheet (observed on 8.1) ---
+
+    private static final String STYLESHEET = "dev/jdoe/modules/XSLT Converter/Module-0023/"
+        + "xslt.stylesheet.xsl";
+    private static final String ADDED_COMMENT =
+        "    <Comment>Globally used throw module</Comment>\n";
+
+    /** The neutral excerpt of an observed import ({@code fixtures/v8_1/import-normalization}). */
+    private static String normalization(String name) {
+        try (var in = V81ImportArchivesTest.class.getResourceAsStream(
+            "/fixtures/v8_1/import-normalization/" + name)) {
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+    }
+
+    @Test
+    void whatInubitNormalizesInAStoredWorkflowIsImportedAsSent() {
+        // the re-export of a new workflow: a module without a comment got the comment of the
+        // module it uses, the unused namespace declaration of Variables is gone, ">" is no
+        // longer escaped, connections and variables come in another order
+        String sent = normalization("workflow-sent.xml");
+        String stored = normalization("workflow-stored.xml");
+
+        assertThat(archives.importedAs(WORKFLOW, bytes(sent), bytes(stored))).isTrue();
+        assertThat(archives.equivalent(WORKFLOW, bytes(sent), bytes(
+            ConnectionOrderFixtures.edit(stored, ADDED_COMMENT, "")))).as("without the comment")
+            .isTrue();
+        assertThat(archives.equivalent(WORKFLOW, bytes(sent), bytes(stored)))
+            .as("the added comment is only what an import makes of the file").isFalse();
+        assertThat(archives.importedAs(WORKFLOW, bytes(stored), bytes(sent)))
+            .as("INUBIT does not remove a comment").isFalse();
+    }
+
+    @Test
+    void realDifferencesOfAStoredWorkflowStayDifferences() {
+        String sent = normalization("workflow-sent.xml");
+        String stored = normalization("workflow-stored.xml");
+        String typed = "name=\"var.test.server\" type=\"xs:string\"";
+        String usesIs = "name=\"var.test.server\" type=\"is:anyElement\"";
+        Map<String, String> differences = new java.util.LinkedHashMap<>();
+        differences.put("an existing comment changed", stored.replace("Joins the test branches",
+            "Joins the branches"));
+        differences.put("an existing comment removed", ConnectionOrderFixtures.edit(stored,
+            "    <Comment>Joins the test branches</Comment>\n", ""));
+        differences.put("an added comment with another change of the module", stored.replace(
+            ">Invalid test input<", ">Invalid input<"));
+        differences.put("a comment in another element than a workflow module", stored.replace(
+            "<Property name=\"FaultName\">", "<Comment>x</Comment><Property name=\"FaultName\">"));
+        differences.put("another attribute value", stored.replace("labelPosition=\"50.0\"/>\n"
+            + "    </Connection>\n  </WorkflowModule>", "labelPosition=\"60.0\"/>\n"
+            + "    </Connection>\n  </WorkflowModule>"));
+        differences.put("another namespace URI", stored.replace("2001/XMLSchema",
+            "2001/XMLSchema-other"));
+        differences.put("an escaped text changed", stored.replace("attempt > n", "attempt < n")
+            .replace("attempt < n", "attempt &lt; n"));
+
+        differences.forEach((difference, server) -> {
+            assertThat(server).as(difference).isNotEqualTo(stored);
+            assertThat(archives.importedAs(WORKFLOW, bytes(sent), bytes(server)))
+                .as(difference).isFalse();
+        });
+        // a declaration that a variable type uses is content
+        assertThat(archives.importedAs(WORKFLOW, bytes(sent.replace(typed, usesIs)),
+            bytes(stored.replace(typed, usesIs)))).as("a used namespace removed").isFalse();
+        assertThat(archives.importedAs(WORKFLOW, bytes(sent.replace(typed, usesIs)),
+            bytes(stored.replace(typed, usesIs).replace("<Variables xmlns:xs=",
+                "<Variables xmlns:is=\"http://inubit.com/variables/types\" xmlns:xs="))))
+            .as("the used namespace kept").isTrue();
+    }
+
+    @Test
+    void aStylesheetAsInubitReserializesItIsEquivalent() {
+        // INUBIT re-serializes a stylesheet: no line break between a leading comment and the
+        // root, start tags on one line, line breaks in attribute values as spaces (which is
+        // what any XML parser reads them as), no final line break
+        String sent = normalization("stylesheet-sent.xsl");
+        String stored = normalization("stylesheet-stored.xsl");
+
+        assertThat(archives.equivalent(STYLESHEET, bytes(sent), bytes(stored))).isTrue();
+        assertThat(archives.importedAs(STYLESHEET, bytes(sent), bytes(stored))).isTrue();
+        assertThat(archives.equivalent(STYLESHEET.replace("xslt.stylesheet.xsl",
+            "WsdlData.wsdl"), bytes(sent), bytes(stored))).isTrue();
+    }
+
+    @Test
+    void realDifferencesOfAStylesheetStayDifferences() {
+        String sent = normalization("stylesheet-sent.xsl");
+        String stored = normalization("stylesheet-stored.xsl");
+        Map<String, String> differences = new java.util.LinkedHashMap<>();
+        differences.put("another attribute value", stored.replace("'#now#'", "'#today#'"));
+        differences.put("spaces of an attribute value collapsed", stored.replace("(.,       '",
+            "(., '"));
+        differences.put("the space of xsl:text", stored.replace("<xsl:text> </xsl:text>",
+            "<xsl:text>  </xsl:text>"));
+        differences.put("whitespace between elements", stored.replace(
+            "<acme:separator>", "\n      <acme:separator>"));
+        differences.put("the leading comment", stored.replace("test input", "input"));
+        differences.put("another namespace URI", stored.replace("core/1.0", "core/2.0"));
+        differences.put("a namespace declaration missing", stored.replace(
+            " xmlns:env=\"http://schemas.xmlsoap.org/soap/envelope/\"", ""));
+        differences.put("not well-formed", stored.replace("</xsl:stylesheet>", ""));
+
+        differences.forEach((difference, server) -> {
+            assertThat(server).as(difference).isNotEqualTo(stored);
+            assertThat(archives.importedAs(STYLESHEET, bytes(sent), bytes(server)))
+                .as(difference).isFalse();
+        });
+    }
 }

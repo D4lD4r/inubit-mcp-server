@@ -352,4 +352,27 @@ class WorkflowComparisonTest {
         assertThat(contentOrdered(one)).isEqualTo(contentOrdered(other));
         assertThat(contentOrdered(one)).isNotEqualTo(contentOrdered(other.replace("t2", "t3")));
     }
+
+    @Test
+    void anUnusedNamespaceDeclarationOfTheVariablesIsLeftOut() {
+        // INUBIT drops it when it stores the workflow (observed on 8.1)
+        String declared = "<Variables xmlns:is=\"urn:types\" xmlns:xs=\"urn:xs\">";
+        String without = "<Variables xmlns:xs=\"urn:xs\">";
+        String unused = workflow(declared + variable("a", "xs:string") + "</Variables>");
+        String used = workflow(declared + variable("a", "is:anyElement") + "</Variables>");
+        String inText = workflow(declared + "<Variable name=\"a\"><DefaultValue>is:x"
+            + "</DefaultValue></Variable></Variables>");
+        String empty = workflow("<Variables xmlns:is=\"urn:types\"/>");
+
+        assertThat(contentOrdered(unused)).isEqualTo(contentOrdered(unused.replace(declared,
+            without))).doesNotContain("urn:types");
+        assertThat(contentOrdered(empty)).isEqualTo(contentOrdered(workflow("<Variables/>")));
+        for (String xml : List.of(used, inText)) {
+            assertThat(contentOrdered(xml)).as(xml).contains("xmlns:is=\"urn:types\"")
+                .isNotEqualTo(contentOrdered(xml.replace(declared, without)));
+        }
+        assertThat(ordered(unused)).as("the fingerprint form keeps it").contains("urn:types");
+        assertThat(contentOrdered(workflow(module("Module-0001", "<Properties xmlns:is="
+            + "\"urn:types\"/>")))).as("only on Variables").contains("urn:types");
+    }
 }

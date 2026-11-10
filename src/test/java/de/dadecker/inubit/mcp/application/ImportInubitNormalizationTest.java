@@ -15,12 +15,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * INUBIT keeps the variables of a workflow in hash order (observed on 8.1): a variable added at
- * the end of {@code Variables} comes back behind another one. The verify of the import accepts
- * that order, and only that: another content of the variable is still a mismatch that is rolled
- * back.
+ * What INUBIT normalizes when it stores a workflow (observed on 8.1) and the verify of the
+ * import accepts: the variables of a workflow are kept in hash order, so a variable added at the
+ * end of {@code Variables} comes back behind another one; a workflow module sent without a
+ * comment comes back with the comment of the module it uses. Another content is still a
+ * mismatch that is rolled back.
  */
-class ImportVariableOrderTest {
+class ImportInubitNormalizationTest {
 
     private static final String EMPTY = "<Variables"
         + " xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" requireVariableFiltering=\"true\"/>";
@@ -87,5 +88,21 @@ class ImportVariableOrderTest {
         assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.FAILED);
         assertThat(outcome.failure().orElseThrow().code()).isEqualTo(ErrorCode.VERIFY_MISMATCH);
         assertThat(outcome.rollback()).contains(WriteOutcome.Rollback.SUCCEEDED);
+    }
+
+    @Test
+    void aCommentThatInubitAddsToAModuleIsVerified() {
+        harness.edit(workflow, "xPos=\"120\"", "xPos=\"140\"");
+        harness.inubit.tamperNextImport = new String[] {"<StyleSheet xPos=\"140\"",
+            "<Comment>Globally used module</Comment><StyleSheet xPos=\"140\""};
+        harness.exportGroup().importApplied().exportGroup();
+
+        WriteOutcome outcome = run();
+
+        assertThat(outcome.failure()).as(outcome.toString()).isEmpty();
+        assertThat(outcome.outcome()).isEqualTo(WriteOutcome.Outcome.EXECUTED);
+        assertThat(harness.inubit.workflowXml()).contains("Globally used module");
+        assertThat(harness.read(workflow)).as("the workspace takes the server's state")
+            .contains("<Comment>Globally used module</Comment>");
     }
 }
