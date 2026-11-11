@@ -686,3 +686,29 @@ apply once T038 is done.
 - The note mechanism of `CapabilityMatrix.Entry` stays (FR-019 fallback for a future version);
   `VersionGateTest` keeps the refusal with a note through a test declaration, since production
   has no note any more.
+
+## T040–T042: documentation, CHANGELOG, final verification (2026-11-11)
+
+- T040: `docs/tools.md` section `read_queue_entry` (short warning, quoted description, inputs,
+  candidate rules, output and variants incl. empty/binary variables, masking, bounds, versions,
+  errors, example) plus table rows, announcement rule and `list_nodes` capability; README rows.
+  Review `T040-r1` (1 major, 4 minor), all fixed.
+- T041: CHANGELOG `[Unreleased]` entry; review `T041-r1` approved, 1 minor fixed. This branch
+  predates the 0.8.1 release on `main`, so the CHANGELOG conflicts when `main` is merged; resolve
+  it then by keeping both entries under `[Unreleased]`.
+- T042 results:
+  - `mvn -o -B clean verify`: BUILD SUCCESS, 6332 tests, 0 failures, 52 skipped; Failsafe 3
+    green (incl. `QueueEntryHelperPackagingIT`).
+  - `python3 -I -m unittest discover -s tools/tests`: 411 OK.
+  - `python3 -I tools/check-identifiers.py --all`: 0 hits; `NoCustomerIdentifiersTest` with the
+    private lists (denylist, neutralize map, synthetic map, allowlist) green, also re-run after
+    packaging so that both JARs are scanned.
+  - `unzip -l` of the shaded JAR: exactly one class under
+    `META-INF/inubit-mcp/queue-entry-helper/` (`QueueEntryHelper.class`).
+  - Quickstart offline table checked row by row: every named test class exists and ran green.
+    Finding: the TLS row named `HandshakeStartCliPinProbeTest`, which does not exist; the
+    probe's test is `StartCliPinProbeTest` (8/8) — fixed in `quickstart.md`.
+  - Final code review over `git diff main...HEAD` (merge-base 42abe479): no findings; gating
+    order (input, target, opt-in, version, then the first request), stdin-only password, private
+    directory cleanup, masking before cutting, bounds, classification, `ProcessRun` extraction
+    and packaging confirmed. Verdict APPROVED.

@@ -501,7 +501,7 @@ refused before any content request (FR-006, FR-019, US3-1…5).
   interface, opt-in per group, diagnosis only), `unsupported.queueEntryRead`, `--check-config`
   line only with an opt-in, 9.0 state (verified or "not yet verified"), internal `ProcessRun`
   extraction without behaviour change
-- [ ] T042 Full verification: `mvn -B clean verify` and `python3 -I -m unittest discover -s
+- [X] T042 Full verification: `mvn -B clean verify` and `python3 -I -m unittest discover -s
   tools/tests -v` green; `python3 -I tools/check-identifiers.py --all` and
   `NoCustomerIdentifiersTest` with the private lists green; `unzip -l` of the JAR shows exactly one
   helper class under `META-INF/inubit-mcp/queue-entry-helper/`; quickstart offline table checked
