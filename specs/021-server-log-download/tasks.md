@@ -305,7 +305,7 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   delegates to it — within 20 s on the CI machine (the bound covers window read, scrubber scan,
   masking and selection); both passwords absent from the excerpt; fix a non-linear masker or
   scrubber path if it fails
-- [ ] T019 [P] `application/LogFileWriter.java` (FR-007, FR-008, FR-011, SC-004, D-7 step 4;
+- [X] T019 [P] `application/LogFileWriter.java` (FR-007, FR-008, FR-011, SC-004, D-7 step 4;
   after T006, T007): `Placed place(TargetFolderRules.CheckedFolder folder, String baseName, Path
   source)` → `Placed(Path file, long size)`; creates the folder and missing parents with
   `OwnerOnlyFolders` (T006); streams the source into `.<base>.<random>.part` in the folder
