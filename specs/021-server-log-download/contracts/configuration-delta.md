@@ -25,7 +25,7 @@ groups:
 Both logs need an INUBIT client installation for the node's version, configured as for StartCLI
 (`cli.home`, `defaults.cliClients."8.1"` / `"9.0"`, `defaults.cliHome`; feature 017), and the
 node's usual credentials and TLS settings. A download is bounded by the node's `cliExportTimeout`
-(built-in 30 s); raise it for large logs. There is no setting for the target folder (the caller's
+(built-in 120 s); raise it for large logs. There is no setting for the target folder (the caller's
 `targetFolder`) or the excerpt limits (`tailLines`, `maxChars`).
 
 ## Documentation text (FR-004)

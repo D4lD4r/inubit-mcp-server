@@ -106,7 +106,7 @@ ServerLogResult
 call ──► checks (input, target, opt-in, folder) ──► audit PENDING ──► version gate
         │ refusal: audit REFUSED, nothing sent       │ refusal: audit REFUSED
         ▼                                            ▼
-   private dir created ──► download (slot + cliTimeout) ──► DownloadedLog (private copy)
+   private dir created ──► download (slot + cliExportTimeout) ──► DownloadedLog (private copy)
         │ failure: dir deleted, audit FAILED                  │
         ▼                                                     ▼
    excerpt (ExcerptPermit) ──► place (.part → link/claim) ──► audit EXECUTED ──► dir deleted

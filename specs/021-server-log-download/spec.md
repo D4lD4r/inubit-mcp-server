@@ -43,7 +43,7 @@ them; an agent using this MCP server cannot.
 
 Research on the 8.1.17 and 9.0.10 client installations (2026-11-11) found:
 
-- **trace.log** can be downloaded with StartCLI's own command `trace -d <file>` ("Download trace
+- **trace.log** can be downloaded with StartCLI's own command `trace -d` (long form `--download`) `<file>` ("Download trace
   log and store to file"), in 8.1 and 9.0. This is supported vendor functionality, reached through
   the StartCLI channel the server already uses. The same `trace` command also switches tracing and
   log levels; those forms change the server and are never used.
@@ -220,7 +220,7 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
   say that the log file is written in clear text, that both logs may contain business data and
   credentials, and that trace.log uses supported StartCLI functionality.
 - **FR-005**: `log: trace` MUST be read only with StartCLI's documented trace download
-  (`trace -d <file>`) through the existing StartCLI channel (argument array, timeout, exit-code
+  (`trace --download <file>`, the long form of `-d`) through the existing StartCLI channel (argument array, timeout, exit-code
   evaluation, tested output parser). The tool MUST NOT send any other form of the `trace` command
   (no `on`, `off`, log-level or reset options).
 - **FR-006**: `log: webservice` MUST be read only with the internal log download the Workbench's

@@ -437,8 +437,9 @@ without `serverLogRead` nothing about the web service log appears. Owner questio
 
 **Decision**: `application/ServerLogAudit`, built like `ArchiveExportAudit`
 (`application/ArchiveExportAudit.java`): capability `download_server_log`, step `EXECUTE`, one
-`auditId` per call. A refusal after the schema (input, target, opt-in, folder rule, version) is one
-`REFUSED` record; otherwise a `PENDING` record precedes the download ("no audit record, no
+`auditId` per call. A refusal after the schema and before the `PENDING` record (input, target,
+opt-in, folder rule) is one `REFUSED` record; a refusal by the version gate, which runs after
+`PENDING` (contract decision flow), closes the same `auditId` with `REFUSED`; otherwise a `PENDING` record precedes the download ("no audit record, no
 download": an unwritable `PENDING` → `INTERNAL`, nothing sent), and the final record is
 `EXECUTED` or `FAILED` (with the error code). Inputs in fixed order: `log`, `targetFolder`,
 `tailLines`, `maxChars`, `containsGiven` (`true`/`false`; the text is never audited); details:
