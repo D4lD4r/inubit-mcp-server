@@ -135,3 +135,52 @@ it, same node): `list_inventory` MODULE passes on the 9.0 node (and still on the
 `MODULE_UNVERIFIED`; 4 `DEMUX_KEY_STALE` warnings that concern the content, not 9.0).
 
 T047 stays open: F-3 and F-4 (step 5), steps 7, the write successes of 8, 9 (9.0 → 9.0) and 11.
+
+**Live, 2026-11-11, read-only re-check with 0.8.1** (T047; release JAR 0.8.1 on macOS, run
+directly as MCP stdio server with a copy of the profile without its production group; the same
+integration stage, the 9.0.10 node now also has a `development` block; REST and StartCLI with the
+person's own account; reads only, no write tool was called on any node):
+
+| Step | Result |
+|---|---|
+| 1 `--check-config` | Pass. `CLI 9.0.10 (4.0.1–9.0.10)` on Java 21 and `CLI 8.1.17 (4.0.1–8.1.17)` on Java 17; `Result: OK`; only the host-name warnings of pinned nodes. |
+| 2 `startcli -v` (9.0) | Pass: five lines (`JAVA_HOME is set`, `CLI 9.0.10`, copyright, URL, `Supported inubit Process Engine versions from 4.0.1 to 9.0.10.`), the shape of `fixtures/v9_0/cli/version.stdout`; not committed (T048). |
+| 3 `list_nodes` | Pass, as on 2026-11-09; after detection the 9.0 node lists every capability as usable. |
+| 4 `get_health` | Pass: health, ready, metrics, system info (JDK 21), client `9.0.10 ↔ 9.0.10, match`, nothing unavailable. |
+| 5 reads | Partial. Pass: `list_inventory` DIAGRAM and MODULE (F-1 fixed in 0.8.1), `get_inventory_item` MODULE, `query_logs` (systemLog, also with severity and `since`), `find_processes` (default, `states`). **Fail** on 0.8.1: `get_inventory_item` DIAGRAM (F-3), `find_processes hangingOnly` (F-4, also on the 8.1 nodes of two stages). Both root-caused below and fixed on this branch. |
+| 6 REST wrong password | Skipped: a failed login with the person's account risks locking it. |
+| 7 OAuth-only user | Not possible (no such user). |
+| 8 export/write tools | Not run: write successes are outside the permissions of this check. |
+| 9 `deploy_release` | Not run: needs writes on 9.0. |
+| 10 `AUTO` | Pass: one `get_health` on the stage detected both nodes; the 9.0 client ran on JDK 21 with the base URL and `--trustStoreFilePath`, the 8.1 client on JDK 17; no password on the command line. |
+| 11 Windows | Not possible (macOS only). |
+| 12 Recording | Not run (T048). |
+
+Root causes:
+
+- **F-3**: INUBIT 9.0.10 answers `GET /ibis/rest/model/export/<diagram>` with
+  `Content-Type: application/zip` *and* `Content-Encoding: gzip` (for any `Accept`, even with
+  `Accept-Encoding: identity`). Java's `HttpClient` does not decode a content encoding, so the
+  body starts with the gzip magic `1f 8b` instead of `PK`; decoded, it is the expected ZIP with
+  `workflow/workflow.xml`. 8.1 sends the plain ZIP without `Content-Type`. The JSON and XML answers
+  of 9.0 are not encoded. `find_partners` (feature 018) reads the same export through
+  `V81PartnerManagementAdapter` and fails the same way on 9.0. Fix: `InubitHttpClient` removes a
+  `gzip`/`x-gzip` content encoding, bounded by the body limit after decoding (a corrupt body is
+  `UNEXPECTED_RESPONSE`); this covers `get_inventory_item` and `find_partners`.
+- **F-4**: INUBIT (8.1 and 9.0) runs one log (Queue Manager) query per user at a time and answers
+  an overlapping one with HTTP 500 `MonitoringLockedByOtherClient` (on 8.1 also a plain Tomcat
+  500 or a TIMEOUT). `hangingOnly` and several `states` are a merged plan with one request per raw
+  status, and `LogEndpoint` sent these in parallel. Reproduced without `hangingOnly`: concurrent
+  single-state calls collided (9 of 12 refused), the same calls one after the other all passed.
+  Fix: the requests of a merged plan are sent one after the other. Two concurrent tool calls on
+  the same node can still collide (not a defect of the server, INUBIT allows one query).
+
+**Re-check with the F-3/F-4 fix, 2026-11-11** (the fix branch, JAR built
+locally from it, same nodes, reads only): `get_inventory_item` DIAGRAM passes on the 9.0 node
+(versions, tags, active flag); `find_processes hangingOnly` passes on the 9.0 node and on the 8.1
+nodes of both stages, `states` with three values passes on the 9.0 node; `find_partners`
+(feature 018) on the 9.0 node reads every system diagram of the owner (none unreadable).
+`mvn -o clean verify`: 6398 tests, 0 failures, 0 errors, 58 skipped; `tools/check-identifiers.py
+--all`: clean.
+
+T047 stays open: steps 6 (through the MCP server), 7, 8, 9, 11 and 12 (T048).

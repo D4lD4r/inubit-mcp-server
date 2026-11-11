@@ -381,6 +381,54 @@ The selection of the stores by the live tests is covered offline by `live/LiveTa
 (`theWiringReadsEachNodeFromItsOwnSourceLikeTheServer`); the opt-in gate by
 `live/CredentialStoreLiveOptInTest`.
 
+## Partner Management live check (feature 018)
+
+`find_partners` and the `partnerUsage` of `get_inventory_item` have no automated live test. The
+operator check (018 quickstart.md section 3, task T034) is read-only: it contacts the stages
+named below through the REST model export only, never a production stage, and writes nothing to
+INUBIT. Record the result here in neutralized form only (ACME, `*.example.test`, no real partner,
+host, login or diagram names).
+
+Result of 2026-11-11, with a jar built from `main` at 97c697a (version string 0.8.1; the release
+0.8.1, cut from `release/0.8.x`, does not contain feature 018), owner of the system diagrams as
+configured (`inventory.owner`):
+
+1. `find_partners` with `target: qa` (one server, INUBIT 8.1) and `search: ACME-0001` (a partner
+   that exists on `qa` and `int/node1`): **passed**. The partner is returned once, in full, with
+   its server URLs, logins, protocol and authentication settings in clear; `Password`,
+   `WSSecurityPassword` and `SSLKeyStore` show only `masked` and `set`. List mode on `qa` and
+   `int/node1` read 9 and 7 system diagrams and answered within 1.5 s each.
+2. The same with `compareWith: int/node1`: **passed**. `Request.URI` and its overrides are
+   reported per server (`differs`: `https://api.acme.example.test/…` on `qa`,
+   `https://inubit.int.example.test:8443/…` on `int/node1`), `Login` once (`equal`), the REST
+   `Password` with `sameOn: [["qa/node1","int/node1"]]`; an entry configured on `qa` only carries
+   `onlyOn: ["qa/node1"]`. The repeated call came from the cache (`fromCache: true`, about 20 ms).
+3. `get_inventory_item` of the technical workflow the REST entry references (`Workflow-0001` on
+   `qa`): **passed**. `partnerUsage` lists its four `ISPartnerProtocol.*` variables,
+   `partnerManagementNode: true` and the cloud of `SystemDiagram-01` that references it.
+4. Audit log: **passed**. One record per server and call, sharing the `callId`; `details` holds
+   the counts only (`fromCache`, `systemDiagramsRead`, `partnersReturned`, `valuesMasked`), a
+   failed server is `FAILED`; no setting value appears in the audit file.
+
+Findings (follow-ups, not regressions of the checked steps):
+
+- On `dev` (INUBIT 8.1) one system diagram holds a communication cloud without `ModuleName`; the
+  reader rejects it, so the **whole server** fails with `UNEXPECTED_RESPONSE` ("A communication
+  cloud has no ModuleName") and no partner of the other system diagrams is returned (documented
+  behaviour, docs/tools.md, but a single odd diagram should rather be one `unreadableDiagrams`
+  entry).
+- On `int/node2` (INUBIT 9.0) the REST model export is not a ZIP archive, so the server fails with
+  `UNEXPECTED_RESPONSE` ("The diagram export … is not a ZIP archive"): reading the Partner
+  Management does not work on INUBIT 9.0 as it is. The failed server's `warnings` are empty: the
+  version warning ("not verified for partner management") is dropped when the read fails.
+
+Both findings are fixed for 0.9.0. A system diagram without a readable Partner Management is now
+one `unreadableDiagrams` entry and a failed server keeps its version warning (#78). The INUBIT 9.0
+export was not a ZIP archive because INUBIT 9.0.10 sends it with `Content-Encoding: gzip`; the REST
+client decodes it since #77 (feature 017, F-3), so `find_partners` on INUBIT 9.0 needs that fix.
+With it, `find_partners` read every system diagram of the owner on the 9.0.10 node
+(`specs/017-inubit-9-support/quickstart.md`, re-check of 2026-11-11).
+
 ## Network drive check on Windows (feature 015)
 
 `export_archives` refuses a target folder on a mapped network drive (research R-10, FR-008): the

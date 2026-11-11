@@ -17,6 +17,7 @@ import de.dadecker.inubit.mcp.application.PartnerService.Compared;
 import de.dadecker.inubit.mcp.application.PartnerService.EntryView;
 import de.dadecker.inubit.mcp.application.PartnerService.Found;
 import de.dadecker.inubit.mcp.application.PartnerService.PartnerView;
+import de.dadecker.inubit.mcp.application.PartnerService.ServerView;
 import de.dadecker.inubit.mcp.application.PartnerService.SettingView;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
@@ -26,6 +27,8 @@ import de.dadecker.inubit.mcp.domain.model.InventoryItem;
 import de.dadecker.inubit.mcp.domain.model.ItemBounds;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
+import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
 import de.dadecker.inubit.mcp.domain.model.partner.PartnerQuery;
@@ -82,6 +85,8 @@ class PartnerServiceBoundsTest {
     private final List<AuditRecord> audit = new CopyOnWriteArrayList<>();
     /** The servers of stage {@code dev}; only {@code dev/node1} has an owner. */
     private List<NodeId> nodes = List.of(NODE1);
+    /** When set, the partner port fails with it. */
+    private ToolError portFailure;
 
     // --- SC-004 --------------------------------------------------------------------------------
 
@@ -375,6 +380,25 @@ class PartnerServiceBoundsTest {
     }
 
     @Test
+    void aFailedServerKeepsTheVersionGatesWarnings() {
+        manyUnresolvedEntries();
+        NodeVersions versions = new NodeVersions(Clock.systemUTC(), node -> VersionSetting.V9_0,
+            node -> Duration.ofMinutes(10));
+        VersionGate gate = FakeVersionDetection.gateWithoutClients(versions,
+            new FakeVersionDetection(versions), CapabilityMatrix.production());
+        portFailure = ToolError.of(ErrorCode.UNEXPECTED_RESPONSE, "The export is not a ZIP archive",
+            "cause", "next step").withNode(NODE1);
+
+        ServerView server = find(query(Optional.empty(), 0, 20), ResultLimiter.withDefaults(), gate)
+            .servers().get(0);
+
+        assertThat(server.error()).hasValueSatisfying(error ->
+            assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE));
+        assertThat(server.warnings()).singleElement().satisfies(warning ->
+            assertThat(warning).contains("dev/node1", "9.0", "not verified for partner management"));
+    }
+
+    @Test
     void aResultOverItsBoundOnlyThroughPartsNeverCutIsStillReportedTruncated() {
         // 30 servers without owner: their NOT_CONFIGURED errors are never cut
         nodes = IntStream.rangeClosed(1, 30).mapToObj(n -> NodeId.parse("dev/node" + n))
@@ -573,7 +597,12 @@ class PartnerServiceBoundsTest {
 
         @Override
         public PartnerManagementPort partners(NodeId server) {
-            return (owner, diagrams) -> portRead(diagrams);
+            return (owner, diagrams) -> {
+                if (portFailure != null) {
+                    throw new ToolErrorException(portFailure);
+                }
+                return portRead(diagrams);
+            };
         }
 
         @Override

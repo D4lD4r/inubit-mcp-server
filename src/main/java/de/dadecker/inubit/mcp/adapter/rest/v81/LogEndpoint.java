@@ -17,10 +17,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -28,8 +24,9 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * Runs a {@link LogRequestPlan} against {@code POST /ibis/rest/log/<logName>?format=json}
  * (research R-9) on the server's authenticated REST client, so every request passes the
- * server's credential guard. The requests of a merged plan run in parallel (while the
- * credentials are unconfirmed the guard lets them pass one at a time). The answer
+ * server's credential guard. The requests of a merged plan run one after the other: INUBIT
+ * (8.1 and 9.0) runs one log query of a user at a time and answers an overlapping one with
+ * HTTP 500 {@code MonitoringLockedByOtherClient} (feature 017 live check, F-4). The answer
  * {@code {<logName>: {total, success, count, row[]}}} becomes a {@link Window} of raw rows.
  */
 final class LogEndpoint {
@@ -62,35 +59,11 @@ final class LogEndpoint {
     }
 
     private List<Window<JsonNode>> sendAll(String logName, List<LogRequest> requests) {
-        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
-        try {
-            List<Future<Window<JsonNode>>> futures = new ArrayList<>();
-            for (LogRequest request : requests) {
-                futures.add(executor.submit(() -> send(logName, request)));
-            }
-            List<Window<JsonNode>> responses = new ArrayList<>();
-            for (Future<Window<JsonNode>> future : futures) {
-                responses.add(future.get());
-            }
-            return responses;
-        } catch (ExecutionException e) {
-            if (e.getCause() instanceof ToolErrorException toolError) {
-                throw toolError;
-            }
-            if (e.getCause() instanceof RuntimeException runtime) {
-                throw runtime;
-            }
-            throw new IllegalStateException(e.getCause());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT,
-                "The log query on " + server + " was cancelled before INUBIT answered",
-                "The overall deadline of the request expired",
-                "Retry, narrow the query, or raise the timeout of " + server).withNode(server));
-        } finally {
-            // never close(): it would wait for calls that ignore interrupts
-            executor.shutdownNow();
+        List<Window<JsonNode>> responses = new ArrayList<>();
+        for (LogRequest request : requests) {
+            responses.add(send(logName, request));
         }
+        return responses;
     }
 
     private Window<JsonNode> send(String logName, LogRequest request) {

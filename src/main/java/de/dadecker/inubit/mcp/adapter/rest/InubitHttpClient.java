@@ -11,8 +11,10 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.ConnectException;
 import java.net.NoRouteToHostException;
 import java.net.URI;
@@ -40,6 +42,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow;
 import java.util.regex.Pattern;
+import java.util.zip.GZIPInputStream;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLException;
 import tools.jackson.core.JacksonException;
@@ -61,7 +64,8 @@ import tools.jackson.databind.json.JsonMapper;
  *       {@link ResourceKind#ENDPOINT} request {@code UNEXPECTED_RESPONSE}), 503 →
  *       {@code MAINTENANCE_MODE} if the {@link MaintenanceProbe} reports maintenance, otherwise
  *       {@code UNREACHABLE} (the server answered but is not serving), a body above
- *       {@link #MAX_BODY_BYTES} → {@code UNEXPECTED_RESPONSE}, any other
+ *       {@link #MAX_BODY_BYTES} (after decoding a {@code gzip} content encoding, which INUBIT
+ *       9.0 uses for the model export) → {@code UNEXPECTED_RESPONSE}, any other
  *       non-2xx status → {@code UNEXPECTED_RESPONSE} with a scrubbed excerpt (the string
  *       {@code message} of a JSON body, INUBIT 9.0, research D-12; otherwise the body);
  *       timeouts → {@code TIMEOUT}, refused connections and unknown hosts →
@@ -388,11 +392,7 @@ public final class InubitHttpClient implements AutoCloseable {
             return client.send(builder.build(), info -> new LimitedBody(maxBodyBytes));
         } catch (IOException e) {
             if (hasCause(e, ResponseTooLargeException.class)) {
-                throw new ToolErrorException(error(ErrorCode.UNEXPECTED_RESPONSE,
-                    "The INUBIT response to " + method + " " + path + " is too large (more than "
-                        + (maxBodyBytes >> 20) + " MB)",
-                    "The request selects far more data than expected",
-                    "Narrow the request (filters, paging)"));
+                throw tooLarge(method, path);
             }
             throw new ToolErrorException(transportError(method, path, e));
         } catch (InterruptedException e) {
@@ -407,15 +407,66 @@ public final class InubitHttpClient implements AutoCloseable {
     private RestResponse evaluate(String method, String path, HttpResponse<byte[]> response,
         ResourceKind kind, int[] acceptedStatuses) {
         int status = response.statusCode();
+        boolean success = (status >= 200 && status < 300)
+            || Arrays.stream(acceptedStatuses).anyMatch(accepted -> accepted == status);
         RestResponse result = new RestResponse(status,
-            response.headers().firstValue("Content-Type"), response.body());
-        if ((status >= 200 && status < 300)
-            || Arrays.stream(acceptedStatuses).anyMatch(accepted -> accepted == status)) {
+            response.headers().firstValue("Content-Type"),
+            decoded(method, path, response, success));
+        if (success) {
             return result;
         }
         ToolError error = statusError(method, path, kind, result);
         throw status == 404 && kind == ResourceKind.ENDPOINT ? new EndpointMissing(error)
             : new ToolErrorException(error);
+    }
+
+    private ToolErrorException tooLarge(String method, String path) {
+        return new ToolErrorException(error(ErrorCode.UNEXPECTED_RESPONSE,
+            "The INUBIT response to " + method + " " + path + " is too large (more than "
+                + (maxBodyBytes >> 20) + " MB)",
+            "The request selects far more data than expected",
+            "Narrow the request (filters, paging)"));
+    }
+
+    /**
+     * The body with a {@code gzip} content encoding removed (INUBIT 9.0 sends the model export
+     * so although no {@code Accept-Encoding} is requested, feature 017 live check F-3), bounded
+     * by {@link #maxBodyBytes} after decoding; any other encoding is left as received. A body
+     * that cannot be decoded is {@code UNEXPECTED_RESPONSE} if {@code strict}; otherwise (an
+     * error status, whose own error wins) it is cut at the bound or empty.
+     */
+    private byte[] decoded(String method, String path, HttpResponse<byte[]> response,
+        boolean strict) {
+        String encoding = response.headers().firstValue("Content-Encoding").orElse("").strip()
+            .toLowerCase(Locale.ROOT);
+        if (!encoding.equals("gzip") && !encoding.equals("x-gzip")) {
+            return response.body();
+        }
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (InputStream in = new GZIPInputStream(new ByteArrayInputStream(response.body()))) {
+            byte[] buffer = new byte[8192];
+            long total = 0;
+            for (int read = in.read(buffer); read != -1; read = in.read(buffer)) {
+                total += read;
+                if (total > maxBodyBytes) {
+                    if (strict) {
+                        throw tooLarge(method, path);
+                    }
+                    return out.toByteArray();
+                }
+                out.write(buffer, 0, read);
+            }
+            return out.toByteArray();
+        } catch (IOException e) {
+            if (!strict) {
+                return new byte[0];
+            }
+            throw new ToolErrorException(error(ErrorCode.UNEXPECTED_RESPONSE,
+                "The gzip-encoded INUBIT response to " + method + " " + path
+                    + " cannot be decoded (" + e.getClass().getSimpleName() + ")",
+                "INUBIT sent a damaged or truncated response",
+                "Retry; if it persists, check the INUBIT system log"));
+        }
     }
 
     private static String basicAuth(Credentials credentials) {
