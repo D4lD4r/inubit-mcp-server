@@ -496,6 +496,120 @@ class QueueEntryServiceTest {
         assertThat(content.calls).isEmpty();
     }
 
+    // --- rows without queue file (T034-F1) ----------------------------------------------------
+
+    @Test
+    void onlyErrorRowsWithoutQueueFileAreInvalidInputAndNothingIsLaunched() {
+        rows.answer(new QueueEntries(List.of(), List.of(ProcessState.ERROR, ProcessState.ERROR),
+            2));
+
+        ToolError error = errorOf(() -> read(TEST.value(), PID, Optional.empty(),
+            OptionalInt.empty()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(error.message()).isEqualTo("Process 1234 on test/node1 has 2 ERROR entries"
+            + " in the Queue Manager without a queue file (fileSize 0); there is no content to"
+            + " read");
+        assertThat(error.nextStep()).isEqualTo("Read their error texts with query_logs"
+            + " (logType queueLog) for process 1234");
+        assertThat(error.node()).contains(TEST);
+        assertThat(content.calls).isEmpty();
+        TestSecrets.assertNoLeak(error.message() + " " + error.likelyCause() + " "
+            + error.nextStep());
+    }
+
+    @Test
+    void anErrorRowWithoutQueueFileBesideRowsWithFileNotInErrorIsInvalidInput() {
+        rows.answer(new QueueEntries(
+            List.of(row(PID, "Module-0002(4712)@1234@0a1b2c3e", ProcessState.WAITING,
+                "Waiting")),
+            List.of(ProcessState.ERROR, ProcessState.WAITING), 3));
+
+        ToolError error = errorOf(() -> read(TEST.value(), PID, Optional.empty(),
+            OptionalInt.empty()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(error.message()).isEqualTo("Process 1234 on test/node1 has 1 ERROR entry"
+            + " in the Queue Manager without a queue file (fileSize 0); there is no content to"
+            + " read");
+        assertThat(content.calls).isEmpty();
+    }
+
+    @Test
+    void rowsWithoutQueueFileAreIgnoredBesideOneErrorRowWithFile() {
+        QueueEntryRow error = errorRow(FILE);
+        rows.answer(new QueueEntries(List.of(error), List.of(ProcessState.ERROR), 2));
+        content.answer(read());
+
+        RawEntryRead read = read(TEST.value(), PID, Optional.empty(), OptionalInt.empty());
+
+        assertThat(read.row()).isEqualTo(error);
+        assertThat(content.calls).singleElement().satisfies(call -> assertThat(call.ref())
+            .isEqualTo(new QueueEntryRef(TEST, "Workflow-0001", FILE, 772)));
+    }
+
+    @Test
+    void rowsWithoutQueueFileAreNotCandidates() {
+        rows.answer(new QueueEntries(List.of(errorRow(FILE), row(PID,
+            "Module-0003(4713)@1234@0a1b2c3f", ProcessState.ERROR, "Error")),
+            List.of(ProcessState.ERROR), 3));
+
+        ToolError error = errorOf(() -> read(TEST.value(), PID, Optional.empty(),
+            OptionalInt.empty()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(error.message()).startsWith("Process 1234 on test/node1 has 2 ERROR entries:"
+            + " Module-0001(4711)@1234@0a1b2c3d").doesNotContain("without a queue file");
+        assertThat(content.calls).isEmpty();
+    }
+
+    @Test
+    void aFileNameIsNotFoundAmongRowsWithoutQueueFile() {
+        rows.answer(new QueueEntries(List.of(), List.of(ProcessState.ERROR), 1));
+
+        ToolError error = errorOf(() -> read(TEST.value(), PID, Optional.of(FILE),
+            OptionalInt.empty()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.NOT_FOUND);
+        assertThat(error.message()).isEqualTo("Queue entry " + FILE + " of process 1234 is not"
+            + " in the Queue Manager of test/node1; nothing was read");
+        assertThat(content.calls).isEmpty();
+    }
+
+    @Test
+    void onlyNonErrorRowsWithoutQueueFileAreInvalidInputListingTheirStates() {
+        rows.answer(new QueueEntries(List.of(), List.of(ProcessState.WAITING, ProcessState.OTHER),
+            2));
+
+        ToolError error = errorOf(() -> read(TEST.value(), PID, Optional.empty(),
+            OptionalInt.empty()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(error.message()).isEqualTo("read_queue_entry reads only ERROR entries;"
+            + " process 1234 on test/node1 has: WAITING (without queue file), OTHER (without"
+            + " queue file)");
+        assertThat(error.nextStep()).isEqualTo("Wait until the entry is in ERROR, or use"
+            + " find_processes");
+        assertThat(content.calls).isEmpty();
+    }
+
+    @Test
+    void nonErrorRowsWithAndWithoutQueueFileAreListedTogether() {
+        rows.answer(new QueueEntries(
+            List.of(row(PID, "Module-0002(4712)@1234@0a1b2c3e", ProcessState.WAITING,
+                "Waiting")),
+            List.of(ProcessState.QUEUED), 2));
+
+        ToolError error = errorOf(() -> read(TEST.value(), PID, Optional.empty(),
+            OptionalInt.empty()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(error.message()).isEqualTo("read_queue_entry reads only ERROR entries;"
+            + " process 1234 on test/node1 has: Waiting (Module-0002(4712)@1234@0a1b2c3e),"
+            + " QUEUED (without queue file)");
+        assertThat(content.calls).isEmpty();
+    }
+
     // --- parts, port call, re-read --------------------------------------------------------------
 
     @Test

@@ -72,4 +72,37 @@ class QueueEntriesTest {
         assertThatThrownBy(() -> new QueueEntries(Collections.singletonList(null), 1))
             .isInstanceOf(NullPointerException.class);
     }
+
+    /** T034-F1: rows without queue file are kept by state only; the two-argument form has none. */
+    @Test
+    void rowsWithoutQueueFileAreKeptByStateAndCountAsRead() {
+        List<ProcessState> states = new ArrayList<>(List.of(ProcessState.ERROR,
+            ProcessState.WAITING));
+        QueueEntries entries = new QueueEntries(rows(1), states, 3);
+
+        states.clear();
+
+        assertThat(entries.withoutQueueFile()).containsExactly(ProcessState.ERROR,
+            ProcessState.WAITING);
+        assertThat(entries.rowsRead()).isEqualTo(3);
+        assertThat(entries.truncated()).isFalse();
+        assertThat(new QueueEntries(rows(1), List.of(ProcessState.ERROR), 3).truncated())
+            .isTrue();
+        assertThat(new QueueEntries(rows(1), 1).withoutQueueFile()).isEmpty();
+        assertThatThrownBy(() -> entries.withoutQueueFile().clear())
+            .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void rowsWithoutQueueFileCountTowardsTheCapAndTheTotal() {
+        List<ProcessState> one = List.of(ProcessState.ERROR);
+
+        assertThat(new QueueEntries(rows(99), one, 100).rowsRead()).isEqualTo(100);
+        assertThatIllegalArgumentException().isThrownBy(() -> new QueueEntries(rows(100), one,
+            101));
+        assertThatIllegalArgumentException().isThrownBy(() -> new QueueEntries(rows(1), one,
+            1));
+        assertThatThrownBy(() -> new QueueEntries(rows(1),
+            Collections.singletonList(null), 2)).isInstanceOf(NullPointerException.class);
+    }
 }

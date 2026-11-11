@@ -217,9 +217,18 @@ final class QueueEntryLiveTestSupport {
      * stripped lines of the data text of at least {@link #MIN_CHECKED_CHARS} characters, and of
      * the text values of the variables that are neither system variables nor masked — from
      * {@link #MIN_CHECKED_CHARS} characters as substrings, from {@link #MIN_TOKEN_CHARS} as
-     * tokens.
+     * tokens. A value within the entry's {@code processId} or {@code fileName} is left out: the
+     * log names both (FR-018), and a variable may hold the process id.
      */
     static List<Checked> returnedValues(JsonNode result) {
+        List<String> logged = List.of(result.path("entry").path("processId").asString(""),
+            result.path("entry").path("fileName").asString(""));
+        return candidateValues(result).stream()
+            .filter(value -> logged.stream().noneMatch(value::occursIn))
+            .toList();
+    }
+
+    private static List<Checked> candidateValues(JsonNode result) {
         List<Checked> values = new ArrayList<>();
         JsonNode data = result.path("data");
         if (data.path("kind").asString().equals("text")) {

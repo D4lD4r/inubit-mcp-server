@@ -21,8 +21,8 @@ profile without the opt-in.
 |---|---|---|---|
 | `Capability` | changed | `+ QUEUE_ENTRY_READ` (kind `READ`, label "reading Queue Manager entries") | exhaustive switches: `label`, `VersionGate.cliOnlyStep`, `NodeOverview.name` (`queue_entry_read`) |
 | `CapabilityMatrix` | changed | 8.1 `SUPPORTED`; 9.0 `SUPPORTED` with recording, else `UNSUPPORTED` + note; unknown map `QUEUE_ENTRY_READ → UNSUPPORTED`; `Entry` `+ Map<Capability, String> notes` | D-6, D-20 |
-| `QueueEntryRow` | new | `String processId`, `Optional<String> globalProcessId`, `ProcessState state`, `String rawState`, `Instant since`, `String workflow`, `Optional<String> module`, `Optional<String> moduleType`, `String fileName`, `long fileSize`, `SortedMap<String,String> errorTexts` (`userDefined1..5`, non-empty only, each ≤ 2,000) | `fileName` 1–255, no `/`, `\`, NUL, control chars; workflow without `@@@` or control chars; else the adapter throws `UNEXPECTED_RESPONSE` |
-| `QueueEntries` | new | `List<QueueEntryRow> rows`, `long total` | newest first, ≤ 100; `truncated()` = `total > rows.size()` |
+| `QueueEntryRow` | new | `String processId`, `Optional<String> globalProcessId`, `ProcessState state`, `String rawState`, `Instant since`, `String workflow`, `Optional<String> module`, `Optional<String> moduleType`, `String fileName`, `long fileSize`, `SortedMap<String,String> errorTexts` (`userDefined1..5`, non-empty only, each ≤ 2,000) | `fileName` 1–255, no `/`, `\`, NUL, control chars; workflow without `@@@` or control chars; else the adapter throws `UNEXPECTED_RESPONSE` (a row without queue file is no `QueueEntryRow`, see `QueueEntries`) |
+| `QueueEntries` | new | `List<QueueEntryRow> rows` (with queue file), `List<ProcessState> withoutQueueFile` (states of the rows without queue file: `fileName` absent, null or blank, with `fileSize` 0, T034-F1; the two-argument constructor has none), `long total` | rows newest first; rows with and without file together ≤ 100 and ≤ `total`; `rowsRead()` = both; `truncated()` = `total > rowsRead()` |
 | `ProcessQueryPort` | changed | `+ default QueueEntries queueEntries(String processId)` refusing (`UNSUPPORTED_VERSION`, nothing sent) | existing implementers and fakes unchanged; same request as `findByProcessId` in the 8.1 adapter |
 | `EntryPart` | new | `DATA`, `VARIABLES` | — |
 | `QueueEntryRef` | new | `NodeId node`, `String workflow`, `String fileName`, `long fileSize` | built from a `QueueEntryRow` only |
@@ -62,7 +62,7 @@ profile without the opt-in.
 | `adapter/cli/queue/HelperInstallation` | new | copies the helper class resource; builds the class path and the launch command (D-2, D-3) |
 | `adapter/cli/queue/WfspParser` | new | `.wfsp` → `List<RawVariable>` (StAX, no DTD); fixed failure reason |
 | `adapter/cli/queue/CliQueueEntryAdapter` | new | implements `QueueEntryContentPort` for one node |
-| `adapter/rest/v81/QueueEntryRowParser` | new | queueLog row → `QueueEntryRow` |
+| `adapter/rest/v81/QueueEntryRowParser` | new | queueLog row → `QueueEntryRow`; `parseRows` → `QueueEntries`, a row without queue file (`fileName` absent, null or blank, with `workflowId` and `fileSize` 0) kept by its state only; a row without `fileName` otherwise is `UNEXPECTED_RESPONSE` |
 | `V81ProcessQueryAdapter` | changed | `queueEntries` |
 | `V61ProcessQueryAdapter`, `RefusingPorts` | changed | refuse `queueEntries` / `read` |
 | `PortSet` | changed | `+ QueueEntryContentPort queueEntryContent`; compatibility constructor with the previous seven components (refusing port) |

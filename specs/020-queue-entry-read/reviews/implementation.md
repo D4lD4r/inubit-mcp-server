@@ -583,3 +583,62 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
   refused (offline case `<temp>/missing/../link-into-repo/records` and four more; the two older
   tests that used `..` paths now use plain ones); a new case with `totalCount` 4 but 3 returned
   items and a 4-variable `.wfsp` pins that the raw file is matched against `totalCount`.
+
+## T034-F1 – rows without queue file (live finding)
+
+- Finding (T034 live check on two 8.1 test servers): the REST queueLog
+  (`POST /ibis/rest/log/queueLog?format=json`) returns some rows without a `fileName` field
+  (the field is absent; `fileSize` 0, state Error), about 15 of 230 ERROR rows. Such processes
+  usually also have rows with a file name, sometimes only rows without one. `QueueEntryRowParser`
+  threw `UNEXPECTED_RESPONSE` ("has a file name that cannot be used", likely cause "another
+  format") for the whole lookup as soon as one row of the process lacked a file name, so
+  `read_queue_entry` failed even for the readable entries of that process, with a misleading
+  cause.
+- Decision (orchestrator): a row whose `fileName` is absent, JSON null, empty or blank, with
+  `workflowId` and `fileSize` 0 (a whole number), is a row without queue file. It does not fail
+  the lookup, is never a candidate and is never selected. A row without `fileName` but with
+  `fileSize` > 0, without a numeric `fileSize` or without `workflowId` stays
+  `UNEXPECTED_RESPONSE` for the whole lookup, without row values (round 2, review T034-F1-r1).
+  A present but unusable `fileName` (too long, `/`, `\`, control characters) stays
+  `UNEXPECTED_RESPONSE`. `QueueEntryRow.fileName` stays a required valid string.
+- Model: `QueueEntries` gained `List<ProcessState> withoutQueueFile` (the states of the rows
+  without queue file; a two-argument constructor keeps the old call sites).
+  Rows with and without file together are at most 100 and at most `total`; `rowsRead()` counts
+  both, and `truncated()` is `total > rowsRead()` (states rather than an ERROR count, so a
+  WAITING row without file does not look like a hit row cap). The "only N of M rows were read"
+  suffix uses `rowsRead()`.
+- Parser: `QueueEntryRowParser.parseRows(server, rows, total)` partitions the rows, parses the
+  rows with a file name as before and, for the others, checks `workflowId` and `fileSize` 0
+  and keeps only the state (status handling as before: a missing status is OTHER); `total` is
+  raised to the rows read as the adapter did before. `V81ProcessQueryAdapter` and
+  `QueueEntryRowFixtures.queueEntries` use it. There is no separate 9.0 row path: the 9.0
+  port set uses the same 8.1 REST adapter, so both lines behave alike.
+- Service: selection among rows with a file is unchanged. Without `fileName`, if no row with a
+  file is in ERROR but rows without file are, the call is refused with `INVALID_INPUT` before
+  any helper launch: `Process <id> on <node> has <n> ERROR entr(y|ies) in the Queue Manager
+  without a queue file (fileSize 0); there is no content to read`, next step `Read their error
+  texts with query_logs (logType queueLog) for process <id>`. The message quotes only the
+  process id and node. Rows without file are ignored beside ERROR rows with a file (one → read,
+  several → the existing candidate list, without them). A given `fileName` not among the rows
+  with a file stays `NOT_FOUND`. If no row at all is in ERROR, the existing not-in-ERROR
+  `INVALID_INPUT` lists the rows with file as before and the rows without file as
+  `<STATE> (without queue file)` (only their normalized state is kept), e.g. `read_queue_entry
+  reads only ERROR entries; process 1234 on test/node1 has: Waiting (Module-0002(…)@1234@…),
+  QUEUED (without queue file)`. `NOT_FOUND` "not (or no longer) in the Queue Manager" only when
+  no row was read at all.
+- Tests: `QueueEntryRowParserTest` (absent, null, empty and blank `fileName` kept by state
+  beside a row with file; only `workflowId` and `fileSize` 0 needed, a missing status is OTHER;
+  `fileSize` 1 or 19218, missing, null, text or fraction, and a missing or blank `workflowId`
+  each fail the whole lookup; total raised to the rows read; a
+  present `fileName` with `/` still fails the whole lookup; the old "missing or empty file name
+  is `UNEXPECTED_RESPONSE`" case was replaced), `QueueEntriesTest` (states kept as an immutable
+  copy, counted as read, against the cap and the total), `QueueEntryServiceTest` (only ERROR
+  rows without file → `INVALID_INPUT`, plural and singular, no content call, leak check; one
+  ERROR row with file beside one without → read; two with file plus one without → candidate list
+  of 2; given `fileName` among rows without file only → `NOT_FOUND`; only non-ERROR rows
+  without file, alone or beside a non-ERROR row with file → not-in-ERROR `INVALID_INPUT` listing
+  them).
+- Docs: spec.md edge case "Entries without queue file", contracts errors table (new
+  `INVALID_INPUT` row; `UNEXPECTED_RESPONSE` row clarified), data-model.md (`QueueEntries`,
+  `QueueEntryRow`, `QueueEntryRowParser`). T040 must document this case in `docs/tools.md`
+  (`read_queue_entry` errors).

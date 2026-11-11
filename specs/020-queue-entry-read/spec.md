@@ -171,6 +171,14 @@ uses the 8.1 implementation and the 8.1 client installation; a call against a 9.
 - **Entries exist, none in ERROR** (WAITING, RETRY, QUEUED, PROCESSING), or `fileName` names an
   entry that is not in ERROR: refused with `INVALID_INPUT` ("only ERROR entries are supported")
   listing their states; no content request is sent.
+- **Entries without queue file**: INUBIT 8.1 lists some ERROR entries without a file name
+  (`fileName` absent, null or blank, with `fileSize` 0). They have no content to read, are never
+  candidates and do not fail the lookup (an entry without a file name that does not have this
+  shape is an unusable answer, `UNEXPECTED_RESPONSE`). If they are the only ERROR entries of the
+  process ID (no `fileName` given), the call is refused with `INVALID_INPUT` saying that there is
+  no content to read and pointing to `query_logs` (`logType: queueLog`) for their error texts;
+  if no entry is in ERROR, they are listed with their states as in the case above. No content
+  request is sent.
 - **Content response cannot be parsed as a whole** (for example the unsupported interface
   changed after an INUBIT update): `UNEXPECTED_RESPONSE`, whose message says that the
   unsupported interface may have changed.

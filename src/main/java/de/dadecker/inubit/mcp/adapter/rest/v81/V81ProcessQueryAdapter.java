@@ -9,7 +9,6 @@ import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
-import de.dadecker.inubit.mcp.domain.model.QueueEntryRow;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import java.time.Duration;
 import java.time.Instant;
@@ -101,10 +100,7 @@ public final class V81ProcessQueryAdapter implements ProcessQueryPort {
     @Override
     public QueueEntries queueEntries(String processId) {
         Window<JsonNode> window = rowsOf(processId);
-        List<QueueEntryRow> rows = window.rows().stream()
-            .map(row -> QueueEntryRowParser.parse(server, row))
-            .toList();
-        return new QueueEntries(rows, Math.max(window.total(), rows.size()));
+        return QueueEntryRowParser.parseRows(server, window.rows(), window.total());
     }
 
     /** The queueLog rows of one process id, newest first, at most 100. */

@@ -5,13 +5,10 @@ import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
-import de.dadecker.inubit.mcp.domain.model.QueueEntryRow;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -53,16 +50,13 @@ public final class QueueEntryRowFixtures {
     }
 
     /**
-     * The rows of a queueLog answer as {@code ProcessQueryPort.queueEntries} returns them, each
-     * row parsed by {@link QueueEntryRowParser}, {@code total} from {@code queueLog.total}.
+     * The rows of a queueLog answer as {@code ProcessQueryPort.queueEntries} returns them,
+     * parsed by {@link QueueEntryRowParser#parseRows}, {@code total} from {@code queueLog.total}.
      */
     public static QueueEntries queueEntries(NodeId server, byte[] answer) {
         JsonNode queueLog = JSON.readTree(answer).path("queueLog");
-        List<QueueEntryRow> rows = new ArrayList<>();
-        for (JsonNode row : queueLog.path("row")) {
-            rows.add(QueueEntryRowParser.parse(server, row));
-        }
-        return new QueueEntries(rows, queueLog.path("total").asLong());
+        return QueueEntryRowParser.parseRows(server, queueLog.path("row"),
+            queueLog.path("total").asLong());
     }
 
     private static byte[] resource(String name) {

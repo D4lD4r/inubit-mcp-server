@@ -253,7 +253,9 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 INUBIT_LIVE_QUEUE_ENTRY=1234
     least 10 characters, nor of the unmasked, non-system variable values: those with at least 10
     characters anywhere, those with 4 to 9 characters as a whole token (not next to a letter,
     digit or underscore). Shorter lines such as closing tags or numbers also occur in unrelated
-    log text and are not checked.
+    log text and are not checked. Neither is a value that occurs within the entry's `processId` or
+    `fileName` (for example a variable holding the process id): the INFO log names both by
+    design (FR-018).
   - **Masked values**: the test keeps the raw `.wfsp` the helper wrote (also without
     `INUBIT_LIVE_RECORD_DIR`) and parses it. For every variable the result reports as
     `masked: true` (the result lists the variables in file order), the original value, stripped,

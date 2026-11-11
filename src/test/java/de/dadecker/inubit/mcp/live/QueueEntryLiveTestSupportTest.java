@@ -411,6 +411,25 @@ class QueueEntryLiveTestSupportTest {
                 token("acme"));
     }
 
+    /** The log names the entry's process id and file name, so a value within them is no leak. */
+    @Test
+    void aValueWithinTheLoggedProcessIdOrFileNameIsNotChecked() {
+        JsonNode result = JSON.readTree("""
+            {"entry": {"processId": "314000001",
+                       "fileName": "module-0001(3)@314000001@0000_1794000000000"},
+             "data": {"available": true, "kind": "text", "text": "module-0001(3)\\nOrder-0001-A"},
+             "variables": {"available": true, "items": [
+               {"name": "pid", "system": false, "kind": "text", "value": "314000001"},
+               {"name": "module", "system": false, "kind": "text", "value": "module-0001"},
+               {"name": "pidPlus", "system": false, "kind": "text", "value": "314000001-B"},
+               {"name": "customer", "system": false, "kind": "text", "value": "globex"}]}}
+            """);
+
+        assertThat(QueueEntryLiveTestSupport.returnedValues(result))
+            .containsExactlyInAnyOrder(substring("Order-0001-A"), substring("314000001-B"),
+                token("globex"));
+    }
+
     @Test
     void aBinaryEntryHasNoTextToCheck() {
         JsonNode result = JSON.readTree("""

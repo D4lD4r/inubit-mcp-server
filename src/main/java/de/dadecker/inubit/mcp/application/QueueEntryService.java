@@ -65,7 +65,10 @@ import org.slf4j.LoggerFactory;
  *       errors (credentials not yet available, {@code MAINTENANCE_MODE}, …) pass through and
  *       nothing is launched. The candidate rules of D-9 pick the row or refuse; a refusal lists
  *       at most {@value QueueEntryBounds#MAX_LISTED_CANDIDATES} rows and says when only part of
- *       the rows was read. The row's error texts are never put into a message.</li>
+ *       the rows was read. Rows without queue file are never candidates; if they are the only
+ *       ERROR rows, {@code INVALID_INPUT} says so, and without any ERROR row they are listed
+ *       with the other states (T034-F1). The row's error texts are never put into a
+ *       message.</li>
  *   <li>{@link QueueEntryContentPort#read} with the admitted version; the data stream is not
  *       requested when the row's size exceeds {@link QueueEntryBounds#MAX_DATA_BYTES} and is
  *       then reported as {@link PartResult.TooLarge} with that size.</li>
@@ -376,22 +379,39 @@ public final class QueueEntryService {
                     "The file name does not belong to this process, or the entry left the Queue"
                         + " Manager meanwhile", LOOK_UP_AGAIN)));
             if (named.state() != ProcessState.ERROR) {
-                throw notInError(node, processId, List.of(named), "");
+                throw notInError(node, processId, List.of(state(named)), "");
             }
             return named;
         }
-        if (rows.isEmpty()) {
+        List<QueueEntryRow> candidates = rows.stream()
+            .filter(row -> row.state() == ProcessState.ERROR)
+            .toList();
+        long errorsWithoutFile = entries.withoutQueueFile().stream()
+            .filter(state -> state == ProcessState.ERROR)
+            .count();
+        if (candidates.isEmpty() && errorsWithoutFile > 0) {
+            throw new ToolErrorException(error(ErrorCode.INVALID_INPUT, node, "Process "
+                    + processId + " on " + node + " has " + errorsWithoutFile + " ERROR "
+                    + (errorsWithoutFile == 1 ? "entry" : "entries") + " in the Queue Manager"
+                    + " without a queue file (fileSize 0); there is no content to read"
+                    + readRows(entries, ""),
+                "INUBIT keeps no queue file for these entries; only their error texts are known",
+                "Read their error texts with query_logs (logType queueLog) for process "
+                    + processId));
+        }
+        if (entries.rowsRead() == 0) {
             throw new ToolErrorException(error(ErrorCode.NOT_FOUND, node, "Process " + processId
                     + " is not (or no longer) in the Queue Manager of " + node
                     + "; nothing was read",
                 "The instance finished, was restarted or killed meanwhile, or the id is wrong",
                 LOOK_UP_AGAIN));
         }
-        List<QueueEntryRow> candidates = rows.stream()
-            .filter(row -> row.state() == ProcessState.ERROR)
-            .toList();
         if (candidates.isEmpty()) {
-            throw notInError(node, processId, rows, readRows(entries, " and none is in ERROR"));
+            List<String> states = new ArrayList<>(rows.stream()
+                .map(QueueEntryService::state).toList());
+            entries.withoutQueueFile().forEach(state -> states.add(state + " (without queue"
+                + " file)"));
+            throw notInError(node, processId, states, readRows(entries, " and none is in ERROR"));
         }
         if (candidates.size() > 1) {
             throw new ToolErrorException(error(ErrorCode.INVALID_INPUT, node, "Process "
@@ -406,13 +426,17 @@ public final class QueueEntryService {
     }
 
     private static ToolErrorException notInError(NodeId node, String processId,
-        List<QueueEntryRow> rows, String suffix) {
+        List<String> states, String suffix) {
         return new ToolErrorException(error(ErrorCode.INVALID_INPUT, node, TOOL
                 + " reads only ERROR entries; process " + processId + " on " + node + " has: "
-                + listed(rows.stream().map(row -> row.rawState() + " (" + row.fileName() + ")")
-                    .toList(), ", ") + suffix,
+                + listed(states, ", ") + suffix,
             "Only the content of an entry in state ERROR is read; no content was requested",
             "Wait until the entry is in ERROR, or use find_processes"));
+    }
+
+    /** The raw state and file name of a row that is not in ERROR. */
+    private static String state(QueueEntryRow row) {
+        return row.rawState() + " (" + row.fileName() + ")";
     }
 
     /** File name, workflow, module (if known) and time of one candidate. */
@@ -432,7 +456,7 @@ public final class QueueEntryService {
     /** "; only N of M rows were read" (with {@code tail}) when the row cap was hit, else "". */
     private static String readRows(QueueEntries entries, String tail) {
         return entries.truncated()
-            ? "; only " + entries.rows().size() + " of " + entries.total() + " rows were read"
+            ? "; only " + entries.rowsRead() + " of " + entries.total() + " rows were read"
                 + tail
             : "";
     }

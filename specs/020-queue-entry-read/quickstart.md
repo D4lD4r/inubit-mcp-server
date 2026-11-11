@@ -94,5 +94,6 @@ server).
 
 | Date | Server (fictitious id) | INUBIT | Result |
 |---|---|---|---|
-| — | — | 8.1.x | pending |
-| — | — | 9.0.x | pending |
+| 2026-11-11 | `ent/node-a` (process 1000001) | 8.1.17 | passed: `QueueEntryLiveTest` with `INUBIT_LIVE_RECORD_DIR` (772 B text, 50 variables, 0 masked; queue row unchanged, SC-004; negative case recorded); step 4 through an MCP client: entry read, `UNSUPPORTED_VERSION` on 9.0, schema error for a stage target, `NOT_CONFIGURED` without opt-in |
+| 2026-11-11 | `int/node-b`, `test/node-c` (processes 1000002, 1000003) | 8.1.x | passed (`test/node-c` after a live test support fix: the SC-003 log check flagged a variable holding the process id). Finding: queue rows without `fileName` (fileSize 0) failed a lookup with `UNEXPECTED_RESPONSE`; fixed as T034-F1 |
+| 2026-11-11 | `int/node-d` | 9.0.10 | no ERROR entry: a test workflow's Throw error appeared only in the systemLog, the Queue Manager stayed empty (T036 open, owner decides) |

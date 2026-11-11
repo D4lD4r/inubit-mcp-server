@@ -1,16 +1,19 @@
 package de.dadecker.inubit.mcp.adapter.rest.v81;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ItemBounds;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProcessState;
+import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRow;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -127,15 +130,113 @@ class QueueEntryRowParserTest {
         assertUnexpected(errorOf(row), name);
     }
 
-    @Test
-    void aMissingOrEmptyFileNameIsUnexpectedResponse() {
-        ObjectNode missing = row("two_errors");
-        missing.remove("fileName");
-        ObjectNode empty = row("two_errors");
-        empty.put("fileName", "");
+    /** A row of {@code rowsCase} as INUBIT 8.1 lists it without queue file (T034-F1). */
+    private static ObjectNode fileless(String rowsCase) {
+        ObjectNode row = row(rowsCase);
+        row.remove("fileName");
+        row.put("fileSize", 0);
+        return row;
+    }
 
-        assertUnexpected(errorOf(missing), "module-0002");
-        assertUnexpected(errorOf(empty), "module-0002");
+    private static ToolError errorOfRows(JsonNode... rows) {
+        ToolErrorException failure = catchThrowableOfType(ToolErrorException.class,
+            () -> QueueEntryRowParser.parseRows(ID, List.of(rows), rows.length));
+        assertThat(failure).as("expected a ToolErrorException").isNotNull();
+        return failure.error();
+    }
+
+    /**
+     * T034-F1: INUBIT 8.1 lists ERROR rows without {@code fileName} ({@code fileSize} 0). Such a
+     * row (field absent, null, empty or blank, with {@code fileSize} 0) is kept by its state
+     * only and does not fail the lookup; the other rows are parsed as before.
+     */
+    @Test
+    void rowsWithoutFileNameAreKeptByStateOnly() {
+        ObjectNode missing = fileless("two_errors");
+        ObjectNode nullName = fileless("two_errors");
+        nullName.putNull("fileName");
+        ObjectNode empty = fileless("two_errors");
+        empty.put("fileName", "");
+        ObjectNode blank = fileless("two_errors");
+        blank.put("fileName", "   ");
+        ObjectNode waiting = fileless("error_waiting");
+        JsonNode withFile = row("two_errors");
+
+        QueueEntries entries = QueueEntryRowParser.parseRows(ID,
+            List.of(missing, nullName, empty, blank, waiting, withFile), 7);
+
+        assertThat(entries.rows()).singleElement().satisfies(row -> assertThat(row.fileName())
+            .startsWith("module-0002(1002)@100000001@"));
+        assertThat(entries.withoutQueueFile()).containsExactly(ProcessState.ERROR,
+            ProcessState.ERROR, ProcessState.ERROR, ProcessState.ERROR, ProcessState.WAITING);
+        assertThat(entries.total()).isEqualTo(7);
+        assertThat(entries.truncated()).isTrue();
+    }
+
+    /** Only {@code workflowId} and {@code fileSize} 0 are needed; a missing status is OTHER. */
+    @Test
+    void aRowWithoutFileNameNeedsOnlyItsWorkflowIdAndFileSizeZero() {
+        ObjectNode row = fileless("two_errors");
+        row.remove("workflowName");
+        row.remove("startTime");
+        ObjectNode noStatus = fileless("two_errors");
+        noStatus.remove("status");
+
+        assertThat(QueueEntryRowParser.parseRows(ID, List.of(row, noStatus), 2)
+            .withoutQueueFile()).containsExactly(ProcessState.ERROR, ProcessState.OTHER);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {1, 19_218})
+    void aRowWithoutFileNameButWithAFileSizeFailsTheWholeLookup(long size) {
+        ObjectNode row = fileless("two_errors");
+        row.put("fileSize", size);
+
+        assertUnexpected(errorOfRows(row("two_errors"), row), "Workflow-0002");
+    }
+
+    @Test
+    void aRowWithoutFileNameAndWithoutANumericFileSizeFailsTheWholeLookup() {
+        ObjectNode missing = fileless("two_errors");
+        missing.remove("fileSize");
+        ObjectNode nullSize = fileless("two_errors");
+        nullSize.putNull("fileSize");
+        ObjectNode text = fileless("two_errors");
+        text.put("fileSize", "0");
+        ObjectNode fraction = fileless("two_errors");
+        fraction.put("fileSize", 0.5);
+
+        for (ObjectNode row : List.of(missing, nullSize, text, fraction)) {
+            assertUnexpected(errorOfRows(row("two_errors"), row), "Workflow-0002");
+        }
+    }
+
+    @Test
+    void aRowWithoutFileNameAndWithoutWorkflowIdFailsTheWholeLookup() {
+        ObjectNode missing = fileless("two_errors");
+        missing.remove("workflowId");
+        ObjectNode blank = fileless("two_errors");
+        blank.put("workflowId", " ");
+
+        assertUnexpected(errorOfRows(row("two_errors"), missing), "100000001");
+        assertUnexpected(errorOfRows(row("two_errors"), blank), "100000001");
+    }
+
+    @Test
+    void theTotalIsAtLeastTheRowsRead() {
+        QueueEntries entries = QueueEntryRowParser.parseRows(ID,
+            List.of(fileless("two_errors"), row("two_errors")), 0);
+
+        assertThat(entries.total()).isEqualTo(2);
+        assertThat(entries.truncated()).isFalse();
+    }
+
+    @Test
+    void aPresentButUnusableFileNameStillFailsTheWholeLookup() {
+        ObjectNode slash = row("two_errors");
+        slash.put("fileName", "Order-0001/x.xml");
+
+        assertUnexpected(errorOfRows(fileless("two_errors"), slash), "Order-0001");
     }
 
     @Test

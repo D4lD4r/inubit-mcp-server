@@ -6,11 +6,16 @@ import java.util.List;
 /**
  * The Queue Manager rows of one process id for reading an entry (feature 020, D-9), newest first.
  *
- * @param rows  at most {@value #MAX_ROWS} rows, sorted by {@code since} descending (rows with the
- *              same time keep their order)
- * @param total all rows of the process id that INUBIT reported
+ * @param rows             the rows with a queue file, sorted by {@code since} descending (rows
+ *                         with the same time keep their order)
+ * @param withoutQueueFile the states of the rows without a queue file ({@code fileName}
+ *                         absent, null or blank, with {@code fileSize} 0; INUBIT 8.1 lists such
+ *                         rows, T034-F1); they have no content to read
+ * @param total            all rows of the process id that INUBIT reported, with and without
+ *                         queue file
  */
-public record QueueEntries(List<QueueEntryRow> rows, long total) {
+public record QueueEntries(List<QueueEntryRow> rows, List<ProcessState> withoutQueueFile,
+    long total) {
 
     /** The row cap, the same as {@code ProcessQueryPort.MAX_ROWS_PER_PROCESS}. */
     public static final int MAX_ROWS = 100;
@@ -19,16 +24,28 @@ public record QueueEntries(List<QueueEntryRow> rows, long total) {
         rows = List.copyOf(rows).stream()
             .sorted(Comparator.comparing(QueueEntryRow::since).reversed())
             .toList();
-        if (rows.size() > MAX_ROWS) {
-            throw new IllegalArgumentException(rows.size() + " rows > " + MAX_ROWS);
+        withoutQueueFile = List.copyOf(withoutQueueFile);
+        int read = rows.size() + withoutQueueFile.size();
+        if (read > MAX_ROWS) {
+            throw new IllegalArgumentException(read + " rows > " + MAX_ROWS);
         }
-        if (total < rows.size()) {
-            throw new IllegalArgumentException("total " + total + " < " + rows.size() + " rows");
+        if (total < read) {
+            throw new IllegalArgumentException("total " + total + " < " + read + " rows");
         }
     }
 
-    /** True if INUBIT reported more rows than {@link #rows()} holds (the row cap was hit). */
+    /** Rows that all have a queue file. */
+    public QueueEntries(List<QueueEntryRow> rows, long total) {
+        this(rows, List.of(), total);
+    }
+
+    /** The rows read, with and without queue file. */
+    public int rowsRead() {
+        return rows.size() + withoutQueueFile.size();
+    }
+
+    /** True if INUBIT reported more rows than were read (the row cap was hit). */
     public boolean truncated() {
-        return total > rows.size();
+        return total > rowsRead();
     }
 }
