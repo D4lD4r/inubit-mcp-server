@@ -609,8 +609,10 @@ public final class PartnerService {
     }
 
     private Found found(PartnerAudit audit, List<NodeId> targeted, PartnerQuery query) {
-        Map<NodeId, List<String>> admitted = new ConcurrentHashMap<>();
-        List<NodeResult<ServerRead>> results = read(targeted, query, admitted);
+        Map<NodeId, List<String>> admitting = new ConcurrentHashMap<>();
+        List<NodeResult<ServerRead>> results = read(targeted, query, admitting);
+        // a read past the deadline may still be admitted later: one snapshot for view and count
+        Map<NodeId, List<String>> admitted = Map.copyOf(admitting);
         Optional<ToolError> notFound = query.systemDiagram()
             .flatMap(name -> unknownSystemDiagram(name, results));
         boolean summary = query.search().isEmpty();
@@ -644,8 +646,8 @@ public final class PartnerService {
         // the page is cut to the partners whose system diagram the servers list
         PartnerBounds.Servers servers = PartnerBounds.servers(
             results.stream().map(result -> serverView(result, admitted)).toList(),
-            results.stream().map(result -> gateWarnings(result, admitted)).toList(), page.stream().map(PartnerBounds.Item::sources).toList(), budget,
-            sizeOf);
+            results.stream().map(result -> gateWarnings(result, admitted)).toList(),
+            page.stream().map(PartnerBounds.Item::sources).toList(), budget, sizeOf);
         // nextOffset and truncated at their widest: paging can only shorten them
         int fixed = sizeOf.applyAsInt(new Found(audit.callId(), mode, false, servers.value(),
             List.of(), List.of(), similar.value(), total, query.offset(), limit,
@@ -694,8 +696,10 @@ public final class PartnerService {
      * the result bounded as {@link #found} does (T027, {@link PartnerBounds}).
      */
     private Compared compared(PartnerAudit audit, List<NodeId> servers, PartnerQuery query) {
-        Map<NodeId, List<String>> admitted = new ConcurrentHashMap<>();
-        List<NodeResult<ServerRead>> results = read(servers, query, admitted);
+        Map<NodeId, List<String>> admitting = new ConcurrentHashMap<>();
+        List<NodeResult<ServerRead>> results = read(servers, query, admitting);
+        // a read past the deadline may still be admitted later: one snapshot for view and count
+        Map<NodeId, List<String>> admitted = Map.copyOf(admitting);
         Optional<ToolError> notFound = query.systemDiagram()
             .flatMap(name -> unknownSystemDiagram(name, results));
         boolean summary = query.search().isEmpty();
@@ -734,8 +738,8 @@ public final class PartnerService {
         // the page is cut to the partners whose system diagram every server holding them lists
         PartnerBounds.Servers bounded = PartnerBounds.servers(
             results.stream().map(result -> serverView(result, admitted)).toList(),
-            results.stream().map(result -> gateWarnings(result, admitted)).toList(), items.stream().map(PartnerBounds.ComparedItem::sources).toList(),
-            budget, sizeOf);
+            results.stream().map(result -> gateWarnings(result, admitted)).toList(),
+            items.stream().map(PartnerBounds.ComparedItem::sources).toList(), budget, sizeOf);
         List<NotCompared> notCompared = notCompared(comparison, bounded.value());
         // nextOffset and truncated at their widest: paging can only shorten them
         int fixed = sizeOf.applyAsInt(new Compared(audit.callId(), mode, true, bounded.value(),
