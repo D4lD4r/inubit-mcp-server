@@ -28,8 +28,10 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
@@ -43,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -501,6 +504,97 @@ class InubitHttpClientTest {
             Optional.empty(), Optional.empty(), MaintenanceProbe.NONE, scrubber, 1024));
 
         assertThat(client.get("/ibis/rest/log/systemLog", Map.of()).body()).hasSize(1024);
+    }
+
+    private static byte[] gzip(byte[] content) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (GZIPOutputStream zip = new GZIPOutputStream(out)) {
+            zip.write(content);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return out.toByteArray();
+    }
+
+    private static void stubEncoded(String encoding, byte[] body) {
+        wireMock.stubFor(any(anyUrl()).willReturn(aResponse().withStatus(200)
+            .withHeader("Content-Type", "application/zip")
+            .withHeader("Content-Encoding", encoding).withBody(body)));
+    }
+
+    @Test
+    void aGzipEncodedBodyIsDecoded() throws IOException {
+        // INUBIT 9.0.10 sends the model export gzip-encoded although no Accept-Encoding was sent
+        // (live check 2026-11-11, feature 017 F-3)
+        byte[] archive = fixture("model_export_sample.zip");
+        stubEncoded("gzip", gzip(archive));
+
+        RestResponse response = client().get("/ibis/rest/model/export/Workflow-0101", Map.of(),
+            InubitHttpClient.MediaRange.ANY);
+
+        assertThat(response.body()).isEqualTo(archive);
+        assertThat(response.contentType()).contains("application/zip");
+    }
+
+    @Test
+    void theContentEncodingIsReadCaseInsensitivelyAndXGzipCounts() throws IOException {
+        byte[] archive = fixture("model_export_sample.zip");
+        for (String encoding : List.of("GZIP", "x-gzip", " gzip ")) {
+            wireMock.resetAll();
+            stubEncoded(encoding, gzip(archive));
+
+            assertThat(client().get("/ibis/rest/model/export/Workflow-0101", Map.of()).body())
+                .as(encoding).isEqualTo(archive);
+        }
+    }
+
+    @Test
+    void anIdentityOrUnknownContentEncodingLeavesTheBodyAsReceived() {
+        byte[] body = "PK-not-really".getBytes(StandardCharsets.UTF_8);
+        for (String encoding : List.of("identity", "br")) {
+            wireMock.resetAll();
+            stubEncoded(encoding, body);
+
+            assertThat(client().get("/ibis/rest/model/export/Workflow-0101", Map.of()).body())
+                .as(encoding).isEqualTo(body);
+        }
+    }
+
+    @Test
+    void aGzipEncodedErrorBodyIsDecodedForTheExcerpt() {
+        wireMock.stubFor(any(anyUrl()).willReturn(aResponse().withStatus(500)
+            .withHeader("Content-Type", "text/plain").withHeader("Content-Encoding", "gzip")
+            .withBody(gzip("Internal INUBIT error".getBytes(StandardCharsets.UTF_8)))));
+
+        ToolError error = errorOf(() -> client().get("/ibis/rest/system/info", Map.of()));
+
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt ->
+            assertThat(excerpt).contains("Internal INUBIT error"));
+    }
+
+    @Test
+    void aGzipEncodedBodyAboveTheBodyLimitIsRejected() {
+        // the bound applies to the decoded size, so a small compressed body cannot expand freely
+        stubEncoded("gzip", gzip(new byte[10_000]));
+        InubitHttpClient client = track(new InubitHttpClient(trusted(wireMock).build(),
+            Optional.empty(), Optional.empty(), MaintenanceProbe.NONE, scrubber, 1024));
+
+        ToolError error = errorOf(() -> client.get("/ibis/rest/model/export/Workflow-0101",
+            Map.of()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message()).contains("too large");
+    }
+
+    @Test
+    void aCorruptGzipBodyIsAnUnexpectedResponse() {
+        stubEncoded("gzip", "not gzip at all".getBytes(StandardCharsets.UTF_8));
+
+        ToolError error = errorOf(() -> client().get("/ibis/rest/model/export/Workflow-0101",
+            Map.of()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message()).contains("gzip").contains("/ibis/rest/model/export/");
     }
 
     @Test
