@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workflow version="head" workflowType="technical">
+  <WorkflowName>Workflow-0001</WorkflowName>
+  <UserOrUserGroupName>acme</UserOrUserGroupName>
+  <WorkflowUId/>
+  <CheckinComment>DefaultCommitCommentImport###JD: add var.flag###</CheckinComment>
+  <IsActive>true</IsActive>
+  <RunsParallel>true</RunsParallel>
+  <XPathVersion>3.1</XPathVersion>
+  <WorkflowModule moduleType="technical">
+    <ModuleId>1001</ModuleId>
+    <ModuleName>Module-0001</ModuleName>
+    <OriginalModuleName>Module-0001</OriginalModuleName>
+    <StyleSheet xPos="920" yPos="630"/>
+    <Properties version="4.1">
+      <Property name="Module-0003(1003)@@@Description">synchronous</Property>
+      <Property name="Module-0002(1002)@@@Description">asynchronous</Property>
+      <Property name="DefaultOutput">Module-0002(1002)</Property>
+      <Property name="Module-0003(1003)@@@DeMuxInput">kind@@@WFSP=@@@synchronous</Property>
+    </Properties>
+    <Connection moduleOutId="1003">
+      <ConnectionId>60</ConnectionId>
+      <StyleSheet labelPosition="50.0"/>
+    </Connection>
+    <Connection moduleOutId="1002">
+      <ConnectionId>29</ConnectionId>
+      <StyleSheet labelPosition="73.82352941176471"/>
+    </Connection>
+  </WorkflowModule>
+  <WorkflowModule moduleType="technical">
+    <ModuleId>1002</ModuleId>
+    <ModuleName>Module-0002</ModuleName>
+    <OriginalModuleName>Module-0002</OriginalModuleName>
+    <StyleSheet xPos="1320" yPos="630"/>
+    <Properties version="4.1">
+      <Property name="useVariableFiltering" type="Boolean">true</Property>
+      <Property name="InputVariablesMap" type="Map">
+        <Property name="var.alpha">var.alpha</Property>
+        <Property name="var.flag">var.flag</Property>
+      </Property>
+    </Properties>
+  </WorkflowModule>
+  <WorkflowModule moduleType="technical">
+    <ModuleId>1003</ModuleId>
+    <ModuleName>Module-0003</ModuleName>
+    <OriginalModuleName>Module-0003</OriginalModuleName>
+    <StyleSheet xPos="1320" yPos="230"/>
+  </WorkflowModule>
+  <Variables xmlns:is="http://inubit.com/variables/types" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+    <Variable comment="the incoming tag" name="var.tag" type="xs:string"/>
+    <Variable comment="the process id" name="var.processId" type="xs:string"/>
+    <Variable comment="JD: new optional input" isInputVariable="true" name="var.flag" type="xs:boolean">
+      <DefaultValue>false</DefaultValue>
+    </Variable>
+    <Variable comment="the kind" name="kind" type="xs:string"/>
+    <Variable comment="the recipient" isInputVariable="true" name="var.alpha" type="xs:string"/>
+    <Variable comment="the log entry" name="logEntry" type="is:anyElement"/>
+    <Variable comment="the log prefix" isInputVariable="true" name="var.prefix" type="xs:string">
+      <DefaultValue>error_</DefaultValue>
+    </Variable>
+  </Variables>
+</Workflow>

@@ -2000,6 +2000,30 @@ limitation: such a fingerprint is not recognised after the server flipped the or
 recorded, so restoring that old backup is refused with `CONFLICT` (nothing is changed) and the
 next deployment preview may warn `OUTSIDE_CHAIN` for that workflow.
 
+**What INUBIT normalizes when it stores (0.8.1).** Observed on 8.1, and ignored by the
+verification of `import_artifacts` and of its rollback:
+
+- INUBIT keeps the variables of a workflow in hash order: a variable added at the end of
+  `Variables` can come back behind any other one. A workflow's `Variable` elements are compared
+  by name in any order; a variable added, removed, renamed or changed (type, default value,
+  comment, input flag) is still a difference.
+- A namespace declaration on a workflow's `Variables` that nothing in it uses (e.g. `xmlns:is`
+  without an `is:` type) is dropped by INUBIT and does not count; a used one does.
+- An XSLT stylesheet or WSDL is re-serialized: start tags on one line, no line break between a
+  leading comment and the root element, line breaks in attribute values as spaces (as every XML
+  parser reads them). It counts as unchanged when it is the same XML with every text node,
+  whitespace between elements and in `xsl:text` included.
+- A workflow module sent without a `Comment` can come back with the comment of the module it
+  uses (seen for a globally used Throw module). Only the verification accepts that added comment;
+  a sent comment that comes back changed or missing is a difference.
+
+The first three also apply to the change and conflict checks of the development tools.
+Fingerprints (confirmation codes, backups, the deployment ledger) are unchanged, since two exports
+of one stored version are alike, and so is `deploy_release`. The write-back after an import takes
+the server's rendering, so the workspace file can show a variable moved, a declaration dropped,
+a stylesheet reformatted or a comment added. A verify report (`.reports/verify-<auditId>.diff`)
+is a plain line diff: it also shows such differences when they did not cause the mismatch.
+
 **Backups** are kept 30 days in `~/.inubit-mcp/<profile>/backups` (the newest per node, owner and
 scope always); older ones are removed at the start of the next writing call, each removal audited
 (`backup_retention`).
