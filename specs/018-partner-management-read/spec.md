@@ -290,7 +290,8 @@ operator can reach the same data with story 2's workflow filter.
 - **Archive that cannot be read** (unexpected structure, unknown version format): the system
   diagram is reported as unreadable for that server, naming the part that could not be read, never
   raw XML or values; the server's other system diagrams are still answered. An answer that is not
-  an archive at all is an error result for that server. (Changed after the live check T034: one
+  an archive at all, a damaged archive or a `workflow.xml` over 64 MiB is an error result for that
+  server. (Changed after the live check T034: one
   such system diagram used to fail the whole server.)
 
 ## Requirements *(mandatory)*

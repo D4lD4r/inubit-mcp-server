@@ -142,9 +142,9 @@ could not be written; message names the `callId`).
 Server level (in `servers[].error`, others answered): `NOT_CONFIGURED` (no owner),
 `UNSUPPORTED_VERSION` (6.1), `CLI_UNAVAILABLE`, `UNREACHABLE`, `TLS_ERROR`, `AUTH_FAILED`,
 `FORBIDDEN`, `MAINTENANCE_MODE`, `TIMEOUT` (names the timeout setting), `UNEXPECTED_RESPONSE`
-(an answer that is not a ZIP archive; an archive without a readable diagram is an
-`unreadableDiagrams` entry naming the part instead). No error contains export content or a
-value.
+(an answer that is not a ZIP archive or a damaged one, a `workflow.xml` over 64 MiB; an archive
+without a readable diagram is an `unreadableDiagrams` entry naming the part instead). No error
+contains export content or a value.
 
 ## Guarantees
 

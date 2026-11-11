@@ -1295,8 +1295,8 @@ or no readable one, `UNEXPECTED_RESPONSE`, or no diagram at all, `NOT_FOUND`, ea
 `message`; the node's other system diagrams are still answered), `warnings` (the version warning,
 also for a failed node, and references that do not resolve) and, for a failed node only, `error`
 (a `ToolError`, the node has no data then). A failure of the export request itself (an HTTP error,
-a timeout, an answer that is not a ZIP archive) fails the **whole node**: it is the node's
-`error`.
+a timeout, an answer that is not a ZIP archive or a damaged one, a `workflow.xml` larger than
+64 MiB) fails the **whole node**: it is the node's `error`.
 
 ```json
 {"callId":"…","mode":"search","compared":false,
@@ -1409,7 +1409,8 @@ structure, e.g. a communication cloud without `ModuleName`) makes that system di
 too (`UNEXPECTED_RESPONSE`, naming the part, never a value). These cases and the two above are the
 only ones that make a single system diagram unreadable; the node's other system diagrams are still
 answered, and the node's known version is not marked stale. An answer that is not a ZIP
-archive at all, an HTTP error or a timeout fails the whole node.
+archive at all, a damaged ZIP archive, a `workflow.xml` larger than 64 MiB, an HTTP error or a
+timeout fails the whole node.
 
 **Errors.** Call level (`isError`, no partner data): `INVALID_INPUT`, `TARGET_UNKNOWN`,
 `NOT_FOUND` (the `systemDiagram` exists on no answering node: "No system diagram named
