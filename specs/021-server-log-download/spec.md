@@ -265,7 +265,11 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
   tag is not in the window (it was opened before the window), every line from the start of the
   window up to and including that end tag is masked the same way: when in doubt, content is left
   out rather than shown. A secret-named JSON value (object or array) that opens before the window
-  is not detected; the documentation names this limit.
+  is not detected; the documentation names this limit. If known credentials of the profile cannot
+  all be read in time (for example a credential store of another node that has not answered yet),
+  the excerpt MUST be withheld rather than shown with possibly unscrubbed values: the file is still
+  written, and instead of the excerpt the result says that it was withheld and names the node and
+  credential source that is not ready.
 - **FR-011**: Errors MUST use the existing error codes: `INVALID_INPUT` (bad input, folder rules),
   `NOT_FOUND` (log file does not exist on the server), `NOT_CONFIGURED`, `UNSUPPORTED_VERSION`,
   `CLI_UNAVAILABLE`, `AUTH_FAILED`, `FORBIDDEN` (the user lacks the right the Workbench needs),
@@ -275,8 +279,11 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
 - **FR-012**: Connections MUST verify TLS like the server's other StartCLI connections; credentials
   MUST reach the client side the way StartCLI gets them (never on a command line, never in tool
   parameters).
-- **FR-013**: Each call MUST be bounded by the node's `cliExportTimeout` and count against the StartCLI
-  concurrency limit of that server.
+- **FR-013**: Every wait and transfer of a call (concurrency slot, credentials, version check,
+  download, excerpt permit) MUST be bounded by the node's `cliExportTimeout`, and the call MUST
+  count against the StartCLI concurrency limit of that server. The local excerpt building and file
+  placement after the download are bounded by their size limits (FR-009) and are finished even if
+  the deadline passes meanwhile, so that no partial file is left behind.
 - **FR-014**: The tool MUST be annotated as not read-only for the local machine
   (`readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`,
   `openWorldHint: true`), so that clients ask before it writes a file with clear-text content. It
