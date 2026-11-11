@@ -40,6 +40,9 @@ class TargetFolderRulesTest {
     private static final String GIT_TREE = "is or lies inside a git working tree";
     private static final String CLOUD = "the archives (with clear-text secrets) will be"
         + " synchronized to the cloud";
+    /** The subject the {@code download_server_log} caller passes (feature 021 D-7 step 6). */
+    private static final String LOG_SUBJECT = "the log file (with clear-text content) will be"
+        + " synchronized to the cloud";
 
     private static final boolean POSIX =
         FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
@@ -483,6 +486,60 @@ class TargetFolderRulesTest {
 
             assertCloudWarning(rules().check(folder.resolve("archives").toString()));
         }
+    }
+
+    /** Feature 021 D-7 step 6: the archive wording of {@code export_archives} is unchanged. */
+    @Test
+    void keepsTheArchiveWordingOfTheCloudWarningByteIdentical() throws IOException {
+        Path cloud = Files.createDirectories(home.resolve("Library").resolve("CloudStorage"));
+        Path folder = cloud.resolve("archives");
+
+        assertThat(rules().check(folder.toString()).warnings()).containsExactly(
+            "The target folder " + folder + " lies below the cloud-sync folder " + cloud
+                + ": the archives (with clear-text secrets) will be synchronized to the cloud");
+    }
+
+    /** Feature 021 D-7 step 6: the log caller names its own subject in the cloud warning. */
+    @Test
+    void warnsWithTheGivenSubjectBelowACloudSyncRoot() throws IOException {
+        Path cloud = Files.createDirectories(home.resolve("Library").resolve("CloudStorage"));
+        Path folder = cloud.resolve("logs");
+
+        assertThat(rules().check(folder.toString(), LOG_SUBJECT).warnings()).containsExactly(
+            "The target folder " + folder + " lies below the cloud-sync folder " + cloud
+                + ": the log file (with clear-text content) will be synchronized to the cloud");
+    }
+
+    /** Feature 021 D-7 step 6: only the cloud warning depends on the caller. */
+    @Test
+    void appliesEveryOtherRuleIdenticallyForTheLogSubject() throws IOException {
+        Path repo = Files.createDirectories(root.resolve("repo"));
+        Files.createDirectories(repo.resolve(".git"));
+        Path file = Files.writeString(root.resolve("file.txt"), "x");
+        probe.remote = 'Z';
+        Map<String, TargetFolderRules> refused = new java.util.LinkedHashMap<>();
+        refused.put("logs", rules());
+        refused.put(root + "/a/../b", rules());
+        refused.put(file.toString(), rules());
+        refused.put(workspace.resolve("logs").toString(), rules());
+        refused.put(home.resolve(".inubit-mcp").toString(), rules());
+        refused.put(repo.resolve("logs").toString(), rules());
+        refused.put("\\\\server\\share\\logs", windowsRules());
+        refused.put("Z:\\logs", windowsRules());
+
+        for (Map.Entry<String, TargetFolderRules> entry : refused.entrySet()) {
+            ToolErrorException archive = catchThrowableOfType(ToolErrorException.class,
+                () -> entry.getValue().check(entry.getKey()));
+            ToolErrorException log = catchThrowableOfType(ToolErrorException.class,
+                () -> entry.getValue().check(entry.getKey(), LOG_SUBJECT));
+            assertThat(archive).as("refusal of '%s'", entry.getKey()).isNotNull();
+            assertThat(log).as("refusal of '%s'", entry.getKey()).isNotNull();
+            assertThat(log.error()).isEqualTo(archive.error());
+        }
+        Path folder = root.resolve("logs");
+        assertThat(rules().check(folder.toString(), LOG_SUBJECT))
+            .isEqualTo(rules().check(folder.toString()))
+            .isEqualTo(new CheckedFolder(folder, false, root, List.of()));
     }
 
     @Test

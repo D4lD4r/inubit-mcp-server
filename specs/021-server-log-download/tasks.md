@@ -119,7 +119,7 @@ decisions go to `specs/021-server-log-download/reviews/implementation.md`.
   permissions untouched, symlink created between check and creation → refused);
   `application/ArchiveFolderWriterTest.java` and `application/ArchiveExportServiceTest.java`
   unchanged and green
-- [ ] T007 [P] `application/TargetFolderRules.java` `+ check(String targetFolder, String
+- [X] T007 [P] `application/TargetFolderRules.java` `+ check(String targetFolder, String
   cloudSubject)` (D-7 step 6); `check(String)` delegates with the archive wording unchanged; the
   log caller passes "the log file (with clear-text content) will be synchronized to the cloud".
   Failing tests first in `application/TargetFolderRulesTest.java` (archive wording byte-identical;

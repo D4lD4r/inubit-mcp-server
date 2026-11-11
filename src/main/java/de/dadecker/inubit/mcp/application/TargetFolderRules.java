@@ -35,7 +35,8 @@ import java.util.regex.Pattern;
  *       {@code workspace} and {@code auditDirectory}, and the configuration roots;</li>
  *   <li>the folder does not lie inside a git working tree (a {@code .git} entry, file or
  *       directory, in the folder or an ancestor);</li>
- *   <li>a folder below a known cloud-sync root is accepted with a warning.</li>
+ *   <li>a folder below a known cloud-sync root is accepted with a warning, whose subject the
+ *       caller names ({@link #check(String, String)}).</li>
  * </ol>
  * Rules 4 to 6 are checked on the path as given and on the path with symbolic links resolved
  * (for a missing folder: its nearest existing ancestor resolved, joined with the missing rest),
@@ -44,8 +45,8 @@ import java.util.regex.Pattern;
  */
 public final class TargetFolderRules {
 
-    private static final String CLOUD_WARNING = "the archives (with clear-text secrets) will be"
-        + " synchronized to the cloud";
+    private static final String ARCHIVES_CLOUD_SUBJECT = "the archives (with clear-text secrets)"
+        + " will be synchronized to the cloud";
     private static final Pattern CONTROL = Pattern.compile("\\p{Cc}");
     private static final List<String> ONE_DRIVE_VARIABLES =
         List.of("OneDrive", "OneDriveCommercial", "OneDriveConsumer");
@@ -117,11 +118,22 @@ public final class TargetFolderRules {
     }
 
     /**
-     * Checks {@code targetFolder}.
+     * Checks {@code targetFolder} for the archives of {@code export_archives}.
      *
      * @throws ToolErrorException {@code INVALID_INPUT} naming the rule and the folder
      */
     public CheckedFolder check(String targetFolder) {
+        return check(targetFolder, ARCHIVES_CLOUD_SUBJECT);
+    }
+
+    /**
+     * Checks {@code targetFolder}; only the cloud-sync warning depends on the caller (feature 021
+     * research D-7 step 6).
+     *
+     * @param cloudSubject the end of the cloud-sync warning, naming what will be synchronized
+     * @throws ToolErrorException {@code INVALID_INPUT} naming the rule and the folder
+     */
+    public CheckedFolder check(String targetFolder, String cloudSubject) {
         if (windows) {
             checkNetwork(targetFolder);
         }
@@ -178,7 +190,7 @@ public final class TargetFolderRules {
 
         List<String> warnings = new ArrayList<>();
         cloudRoot(forms).ifPresent(root -> warnings.add(shown("The target folder " + path
-            + " lies below the cloud-sync folder " + root + ": " + CLOUD_WARNING)));
+            + " lies below the cloud-sync folder " + root + ": " + cloudSubject)));
         return new CheckedFolder(path, exists, nearest, warnings);
     }
 

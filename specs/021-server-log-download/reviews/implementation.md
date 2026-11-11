@@ -44,3 +44,9 @@ the new tool (`download_server_log`, contract `contracts/mcp-tools-delta.md`).
 |---|---|---|
 | 1 | Download timeout = `cliExportTimeout` (built-in 120 s, `config/Defaults.java` `BUILTIN_CLI_EXPORT_TIMEOUT`), not `cliTimeout` (30 s) | spec FR-013, research D-15, plan open question 1 (decided) |
 | 2 | Plan open question 2 at its default: `trace_log_read` needs no opt-in, so `list_nodes` lists it additively for every node with a client and the 6.1 `cliOnly` summary lists it as refused (golden texts with capability lists change by one name), unless the owner overrides | plan "Open questions for the owner" 2 |
+
+## Orchestrator notes
+
+- T007: the refusal messages of the other folder rules still say "Archives with clear-text secrets…"
+  (kept identical by T007's done criterion). When the log caller is wired (T027/T028), check that
+  a log refusal does not talk about archives; if it does, add a subject for those messages too.
