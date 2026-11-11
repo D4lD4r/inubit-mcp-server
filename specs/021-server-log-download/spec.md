@@ -17,6 +17,12 @@
   is a verbatim copy, only the excerpt in the result is masked; trace.log needs no opt-in,
   webservice.log needs the group opt-in `unsupported.serverLogRead`; every call is audited
   without content.
+- Decisions taken by the creator after spec review round 1 (owner may override): masking runs on
+  the whole scanned window before lines are selected, and `contains` searches the masked text;
+  line numbers are absolute in the file; a too long excerpt drops its oldest lines; a binary window
+  gives no excerpt (rule of feature 020); trace.log stays without opt-in also on production groups
+  (it is supported functionality, like the StartCLI exports that run there), but the tool
+  description and the documentation say that it may contain business data in clear text.
 
 **Input**: User description: "Download of trace.log and download of webservice.log as MCP tools,
 probably behind the unsupported opt-in."
@@ -141,7 +147,9 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
 2. **Given** a server on INUBIT 6.1 or another version line, **When** the tool is called, **Then**
    it is refused with `UNSUPPORTED_VERSION` naming the detected version and the supported lines.
 3. **Given** the version cannot be determined (server unreachable during detection), **When** the
-   tool is called, **Then** it fails with the detection error and no download request is sent.
+   tool is called, **Then** it fails with the error of the version detection (`UNREACHABLE`,
+   `TLS_ERROR`, `AUTH_FAILED` or `TIMEOUT`, as the other tools report it) and no download request
+   is sent.
 4. **Given** no client installation is configured or usable for the server's version, **When** the
    tool is called, **Then** it fails with `CLI_UNAVAILABLE` naming the version and the setting.
 
@@ -153,8 +161,13 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
 - **Very large log**: the download is not size-limited by the tool; it is bounded by the node's
   `cliTimeout` (then `TIMEOUT`, and no file is left behind). The excerpt is always bounded (FR-009).
 - **Empty log** (size 0): the file is written, the result says the log is empty, no excerpt.
-- **Binary or non-UTF-8 content**: the excerpt is decoded as UTF-8 if valid, otherwise as
-  ISO-8859-1, with the charset named; the file is never re-encoded.
+- **Missing versus empty**: where INUBIT answers a missing file differently from an empty one,
+  a missing file is `NOT_FOUND`; where the interface cannot tell them apart, the answer is treated
+  as an empty log and the result says that the file may also be missing on the server (the plan
+  determines per channel and version which case applies, from the recordings of FR-017).
+- **Binary or non-UTF-8 content**: the scanned window is classified with the rule of feature 020
+  (FR-009 there); a binary window gives no excerpt, only the size and a hint. Text is decoded as
+  UTF-8 if valid, otherwise as ISO-8859-1, with the charset named; the file is never re-encoded.
 - **Rotated files** (`trace.log.1`, …): not reachable through these interfaces; out of scope.
 - **Load-balanced server address in a cluster**: the log comes from whichever node answers;
   for the web service log the result names the node INUBIT reported, for the trace log it names the
@@ -180,14 +193,16 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
 - **FR-002**: The tool MUST be offered when at least one node has a StartCLI client configured and
   is not pinned to an unsupported version line. `log: webservice` MUST be refused with
   `NOT_CONFIGURED` for a server whose group lacks the opt-in, before any request to that server.
+  The tool changes nothing on INUBIT and is therefore not subject to the write-access settings or
+  the production write opt-in; it is offered in read-only mode.
 - **FR-003**: The opt-in MUST be the group setting `unsupported.serverLogRead`, boolean, default
   `false`, accepted only directly on a group, with the same validation rules as
   `unsupported.queueEntryRead` (unknown key elsewhere, non-boolean value is a startup error whose
   message does not echo the value). The two opt-ins are independent.
 - **FR-004**: The documentation of the opt-in (setup guide and tool reference) and the tool
   description MUST state the warning of User Story 2, scenario 5. The tool description MUST also
-  say that the log file is written in clear text and that trace.log uses supported StartCLI
-  functionality.
+  say that the log file is written in clear text, that both logs may contain business data and
+  credentials, and that trace.log uses supported StartCLI functionality.
 - **FR-005**: `log: trace` MUST be read only with StartCLI's documented trace download
   (`trace -d <file>`) through the existing StartCLI channel (argument array, timeout, exit-code
   evaluation, tested output parser). The tool MUST NOT send any other form of the `trace` command
@@ -199,27 +214,39 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
   needs (login, own node lookup, download, logout) may be sent.
 - **FR-007**: The file MUST be written into `targetFolder` under the name
   `<group>-<node>-<log>-<UTC time yyyyMMdd-HHmmss>.log`; if that name exists, `-2`, `-3`, … is
-  appended before `.log`. An existing file MUST never be replaced, a half-written file never
+  appended before `.log`. The name MUST be claimed atomically (create-new), so concurrent calls
+  never share a name. An existing file MUST never be replaced, a half-written file never
   appear under the final name, and the folder rules of `export_archives` (absolute path, no network
   path, not inside the workspace, the server's directories or a git working tree; created
   owner-only if missing) MUST apply. File permissions follow `export_archives` (POSIX `rw-------`).
 - **FR-008**: The file MUST be the verbatim content INUBIT delivered (no masking, no re-encoding).
 - **FR-009**: The result MUST contain the server, the log, the INUBIT node name where known, the
-  absolute file path, the size in bytes, the time of the download, and an excerpt: the last
-  `tailLines` lines of the file, or with `contains` the last `tailLines` matching lines with their
-  line numbers and the total number of matches; the excerpt is cut at `maxChars` with an explicit
-  truncation marker. Only the last 50 MiB of the file are scanned for the excerpt; the result says
-  so when the file is larger.
-- **FR-010**: The excerpt MUST be masked with the text rules of `read_queue_entry` (FR-011 of
-  feature 020: secret-named XML elements and attributes, JSON keys, `name=value` pairs and
-  header-style lines, `Authorization` and `Basic`/`Bearer` credentials) and with the known
-  credentials of the profile, before it is cut.
+  absolute file path, the size in bytes, the time of the download, and an excerpt built in this
+  order:
+  1. The **scanned window** is the last 50 MiB of the file (the whole file if smaller); the result
+     says when the window is smaller than the file. A window classified as binary (rule of feature
+     020) gives no excerpt (edge case above).
+  2. The window is **masked** as a whole (FR-010).
+  3. Lines are **selected** from the masked window: without `contains` the last `tailLines` lines;
+     with `contains` the last `tailLines` lines of the masked window that contain the search text
+     (case-insensitive plain text), so a text that occurs only inside a masked value never matches.
+     The result gives the number of matching lines in the scanned window.
+  4. Each excerpt line carries its **line number, absolute in the downloaded file** (lines before
+     the window are counted, not searched).
+  5. If the selected lines exceed `maxChars`, whole lines are **dropped from the beginning** (oldest
+     first) until the rest fits; a single line longer than `maxChars` is cut at its end; the
+     truncation marker names how many lines were dropped or cut.
+- **FR-010**: Masking MUST apply the text rules of `read_queue_entry` (FR-011 of feature 020:
+  secret-named XML elements and attributes, JSON keys, `name=value` pairs and header-style lines,
+  `Authorization` and `Basic`/`Bearer` credentials) and scrub the known credentials of the profile,
+  on the whole scanned window before lines are selected (FR-009). A secret-named element whose
+  start tag lies before the window is not detected; the documentation names this limit.
 - **FR-011**: Errors MUST use the existing error codes: `INVALID_INPUT` (bad input, folder rules),
   `NOT_FOUND` (log file does not exist on the server), `NOT_CONFIGURED`, `UNSUPPORTED_VERSION`,
   `CLI_UNAVAILABLE`, `AUTH_FAILED`, `FORBIDDEN` (the user lacks the right the Workbench needs),
   `TIMEOUT`, `UNREACHABLE`, `TLS_ERROR`, `UNEXPECTED_RESPONSE`, `TARGET_UNKNOWN`,
   `SECRET_UNRESOLVED`, `MAINTENANCE_MODE`, as the other StartCLI-based tools use them. On every
-  error no file remains in the target folder.
+  error no file of the call remains in the target folder; a folder the call created stays (empty).
 - **FR-012**: Connections MUST verify TLS like the server's other StartCLI connections; credentials
   MUST reach the client side the way StartCLI gets them (never on a command line, never in tool
   parameters).
@@ -229,8 +256,10 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
   (`readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`,
   `openWorldHint: true`), so that clients ask before it writes a file with clear-text content. It
   changes nothing on INUBIT.
-- **FR-015**: Each call MUST produce an audit record (tool, server, log, file path, size, outcome);
-  log content is never written to the audit log or the server log at any level.
+- **FR-015**: Each call MUST produce an audit record (timestamp, tool, group and server, log,
+  `tailLines`, `maxChars`, whether `contains` was given, file path, size, outcome). The `contains`
+  text itself is not audited (it may be a guessed secret). Log content is never written to the
+  audit log or the server log at any level.
 - **FR-016**: The configuration summary (startup log and `--check-config`) MUST list per group
   whether the unsupported server-log read is enabled; on a `production: true` group as a warning.
 - **FR-017**: Both versions are supported by this feature only with contract tests against
@@ -254,7 +283,8 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
 ### Measurable Outcomes
 
 - **SC-001**: For an 8.1 and a 9.0 server without a cluster, an operator gets trace.log and (with
-  the opt-in) webservice.log as a local file in one tool call each, without opening the Workbench.
+  the opt-in) webservice.log as a local file in one tool call each, without opening the Workbench
+  (9.0 subject to FR-017).
 - **SC-002**: With no `serverLogRead` opt-in, the web service log is never requested; the behaviour
   of every existing tool is unchanged (existing test suite passes, tool list differs only by the new
   tool).
