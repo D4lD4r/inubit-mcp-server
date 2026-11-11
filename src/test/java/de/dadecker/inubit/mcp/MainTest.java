@@ -797,7 +797,7 @@ class MainTest {
         assertThat(exit).as(out() + err()).isZero();
         String refused = "available: none; refused: monitoring, process diagnosis, log"
             + " diagnosis, inventory, partner management, workspace export, development writes,"
-            + " deployment, end-to-end test, process control)";
+            + " deployment, end-to-end test, process control, downloading the trace log)";
         assertThat(out())
             .contains("dev/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI"
                 + " only; " + refused + ", client: 6.1.0 (4.0.1–6.1.0; options: no trust-store"
@@ -815,9 +815,10 @@ class MainTest {
     }
 
     @Test
-    void checkConfigListsReadingQueueManagerEntriesAsRefusedOnlyForAnOptedInV61Group()
+    void checkConfigListsTheUnsupportedReadsAsRefusedOnlyForAnOptedInV61Group()
         throws IOException {
-        // feature 020 (T003, D-6): the 6.1 text of a group without the opt-in is unchanged
+        // feature 020 (T003, D-6) and feature 021 (T009, D-6): reading Queue Manager entries and
+        // downloading the web service log only for a group with the respective opt-in
         credentials();
         entries.put("INUBIT_ACME_TEST_USERNAME", USERNAME);
         entries.put("INUBIT_ACME_TEST_PASSWORD", PASSWORD);
@@ -834,6 +835,8 @@ class MainTest {
                     baseUrl: https://inubit.example.test:8443
               - name: test
                 versionLine: V6_1
+                unsupported:
+                  serverLogRead: true
                 nodes:
                   - name: node1
                     baseUrl: https://node2.example.test:8443
@@ -847,11 +850,11 @@ class MainTest {
             + " deployment, end-to-end test, process control";
         assertThat(out())
             .contains("dev/node1: read-only, cli: unavailable, inubit: V6_1 (INUBIT 6.1, StartCLI"
-                + " only; " + refused + ", reading Queue Manager entries), secrets:"
-                + " credentialStore (macOS Keychain), username ←")
+                + " only; " + refused + ", reading Queue Manager entries, downloading the trace"
+                + " log), secrets: credentialStore (macOS Keychain), username ←")
             .contains("test/node1: read-only, cli: unavailable, inubit: V6_1 (INUBIT 6.1,"
-                + " StartCLI only; " + refused + "), secrets: credentialStore (macOS Keychain),"
-                + " username ←")
+                + " StartCLI only; " + refused + ", downloading the trace log, downloading the web"
+                + " service log), secrets: credentialStore (macOS Keychain), username ←")
             .contains("Result: OK")
             .doesNotContain("jsonrpc");
         TestSecrets.assertNoLeak(out());

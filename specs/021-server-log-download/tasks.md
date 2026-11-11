@@ -150,7 +150,7 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   `queueEntryRead: true` with `serverLogRead: false` and vice versa independent) and
   `config/EffectiveNodeConfigTest.java` (value survives every copy method); leak check on the
   error texts
-- [ ] T009 Capabilities and matrix (FR-002, FR-017, D-6; after T008): `domain/model/Capability.java`
+- [X] T009 Capabilities and matrix (FR-002, FR-017, D-6; after T008): `domain/model/Capability.java`
   `+ TRACE_LOG_READ` (kind `READ`, channels `{CLI}`, label "downloading the trace log") and
   `+ WEBSERVICE_LOG_READ` (kind `READ`, channels `{CLI}`, label "downloading the web service
   log"); `domain/model/CapabilityMatrix.java` `production()`: 8.1 and 9.0 both capabilities

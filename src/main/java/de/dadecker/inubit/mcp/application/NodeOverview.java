@@ -276,6 +276,8 @@ public final class NodeOverview {
             case E2E_TEST -> "e2e_test";
             case PROCESS_CONTROL -> "process_control";
             case QUEUE_ENTRY_READ -> "queue_entry_read";
+            case TRACE_LOG_READ -> "trace_log_read";
+            case WEBSERVICE_LOG_READ -> "webservice_log_read";
         };
     }
 }

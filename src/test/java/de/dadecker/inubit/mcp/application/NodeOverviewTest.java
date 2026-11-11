@@ -67,6 +67,23 @@ class NodeOverviewTest {
         assertThat(capabilities.notUsable()).isEmpty();
     }
 
+    /** Feature 021 (T009, D-6): the names in {@code list_nodes}, refused until recorded. */
+    @Test
+    void theServerLogReadsAreListedByTheirNamesAndRefusedBeforeTheirRecordings() {
+        NodeSummary.Capabilities capabilities = capabilities(CapabilityMatrix.production(),
+            EnumSet.of(Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ));
+
+        assertThat(capabilities.usable()).isEmpty();
+        assertThat(capabilities.notUsable()).extracting(NodeSummary.NotUsable::capability)
+            .containsExactly("trace_log_read", "webservice_log_read");
+        assertThat(capabilities.notUsable()).extracting(NodeSummary.NotUsable::reason)
+            .satisfiesExactly(
+                reason -> assertThat(reason)
+                    .endsWith(" does not support downloading the trace log yet"),
+                reason -> assertThat(reason)
+                    .endsWith(" does not support downloading the web service log yet"));
+    }
+
     @Test
     void partnerManagementIsListedByItsNameWithTheStateOfTheVersionLine() {
         Set<Capability> partners = EnumSet.of(Capability.PARTNER_MANAGEMENT);

@@ -593,11 +593,15 @@ public final class VersionGate {
 
     /**
      * Feature 020 (US3-3): a refusal of reading Queue Manager entries names the supported lines,
-     * e.g. "; supported: 8.1, 9.0"; empty for every other capability.
+     * e.g. "; supported: 8.1, 9.0"; so does one of downloading a server log (feature 021, research
+     * D-6); empty for every other capability.
      */
     private String supportedLines(Capability capability) {
-        return capability == Capability.QUEUE_ENTRY_READ
-            ? "; supported: " + String.join(", ", matrix.lines(capability)) : "";
+        return switch (capability) {
+            case QUEUE_ENTRY_READ, TRACE_LOG_READ, WEBSERVICE_LOG_READ ->
+                "; supported: " + String.join(", ", matrix.lines(capability));
+            default -> "";
+        };
     }
 
     /**
@@ -615,6 +619,8 @@ public final class VersionGate {
                     + " version");
             case DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL -> "use the Workbench";
             case QUEUE_ENTRY_READ -> "use the Queue Manager in the Workbench";
+            case TRACE_LOG_READ, WEBSERVICE_LOG_READ ->
+                "download the log in the Workbench (Administration, Server Log)";
         };
     }
 

@@ -344,7 +344,9 @@ public final class ConfigSummary {
      * | none; refused: <names> | none)} for a setting pinned to a CLI-only version, else empty.
      * Judged on the pin as the version gate and {@code list_nodes} do: on a CLI-only version a
      * capability runs only if the matrix declares it {@code SUPPORTED}. Reading Queue Manager
-     * entries is listed only for a group with {@code unsupported.queueEntryRead} (feature 020).
+     * entries is listed only for a group with {@code unsupported.queueEntryRead} (feature 020),
+     * downloading the web service log only for one with {@code unsupported.serverLogRead}
+     * (feature 021).
      */
     private String cliOnly(EffectiveNodeConfig server) {
         Optional<InubitVersion> pin =
@@ -355,7 +357,8 @@ public final class ConfigSummary {
         List<String> available = new ArrayList<>();
         List<String> refused = new ArrayList<>();
         for (Capability capability : Capability.values()) {
-            if (capability == Capability.QUEUE_ENTRY_READ && !server.queueEntryRead()) {
+            if (capability == Capability.QUEUE_ENTRY_READ && !server.queueEntryRead()
+                || capability == Capability.WEBSERVICE_LOG_READ && !server.serverLogRead()) {
                 continue;
             }
             (matrix.state(pin, capability) == SupportState.SUPPORTED ? available : refused)

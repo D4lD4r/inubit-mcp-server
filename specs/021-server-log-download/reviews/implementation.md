@@ -61,3 +61,6 @@ the new tool (`download_server_log`, contract `contracts/mcp-tools-delta.md`).
   revisit in T036), T005 (Login.REJECTED inferred from AUTH_FAILED), T007 (import style).
 - T008 minor: `config/GroupConfig.java:17` javadoc of `unsupported` still names only
   `queueEntryRead`; fold into T042 (configuration view) or the docs pass.
+- T009 open point for T031 (wiring): `NodeOverview.refusal` does not use matrix notes, so
+  `list_nodes` would say "… does not support downloading the trace log yet" instead of "not yet
+  verified" while a (version, log) pair is unrecorded. Decide in T031 whether to show the note.
