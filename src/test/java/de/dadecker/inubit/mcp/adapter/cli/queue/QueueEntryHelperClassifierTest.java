@@ -38,8 +38,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Frames and exit code of the queue-entry helper to a tool error or part reports (research D-5,
- * FR-012, FR-013), against the reconstructed spike texts in {@code fixtures/queue-entry/} and
- * inline frames; every text that leaves the classifier is checked for leaks (SC-003).
+ * FR-012, FR-013), against the recorded 8.1 {@code not_found_file}, the reconstructed 8.1 and
+ * 9.0 spike texts in {@code fixtures/queue-entry/} and inline frames; every text that leaves the
+ * classifier is checked for leaks (SC-003).
  */
 class QueueEntryHelperClassifierTest {
 
@@ -100,6 +101,10 @@ class QueueEntryHelperClassifierTest {
     @ValueSource(strings = {"v8_1/not_found_file", "v9_0/not_found_file",
         "v9_0/missing_workflow"})
     void theSpikeMarkersOfAMissingFileOrWorkflowMakeBothPartsNotFound(String fixture) {
+        if (fixture.startsWith("v8_1/")) {
+            assertThat(fixtureText(fixture + ".origin")).as("tasks.md T035")
+                .startsWith("recorded 2026-11-11 8.1.17 neutralized");
+        }
         Outcome outcome = classifyFixture(fixture);
 
         assertThat(outcome.login()).isEqualTo(Login.ACCEPTED);
@@ -535,7 +540,8 @@ class QueueEntryHelperClassifierTest {
     /** {@code <version>/<case>} with its {@code .origin} (a recording or a reconstruction). */
     private Outcome classifyFixture(String fixture) {
         String origin = fixtureText(fixture + ".origin");
-        assertThat(origin).startsWith("reconstructed spike 2026-11-10");
+        assertThat(origin).containsPattern(
+            "^(reconstructed spike 2026-11-10|recorded \\S+ \\S+ neutralized)");
         assertThat(fixtureText(fixture + ".README")).isNotBlank();
         int exit = Integer.parseInt(fixtureText(fixture + ".exit").strip());
         String stdout = fixtureText(fixture + ".frames");

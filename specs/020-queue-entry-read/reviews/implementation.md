@@ -642,3 +642,33 @@ rule 3; the known-credential scrubber still applies. To be listed with the maski
   `INVALID_INPUT` row; `UNEXPECTED_RESPONSE` row clarified), data-model.md (`QueueEntries`,
   `QueueEntryRow`, `QueueEntryRowParser`). T040 must document this case in `docs/tools.md`
   (`read_queue_entry` errors).
+
+## Fixture review decisions (2026-11-11)
+
+Coordinator decision on the owner's standing instruction; owner reviews before push. The
+decisions cover the neutralized 8.1 recording (T027, T035) and the neutralized 9.0 recording
+(T037); all values named are fictitious.
+
+1. 8.1 `error_entry.data`: kept as neutralized, including the element names `errorDetail`,
+   `errormessages` and `errorparameter`.
+2. 8.1 `error_entry.wfsp`: the AS2 protocol and algorithm values are kept. The EIC-shaped party
+   code in `as2-to` and `ASMessageTo` became the formless `ORG-0002`; for consistency the own AS2
+   id in `as2-from`, `disposition-notification-to` and `ASMessageFrom` became `ORG-0001`. The
+   `.wfsp` is now 3,458 bytes; the `variables ok` frame and the README follow.
+3. 8.1 frames and `not_found_file.*`: accepted as recorded and neutralized.
+4. 9.0 `error_entry.data`: the domain-revealing shapes became formless: the `org` values
+   `ORG-0001` / `ORG-0002`, both `offerID` values `OFFER-0001` / `OFFER-0002`, the categories
+   `TypeA` / `TypeB`; the unit stays. The data stream is now 1,826 bytes; `fileSize` in
+   `rows.json`, `ISFileSize` in the `.wfsp` (still 746 bytes) and the `data ok` frame follow.
+   The private checks (denylist, neutralize-map, global and private synthetic maps) and
+   `tools/check-identifiers.py` found 0 hits afterwards.
+5. 9.0 `.wfsp` and `rows.json`: accepted (the row has the 8.1 `rows.json` shape; no 9.0 queueLog
+   REST fixture exists).
+6. 9.0 frames: the recorded warning line of the helper's network library stays as vendor noise.
+7. 9.0 masking: the entry has no credential-named variable; the offline tests
+   (`SecretTextMaskerTest`, `QueueEntryServiceTest`, `QueueEntryLoggingTest`) cover masking on
+   both versions, so no further live entry is created.
+
+Task state: T027, T034 and T035 are ticked with the 8.1 fixtures; T036 (the owner created the
+9.0 entry himself) and T037 are ticked with T038, which commits the 9.0 fixtures; T039 does not
+apply once T038 is done.

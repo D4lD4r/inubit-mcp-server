@@ -361,7 +361,7 @@ INUBIT contact.
   case; 9.0 `SUPPORTED` in the matrix ⇔ `v9_0/error_entry.origin` starts with `recorded`) and
   `adapter/cli/queue/QueueEntryV81ContractTest.java` running adapter + service over each case
   (FR-009…FR-012, SC-003)
-- [ ] T027 [US1] **[OWNER]** 8.1 recording (FR-019, D-18): the agent neutralizes the spike download
+- [X] T027 [US1] **[OWNER]** 8.1 recording (FR-019, D-18): the agent neutralizes the spike download
   (data stream + `.wfsp` of the 8.1.17 ERROR entry, kept outside the repository) in a private
   directory: `tools/synthesize_names.py collect … --out <private>/.synthetic-map`,
   `tools/neutralize.py --map <private>/.synthetic-map` plus the private `neutralize-map`, then
@@ -451,12 +451,12 @@ refused before any content request (FR-006, FR-019, US3-1…5).
   `docs/live-tests.md` section "Queue entry read (feature 020)" plus a row in the tests table —
   failing tests first in `live/LiveTargetTest.java`-style offline checks of the env parsing and of
   the record-dir permissions (`live/QueueEntryLiveTestSupportTest.java`)
-- [ ] T034 **[LIVE] [OWNER]** 8.1 live check (SC-004, quickstart "Live check" steps 1–4): the owner
+- [X] T034 **[LIVE] [OWNER]** 8.1 live check (SC-004, quickstart "Live check" steps 1–4): the owner
   names an existing ERROR entry on a non-production 8.1 test server (or approves the agent's
   proposal of one); run `QueueEntryLiveTest` with `INUBIT_LIVE_RECORD_DIR` (records the entry and
   the negative case "non-existent file name of an existing workflow"); result recorded in the
   quickstart validation record (fictitious ids only)
-- [ ] T035 **[OWNER]** Neutralize the 8.1 helper frames from T034 as in T027 and replace
+- [X] T035 **[OWNER]** Neutralize the 8.1 helper frames from T034 as in T027 and replace
   `fixtures/queue-entry/v8_1/error_entry.frames`/`.exit` and the reconstructed
   `fixtures/queue-entry/v8_1/not_found_file.*` by the recorded negative case (`.origin` updated
   to `recorded … neutralized`); `QueueEntryHelperClassifierTest` and the contract test stay green

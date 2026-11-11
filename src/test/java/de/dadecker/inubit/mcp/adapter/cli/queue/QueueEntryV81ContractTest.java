@@ -91,12 +91,27 @@ import org.junit.jupiter.api.io.TempDir;
 class QueueEntryV81ContractTest {
 
     /**
-     * The content cases; exactly the {@code v8_1/*.rows.json} on disk. The recorded
-     * {@code error_entry} (tasks.md T027) joins this list together with its test.
+     * The content cases; exactly the {@code v8_1/*.rows.json} on disk: the neutralized 8.1.17
+     * recording {@code error_entry} (tasks.md T027, T035) and the synthetic cases (T026).
      */
-    static final List<String> CASES = List.of("binary_zip", "utf16_text", "latin1_text",
-        "secrets_everywhere", "many_variables", "long_values", "missing_variables", "cutoff_tag",
-        "too_large");
+    static final List<String> CASES = List.of("error_entry", "binary_zip", "utf16_text",
+        "latin1_text", "secrets_everywhere", "many_variables", "long_values",
+        "missing_variables", "cutoff_tag", "too_large");
+
+    /** The variables of the recorded {@code error_entry}, in the order INUBIT stored them. */
+    private static final List<String> ERROR_ENTRY_VARIABLES = List.of("ISFileSize",
+        "ISCurrentTime", "ISWorkflowName", "ISModuleName", "ISModuleId", "ISProcessId",
+        "ISUserName", "ISServerName", "ISNodeName", "ISGlobalProcessId",
+        "ISOverwriteSubWorkflowPriority", "_hidden.ISCreateModuleRunId", "connection",
+        "content-type", "as2-version", "as2-from", "as2-to", "message-id",
+        "disposition-notification-to", "disposition-notification-options", "mime-version",
+        "cache-control", "pragma", "user-agent", "host", "accept", "content-length",
+        "ASMessageID", "ASMessageTo", "ASMessageFrom", "ASMessageDate", "ASMessageMDNOptions",
+        "ASMessageMICALG", "EncryptionAlgorithm", "KeyEncryptionAlgorithm",
+        "KeyEncryptionHashAlgorithm", "ASMessageMIC", "HashingAlgorithm", "SignatureAlgorithm",
+        "ASMessageError", "isSigned", "isEncrypted", "ASMessageContentType",
+        "ASMessageContentTransferEncoding", "var.inboundMessage", "var.testMode.processId",
+        "var.testMode.file", "var.testMode", "demux.totalIterations", "demux.iterator");
 
     private static final Path DIRECTORY = Path.of("src/test/resources/fixtures/queue-entry/v8_1");
     private static final String RESOURCES = "/fixtures/queue-entry/v8_1/";
@@ -161,6 +176,71 @@ class QueueEntryV81ContractTest {
         }
 
         assertThat(onDisk).containsExactlyInAnyOrderElementsOf(CASES);
+    }
+
+    @Test
+    void theRecordedErrorEntryHasItsMetadataTextAndAllVariablesUnmasked() {
+        Run run = run("error_entry");
+
+        byte[] bytes = fixture("error_entry.data");
+        QueueEntryResult.Entry entry = run.result().entry();
+        assertThat(entry.processId()).isEqualTo("100000027");
+        assertThat(entry.globalProcessId()).contains("100000027");
+        assertThat(entry.module()).contains("Module-0002(10001002)");
+        assertThat(entry.moduleType()).contains("Throw");
+        assertThat(entry.rawState()).isEqualTo("Error");
+        assertThat(entry.since()).isEqualTo(Instant.ofEpochMilli(1_790_861_373_734L));
+        assertThat(entry.sizeBytes()).isEqualTo(bytes.length);
+        assertThat(entry.errorTexts()).containsExactlyInAnyOrderEntriesOf(Map.of(
+            "userDefined1", "AS2-TEST-ERROR",
+            "userDefined2", "Wrong data type for Order-0001 receiver"));
+        String stored = new String(bytes, StandardCharsets.UTF_8);
+        Data data = run.result().data();
+        assertThat(data.kind()).contains("text");
+        assertThat(data.charset()).contains("UTF-8");
+        assertThat(data.sizeBytes()).contains((long) bytes.length);
+        assertThat(data.totalChars()).contains(stored.length());
+        assertThat(data.truncated()).contains(false);
+        assertThat(data.text()).as("no secret-named value in the recording: nothing masked")
+            .contains(stored);
+        assertThat(stored).contains("<faultstring>Validation-Error(s) in SOAP-Request-Message"
+            + " of Order-0001</faultstring>", "Cannot find the declaration of element 'Error'.");
+        QueueEntryResult.Variables variables = run.result().variables();
+        assertThat(variables.totalCount()).contains(ERROR_ENTRY_VARIABLES.size());
+        assertThat(variables.returnedCount()).contains(ERROR_ENTRY_VARIABLES.size());
+        assertThat(variables.truncated()).contains(false);
+        List<Variable> items = items(run);
+        assertThat(items).extracting(Variable::name)
+            .containsExactlyElementsOf(ERROR_ENTRY_VARIABLES);
+        assertThat(items.subList(0, 12)).allSatisfy(item -> assertThat(item.system())
+            .as(item.name()).isTrue());
+        assertThat(items.subList(12, items.size())).allSatisfy(item -> assertThat(item.system())
+            .as(item.name()).isFalse());
+        assertThat(items).allSatisfy(item -> assertThat(item.masked()).as(item.name()).isFalse());
+        assertThat(run.json()).doesNotContain("${secret:");
+        Map<String, String> types = items.stream().filter(item -> item.type().isPresent())
+            .collect(Collectors.toMap(Variable::name, item -> item.type().orElseThrow()));
+        assertThat(types).containsExactlyInAnyOrderEntriesOf(Map.of(
+            "ISCurrentTime", "Long", "ISOverwriteSubWorkflowPriority", "Boolean",
+            "_hidden.ISCreateModuleRunId", "Boolean", "isSigned", "Boolean",
+            "isEncrypted", "Boolean", "var.inboundMessage", "XmlDocument",
+            "demux.totalIterations", "Integer", "demux.iterator", "Integer"));
+        Map<String, Variable> byName = items.stream()
+            .collect(Collectors.toMap(Variable::name, item -> item));
+        assertThat(byName.get("ISFileSize").value()).contains(String.valueOf(bytes.length));
+        assertThat(byName.get("ISWorkflowName").value()).contains("Workflow-0001");
+        assertThat(byName.get("ISModuleName").value()).contains("Module-0001");
+        assertThat(byName.get("ISProcessId").value()).contains("100000027");
+        assertThat(byName.get("ISServerName").value()).contains("inubit-dev-1.example.test");
+        assertThat(byName.get("message-id").value())
+            .contains("<100000027.10001.1790861373334@ip-192-0-2-86>");
+        assertThat(byName.get("var.inboundMessage").value()).contains(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error><Error>authentication-failed"
+                + "</Error><ErrorMessage>authentication-failed</ErrorMessage></Error>");
+        Variable empty = byName.get("var.testMode.processId");
+        assertThat(empty.kind()).isEqualTo("empty");
+        assertThat(empty.value()).isEmpty();
+        assertThat(empty.sizeBytes()).contains(0L);
     }
 
     @Test

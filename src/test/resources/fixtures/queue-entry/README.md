@@ -55,7 +55,8 @@ The first line is one of:
 
 | Version | Case | Shows |
 |---|---|---|
-| 8.1 | `api_missing`, `garbage_frames`, `login_failure`, `not_found_file`, `tls_failure` | helper failures (`QueueEntryHelperClassifierTest`, `CliQueueEntryAdapterTest`) |
+| 8.1 | `api_missing`, `garbage_frames`, `login_failure`, `not_found_file`, `tls_failure` | helper failures; `not_found_file` is recorded (`QueueEntryHelperClassifierTest`, `CliQueueEntryAdapterTest`) |
+| 8.1 | `error_entry` | recorded 8.1.17 ERROR entry (neutralized): metadata, text, all 50 variables with system flags, nothing masked |
 | 8.1 | `binary_zip` | ZIP data stream; PDF and GIF variables reported as binary |
 | 8.1 | `utf16_text` | UTF-16 text is reported as binary (NUL bytes) |
 | 8.1 | `latin1_text` | ISO-8859-1 data and variables decoded as such |
@@ -76,7 +77,8 @@ case list must equal those files.
 
 ## Recording (OWNER)
 
-- `v8_1/error_entry.*` (tasks.md T027) is the neutralized 8.1.17 recording. It is added only
-  after the owner reviewed its diff; `QueueEntryV81ContractTest` then gets the `error_entry` case.
+- `v8_1/error_entry.*` (tasks.md T027, T035) and `v8_1/not_found_file.*` (T035) are the
+  neutralized 8.1.17 recordings; the owner reviews their diff before they are committed.
+  `QueueEntryV81ContractTest` runs the `error_entry` case.
 - INUBIT 9.0 is `SUPPORTED` for `read_queue_entry` in the capability matrix exactly when
   `v9_0/error_entry.origin` starts with `recorded`.
