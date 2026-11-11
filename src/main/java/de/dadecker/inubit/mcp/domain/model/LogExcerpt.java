@@ -98,8 +98,17 @@ public record LogExcerpt(ContentKind kind, Optional<BinarySignature> detected,
                 new Window(window.startLine(), 0, bytes, window.wholeFile()), selection,
                 OptionalLong.empty(), List.of(), Optional.empty(), hints);
         }
+        Optional<Charset> charset = classified.charset();
+        long startLine = window.startLine();
+        long linesBefore = window.linesBefore();
+        boolean wholeFile = window.wholeFile();
         String text = classified.text().orElseThrow();
+        // D-13: from here on only the figures are kept, so the window bytes can be collected
+        // while the window is masked, and the decoded text once it is masked
+        window = null;
+        classified = null;
         String masked = SecretTextMasker.maskLines(text, known.apply(text));
+        text = null;
 
         ArrayDeque<Selected> selected = new ArrayDeque<>();
         long lineCount = 0;
@@ -144,13 +153,13 @@ public record LogExcerpt(ContentKind kind, Optional<BinarySignature> detected,
                 lineText = cut(lineText, maxChars);
                 cutLines++;
             }
-            lines.add(new ExcerptLine(window.linesBefore() + line.index() + 1, lineText, cut));
+            lines.add(new ExcerptLine(linesBefore + line.index() + 1, lineText, cut));
         }
         Optional<Truncation> truncated = dropped > 0 || cutLines > 0
             ? Optional.of(new Truncation(dropped, cutLines))
             : Optional.empty();
-        return new LogExcerpt(ContentKind.TEXT, Optional.empty(), classified.charset(),
-            new Window(window.startLine(), lineCount, bytes, window.wholeFile()), selection,
+        return new LogExcerpt(ContentKind.TEXT, Optional.empty(), charset,
+            new Window(startLine, lineCount, bytes, wholeFile), selection,
             contains.isPresent() ? OptionalLong.of(matches) : OptionalLong.empty(), lines,
             truncated, hints);
     }

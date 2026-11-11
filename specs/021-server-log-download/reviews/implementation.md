@@ -74,3 +74,6 @@ the new tool (`download_server_log`, contract `contracts/mcp-tools-delta.md`).
   contracts/mcp-tools-delta.md:166.
 - T016 minors (test-only, LogWindowReaderTest): add a test for '\n' only at `size - 1`, and assert
   `linesBefore() == 0` in the no-line-break test; handed to T018 (same package).
+- T018 minor for T028: `ServerLogService` must not keep its `LogWindow` reference while
+  `LogExcerpt.build` runs (pass it directly), so the 50 MiB window bytes can be collected before
+  masking (D-13).

@@ -117,6 +117,24 @@ class LogWindowReaderTest {
         LogWindow window = LogWindowReader.read(file, size);
 
         assertThat(window.bytes()).isEmpty();
+        assertThat(window.linesBefore()).isZero();
+        assertThat(window.wholeFile()).isFalse();
+        assertThat(window.fileSize()).isEqualTo(size);
+    }
+
+    @Test
+    void aFinalLineBreakAsTheOnlyOneInTheLastFiftyMebibytesGivesAnEmptyWindow()
+        throws IOException {
+        long size = WINDOW + 10;
+        // start = 10: the only line break at or after start - 1 = 9 is the final byte, and the
+        // empty segment after it is no line.
+        Path file = write("finalbreak.log", "a\nb\nc".getBytes(StandardCharsets.US_ASCII),
+            size - 6, "\n");
+
+        LogWindow window = LogWindowReader.read(file, size);
+
+        assertThat(window.bytes()).isEmpty();
+        assertThat(window.linesBefore()).isZero();
         assertThat(window.wholeFile()).isFalse();
         assertThat(window.fileSize()).isEqualTo(size);
     }

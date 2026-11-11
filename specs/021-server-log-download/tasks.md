@@ -297,7 +297,7 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   acquirer waits until the first releases; FIFO order; release on exception; a wait longer than
   `wait` → empty, the permit untouched; `Duration.ZERO` with a free permit → held; interrupted
   wait → empty with the interrupt flag kept) Callers clamp the remaining time to `Duration.ZERO` before `tryAcquire` (never negative); test `tryAcquire(Duration.ZERO)` takes a free permit and refuses a busy one.
-- [ ] T018 `application/LogExcerptPerformanceTest.java` (D-11, D-13; after T015, T016): a 50 MiB
+- [X] T018 `application/LogExcerptPerformanceTest.java` (D-11, D-13; after T015, T016): a 50 MiB
   synthetic log generated in `@TempDir` (secret-looking lines every 1,000 lines, two configured
   passwords occurring in it) is read by `application/LogWindowReader` and its excerpt built by
   `LogExcerpt.build` with the **real** known-span function — an `infra/SecretScrubber` with the two
