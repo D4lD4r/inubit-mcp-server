@@ -75,6 +75,16 @@ public final class TestWiring implements AutoCloseable {
             exists, windows, launcher, environment, parameterStore, TEST_CONFIG_LOCATION));
     }
 
+    /** As above, with a capability matrix other than the production one (feature 020, T037). */
+    public static TestWiring withParameterStoreSupplier(ProfileConfig config,
+        CredentialStore credentials, SecretScrubber scrubber, Predicate<Path> exists,
+        boolean windows, ProcessLauncher launcher, Map<String, String> environment,
+        Supplier<ParameterStore> parameterStore, CapabilityMatrix matrix) {
+        return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
+            exists, windows, launcher, environment, parameterStore, TEST_CONFIG_LOCATION,
+            matrix));
+    }
+
     /**
      * As {@link #of(ProfileConfig, CredentialStore, SecretScrubber, Predicate, boolean,
      * ProcessLauncher, Map)}, with the configuration location the server would have been started

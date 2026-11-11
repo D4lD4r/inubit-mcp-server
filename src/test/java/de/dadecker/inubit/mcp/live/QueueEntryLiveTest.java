@@ -59,6 +59,10 @@ import tools.jackson.databind.JsonNode;
  * A read that started no helper fails, so nothing is reported as recorded without
  * {@code error_entry}.
  * Only sizes, counts and the process id are printed, never content.
+ *
+ * <p>With {@code INUBIT_LIVE_QUEUE_ENTRY_OPEN_9_0=true} (tasks.md T037) the wiring uses the test
+ * declaration that supports reading queue entries on 9.0 instead of the production one, which
+ * refuses it until the 9.0 recording is reviewed: {@link QueueEntryLiveTestSupport#matrix}.
  */
 @Tag("live")
 @Timeout(600)
@@ -91,7 +95,8 @@ class QueueEntryLiveTest {
         logger.setAdditive(false);
         appender.start();
         logger.addAppender(appender);
-        try (TestWiring wiring = live.wiring(recorder);
+        try (TestWiring wiring = live.wiring(recorder,
+            QueueEntryLiveTestSupport.matrix(System.getenv()));
             McpTestClient client = McpTestClient.start(wiring.toolHandlers(),
                 live.scrubber())) {
             client.initialize();

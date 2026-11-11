@@ -22,6 +22,7 @@ import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.RepositoryMode;
 import de.dadecker.inubit.mcp.config.ValidationReport;
 import de.dadecker.inubit.mcp.config.WorkspaceDirectory;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.nio.file.Files;
@@ -219,8 +220,16 @@ record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boo
      * queue entry live test records the helper's raw output).
      */
     TestWiring wiring(ProcessLauncher launcher) {
+        return wiring(launcher, CapabilityMatrix.production());
+    }
+
+    /**
+     * As above, with {@code matrix} as the capability declaration (feature 020, tasks.md T037: the
+     * queue entry live test may open 9.0 through a test declaration to take the 9.0 recording).
+     */
+    TestWiring wiring(ProcessLauncher launcher, CapabilityMatrix matrix) {
         return TestWiring.withParameterStoreSupplier(loaded.config(), store(), scrubber,
-            Files::exists, windows, launcher, System.getenv(), SsmParameterStore::new);
+            Files::exists, windows, launcher, System.getenv(), SsmParameterStore::new, matrix);
     }
 
     /**

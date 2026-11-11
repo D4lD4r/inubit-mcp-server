@@ -72,6 +72,8 @@ server).
 
    Optional, to produce the fixture recording: `INUBIT_LIVE_RECORD_DIR=<private directory outside
    the repository>`.
+   On 9.0, until T038, add `INUBIT_LIVE_QUEUE_ENTRY_OPEN_9_0=true`: the production declaration
+   refuses 9.0, so the test wires a test declaration that supports it (T037, docs/live-tests.md).
 3. **Expect**: `[live] read_queue_entry test/node1 process 1234: data <n> bytes (<kind>), <m>
    variables, entry unchanged`; the test asserts that state, `startTime`, `fileSize` and
    `fileName` of the row are the same before and after (SC-004) and that the captured log holds
@@ -96,4 +98,5 @@ server).
 |---|---|---|---|
 | 2026-11-11 | `ent/node-a` (process 1000001) | 8.1.17 | passed: `QueueEntryLiveTest` with `INUBIT_LIVE_RECORD_DIR` (772 B text, 50 variables, 0 masked; queue row unchanged, SC-004; negative case recorded); step 4 through an MCP client: entry read, `UNSUPPORTED_VERSION` on 9.0, schema error for a stage target, `NOT_CONFIGURED` without opt-in |
 | 2026-11-11 | `int/node-b`, `test/node-c` (processes 1000002, 1000003) | 8.1.x | passed (`test/node-c` after a live test support fix: the SC-003 log check flagged a variable holding the process id). Finding: queue rows without `fileName` (fileSize 0) failed a lookup with `UNEXPECTED_RESPONSE`; fixed as T034-F1 |
-| 2026-11-11 | `int/node-d` | 9.0.10 | no ERROR entry: a test workflow's Throw error appeared only in the systemLog, the Queue Manager stayed empty (T036 open, owner decides) |
+| 2026-11-11 | `int/node-d` | 9.0.10 | no ERROR entry: a test workflow's Throw error appeared only in the systemLog, the Queue Manager stayed empty; the owner then created an ERROR entry himself (T036) |
+| 2026-11-11 | `int/node-d` (process 1000004) | 9.0.10 | passed: `QueueEntryLiveTest` with `INUBIT_LIVE_QUEUE_ENTRY_OPEN_9_0=true` and `INUBIT_LIVE_RECORD_DIR` (1,810 B text, 11 variables, all system variables, 0 masked; queue row unchanged, SC-004; negative case both parts `NotFound`, recorded). Recording neutralized privately, awaiting the owner's review before T038 (T037). The entry has no credential-named variable, so the 9.0 masking path is covered by the offline tests only |
