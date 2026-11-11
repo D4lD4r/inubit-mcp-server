@@ -357,7 +357,7 @@ system diagrams/clouds whose `ReferencableTWFs` contain the workflow.
   reach the conversation, secrets do not); `CHANGELOG.md`; `docs/setup.md` record cases
 - [x] T033 Full build and Python tests green; `python3 tools/check-identifiers.py --all`; test count
   vs T001 in `specs/018-partner-management-read/reviews.md`
-- [ ] T034 Operator live check (quickstart.md §3) with the partner and stage the operator names;
+- [x] T034 Operator live check (quickstart.md §3) with the partner and stage the operator names;
   `docs/live-tests.md` entry in neutralized form only (FR-024)
 
 ## Dependencies
