@@ -43,7 +43,7 @@ them; an agent using this MCP server cannot.
 
 Research on the 8.1.17 and 9.0.10 client installations (2026-11-11) found:
 
-- **trace.log** can be downloaded with StartCLI's own command `trace -d` (long form `--download`) `<file>` ("Download trace
+- **trace.log** can be downloaded with StartCLI's own command `trace -d <file>` (long form `trace --download <file>`; "Download trace
   log and store to file"), in 8.1 and 9.0. This is supported vendor functionality, reached through
   the StartCLI channel the server already uses. The same `trace` command also switches tracing and
   log levels; those forms change the server and are never used.
@@ -97,11 +97,16 @@ masked excerpt. Testable offline.
    window starting at the first whole line within the last 50 MiB, the result says that the window
    is smaller than the file, and each excerpt line carries its line number in the whole file.
 8. **Given** a log in which a `<password>` element spans lines 10–12 and line 13 follows, **When**
-   the excerpt is built, **Then** the value is replaced by the mask token on line 10, lines 11–12
-   are empty, the unmasked rest of line 12 after the end tag stays, and line 13 keeps number 13.
+   the excerpt is built, **Then** the value is replaced by the mask token on line 10, line 11 is
+   empty, line 12 keeps `</password>` and the text after it, and line 13 keeps number 13.
 9. **Given** a window whose first lines continue a `<password>` element opened before the window
    and close it with `</password>`, **When** the excerpt is built, **Then** every line from the start
-   of the window up to and including the end tag is masked.
+   of the window up to the end tag is masked; the line with the end tag keeps the end tag and the
+   text after it.
+10. **Given** the credential store of another configured node has not answered within the call's
+    deadline, **When** the tool is called, **Then** the file is written, the result contains no log
+    line, says that the excerpt was withheld and names that node and its credential source, and the
+    audit record shows the call as successful.
 
 ---
 
@@ -265,11 +270,14 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
   tag is not in the window (it was opened before the window), every line from the start of the
   window up to and including that end tag is masked the same way: when in doubt, content is left
   out rather than shown. A secret-named JSON value (object or array) that opens before the window
-  is not detected; the documentation names this limit. If known credentials of the profile cannot
-  all be read in time (for example a credential store of another node that has not answered yet),
-  the excerpt MUST be withheld rather than shown with possibly unscrubbed values: the file is still
-  written, and instead of the excerpt the result says that it was withheld and names the node and
-  credential source that is not ready.
+  is not detected; the documentation names this limit. If the known credentials of every configured
+  node cannot be read within the remaining `cliExportTimeout` of the call (FR-013) — for example a
+  credential store of another node that has not answered — the excerpt MUST be withheld rather than
+  shown with possibly unscrubbed values: the file is still written, and instead of the excerpt the
+  result says that it was withheld, names the node and credential source that is not ready, and
+  says that every excerpt is withheld until that source can be read. This applies only to
+  credentials read for masking; if the addressed server's own login credentials cannot be read,
+  the call fails with `SECRET_UNRESOLVED` or `TIMEOUT` (FR-011).
 - **FR-011**: Errors MUST use the existing error codes: `INVALID_INPUT` (bad input, folder rules),
   `NOT_FOUND` (log file does not exist on the server), `NOT_CONFIGURED`, `UNSUPPORTED_VERSION`,
   `CLI_UNAVAILABLE`, `AUTH_FAILED`, `FORBIDDEN` (the user lacks the right the Workbench needs),
@@ -279,11 +287,13 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
 - **FR-012**: Connections MUST verify TLS like the server's other StartCLI connections; credentials
   MUST reach the client side the way StartCLI gets them (never on a command line, never in tool
   parameters).
-- **FR-013**: Every wait and transfer of a call (concurrency slot, credentials, version check,
-  download, excerpt permit) MUST be bounded by the node's `cliExportTimeout`, and the call MUST
-  count against the StartCLI concurrency limit of that server. The local excerpt building and file
-  placement after the download are bounded by their size limits (FR-009) and are finished even if
-  the deadline passes meanwhile, so that no partial file is left behind.
+- **FR-013**: Every wait and transfer of a call (a StartCLI concurrency slot, the server's login
+  credentials, the version check, the download, a free slot for building the excerpt) MUST be
+  bounded by the node's `cliExportTimeout`; exceeding it is `TIMEOUT` and no file remains (FR-011).
+  Credentials read only for masking follow FR-010. The call MUST count against the StartCLI
+  concurrency limit of that server. Building the excerpt (bounded by the 50 MiB window, FR-009) and
+  moving the downloaded file to its final name are completed even if the deadline passes
+  meanwhile, so that no partial file is left behind.
 - **FR-014**: The tool MUST be annotated as not read-only for the local machine
   (`readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`,
   `openWorldHint: true`), so that clients ask before it writes a file with clear-text content. It
@@ -296,7 +306,7 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
   whether the unsupported server-log read is enabled; on a `production: true` group as a warning.
 - **FR-017**: Both versions are supported by this feature only with contract tests against
   recorded, neutralized outputs of that version (Constitution V): for 8.1 and 9.0 the StartCLI
-  output of `trace -d` and the answer of the internal download, recorded read-only on
+  output of `trace --download` and the answer of the internal download, recorded read-only on
   non-production servers. Recordings MUST NOT contain real log content; the log content of the
   fixtures is fictitious. If a 9.0 recording cannot be made, 9.0 is refused with
   `UNSUPPORTED_VERSION` ("not yet verified") for the affected log, as in feature 020.
