@@ -639,3 +639,33 @@ reference to `export_archives`, errors, memory need, "address cluster nodes dire
 server reads trace.log fully into its memory"), the capability table rows, the announcement
 rule; `README.md` tool list; `CHANGELOG.md` `[Unreleased]`; `SECURITY.md` gets the log file
 among the clear-text outputs.
+
+## Spike findings
+
+### 8.1 trace recording (D-23 step 1, T021, 2026-11-12)
+
+Setting: one non-production INUBIT 8.1 test server of the profile, operator-approved; the
+profile's 8.1 StartCLI client on Java 17; run once through the project's `CliRunner.run` (argument
+array, password on stdin, the profile's trust store, hostname verification off as the profile
+sets it) with the token list D-1 specifies for `traceDownload` (built by reflection in the throwaway program; the factory did not exist yet): `trace --download
+'<private dir>/trace.log'`. No other `trace` form was run. Raw output and the file stay owner-only
+in a private directory outside the repository.
+
+- **Exit code** `0`; wall-clock about 3 s including the JVM start.
+- **stdout**, 4 lines, in this order: `JAVA_HOME is set`, the `Password: ` prompt, the
+  `SECURITY WARNING: Hostname verification is disabled. …` line (only because the profile disables
+  it), then `Trace data (<n> MB) stored to: <path>`. `<path>` is the requested absolute path,
+  echoed verbatim without quotes. The line matches D-1's
+  `^Trace data \(\S+ MB\) stored to: .+$`.
+- **`<n>`** is an integer: the file size in MiB (2^20 bytes), rounded (`71` for a file of about
+  74.4 million bytes, which would be `74` in 10^6-byte MB).
+- **stderr**, 1 line: the JVM's `Picked up JAVA_TOOL_OPTIONS: …` line (the runner's own language
+  and trust-store options); nothing from StartCLI.
+- **File**: a regular file at the requested path, plain ASCII text, size in the order of 10^7 bytes
+  (about 71 MiB). StartCLI creates it with the process umask (`rw-r--r--` here), not owner-only:
+  only the private directory protects it until it is moved or rewritten.
+- **Empty file**: not observed (the server's trace log was not empty).
+- **Trace state (SC-005)**: get_health systemInfo replaced the Workbench view of D-23
+  (Administration → trace settings). Before the run (23:35 UTC): tracing enabled, level `info`;
+  after the run (23:39 UTC): `tracingEnabled=true`, `TracingLevel=info` — unchanged (SC-005).
+  All times 2026-11-11 UTC.

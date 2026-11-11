@@ -347,7 +347,7 @@ FR-005, FR-007…FR-015).
 8.1: the tool is announced, the file appears in the target folder with the downloaded bytes, the
 result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contact.
 
-- [ ] T021 [US1] **[LIVE] [OWNER]** 8.1 trace recording (D-23 step 1, quickstart "Early live
+- [X] T021 [US1] **[LIVE] [OWNER]** 8.1 trace recording (D-23 step 1, quickstart "Early live
   tasks" 1; may start any time after T001, in parallel to Phase 2): the agent proposes the
   concrete action (which non-production 8.1 test server of the profile, the command StartCLI
   `trace -d <private dir>/trace.log` with the configured 8.1 client, the private directory
