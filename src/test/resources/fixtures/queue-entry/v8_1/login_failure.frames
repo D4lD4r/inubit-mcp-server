@@ -1,0 +1,4 @@
+log4j:WARN No appenders could be found for logger (com.inubit.ibis.soap.IBISSoapClient).
+log4j:WARN Please initialize the log4j system properly.
+#QE1:0123456789abcdef0123456789abcdef start SOAP_81
+#QE1:0123456789abcdef0123456789abcdef login error java.io.IOException %40Start%40LoginFailure%40%40%40The%20user%20does%20not%20exist%20or%20password%20does%20not%20match.%40End%40

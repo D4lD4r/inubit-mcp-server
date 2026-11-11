@@ -12,6 +12,7 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.EnumSource.Mode;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class CapabilityMatrixTest {
@@ -31,7 +32,8 @@ class CapabilityMatrixTest {
 
     /**
      * Feature 017 (T004, research D-9): 9.0 is declared like 8.1, REST and CLI; partner
-     * management is the exception of feature 018 (below).
+     * management is the exception of feature 018 (below); feature 020 (T038): reading Queue
+     * Manager entries included since its 9.0 recording.
      */
     @ParameterizedTest
     @EnumSource(value = Capability.class, names = "PARTNER_MANAGEMENT",
@@ -88,7 +90,7 @@ class CapabilityMatrixTest {
 
     /** Feature 017 (T004, research D-9): {@code V9_X} still selects no 9.0 support. */
     @ParameterizedTest
-    @EnumSource(Capability.class)
+    @EnumSource(value = Capability.class, names = "QUEUE_ENTRY_READ", mode = Mode.EXCLUDE)
     void theMajorOnlyNineLineAndNineOneStayUnverified(Capability capability) {
         assertThat(production.stateOfLine(9, OptionalInt.empty(), capability))
             .isEqualTo(notBaseline(capability));
@@ -112,7 +114,7 @@ class CapabilityMatrixTest {
     }
 
     @ParameterizedTest
-    @EnumSource(Capability.class)
+    @EnumSource(value = Capability.class, names = "QUEUE_ENTRY_READ", mode = Mode.EXCLUDE)
     void anOtherKnownVersionIsTreatedLikeUnknown(Capability capability) {
         assertThat(production.state(version("10.0"), capability))
             .isEqualTo(notBaseline(capability));
@@ -123,14 +125,14 @@ class CapabilityMatrixTest {
     }
 
     @ParameterizedTest
-    @EnumSource(Capability.class)
+    @EnumSource(value = Capability.class, names = "QUEUE_ENTRY_READ", mode = Mode.EXCLUDE)
     void anUnknownVersionGivesReadsUnverifiedAndWritesUnsupported(Capability capability) {
         assertThat(production.state(Optional.empty(), capability))
             .isEqualTo(notBaseline(capability));
     }
 
     @ParameterizedTest
-    @EnumSource(Capability.class)
+    @EnumSource(value = Capability.class, names = "QUEUE_ENTRY_READ", mode = Mode.EXCLUDE)
     void aMajorOnlyLineIsLookedUpAsUnknown(Capability capability) {
         assertThat(production.stateOfLine(9, OptionalInt.empty(), capability))
             .isEqualTo(production.state(Optional.empty(), capability))
@@ -145,7 +147,7 @@ class CapabilityMatrixTest {
         assertThat(Capability.values()).filteredOn(c -> c.kind() == Kind.READ)
             .containsExactly(Capability.MONITORING, Capability.PROCESS_DIAGNOSIS,
                 Capability.LOG_DIAGNOSIS, Capability.INVENTORY, Capability.PARTNER_MANAGEMENT,
-                Capability.WORKSPACE_EXPORT);
+                Capability.WORKSPACE_EXPORT, Capability.QUEUE_ENTRY_READ);
         assertThat(Capability.values()).filteredOn(c -> c.kind() == Kind.WRITE)
             .containsExactly(Capability.DEVELOPMENT_WRITE, Capability.DEPLOYMENT,
                 Capability.E2E_TEST, Capability.PROCESS_CONTROL);
@@ -181,6 +183,8 @@ class CapabilityMatrixTest {
         assertThat(Capability.E2E_TEST.channels())
             .containsExactlyInAnyOrder(Channel.SOAP, Channel.REST);
         assertThat(Capability.PROCESS_CONTROL.channels())
+            .containsExactlyInAnyOrder(Channel.REST, Channel.CLI);
+        assertThat(Capability.QUEUE_ENTRY_READ.channels())
             .containsExactlyInAnyOrder(Channel.REST, Channel.CLI);
     }
 
@@ -304,6 +308,83 @@ class CapabilityMatrixTest {
         assertThatIllegalArgumentException().isThrownBy(() -> new VersionRange(9, 0, 8, 1));
         assertThatIllegalArgumentException().isThrownBy(() -> new VersionRange(8, 2, 8, 1));
         assertThatIllegalArgumentException().isThrownBy(() -> new VersionRange(-1, 0, 8, 1));
+    }
+
+    // --- feature 020 T003: reading Queue Manager entries (FR-006, FR-019 fallback, D-6) -------
+
+    @Test
+    void queueEntryReadIsSupportedOn81And90WithoutNote() {
+        assertThat(Capability.QUEUE_ENTRY_READ.kind()).isEqualTo(Kind.READ);
+        assertThat(Capability.QUEUE_ENTRY_READ.label()).isEqualTo("reading Queue Manager entries");
+        assertThat(production.state(version("8.1.17"), Capability.QUEUE_ENTRY_READ))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.stateOfLine(8, OptionalInt.of(1), Capability.QUEUE_ENTRY_READ))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.note(version("8.1.17"), Capability.QUEUE_ENTRY_READ)).isEmpty();
+        // T038: the recorded 9.0 error entry enabled 9.0; the "not yet verified" note is gone
+        assertThat(production.state(version("9.0.7"), Capability.QUEUE_ENTRY_READ))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.stateOfLine(9, OptionalInt.of(0), Capability.QUEUE_ENTRY_READ))
+            .isEqualTo(SupportState.SUPPORTED);
+        for (Capability capability : Capability.values()) {
+            assertThat(production.note(version("9.0.7"), capability)).as("%s", capability)
+                .isEmpty();
+        }
+        assertThat(production.channels(version("9.0.7"), Capability.QUEUE_ENTRY_READ))
+            .isEqualTo(Capability.QUEUE_ENTRY_READ.channels());
+    }
+
+    @Test
+    void queueEntryReadIsUnsupportedOn61On91AndOnUnknownVersionsWithoutNote() {
+        for (Optional<InubitVersion> other : List.of(version("6.1.0.89-HF1"), version("9.1.0"),
+                version("7.0"), version("10.0"), Optional.<InubitVersion>empty())) {
+            assertThat(production.state(other, Capability.QUEUE_ENTRY_READ)).as("%s", other)
+                .isEqualTo(SupportState.UNSUPPORTED);
+            assertThat(production.note(other, Capability.QUEUE_ENTRY_READ)).as("%s", other)
+                .isEmpty();
+        }
+        assertThat(production.stateOfLine(9, OptionalInt.empty(), Capability.QUEUE_ENTRY_READ))
+            .isEqualTo(SupportState.UNSUPPORTED);
+    }
+
+    /** The other capabilities keep their unknown-version rule: reads unverified. */
+    @ParameterizedTest
+    @EnumSource(value = Capability.class, names = "QUEUE_ENTRY_READ", mode = Mode.EXCLUDE)
+    void theUnknownRuleOfTheOtherCapabilitiesIsUnchanged(Capability capability) {
+        assertThat(production.state(Optional.empty(), capability))
+            .isEqualTo(notBaseline(capability));
+        assertThat(production.note(Optional.empty(), capability)).isEmpty();
+    }
+
+    @Test
+    void theQueueEntryReadLinesAreTheSupportedAndTheNotedOnes() {
+        assertThat(production.lines(Capability.QUEUE_ENTRY_READ)).containsExactly("8.1", "9.0");
+        assertThat(new CapabilityMatrix(List.of(
+                new CapabilityMatrix.Entry(new VersionRange(7, 8, 7, 9),
+                    Map.of(Capability.MONITORING, SupportState.SUPPORTED)),
+                new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1),
+                    Map.of(Capability.MONITORING, SupportState.UNSUPPORTED))),
+                Map.of()).lines(Capability.MONITORING))
+            .as("a range names both bounds; an unsupported entry without note is no line")
+            .containsExactly("7.8–7.9");
+    }
+
+    @Test
+    void anEntryWithNotesRoundTrips() {
+        CapabilityMatrix.Entry entry = new CapabilityMatrix.Entry(new VersionRange(7, 9, 7, 9),
+            Map.of(Capability.MONITORING, SupportState.UNSUPPORTED), Map.of(), false,
+            Map.of(Capability.MONITORING, "not yet verified"));
+        CapabilityMatrix matrix = new CapabilityMatrix(List.of(entry), Map.of());
+
+        assertThat(entry.notes()).isEqualTo(Map.of(Capability.MONITORING, "not yet verified"));
+        assertThat(matrix.note(version("7.9.3"), Capability.MONITORING))
+            .contains("not yet verified");
+        assertThat(matrix.note(version("8.1.17"), Capability.MONITORING)).isEmpty();
+        assertThat(new CapabilityMatrix.Entry(new VersionRange(7, 9, 7, 9), Map.of(), Map.of(),
+                false))
+            .as("the entry without notes declares none")
+            .isEqualTo(new CapabilityMatrix.Entry(new VersionRange(7, 9, 7, 9), Map.of(),
+                Map.of(), false, Map.of()));
     }
 
     private static SupportState notBaseline(Capability capability) {

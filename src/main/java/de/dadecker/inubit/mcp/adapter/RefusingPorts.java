@@ -1,7 +1,9 @@
 package de.dadecker.inubit.mcp.adapter;
 
+import de.dadecker.inubit.mcp.domain.model.EntryPart;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
 import de.dadecker.inubit.mcp.domain.model.LogQuery;
@@ -10,6 +12,9 @@ import de.dadecker.inubit.mcp.domain.model.Page;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
+import de.dadecker.inubit.mcp.domain.model.QueueEntries;
+import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
+import de.dadecker.inubit.mcp.domain.model.RawEntryContent;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
@@ -21,11 +26,13 @@ import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * The ports an INUBIT 6.1 node does not offer (feature 012, research D-4): every method throws
@@ -34,7 +41,8 @@ import java.util.Objects;
  * {@link PortSet}.
  */
 public final class RefusingPorts implements ProcessQueryPort, LogPort, InventoryPort,
-    ProcessControlPort, ArtifactPort, ImportPort, TagPort, PartnerManagementPort {
+    ProcessControlPort, ArtifactPort, ImportPort, TagPort, PartnerManagementPort,
+    QueueEntryContentPort {
 
     private final NodeId node;
 
@@ -65,6 +73,11 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
     @Override
     public ProcessRows findByProcessId(String processId, Instant now,
         Duration hangingThreshold) {
+        throw refusal();
+    }
+
+    @Override
+    public QueueEntries queueEntries(String processId) {
         throw refusal();
     }
 
@@ -162,6 +175,11 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
 
     @Override
     public Result read(String owner, List<DiagramRef> systemDiagrams) {
+        throw refusal();
+    }
+
+    @Override
+    public RawEntryContent read(QueueEntryRef ref, InubitVersion version, Set<EntryPart> parts) {
         throw refusal();
     }
 }

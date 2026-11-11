@@ -29,6 +29,9 @@ import org.junit.jupiter.api.io.TempDir;
  * {@code archives.productionOptIn}, built-in {@code false}.
  *
  * <p>Feature 014 (T006): the effective TLS of a stage marked with {@code tls.pinPerServer}.
+ *
+ * <p>Feature 020 (T002, research D-15): {@code queueEntryRead()} is the group's
+ * {@code unsupported.queueEntryRead}, built-in {@code false}, kept by every copy.
  */
 class EffectiveNodeConfigTest {
 
@@ -59,7 +62,7 @@ class EffectiveNodeConfigTest {
     private static GroupConfig group(boolean production, DevelopmentConfig development,
         NodeConfig node) {
         return new GroupConfig("dev", production, List.of(node), null, null, null, null, null,
-            null, null, null, null, null, development, null, null, null, null, null);
+            null, null, null, null, null, development, null, null, null, null, null, null);
     }
 
     /** Resolves without any {@code credentials} section (prefix {@code INUBIT}). */
@@ -136,7 +139,7 @@ class EffectiveNodeConfigTest {
             null, null, null, null);
         GroupConfig group = new GroupConfig("dev", false, List.of(node), null, null, null, null,
             Optional.ofNullable(groupValue), null, null, null, null, null, null, null, null, null,
-            null, null);
+            null, null, null);
         return resolve(Defaults.EMPTY, group, node).versionLine();
     }
 
@@ -175,7 +178,8 @@ class EffectiveNodeConfigTest {
     private static boolean archivesProductionOptIn(boolean production, ArchivesConfig archives) {
         NodeConfig node = node(null);
         GroupConfig group = new GroupConfig("prod", production, List.of(node), null, null, null,
-            null, null, null, null, null, null, null, null, null, null, null, null, archives);
+            null, null, null, null, null, null, null, null, null, null, null, null, archives,
+            null);
         return resolve(Defaults.EMPTY, group, node).archivesProductionOptIn();
     }
 
@@ -197,12 +201,12 @@ class EffectiveNodeConfigTest {
         NodeConfig node = node(null);
         GroupConfig group = new GroupConfig("prod", true, List.of(node),
             new WriteConfig(Optional.of(true), Optional.of(true), Optional.empty()), null, null,
-            null, null, null, null, null, null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null, null, null, null, null, null);
         EffectiveNodeConfig withWrite = resolve(Defaults.EMPTY, group, node);
         GroupConfig optedIn = new GroupConfig("prod", true, List.of(node),
             new WriteConfig(Optional.of(false), Optional.empty(), Optional.empty()), null, null,
             null, null, null, null, null, null, null, null, null, null, null, null,
-            new ArchivesConfig(Optional.of(true)));
+            new ArchivesConfig(Optional.of(true)), null);
         EffectiveNodeConfig archives = resolve(Defaults.EMPTY, optedIn, node);
 
         assertThat(withWrite.effectiveWriteEnabled()).isTrue();
@@ -211,6 +215,50 @@ class EffectiveNodeConfigTest {
         assertThat(archives.archivesProductionOptIn()).isTrue();
         assertThat(archives.withTimeout(Duration.ofSeconds(1)).archivesProductionOptIn())
             .isTrue();
+    }
+
+    private static EffectiveNodeConfig withQueueEntryRead(UnsupportedConfig unsupported) {
+        NodeConfig node = node(null);
+        GroupConfig group = new GroupConfig("prod", true, List.of(node), null, null, null, null,
+            null, null, null, null, null, null, null, null, null, null, null, null, unsupported);
+        return resolve(Defaults.EMPTY, group, node);
+    }
+
+    @Test
+    void theQueueEntryReadOptInIsTheGroupValueAndFalseByDefault() {
+        assertThat(withQueueEntryRead(null).queueEntryRead()).isFalse();
+        assertThat(withQueueEntryRead(UnsupportedConfig.EMPTY).queueEntryRead()).isFalse();
+        assertThat(withQueueEntryRead(new UnsupportedConfig(Optional.of(false)))
+            .queueEntryRead()).isFalse();
+        assertThat(withQueueEntryRead(new UnsupportedConfig(Optional.of(true)))
+            .queueEntryRead()).isTrue();
+    }
+
+    @Test
+    void theQueueEntryReadOptInSurvivesEveryCopy() {
+        EffectiveNodeConfig optedIn = withQueueEntryRead(new UnsupportedConfig(Optional.of(true)));
+        EffectiveNodeConfig.Cli other = new EffectiveNodeConfig.Cli(
+            URI.create("https://other.example.test:8443/cli"), Optional.empty(), Optional.empty());
+
+        assertThat(optedIn.withTimeout(Duration.ofSeconds(1)).queueEntryRead()).isTrue();
+        assertThat(optedIn.withCli(other).queueEntryRead()).isTrue();
+        assertThat(optedIn.entryProbe(Path.of("client"), Optional.empty()).queueEntryRead())
+            .isTrue();
+        assertThat(withQueueEntryRead(null).withTimeout(Duration.ofSeconds(1)).withCli(other)
+            .entryProbe(Path.of("client"), Optional.empty()).queueEntryRead()).isFalse();
+    }
+
+    @Test
+    void theConstructorWithoutCliSourcesIsNotOptedIn() {
+        EffectiveNodeConfig o = withQueueEntryRead(new UnsupportedConfig(Optional.of(true)));
+
+        EffectiveNodeConfig built = new EffectiveNodeConfig(o.id(), o.production(), o.baseUrl(),
+            o.allowInsecureHttp(), o.versionLine(), o.write(), o.tls(), o.cli(), o.inventory(),
+            o.timeout(), o.cliTimeout(), o.cliExportTimeout(), o.hangingThreshold(),
+            o.confirmationTtl(), o.credentialPrefix(), o.development(), o.secretPlan(),
+            o.archivesProductionOptIn());
+
+        assertThat(built.queueEntryRead()).isFalse();
     }
 
     private static final String PIN_A =

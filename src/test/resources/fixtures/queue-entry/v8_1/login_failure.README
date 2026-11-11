@@ -1,0 +1,8 @@
+RECONSTRUCTED – 8.1 helper login rejected (exit 3, no end frame).
+The marker text is the one StartCLI prints for a rejected login on 8.1.17 and 9.0.x
+(fixtures/v8_1/cli/login_failed.stdout); the exception class thrown by loginUserCli was not
+recorded, java.io.IOException stands in for it. Expected: AUTH_FAILED.
+
+Frames use the fixed nonce 0123456789abcdef0123456789abcdef; a replay replaces it with the
+nonce of its request. Lines without the frame prefix are vendor noise the classifier ignores.
+Used by QueueEntryHelperClassifierTest (tasks.md T019, research D-5).

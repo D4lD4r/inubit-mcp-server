@@ -29,6 +29,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,7 +63,8 @@ import org.slf4j.LoggerFactory;
  * (FR-015). Its texts are built here from the node id, versions and error codes only, never from
  * the detection's error (FR-016; {@code V81VersionDetector} suggests {@code versionLine: V8_1}
  * unconditionally, which FR-005 forbids); they name the node level with the profile's
- * terminology (feature 002, FR-007).
+ * terminology (feature 002, FR-007). A refusal on a version whose matrix entry carries a note for
+ * the capability uses it, e.g. "… is not yet verified for INUBIT 9.0" (feature 020).
  *
  * <p>The purpose of a call is a {@link Capability.Kind} ({@code READ} or {@code WRITE}).
  *
@@ -197,7 +199,11 @@ public final class VersionGate {
      */
     public Admission admit(NodeId node, Capability capability, Capability.Kind purpose,
         Set<Channel> channels) {
-        Evaluation evaluation = evaluate(node, capability, purpose, channels);
+        return admission(capability, evaluate(node, capability, purpose, channels,
+            Optional.empty()));
+    }
+
+    private Admission admission(Capability capability, Evaluation evaluation) {
         if (evaluation.refusal().isPresent()) {
             throw new ToolErrorException(evaluation.refusal().get());
         }
@@ -215,16 +221,33 @@ public final class VersionGate {
      */
     public Evaluation evaluate(NodeId node, Capability capability, Capability.Kind purpose,
         Set<Channel> channels) {
+        return evaluate(node, capability, purpose, channels, Optional.empty());
+    }
+
+    /**
+     * @param versionNeededBy the tool of {@link #admitWithDetection}; empty for today's
+     *     behaviour, which judges an undetectable version as unknown
+     */
+    private Evaluation evaluate(NodeId node, Capability capability, Capability.Kind purpose,
+        Set<Channel> channels, Optional<String> versionNeededBy) {
         Objects.requireNonNull(node, "node");
         Objects.requireNonNull(capability, "capability");
         Objects.requireNonNull(purpose, "purpose");
         Objects.requireNonNull(channels, "channels");
         if (capability != Capability.MONITORING && versions.needsDetection(node, purpose)) {
-            detect(node);
+            detect(node, versionNeededBy.isPresent());
         }
         NodeVersionState state = versions.state(node);
         Optional<InubitVersion> version = purpose == Capability.Kind.WRITE
             ? versions.writableVersion(node) : state.effectiveVersion();
+        if (versionNeededBy.isPresent() && version.isEmpty()
+            && state.setting() instanceof VersionSetting.Auto) {
+            // no detection in this call: the back-off of a recorded failure suppressed it
+            Optional<Timed<DetectionFailure>> failure = state.detectionFailure();
+            if (failure.isPresent()) {
+                throw undetectable(versionNeededBy.get(), node, failure.get());
+            }
+        }
         String versionName = name(state, version).orElse("INUBIT version unknown");
         try {
             return new Evaluation(version, versionName,
@@ -345,8 +368,32 @@ public final class VersionGate {
     public Admission admit(String tool, NodeId node, Capability capability,
         Capability.Kind purpose, Set<Channel> channels) {
         Objects.requireNonNull(tool, "tool");
+        return named(tool, () -> admit(node, capability, purpose, channels));
+    }
+
+    /**
+     * {@link #admit(String, NodeId, Capability, Capability.Kind, Set)} for a tool that needs the
+     * version of the node (feature 020, US3-4, research D-6): an undetectable version fails the
+     * call with the detection's error instead of being judged as unknown. A detection of this
+     * call that fails has been recorded in {@link NodeVersions} (which starts the back-off) and
+     * is rethrown with its own code and message. Within the back-off of a recorded failure, with
+     * no known version, the call fails with the recorded code and does not detect again (no
+     * extra login attempt), e.g. "The INUBIT version of dev/node1 could not be detected
+     * (UNREACHABLE at 2026-11-10T08:15:30Z); read_queue_entry needs it".
+     *
+     * @throws ToolErrorException as {@code admit}, and the detection's error as described
+     */
+    public Admission admitWithDetection(String tool, NodeId node, Capability capability,
+        Capability.Kind purpose, Set<Channel> channels) {
+        Objects.requireNonNull(tool, "tool");
+        return named(tool, () -> admission(capability,
+            evaluate(node, capability, purpose, channels, Optional.of(tool))));
+    }
+
+    /** Starts the message of this gate's refusal with {@code tool}. */
+    private static Admission named(String tool, Supplier<Admission> admission) {
         try {
-            return admit(node, capability, purpose, channels);
+            return admission.get();
         } catch (ToolErrorException e) {
             ToolError error = e.error();
             if (error.code() != ErrorCode.UNSUPPORTED_VERSION) {
@@ -362,15 +409,31 @@ public final class VersionGate {
      * Detects now. A failure other than {@code TLS_ERROR} has been reported to
      * {@link NodeVersions} (which starts the back-off) and is judged as an unknown version; a
      * cancelled call is passed through, as it was not reported.
+     *
+     * @param passFailures pass every failure through (feature 020, {@link #admitWithDetection})
      */
-    private void detect(NodeId node) {
+    private void detect(NodeId node, boolean passFailures) {
         try {
             gateways.detect(node);
         } catch (ToolErrorException e) {
-            if (e.error().code() == ErrorCode.TLS_ERROR || Thread.currentThread().isInterrupted()) {
+            if (passFailures || e.error().code() == ErrorCode.TLS_ERROR
+                || Thread.currentThread().isInterrupted()) {
                 throw e;
             }
         }
+    }
+
+    /** The recorded failure of a detection the back-off suppressed in this call (US3-4). */
+    private static ToolErrorException undetectable(String tool, NodeId node,
+        Timed<DetectionFailure> failure) {
+        ErrorCode code = failure.value().code();
+        return new ToolErrorException(ToolError.of(code,
+            "The INUBIT version of " + node + " could not be detected (" + code + " at "
+                + time(failure) + "); " + tool + " needs it",
+            "The last version detection of " + node + " failed less than a minute ago and is"
+                + " not repeated before then",
+            "Fix the cause and retry in a minute, or set versionLine of " + node)
+            .withNode(node));
     }
 
     /**
@@ -498,6 +561,18 @@ public final class VersionGate {
         String likelyCause = purpose == Capability.Kind.WRITE
             ? terms.render("The {node} runs a version for which no verified write access exists")
             : "This server declares " + capability.label() + " unsupported for that version";
+        String otherNode = terms.render("Use another {node} whose INUBIT version supports ")
+            + capability.label()
+            + terms.render(" (list_nodes shows the usable capabilities per {node}), or wait"
+            + " for a version of this server that supports that INUBIT version");
+        Optional<String> note = matrix.note(version, capability);
+        if (note.isPresent()) {
+            // feature 020 (FR-019 fallback): e.g. "… is not yet verified for INUBIT 9.0"
+            return refuse(node, capability,
+                name.get() + " on " + node + ": " + capability.label() + " is " + note.get()
+                    + " for INUBIT " + majorMinor(state, version),
+                likelyCause, otherNode);
+        }
         if (matrix.isCliOnly(version)) {
             String release = majorMinor(state, version);
             String step = cliOnlyStep(capability, release);
@@ -507,15 +582,22 @@ public final class VersionGate {
                     + " on " + node + " does not support " + capability.label()
                     + (capability == Capability.INVENTORY
                         ? "; modules of INUBIT " + release + " cannot be looked up" : "")
-                    + "; " + step,
+                    + supportedLines(capability) + "; " + step,
                 likelyCause, capitalized(step));
         }
         return refuse(node, capability,
-            name.get() + " on " + node + " does not support " + capability.label() + " yet",
-            likelyCause,
-            terms.render("Use another {node} whose INUBIT version supports ") + capability.label()
-                + terms.render(" (list_nodes shows the usable capabilities per {node}), or wait"
-                + " for a version of this server that supports that INUBIT version"));
+            name.get() + " on " + node + " does not support " + capability.label() + " yet"
+                + supportedLines(capability),
+            likelyCause, otherNode);
+    }
+
+    /**
+     * Feature 020 (US3-3): a refusal of reading Queue Manager entries names the supported lines,
+     * e.g. "; supported: 8.1, 9.0"; empty for every other capability.
+     */
+    private String supportedLines(Capability capability) {
+        return capability == Capability.QUEUE_ENTRY_READ
+            ? "; supported: " + String.join(", ", matrix.lines(capability)) : "";
     }
 
     /**
@@ -532,6 +614,7 @@ public final class VersionGate {
                 terms.render("use the Workbench, or another {node} with a different INUBIT"
                     + " version");
             case DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL -> "use the Workbench";
+            case QUEUE_ENTRY_READ -> "use the Queue Manager in the Workbench";
         };
     }
 

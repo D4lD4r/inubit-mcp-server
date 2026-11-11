@@ -1,0 +1,34 @@
+{
+  "queueLog": {
+    "total": 1,
+    "success": true,
+    "count": 1,
+    "row": [
+      {
+        "owner": "OWNERS",
+        "fileName": "module-0002(10001002)@100000027@00000000-0a00-0000-0000-000000000027_1790861373736",
+        "moduleType": "Throw",
+        "moduleName": "Module-0002(10001002)",
+        "index": 1,
+        "workflowName": "Workflow-0001",
+        "priority": "normal",
+        "node": "ip-192-0-2-1",
+        "fileSize": 808,
+        "globalPId": 100000027,
+        "userDefined4": "",
+        "nextStartTime": "",
+        "userDefined5": "",
+        "startTime": 1790861373734,
+        "userDefined2": "Wrong data type for Order-0001 receiver",
+        "tag": "",
+        "userDefined3": "",
+        "userDefined1": "AS2-TEST-ERROR",
+        "workflowId": 100000027,
+        "status": {
+          "level": 0,
+          "content": "Error"
+        }
+      }
+    ]
+  }
+}

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.fail;
 
 import de.dadecker.inubit.mcp.TestWiring;
 import de.dadecker.inubit.mcp.adapter.aws.SsmParameterStore;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.os.CredentialStores;
 import de.dadecker.inubit.mcp.config.ConfigException;
@@ -214,6 +215,15 @@ record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boo
     }
 
     /**
+     * The production wiring that starts its processes through {@code launcher} (feature 020: the
+     * queue entry live test records the helper's raw output).
+     */
+    TestWiring wiring(ProcessLauncher launcher) {
+        return TestWiring.withParameterStoreSupplier(loaded.config(), store(), scrubber,
+            Files::exists, windows, launcher, System.getenv(), SsmParameterStore::new);
+    }
+
+    /**
      * The production wiring with {@code workspace} instead of the configured one (feature 003):
      * a live test never writes into the person's real workspace.
      */
@@ -250,7 +260,7 @@ record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boo
                     group.versionLine(), group.timeout(), group.cliTimeout(),
                     group.cliExportTimeout(), group.hangingThreshold(), group.confirmationTtl(),
                     group.development(), group.e2eTests(), group.e2e(), group.deploy(),
-                    group.credentials(), group.archives()))
+                    group.credentials(), group.archives(), group.unsupported()))
             .toList();
         return new ProfileConfig(config.profile(), config.terminology(), config.credentials(),
             groups, config.defaults(), config.auditDirectory(), config.logLevel(),

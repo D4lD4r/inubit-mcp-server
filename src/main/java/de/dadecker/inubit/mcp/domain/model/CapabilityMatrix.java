@@ -20,7 +20,8 @@ import java.util.Set;
  *
  * <p>An entry may declare channels per capability that replace the capability's own
  * {@link Capability#channels()}, and may be {@code cliOnly}: the node is reached through StartCLI
- * only (feature 012, research D-3).
+ * only (feature 012, research D-3). It may carry a note per capability that the refusal uses,
+ * e.g. "not yet verified" (feature 020, research D-6); the production declaration has none.
  */
 public final class CapabilityMatrix {
 
@@ -29,7 +30,7 @@ public final class CapabilityMatrix {
      * without declared {@code channels} uses its own channels.
      */
     public record Entry(VersionRange range, Map<Capability, SupportState> states,
-        Map<Capability, Set<Channel>> channels, boolean cliOnly) {
+        Map<Capability, Set<Channel>> channels, boolean cliOnly, Map<Capability, String> notes) {
 
         public Entry {
             Objects.requireNonNull(range, "range");
@@ -37,6 +38,13 @@ public final class CapabilityMatrix {
             Map<Capability, Set<Channel>> copy = new EnumMap<>(Capability.class);
             channels.forEach((capability, declared) -> copy.put(capability, Set.copyOf(declared)));
             channels = Map.copyOf(copy);
+            notes = Map.copyOf(notes);
+        }
+
+        /** An entry without notes. */
+        public Entry(VersionRange range, Map<Capability, SupportState> states,
+            Map<Capability, Set<Channel>> channels, boolean cliOnly) {
+            this(range, states, channels, cliOnly, Map.of());
         }
 
         /** An entry without declared channels that is not CLI-only. */
@@ -64,14 +72,17 @@ public final class CapabilityMatrix {
 
     /**
      * 9.0: everything as on 8.1 except partner management, which runs with a warning until recorded
-     * 9.0 responses are under contract test (feature 018, FR-016, research D-7).
+     * 9.0 responses are under contract test (feature 018, FR-016, research D-7); reading Queue
+     * Manager entries included since its recorded 9.0 error entry (feature 020, FR-019, research
+     * D-20).
      */
     private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0),
         with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED));
 
+    /** Unknown versions: reading Queue Manager entries is refused, not run with a warning. */
     private static final CapabilityMatrix PRODUCTION = new CapabilityMatrix(
         List.of(V6_1, new Entry(new VersionRange(8, 1, 8, 1), ALL_SUPPORTED), V9_0),
-        READS_UNVERIFIED);
+        with(READS_UNVERIFIED, Capability.QUEUE_ENTRY_READ, SupportState.UNSUPPORTED));
 
     /**
      * The version lines whose stored secret forms are verified as comparable across servers, so
@@ -97,7 +108,9 @@ public final class CapabilityMatrix {
      * The production declaration of research D-3: 6.1.x CLI-only with every capability
      * unsupported; 8.1.x and (feature 017, research D-9) 9.0.x all supported, except partner
      * management on 9.0.x, which is unverified (feature 018); any other known version and unknown
-     * versions: reads unverified, writes unsupported.
+     * versions: reads unverified, writes unsupported. Feature 020 (research D-6, D-20): reading
+     * Queue Manager entries is supported on 8.1 and 9.0, on any other and on unknown versions
+     * unsupported.
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;
@@ -119,6 +132,28 @@ public final class CapabilityMatrix {
         return entry(version).map(Entry::channels)
             .map(declared -> declared.get(capability))
             .orElse(capability.channels());
+    }
+
+    /**
+     * The note of the entry containing {@code version} for {@code capability}, e.g. "not yet
+     * verified"; empty for an unknown version and a version outside every range.
+     */
+    public Optional<String> note(Optional<InubitVersion> version, Capability capability) {
+        Objects.requireNonNull(capability, "capability");
+        return entry(version).map(e -> e.notes().get(capability));
+    }
+
+    /**
+     * The version lines that declare {@code capability} {@code SUPPORTED} or carry a note for it
+     * (supported once verified), in declaration order: "8.1", or "7.8–7.9" for a wider range.
+     */
+    public List<String> lines(Capability capability) {
+        Objects.requireNonNull(capability, "capability");
+        return entries.stream()
+            .filter(e -> e.states().get(capability) == SupportState.SUPPORTED
+                || e.notes().containsKey(capability))
+            .map(e -> line(e.range()))
+            .toList();
     }
 
     /** Whether {@code version} is reached through StartCLI only; an unknown version is not. */
@@ -153,6 +188,19 @@ public final class CapabilityMatrix {
             v -> entries.stream().filter(e -> e.range().contains(v)).findFirst());
     }
 
+    private static String line(VersionRange range) {
+        String from = range.fromMajor() + "." + range.fromMinor();
+        String to = range.toMajor() + "." + range.toMinor();
+        return from.equals(to) ? from : from + "–" + to;
+    }
+
+    private static Map<Capability, SupportState> with(Map<Capability, SupportState> states,
+        Capability capability, SupportState state) {
+        Map<Capability, SupportState> copy = new EnumMap<>(states);
+        copy.put(capability, state);
+        return copy;
+    }
+
     private static Map<Capability, SupportState> checked(Map<Capability, SupportState> states) {
         states.forEach((capability, state) -> {
             if (capability.kind() == Capability.Kind.WRITE && state == SupportState.UNVERIFIED) {
@@ -169,13 +217,6 @@ public final class CapabilityMatrix {
             states.put(capability, state);
         }
         return states;
-    }
-
-    private static Map<Capability, SupportState> with(Map<Capability, SupportState> states,
-        Capability capability, SupportState state) {
-        Map<Capability, SupportState> copy = new EnumMap<>(states);
-        copy.put(capability, state);
-        return copy;
     }
 
     private static Map<Capability, SupportState> readsUnverified() {

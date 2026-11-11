@@ -14,6 +14,8 @@ import java.util.Optional;
  *               only; there is no {@code deploy} on a node)
  * @param credentials feature 010: the group's secret source and Parameter Store names
  * @param archives feature 015: {@code archives.productionOptIn} (group-level only, research R-15)
+ * @param unsupported feature 020: {@code unsupported.queueEntryRead} (group-level only, research
+ *                    D-15)
  */
 public record GroupConfig(
     String name,
@@ -34,7 +36,8 @@ public record GroupConfig(
     E2eConfig e2e,
     Optional<DeployConfig> deploy,
     CredentialsConfig credentials,
-    ArchivesConfig archives) {
+    ArchivesConfig archives,
+    UnsupportedConfig unsupported) {
 
     public GroupConfig {
         name = Optionals.orDefault(name, "");
@@ -55,5 +58,6 @@ public record GroupConfig(
         deploy = Optionals.orEmpty(deploy);
         credentials = Optionals.orDefault(credentials, CredentialsConfig.EMPTY);
         archives = Optionals.orDefault(archives, ArchivesConfig.EMPTY);
+        unsupported = Optionals.orDefault(unsupported, UnsupportedConfig.EMPTY);
     }
 }

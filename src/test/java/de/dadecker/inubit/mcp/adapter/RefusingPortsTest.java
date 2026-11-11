@@ -4,13 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import de.dadecker.inubit.mcp.domain.model.EntryPart;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
+import java.util.Set;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -23,6 +27,10 @@ import org.junit.jupiter.params.provider.MethodSource;
 class RefusingPortsTest {
 
     private static final NodeId NODE = NodeId.parse("dev/node1");
+
+    private static final QueueEntryRef REF = new QueueEntryRef(NODE, "Workflow-0001",
+        "Order-0001.xml", 772);
+    private static final InubitVersion V61 = InubitVersion.parse("6.1.0").orElseThrow();
 
     private final RefusingPorts refusing = new RefusingPorts(NODE);
 
@@ -46,6 +54,37 @@ class RefusingPortsTest {
             assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
             assertThat(e.error().node()).contains(NODE);
         });
+    }
+
+    @Test
+    void queueEntriesRefusesWithTheSixOneRefusalWithoutContact() {
+        // feature 020 T012 (research D-9): overridden, not the adapter-line default
+        assertThatThrownBy(() -> refusing.queueEntries("4711"))
+            .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error()).isEqualTo(refusing.refusal().error()));
+    }
+
+    @Test
+    void queueEntryContentRefusesWithTheSixOneRefusalWithoutContact() {
+        // feature 020 T022 (research D-17): not the adapter-line default
+        assertThatThrownBy(() -> refusing.read(REF, V61, Set.of(EntryPart.DATA)))
+            .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error()).isEqualTo(refusing.refusal().error()));
+    }
+
+    @Test
+    void thePortSetCompatibilityConstructorFillsInThisRefusalForTheEntrysNode() {
+        // feature 020 T022 (research D-17): port sets built with the previous eight ports
+        PortSet ports = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing);
+
+        NodeId other = NodeId.parse("int/b");
+        QueueEntryRef ref = new QueueEntryRef(other, "Workflow-0001", "Order-0001.xml", 772);
+
+        assertThatThrownBy(() -> ports.queueEntryContent().read(ref, V61,
+            Set.of(EntryPart.VARIABLES)))
+            .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error()).isEqualTo(new RefusingPorts(other).refusal().error()));
     }
 
     @Test

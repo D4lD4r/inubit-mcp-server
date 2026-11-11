@@ -38,6 +38,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.TestClientSelection;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -1036,6 +1037,8 @@ class VersionGateTest {
         expected.put(Capability.DEPLOYMENT, "deployment; use the Workbench");
         expected.put(Capability.E2E_TEST, "end-to-end test; use the Workbench");
         expected.put(Capability.PROCESS_CONTROL, "process control; use the Workbench");
+        expected.put(Capability.QUEUE_ENTRY_READ, "reading Queue Manager entries; supported: 8.1,"
+            + " 9.0; use the Queue Manager in the Workbench");
 
         for (Capability capability : Capability.values()) {
             ToolError error = refusal(() -> gate().admit(V6_1, capability, capability.kind(),
@@ -1282,6 +1285,220 @@ class VersionGateTest {
             .toList();
         assertThat(texts).hasSize(16).allSatisfy(text -> assertThat(text)
             .doesNotContainPattern("(?i)\\b(groups?|nodes?)\\b"));
+    }
+
+    // --- feature 020, T003: reading Queue Manager entries (FR-006, FR-019 fallback, D-6) ----
+
+    @Test
+    void queueEntryReadIsAdmittedOn81() {
+        Admission admission = gate().admit("read_queue_entry", PINNED,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST);
+
+        assertThat(admission.warnings()).isEmpty();
+        assertThat(admission.version()).contains(version("8.1.17"));
+        assertThat(appender.list).isEmpty();
+    }
+
+    /** T038: 9.0 is admitted since its recorded error entry. */
+    @Test
+    void queueEntryReadIsAdmittedOn90() {
+        detection.answer("9.0.10");
+
+        Admission detected = gate().admit("read_queue_entry", AUTO,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST);
+        Admission line = gate().admit("read_queue_entry", V9_0,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST);
+
+        assertThat(detected.warnings()).isEmpty();
+        assertThat(detected.version()).contains(version("9.0.10"));
+        assertThat(line.warnings()).isEmpty();
+        assertThat(appender.list).isEmpty();
+    }
+
+    /**
+     * The FR-019 fallback mechanism: a refusal uses the matrix note of the entry (the production
+     * declaration has no note since T038; a test declaration with the former 9.0 note).
+     */
+    @Test
+    void queueEntryReadIsRefusedWithTheNoteOfItsEntry() {
+        detection.answer("9.0.10");
+        Map<Capability, SupportState> states = new EnumMap<>(Capability.class);
+        for (Capability capability : Capability.values()) {
+            states.put(capability, SupportState.SUPPORTED);
+        }
+        states.put(Capability.QUEUE_ENTRY_READ, SupportState.UNSUPPORTED);
+        CapabilityMatrix noted = new CapabilityMatrix(List.of(
+            new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1), Map.of(
+                Capability.QUEUE_ENTRY_READ, SupportState.SUPPORTED)),
+            new CapabilityMatrix.Entry(new VersionRange(9, 0, 9, 0), states, Map.of(), false,
+                Map.of(Capability.QUEUE_ENTRY_READ, "not yet verified"))), Map.of());
+
+        ToolError detected = refusal(() -> gate(noted).admit("read_queue_entry", AUTO,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST));
+        ToolError line = refusal(() -> gate(noted).admit("read_queue_entry", V9_0,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST));
+
+        assertThat(detected.message()).isEqualTo("read_queue_entry: INUBIT 9.0.10 on dev/node1:"
+            + " reading Queue Manager entries is not yet verified for INUBIT 9.0; nothing was"
+            + " sent");
+        assertThat(line.message()).isEqualTo("read_queue_entry: INUBIT 9.0 on prod/node4:"
+            + " reading Queue Manager entries is not yet verified for INUBIT 9.0; nothing was"
+            + " sent");
+        assertThat(detected.nextStep()).isEqualTo("Use another node whose INUBIT version"
+            + " supports reading Queue Manager entries (list_nodes shows the usable capabilities"
+            + " per node), or wait for a version of this server that supports that INUBIT"
+            + " version");
+        assertThat(detected.node()).contains(AUTO);
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+        assertThat(appender.list).hasSize(2).allSatisfy(event -> assertThat(
+            event.getFormattedMessage()).contains("QUEUE_ENTRY_READ", "REFUSED",
+            "UNSUPPORTED_VERSION", "not yet verified"));
+        assertNoLeak(detected, line);
+    }
+
+    @Test
+    void queueEntryReadOn61On91AndOnAMajorOnlyLineIsRefusedNamingTheSupportedLines() {
+        detection.answer("9.1.0");
+
+        ToolError v91 = refusal(() -> gate().admit("read_queue_entry", AUTO,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST));
+        ToolError v61 = refusal(() -> gate().admit("read_queue_entry", V6_1,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST));
+        ToolError v9x = refusal(() -> gate().admit("read_queue_entry", V9_X,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST));
+
+        assertThat(v91.message()).isEqualTo("read_queue_entry: INUBIT 9.1.0 on dev/node1 does"
+            + " not support reading Queue Manager entries yet; supported: 8.1, 9.0; nothing was"
+            + " sent");
+        assertThat(v61.message()).isEqualTo("read_queue_entry: INUBIT 6.1 (versionLine V6_1) on"
+            + " old/node1 does not support reading Queue Manager entries; supported: 8.1, 9.0;"
+            + " use the Queue Manager in the Workbench; nothing was sent");
+        assertThat(v61.nextStep()).isEqualTo("Use the Queue Manager in the Workbench");
+        assertThat(v9x.message()).isEqualTo("read_queue_entry: INUBIT 9.x (versionLine V9_X) on"
+            + " prod/node3 does not support reading Queue Manager entries yet; supported: 8.1,"
+            + " 9.0; nothing was sent");
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+        assertThat(appender.list).hasSize(3);
+        assertNoLeak(v91, v61, v9x);
+    }
+
+    // --- feature 020, T004: an undetectable version fails read_queue_entry (US3-4, D-6) -------
+
+    /** A detection error as the factory reports it, without URL or credentials. */
+    private static ToolErrorException plainDetectionError(ErrorCode code) {
+        return new ToolErrorException(ToolError.of(code, "Detection of dev/node1 failed: " + code,
+            "cause of " + code, "next step of " + code).withNode(AUTO));
+    }
+
+    private ToolErrorException admitQueueEntryReadFails() {
+        ToolErrorException e = catchThrowableOfType(ToolErrorException.class,
+            () -> gate().admitWithDetection("read_queue_entry", AUTO,
+                Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST));
+        assertThat(e).as("failed").isNotNull();
+        return e;
+    }
+
+    @Test
+    void aFailedDetectionOfThisCallIsPassedThroughWithItsOwnCodeAndMessage() {
+        for (ErrorCode code : List.of(ErrorCode.UNREACHABLE, ErrorCode.TIMEOUT,
+            ErrorCode.TLS_ERROR, ErrorCode.AUTH_FAILED, ErrorCode.UNEXPECTED_RESPONSE)) {
+            ToolErrorException error = plainDetectionError(code);
+            if (code == ErrorCode.TLS_ERROR) {
+                detection.failUnreported(error);
+            } else {
+                detection.fail(error);
+            }
+
+            assertThat(admitQueueEntryReadFails()).as(code.name()).isSameAs(error);
+            if (code != ErrorCode.TLS_ERROR) {
+                assertThat(versions.state(AUTO).detectionFailure()).as("recorded as today")
+                    .hasValueSatisfying(failure -> assertThat(failure.value().code())
+                        .isEqualTo(code));
+            }
+            clock.advance(Duration.ofSeconds(60));
+        }
+
+        assertThat(detection.calls).isEqualTo(5);
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+        assertThat(appender.list).as("not a version refusal").isEmpty();
+    }
+
+    @Test
+    void withinTheBackOffTheRecordedCodeIsReplayedWithoutASecondDetection() {
+        detection.fail(plainDetectionError(ErrorCode.UNREACHABLE));
+        admitQueueEntryReadFails();
+        clock.advance(Duration.ofSeconds(59));
+
+        ToolError replayed = admitQueueEntryReadFails().error();
+
+        assertThat(replayed.code()).isEqualTo(ErrorCode.UNREACHABLE);
+        assertThat(replayed.message()).isEqualTo("The INUBIT version of dev/node1 could not be"
+            + " detected (UNREACHABLE at 2026-10-18T08:00:00Z); read_queue_entry needs it");
+        assertThat(replayed.nextStep())
+            .isEqualTo("Fix the cause and retry in a minute, or set versionLine of dev/node1");
+        assertThat(replayed.node()).contains(AUTO);
+        assertThat(detection.calls).as("no second detection within the back-off").isEqualTo(1);
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+        assertNoLeak(replayed);
+
+        clock.advance(Duration.ofSeconds(1));
+        detection.answer("8.1.17");
+        Admission afterBackOff = gate().admitWithDetection("read_queue_entry", AUTO,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, REST);
+
+        assertThat(afterBackOff.version()).contains(version("8.1.17"));
+        assertThat(detection.calls).isEqualTo(2);
+    }
+
+    /** A failure another tool's admission recorded (and judged as unknown) is replayed, too. */
+    @Test
+    void aFailureRecordedByAnotherAdmissionIsReplayed() {
+        detection.fail(detectionError(ErrorCode.AUTH_FAILED));
+        Admission other = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+
+        ToolError replayed = admitQueueEntryReadFails().error();
+
+        assertThat(other.warnings()).containsExactly("the INUBIT version of dev/node1 is unknown"
+            + " (AUTH_FAILED at 2026-10-18T08:00:00Z); results are unverified");
+        assertThat(replayed.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(replayed.message()).isEqualTo("The INUBIT version of dev/node1 could not be"
+            + " detected (AUTH_FAILED at 2026-10-18T08:00:00Z); read_queue_entry needs it");
+        assertThat(Stream.of(replayed.message(), replayed.likelyCause(), replayed.nextStep()))
+            .allSatisfy(text -> assertThat(text).doesNotContain(BASE_URL, USERNAME, PASSWORD));
+        assertThat(detection.calls).isEqualTo(1);
+        assertNoLeak(replayed);
+    }
+
+    @Test
+    void aKnownVersionIsAdmittedAndAnUnsupportedOneRefusedAsByAdmit() {
+        detection.answer("8.1.17");
+
+        Admission detected = gate().admitWithDetection("read_queue_entry", AUTO,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST);
+        Admission cached = gate().admitWithDetection("read_queue_entry", AUTO,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST);
+        Admission pinned = gate().admitWithDetection("read_queue_entry", PINNED,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST);
+        ToolError v61 = refusal(() -> gate().admitWithDetection("read_queue_entry", V6_1,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST));
+
+        assertThat(detected.version()).contains(version("8.1.17"));
+        assertThat(detected.warnings()).isEmpty();
+        assertThat(cached.version()).contains(version("8.1.17"));
+        assertThat(pinned.version()).contains(version("8.1.17"));
+        assertThat(detection.calls).as("one detection, then the cached version").isEqualTo(1);
+        assertThat(v61.message()).startsWith("read_queue_entry: INUBIT 6.1 (versionLine V6_1)"
+            + " on old/node1 does not support reading Queue Manager entries");
+        assertNoLeak(v61);
+    }
+
+    private void assertNoLeak(ToolError... errors) {
+        for (ToolError error : errors) {
+            TestSecrets.assertNoLeak(error.message());
+            TestSecrets.assertNoLeak(error.likelyCause());
+            TestSecrets.assertNoLeak(error.nextStep());
+        }
+        appender.list.forEach(event -> TestSecrets.assertNoLeak(event.getFormattedMessage()));
     }
 
     /**

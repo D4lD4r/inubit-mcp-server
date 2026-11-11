@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.domain.model.Page;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
+import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import java.time.Duration;
 import java.time.Instant;
@@ -89,15 +90,25 @@ public final class V81ProcessQueryAdapter implements ProcessQueryPort {
     @Override
     public ProcessRows findByProcessId(String processId, Instant now,
         Duration hangingThreshold) {
-        LogRequestBuilder.checkSendable("processId", processId);
-        LogRequestPlan plan = LogRequestBuilder.plan(List.of(), LogFilterTable.WORKFLOW_ID,
-            List.of(processId), Optional.of(START_TIME), 0, MAX_ROWS_PER_PROCESS);
-        Window<JsonNode> window = endpoint.fetch(QUEUE_LOG.logName(), plan,
-            Optional.of(START_TIME));
+        Window<JsonNode> window = rowsOf(processId);
         List<ProcessInstance> rows = window.rows().stream()
             .map(row -> QueueLogRowParser.parse(server, row, now, hangingThreshold).value())
             .toList();
         return new ProcessRows(rows, Math.max(window.total(), rows.size()));
+    }
+
+    @Override
+    public QueueEntries queueEntries(String processId) {
+        Window<JsonNode> window = rowsOf(processId);
+        return QueueEntryRowParser.parseRows(server, window.rows(), window.total());
+    }
+
+    /** The queueLog rows of one process id, newest first, at most 100. */
+    private Window<JsonNode> rowsOf(String processId) {
+        LogRequestBuilder.checkSendable("processId", processId);
+        LogRequestPlan plan = LogRequestBuilder.plan(List.of(), LogFilterTable.WORKFLOW_ID,
+            List.of(processId), Optional.of(START_TIME), 0, MAX_ROWS_PER_PROCESS);
+        return endpoint.fetch(QUEUE_LOG.logName(), plan, Optional.of(START_TIME));
     }
 
     @Override

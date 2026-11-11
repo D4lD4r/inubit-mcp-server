@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import java.util.List;
 import java.util.Objects;
@@ -115,6 +116,11 @@ final class V81Gateway implements Gateway {
     @Override
     public PartnerManagementPort partners() {
         return ports.get().partners();
+    }
+
+    @Override
+    public QueueEntryContentPort queueEntryContent() {
+        return ports.get().queueEntryContent();
     }
 
     /** The credential guard of this server, for its CLI calls (US3/US4). */

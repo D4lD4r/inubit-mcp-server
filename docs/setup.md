@@ -192,9 +192,10 @@ use REST tools only.
 
   The durations (`timeout`, `cliTimeout`, `hangingThreshold`, `cliExportTimeout`,
   `confirmationTtl`) and `inventory` can be set in `defaults`, per group or per node
-  (`deployConfirmationTtl` only in `defaults`, `deploy` and `archives` only per group, see
-  [Stage chain and deployments](#stage-chain-and-deployments) and
-  [Workbench archives](#workbench-archives));
+  (`deployConfirmationTtl` only in `defaults`, `deploy`, `archives` and `unsupported` only per
+  group, see [Stage chain and deployments](#stage-chain-and-deployments),
+  [Workbench archives](#workbench-archives) and
+  [Unsupported functions](#unsupported-functions));
   `versionLine`, `write`, `tls` and `cli` (`cli.home`, `cli.javaHome`, `cli.url`) per group or
   per node (`tls.pinPerServer` per group only, see
   [One pinned certificate per server](#one-pinned-certificate-per-server-tlspinperserver));
@@ -758,6 +759,67 @@ the configuration directory, the folder of the configuration file in use and eve
 tree; no network path); see [`export_archives`](tools.md#export_archives) and
 [SECURITY.md](../SECURITY.md). Opt in only on production groups where you are allowed to take the
 workflows' secrets out of INUBIT.
+
+### Unsupported functions
+
+| Setting | Level | Default | Meaning |
+|---|---|---|---|
+| `unsupported.queueEntryRead` | group | `false` | offers `read_queue_entry` for the nodes of this group, which reads Queue Manager entries through an **unsupported, undocumented** INUBIT interface (see the text below); independent of `write.*`, `archives.*` and `production` |
+
+```yaml
+groups:
+  - name: test
+    unsupported:
+      queueEntryRead: true   # unsupported INUBIT functionality, diagnosis only
+    nodes:
+      - name: node1
+        baseUrl: https://inubit-test-01.example.test:8443
+```
+
+**`unsupported.queueEntryRead` uses unsupported INUBIT functionality.** INUBIT documents no
+interface that returns the content of a Queue Manager entry. When this setting is `true`,
+`read_queue_entry` ([reference](tools.md#read_queue_entry)) reads the data stream and the
+workflow variables of an ERROR entry through the internal, undocumented interface that the
+Workbench's Queue Manager uses for "View file" (INUBIT 8.1: the Workbench's SOAP servlet; INUBIT
+9.0: the Workbench's internal REST API), driven by the local INUBIT client installation.
+
+- **No vendor support, no stability guarantee.** The vendor gives no support and no stability
+  guarantee for this interface. It may stop working, or behave differently, after **any**
+  INUBIT update, including patch releases. The server detects unexpected answers and reports
+  them as `UNEXPECTED_RESPONSE`, but it cannot rule out that a changed interface behaves
+  differently without being noticed.
+- **Diagnosis only.** Use the results only to find out why a process failed. Do not rely on
+  them for anything else (no automation, no evidence, no data recovery).
+- **Business data leaves the server.** The tool returns the business data of the entry (the
+  data stream and the variable values) to the MCP client and therefore into the model context
+  and the chat transcript. Credentials are masked only as described in the tool reference:
+  variables and XML/JSON/`name=value`/header fields whose name contains `password`, `passwd`,
+  `pwd`, `secret`, `token`, `apikey`, `api_key`, `credential`, `authorization`, `private`,
+  `keystore` or `cookie`, `Authorization` headers and `Basic`/`Bearer` credentials, and the
+  credentials of this profile. **Credentials in unusual places** (for example under a neutral
+  element name such as INUBIT's `<Property name="password">`, or inside binary or encoded
+  content) **may still appear in the result.**
+- **Read-only.** The tool uses only the read request of "View file"; it never restarts, kills,
+  deletes, modifies or exports an entry. A static review and a live check against INUBIT 8.1
+  found no change to the entry, which is still no vendor guarantee.
+- Reads are not written to the audit log; the server log names only the server, process ID,
+  queue file name, sizes and the outcome, never content.
+- Enable it per group and deliberately; on a group with `production: true` the server starts
+  with a warning.
+
+The tool also needs an INUBIT client installation for the node's version, configured as for
+StartCLI (`cli.home`, `defaults.cliClients."8.1"` / `"9.0"`, `defaults.cliHome`; see
+[StartCLI client per INUBIT version](#startcli-client-per-inubit-version-defaultscliclients)),
+and the node's usual credentials and TLS settings. Nothing else is configured; there is no
+profile setting for the text limit (the caller's `maxChars`).
+
+- The value must be a YAML boolean, only `true` or `false`; an empty value is the default
+  `false`; anything else (also `1`, `0` or the text `"true"`) is a startup error that does not
+  echo the value.
+- `unsupported` on a node or in `defaults`, and any other key under `unsupported`, is a startup
+  error (unknown key): the opt-in is a decision per group.
+- `--check-config` ([section 6](#6-check-the-configuration)) shows the state on every group line
+  once a group of the profile opts in.
 
 ### Audit log
 
@@ -2202,6 +2264,24 @@ store that could not be asked, an `archives.productionOptIn` on a group that is 
 (see [Workbench archives](#workbench-archives)), or another profile file in the default
 configuration directory that has the same profile name, the same credential prefix or the same
 audit directory (see "Several profiles side by side"; profile files elsewhere are not seen).
+
+Once a group of the profile has `unsupported.queueEntryRead: true`
+([Unsupported functions](#unsupported-functions)), every group line also ends with the state of
+`read_queue_entry` on that group: `queueEntryRead: enabled (unsupported)` or `queueEntryRead:
+off`. Without any opt-in the lines are as above. The group lines of the complete example profile
+with the opt-in on `test`:
+
+```text
+Umgebung test: archives: allowed, queueEntryRead: enabled (unsupported)
+  Knoten test/node1: …
+  Knoten test/node2: …
+Umgebung prod (production): archives: refused (no archives.productionOptIn), queueEntryRead: off
+  Knoten prod/node1: …
+```
+
+An opt-in on a group with `production: true` is also a warning: `unsupported.queueEntryRead is
+enabled on production group prod: Queue Manager entries are read through an undocumented INUBIT
+interface without vendor support` (the word for the group follows the profile's terminology).
 
 The version part of a node line ([INUBIT version](#inubit-version-versionline)):
 

@@ -406,6 +406,70 @@ class CliResourcesTest {
         assertThat(stale).exists();
     }
 
+    // --- feature 020 (D-8): queue-entry helper directories may hold entry content ---
+
+    /** {@code inubit-mcp-queue-<profile>-<pid>-<random>} (feature 020, research D-8). */
+    private Path queueDir(String profile, long pid) throws IOException {
+        return exportDir(CliResources.QUEUE_PREFIX + profile + "-" + pid + "-12345");
+    }
+
+    @Test
+    void theQueuePrefixOfThisProcessCarriesItsProfileAndItsPid() {
+        assertThat(new CliResources("acme", PrivateFiles.forHost()).queuePrefix())
+            .isEqualTo("inubit-mcp-queue-acme-" + ProcessHandle.current().pid() + "-");
+    }
+
+    @Test
+    void theSweepDeletesOnlyItsOwnProfilesQueueDirectoriesOfDeadProcessesAndNeverFollowsLinks()
+        throws Exception {
+        long dead = deadPid();
+        long self = ProcessHandle.current().pid();
+        Path own = queueDir("acme", dead);
+        Path outside = Files.createDirectory(root.resolve("outside"));
+        Files.writeString(outside.resolve("keep.txt"), "keep");
+        Files.createSymbolicLink(own.resolve("link"), outside);
+        Path ownRunning = queueDir("acme", self);
+        Path otherProfile = queueDir("globex", dead);
+        Path longerName = queueDir("acme-2", dead);
+        Path noProfile = exportDir(CliResources.QUEUE_PREFIX + dead + "-12345");
+        Path linkToDir = Files.createSymbolicLink(root.resolve(CliResources.QUEUE_PREFIX
+            + "acme-" + dead + "-1"), outside);
+        Path file = Files.writeString(root.resolve(CliResources.QUEUE_PREFIX + "acme-" + dead
+            + "-2"), "x");
+
+        int deleted = CliResources.sweepStale(root, "acme", FILES);
+
+        assertThat(deleted).isEqualTo(1);
+        assertThat(own).doesNotExist();
+        assertThat(outside.resolve("keep.txt")).exists();
+        assertThat(ownRunning).as("this process is alive").exists();
+        assertThat(otherProfile).as("another profile's").exists();
+        assertThat(longerName).as("profile acme-2 is not acme").exists();
+        assertThat(noProfile).as("queue directories have no legacy names").exists();
+        assertThat(Files.isSymbolicLink(linkToDir)).as("a link is not a queue dir").isTrue();
+        assertThat(file).exists();
+    }
+
+    @Test
+    void theSweepLeavesQueueDirectoriesOfOtherOrUnreadableOwnersAlone() throws Exception {
+        long dead = deadPid();
+        Path mine = queueDir("acme", dead);
+        Path theirs = exportDir(CliResources.QUEUE_PREFIX + "acme-" + dead + "-67890");
+        Path unreadable = exportDir(CliResources.QUEUE_PREFIX + "acme-" + dead + "-24680");
+
+        int deleted = CliResources.sweepStale(root, "acme", path -> {
+            if (path.equals(unreadable)) {
+                throw new java.nio.file.AccessDeniedException(path.toString());
+            }
+            return path.equals(mine);
+        });
+
+        assertThat(deleted).isEqualTo(1);
+        assertThat(mine).doesNotExist();
+        assertThat(theirs).exists();
+        assertThat(unreadable).exists();
+    }
+
     @Test
     void aMissingRootIsNothingToSweep() throws IOException {
         assertThat(CliResources.sweepStale(root.resolve("missing"), "acme", FILES)).isZero();

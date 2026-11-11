@@ -198,7 +198,7 @@ class StartCliPinProbeTest {
             built.cli(), built.inventory(), built.timeout(), built.cliTimeout(),
             built.cliExportTimeout(), built.hangingThreshold(), built.confirmationTtl(),
             built.credentialPrefix(), built.development(), built.secretPlan(),
-            built.archivesProductionOptIn(), built.cliSources());
+            built.archivesProductionOptIn(), false, built.cliSources());
         FakeProcessLauncher launcher = FakeProcessLauncher.of("", "", 0);
         CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", "/usr/bin"),
             new CliResources("acme", PrivateFiles.forHost()), probe,

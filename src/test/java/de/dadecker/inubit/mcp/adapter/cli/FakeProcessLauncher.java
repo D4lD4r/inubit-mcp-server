@@ -16,6 +16,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * Test double for {@link ProcessLauncher} (research R-17): replays recorded StartCLI runs from
@@ -25,7 +26,9 @@ import java.util.function.Consumer;
  *
  * <p>Variants: {@link #hanging()} never exits until destroyed, {@link #ignoringDestroy()} also
  * survives {@code destroy()} and needs {@code destroyForcibly()}, {@link #producing(int)} streams
- * a large output through a pipe and exits only after the reader consumed all of it.
+ * a large output through a pipe and exits only after the reader consumed all of it,
+ * {@link #responding(Function)} answers the bytes written to stdin once stdin is closed (feature
+ * 020: the queue-entry helper reads its request from stdin).
  */
 public final class FakeProcessLauncher implements ProcessLauncher {
 
@@ -41,6 +44,7 @@ public final class FakeProcessLauncher implements ProcessLauncher {
     private int producedBytes = -1;
     private IOException launchFailure;
     private Consumer<LaunchSpec> onLaunch = spec -> { };
+    private Function<byte[], Answer> responder;
 
     private final List<FakeProcess> processes = new CopyOnWriteArrayList<>();
 
@@ -123,6 +127,22 @@ public final class FakeProcessLauncher implements ProcessLauncher {
         return this;
     }
 
+    /**
+     * The answer of a responding process: its stdout and exit code.
+     */
+    public record Answer(String stdout, int exitCode) {
+    }
+
+    /**
+     * Answers each launch once its stdin is closed: {@code responder} gets the stdin bytes (on
+     * another thread) and returns stdout and exit code; with {@link #hanging()} the process
+     * writes the answer but does not exit until destroyed. stderr stays empty.
+     */
+    public FakeProcessLauncher responding(Function<byte[], Answer> responder) {
+        this.responder = responder;
+        return this;
+    }
+
     public FakeProcessLauncher failingToLaunch(IOException failure) {
         this.launchFailure = failure;
         return this;
@@ -147,8 +167,10 @@ public final class FakeProcessLauncher implements ProcessLauncher {
                 -1));
             throw launchFailure;
         }
-        FakeProcess process = new FakeProcess(spec, stdout, stderr, exitCode, hang,
-            ignoreDestroy, survivor, producedBytes);
+        FakeProcess process = responder != null
+            ? new FakeProcess(spec, responder, hang, ignoreDestroy)
+            : new FakeProcess(spec, stdout, stderr, exitCode, hang, ignoreDestroy, survivor,
+                producedBytes);
         processes.add(process);
         return process;
     }
@@ -176,8 +198,9 @@ public final class FakeProcessLauncher implements ProcessLauncher {
         private volatile boolean stdinClosed;
         private final InputStream stdout;
         private final InputStream stderr;
-        private final int exitCode;
+        private volatile int exitCode;
         private final boolean ignoreDestroy;
+        private final Runnable onStdinClosed;
         private final boolean survivor;
         private volatile boolean survivorAlive;
         private final CountDownLatch exited = new CountDownLatch(1);
@@ -191,6 +214,7 @@ public final class FakeProcessLauncher implements ProcessLauncher {
             this.ignoreDestroy = ignoreDestroy;
             this.survivor = survivor;
             this.survivorAlive = survivor;
+            this.onStdinClosed = () -> { };
             if (producedBytes >= 0) {
                 PipedInputStream out = new PipedInputStream(64 * 1024);
                 PipedInputStream err = new PipedInputStream(64 * 1024);
@@ -214,6 +238,39 @@ public final class FakeProcessLauncher implements ProcessLauncher {
                     exited.countDown();
                 }
             }
+        }
+
+        FakeProcess(LaunchSpec spec, Function<byte[], Answer> responder, boolean hang,
+            boolean ignoreDestroy) {
+            this.spec = spec;
+            this.ignoreDestroy = ignoreDestroy;
+            this.survivor = false;
+            this.stderr = new ByteArrayInputStream(new byte[0]);
+            PipedInputStream out = new PipedInputStream(64 * 1024);
+            PipedOutputStream source;
+            try {
+                source = new PipedOutputStream(out);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+            this.stdout = out;
+            this.onStdinClosed = () -> Thread.ofVirtual().start(() -> {
+                try (source) {
+                    Answer answer = responder.apply(stdinBytes());
+                    exitCode = answer.exitCode();
+                    source.write(answer.stdout().getBytes(StandardCharsets.UTF_8));
+                } catch (IOException e) {
+                    // reader gone
+                } catch (RuntimeException | Error e) {
+                    // a failed responder: an exit code no real process answers with
+                    exitCode = 70;
+                    throw e;
+                } finally {
+                    if (!hang) {
+                        exited.countDown();
+                    }
+                }
+            });
         }
 
         private static void produce(PipedInputStream sink, int bytes, char fill,
@@ -289,7 +346,10 @@ public final class FakeProcessLauncher implements ProcessLauncher {
 
                 @Override
                 public void close() {
-                    stdinClosed = true;
+                    if (!stdinClosed) {
+                        stdinClosed = true;
+                        onStdinClosed.run();
+                    }
                 }
             };
         }

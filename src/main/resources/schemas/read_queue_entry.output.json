@@ -1,0 +1,86 @@
+{
+  "type": "object",
+  "required": ["node", "entry", "data", "variables", "warnings"],
+  "properties": {
+    "node": { "type": "string" },
+    "entry": {
+      "type": "object",
+      "required": ["processId", "workflow", "state", "rawState", "since", "fileName",
+                   "sizeBytes", "errorTexts"],
+      "properties": {
+        "processId": { "type": "string" },
+        "globalProcessId": { "type": "string" },
+        "workflow": { "type": "string" },
+        "module": { "type": "string" },
+        "moduleType": { "type": "string" },
+        "state": { "enum": ["ERROR"] },
+        "rawState": { "type": "string", "description": "The state as INUBIT names it" },
+        "since": { "type": "string", "description": "ISO-8601 UTC" },
+        "fileName": { "type": "string" },
+        "sizeBytes": { "type": "integer", "minimum": 0 },
+        "errorTexts": {
+          "type": "object",
+          "patternProperties": { "^userDefined[1-5]$": { "type": "string" } },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "data": {
+      "type": "object",
+      "description": "The data stream: unavailable with a reason, or of kind empty, text (cut at maxChars) or binary (size and detected format only)",
+      "required": ["available"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "reason": { "type": "string" },
+        "kind": { "enum": ["empty", "text", "binary"] },
+        "charset": { "type": "string" },
+        "sizeBytes": { "type": "integer", "minimum": 0 },
+        "totalChars": { "type": "integer", "minimum": 0 },
+        "returnedChars": { "type": "integer", "minimum": 0 },
+        "truncated": { "type": "boolean" },
+        "text": { "type": "string", "description": "Masked; credentials as ${secret:…}" },
+        "detected": { "enum": ["ZIP", "GZIP", "PDF", "PNG", "JPEG", "GIF", "JAVA_SERIALIZED"] },
+        "hint": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "variables": {
+      "type": "object",
+      "description": "The workflow variables: unavailable with a reason, or at most 200 in INUBIT's order",
+      "required": ["available"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "reason": { "type": "string" },
+        "totalCount": { "type": "integer", "minimum": 0 },
+        "returnedCount": { "type": "integer", "minimum": 0, "maximum": 200 },
+        "truncated": { "type": "boolean" },
+        "items": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "required": ["name", "system", "kind", "masked"],
+            "properties": {
+              "name": { "type": "string" },
+              "nameTruncated": { "type": "boolean" },
+              "system": { "type": "boolean" },
+              "type": { "type": "string" },
+              "kind": { "enum": ["empty", "text", "binary"] },
+              "value": { "type": "string", "description": "Masked; credentials as ${secret:…}" },
+              "sizeBytes": { "type": "integer", "minimum": 0 },
+              "detected": { "enum": ["ZIP", "GZIP", "PDF", "PNG", "JPEG", "GIF", "JAVA_SERIALIZED"] },
+              "masked": { "type": "boolean" },
+              "totalChars": { "type": "integer", "minimum": 0 },
+              "truncated": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}

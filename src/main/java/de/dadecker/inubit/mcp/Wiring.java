@@ -15,11 +15,14 @@ import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliClientSelector;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.CliSystem;
 import de.dadecker.inubit.mcp.adapter.cli.CliVersionProbe;
 import de.dadecker.inubit.mcp.adapter.cli.HandshakeStartCliPinProbe;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.queue.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
 import de.dadecker.inubit.mcp.adapter.os.JnaDriveTypeApi;
@@ -57,6 +60,7 @@ import de.dadecker.inubit.mcp.application.PackageWriter;
 import de.dadecker.inubit.mcp.application.PartnerAudit;
 import de.dadecker.inubit.mcp.application.PartnerService;
 import de.dadecker.inubit.mcp.application.ProcessControlService;
+import de.dadecker.inubit.mcp.application.QueueEntryService;
 import de.dadecker.inubit.mcp.application.ReleaseDiscovery;
 import de.dadecker.inubit.mcp.application.ReleasePlanner;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
@@ -124,6 +128,7 @@ import de.dadecker.inubit.mcp.mcp.tools.ReadKnowledgeTool;
 import de.dadecker.inubit.mcp.mcp.tools.RecordKnowledgeTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
+import de.dadecker.inubit.mcp.mcp.tools.ReadQueueEntryTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestoreBackupTool;
 import de.dadecker.inubit.mcp.mcp.tools.SetActiveTool;
 import de.dadecker.inubit.mcp.mcp.tools.RunE2eTestTool;
@@ -154,7 +159,8 @@ import java.util.function.Supplier;
  * {@code query_logs}; US3: {@code list_inventory}, {@code get_inventory_item}; feature 003:
  * {@code export_artifacts}, only if a node may use a StartCLI client home (feature 017: for
  * some version, {@link ClientSelectionPort#anyCandidate}), and {@code check_artifacts};
- * feature 015: {@code export_archives} under the same condition as {@code export_artifacts}).
+ * feature 015: {@code export_archives} under the same condition as {@code export_artifacts};
+ * feature 020: {@code read_queue_entry} only if {@link #anyQueueEntryReadNode()}).
  * Feature 012 (research D-12): the read tools other than {@code list_nodes}, {@code get_health}
  * and {@code check_artifacts} are announced only if some node may run their capability
  * ({@link #possiblyCapable}).
@@ -200,6 +206,8 @@ final class Wiring implements AutoCloseable {
     /** Feature 018: offered where partner management is possibly available (FR-001). */
     private final FindPartnersTool findPartners;
     private final ProcessControlService processControl;
+    /** Feature 020: built for every configuration; announced only under its opt-in. */
+    private final ReadQueueEntryTool readQueueEntry;
     private final ClientSelectionPort clientSelection;
     private final ExportArtifactsTool exportArtifacts;
     /** Feature 015: offered under the condition of {@code export_artifacts} (research R-16). */
@@ -339,20 +347,29 @@ final class Wiring implements AutoCloseable {
             id -> byId.get(id).versionLine(), id -> byId.get(id).inventory().cacheTtl());
         // feature 017 (research D-4): StartCLI is chosen per call by the effective version; a
         // write's process is started under the node's write lock (FR-018, research D-24)
-        CliRunner cliRunner = new CliRunner(launcher, environment, windows,
-            windows ? new WindowsSystem() : new PosixSystem(), containment, cliResources,
-            new HandshakeStartCliPinProbe(), versions::effectiveVersion, versions, versions);
+        CliSystem cliSystem = windows ? new WindowsSystem() : new PosixSystem();
+        CliRunner cliRunner = new CliRunner(launcher, environment, windows, cliSystem,
+            containment, cliResources, new HandshakeStartCliPinProbe(),
+            versions::effectiveVersion, versions, versions);
         // feature 009 (research D-16): the 8.1 port set, as default for every version; feature
         // 017 (research D-14): explicitly for 9.0 too; feature 012 (research D-4): the 6.1 port
         // set and health port, CLI-only (no REST client)
         Map<NodeId, NodeSecrets> secrets = secrets(servers, credentialStore, scrubber, clock,
             parameterStore);
-        // one client-option probe and one concurrency limiter for all 6.1 nodes (D-8, D-9)
+        // one client-option probe for all 6.1 nodes and one concurrency limiter for every node's
+        // 6.1 sessions and queue-entry helpers (D-8, D-9; feature 020 research D-17)
         CliClientProbe clientOptions = new CliClientProbe(cliRunner, byId::get, matrix,
             clock.clock());
         CliConcurrencyLimiter cliLimiter = new CliConcurrencyLimiter(matrix);
+        // feature 020 (research D-17): the queue-entry helper of the 8.1/9.0 port set runs on
+        // the runner's host (environment, system, containment, private resources) and takes its
+        // StartCLI slot from that limiter; credentials and guard are the node's (port set)
+        HelperInstallation.Host helperHost = new HelperInstallation.Host(windows, environment,
+            cliSystem, containment, cliResources, Path.of(System.getProperty("java.io.tmpdir")));
+        PortSetRegistry portSets = PortSetRegistry.v81Default(helperHost,
+            new ProcessRun(launcher, cliResources), cliLimiter);
         this.gateways = new AdapterGatewayFactory(servers, secrets, scrubber, clock.clock(),
-            cliRunner, versions, PortSetRegistry.v81Default().withV90()
+            cliRunner, versions, portSets.withV90()
                 .register(V61PortSet.RANGE, V61PortSet.factory(clientOptions, cliLimiter),
                     V61QueryRules.INSTANCE, V61PortSet.cliHealth(clientOptions, cliLimiter)));
         // feature 009 (research D-7): the StartCLI client probe, on the same runner so that a
@@ -387,6 +404,10 @@ final class Wiring implements AutoCloseable {
         this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,
             id -> byId.get(id).cliTimeout(), hangingThresholds::get, clock.clock(),
             ResultJson::size, versionGate, secretTiming);
+        // feature 020 (FR-011): the configured credentials are replaced before the masking
+        this.readQueueEntry = new ReadQueueEntryTool(new QueueEntryService(targets,
+            id -> byId.get(id).queueEntryRead(), versionGate, gateways::processes,
+            gateways::queueEntryContent, scrubber::scrub));
         // feature 018 (research D-6): the partner reads use dedicated scopes of the same cache
         InventoryCache inventoryCache =
             new InventoryCache(clock.clock(), id -> byId.get(id).inventory().cacheTtl());
@@ -618,6 +639,9 @@ final class Wiring implements AutoCloseable {
         if (anyPossiblyCapable(Capability.LOG_DIAGNOSIS)) {
             handlers.add(new QueryLogsTool(diagnosis));
         }
+        if (anyQueueEntryReadNode()) {
+            handlers.add(readQueueEntry);
+        }
         if (anyPossiblyCapable(Capability.INVENTORY)) {
             handlers.add(new ListInventoryTool(inventory));
             handlers.add(new GetInventoryItemTool(inventory));
@@ -778,7 +802,8 @@ final class Wiring implements AutoCloseable {
      * before its version is considered: the reads always, the workspace export with the StartCLI
      * client of its current version installed ({@code withClient}, feature 017), development
      * writes on a development stage, deployments in a group that receives them, end-to-end tests
-     * where allowed, process control with write access.
+     * where allowed, process control with write access; feature 020 (research D-15): reading
+     * Queue Manager entries with the group's {@code unsupported.queueEntryRead} and the client.
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
         Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
@@ -799,6 +824,9 @@ final class Wiring implements AutoCloseable {
         if (server.effectiveWriteEnabled()) {
             allowed.add(Capability.PROCESS_CONTROL);
         }
+        if (withClient && server.queueEntryRead()) {
+            allowed.add(Capability.QUEUE_ENTRY_READ);
+        }
         return allowed;
     }
 
@@ -809,6 +837,17 @@ final class Wiring implements AutoCloseable {
     boolean anyWriteEnabled() {
         return servers.stream().anyMatch(server -> server.effectiveWriteEnabled()
             && possiblyCapable(server, Capability.PROCESS_CONTROL));
+    }
+
+    /**
+     * Feature 020 (FR-002, research D-15): true if a node of a group with
+     * {@code unsupported.queueEntryRead} may read Queue Manager entries ({@link #possiblyCapable})
+     * and has a client home some version of it may use ({@link ClientSelectionPort#anyCandidate}).
+     */
+    private boolean anyQueueEntryReadNode() {
+        return servers.stream().anyMatch(server -> server.queueEntryRead()
+            && possiblyCapable(server, Capability.QUEUE_ENTRY_READ)
+            && clientSelection.anyCandidate(server.id()));
     }
 
     /** True if some node may run {@code capability} ({@link #possiblyCapable}). */

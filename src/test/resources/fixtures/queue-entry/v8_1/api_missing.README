@@ -1,0 +1,7 @@
+SYNTHETIC – the helper did not find a vendor class on the client's class path (exit 4, no
+start and no end frame); the token is the message of the ClassNotFoundException.
+Expected: CLI_UNAVAILABLE naming the class.
+
+Frames use the fixed nonce 0123456789abcdef0123456789abcdef; a replay replaces it with the
+nonce of its request. Lines without the frame prefix are vendor noise the classifier ignores.
+Used by QueueEntryHelperClassifierTest (tasks.md T019, research D-5).

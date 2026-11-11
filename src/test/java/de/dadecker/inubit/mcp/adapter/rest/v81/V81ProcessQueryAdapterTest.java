@@ -25,10 +25,13 @@ import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.ProcessState;
+import de.dadecker.inubit.mcp.domain.model.QueueEntries;
+import de.dadecker.inubit.mcp.domain.model.QueueEntryRow;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -413,6 +416,105 @@ class V81ProcessQueryAdapterTest {
         assertThat(result.rows()).hasSize(ProcessQueryPort.MAX_ROWS_PER_PROCESS);
         assertThat(result.total()).isEqualTo(150);
         assertThat(result.truncated()).isTrue();
+    }
+
+    // --- queueEntries (feature 020 T012, research D-9) -----------------------------------------
+
+    @Test
+    void queueEntriesSendsTheRequestOfFindByProcessId() {
+        wireMock.stubFor(post(urlPathEqualTo(PATH))
+            .willReturn(QueueEntryRowFixtures.response("two_errors")));
+
+        QueueEntries entries = adapter().queueEntries("100000001");
+        adapter().findByProcessId("100000001", NOW, THRESHOLD);
+
+        assertThat(bodies()).hasSize(2).first().satisfies(body -> {
+            assertThat(filters(body)).containsExactly("workflowId EQUAL 100000001");
+            assertThat(element(body, "startIndex")).isEqualTo("0");
+            assertThat(element(body, "noOfItems")).isEqualTo("100");
+            assertThat(element(body, "order")).isEqualTo("DESCENDING");
+            assertThat(XmlSupport.descendants(XmlSupport.parse(body.getBytes(
+                    StandardCharsets.UTF_8)).getDocumentElement(), "sorting").get(0)
+                .getTextContent()).contains("startTime");
+            assertThat(body).doesNotContain(PASSWORD);
+            TestSecrets.assertNoLeak(body);
+        });
+        assertThat(bodies().get(0)).as("the same request as findByProcessId")
+            .isEqualTo(bodies().get(1));
+        assertThat(entries.rows()).hasSize(2).extracting(QueueEntryRow::workflow)
+            .containsExactly("Workflow-0002", "Workflow-0001");
+        assertThat(entries.total()).isEqualTo(2);
+        assertThat(entries.truncated()).isFalse();
+    }
+
+    @Test
+    void queueEntriesKeepsEveryStateAndAnEmptyAnswer() {
+        wireMock.stubFor(post(urlPathEqualTo(PATH))
+            .willReturn(QueueEntryRowFixtures.response("error_waiting")));
+        assertThat(adapter().queueEntries("100000002").rows())
+            .extracting(QueueEntryRow::state)
+            .containsExactly(ProcessState.WAITING, ProcessState.ERROR);
+
+        wireMock.stubFor(post(urlPathEqualTo(PATH))
+            .willReturn(QueueEntryRowFixtures.response("no_error")));
+        assertThat(adapter().queueEntries("100000003").rows())
+            .extracting(QueueEntryRow::rawState).containsExactly("Processing", "Waiting");
+
+        wireMock.stubFor(post(urlPathEqualTo(PATH))
+            .willReturn(QueueEntryRowFixtures.response("empty")));
+        QueueEntries empty = adapter().queueEntries("100000007");
+        assertThat(empty.rows()).isEmpty();
+        assertThat(empty.total()).isZero();
+    }
+
+    @Test
+    void queueEntriesKeepsA255CharacterFileName() {
+        wireMock.stubFor(post(urlPathEqualTo(PATH))
+            .willReturn(QueueEntryRowFixtures.response("long_file_name")));
+
+        assertThat(adapter().queueEntries("100000004").rows()).singleElement()
+            .satisfies(row -> assertThat(row.fileName()).hasSize(255));
+    }
+
+    @Test
+    void queueEntriesWithAnUnusableFileOrWorkflowNameIsUnexpectedResponseForTheNode() {
+        for (String rowsCase : List.of("bad_file_name", "workflow_separator")) {
+            wireMock.stubFor(post(urlPathEqualTo(PATH))
+                .willReturn(QueueEntryRowFixtures.response(rowsCase)));
+
+            ToolError error = errorOf(() -> adapter().queueEntries("100000005"));
+
+            assertThat(error.code()).as(rowsCase).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            assertThat(error.node()).as(rowsCase).contains(ID);
+            assertThat(error.message()).doesNotContain("Order-0001", "Workflow-0001@@@");
+            TestSecrets.assertNoLeak(error.message() + error.likelyCause() + error.nextStep());
+        }
+    }
+
+    @Test
+    void queueEntriesReportsWhenTheRowCapWasHit() {
+        List<Map<String, Object>> rows = new java.util.ArrayList<>();
+        for (int i = 0; i < ProcessQueryPort.MAX_ROWS_PER_PROCESS; i++) {
+            Map<String, Object> row = row(7, "Error", 1_000 - i, "m" + i);
+            row.put("fileName", "file-" + i);
+            row.put("fileSize", 10);
+            rows.add(row);
+        }
+        wireMock.stubFor(post(urlPathEqualTo(PATH)).willReturn(json(150, rows)));
+
+        QueueEntries entries = adapter().queueEntries("7");
+
+        assertThat(entries.rows()).hasSize(ProcessQueryPort.MAX_ROWS_PER_PROCESS);
+        assertThat(entries.total()).isEqualTo(150);
+        assertThat(entries.truncated()).isTrue();
+    }
+
+    @Test
+    void queueEntriesWithAProcessIdThatCannotBeSentIsInvalidInputWithoutRequest() {
+        ToolError error = errorOf(() -> adapter().queueEntries("7\u0001"));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(wireMock.findAll(anyRequestedFor(anyUrl()))).isEmpty();
     }
 
     @Test
