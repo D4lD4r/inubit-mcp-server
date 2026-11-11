@@ -93,6 +93,17 @@ of `specs/019-local-knowledge/quickstart.md` is open).
 
 ### Fixed
 
+- The model export of INUBIT 9.0 (`get_inventory_item` of a diagram, `find_partners`) failed
+  with `UNEXPECTED_RESPONSE` "not a ZIP archive": INUBIT 9.0.10 sends it with
+  `Content-Encoding: gzip`, although no `Accept-Encoding` is requested, and Java's HTTP client
+  does not decode it. The REST client now removes a `gzip` content encoding; the body limit of
+  64 MB applies to the decoded size. Found in the INUBIT 9.0 live check (feature 017, T047, F-3).
+- `find_processes` with `hangingOnly` or several `states` failed with HTTP 500
+  `MonitoringLockedByOtherClient` or a TIMEOUT: INUBIT (8.1 and 9.0) runs one log query of a user
+  at a time, and the requests of such a query (one per raw status) were sent in parallel. They
+  are now sent one after the other, as are those of `query_logs` with several severities. Two tool calls that query the logs of the same
+  node at the same time can still collide; INUBIT then answers one of them this way. Found in the
+  INUBIT 9.0 live check (feature 017, T047, F-4).
 - `find_partners` (found by the live check of feature 018): one system diagram whose export holds
   no readable diagram, e.g. with a communication cloud without `ModuleName`, no longer fails the
   whole node; it is listed in `unreadableDiagrams` (`UNEXPECTED_RESPONSE`, naming the part) and
