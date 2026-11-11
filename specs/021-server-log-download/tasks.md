@@ -102,7 +102,7 @@ decisions go to `specs/021-server-log-download/reviews/implementation.md`.
   `adapter/cli/log` may depend on `adapter/cli/helper` but not on each other. No behaviour change;
   `QueueEntryV81ContractTest`, `QueueEntryV90ContractTest`, `QueueEntryVersionSelectionTest`
   green; `fixtures/queue-entry/` byte-identical
-- [ ] T005 Extract `adapter/cli/helper/HelperFailures.java` (D-3, D-14; after T004): the shared
+- [X] T005 Extract `adapter/cli/helper/HelperFailures.java` (D-3, D-14; after T004): the shared
   mapping of launch failure, timeout, login (`AUTH_FAILED` with the shared `CredentialGuard`
   back-off), TLS, network, HTTP 403 (`FORBIDDEN`), `api missing` (`CLI_UNAVAILABLE`) and protocol
   problems (no `end`, unknown frame, output over 1 MiB, exit code ≠ frames →
