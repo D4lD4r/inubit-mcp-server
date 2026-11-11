@@ -363,6 +363,35 @@ class CliOutputClassifierTest {
     }
 
     @Test
+    void aNineClientsSecureConnectionFailureIsATlsError() {
+        // recorded live with the INUBIT 9.0.10 client against a server whose certificate the
+        // client did not trust (T047, 2026-11-09); 9.0 no longer prints "Login to the server failed."
+        CliResult result = result(1, PREAMBLE
+            + "SECURITY WARNING: Hostname verification is disabled. Your connection might not be"
+            + " secured!\n"
+            + "Authentication failed: Could not establish a secure connection to the process"
+            + " engine.\n"
+            + "Please check your TLS/SSL configuration.\n"
+            + "EXECUTION ERROR\n"
+            + "PKIX path building failed: sun.security.provider.certpath."
+            + "SunCertPathBuilderException: unable to find valid certification path to requested"
+            + " target\n");
+
+        assertThat(failure(result).code()).isEqualTo(ErrorCode.TLS_ERROR);
+    }
+
+    @Test
+    void aNineClientsSecureConnectionFailureWithoutATlsCauseIsNotGuessed() {
+        CliResult result = result(1, PREAMBLE
+            + "Authentication failed: Could not establish a secure connection to the process"
+            + " engine.\n"
+            + "EXECUTION ERROR\n"
+            + "Something else\n");
+
+        assertThat(failure(result).code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+    }
+
+    @Test
     void loginFailedWithoutAKnownCauseIsNotGuessed() {
         CliResult result = result(1, PREAMBLE
             + "com.inubit.ibis.cli.CliConnectionException: @Start@LoginFailed@@@Login to the"

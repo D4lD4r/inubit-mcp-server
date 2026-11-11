@@ -91,6 +91,47 @@ of `specs/019-local-knowledge/quickstart.md` is open).
   Store unreachable), both knowledge tools refuse with `PRECONDITION_FAILED`.
 - `docs/tools.md` describes twenty tools.
 
+## [0.8.1] - 2026-11-11
+
+Fixes from the first INUBIT 9.0 live check and from imports on 8.1.
+
+### Changed
+
+- AWS SDK for Java v2 2.57.7 → 2.57.10 (the same artifacts). `THIRD-PARTY-NOTICES.md` is
+  updated.
+
+### Fixed
+
+- StartCLI on INUBIT 9.0 with a configured `tls.trustStore`: the 9.0.10 client ignores
+  `--trustStoreFilePath` for its login connection, so every StartCLI call (module inventory,
+  `export_artifacts`, process and write tools) failed with `PKIX path building failed`. The trust
+  store now also reaches StartCLI as `-Djavax.net.ssl.trustStore`/`-Djavax.net.ssl.trustStoreType`
+  in `JAVA_TOOL_OPTIONS` (not for a path with whitespace, `'` or `"`, which only the argument can
+  carry: Java reads `'` and `"` there as quotes, and an unpaired one stops the JVM).
+  Found in the INUBIT 9.0 live check (feature 017, T047).
+- The 9.0 client's TLS failure (`Authentication failed: Could not establish a secure connection
+  to the process engine.` with a TLS cause) is reported as `TLS_ERROR` instead of
+  `UNEXPECTED_RESPONSE`.
+- `import_artifacts` no longer rolls back a successful import because of what INUBIT normalizes
+  when it stores a workflow or a stylesheet; the verify refused these as `VERIFY_MISMATCH` and
+  rolled the import back (all observed on 8.1):
+  - INUBIT keeps the variables of a workflow in hash order, so a variable added at the end can
+    come back behind another one. The `Variable` elements of a workflow's `Variables` are now
+    compared by name in any order.
+  - INUBIT drops a namespace declaration on `Variables` that no variable uses (e.g. `xmlns:is`
+    without an `is:` type). Such a declaration no longer counts; a used one still does.
+  - INUBIT re-serializes an XSLT stylesheet (and WSDL): start tags on one line, no line break
+    between a leading comment and the root element, line breaks in attribute values as spaces.
+    Such files now also count as equal when they are the same XML with every text node,
+    whitespace between elements and in `xsl:text` included.
+  - INUBIT gives a workflow module sent without a `Comment` the comment of the module it uses
+    (seen for a globally used Throw module). The verification of an import and of its rollback
+    accept that added comment; a sent comment that comes back changed or missing still counts.
+
+  The first three also apply to the change and conflict checks of the development tools. The
+  order of everything else (modules, properties, assignments) stays significant, fingerprints
+  (confirmation codes, backups, the deployment ledger) and `deploy_release` are unchanged.
+
 ## [0.8.0] - 2026-11-07
 
 Feature 012: read-only INUBIT 6.1 nodes, reached through StartCLI only. Feature 013: the
@@ -978,7 +1019,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.4...v0.7.0

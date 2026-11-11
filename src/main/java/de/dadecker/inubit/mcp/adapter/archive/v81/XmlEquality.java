@@ -46,6 +46,24 @@ public final class XmlEquality {
             && equal(first.root(), second.root(), false, Map.of(), Map.of());
     }
 
+    /**
+     * True if {@code a} and {@code b} are equal as described above, but with every text node
+     * significant, whitespace-only text between elements included (as if
+     * {@code xml:space="preserve"} applied everywhere). What differs is only what an XML parser
+     * does not report: the XML declaration, whitespace inside tags and outside the root element,
+     * quoting, escaping, CDATA, attribute order, and the line breaks in an attribute value that
+     * every parser reads as spaces. For embedded documents (stylesheets, WSDL) that INUBIT
+     * re-serializes when it stores them.
+     *
+     * @throws IllegalArgumentException if either is not well-formed
+     */
+    public static boolean equalKeepingText(byte[] a, byte[] b) {
+        Document first = XmlTree.parse(a);
+        Document second = XmlTree.parse(b);
+        return first.prolog().equals(second.prolog()) && first.epilog().equals(second.epilog())
+            && equal(first.root(), second.root(), true, Map.of(), Map.of());
+    }
+
     private static boolean equal(Element a, Element b, boolean preserve,
         Map<String, String> outerA, Map<String, String> outerB) {
         Map<String, String> scopeA = scope(outerA, a);

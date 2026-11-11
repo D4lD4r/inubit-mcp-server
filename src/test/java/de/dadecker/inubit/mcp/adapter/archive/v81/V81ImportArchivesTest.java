@@ -267,4 +267,222 @@ class V81ImportArchivesTest {
         }
         assertThat(Arrays.equals(a, b)).isFalse();
     }
+
+    /** The neutral excerpt of an observed import ({@code fixtures/v8_1/variable-order}). */
+    private static String variableOrder(String name) {
+        try (var in = V81ImportArchivesTest.class.getResourceAsStream(
+            "/fixtures/v8_1/variable-order/" + name)) {
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+    }
+
+    private static final String NEW_VARIABLE = """
+            <Variable comment="JD: new optional input" isInputVariable="true" name="var.flag" \
+        type="xs:boolean">
+              <DefaultValue>false</DefaultValue>
+            </Variable>
+        """;
+    private static final String PROCESS_ID = """
+            <Variable comment="the process id" name="var.processId" type="xs:string"/>
+        """;
+    private static final String CONNECTION_29 = """
+            <Connection moduleOutId="1002">
+              <ConnectionId>29</ConnectionId>
+              <StyleSheet labelPosition="73.82352941176471"/>
+            </Connection>
+        """;
+    private static final String CONNECTION_60 = """
+            <Connection moduleOutId="1003">
+              <ConnectionId>60</ConnectionId>
+              <StyleSheet labelPosition="50.0"/>
+            </Connection>
+        """;
+
+    /** {@code sent} with the new variable moved behind {@code var.processId}, as INUBIT did. */
+    private static String variableMoved(String sent) {
+        return ConnectionOrderFixtures.edit(ConnectionOrderFixtures.edit(sent, NEW_VARIABLE, ""),
+            PROCESS_ID, PROCESS_ID + NEW_VARIABLE);
+    }
+
+    @Test
+    void whatInubitReordersWhenItStoresAWorkflowIsImportedAsSent() {
+        // observed on 8.1 (import of a changed workflow): the re-export lists the connections of
+        // an untouched Demultiplexer in another order (feature 007) and puts a new workflow
+        // variable behind an existing one instead of at the end (INUBIT keeps the variables
+        // of a workflow in hash order); only the check-in comment differs besides
+        String sent = variableOrder("workflow-sent.xml");
+        String stored = variableOrder("workflow-stored.xml");
+        String connectionsSwapped = ConnectionOrderFixtures.edit(sent,
+            CONNECTION_29 + CONNECTION_60, CONNECTION_60 + CONNECTION_29);
+
+        assertThat(sent).isNotEqualTo(stored);
+        assertThat(archives.importedAs(WORKFLOW, bytes(sent), bytes(stored))).isTrue();
+        assertThat(archives.importedAs(WORKFLOW, bytes(stored), bytes(sent))).isTrue();
+        assertThat(archives.equivalent(WORKFLOW, bytes(sent), bytes(variableMoved(sent))))
+            .as("the variables alone").isTrue();
+        assertThat(archives.equivalent(WORKFLOW, bytes(sent), bytes(connectionsSwapped)))
+            .as("the connections alone").isTrue();
+    }
+
+    @Test
+    void realDifferencesOfVariablesStayDifferences() {
+        String sent = variableOrder("workflow-sent.xml");
+        String stored = variableOrder("workflow-stored.xml");
+        Map<String, String> differences = new java.util.LinkedHashMap<>();
+        differences.put("another default value", stored.replace(
+            "<DefaultValue>false</DefaultValue>", "<DefaultValue>true</DefaultValue>"));
+        differences.put("another type", stored.replace("type=\"xs:boolean\"",
+            "type=\"xs:string\""));
+        differences.put("no longer an input variable", stored.replace(
+            "isInputVariable=\"true\" name=\"var.flag\"", "name=\"var.flag\""));
+        differences.put("another name", stored.replace("name=\"var.flag\"",
+            "name=\"var.flags\""));
+        differences.put("a variable missing", ConnectionOrderFixtures.edit(stored, NEW_VARIABLE,
+            ""));
+        differences.put("a variable more", ConnectionOrderFixtures.edit(stored, PROCESS_ID,
+            PROCESS_ID + PROCESS_ID.replace("var.processId", "var.extra")));
+        differences.put("another comment of a variable", stored.replace("the kind",
+            "the type"));
+        differences.put("the properties of a module in another order (still significant)",
+            ConnectionOrderFixtures.edit(stored, """
+                  <Property name="Module-0003(1003)@@@Description">synchronous</Property>
+                  <Property name="Module-0002(1002)@@@Description">asynchronous</Property>
+            """, """
+                  <Property name="Module-0002(1002)@@@Description">asynchronous</Property>
+                  <Property name="Module-0003(1003)@@@Description">synchronous</Property>
+            """));
+
+        differences.forEach((difference, server) -> {
+            assertThat(server).as(difference).isNotEqualTo(stored);
+            assertThat(archives.importedAs(WORKFLOW, bytes(sent), bytes(server)))
+                .as(difference).isFalse();
+        });
+    }
+
+    @Test
+    void theFingerprintFormKeepsTheOrderOfTheVariables() {
+        // backup manifests keep fingerprints over the connection-ordered form (feature 007,
+        // contract P-4/P-5); sorting the variables there would make every recorded state look
+        // changed, and two exports of one stored version list the variables in the same order
+        String sent = variableOrder("workflow-sent.xml");
+
+        assertThat(archives.connectionOrdered(WORKFLOW, bytes(sent))).isNotEqualTo(
+            archives.connectionOrdered(WORKFLOW, bytes(variableMoved(sent))));
+        assertThat(archives.differsOnlyInConnectionOrder(WORKFLOW,
+            archives.connectionOrdered(WORKFLOW, bytes(sent)),
+            archives.connectionOrdered(WORKFLOW, bytes(variableMoved(sent))))).isFalse();
+    }
+
+    // --- what INUBIT normalizes when it stores a workflow or a stylesheet (observed on 8.1) ---
+
+    private static final String STYLESHEET = "dev/jdoe/modules/XSLT Converter/Module-0023/"
+        + "xslt.stylesheet.xsl";
+    private static final String ADDED_COMMENT =
+        "    <Comment>Globally used throw module</Comment>\n";
+
+    /** The neutral excerpt of an observed import ({@code fixtures/v8_1/import-normalization}). */
+    private static String normalization(String name) {
+        try (var in = V81ImportArchivesTest.class.getResourceAsStream(
+            "/fixtures/v8_1/import-normalization/" + name)) {
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+    }
+
+    @Test
+    void whatInubitNormalizesInAStoredWorkflowIsImportedAsSent() {
+        // the re-export of a new workflow: a module without a comment got the comment of the
+        // module it uses, the unused namespace declaration of Variables is gone, ">" is no
+        // longer escaped, connections and variables come in another order
+        String sent = normalization("workflow-sent.xml");
+        String stored = normalization("workflow-stored.xml");
+
+        assertThat(archives.importedAs(WORKFLOW, bytes(sent), bytes(stored))).isTrue();
+        assertThat(archives.equivalent(WORKFLOW, bytes(sent), bytes(
+            ConnectionOrderFixtures.edit(stored, ADDED_COMMENT, "")))).as("without the comment")
+            .isTrue();
+        assertThat(archives.equivalent(WORKFLOW, bytes(sent), bytes(stored)))
+            .as("the added comment is only what an import makes of the file").isFalse();
+        assertThat(archives.importedAs(WORKFLOW, bytes(stored), bytes(sent)))
+            .as("INUBIT does not remove a comment").isFalse();
+    }
+
+    @Test
+    void realDifferencesOfAStoredWorkflowStayDifferences() {
+        String sent = normalization("workflow-sent.xml");
+        String stored = normalization("workflow-stored.xml");
+        String typed = "name=\"var.test.server\" type=\"xs:string\"";
+        String usesIs = "name=\"var.test.server\" type=\"is:anyElement\"";
+        Map<String, String> differences = new java.util.LinkedHashMap<>();
+        differences.put("an existing comment changed", stored.replace("Joins the test branches",
+            "Joins the branches"));
+        differences.put("an existing comment removed", ConnectionOrderFixtures.edit(stored,
+            "    <Comment>Joins the test branches</Comment>\n", ""));
+        differences.put("an added comment with another change of the module", stored.replace(
+            ">Invalid test input<", ">Invalid input<"));
+        differences.put("a comment in another element than a workflow module", stored.replace(
+            "<Property name=\"FaultName\">", "<Comment>x</Comment><Property name=\"FaultName\">"));
+        differences.put("another attribute value", stored.replace("labelPosition=\"50.0\"/>\n"
+            + "    </Connection>\n  </WorkflowModule>", "labelPosition=\"60.0\"/>\n"
+            + "    </Connection>\n  </WorkflowModule>"));
+        differences.put("another namespace URI", stored.replace("2001/XMLSchema",
+            "2001/XMLSchema-other"));
+        differences.put("an escaped text changed", stored.replace("attempt > n", "attempt < n")
+            .replace("attempt < n", "attempt &lt; n"));
+
+        differences.forEach((difference, server) -> {
+            assertThat(server).as(difference).isNotEqualTo(stored);
+            assertThat(archives.importedAs(WORKFLOW, bytes(sent), bytes(server)))
+                .as(difference).isFalse();
+        });
+        // a declaration that a variable type uses is content
+        assertThat(archives.importedAs(WORKFLOW, bytes(sent.replace(typed, usesIs)),
+            bytes(stored.replace(typed, usesIs)))).as("a used namespace removed").isFalse();
+        assertThat(archives.importedAs(WORKFLOW, bytes(sent.replace(typed, usesIs)),
+            bytes(stored.replace(typed, usesIs).replace("<Variables xmlns:xs=",
+                "<Variables xmlns:is=\"http://inubit.com/variables/types\" xmlns:xs="))))
+            .as("the used namespace kept").isTrue();
+    }
+
+    @Test
+    void aStylesheetAsInubitReserializesItIsEquivalent() {
+        // INUBIT re-serializes a stylesheet: no line break between a leading comment and the
+        // root, start tags on one line, line breaks in attribute values as spaces (which is
+        // what any XML parser reads them as), no final line break
+        String sent = normalization("stylesheet-sent.xsl");
+        String stored = normalization("stylesheet-stored.xsl");
+
+        assertThat(archives.equivalent(STYLESHEET, bytes(sent), bytes(stored))).isTrue();
+        assertThat(archives.importedAs(STYLESHEET, bytes(sent), bytes(stored))).isTrue();
+        assertThat(archives.equivalent(STYLESHEET.replace("xslt.stylesheet.xsl",
+            "WsdlData.wsdl"), bytes(sent), bytes(stored))).isTrue();
+    }
+
+    @Test
+    void realDifferencesOfAStylesheetStayDifferences() {
+        String sent = normalization("stylesheet-sent.xsl");
+        String stored = normalization("stylesheet-stored.xsl");
+        Map<String, String> differences = new java.util.LinkedHashMap<>();
+        differences.put("another attribute value", stored.replace("'#now#'", "'#today#'"));
+        differences.put("spaces of an attribute value collapsed", stored.replace("(.,       '",
+            "(., '"));
+        differences.put("the space of xsl:text", stored.replace("<xsl:text> </xsl:text>",
+            "<xsl:text>  </xsl:text>"));
+        differences.put("whitespace between elements", stored.replace(
+            "<acme:separator>", "\n      <acme:separator>"));
+        differences.put("the leading comment", stored.replace("test input", "input"));
+        differences.put("another namespace URI", stored.replace("core/1.0", "core/2.0"));
+        differences.put("a namespace declaration missing", stored.replace(
+            " xmlns:env=\"http://schemas.xmlsoap.org/soap/envelope/\"", ""));
+        differences.put("not well-formed", stored.replace("</xsl:stylesheet>", ""));
+
+        differences.forEach((difference, server) -> {
+            assertThat(server).as(difference).isNotEqualTo(stored);
+            assertThat(archives.importedAs(STYLESHEET, bytes(sent), bytes(server)))
+                .as(difference).isFalse();
+        });
+    }
 }

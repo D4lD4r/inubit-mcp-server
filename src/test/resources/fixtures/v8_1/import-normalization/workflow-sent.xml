@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workflow version="head" workflowType="technical">
+  <WorkflowName>Workflow-0002</WorkflowName>
+  <UserOrUserGroupName>acme</UserOrUserGroupName>
+  <WorkflowUId/>
+  <CheckinComment>JD: test trigger###</CheckinComment>
+  <IsActive>false</IsActive>
+  <WorkflowModule moduleType="technical">
+    <ModuleId>2001</ModuleId>
+    <ModuleName>Module-0020</ModuleName>
+    <OriginalModuleName>Module-0020</OriginalModuleName>
+    <StyleSheet xPos="120" yPos="230"/>
+    <Properties version="4.1">
+      <Property name="Module-0022(2003)@@@Description">attempt &gt; n: answer with a receipt</Property>
+      <Property name="DefaultOutput">Module-0022(2003)</Property>
+    </Properties>
+    <Comment>Joins the test branches</Comment>
+    <Connection moduleOutId="2002">
+      <ConnectionId>2101</ConnectionId>
+      <StyleSheet labelPosition="50.0"/>
+    </Connection>
+    <Connection moduleOutId="2003">
+      <ConnectionId>2102</ConnectionId>
+      <StyleSheet labelPosition="50.0"/>
+    </Connection>
+  </WorkflowModule>
+  <WorkflowModule moduleType="technical">
+    <ModuleId>2002</ModuleId>
+    <ModuleName>Module-0021</ModuleName>
+    <OriginalModuleName>Module-0021</OriginalModuleName>
+    <StyleSheet xPos="520" yPos="430"/>
+    <Properties version="4.1">
+      <Property name="FaultText">Invalid test input</Property>
+      <Property name="FaultName">TEST-TRIGGER-INVALID-INPUT</Property>
+      <Property name="AdditionalErrorProcessing" type="Boolean">false</Property>
+    </Properties>
+  </WorkflowModule>
+  <WorkflowModule moduleType="technical">
+    <ModuleId>2003</ModuleId>
+    <ModuleName>Module-0022</ModuleName>
+    <OriginalModuleName>Module-0022</OriginalModuleName>
+    <StyleSheet xPos="520" yPos="230"/>
+  </WorkflowModule>
+  <Variables xmlns:is="http://inubit.com/variables/types" xmlns:xs="http://www.w3.org/2001/XMLSchema" requireVariableFiltering="true">
+    <Variable comment="the receiving partner" name="var.test.partner" type="xs:string"/>
+    <Variable comment="the server" name="var.test.server" type="xs:string"/>
+    <Variable comment="ACK or NACK" name="var.test.variant" type="xs:string"/>
+  </Variables>
+</Workflow>

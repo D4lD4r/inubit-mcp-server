@@ -86,3 +86,52 @@ Run by the person, against a 9.0.x test node only; the server's write tools only
 
 **Live**: not done. The 0.8.0 release ships without it; the person accepted the risk
 (T047/T048 stay open).
+
+**Live, 2026-11-09, partial** (T047; MCP server 0.8.0 on macOS, one integration stage with one
+INUBIT 9.0.10 node (JDK 21) and one INUBIT 8.1.17 node (JDK 17), both `AUTO`; the stage has no
+`write` and no `development` block; clients 8.1.17 on JDK 17 and 9.0.10 on JDK 21):
+
+| Step | Result |
+|---|---|
+| 1 `--check-config` | Pass. `CLI 9.0.10 (4.0.1–9.0.10)` on Java 21 next to `CLI 8.1.17`; `Result: OK`, no warning for the 9.0 node (only the host-name warnings every pinned node gets). |
+| 2 `startcli -v` (9.0) | Pass, but differs from the reconstructed fixture: the client reports `Supported inubit Process Engine versions from 4.0.1 to 9.0.10.` (the fixture has `from 9.0.0 to 9.0.7`). Fixture replacement is T048. |
+| 3 `list_nodes` | Pass after the first `get_health`: 9.0 node `source: version_entry`, `versionEntry: 9.0`, `address: base_url`, `final: true`; the 8.1 node `8.1`, `servlet_path`. Before detection both show `defaults`, `servlet_path`, `final: false`, as designed for `AUTO`. |
+| 4 `get_health` | Pass: health, ready, metrics and system info read; client check `9.0.10 ↔ 9.0.10, match`. |
+| 5 reads | Partial. Pass: `list_inventory` DIAGRAM (REST `/model/models` with `user`), `query_logs` (systemLog, also with severity and `since`), `find_processes` (default and `states`). **Fail**: `list_inventory` MODULE (StartCLI, finding F-1), `get_inventory_item` DIAGRAM (finding F-3). `find_processes hangingOnly` fails with HTTP 500 on the 9.0 node *and* on the 8.1 node of the same stage (F-4, not 9.0-specific). |
+| 6 REST wrong password | Body shape confirmed with a non-existent user: 401, `application/json`, `{statusCode, message, path, timestamp}`; message `Authentication failed: The credentials entered are incorrect.`, timestamp without offset. The fixture has the same shape with message `Unauthorized`. Not run through the MCP server (no second credential set). |
+| 7 OAuth-only user | Not run (no such user on the node). |
+| 8 export/write tools | `export_artifacts` **fails** (F-1); `check_artifacts` with module lookup not reachable without an export. Write tools refused as configured: `tag_artifacts` → `NOT_DEVELOPMENT`, nothing sent; `kill_process` is not announced (no write-enabled node). Write successes stay open (needs a 9.0 test stage with `write`/`development`). |
+| 9 `deploy_release` | 9.0 → 9.0 not run (only one 9.0 node). Refusal pass: preview from an 8.1 stage into the mixed stage → `UNSUPPORTED_VERSION` "different INUBIT minor versions (8.1, 9.0)", nothing sent. |
+| 10 `AUTO` | Pass: one `get_health` on the stage detected 9.0.10 and 8.1.17 and used the 9.0 client (JDK 21, base URL) for the 9.0 node and the 8.1 client (JDK 17, servlet path) for the 8.1 node. |
+| 11 Windows | Not run. |
+
+Findings:
+
+- **F-1 (blocker for every StartCLI call on 9.0 with a private CA / self-signed certificate)**: the
+  9.0.10 client ignores `--trustStoreFilePath` for its login connection (the new WebClient path):
+  `Authentication failed: Could not establish a secure connection to the process engine.` /
+  `PKIX path building failed`, with and without `--trustStoreFilePwd`. The same trust store given
+  as `JAVA_TOOL_OPTIONS=-Djavax.net.ssl.trustStore=<p12> -Djavax.net.ssl.trustStoreType=PKCS12`
+  passes TLS (reproduced with a non-existent user: the call reaches `401 Unauthorized` of
+  `/ibis/inubit/property/getIBISProperty`). The REST path with the same trust store and pin works.
+  Fix: also pass the trust store through `JAVA_TOOL_OPTIONS` for 9.0 clients (the path that
+  `CliRunner` already uses for clients without `--trustStoreFilePath`).
+- **F-2**: that 9.0 output is classified `UNEXPECTED_RESPONSE` instead of `TLS_ERROR`:
+  `CliOutputClassifier` only maps TLS text after `Login to the server failed.` (8.1 wording); 9.0
+  prints `Authentication failed: Could not establish a secure connection …` before
+  `EXECUTION ERROR`.
+- **F-3**: `get_inventory_item` DIAGRAM on 9.0: `The diagram export of … is not a ZIP archive`
+  (`DiagramExportParser`, REST `/ibis/rest/model/export/<diagram>`). The 9.0 response body is not
+  captured yet (needs the recorder's `model_export_sample`, T048).
+- **F-4**: `find_processes hangingOnly` (POST `/ibis/rest/log/queueLog`) returns HTTP 500 on both
+  nodes; the 9.0 body carries `@Start@MonitoringLockedByOtherClient@@@Cannot request data because
+  monitoring is locked by other client. Please try again later.@End@` and is reported as
+  `UNEXPECTED_RESPONSE`; a retryable code would fit better. Repeated twice with the same result.
+
+**Re-check with the F-1/F-2 fix, 2026-11-09** (branch `017-live-check`, JAR built locally from
+it, same node): `list_inventory` MODULE passes on the 9.0 node (and still on the 8.1 node);
+`export_artifacts` of one diagram group passes (124 files added, 10 modified in the workspace);
+`check_artifacts` with `verifyOnServer` on that export passes (module lookup without
+`MODULE_UNVERIFIED`; 4 `DEMUX_KEY_STALE` warnings that concern the content, not 9.0).
+
+T047 stays open: F-3 and F-4 (step 5), steps 7, the write successes of 8, 9 (9.0 → 9.0) and 11.
