@@ -77,3 +77,9 @@ the new tool (`download_server_log`, contract `contracts/mcp-tools-delta.md`).
 - T018 minor for T028: `ServerLogService` must not keep its `LogWindow` reference while
   `LogExcerpt.build` runs (pass it directly), so the 50 MiB window bytes can be collected before
   masking (D-13).
+
+## Checkpoint phase 2 (after T020, commit ad63b811)
+
+- `mvn -o -q clean verify`: exit 0; 7467 tests, 0 failures, 0 errors, 58 skipped.
+- Code review of phase 2: T008–T020 each reviewed independently, all APPROVED in round 1
+  (`reviews/T008-r1.md` … `reviews/T020-r1.md`); open minors carried forward are listed above.
