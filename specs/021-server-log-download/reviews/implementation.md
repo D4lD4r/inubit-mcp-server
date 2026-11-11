@@ -83,3 +83,9 @@ the new tool (`download_server_log`, contract `contracts/mcp-tools-delta.md`).
 - `mvn -o -q clean verify`: exit 0; 7467 tests, 0 failures, 0 errors, 58 skipped.
 - Code review of phase 2: T008–T020 each reviewed independently, all APPROVED in round 1
   (`reviews/T008-r1.md` … `reviews/T020-r1.md`); open minors carried forward are listed above.
+- T023/T025 (checked against the T021 recording, structure only): the real 8.1.17 stdout of
+  `trace --download` has 4 lines and **no `n-OK:` prefix** on any line; the success line is
+  `Trace data (<n> MB) stored to: <path>`. `CliOutputClassifier.classify` reports success only for
+  an `n-OK` line, so T024's recorded fixture must keep the real shape and T025 must recognise
+  success from the exit code + the `Trace data … stored to:` line + the written file, not from
+  `n-OK`. T023's success test uses `1-OK: Trace data …`, which is a reconstruction.

@@ -365,7 +365,7 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   first in `adapter/cli/CliCommandTest.java`: the exact `--execCommand` text `trace --download
   '<path>'` (POSIX and Windows quoting); refused before any launch: `on`, `off`, `-l`, `-nl`,
   `-p`, `-r`, a raw `-d`, a process id, a second option, a missing `--download` (SC-005)
-- [ ] T023 [P] [US1] `adapter/cli/CliOutputClassifier.java` (D-8, D-14): marker rule
+- [X] T023 [P] [US1] `adapter/cli/CliOutputClassifier.java` (D-8, D-14): marker rule
   `FileWasNotFound` → `NOT_FOUND` "trace.log does not exist on <node>", next step "Check the trace
   settings of the server in the Workbench" — in the trace context only. Failing tests first in
   `adapter/cli/CliOutputClassifierTest.java` (marker in the trace context → `NOT_FOUND`; the same

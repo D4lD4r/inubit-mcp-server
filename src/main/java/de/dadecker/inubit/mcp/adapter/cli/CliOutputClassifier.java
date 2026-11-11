@@ -56,7 +56,9 @@ public final class CliOutputClassifier {
      */
     private static final Pattern MESSAGE = Pattern.compile(
         "^(?:Completed = \\S+ MB / \\S+ MB\\s*)*(\\d+)-(OK|NOK):\\s?(.*)$");
-    private static final Pattern MISSING_MODULE = Pattern.compile("^The module .+ not found$");
+    /** The server's marker for a log file it does not have (feature 021, research D-8). */
+    private static final String FILE_WAS_NOT_FOUND = "FileWasNotFound";
+    private static final Pattern MISSING_MODULE =Pattern.compile("^The module .+ not found$");
 
     private static final String PASSWORD_PROMPT = "Password:";
     /** StartCLI's answer to an export whose selection (e.g. a tag) matches no diagram group. */
@@ -181,6 +183,23 @@ public final class CliOutputClassifier {
             .or(() -> missingRepositoryPath(all))
             .or(() -> byText(all, nine))
             .orElseGet(() -> unexpected(result, output)));
+    }
+
+    /**
+     * Classifies a {@code trace --download} run (feature 021, research D-8, D-14): the server's
+     * marker {@code FileWasNotFound} is a missing {@code trace.log} ({@code NOT_FOUND}); anything
+     * else is classified as by {@link #classify(CliResult)}. Only the trace download asks the
+     * server for a file, so the rule does not apply to other commands.
+     */
+    public CliOutcome classifyTraceDownload(CliResult result) {
+        if (!result.truncated() && parse(result).markers().stream()
+            .anyMatch(marker -> marker.code().equals(FILE_WAS_NOT_FOUND))) {
+            return new CliOutcome.Failure(error(ErrorCode.NOT_FOUND, "trace.log does not exist on "
+                    + labels.map(names -> names.node().value()).orElse("the INUBIT server"),
+                "The server has no trace log file; tracing may never have written one",
+                "Check the trace settings of the server in the Workbench"));
+        }
+        return classify(result);
     }
 
     /** {@code bytes} as whole MiB where it is one, else in bytes. */
