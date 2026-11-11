@@ -268,9 +268,10 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
   line N of the window; a line the masked value covers only in part keeps its unmasked text, only
   lines it covers completely become empty. If the window contains the end tag of a secret-named element whose start
   tag is not in the window (it was opened before the window), every line from the start of the
-  window up to and including that end tag is masked the same way: when in doubt, content is left
+  window up to that end tag is masked the same way, and the line with the end tag keeps the end
+  tag and the text after it: when in doubt, content is left
   out rather than shown. A secret-named JSON value (object or array) that opens before the window
-  is not detected; the documentation names this limit. If the known credentials of every configured
+  is not detected; the documentation names this limit. If the known credentials of any configured
   node cannot be read within the remaining `cliExportTimeout` of the call (FR-013) — for example a
   credential store of another node that has not answered — the excerpt MUST be withheld rather than
   shown with possibly unscrubbed values: the file is still written, and instead of the excerpt the
@@ -288,8 +289,10 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
   MUST reach the client side the way StartCLI gets them (never on a command line, never in tool
   parameters).
 - **FR-013**: Every wait and transfer of a call (a StartCLI concurrency slot, the server's login
-  credentials, the download, a free slot for building the excerpt) MUST be
-  bounded by the node's `cliExportTimeout`; the version check before it is bounded by the node's
+  credentials, the download, a free slot for building the excerpt — one excerpt is built at a time per MCP
+  server process) MUST be
+  bounded by the node's `cliExportTimeout`, whose deadline starts after the version check; the
+  version check is bounded by the node's
   `timeout`, as for every tool (its result is cached); exceeding it is `TIMEOUT` and no file remains (FR-011).
   Credentials read only for masking follow FR-010. The call MUST count against the StartCLI
   concurrency limit of that server. Building the excerpt (bounded by the 50 MiB window, FR-009) and
