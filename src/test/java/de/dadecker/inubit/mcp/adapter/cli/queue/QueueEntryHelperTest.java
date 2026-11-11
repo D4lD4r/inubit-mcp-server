@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.testing.FakeInubitScript.Failure;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
@@ -250,7 +251,7 @@ class QueueEntryHelperTest {
             call("ConnectionData.setUserName", USER),
             call("ConnectionData.setPassword", TestSecrets.CONFIGURED_PASSWORD),
             call("ConnectionData.setServerAuth", "true"),
-            call("ConnectionData.setServerTrustStoreFile", TRUST_STORE),
+            call("ConnectionData.setServerTrustStoreFile", new File(TRUST_STORE).toString()),
             call("ConnectionData.setServerTrustStorePassword", TestSecrets.TRUST_STORE_PASSWORD),
             call("ConnectionData.setSkipHostnameVerification", "false"),
             call("InubitClientFactory.getRestInstance"),

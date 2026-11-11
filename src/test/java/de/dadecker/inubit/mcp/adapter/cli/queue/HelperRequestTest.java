@@ -83,14 +83,14 @@ class HelperRequestTest {
             + "nonce=" + NONCE + "\n"
             + "variant=SOAP_81\n"
             + "url=https%3A%2F%2Finubit.example.test%3A8443%2Fibis%2Fservlet%2FIBIS\n"
-            + "trustStore=%2Fvar%2Fqe-0001%2Ftrust.p12\n"
+            + "trustStore=" + encoded(TRUST_STORE) + "\n"
             + "trustStorePassword=" + TestSecrets.TRUST_STORE_PASSWORD + "\n"
             + "hostnameVerification=true\n"
             + "objectType=queue_manager%40%40%40Workflow-0001%40%40%40error\n"
             + "fileName=Order-0001.xml\n"
             + "parts=data%2Cvariables\n"
-            + "dataOut=%2Fvar%2Fqe-0001%2Fout%2Fdata.bin\n"
-            + "variablesOut=%2Fvar%2Fqe-0001%2Fout%2Fvariables.wfsp\n"
+            + "dataOut=" + encoded(DATA_OUT) + "\n"
+            + "variablesOut=" + encoded(VARIABLES_OUT) + "\n"
             + "user=jdoe\n"
             + "password=" + TestSecrets.CONFIGURED_PASSWORD + "\n"
             + "end\n");
@@ -179,6 +179,11 @@ class HelperRequestTest {
             invalid("null url", r -> r.url = null, "url"),
             invalid("null password", r -> r.password = null, "password"),
             invalid("null variablesOut", r -> r.variablesOut = null, "variablesOut"));
+    }
+
+    /** The percent-encoded form of a path as this platform writes it ({@code \} on Windows). */
+    private static String encoded(Path path) {
+        return path.toString().replace("/", "%2F").replace("\\", "%5C");
     }
 
     private static Arguments invalid(String label, Consumer<Builder> edit, String field) {

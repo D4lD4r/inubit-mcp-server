@@ -234,7 +234,7 @@ class FakeInubitClientTest {
             }
             """);
         Process process = new ProcessBuilder(Platform.javaExecutable().toString(), "-cp",
-            client.home().resolve("lib").resolve("*").toString(), driver.toString(),
+            client.home().resolve("lib") + File.separator + "*", driver.toString(),
             data.toString()).directory(client.home().toFile()).redirectErrorStream(true).start();
         process.getOutputStream().close();
         String output = new String(process.getInputStream().readAllBytes(),
