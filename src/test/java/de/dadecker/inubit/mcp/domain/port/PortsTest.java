@@ -101,6 +101,18 @@ class PortsTest {
     }
 
     @Test
+    void aGatewayWithoutPartnerManagementAdapterRefusesItAsUnsupportedForItsNode() {
+        // feature 018 (T013, research D-4)
+        assertThatThrownBy(() -> new PreviousGateway().partners())
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+                assertThat(e.error().node()).contains(NODE);
+                assertThat(e.error().message())
+                    .contains("partner management is not available for this INUBIT version");
+            });
+    }
+
+    @Test
     void aGatewayWithoutQueueEntryAdapterReportsTheCliAsUnavailableForItsNode() {
         // feature 020 T022 (research D-17): adapter lines without the CLI read
         assertThatThrownBy(() -> new PreviousGateway().queueEntryContent())

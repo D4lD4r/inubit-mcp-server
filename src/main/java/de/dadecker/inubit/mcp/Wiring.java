@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp;
 import de.dadecker.inubit.mcp.adapter.AdapterGatewayFactory;
 import de.dadecker.inubit.mcp.adapter.NodeSecrets;
 import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
+import de.dadecker.inubit.mcp.adapter.ProfileSecrets;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArchiveCodec;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ImportArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
@@ -56,6 +57,8 @@ import de.dadecker.inubit.mcp.application.NodeOverview;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.VersionGate;
 import de.dadecker.inubit.mcp.application.PackageWriter;
+import de.dadecker.inubit.mcp.application.PartnerAudit;
+import de.dadecker.inubit.mcp.application.PartnerService;
 import de.dadecker.inubit.mcp.application.ProcessControlService;
 import de.dadecker.inubit.mcp.application.QueueEntryService;
 import de.dadecker.inubit.mcp.application.ReleaseDiscovery;
@@ -69,6 +72,12 @@ import de.dadecker.inubit.mcp.application.UpdateStatus;
 import de.dadecker.inubit.mcp.application.WorkspaceService;
 import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
 import de.dadecker.inubit.mcp.application.WriteGuard;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeAnnouncement;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeAudit;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeDirectory;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeLimits;
+import de.dadecker.inubit.mcp.application.knowledge.KnowledgeService;
+import de.dadecker.inubit.mcp.application.knowledge.NoteRefs;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialNames;
@@ -107,6 +116,7 @@ import de.dadecker.inubit.mcp.mcp.UpdateNotice;
 import de.dadecker.inubit.mcp.mcp.tools.CheckArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.ExportArchivesTool;
 import de.dadecker.inubit.mcp.mcp.tools.ExportArtifactsTool;
+import de.dadecker.inubit.mcp.mcp.tools.FindPartnersTool;
 import de.dadecker.inubit.mcp.mcp.tools.FindProcessesTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetHealthTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetInventoryItemTool;
@@ -114,6 +124,8 @@ import de.dadecker.inubit.mcp.mcp.tools.DeployReleaseTool;
 import de.dadecker.inubit.mcp.mcp.tools.ImportArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.KillProcessTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListInventoryTool;
+import de.dadecker.inubit.mcp.mcp.tools.ReadKnowledgeTool;
+import de.dadecker.inubit.mcp.mcp.tools.RecordKnowledgeTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
 import de.dadecker.inubit.mcp.mcp.tools.ReadQueueEntryTool;
@@ -123,6 +135,7 @@ import de.dadecker.inubit.mcp.mcp.tools.RunE2eTestTool;
 import de.dadecker.inubit.mcp.mcp.tools.TagArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
 import java.nio.file.Path;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -190,6 +203,8 @@ final class Wiring implements AutoCloseable {
     private final UpdateStatus updateStatus = new UpdateStatus();
     private final DiagnosisService diagnosis;
     private final InventoryService inventory;
+    /** Feature 018: offered where partner management is possibly available (FR-001). */
+    private final FindPartnersTool findPartners;
     private final ProcessControlService processControl;
     /** Feature 020: built for every configuration; announced only under its opt-in. */
     private final ReadQueueEntryTool readQueueEntry;
@@ -198,6 +213,9 @@ final class Wiring implements AutoCloseable {
     /** Feature 015: offered under the condition of {@code export_artifacts} (research R-16). */
     private final ExportArchivesTool exportArchives;
     private final CheckArtifactsTool checkArtifacts;
+    /** Feature 019: the profile's local knowledge, read with all its credentials known (D-7). */
+    private final KnowledgeService knowledge;
+    private final boolean knowledgeRecording;
     private final ImportArtifactsTool importArtifacts;
     private final RestoreBackupTool restoreBackup;
     /** Feature 005: the stage chain of the configuration (empty: none). */
@@ -390,22 +408,45 @@ final class Wiring implements AutoCloseable {
         this.readQueueEntry = new ReadQueueEntryTool(new QueueEntryService(targets,
             id -> byId.get(id).queueEntryRead(), versionGate, gateways::processes,
             gateways::queueEntryContent, scrubber::scrub));
-        this.inventory = new InventoryService(gateways, targets, fanOut, limiter,
-            new InventoryCache(clock.clock(), id -> byId.get(id).inventory().cacheTtl()),
+        // feature 018 (research D-6): the partner reads use dedicated scopes of the same cache
+        InventoryCache inventoryCache =
+            new InventoryCache(clock.clock(), id -> byId.get(id).inventory().cacheTtl());
+        // feature 018 (FR-020): every call audited in the shared audit log
+        AuditLog audit = new AuditLog(config.auditDirectory(), scrubber, privateFiles);
+        PartnerAudit.Dependencies partnerAudits = new PartnerAudit.Dependencies(audit,
+            clock.clock(), profile.name(), UUID::randomUUID);
+        PartnerService partners = new PartnerService(gateways, targets, fanOut, limiter,
+            inventoryCache, id -> byId.get(id).inventory().owner(), timeouts::get,
+            id -> byId.get(id).cliExportTimeout(), ResultJson::size, terms, versionGate,
+            secretTiming, partnerAudits);
+        // feature 018 (FR-015): a technical workflow's partner usage reads through partners
+        this.inventory = new InventoryService(gateways, targets, fanOut, limiter, inventoryCache,
             id -> byId.get(id).inventory().owner(), timeouts::get,
             id -> byId.get(id).cliExportTimeout(), id -> byId.get(id).cliTimeout(),
             CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, terms, versionGate,
-            secretTiming);
+            secretTiming, partners);
         // feature 010 (research R-16): built per lookup, so that the account of an AWS node is
         // the username fetched after startup; a lookup never fetches. Unknown ids give null,
         // which the guard treats as no write access
         Function<NodeId, WritePolicy> policies = id -> byId.containsKey(id)
             ? policy(byId.get(id), secrets.get(id)) : null;
-        AuditLog audit = new AuditLog(config.auditDirectory(), scrubber, privateFiles);
+        // feature 019 (research D-7, option A): notes are shown only with every configured
+        // credential of the profile known; a tool call waits as long as the slowest store. With
+        // recording on, notes are written under the knowledge lock and audited in the shared log
+        // (D-10); with it off the service is read-only
+        ProfileSecrets profileSecrets = new ProfileSecrets(secrets, scrubber);
+        this.knowledgeRecording = config.knowledge().recording();
+        this.knowledge = new KnowledgeService(
+            new KnowledgeDirectory(config.knowledge().directory(), privateFiles, clock.clock()),
+            profileSecrets, new NoteRefs(new SecureRandom()), profileSecrets.timeout(),
+            knowledgeRecording ? new KnowledgeService.Writing(privateFiles, clock.clock(),
+                new KnowledgeAudit.Dependencies(audit, clock.clock(), profile.name(),
+                    UUID::randomUUID)) : null);
         this.processControl = new ProcessControlService(
             new WriteGuard(targets, policies, gateways, versionGate), policies,
             gateways, new ConfirmationRegistry(clock.clock()), audit, clock.clock(),
             UUID::randomUUID, profile.name());
+        this.findPartners = new FindPartnersTool(partners, partnerAudits);
         // feature 003: the workspace history uses the system git (not the StartCLI launcher)
         Path workspace = config.workspace();
         this.exportArtifacts = new ExportArtifactsTool(new WorkspaceService(workspace,
@@ -500,7 +541,8 @@ final class Wiring implements AutoCloseable {
                 new BackupStore(backups, clock.clock(), privateFiles), ledger, audit,
                 profile.name(), clock.clock(), UUID::randomUUID, workspace,
                 new DiagramGroupTagger(workspace), new PackageWriter(
-                    deployments.resolveSibling("packages"), clock.clock(), privateFiles)));
+                    PackageWriter.defaultDirectory(Path.of(System.getProperty("user.home")),
+                        profile.name()), clock.clock(), privateFiles)));
             deployer = Optional.of(nodeDeployer);
             DeployService deploy = new DeployService(new DeployService.Dependencies(workspace,
                 deployments, profile.name(), new DeployGuard(chain, targets, group ->
@@ -584,6 +626,12 @@ final class Wiring implements AutoCloseable {
         List<ToolHandler> handlers = new ArrayList<>();
         handlers.add(new ListNodesTool(profile, overview::nodes));
         handlers.add(new GetHealthTool(health, updateStatus::current));
+        // feature 019 (research D-15): for every profile, also without nodes; recording only
+        // with knowledge.recording on
+        handlers.add(new ReadKnowledgeTool(knowledge));
+        if (knowledgeRecording) {
+            handlers.add(new RecordKnowledgeTool(knowledge));
+        }
         // feature 012 (research D-12): a read tool only if some node may run its capability
         if (anyPossiblyCapable(Capability.PROCESS_DIAGNOSIS)) {
             handlers.add(new FindProcessesTool(diagnosis));
@@ -597,6 +645,10 @@ final class Wiring implements AutoCloseable {
         if (anyPossiblyCapable(Capability.INVENTORY)) {
             handlers.add(new ListInventoryTool(inventory));
             handlers.add(new GetInventoryItemTool(inventory));
+        }
+        // feature 018 (research D-1): REST like get_inventory_item; 6.1 refuses the capability
+        if (anyPossiblyCapable(Capability.PARTNER_MANAGEMENT)) {
+            handlers.add(findPartners);
         }
         // feature 017 (research D-7): a client home some version of the node may use
         if (servers.stream().anyMatch(server -> clientSelection.anyCandidate(server.id())
@@ -640,11 +692,35 @@ final class Wiring implements AutoCloseable {
         return serverFactory(version, handlers, UpdateNotice.NONE);
     }
 
-    /** As above, with the update notice of feature 016 (FR-017 to FR-019). */
+    /**
+     * As above, with the update notice of feature 016 (FR-017 to FR-019) and the knowledge
+     * paragraph as {@link #knowledgeOverview()} finds the notes now.
+     */
     McpServerFactory serverFactory(String version, List<ToolHandler> handlers,
         UpdateNotice updateNotice) {
+        return serverFactory(version, handlers, updateNotice, knowledgeOverview());
+    }
+
+    /** As above, with the knowledge paragraph of {@code knowledgeState} (feature 019, D-8). */
+    McpServerFactory serverFactory(String version, List<ToolHandler> handlers,
+        UpdateNotice updateNotice, KnowledgeAnnouncement.State knowledgeState) {
         return new McpServerFactory(version, profile, handlers, SchemaResources.forClasspath(),
-            new ResultMapper(scrubber), updateNotice);
+            new ResultMapper(scrubber), updateNotice,
+            KnowledgeAnnouncement.paragraph(knowledgeRecording, knowledgeState));
+    }
+
+    /**
+     * What the local knowledge holds at start for the instructions (feature 019, research D-7,
+     * D-8): with notes, the profile's credentials are read first, for at most
+     * {@link KnowledgeLimits#START_PREPARE}; without notes nothing is read.
+     */
+    KnowledgeAnnouncement.State knowledgeOverview() {
+        return knowledgeOverview(KnowledgeLimits.START_PREPARE);
+    }
+
+    /** As above, waiting at most {@code bound} for the credentials (tests use a short one). */
+    KnowledgeAnnouncement.State knowledgeOverview(Duration bound) {
+        return knowledge.overview(bound);
     }
 
     GatewayFactory gateways() {
@@ -731,7 +807,8 @@ final class Wiring implements AutoCloseable {
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
         Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
-            Capability.PROCESS_DIAGNOSIS, Capability.LOG_DIAGNOSIS, Capability.INVENTORY);
+            Capability.PROCESS_DIAGNOSIS, Capability.LOG_DIAGNOSIS, Capability.INVENTORY,
+            Capability.PARTNER_MANAGEMENT);
         if (withClient) {
             allowed.add(Capability.WORKSPACE_EXPORT);
         }

@@ -15,6 +15,8 @@ public enum Capability {
     LOG_DIAGNOSIS(Kind.READ, Set.of(Channel.REST)),
     /** Diagrams via REST; modules and the history via StartCLI, each admitted on its own. */
     INVENTORY(Kind.READ, Set.of(Channel.REST, Channel.CLI), Admission.PER_CHANNEL),
+    /** {@code find_partners}: the Partner Management of system diagrams (feature 018). */
+    PARTNER_MANAGEMENT(Kind.READ, Set.of(Channel.REST)),
     WORKSPACE_EXPORT(Kind.READ, Set.of(Channel.CLI)),
     /** StartCLI plus REST reads. */
     DEVELOPMENT_WRITE(Kind.WRITE, Set.of(Channel.CLI, Channel.REST)),
@@ -82,6 +84,7 @@ public enum Capability {
             case PROCESS_DIAGNOSIS -> "process diagnosis";
             case LOG_DIAGNOSIS -> "log diagnosis";
             case INVENTORY -> "inventory";
+            case PARTNER_MANAGEMENT -> "partner management";
             case WORKSPACE_EXPORT -> "workspace export";
             case DEVELOPMENT_WRITE -> "development writes";
             case DEPLOYMENT -> "deployment";

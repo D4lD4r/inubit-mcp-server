@@ -74,9 +74,9 @@ class RefusingPortsTest {
 
     @Test
     void thePortSetCompatibilityConstructorFillsInThisRefusalForTheEntrysNode() {
-        // feature 020 T022 (research D-17): port sets built with the previous seven ports
+        // feature 020 T022 (research D-17): port sets built with the previous eight ports
         PortSet ports = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
-            refusing);
+            refusing, refusing);
 
         NodeId other = NodeId.parse("int/b");
         QueueEntryRef ref = new QueueEntryRef(other, "Workflow-0001", "Order-0001.xml", 772);

@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
+import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
@@ -110,6 +111,11 @@ final class V81Gateway implements Gateway {
     @Override
     public TagPort tags() {
         return ports.get().tags();
+    }
+
+    @Override
+    public PartnerManagementPort partners() {
+        return ports.get().partners();
     }
 
     @Override

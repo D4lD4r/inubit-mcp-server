@@ -98,6 +98,14 @@ public interface GatewayFactory {
     }
 
     /**
+     * The partner management port of {@code server} (feature 018, research D-4); the default asks
+     * the gateway.
+     */
+    default PartnerManagementPort partners(NodeId server) {
+        return forServer(server).partners();
+    }
+
+    /**
      * The queue-entry content port of {@code server} (feature 020); the default asks the
      * gateway.
      */

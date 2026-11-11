@@ -13,16 +13,16 @@ import java.util.Locale;
  * {@value #MIN_CONTAINED} chars) or lies within an edit distance of
  * {@code max(2, length / 3)}; ordered by Levenshtein distance (case-insensitive), then by name.
  */
-final class SimilarNames {
+public final class SimilarNames {
 
-    static final int MIN_CONTAINED = 3;
+    public static final int MIN_CONTAINED = 3;
     /** Longer names are compared by their first chars only (bounded work per candidate). */
     private static final int MAX_COMPARED_CHARS = 400;
 
     private SimilarNames() {
     }
 
-    static List<String> of(String name, Collection<String> candidates, int max) {
+    public static List<String> of(String name, Collection<String> candidates, int max) {
         String query = lower(name);
         int threshold = Math.max(2, query.length() / 3);
         record Scored(String name, int distance) {

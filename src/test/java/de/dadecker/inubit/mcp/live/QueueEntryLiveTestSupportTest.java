@@ -774,6 +774,11 @@ class QueueEntryLiveTestSupportTest {
             }
 
             @Override
+            public Optional<String> othersMayAccess(Path path) {
+                return Optional.empty();
+            }
+
+            @Override
             public boolean ownedByCurrentUser(Path path) {
                 return true;
             }

@@ -32,3 +32,38 @@ with `TLS_ERROR` and a hint. Handing over a profile then needs only the YAML fil
   Without that comparison this is trust on first use, which only protects later connections.
 - Consistent with the constitution (TLS always on, every change audited) and with the
   feature-006 rule "never adopt automatically".
+
+## Feature 019: Local knowledge per profile (to be specified right after feature 018)
+
+**Problem.** Operating knowledge about a customer's integrations is needed to answer support
+questions, but must never enter the repository. Example: "the fallback channel reads its target
+directory from a repository configuration file, and server and login from the Partner
+Management". Today this knowledge lives only in the operator's head or in old chat transcripts,
+and research results (what was found out in a support case) are lost after the session.
+
+**Idea.** Every profile can have a local knowledge store outside the repository. The server
+offers it to the MCP client, and the client can keep research results there for later sessions.
+
+**Decided so far (operator, 2026-11-09, clarification of feature 018).**
+- The local knowledge is bound to the **profile** (like the workspace, the audit directory and
+  the other per-profile directories).
+- That a local knowledge exists and can be used to keep research results belongs to the **core
+  of the server**: the server's instructions announce it for every profile, independent of any
+  single tool such as the partner tool of feature 018.
+
+**Open for the spec.** How the knowledge is offered (MCP resource, instructions, a read tool) and
+bounded; how research results are written (a tool that writes only into the profile's knowledge
+directory, never to INUBIT) and how that fits Principle I (read-only by default) and Principle VII
+(audit); what must never be stored there (secrets, Principle II); format and structure (e.g. one
+Markdown file per topic); and how the knowledge is kept separate between profiles.
+
+## Masked export of system diagrams into the workspace (builds on feature 018)
+
+**Problem.** Feature 018 reads the Partner Management in memory and answers questions about the
+current state. It keeps no history, so a question like "when did the host of partner X change on
+the production stage?" cannot be answered.
+
+**Idea.** `export_artifacts` exports system diagrams (`--exportWorkflowType systemdiagram`) into
+the workspace with the masking of feature 018 (at least as strict as the workspace redaction), so
+that the workspace history records partner changes over time. Decided in the clarification of
+feature 018 (2026-11-09): not part of 018, a later feature.

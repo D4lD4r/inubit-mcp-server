@@ -610,7 +610,7 @@ public final class VersionGate {
         return switch (capability) {
             case LOG_DIAGNOSIS -> "read the logs of INUBIT " + release + " in the Workbench";
             case WORKSPACE_EXPORT -> "use the Workbench export";
-            case MONITORING, PROCESS_DIAGNOSIS, INVENTORY ->
+            case MONITORING, PROCESS_DIAGNOSIS, INVENTORY, PARTNER_MANAGEMENT ->
                 terms.render("use the Workbench, or another {node} with a different INUBIT"
                     + " version");
             case DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL -> "use the Workbench";

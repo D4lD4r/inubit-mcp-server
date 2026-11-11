@@ -260,6 +260,90 @@ class AuditLogTest {
     }
 
     @Test
+    void recordsWithoutCallIdAndDetailsAreWrittenAsBefore() throws IOException {
+        // feature 018 T016: line recorded with the AuditLog of commit eafa0f8
+        String recorded = "{\"auditId\":\"7b0c4f1e-3a52-4d5e-9a40-1f2e3d4c5b6a\","
+            + "\"timestamp\":\"2026-10-03T08:15:30Z\",\"profile\":\"acme\",\"node\":\"dev/node1\","
+            + "\"group\":\"dev\",\"capability\":\"restart_process\",\"step\":\"EXECUTE\","
+            + "\"inputs\":{\"processId\":\"110190387\",\"reason\":\"restart after fix\"},"
+            + "\"account\":\"jdoe\",\"outcome\":\"PENDING\",\"mcpClient\":\"claude-code/2.1.0\"}\n";
+        AuditRecord record = record(AuditOutcome.PENDING);
+
+        new AuditLog(directory, scrubber, FILES).append(record);
+
+        assertThat(record.callId()).isEmpty();
+        assertThat(record.details()).isEmpty();
+        assertThat(Files.readString(file(), StandardCharsets.UTF_8)).isEqualTo(recorded);
+    }
+
+    @Test
+    void callIdAndDetailsAreWrittenWhenPresent() throws IOException {
+        // feature 018 research D-8, contracts/other-changes.md → Audit record (JSONL)
+        UUID callId = UUID.fromString("0d6f4a2c-8b1e-4c3d-9e5f-6a7b8c9d0e1f");
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("fromCache", false);
+        details.put("systemDiagramsRead", 2);
+        details.put("partnersReturned", 1L);
+        details.put("valuesMasked", 3);
+
+        new AuditLog(directory, scrubber, FILES).append(new AuditRecord(UUID.randomUUID(), OCTOBER,
+            "acme", "qa/node1", Optional.of("qa"), "find_partners", AuditRecord.Step.EXECUTE,
+            Map.of("target", "qa"), Optional.empty(), AuditOutcome.EXECUTED, Optional.empty(),
+            Optional.of("claude-code/2.1.0"), Optional.of(callId), details));
+
+        JsonNode node = lines(file()).get(0);
+        assertThat(fieldNames(node)).containsExactly("auditId", "callId", "timestamp", "profile",
+            "node", "group", "capability", "step", "inputs", "outcome", "mcpClient", "details");
+        assertThat(node.path("callId").asString()).isEqualTo(callId.toString());
+        assertThat(fieldNames(node.path("details"))).containsExactly("fromCache",
+            "systemDiagramsRead", "partnersReturned", "valuesMasked");
+        assertThat(node.path("details").path("fromCache").isBoolean()).isTrue();
+        assertThat(node.path("details").path("fromCache").asBoolean()).isFalse();
+        assertThat(node.path("details").path("systemDiagramsRead").isIntegralNumber()).isTrue();
+        assertThat(node.path("details").path("systemDiagramsRead").asInt()).isEqualTo(2);
+        assertThat(node.path("details").path("partnersReturned").asLong()).isEqualTo(1L);
+        assertThat(node.path("details").path("valuesMasked").asInt()).isEqualTo(3);
+    }
+
+    @Test
+    void aNullDetailKeyOrValueIsRejectedWhenTheRecordIsBuilt() {
+        Map<String, Object> nullValue = new LinkedHashMap<>();
+        nullValue.put("fromCache", null);
+        Map<String, Object> nullKey = new LinkedHashMap<>();
+        nullKey.put(null, 1);
+
+        assertThatThrownBy(() -> recordWithDetails(nullValue))
+            .isInstanceOf(NullPointerException.class).hasMessageContaining("fromCache");
+        assertThatThrownBy(() -> recordWithDetails(nullKey))
+            .isInstanceOf(NullPointerException.class).hasMessageContaining("details key");
+    }
+
+    private static AuditRecord recordWithDetails(Map<String, Object> details) {
+        return new AuditRecord(UUID.randomUUID(), OCTOBER, "acme", "qa/node1", Optional.empty(),
+            "find_partners", AuditRecord.Step.EXECUTE, Map.of(), Optional.empty(),
+            AuditOutcome.EXECUTED, Optional.empty(), Optional.empty(),
+            Optional.of(UUID.randomUUID()), details);
+    }
+
+    @Test
+    void detailKeysAndTextValuesAreScrubbed() throws IOException {
+        scrubber.register("s3cr3t-audit-pw");
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("note", "token s3cr3t-audit-pw");
+        details.put("s3cr3t-audit-pw", 1);
+
+        new AuditLog(directory, scrubber, FILES).append(new AuditRecord(UUID.randomUUID(), OCTOBER,
+            "acme", "qa/node1", Optional.empty(), "find_partners", AuditRecord.Step.EXECUTE,
+            Map.of(), Optional.empty(), AuditOutcome.FAILED, Optional.empty(), Optional.empty(),
+            Optional.of(UUID.randomUUID()), details));
+
+        assertThat(Files.readString(file())).doesNotContain("s3cr3t-audit-pw");
+        JsonNode stored = lines(file()).get(0).path("details");
+        assertThat(stored.path("note").asString()).isEqualTo("token ***");
+        assertThat(stored.path(SecretScrubber.MASK).asInt()).isEqualTo(1);
+    }
+
+    @Test
     void forceTrueIsCalledAfterTheWriteAndBeforeAppendReturns() {
         List<String> events = new CopyOnWriteArrayList<>();
         AuditLog log = new AuditLog(directory, scrubber, FILES, (file, options, attributes) ->
@@ -368,6 +452,11 @@ class AuditLogTest {
             @Override
             public boolean ownedByCurrentUser(Path path) throws IOException {
                 return FILES.ownedByCurrentUser(path);
+            }
+
+            @Override
+            public Optional<String> othersMayAccess(Path path) throws IOException {
+                return FILES.othersMayAccess(path);
             }
         };
         AuditLog log = new AuditLog(directory, scrubber, leaving);

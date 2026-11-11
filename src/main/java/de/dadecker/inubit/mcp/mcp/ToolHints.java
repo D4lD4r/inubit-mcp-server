@@ -48,4 +48,12 @@ public record ToolHints(
     public static ToolHints localWrite(String title) {
         return new ToolHints(title, false, false, false, true);
     }
+
+    /**
+     * Like {@link #localWrite} but closed world: the tool never contacts INUBIT or anything else
+     * outside this computer (feature 019: {@code record_knowledge}, research D-10).
+     */
+    public static ToolHints localOnlyWrite(String title) {
+        return new ToolHints(title, false, false, false, false);
+    }
 }

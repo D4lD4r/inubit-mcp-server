@@ -905,7 +905,7 @@ class ListNodesToolTest {
             assertThat(dev.path("client").path("state").asString())
                 .isEqualTo("not_yet_detected");
             assertThat(usable(dev)).containsExactly("monitoring", "process_diagnosis",
-                "log_diagnosis", "inventory", "workspace_export");
+                "log_diagnosis", "inventory", "partner_management", "workspace_export");
             assertThat(notUsable(dev)).as("no write access: no process control")
                 .containsExactly("development_writes");
             JsonNode test = groups.path(1).path("nodes").path(0).path("version");
@@ -913,7 +913,7 @@ class ListNodesToolTest {
             assertThat(test.path("client").path("state").asString()).isEqualTo("not_available");
             assertThat(test.path("status").asString()).isEqualTo("supported");
             assertThat(usable(test)).containsExactly("monitoring", "process_diagnosis",
-                "log_diagnosis", "inventory", "deployment");
+                "log_diagnosis", "inventory", "partner_management", "deployment");
         }
     }
 
@@ -986,11 +986,13 @@ class ListNodesToolTest {
             JsonNode groups = result.path("structuredContent").path("groups");
             JsonNode test = groups.path(0).path("nodes").path(0).path("version");
             assertThat(usable(test)).containsExactly("monitoring", "process_diagnosis",
-                "log_diagnosis", "inventory", "workspace_export", "queue_entry_read");
+                "log_diagnosis", "inventory", "partner_management", "workspace_export",
+                "queue_entry_read");
             assertThat(notUsable(test)).isEmpty();
             JsonNode prod = groups.path(1).path("nodes").path(0).path("version");
-            assertThat(usable(prod)).as("SC-002: as in 0.8.0").containsExactly("monitoring",
-                "process_diagnosis", "log_diagnosis", "inventory", "workspace_export");
+            assertThat(usable(prod)).as("SC-002: as without feature 020").containsExactly(
+                "monitoring", "process_diagnosis", "log_diagnosis", "inventory",
+                "partner_management", "workspace_export");
             assertThat(notUsable(prod)).isEmpty();
             JsonNode lab = groups.path(2).path("nodes").path(0).path("version");
             assertThat(usable(lab)).doesNotContain("queue_entry_read");

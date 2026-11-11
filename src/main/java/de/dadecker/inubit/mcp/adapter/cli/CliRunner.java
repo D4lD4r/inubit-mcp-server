@@ -64,6 +64,10 @@ import org.slf4j.LoggerFactory;
  *       without {@code --trustStoreFilePath} gets the trust store through
  *       {@code -Djavax.net.ssl.trustStore} and {@code -Djavax.net.ssl.trustStoreType} appended
  *       to {@code JAVA_TOOL_OPTIONS}; never a trust-store password.
+ *   <li>Both kinds of run also append the trust store to {@code JAVA_TOOL_OPTIONS} when the
+ *       client gets {@code --trustStoreFilePath}, because the INUBIT 9.0.10 client ignores that
+ *       option for its login connection (T047 live check, finding F-1); a path with whitespace
+ *       is passed only as the argument.
  *   <li>Windows (feature 013, contracts/windows-invocation.md): the same StartCLI arguments reach
  *       {@code bin\startcli.bat} through the interpreter call of {@link WindowsCommandLine}.
  *       Before anything starts, each call refuses with {@code CLI_UNAVAILABLE} (naming the
@@ -299,7 +303,7 @@ public final class CliRunner {
         arguments.add(command.commandLine());
         arguments.add(server.cli().url().toString());
         return execute(selection, arguments, Optional.of(password), List.of(), timeout,
-            timeoutSetting, "", MAX_OUTPUT_BYTES, hook);
+            timeoutSetting, jvmTrustStore(server.tls().trustStore()), MAX_OUTPUT_BYTES, hook);
     }
 
     /**
@@ -461,7 +465,7 @@ public final class CliRunner {
             checkLaunch(selection);
         }
         Optional<Path> trustStore = server.tls().trustStore();
-        String extraJavaToolOptions = options.trustStoreFilePath() ? ""
+        String extraJavaToolOptions = options.trustStoreFilePath() ? jvmTrustStore(trustStore)
             : trustStore.map(CliRunner::trustStoreProperties).orElse("");
         List<String> arguments = new ArrayList<>(List.of("-u", username));
         if (options.trustStoreFilePath()) {
@@ -576,13 +580,34 @@ public final class CliRunner {
     }
 
     /**
+     * The trust store for {@code JAVA_TOOL_OPTIONS} next to {@code --trustStoreFilePath}: the
+     * INUBIT 9.0.10 client ignores that option for its login connection (T047 live check,
+     * finding F-1), the JVM-wide trust store reaches it. Empty without a trust store and for a
+     * path with whitespace or a quote, which only the argument can carry (as before): Java 9
+     * and newer read {@code '} and {@code "} in {@code JAVA_TOOL_OPTIONS} as quotes, and an
+     * unpaired one stops the JVM before StartCLI runs.
+     */
+    private static String jvmTrustStore(Optional<Path> trustStore) {
+        return trustStore.filter(path -> !hasWhitespace(path) && !hasQuote(path))
+            .map(CliRunner::trustStoreProperties).orElse("");
+    }
+
+    private static boolean hasWhitespace(Path path) {
+        return path.toString().chars().anyMatch(Character::isWhitespace);
+    }
+
+    private static boolean hasQuote(Path path) {
+        return path.toString().chars().anyMatch(c -> c == '\'' || c == '"');
+    }
+
+    /**
      * {@code -Djavax.net.ssl.trustStore=<path> -Djavax.net.ssl.trustStoreType=<type>} with a
      * leading space. {@code JAVA_TOOL_OPTIONS} is split at whitespace without quoting on Java
      * 7/8, so a path with whitespace is never passed.
      */
     private static String trustStoreProperties(Path trustStore) {
         String path = trustStore.toString();
-        if (path.chars().anyMatch(Character::isWhitespace)) {
+        if (hasWhitespace(trustStore)) {
             throw new IllegalArgumentException("A trust-store path with whitespace cannot be"
                 + " passed in JAVA_TOOL_OPTIONS");
         }

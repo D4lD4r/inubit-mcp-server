@@ -7,11 +7,75 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Feature 018: read the INUBIT Partner Management. Derived from INUBIT 8.1 exports and tested
+against fixtures; on INUBIT 9.0 it runs unverified.
+
+Feature 019: a local knowledge per profile. Not yet checked live in an MCP client (the live check
+of `specs/019-local-knowledge/quickstart.md` is open).
+
 Feature 020: read the content of one Queue Manager entry in `ERROR` through an **unsupported,
 undocumented INUBIT interface**, off unless a group opts in. Verified on INUBIT 8.1 and 9.0
 against recorded, neutralized entries of a live non-production node of each version.
 
 ### Added
+
+- `find_partners` (feature 018), a read-only tool for the partners of the INUBIT Partner
+  Management in the owner's system diagrams, on one node, one group or two targets
+  (`compareWith`). It reads each system diagram with one REST model export, in memory only, and
+  never writes to INUBIT or to disk.
+  - With `search`: the partners whose `Id`, name or another non-secret field contains the term,
+    each in full (fields, and per protocol entry the referenced technical workflow, the protocol
+    settings and the additional parameters); without it: every partner as a summary (per entry
+    `protocol`, `workflow`, `ServerName`, `Login`). `systemDiagram`, `protocol` and `workflow`
+    narrow both; paging with `total`, `nextOffset` and `truncated`; similar Ids and names when a
+    search matches nothing; the system diagrams read with their communication clouds.
+  - A comparison across nodes matches partners by system diagram, communication cloud and partner
+    key and shows each value once if equal, else per node (`differs`), with `onlyOn`,
+    `notCompared` and `incomplete` for failed nodes and system diagrams that could not be read.
+  - Secrets (passwords, fields whose `fieldType` is not `String`, encrypted values, key material)
+    are shown only as set or not set; on INUBIT 8.1 `sameOn` says which nodes store the same
+    value, from a keyed fingerprint held in memory only. The same secret stored in different
+    forms is reported as differing.
+  - Every call is audited: one record per node with the new audit fields `callId` and `details`
+    (counts only); without its audit record the call returns no partner data. Records of the
+    other tools are unchanged.
+- `get_inventory_item` shows for a technical workflow its `partnerUsage`: the partner variables
+  it uses, whether it has a `PartnerManagement` module and the communication clouds of the owner's
+  system diagrams that reference it (names only, not audited), or in `unavailable` why they were
+  not read.
+- The capability `partner_management` in `list_nodes` (and, as `partner management`, among the
+  refused capabilities of a 6.1 node in `--check-config`): supported on INUBIT 8.1, unverified on
+  9.0 and later versions (runs with a warning), refused on 6.1.
+
+- A **local knowledge** per profile (feature 019): Markdown notes with operating knowledge and
+  research results in a folder on this computer, `knowledge.directory` (default
+  `~/.inubit-mcp/<profile>/knowledge`), written by hand or by the assistant. Neither tool contacts
+  INUBIT; both are offered for every profile, also without nodes or write switches.
+  - `read_knowledge` (read-only): lists the notes newest first, searches them by text and topic
+    (paged, with excerpts), and reads one note by name or by the `ref` of a hit, paged by
+    character offset.
+  - `record_knowledge` (not read-only, not destructive): creates a note, appends a section or
+    replaces a note's content (with the `versionToken` read last). The description and the
+    instructions tell the assistant to propose the note first and to record only after the
+    operator agreed. No mode deletes or renames a note; the previous version is kept in
+    `.history/` (10 versions per note, restored by hand). Every call is audited (capability
+    `record_knowledge`, the masked note name, mode and sizes; never content).
+    `knowledge.recording: false` makes the knowledge read-only and leaves the tool out.
+  - The server instructions get a paragraph on the knowledge with the list of notes (newest
+    first, at most 4,000 characters), after the profile paragraph and before the update notice.
+  - Secrets in notes — the profile's configured credentials, key material, INUBIT encrypted
+    values and password assignments — are shown as `***` in every result, error, log and audit
+    record, and text holding one is refused for writing. The check is pattern-based; a secret in
+    plain prose is not recognized.
+  - Bounds: 256 KiB per note after a write, notes over 4 MiB not read, 100 MiB for the folder
+    with history, 20,000 characters per page, a lock of at most 10 s between writers.
+  - The folder must not overlap the workspace, the audit, backup, ledger or package directory,
+    the configuration directory or folder, or another profile's directories (a configuration
+    error). The server warns when group or others may access it; what it creates is owner-only.
+  - `--check-config` prints `Knowledge: <folder> (ok|absent|<problem>), recording on|off,
+    <n> notes`.
+
+  See `docs/setup.md` ("Local knowledge") and `docs/tools.md` ("The local knowledge").
 
 - `read_queue_entry` (feature 020), a read-only tool for ONE Queue Manager entry in `ERROR` on
   ONE node: the entry's metadata and error texts, the data stream that ended in the queue (text
@@ -45,9 +109,65 @@ against recorded, neutralized entries of a live non-production node of each vers
 
 ### Changed
 
+- `list_nodes` reports an INUBIT 9.0 node as `partially_supported` instead of `supported`,
+  because partner management is not verified on INUBIT 9.0.
+- `cliExportTimeout` also bounds the Partner Management read of one node (its system diagram
+  exports share it); raise it for owners with many system diagrams.
+- An error of a Partner Management export carries no `excerpt` of INUBIT's answer, which could
+  quote partner data; its next step points to the INUBIT system log.
+- **Credential reads for the local knowledge** (feature 019, decided as "fail closed"): to mask
+  the profile's own credentials in notes, the first `read_knowledge` or `record_knowledge` call
+  reads the credentials of every node of the profile, so access dialogs of nodes the session does
+  not otherwise contact may appear. In a profile whose knowledge holds at least one note, these
+  reads start already at server start (which waits up to 5 s for them before listing the notes;
+  until then the list is withheld). This changes the rule of 0.7.0 that no credential is read at
+  start, for profiles with notes. While a credential cannot be read (dialog denied, Parameter
+  Store unreachable), both knowledge tools refuse with `PRECONDITION_FAILED`.
 - Internal: the StartCLI process pipeline (launch, bounded output, stdin, timeout, kill) moved
   into `ProcessRun`, which the queue-entry helper shares; StartCLI behaviour and texts are
   unchanged.
+- `docs/tools.md` describes twenty-one tools.
+
+## [0.8.1] - 2026-11-11
+
+Fixes from the first INUBIT 9.0 live check and from imports on 8.1.
+
+### Changed
+
+- AWS SDK for Java v2 2.57.7 → 2.57.10 (the same artifacts). `THIRD-PARTY-NOTICES.md` is
+  updated.
+
+### Fixed
+
+- StartCLI on INUBIT 9.0 with a configured `tls.trustStore`: the 9.0.10 client ignores
+  `--trustStoreFilePath` for its login connection, so every StartCLI call (module inventory,
+  `export_artifacts`, process and write tools) failed with `PKIX path building failed`. The trust
+  store now also reaches StartCLI as `-Djavax.net.ssl.trustStore`/`-Djavax.net.ssl.trustStoreType`
+  in `JAVA_TOOL_OPTIONS` (not for a path with whitespace, `'` or `"`, which only the argument can
+  carry: Java reads `'` and `"` there as quotes, and an unpaired one stops the JVM).
+  Found in the INUBIT 9.0 live check (feature 017, T047).
+- The 9.0 client's TLS failure (`Authentication failed: Could not establish a secure connection
+  to the process engine.` with a TLS cause) is reported as `TLS_ERROR` instead of
+  `UNEXPECTED_RESPONSE`.
+- `import_artifacts` no longer rolls back a successful import because of what INUBIT normalizes
+  when it stores a workflow or a stylesheet; the verify refused these as `VERIFY_MISMATCH` and
+  rolled the import back (all observed on 8.1):
+  - INUBIT keeps the variables of a workflow in hash order, so a variable added at the end can
+    come back behind another one. The `Variable` elements of a workflow's `Variables` are now
+    compared by name in any order.
+  - INUBIT drops a namespace declaration on `Variables` that no variable uses (e.g. `xmlns:is`
+    without an `is:` type). Such a declaration no longer counts; a used one still does.
+  - INUBIT re-serializes an XSLT stylesheet (and WSDL): start tags on one line, no line break
+    between a leading comment and the root element, line breaks in attribute values as spaces.
+    Such files now also count as equal when they are the same XML with every text node,
+    whitespace between elements and in `xsl:text` included.
+  - INUBIT gives a workflow module sent without a `Comment` the comment of the module it uses
+    (seen for a globally used Throw module). The verification of an import and of its rollback
+    accept that added comment; a sent comment that comes back changed or missing still counts.
+
+  The first three also apply to the change and conflict checks of the development tools. The
+  order of everything else (modules, properties, assignments) stays significant, fingerprints
+  (confirmation codes, backups, the deployment ledger) and `deploy_release` are unchanged.
 
 ## [0.8.0] - 2026-11-07
 
@@ -936,7 +1056,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.6.4...v0.7.0

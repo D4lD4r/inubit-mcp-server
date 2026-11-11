@@ -56,7 +56,6 @@ public final class ArchiveExportService {
     public static final int MAX_WORKFLOWS = 50;
 
     private static final Logger LOG = LoggerFactory.getLogger(ArchiveExportService.class);
-    private static final int MAX_LOGGED = 100;
     private static final int MAX_NAME = 200;
     private static final int MAX_REASON = 500;
     private static final String NO_RECORD = "audit record not written";
@@ -140,11 +139,11 @@ public final class ArchiveExportService {
             ToolErrorException refused = record.refused(e.error());
             String counts = e.error().code() + ", nothing written";
             if (refused.error().equals(e.error())) {
-                logEnd(loggable(request.target()), AuditOutcome.REFUSED.name(), request, counts,
-                    auditId(record));
+                logEnd(LogText.loggable(request.target()), AuditOutcome.REFUSED.name(), request,
+                    counts, auditId(record));
             } else {
-                logEnd(loggable(request.target()), ErrorCode.INTERNAL.name(), request, counts,
-                    NO_RECORD);
+                logEnd(LogText.loggable(request.target()), ErrorCode.INTERNAL.name(), request,
+                    counts, NO_RECORD);
             }
             throw refused;
         }
@@ -362,7 +361,7 @@ public final class ArchiveExportService {
     private static void logEnd(String node, String outcome, ArchiveExportRequest request,
         String counts, String audited) {
         LOG.info("{} on {}: {} (diagram group {}: {}; {})", ArchiveExportAudit.CAPABILITY, node,
-            outcome, loggable(request.diagramGroup()), counts, audited);
+            outcome, LogText.loggable(request.diagramGroup()), counts, audited);
     }
 
     private static String auditId(ArchiveExportAudit record) {
@@ -580,11 +579,5 @@ public final class ArchiveExportService {
             }
             throw new ToolErrorException(e.error().withNode(node));
         }
-    }
-
-    /** A request value for the log: bounded, without control characters. */
-    private static String loggable(String value) {
-        String bounded = value.length() <= MAX_LOGGED ? value : value.substring(0, MAX_LOGGED);
-        return bounded.replaceAll("\\p{Cntrl}", "?");
     }
 }

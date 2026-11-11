@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Node;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.KeyMaterial;
 import de.dadecker.inubit.mcp.domain.model.SecretPlaceholder;
 import java.io.IOException;
 import java.io.StringReader;

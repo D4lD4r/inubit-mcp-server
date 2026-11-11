@@ -18,11 +18,13 @@ import de.dadecker.inubit.mcp.domain.model.RawEntryContent;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
+import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
+import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
@@ -63,7 +65,8 @@ final class StaleReportingPorts {
         return new PortSet(new Processes(ports.processes()), new Logs(ports.logs()),
             new Inventory(ports.inventory()), new ProcessControl(ports.processControl()),
             new Artifacts(ports.artifacts()), new Imports(ports.imports()),
-            new Tags(ports.tags()), new QueueEntryContent(ports.queueEntryContent()));
+            new Tags(ports.tags()), new Partners(ports.partners()),
+            new QueueEntryContent(ports.queueEntryContent()));
     }
 
     private <T> T call(Supplier<T> call) {
@@ -315,6 +318,19 @@ final class StaleReportingPorts {
         @Override
         public void tag(String tag, String diagramGroup, String owner, WritePermit permit) {
             runWrite(permit, () -> delegate.tag(tag, diagramGroup, owner, permit));
+        }
+    }
+
+    final class Partners implements PartnerManagementPort {
+        private final PartnerManagementPort delegate;
+
+        Partners(PartnerManagementPort delegate) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public Result read(String owner, List<DiagramRef> systemDiagrams) {
+            return call(() -> delegate.read(owner, systemDiagrams));
         }
     }
 

@@ -21,6 +21,19 @@ class ToolHintsTest {
             .isEqualTo(new ToolHints("Check", true, false, true, false));
     }
 
+    /**
+     * Feature 018 (T022): find_partners reads only and may be repeated; open world, since it talks
+     * to INUBIT.
+     */
+    @Test
+    void findPartnersIsReadOnlyIdempotentAndOpenWorld() {
+        ToolHints hints = ToolHints.readOnly("Find partners in the INUBIT Partner Management",
+            true, true);
+
+        assertThat(hints).isEqualTo(new ToolHints(
+            "Find partners in the INUBIT Partner Management", true, false, true, true));
+    }
+
     /** Feature 015 (research R-1): export_archives writes local files but changes nothing in INUBIT. */
     @Test
     void localWriteIsNeitherReadOnlyNorDestructiveNorIdempotentButOpenWorld() {
@@ -31,5 +44,17 @@ class ToolHintsTest {
         assertThat(hints.destructive()).isFalse();
         assertThat(hints.idempotent()).isFalse();
         assertThat(hints.openWorld()).isTrue();
+    }
+
+    /** Feature 019 (research D-10): record_knowledge writes local notes only, no INUBIT. */
+    @Test
+    void localOnlyWriteIsLikeLocalWriteButClosedWorld() {
+        ToolHints hints = ToolHints.localOnlyWrite("Record a note");
+
+        assertThat(hints.title()).isEqualTo("Record a note");
+        assertThat(hints.readOnly()).isFalse();
+        assertThat(hints.destructive()).isFalse();
+        assertThat(hints.idempotent()).isFalse();
+        assertThat(hints.openWorld()).isFalse();
     }
 }

@@ -47,6 +47,7 @@ import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
+import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
@@ -202,12 +203,18 @@ class CapabilityExtensionTest {
             ResultLimiter.withDefaults(), timeouts, id -> byId.get(id).cliTimeout(),
             id -> byId.get(id).hangingThreshold(), clock,
             ResultJson::size, gate, SecretTiming.NONE);
+        InventoryCache cache = new InventoryCache(clock,
+            id -> byId.get(id).inventory().cacheTtl());
+        PartnerService partners = new PartnerService(gateways, targets, new FanOut(),
+            ResultLimiter.withDefaults(), cache, id -> byId.get(id).inventory().owner(),
+            timeouts, id -> byId.get(id).cliExportTimeout(), ResultJson::size,
+            Terminology.DEFAULT, gate, SecretTiming.NONE, new PartnerAudit.Dependencies(
+                record -> { }, clock, "default", UUID::randomUUID));
         InventoryService inventory = new InventoryService(gateways, targets, new FanOut(),
-            ResultLimiter.withDefaults(), new InventoryCache(clock,
-                id -> byId.get(id).inventory().cacheTtl()), id -> byId.get(id).inventory().owner(),
+            ResultLimiter.withDefaults(), cache, id -> byId.get(id).inventory().owner(),
             timeouts, id -> byId.get(id).cliExportTimeout(), id -> byId.get(id).cliTimeout(),
             CliRunner.KILL_GRACE.multipliedBy(2), ResultJson::size, Terminology.DEFAULT, gate,
-            SecretTiming.NONE);
+            SecretTiming.NONE, partners);
         HealthService health = new HealthService(gateways, targets, new FanOut(), timeouts,
             clock, gate, versions, (node, version, timeout) -> {
                 throw new AssertionError("no client probe expected for " + node);
@@ -325,7 +332,7 @@ class CapabilityExtensionTest {
         };
         return new PortSet(processes, logs, undeclared(InventoryPort.class), processControl,
             undeclared(ArtifactPort.class), undeclared(ImportPort.class),
-            undeclared(TagPort.class));
+            undeclared(TagPort.class), undeclared(PartnerManagementPort.class));
     }
 
     /** A port of a capability 7.9 does not declare: the gate must refuse before it is used. */
@@ -465,7 +472,8 @@ class CapabilityExtensionTest {
         assertThat(texts(version.path("capabilities").path("usable")))
             .containsExactly("process_diagnosis", "log_diagnosis", "process_control");
         assertThat(notUsable(version)).containsExactly("monitoring", "inventory",
-            "workspace_export", "development_writes", "deployment", "e2e_test");
+            "partner_management", "workspace_export", "development_writes", "deployment",
+            "e2e_test");
     }
 
     // --- the declared versions are unchanged -------------------------------------------------
@@ -482,8 +490,8 @@ class CapabilityExtensionTest {
         JsonNode version = listVersions().get("qa/node1");
         assertThat(version.path("status").asString()).isEqualTo("supported");
         assertThat(texts(version.path("capabilities").path("usable"))).containsExactly(
-            "monitoring", "process_diagnosis", "log_diagnosis", "inventory", "workspace_export",
-            "development_writes", "deployment", "e2e_test", "process_control");
+            "monitoring", "process_diagnosis", "log_diagnosis", "inventory", "partner_management",
+            "workspace_export", "development_writes", "deployment", "e2e_test", "process_control");
         assertThat(built79).isEmpty();
         assertThat(calls79).isEmpty();
     }
@@ -517,7 +525,8 @@ class CapabilityExtensionTest {
         JsonNode version = listVersions().get("qa/node2");
         assertThat(version.path("status").asString()).isEqualTo("partially_supported");
         assertThat(texts(version.path("capabilities").path("usable")))
-            .containsExactly("monitoring", "process_diagnosis", "log_diagnosis", "inventory");
+            .containsExactly("monitoring", "process_diagnosis", "log_diagnosis", "inventory",
+                "partner_management");
         assertThat(notUsable(version)).containsExactly("inventory (StartCLI parts)",
             "workspace_export", "development_writes", "deployment", "e2e_test",
             "process_control");

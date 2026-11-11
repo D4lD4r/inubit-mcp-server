@@ -297,6 +297,7 @@ class MainTest {
             INUBIT_ACME_<GROUP>[_<NODE>]_<KIND> (macOS Keychain)
             Audit directory: %s
             Workspace: %s (ok)
+            Knowledge: %s (absent), recording on, 0 notes
             Group dev: archives: allowed
               Node dev/node1: read-only, cli: unavailable, inubit: V8_1, \
             secrets: credentialStore (macOS Keychain), \
@@ -310,7 +311,8 @@ class MainTest {
             INUBIT_ACME_QA_NODE2_USERNAME; move them to the credential store or Parameter Store \
             (docs/migration-environment-variables.md)
             Result: OK
-            """.formatted(file, home.resolve("audit"), home.resolve("workspace")));
+            """.formatted(file, home.resolve("audit"), home.resolve("workspace"),
+                home.resolve(".inubit-mcp/acme/knowledge")));
         assertThat(storesCreated).as("T015: no Parameter Store without an AWS node").hasValue(0);
     }
 
@@ -362,6 +364,7 @@ class MainTest {
             INUBIT_ACME_<GROUP>[_<NODE>]_<KIND> (macOS Keychain)
             Audit directory: %s
             Workspace: %s (ok)
+            Knowledge: %s (absent), recording on, 0 notes
             Group dev: archives: allowed, queueEntryRead: off
               Node dev/node1: read-only, cli: unavailable, inubit: V8_1, \
             secrets: credentialStore (macOS Keychain), \
@@ -375,7 +378,8 @@ class MainTest {
               - unsupported.queueEntryRead is enabled on production group prod: Queue Manager \
             entries are read through an undocumented INUBIT interface without vendor support
             Result: OK
-            """.formatted(file, home.resolve("audit"), home.resolve("workspace")));
+            """.formatted(file, home.resolve("audit"), home.resolve("workspace"),
+                home.resolve(".inubit-mcp/acme/knowledge")));
         assertThat(out()).doesNotContain("prod-user", "prod-Password-3");
         TestSecrets.assertNoLeak(out());
         TestSecrets.assertNoLeak(err());
@@ -792,8 +796,8 @@ class MainTest {
 
         assertThat(exit).as(out() + err()).isZero();
         String refused = "available: none; refused: monitoring, process diagnosis, log"
-            + " diagnosis, inventory, workspace export, development writes, deployment,"
-            + " end-to-end test, process control)";
+            + " diagnosis, inventory, partner management, workspace export, development writes,"
+            + " deployment, end-to-end test, process control)";
         assertThat(out())
             .contains("dev/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI"
                 + " only; " + refused + ", client: 6.1.0 (4.0.1–6.1.0; options: no trust-store"
@@ -839,8 +843,8 @@ class MainTest {
 
         assertThat(exit).as(out() + err()).isZero();
         String refused = "available: none; refused: monitoring, process diagnosis, log"
-            + " diagnosis, inventory, workspace export, development writes, deployment,"
-            + " end-to-end test, process control";
+            + " diagnosis, inventory, partner management, workspace export, development writes,"
+            + " deployment, end-to-end test, process control";
         assertThat(out())
             .contains("dev/node1: read-only, cli: unavailable, inubit: V6_1 (INUBIT 6.1, StartCLI"
                 + " only; " + refused + ", reading Queue Manager entries), secrets:"
@@ -1310,6 +1314,114 @@ class MainTest {
         assertThat(out()).as("nothing on the protocol stdout").isEmpty();
     }
 
+    // --- feature 019 T009: the knowledge directory keeps clear of the server's directories -----
+
+    @Test
+    void aKnowledgeDirectoryInsideTheServersPackageDirectoryStopsCheckAndStart()
+        throws IOException {
+        Path packages = home.resolve(".inubit-mcp/acme/packages");
+        Path file = config("""
+            profile:
+              name: acme
+            knowledge:
+              directory: %s
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+            """.formatted(packages.resolve("notes")));
+        String error = "The knowledge directory " + packages.resolve("notes") + " is inside the"
+            + " package directory " + packages + "; set knowledge.directory to a folder outside it";
+
+        assertThat(run("--check-config", "--config", file.toString())).isEqualTo(1);
+        assertThat(out()).contains(error);
+
+        stdout.reset();
+        assertThat(run("--config", file.toString())).isEqualTo(1);
+        assertThat(err()).contains("does not start", error);
+    }
+
+    // --- feature 019 T011: the knowledge line and the start-time warnings (FR-003) -----------
+
+    @Test
+    void checkConfigShowsTheAbsentDefaultKnowledgeDirectoryWithoutCreatingIt() throws IOException {
+        credentials();
+        Path file = validConfig();
+        Path knowledge = home.resolve(".inubit-mcp/acme/knowledge");
+
+        assertThat(run("--check-config", "--config", file.toString())).as(out()).isZero();
+
+        assertThat(out()).contains("Knowledge: " + knowledge + " (absent), recording on,"
+            + " 0 notes\n");
+        assertThat(knowledge).doesNotExist();
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void aKnowledgeDirectoryOthersMayReadIsAWarningAtCheckAndStartAndIsNotChanged()
+        throws IOException {
+        credentials();
+        Path knowledge = Files.createDirectories(home.resolve("Notes/acme"));
+        Files.setPosixFilePermissions(knowledge, PosixFilePermissions.fromString("rwxr-xr-x"));
+        // a configuration file in the home directory would hold ~/Notes (FR-002)
+        Path file = Files.createDirectories(home.resolve(".config/inubit-mcp"))
+            .resolve("acme.yaml");
+        Files.writeString(file, """
+            profile:
+              name: acme
+            knowledge:
+              directory: %s
+              recording: false
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+            """.formatted(knowledge));
+        String warning = "The knowledge directory " + knowledge + " is readable by group and"
+            + " others; run chmod 700 " + knowledge + " (the server does not change permissions)";
+
+        assertThat(run("--check-config", "--config", file.toString())).as(out()).isZero();
+
+        assertThat(out()).contains(warning)
+            .contains("Knowledge: " + knowledge + " (ok), recording off, 0 notes\n");
+        assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(knowledge)))
+            .isEqualTo("rwxr-xr-x");
+    }
+
+    @Test
+    void checkConfigCountsTheNotesWithoutNamingThem() throws IOException {
+        credentials();
+        Path knowledge = Files.createDirectories(home.resolve("Notes/acme"));
+        Files.writeString(Files.createDirectories(knowledge.resolve("systems"))
+            .resolve("sap-rfc.md"), "---\ntitle: SAP RFC\n---\nbody\n");
+        Files.writeString(knowledge.resolve("a.md"), "a");
+        Files.writeString(knowledge.resolve(".hidden.md"), "x");
+        Files.writeString(knowledge.resolve("other.txt"), "x");
+        Path file = Files.createDirectories(home.resolve(".config/inubit-mcp"))
+            .resolve("acme.yaml");
+        Files.writeString(file, """
+            profile:
+              name: acme
+            knowledge:
+              directory: %s
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+            """.formatted(knowledge));
+
+        assertThat(run("--check-config", "--config", file.toString())).as(out()).isZero();
+
+        assertThat(out()).contains("Knowledge: " + knowledge + " (ok), recording on, 2 notes\n")
+            .doesNotContain("sap-rfc").doesNotContain("SAP RFC");
+    }
+
     // --- 002 research D-9: profile selection --------------------------------------------------
 
     /** {@code <home>/.config/inubit-mcp/<fileName>.yaml} declaring {@code profileName}. */
@@ -1545,11 +1657,13 @@ class MainTest {
         assertThat(initialize.path("result").path("serverInfo").path("version").asString())
             .isEqualTo(BuildInfo.version());
         // US1 (Phase 3), US2 (Phase 4), US3 (Phase 5) and check_artifacts (feature 003); no
-        // write tool while write is disabled, no export without a CLI installation
+        // write tool while write is disabled, no export without a CLI installation; feature 019
+        // read_knowledge always, record_knowledge with knowledge.recording on (the default)
         assertThat(tools.path("result").path("tools"))
             .extracting(tool -> tool.path("name").asString())
-            .containsExactlyInAnyOrder("list_nodes", "get_health", "find_processes",
-                "query_logs", "list_inventory", "get_inventory_item", "check_artifacts");
+            .containsExactlyInAnyOrder("list_nodes", "get_health", "read_knowledge",
+                "record_knowledge", "find_processes", "query_logs", "list_inventory",
+                "get_inventory_item", "find_partners", "check_artifacts");
         JsonNode server = servers.path("result").path("structuredContent").path("groups").path(0)
             .path("nodes").path(0);
         assertThat(server.path("id").asString()).isEqualTo("dev/node1");
@@ -2063,16 +2177,18 @@ class MainTest {
     }
 
     @Test
-    void withoutAnOptInTheToolListIsExactlyThatOfZeroEightZero() throws Exception {
+    void withoutAnOptInTheToolListIsUnchangedByFeature020() throws Exception {
         credentials();
-        List<String> release080 = List.of("list_nodes", "get_health", "find_processes",
-            "query_logs", "list_inventory", "get_inventory_item", "export_artifacts",
-            "export_archives", "check_artifacts");
+        List<String> withoutFeature020 = List.of("list_nodes", "get_health",
+            "read_knowledge", "record_knowledge", "find_processes", "query_logs", "list_inventory",
+            "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+            "check_artifacts");
 
-        assertThat(announcedTools(configWithClientHome(""))).containsExactlyElementsOf(release080);
+        assertThat(announcedTools(configWithClientHome("")))
+            .containsExactlyElementsOf(withoutFeature020);
         assertThat(announcedTools(configWithClientHome(
             "    unsupported:\n      queueEntryRead: false\n")))
-            .containsExactlyElementsOf(release080);
+            .containsExactlyElementsOf(withoutFeature020);
     }
 
     @Test
@@ -2081,9 +2197,10 @@ class MainTest {
 
         assertThat(announcedTools(configWithClientHome(
             "    unsupported:\n      queueEntryRead: true\n")))
-            .containsExactly("list_nodes", "get_health", "find_processes", "query_logs",
-                "read_queue_entry", "list_inventory", "get_inventory_item", "export_artifacts",
-                "export_archives", "check_artifacts");
+            .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
+                "find_processes", "query_logs", "read_queue_entry", "list_inventory",
+                "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+                "check_artifacts");
     }
 
     @Test
@@ -2094,6 +2211,31 @@ class MainTest {
 
         assertThat(lines).anyMatch(line -> line.contains("started for profile acme"));
         assertThat(lines).noneMatch(line -> line.contains("pinPerServer"));
+    }
+
+    @Test
+    void theStartWaitsForTheCredentialsAndListsTheNotesWithoutTheirSecrets(@TempDir Path outside)
+        throws Exception {
+        // feature 019 T024 (D-7, D-8): with notes, serve prepares the credentials before the
+        // instructions; in time, the list is shown masked and no "withheld" line is logged
+        credentials();
+        Path knowledge = Files.createDirectories(outside.resolve("knowledge/partners"));
+        Files.writeString(knowledge.resolve("acme.md"),
+            "---\ntitle: Login " + PASSWORD + "\n---\nuse " + PASSWORD);
+        Path file = config(Files.readString(validConfig()) + "knowledge:\n  directory: "
+            + outside.resolve("knowledge") + "\n");
+
+        List<String> log = logOf(Launcher.class, () -> serve(file, session -> {
+            String instructions = session.initialize.path("result").path("instructions")
+                .asString();
+            assertThat(instructions).contains("Notes (newest first):",
+                "\n- \"partners/acme\" — \"Login ***\"");
+            assertThat(session.protocol.rawText()).doesNotContain(PASSWORD);
+        }));
+
+        assertThat(credentialStore.get().reads()).isNotEmpty();
+        assertThat(log).noneMatch(line -> line.contains("withheld"))
+            .noneMatch(line -> line.contains(PASSWORD));
     }
 
     @Test
@@ -2146,7 +2288,7 @@ class MainTest {
 
         serve(validConfig(), session -> {
             assertThat(session.initialize.path("result").path("instructions").asString())
-                .endsWith(" A newer inubit-mcp-server 99.0.0 is available (installed "
+                .endsWith("\n\nA newer inubit-mcp-server 99.0.0 is available (installed "
                     + BuildInfo.version() + "): https://github.com/D4lD4r/inubit-mcp-server/"
                     + "releases/tag/v99.0.0; update manually.");
             assertThat(session.call(2, "list_nodes", "{}").path("result").path("content"))

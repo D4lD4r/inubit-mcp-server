@@ -29,37 +29,37 @@ following libraries (the runtime dependencies of `pom.xml`, as resolved by
 | `ch.qos.logback:logback-core:1.5.38` | dual-licensed: EPL-2.0 **or** LGPL-2.1-only | https://www.eclipse.org/legal/epl-v20.html, https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html |
 | `org.slf4j:slf4j-api:2.0.17` | MIT License | https://opensource.org/license/mit |
 | `net.sf.saxon:Saxon-HE:10.9` | Mozilla Public License 2.0 (MPL-2.0) | https://www.mozilla.org/MPL/2.0/ |
-| `software.amazon.awssdk:annotations:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:auth:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:aws-core:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:aws-json-protocol:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:aws-query-protocol:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:checksums:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:checksums-spi:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:endpoints-spi:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:eventstream:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:http-auth:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:http-auth-aws:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:http-auth-aws-eventstream:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:http-auth-spi:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:http-client-spi:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:identity-spi:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:json-utils:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:metrics-spi:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:profiles:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:protocol-core:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:regions:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:retries:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:retries-spi:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:sdk-core:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:ssm:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:sso:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:ssooidc:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:sts:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:third-party-jackson-core:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:url-connection-client:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:utils:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
-| `software.amazon.awssdk:utils-lite:2.57.7` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:annotations:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:auth:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:aws-core:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:aws-json-protocol:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:aws-query-protocol:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:checksums:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:checksums-spi:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:endpoints-spi:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:eventstream:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:http-auth:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:http-auth-aws:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:http-auth-aws-eventstream:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:http-auth-spi:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:http-client-spi:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:identity-spi:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:json-utils:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:metrics-spi:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:profiles:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:protocol-core:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:regions:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:retries:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:retries-spi:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:sdk-core:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:ssm:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:sso:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:ssooidc:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:sts:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:third-party-jackson-core:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:url-connection-client:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:utils:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
+| `software.amazon.awssdk:utils-lite:2.57.10` | Apache License, Version 2.0 | https://aws.amazon.com/apache2.0 |
 | `net.java.dev.jna:jna:5.19.1` | dual-licensed: Apache License, Version 2.0 **or** GNU Lesser General Public License 2.1 or later; used under the Apache License 2.0 | https://www.apache.org/licenses/LICENSE-2.0.txt, https://www.gnu.org/licenses/old-licenses/lgpl-2.1 |
 
 `jackson-core` itself bundles code of FastDoubleParser (MIT License, with third-party code under

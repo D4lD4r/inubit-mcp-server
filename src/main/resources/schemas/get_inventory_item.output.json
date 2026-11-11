@@ -147,6 +147,90 @@
             "type": "string"
           }
         },
+        "partnerUsage": {
+          "type": "object",
+          "description": "Technical workflows only: the partner variables it uses, whether it has a PartnerManagement module, and the communication clouds of the owner's system diagrams whose ReferencableTWFs name it; names only, no partner data. Without variables and module no system diagram is read",
+          "required": [
+            "variables",
+            "partnerManagementNode"
+          ],
+          "properties": {
+            "variables": {
+              "type": "array",
+              "description": "The distinct ISPartnerProtocol.* and ISPartnerParameter.* variables, sorted",
+              "items": {
+                "type": "string"
+              }
+            },
+            "partnerManagementNode": {
+              "type": "boolean",
+              "description": "Whether the workflow has a module of type PartnerManagement"
+            },
+            "systemDiagrams": {
+              "type": "array",
+              "description": "Absent if no system diagram was read: each communication cloud whose ReferencableTWFs name the workflow (case-insensitively), in the order of the system diagram list",
+              "items": {
+                "type": "object",
+                "required": [
+                  "systemDiagram",
+                  "cloud"
+                ],
+                "properties": {
+                  "systemDiagram": {
+                    "$ref": "#/$defs/DiagramRef"
+                  },
+                  "cloud": {
+                    "type": "string",
+                    "description": "The module name of the communication cloud"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "unavailable": {
+              "type": "object",
+              "description": "Why the system diagrams were not read (the Partner Management is refused on that {node} or its read failed), or the first system diagram that could not be read next to the clouds of the others; absent if all were read",
+              "required": [
+                "code",
+                "message",
+                "nextStep"
+              ],
+              "properties": {
+                "code": {
+                  "enum": [
+                    "TARGET_UNKNOWN",
+                    "UNREACHABLE",
+                    "TIMEOUT",
+                    "TLS_ERROR",
+                    "AUTH_FAILED",
+                    "FORBIDDEN",
+                    "MAINTENANCE_MODE",
+                    "NOT_FOUND",
+                    "INVALID_INPUT",
+                    "CLI_UNAVAILABLE",
+                    "UNEXPECTED_RESPONSE",
+                    "WRITE_DISABLED",
+                    "PRODUCTION_PROTECTED",
+                    "CONFIRMATION_REQUIRED",
+                    "CONFIRMATION_INVALID",
+                    "PRECONDITION_FAILED",
+                    "UNSUPPORTED_VERSION",
+                    "NOT_CONFIGURED",
+                    "INTERNAL"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "nextStep": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
         "unavailable": {
           "type": "array",
           "description": "Parts that could not be obtained",
@@ -232,6 +316,22 @@
           "type": "string"
         },
         "nodeId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "DiagramRef": {
+      "type": "object",
+      "required": [
+        "name",
+        "diagramGroup"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "diagramGroup": {
           "type": "string"
         }
       },

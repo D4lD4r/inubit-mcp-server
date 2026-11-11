@@ -2,6 +2,8 @@ package de.dadecker.inubit.mcp.infra;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.domain.model.Masked;
+import de.dadecker.inubit.mcp.domain.model.SecretSpan;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -48,6 +50,30 @@ class SecretScrubberTest {
         assertThat(scrubber.scrub("pw pw-xpw")).isEqualTo("*** ***-x***");
         // adjacent occurrences form one masked run
         assertThat(scrubber.scrub("pwpw")).isEqualTo("***");
+    }
+
+    @Test
+    void occurrencesAreTheSpansOfEveryHeldValueIncludingOverlaps() {
+        scrubber.register("abcab");
+        scrubber.register("cabx");
+
+        assertThat(scrubber.occurrences("xxabcabxabcab")).containsExactlyInAnyOrder(
+            new SecretSpan(2, 7), new SecretSpan(8, 13), new SecretSpan(4, 8));
+        assertThat(scrubber.occurrences("nothing here")).isEmpty();
+        assertThat(scrubber.occurrences("")).isEmpty();
+        assertThat(scrubber.occurrences(null)).isEmpty();
+        assertThat(new SecretScrubber().occurrences("abcab")).isEmpty();
+    }
+
+    @Test
+    void occurrencesFindTheEncodedFormsAndScrubMasksExactlyThem() {
+        scrubber.register("a\"b");
+        String text = "{\"p\":\"a\\\"b\"} and a\"b";
+
+        assertThat(scrubber.occurrences(text)).hasSize(2);
+        assertThat(scrubber.scrub(text))
+            .isEqualTo(Masked.of(text, scrubber.occurrences(text)).text())
+            .isEqualTo("{\"p\":\"***\"} and ***");
     }
 
     @Test

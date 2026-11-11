@@ -70,9 +70,21 @@
 #         to a few elements
 #   sample objects (no defaults; required by the cases that use them, see --list):
 #         RECORD_OWNER (inventory owner user group; also kept by the anonymizer),
-#         RECORD_SAMPLE_WORKFLOW, RECORD_SAMPLE_DIAGRAM, RECORD_SAMPLE_GROUP; each must match
+#         RECORD_SAMPLE_WORKFLOW, RECORD_SAMPLE_DIAGRAM, RECORD_SAMPLE_GROUP,
+#         RECORD_SAMPLE_SYSTEMDIAGRAM (a system diagram that carries a Partner Management),
+#         RECORD_SAMPLE_SYSTEMDIAGRAM_GROUP (its diagram group); each must match
 #         ^[A-Za-z0-9_.-]{1,200}$. RECORD_KEEP: further user-group names the anonymizer keeps
 #         (comma-separated).
+#   system diagrams (feature 018, research D-1; 8.1 only, read-only): model_export_systemdiagram
+#         (REST export of RECORD_SAMPLE_SYSTEMDIAGRAM) and export_systemdiagram (StartCLI export of
+#         the system diagrams of RECORD_SAMPLE_SYSTEMDIAGRAM_GROUP) keep workflow/workflow.xml and
+#         archive.properties; anonymize.py replaces every value of the PartnerManagementSettings
+#         subtree (partners, hosts, logins, secrets, workflow references) by synthetic values and
+#         keeps the first 5 partners (--partner-limit 5). Record both with the same
+#         RECORD_ANON_STATE, so that equal values get equal placeholders in both fixtures (D-1
+#         compares them). Diagram, group and workflow names outside that subtree are replaced
+#         afterwards like for every fixture (synthesize_names.py and neutralize.py with the local
+#         maps).
 #
 # Raw, unanonymized output only lives in a private temporary directory that is removed on exit.
 set -euo pipefail
@@ -115,6 +127,10 @@ readonly OWNER="${RECORD_OWNER:-}"
 readonly SAMPLE_WORKFLOW="${RECORD_SAMPLE_WORKFLOW:-}"
 readonly SAMPLE_DIAGRAM="${RECORD_SAMPLE_DIAGRAM:-}"
 readonly SAMPLE_GROUP="${RECORD_SAMPLE_GROUP:-}"
+readonly SAMPLE_SYSTEMDIAGRAM="${RECORD_SAMPLE_SYSTEMDIAGRAM:-}"
+readonly SAMPLE_SYSTEMDIAGRAM_GROUP="${RECORD_SAMPLE_SYSTEMDIAGRAM_GROUP:-}"
+# Partner entries kept per Partners list of a system diagram's Partner Management (feature 018).
+readonly PARTNER_LIMIT=5
 readonly EXPORT_FILE_TOKEN='@EXPORT_FILE@'
 
 # The INUBIT 9.0 catalogue (RECORD_INUBIT_LINE=9.0; research D-10): REST and POSIX StartCLI, all
@@ -172,6 +188,8 @@ list_cases() {
     local owner="${OWNER:-<RECORD_OWNER>}" workflow="${SAMPLE_WORKFLOW:-<RECORD_SAMPLE_WORKFLOW>}"
     local diagram="${SAMPLE_DIAGRAM:-<RECORD_SAMPLE_DIAGRAM>}"
     local group="${SAMPLE_GROUP:-<RECORD_SAMPLE_GROUP>}"
+    local system_diagram="${SAMPLE_SYSTEMDIAGRAM:-<RECORD_SAMPLE_SYSTEMDIAGRAM>}"
+    local system_group="${SAMPLE_SYSTEMDIAGRAM_GROUP:-<RECORD_SAMPLE_SYSTEMDIAGRAM_GROUP>}"
     for type in "${LOG_TYPES[@]}"; do
         printf 'log_%-38s REST GET  /ibis/rest/log/%s?format=json&noOfItems=5\n' "$type" "$type"
     done
@@ -188,6 +206,8 @@ list_cases() {
         "${diagram}" "${owner}"
     printf '%-42s REST GET  /ibis/rest/model/export/%s (workflow.xml, archive.properties)\n' \
         model_export_sample "${diagram}"
+    printf '%-42s REST GET  /ibis/rest/model/export/%s (system diagram; workflow.xml, %s)\n' \
+        model_export_systemdiagram "${system_diagram}" "archive.properties, ${PARTNER_LIMIT} partners"
     printf '%-42s CLI  processErrorStart %s\n' processErrorStart_unknown "${UNKNOWN_PID}"
     printf '%-42s CLI  processErrorStart %s (JVM default locale)\n' \
         processErrorStart_unknown_default_locale "${UNKNOWN_PID}"
@@ -214,6 +234,9 @@ list_cases() {
         export_history_sample "${group}"
     printf '%-42s CLI  export of all modules of %s (module/module.xml, 20 modules)\n' \
         export_modules_sample "${owner}"
+    printf '%-42s CLI  export systemdiagram group %s of %s (workflow.xml, %s)\n' \
+        export_systemdiagram "${system_group}" "${owner}" \
+        "archive.properties, ${PARTNER_LIMIT} partners"
 }
 
 # Values inserted into --execCommand or a URL path must pass the allowlist of research R-11.
@@ -313,6 +336,12 @@ define_case() {
             kind=rest path="/ibis/rest/model/export/${SAMPLE_DIAGRAM}"
             zip_entries=(workflow/workflow.xml archive.properties)
             anon_extra=(--xml-drop WorkflowModule) ;;
+        model_export_systemdiagram)
+            # feature 018 (research D-1): the REST channel candidate for the Partner Management
+            require_sample RECORD_SAMPLE_SYSTEMDIAGRAM "${SAMPLE_SYSTEMDIAGRAM}"
+            kind=rest path="/ibis/rest/model/export/${SAMPLE_SYSTEMDIAGRAM}"
+            zip_entries=(workflow/workflow.xml archive.properties)
+            anon_extra=(--partner-limit "${PARTNER_LIMIT}") ;;
         processErrorStart_unknown)
             kind=cli command="processErrorStart ${UNKNOWN_PID}" preflight_unknown_pid=yes ;;
         processErrorStart_unknown_default_locale)
@@ -351,6 +380,16 @@ define_case() {
             command+=" --exportFile '${EXPORT_FILE_TOKEN}'"
             zip_entries=(module/module.xml)
             anon_extra=(--xml-limit Module=20) ;;
+        export_systemdiagram)
+            # feature 018 (research D-1): the StartCLI channel candidate for the Partner Management
+            require_sample RECORD_OWNER "${OWNER}"
+            require_sample RECORD_SAMPLE_SYSTEMDIAGRAM_GROUP "${SAMPLE_SYSTEMDIAGRAM_GROUP}"
+            kind=cli
+            command="export --exportWorkflowUser '${OWNER}' --exportWorkflowType 'systemdiagram'"
+            command+=" --exportWorkflowGroup '${SAMPLE_SYSTEMDIAGRAM_GROUP}'"
+            command+=" --exportFile '${EXPORT_FILE_TOKEN}'"
+            zip_entries=(archive.properties workflow/workflow.xml)
+            anon_extra=(--partner-limit "${PARTNER_LIMIT}") ;;
         v61_help)
             kind=cli_local local_option=-h ;;
         v61_version)

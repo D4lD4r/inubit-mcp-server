@@ -1016,4 +1016,163 @@ class NodeSecretsTest {
             new de.dadecker.inubit.mcp.testing.FakeCredentialStore(), scrubber, clock).timeout())
             .isEqualTo(NodeSecrets.CREDENTIAL_STORE_TIMEOUT);
     }
+
+    // --- awaitSettled (feature 019 T014, research D-7) ---
+
+    private static final NodeSecrets.Settled HELD = new NodeSecrets.Settled.Held();
+    private static final NodeSecrets.Settled NOTHING =
+        new NodeSecrets.Settled.NothingConfigured();
+    private static final NodeSecrets.Settled WAITING = new NodeSecrets.Settled.Waiting();
+
+    private static NodeSecrets.Settled failed(FailureKind kind) {
+        return new NodeSecrets.Settled.Failed(kind);
+    }
+
+    @Test
+    void awaitSettledIsHeldAfterTheReadAndReadsOnce() {
+        putValid();
+        NodeSecrets secrets = secrets();
+
+        assertThat(secrets.awaitSettled(LONG)).isEqualTo(HELD);
+        assertThat(secrets.awaitSettled(LONG)).isEqualTo(HELD);
+
+        assertThat(secrets.held()).isPresent();
+        assertThat(store.calls()).isEqualTo(1);
+        assertThat(scrubber.scrub("x test-password-1 y")).isEqualTo("x *** y");
+    }
+
+    @Test
+    void awaitSettledIsNothingConfiguredWhenNoNameExistsAlsoDuringTheBackOff() {
+        NodeSecrets secrets = secrets();
+
+        assertThat(secrets.awaitSettled(LONG)).isEqualTo(NOTHING);
+        clock.advance(Duration.ofSeconds(29));
+        assertThat(secrets.awaitSettled(LONG)).isEqualTo(NOTHING);
+
+        assertThat(store.calls()).isEqualTo(1);
+        assertThat(failure(secrets, LONG).code()).as("current is unchanged")
+            .isEqualTo(ErrorCode.AUTH_FAILED);
+    }
+
+    @Test
+    void aFoundValueBesideAMissingNameIsAFailureNotNothingConfigured() {
+        store.put(EU, PASSWORD, "test-password-1");
+
+        assertThat(secrets().awaitSettled(LONG)).isEqualTo(failed(FailureKind.NOT_FOUND));
+    }
+
+    @Test
+    void anInvalidValueBesideAMissingNameIsInvalidValue() {
+        store.put(EU, PASSWORD, "abc");
+
+        assertThat(secrets().awaitSettled(LONG)).isEqualTo(failed(FailureKind.INVALID_VALUE));
+    }
+
+    @Test
+    void awaitSettledIsWaitingWhileTheReadOutlivesTheBoundThenHeld() {
+        putValid();
+        store.delay(EU, Duration.ofMillis(500));
+        NodeSecrets secrets = secrets();
+
+        assertThat(secrets.awaitSettled(Duration.ofMillis(50))).isEqualTo(WAITING);
+        assertThat(secrets.awaitSettled(LONG)).isEqualTo(HELD);
+        assertThat(store.calls()).isEqualTo(1);
+    }
+
+    static Stream<Arguments> settledFailures() {
+        return Stream.of(
+            Arguments.of(call(FailureKind.UNREACHABLE), FailureKind.UNREACHABLE),
+            Arguments.of(call(FailureKind.NO_CREDENTIALS), FailureKind.NO_CREDENTIALS),
+            Arguments.of(call(FailureKind.UNKNOWN_PROFILE), FailureKind.UNKNOWN_PROFILE),
+            Arguments.of(perName(FailureKind.ACCESS_DENIED), FailureKind.ACCESS_DENIED),
+            Arguments.of(perName(FailureKind.UNREACHABLE), FailureKind.UNREACHABLE));
+    }
+
+    @ParameterizedTest
+    @MethodSource("settledFailures")
+    void awaitSettledClassifiesAFailureAlsoDuringTheBackOffAndNeverThrows(Scripter scripter,
+        FailureKind kind) {
+        scripter.script(store);
+        NodeSecrets secrets = secrets();
+
+        assertThat(secrets.awaitSettled(LONG)).isEqualTo(failed(kind));
+        clock.advance(Duration.ofSeconds(29));
+        assertThat(secrets.awaitSettled(LONG)).isEqualTo(failed(kind));
+
+        assertThat(store.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void theBackOffOfAFailedCurrentAlsoAnswersAwaitSettledAndViceVersa() {
+        store.failCall(EU, FailureKind.UNREACHABLE, AWS_DETAIL);
+        NodeSecrets first = secrets();
+        NodeSecrets second = secrets();
+
+        ToolError error = failure(first, LONG);
+        assertThat(first.awaitSettled(LONG)).isEqualTo(failed(FailureKind.UNREACHABLE));
+        assertThat(second.awaitSettled(LONG)).isEqualTo(failed(FailureKind.UNREACHABLE));
+        assertThat(failure(second, LONG)).isEqualTo(error);
+
+        assertThat(store.calls()).isEqualTo(2);
+    }
+
+    @Test
+    void aReadThatNeverEndsIsUnreachable() {
+        putValid();
+        store.delay(EU, Duration.ofSeconds(60));
+        NodeSecrets secrets = new NodeSecrets(plan(NODE1, USERNAME, PASSWORD, Optional.empty()),
+            store, scrubber, clock, Duration.ofMillis(300));
+
+        assertThat(secrets.awaitSettled(Duration.ofMinutes(5)))
+            .isEqualTo(failed(FailureKind.UNREACHABLE));
+    }
+
+    @Test
+    void anInterruptedAwaitIsWaitingKeepsTheInterruptAndTheReadContinues() throws Exception {
+        putValid();
+        store.delay(EU, Duration.ofMillis(500));
+        NodeSecrets secrets = secrets();
+        List<Object> seen = new ArrayList<>();
+        Thread caller = Thread.ofVirtual().start(() -> {
+            seen.add(secrets.awaitSettled(LONG));
+            seen.add(Thread.currentThread().isInterrupted());
+        });
+        while (store.calls() == 0) {
+            Thread.onSpinWait();
+        }
+        caller.interrupt();
+        caller.join();
+
+        assertThat(seen).containsExactly(WAITING, true);
+        assertThat(secrets.awaitSettled(LONG)).isEqualTo(HELD);
+        assertThat(store.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void withoutEndToEndNamesTheEndToEndReadIsNothingConfigured() {
+        assertThat(secrets().awaitSettledE2e(LONG)).isEqualTo(NOTHING);
+        assertThat(store.calls()).isZero();
+    }
+
+    @Test
+    void theEndToEndReadSettlesOnItsOwn() {
+        putValid();
+        putValidE2e();
+        NodeSecrets secrets = secretsWithE2e(NodeSecrets.STORE_TIMEOUT);
+
+        assertThat(secrets.awaitSettledE2e(LONG)).isEqualTo(HELD);
+
+        assertThat(secrets.held()).isEmpty();
+        assertThat(scrubber.scrub("test-e2e-password")).isEqualTo("***");
+    }
+
+    @Test
+    void missingEndToEndNamesAreNothingConfiguredOneFoundIsAFailure() {
+        assertThat(secretsWithE2e(NodeSecrets.STORE_TIMEOUT).awaitSettledE2e(LONG))
+            .isEqualTo(NOTHING);
+
+        store.put(EU, E2E_PASSWORD, "test-e2e-password");
+        assertThat(secretsWithE2e(NodeSecrets.STORE_TIMEOUT).awaitSettledE2e(LONG))
+            .isEqualTo(failed(FailureKind.NOT_FOUND));
+    }
 }

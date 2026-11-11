@@ -64,21 +64,31 @@ public final class CapabilityMatrix {
      */
     private static final Entry V6_1 = new Entry(new VersionRange(6, 1, 6, 1),
         Map.of(Capability.MONITORING, SupportState.UNSUPPORTED,
-            Capability.PROCESS_DIAGNOSIS, SupportState.UNSUPPORTED),
+            Capability.PROCESS_DIAGNOSIS, SupportState.UNSUPPORTED,
+            Capability.PARTNER_MANAGEMENT, SupportState.UNSUPPORTED),
         Map.of(Capability.MONITORING, Set.of(Channel.CLI),
             Capability.PROCESS_DIAGNOSIS, Set.of(Channel.CLI)),
         true);
 
     /**
-     * 9.0: as 8.1, reading Queue Manager entries included since its recorded 9.0 error entry
-     * (feature 020, FR-019, research D-20).
+     * 9.0: everything as on 8.1 except partner management, which runs with a warning until recorded
+     * 9.0 responses are under contract test (feature 018, FR-016, research D-7); reading Queue
+     * Manager entries included since its recorded 9.0 error entry (feature 020, FR-019, research
+     * D-20).
      */
-    private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0), ALL_SUPPORTED);
+    private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0),
+        with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED));
 
     /** Unknown versions: reading Queue Manager entries is refused, not run with a warning. */
     private static final CapabilityMatrix PRODUCTION = new CapabilityMatrix(
         List.of(V6_1, new Entry(new VersionRange(8, 1, 8, 1), ALL_SUPPORTED), V9_0),
         with(READS_UNVERIFIED, Capability.QUEUE_ENTRY_READ, SupportState.UNSUPPORTED));
+
+    /**
+     * The version lines whose stored secret forms are verified as comparable across servers, so
+     * that equal fingerprints mean equal values (feature 018, FR-012a, research D-5): 8.1 only.
+     */
+    public static final Set<MajorMinor> COMPARABLE_SECRET_LINES = Set.of(new MajorMinor(8, 1));
 
     private final List<Entry> entries;
     private final Map<Capability, SupportState> unknown;
@@ -96,10 +106,11 @@ public final class CapabilityMatrix {
 
     /**
      * The production declaration of research D-3: 6.1.x CLI-only with every capability
-     * unsupported; 8.1.x and (feature 017, research D-9) 9.0.x all supported; any other known
-     * version and unknown versions: reads unverified, writes unsupported. Feature 020 (research
-     * D-6, D-20): reading Queue Manager entries is supported on 8.1 and 9.0, on any other and on
-     * unknown versions unsupported.
+     * unsupported; 8.1.x and (feature 017, research D-9) 9.0.x all supported, except partner
+     * management on 9.0.x, which is unverified (feature 018); any other known version and unknown
+     * versions: reads unverified, writes unsupported. Feature 020 (research D-6, D-20): reading
+     * Queue Manager entries is supported on 8.1 and 9.0, on any other and on unknown versions
+     * unsupported.
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;

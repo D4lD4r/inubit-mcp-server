@@ -1031,6 +1031,7 @@ class VersionGateTest {
             "log diagnosis; read the logs of INUBIT 6.1 in the Workbench");
         expected.put(Capability.INVENTORY,
             "inventory; modules of INUBIT 6.1 cannot be looked up; " + other);
+        expected.put(Capability.PARTNER_MANAGEMENT, "partner management; " + other);
         expected.put(Capability.WORKSPACE_EXPORT, "workspace export; use the Workbench export");
         expected.put(Capability.DEVELOPMENT_WRITE, "development writes; use the Workbench");
         expected.put(Capability.DEPLOYMENT, "deployment; use the Workbench");

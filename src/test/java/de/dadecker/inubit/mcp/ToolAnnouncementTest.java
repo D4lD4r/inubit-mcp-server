@@ -25,15 +25,18 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * T012 (feature 012, research D-12, US3-4): a read tool is announced only if some node may run
  * its capability; {@code list_nodes}, {@code get_health} and {@code check_artifacts} always.
+ * Feature 019 (research D-15): {@code read_knowledge} always, right after {@code get_health},
+ * and {@code record_knowledge} after it with {@code knowledge.recording} on (the default).
  * Feature 020 (T030, FR-002, SC-002): {@code read_queue_entry} only for an opted-in node that may
  * run the capability and has a client home.
  */
 class ToolAnnouncementTest {
 
     private static final List<String> ALWAYS = List.of("list_nodes", "get_health",
-        "check_artifacts");
+        "read_knowledge", "record_knowledge", "check_artifacts");
     private static final List<String> READS = List.of("find_processes", "query_logs",
-        "list_inventory", "get_inventory_item", "export_artifacts", "export_archives");
+        "list_inventory", "get_inventory_item", "export_artifacts", "export_archives",
+        "find_partners");
 
     /** The production matrix after the flip of the 6.1 capabilities (T040). */
     private static final CapabilityMatrix FLIPPED = new CapabilityMatrix(List.of(
@@ -148,22 +151,25 @@ class ToolAnnouncementTest {
     }
 
     @Test
-    void withoutAnOptInTheToolListIsExactlyThatOfZeroEightZero() {
-        List<String> release080 = List.of("list_nodes", "get_health", "find_processes",
-            "query_logs", "list_inventory", "get_inventory_item", "export_artifacts",
-            "export_archives", "check_artifacts");
+    void withoutAnOptInTheToolListIsUnchangedByFeature020() {
+        List<String> withoutFeature020 = List.of("list_nodes", "get_health",
+            "read_knowledge", "record_knowledge", "find_processes", "query_logs", "list_inventory",
+            "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+            "check_artifacts");
 
-        assertThat(queueEntryTools("AUTO", cliHome(), false)).containsExactlyElementsOf(release080);
+        assertThat(queueEntryTools("AUTO", cliHome(), false))
+            .containsExactlyElementsOf(withoutFeature020);
         assertThat(queueEntryTools("AUTO", optIn("false") + "\n" + cliHome(), false))
-            .containsExactlyElementsOf(release080);
+            .containsExactlyElementsOf(withoutFeature020);
     }
 
     @Test
     void anOptedInAutoNodeWithAClientHomeAnnouncesTheQueueEntryRead() {
         assertThat(queueEntryTools("AUTO", optIn("true") + "\n" + cliHome(), false))
-            .containsExactly("list_nodes", "get_health", "find_processes", "query_logs",
-                "read_queue_entry", "list_inventory", "get_inventory_item", "export_artifacts",
-                "export_archives", "check_artifacts");
+            .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
+                "find_processes", "query_logs", "read_queue_entry", "list_inventory",
+                "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+                "check_artifacts");
     }
 
     @Test
@@ -217,6 +223,12 @@ class ToolAnnouncementTest {
     }
 
     @Test
+    void theKnowledgeToolsFollowGetHealthEvenWithoutAnyReadTool() {
+        assertThat(toolNames("V6_1", "V6_1", CapabilityMatrix.production()).subList(0, 4))
+            .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge");
+    }
+
+    @Test
     void aNodePinnedToEightOneDoesNotAnnounceTheExportsForANineEntry() {
         assertThat(toolNamesWithNineEntry("V8_1")).doesNotContain("export_artifacts",
             "export_archives");
@@ -253,7 +265,7 @@ class ToolAnnouncementTest {
 
         assertThat(names).containsAll(ALWAYS).contains("find_processes")
             .doesNotContain("query_logs", "list_inventory", "get_inventory_item",
-                "export_artifacts", "export_archives");
+                "export_artifacts", "export_archives", "find_partners");
     }
 
     @Test

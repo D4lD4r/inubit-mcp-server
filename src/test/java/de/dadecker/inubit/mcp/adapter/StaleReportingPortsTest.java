@@ -19,6 +19,7 @@ import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
+import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
@@ -39,7 +40,8 @@ import org.junit.jupiter.api.Test;
  * Feature 009 T007 (research D-10): every method of every port the factory hands out reports
  * {@code stale(node)} for an {@code UNEXPECTED_RESPONSE} and rethrows the same exception; other
  * failures and results pass through unreported. Feature 017 (research D-24): a write method
- * reports {@code staleAfterWrite(node, permit)} with its own permit instead.
+ * reports {@code staleAfterWrite(node, permit)} with its own permit instead. Feature 018 (T013,
+ * research D-4): the partner management port is wrapped like every other port.
  */
 class StaleReportingPortsTest {
 
@@ -65,7 +67,8 @@ class StaleReportingPortsTest {
             throwing(ProcessControlPort.class, failure),
             throwing(ArtifactPort.class, failure),
             throwing(ImportPort.class, failure),
-            throwing(TagPort.class, failure));
+            throwing(TagPort.class, failure),
+            throwing(PartnerManagementPort.class, failure));
     }
 
     /** Each port of the wrapped set with its interface, monitoring included. */
@@ -86,6 +89,7 @@ class StaleReportingPortsTest {
         all.add(new Object[] {ImportPort.class,
             ports.imports()});
         all.add(new Object[] {TagPort.class, ports.tags()});
+        all.add(new Object[] {PartnerManagementPort.class, ports.partners()});
         return all;
     }
 
@@ -171,8 +175,8 @@ class StaleReportingPortsTest {
         PortSet others = throwingPorts(failure(ErrorCode.NOT_FOUND));
 
         assertThat(stale.ports(new PortSet(answering, others.logs(), others.inventory(),
-            others.processControl(), others.artifacts(), others.imports(), others.tags()))
-            .processes().queueEntries("4711")).isSameAs(answer);
+            others.processControl(), others.artifacts(), others.imports(), others.tags(),
+            others.partners())).processes().queueEntries("4711")).isSameAs(answer);
         assertThat(asked).containsExactly("4711");
         assertThat(versions.events()).isEmpty();
 
@@ -228,7 +232,7 @@ class StaleReportingPortsTest {
         PortSet others = throwingPorts(failure(ErrorCode.NOT_FOUND));
         return new PortSet(others.processes(), others.logs(), others.inventory(),
             others.processControl(), others.artifacts(), others.imports(), others.tags(),
-            content);
+            others.partners(), content);
     }
 
     @Test
@@ -281,6 +285,6 @@ class StaleReportingPortsTest {
                 : others.processControl(),
             others.artifacts(),
             type == ImportPort.class ? (ImportPort) port : others.imports(),
-            type == TagPort.class ? (TagPort) port : others.tags());
+            type == TagPort.class ? (TagPort) port : others.tags(), others.partners());
     }
 }

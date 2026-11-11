@@ -78,10 +78,41 @@ Reports are especially welcome for:
   `rwx------`; **on Windows the archives and folders inherit the target folder's ACLs** (they are
   not tightened), so choose a folder only you can read. Delete the archives when they are no
   longer needed.
+- **Local knowledge** (`read_knowledge`, `record_knowledge`): the notes are plain Markdown files
+  on the local disk, **unencrypted**; what the server creates there (folder, notes, history
+  versions, lock file) is owner-only, existing folders keep their permissions (the server warns
+  when group or others may access the knowledge folder). Notes are meant for operating knowledge,
+  never for passwords, keys or other secrets. Recognized secrets — the profile's configured
+  credentials, key material, INUBIT encrypted values and assignments to keys such as `password`
+  or `token` — are shown as `***` in every result, error, log and audit record, and text holding
+  one is refused for writing. The recognition is **pattern-based**: a secret in plain prose (e.g.
+  "the password is tiger") is not recognized; this residual risk is known. To mask the configured
+  credentials, the knowledge tools read the credentials of every node of the profile first and
+  refuse to work (`PRECONDITION_FAILED`) while one cannot be read. Reports are welcome for a
+  recognized secret reaching a tool result, the instructions, an error, a log or an audit record
+  unmasked, a write that holds one, a note written outside the knowledge folder or through a
+  symbolic link, a note deleted or renamed by a tool, a write without audit record, or notes
+  shown before the credentials were read.
 - **TLS and certificate pinning**: connections that succeed although the chain, the pin or the host
   name check should fail, or a pin that can be bypassed.
-- Isolation between profiles (credentials, audit directories, workspaces, backups, packages,
-  confirmation codes, temporary data).
+- **Partner Management** (`find_partners`; the partner usage of `get_inventory_item` shows names
+  only): the tool reads the partners of the owner's system diagrams in memory (nothing is written to
+  disk) and returns their shown values, so **partner host names, logins, ports, paths and other
+  non-secret settings reach the conversation** and with it the AI provider of the MCP client — by
+  design, as any other tool result. **Secrets never do**: passwords, partner fields whose
+  `fieldType` is not `String` (e.g. `Password`), encrypted values, key stores, certificates' private
+  keys and other key material, and values whose names mark them as secret are shown only as set or
+  not set, are not searched and are not suggested as similar values. Equal secrets on several nodes
+  are recognized only through a keyed fingerprint (HMAC-SHA256 with a random key of the server
+  process) that stays in memory and in the in-memory cache; neither the fingerprint nor the key is
+  returned, logged, audited or written. Every call is audited (request inputs and counts only, never
+  a partner value); without its audit record no partner data is returned. An error of a Partner
+  Management export carries no excerpt of INUBIT's answer, since it could quote partner data.
+  Reports are welcome for a secret value, or anything derived from it, reaching a tool result, an
+  error, a log line, an audit record or a file, and for partner data returned without an audit
+  record.
+- Isolation between profiles (credentials, audit directories, workspaces, knowledge folders,
+  backups, packages, confirmation codes, temporary data).
 
 Out of scope: vulnerabilities of INUBIT itself or of the INUBIT client (StartCLI) — report those to
 the vendor — and issues that require an attacker who already controls the user's account or

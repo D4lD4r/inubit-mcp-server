@@ -1,5 +1,8 @@
 package de.dadecker.inubit.mcp.config;
 
+import de.dadecker.inubit.mcp.application.BackupStore;
+import de.dadecker.inubit.mcp.application.DeploymentLedger;
+import de.dadecker.inubit.mcp.application.PackageWriter;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
@@ -79,6 +82,17 @@ public final class ConfigValidator {
     private final WorkspaceDirectory.Preparer workspaces;
     private final StartCliHost host;
     private final Function<Path, Optional<String>> releaseReader;
+    private final Optional<ServerPaths> serverPaths;
+
+    /**
+     * The paths of the running server that the knowledge directory must keep clear of (feature
+     * 019, research D-2).
+     *
+     * @param home the user's home directory, below which {@code ~/.inubit-mcp} lies
+     * @param defaultConfigDirectory {@link ConfigLoader#defaultDirectory()}
+     */
+    private record ServerPaths(Path home, Path defaultConfigDirectory) {
+    }
 
     /**
      * @param exists        file-system check, injectable for tests
@@ -121,6 +135,15 @@ public final class ConfigValidator {
         boolean windows, Path tempDirectory, Function<Path, List<LoadedConfig>> otherProfiles,
         WorkspaceDirectory.Preparer workspaces, StartCliHost host,
         Function<Path, Optional<String>> releaseReader) {
+        this(exists, environment, windows, tempDirectory, otherProfiles, workspaces, host,
+            releaseReader, Optional.empty());
+    }
+
+    private ConfigValidator(Predicate<Path> exists, Map<String, String> environment,
+        boolean windows, Path tempDirectory, Function<Path, List<LoadedConfig>> otherProfiles,
+        WorkspaceDirectory.Preparer workspaces, StartCliHost host,
+        Function<Path, Optional<String>> releaseReader, Optional<ServerPaths> serverPaths) {
+        this.serverPaths = serverPaths;
         this.releaseReader = Objects.requireNonNull(releaseReader, "releaseReader");
         this.host = Objects.requireNonNull(host, "host");
         this.workspaces = Objects.requireNonNull(workspaces, "workspaces");
@@ -129,6 +152,21 @@ public final class ConfigValidator {
         this.environment = Map.copyOf(environment);
         this.windows = windows;
         this.otherProfiles = Objects.requireNonNull(otherProfiles, "otherProfiles");
+    }
+
+    /**
+     * This validator, also comparing the knowledge directory with the per-profile directories
+     * below {@code home}, {@code ~/.inubit-mcp} itself and {@code defaultConfigDirectory}
+     * (feature 019, FR-002), and with the configuration directory and the folder of the
+     * configuration file (which may hold {@code ~/.inubit-mcp/<profile>}, where the knowledge
+     * directory may lie). Without it only the configured directories of this and the other
+     * profiles are compared.
+     */
+    public ConfigValidator withServerPaths(Path home, Path defaultConfigDirectory) {
+        return new ConfigValidator(exists, environment, windows, tempDirectory, otherProfiles,
+            workspaces, host, releaseReader, Optional.of(new ServerPaths(
+                Objects.requireNonNull(home, "home"),
+                Objects.requireNonNull(defaultConfigDirectory, "defaultConfigDirectory"))));
     }
 
     /**
@@ -198,7 +236,9 @@ public final class ConfigValidator {
                     String.join(", ", withoutOwner));
             }
         }
-        checkOtherProfiles(loaded, findings);
+        List<LoadedConfig> others = otherProfiles.apply(loaded.source());
+        checkOtherProfiles(loaded, others, findings);
+        checkKnowledge(loaded, others, findings);
         checkEntryNameCollisions(config, findings);
         // feature 011 (FR-003): variables that earlier versions read are reported, names only
         LeftoverVariables.warning(environment, config).ifPresent(findings::warning);
@@ -224,10 +264,11 @@ public final class ConfigValidator {
      *
      * A profile name read from another file is printed only if valid (review P3a).
      */
-    private void checkOtherProfiles(LoadedConfig loaded, Findings findings) {
+    private void checkOtherProfiles(LoadedConfig loaded, List<LoadedConfig> others,
+        Findings findings) {
         ProfileConfig config = loaded.config();
         Set<String> ownVariables = config.credentialEntryNames();
-        for (LoadedConfig other : otherProfiles.apply(loaded.source())) {
+        for (LoadedConfig other : others) {
             ProfileConfig otherConfig = other.config();
             String otherName = ProfileInfo.displayName(otherConfig.profile().name());
             String otherFile = "The profile file " + other.source() + " (profile "
@@ -293,6 +334,119 @@ public final class ConfigValidator {
                     + " by side need their own (credentials.prefix, auditDirectory)");
             }
         }
+    }
+
+    /**
+     * A directory the knowledge directory keeps clear of (feature 019, research D-2).
+     *
+     * @param what      how the error names it (contracts/configuration-delta.md)
+     * @param path      as configured or derived
+     * @param mayHoldIt whether the knowledge directory may lie inside it ({@code ~/.inubit-mcp})
+     * @param mayHoldOwnData whether the knowledge directory may lie inside it when this profile's
+     *                       data directory does too (the configuration roots, e.g. a
+     *                       configuration file in the home directory)
+     */
+    private record Forbidden(String what, Path path, boolean mayHoldIt, boolean mayHoldOwnData) {
+
+        Forbidden(String what, Path path) {
+            this(what, path, false, false);
+        }
+    }
+
+    /**
+     * Feature 019 (FR-002, research D-2): the knowledge directory is absolute and never equals,
+     * lies inside or contains a directory of this profile, of the server or of another profile of
+     * the default configuration directory. Lying inside this profile's data directory {@code
+     * ~/.inubit-mcp/<profile>} is allowed (it is the default), also where that directory itself
+     * lies inside a configuration root (a configuration file in the home directory), but not
+     * inside a workspace or audit directory. Paths are
+     * compared {@linkplain #canonical canonically}; a copy of the same profile is not compared.
+     */
+    private void checkKnowledge(LoadedConfig loaded, List<LoadedConfig> others,
+        Findings findings) {
+        ProfileConfig config = loaded.config();
+        Path directory = config.knowledge().directory();
+        if (!directory.isAbsolute()) {
+            findings.error("knowledge.directory " + directory + " must be absolute after"
+                + " expansion of ~ (e.g. ~/Notes/inubit/acme)");
+            return;
+        }
+        String name = config.profile().name();
+        boolean ownName = ProfileInfo.isValidName(name) && !ProfileInfo.isReservedName(name);
+        List<Forbidden> forbidden = new ArrayList<>();
+        forbidden.add(new Forbidden("workspace", config.workspace()));
+        forbidden.add(new Forbidden("audit directory", config.auditDirectory()));
+        Optional<Path> dataDirectory = Optional.empty();
+        if (serverPaths.isPresent()) {
+            Path home = serverPaths.get().home();
+            if (ownName) {
+                dataDirectory = Optional.of(dataDirectory(home, name));
+                forbidden.add(new Forbidden("backup directory",
+                    BackupStore.defaultRoot(home, name)));
+                forbidden.add(new Forbidden("deployment ledger directory",
+                    DeploymentLedger.defaultDirectory(home, name)));
+                forbidden.add(new Forbidden("package directory",
+                    PackageWriter.defaultDirectory(home, name)));
+            }
+            forbidden.add(new Forbidden("server data directory ~/.inubit-mcp",
+                home.resolve(".inubit-mcp"), true, false));
+            List<Path> roots = new ConfigLocation(serverPaths.get().defaultConfigDirectory(),
+                loaded.source()).roots();
+            forbidden.add(new Forbidden("configuration directory", roots.get(0), false, true));
+            if (roots.size() > 1) {
+                forbidden.add(new Forbidden("folder of the configuration file", roots.get(1),
+                    false, true));
+            }
+        }
+        for (LoadedConfig other : others) {
+            ProfileConfig otherConfig = other.config();
+            String otherName = otherConfig.profile().name();
+            if (!name.isEmpty() && name.equals(otherName)) {
+                continue;
+            }
+            String profile = ProfileInfo.isValidName(otherName) ? "'" + otherName + "'"
+                : ProfileInfo.INVALID_NAME;
+            String file = " (" + other.source() + ")";
+            if (serverPaths.isPresent() && ProfileInfo.isValidName(otherName)
+                && !ProfileInfo.isReservedName(otherName)) {
+                forbidden.add(new Forbidden("data directory of profile " + profile,
+                    dataDirectory(serverPaths.get().home(), otherName)));
+            }
+            forbidden.add(new Forbidden("workspace of profile " + profile + file,
+                otherConfig.workspace()));
+            forbidden.add(new Forbidden("audit directory of profile " + profile + file,
+                otherConfig.auditDirectory()));
+            forbidden.add(new Forbidden("knowledge directory of profile " + profile + file,
+                otherConfig.knowledge().directory()));
+        }
+        Path knowledge = canonical(directory);
+        Optional<Path> ownData = dataDirectory.map(ConfigValidator::canonical)
+            .filter(knowledge::startsWith);
+        Path shown = directory.toAbsolutePath().normalize();
+        for (Forbidden candidate : forbidden) {
+            if (!candidate.path().isAbsolute()) {
+                continue;
+            }
+            Path path = canonical(candidate.path());
+            Path otherShown = candidate.path().toAbsolutePath().normalize();
+            String prefix = "The knowledge directory " + shown + " ";
+            if (knowledge.equals(path)) {
+                findings.error(prefix + "is the same directory as the " + candidate.what() + " "
+                    + otherShown + "; set knowledge.directory to a folder of its own");
+            } else if (knowledge.startsWith(path) && !candidate.mayHoldIt()
+                && !(candidate.mayHoldOwnData()
+                    && ownData.filter(own -> own.startsWith(path)).isPresent())) {
+                findings.error(prefix + "is inside the " + candidate.what() + " " + otherShown
+                    + "; set knowledge.directory to a folder outside it");
+            } else if (path.startsWith(knowledge)) {
+                findings.error(prefix + "contains the " + candidate.what() + " " + otherShown
+                    + "; set knowledge.directory to a folder that does not contain it");
+            }
+        }
+    }
+
+    private static Path dataDirectory(Path home, String profile) {
+        return home.resolve(".inubit-mcp").resolve(profile);
     }
 
     /**

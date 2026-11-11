@@ -238,6 +238,28 @@ class ConfigSummaryTest {
                 + " \\(not usable: see the errors\\)\n");
     }
 
+    // --- feature 019 T011: the knowledge line (FR-003, research D-3) ---------------------------
+
+    @Test
+    void theKnowledgeLineFollowsTheWorkspaceLineAndIsOnlyShownWhenGiven() {
+        Path workspace = HOME.resolve(".inubit-mcp/acme/workspace");
+        Path knowledge = HOME.resolve(".inubit-mcp/acme/knowledge");
+        LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, false).parse(CONFIG, SOURCE);
+        ValidationReport report = new ConfigValidator(exists, env, false,
+            Path.of(System.getProperty("java.io.tmpdir")), source -> List.of(), NO_DISK)
+            .validate(loaded);
+        KnowledgeStatus status = new KnowledgeStatus(knowledge, KnowledgeStatus.State.OK,
+            Optional.empty(), false, 12);
+
+        String summary = new ConfigSummary(exists, windows).render(loaded, report, Map.of(),
+            Map.of(), ParameterCheck.Result.NONE, EntryCheck.Result.none(StoreKind.KEYCHAIN),
+            List.of(), status);
+
+        assertThat(summary).contains("Workspace: " + workspace + " (ok)\nKnowledge: " + knowledge
+            + " (ok), recording off, 12 notes\n");
+        assertThat(render(CONFIG)).doesNotContain("Knowledge:");
+    }
+
     @Test
     void listsEveryServerWithWriteFlagCliAvailabilityAndVariableNames() {
         String summary = render(CONFIG);
@@ -650,9 +672,9 @@ class ConfigSummaryTest {
         String summary = render(V6_1);
 
         String access = " (INUBIT 6.1, StartCLI only; available: none; refused: monitoring,"
-            + " process diagnosis, log diagnosis, inventory, workspace export, development"
-            + " writes, deployment, end-to-end test, process control), secrets: credentialStore"
-            + " (macOS Keychain), username ←";
+            + " process diagnosis, log diagnosis, inventory, partner management, workspace"
+            + " export, development writes, deployment, end-to-end test, process control),"
+            + " secrets: credentialStore (macOS Keychain), username ←";
         assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
             + access);
         assertThat(summary).as("a concrete 6.1 pin is judged like the line")
@@ -672,8 +694,9 @@ class ConfigSummaryTest {
 
         assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
             + " (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process"
-            + " diagnosis, log diagnosis, inventory, workspace export, development writes,"
-            + " deployment, end-to-end test, process control, reading Queue Manager entries),"
+            + " diagnosis, log diagnosis, inventory, partner management, workspace export,"
+            + " development writes, deployment, end-to-end test, process control, reading Queue"
+            + " Manager entries),"
             + " secrets: credentialStore (macOS Keychain), username ←");
         assertThat(summary).as("8.1 lines are unchanged")
             .contains("test/node3: read-only, cli: available, inubit: V8_1, secrets:"
@@ -695,9 +718,9 @@ class ConfigSummaryTest {
 
         assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
             + " (INUBIT 6.1, StartCLI only; available: monitoring, process diagnosis; refused:"
-            + " log diagnosis, inventory, workspace export, development writes, deployment,"
-            + " end-to-end test, process control), secrets: credentialStore (macOS Keychain),"
-            + " username ←");
+            + " log diagnosis, inventory, partner management, workspace export, development"
+            + " writes, deployment, end-to-end test, process control), secrets: credentialStore"
+            + " (macOS Keychain), username ←");
     }
 
     @Test

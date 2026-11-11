@@ -269,6 +269,7 @@ public final class NodeOverview {
             case PROCESS_DIAGNOSIS -> "process_diagnosis";
             case LOG_DIAGNOSIS -> "log_diagnosis";
             case INVENTORY -> "inventory";
+            case PARTNER_MANAGEMENT -> "partner_management";
             case WORKSPACE_EXPORT -> "workspace_export";
             case DEVELOPMENT_WRITE -> "development_writes";
             case DEPLOYMENT -> "deployment";

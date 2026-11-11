@@ -1,6 +1,8 @@
 package de.dadecker.inubit.mcp.infra;
 
+import de.dadecker.inubit.mcp.domain.model.SecretSpan;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Comparator;
@@ -69,22 +71,34 @@ public final class SecretScrubber {
         if (text == null || text.isEmpty()) {
             return text;
         }
-        List<String> secrets = snapshot;
-        if (secrets.isEmpty()) {
+        List<SecretSpan> spans = occurrences(text);
+        if (spans.isEmpty()) {
             return text;
         }
-        boolean[] covered = null;
-        for (String secret : secrets) {
+        boolean[] covered = new boolean[text.length()];
+        for (SecretSpan span : spans) {
+            Arrays.fill(covered, span.start(), span.end(), true);
+        }
+        return mask(text, covered);
+    }
+
+    /**
+     * Returns every occurrence of every registered value (in all its encoded forms) in
+     * {@code text}, overlapping occurrences included; the matching of {@link #scrub}.
+     */
+    public List<SecretSpan> occurrences(String text) {
+        if (text == null || text.isEmpty()) {
+            return List.of();
+        }
+        List<SecretSpan> spans = new ArrayList<>();
+        for (String secret : snapshot) {
             int from = text.indexOf(secret);
             while (from >= 0) {
-                if (covered == null) {
-                    covered = new boolean[text.length()];
-                }
-                Arrays.fill(covered, from, from + secret.length(), true);
+                spans.add(new SecretSpan(from, from + secret.length()));
                 from = text.indexOf(secret, from + 1);
             }
         }
-        return covered == null ? text : mask(text, covered);
+        return spans;
     }
 
     /** Returns whether {@code text} contains any registered secret. */
