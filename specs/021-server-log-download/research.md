@@ -122,7 +122,7 @@ method" helper (an unbounded interface to an unsupported API, against FR-006).
 
 ## D-4 Helper protocol, operation `serverLog`
 
-**Decision** (020 D-4 unchanged for `op=queueEntry` apart from the new key):
+**Decision** (020 D-4 unchanged for the queue-entry read; the new key `op` is optional):
 
 - **stdin** (percent-encoded values, as 020):
 
@@ -145,6 +145,18 @@ method" helper (an unbounded interface to an unsupported API, against FR-006).
   `op=queueEntry` keeps its 020 keys (`objectType`, `fileName`, `parts`, `dataOut`,
   `variablesOut`). Keys of the other operation are a malformed request (exit 2). `log` accepts only
   `webservice`; the helper maps it to the constant file name.
+- **`op` is optional in the helper, default `queueEntry`**: a request without `op` is a 020
+  queue-entry request; `op=queueEntry` is accepted as well; any other value, a repeated `op` or a
+  missing operation key is a malformed request (exit 2). The server's encoder writes `op` **only
+  for `serverLog`** (as the second line, after `qe=1`); a queue-entry request is encoded exactly as
+  in 020. So the 020 exact-encoding test, the round trip through the real helper, hand-built 020
+  test requests and `fixtures/queue-entry/` stay unchanged, and the wire id `qe=1` needs no bump
+  (the helper and the server always ship in the same JAR).
+- **Order of the change**: the helper learns the optional `op` (accepting only `queueEntry`) in the
+  same step as the encoder and `HelperRequest`'s sealed `Operation`, so that step ends green with
+  the 020 round trip unchanged; the `serverLog` operation and its round trip through the real
+  helper follow in the next step. Both operations keep a named round-trip test in
+  `HelperRequestTest`.
 - **frames** added: `node ok <nodeName>`, `node error <exceptionChain> <message>`,
   `part log ok <bytes>`, `part log error <exceptionChain> <message>`. `start`, `login …`,
   `api missing …`, `end` as in 020. Order for `serverLog`: `start`, `login ok`, `node ok`,
@@ -185,14 +197,15 @@ second, possibly different node could deliver the file while the result names an
   `WEBSERVICE_LOG_READ` (label "downloading the web service log", `webservice_log_read`).
   Exhaustive switches: `Capability.label`, `VersionGate.cliOnlyStep` (both: "download the log in
   the Workbench (Administration, Server Log)"), `NodeOverview.name`.
-- `CapabilityMatrix.production()`: 8.1 both `SUPPORTED`; 9.0 each `SUPPORTED` once its 9.0
-  recording exists, else `UNSUPPORTED` with the note "not yet verified" (020 D-6/D-20 mechanism,
-  per log); 6.1 unlisted (= `UNSUPPORTED`); the unknown-version map gets both → `UNSUPPORTED`. A
+- `CapabilityMatrix.production()`: per (version, log), 8.1 and 9.0 alike, `SUPPORTED` in the
+  commit that adds its recording, before that `UNSUPPORTED` with the note "not yet verified" (020
+  D-6/D-20 mechanism, per log); 6.1 unlisted (= `UNSUPPORTED`); the unknown-version map gets both
+  → `UNSUPPORTED`. A
   detected 6.1, 9.1, other or undeclared version is refused with `UNSUPPORTED_VERSION` naming the
   version and the supported lines (`VersionGate.supportedLines` extended to both).
-- **8.1 also needs its recordings** (FR-017): until the 8.1 recordings exist, 8.1 is
-  `UNSUPPORTED` "not yet verified" as well; the recordings are early tasks (D-23), so the matrix
-  is flipped per version and log in the commit that adds the recording (catalogue test, D-22).
+- **8.1 needs its recordings as much as 9.0** (FR-017): the recordings are early tasks (D-23), so
+  the matrix is flipped per version and log in the commit that adds the recording (catalogue
+  test, D-22); the end state after all four recordings is both logs `SUPPORTED` on 8.1 and 9.0.
 - Undetectable version (US3-3): `VersionGate.admitWithDetection(tool, node, capability, READ,
   {CLI})` (020), so the detection error's own code and message are reported and nothing is sent.
 - Admission per call: `log: trace` → `TRACE_LOG_READ`; `log: webservice` → opt-in first
@@ -278,7 +291,9 @@ writes content under the final name without hard links).
 | webservice (helper) | server throws "File webservice.log not found on <node>" → `part log error` whose message contains `not found on` → `NOT_FOUND` with the spec text (web service logging can be enabled in the server configuration) | `part log ok 0` → empty, hint "The log is empty; web service logging may be disabled" |
 
 The service supports the second branch of the spec as well: an adapter can report presence
-`UNKNOWN` for a 0-byte answer; then the hint is "The log is empty or does not exist on the server".
+`UNKNOWN` for a 0-byte answer; then the hint is "The log is empty or does not exist on the server"
+and, for the web service log, "The log is empty or does not exist on the server; web service
+logging may be disabled" (US2-4: the result says that web service logging may be disabled).
 It is used only if a recording shows that a version answers a missing file like an empty one; the
 contract test of that version pins the choice.
 
@@ -315,9 +330,10 @@ decodes as ISO-8859-1 (documented; no special case).
 **Decision**: `SecretTextMasker` (020, `domain/model/SecretTextMasker.java`) gets a second entry
 point `maskLines(String window, List<SecretSpan> known)`:
 - the same rules 1–7 on ranges of the original text, plus the **known-credential spans** of the
-  profile (`SecretScrubber.occurrences`, `infra/SecretScrubber.java:89`; replacement `***`) as
-  ranges of their own, merged with the others by the existing order (earliest start, longest,
-  lower rule number; known credentials as rule 0);
+  profile (`ConfiguredSecrets.occurrences`, which `adapter/ProfileSecrets` answers from
+  `SecretScrubber.occurrences`, `infra/SecretScrubber.java:89`; replacement `***`) as ranges of
+  their own, merged with the others by the existing order (earliest start, longest, lower rule
+  number; known credentials as rule 0);
 - **replacement keeps lines**: each merged region `[start, end)` becomes its replacement followed
   by every `\r` and `\n` of the region in their original order. So the token stays on the first
   line, every line the region covers completely becomes empty, the unmasked text of a partly
@@ -329,8 +345,20 @@ point `maskLines(String window, List<SecretSpan> known)`:
 - a secret JSON value opened before the window is not detected (documented limit, FR-010).
 
 `mask(String)` (020) keeps its exact behaviour; both entry points share the range collection.
-`application` receives the known spans as `Function<String, List<SecretSpan>>` from `Wiring`
-(`SecretScrubber.global()::occurrences`), so `PackageBoundaryTest` (no `application` → `infra`)
+
+**Known credentials of the whole profile** (FR-010 "the known credentials of the profile"):
+`ServerLogService` gets the feature-019 port `domain/port/ConfiguredSecrets` (the same
+`ProfileSecrets` instance `KnowledgeService` uses, with `ProfileSecrets.timeout()` as
+`prepareBound`). After the download and before the excerpt it calls `prepare(min(prepareBound,
+remaining call deadline))`, which starts or joins the credential reads of **every** node, so a
+password of a node not yet contacted is known before masking; `LogExcerpt.build` then gets
+`ConfiguredSecrets::occurrences` as its pure `Function<String, List<SecretSpan>>`.
+`SecretScrubber.global()::occurrences` alone would miss the credentials of nodes whose reads have
+not run yet. If `prepare` answers `NotReady`, the call fails closed for the excerpt only, as 019
+option A does for notes: the file is written, the result carries `"excerpt": {"kind": "withheld"}`
+and the hint "The excerpt is withheld: the credentials of <node> (<store>: <state>) have not been
+read yet, so they could not be masked; the file is written" (names and states only, never a
+value). The port lives in `domain/port`, so `PackageBoundaryTest` (no `application` → `infra`)
 stays green; `ResultMapper` scrubs the result again as for every tool.
 
 **Rationale**: masking before selection (spec FR-009 order) is the only way a value spanning lines
@@ -354,7 +382,11 @@ absolute line numbers exact without a second mapping.
 ## D-13 Memory and time bounds of the excerpt
 
 **Decision**: one excerpt is built at a time per MCP server process (`application/ExcerptPermit`,
-a fair semaphore with one permit; the wait is local and short and not bounded by `cliExportTimeout`).
+a fair semaphore with one permit). The wait for the permit is bounded by what is left of the
+call's `cliExportTimeout` deadline (D-15, FR-013): if the permit is not free in time the call
+ends with `TIMEOUT` "The <log> log download from <node> did not finish within cliExportTimeout
+(<n> s)", the next step naming `cliExportTimeout`; the private directory is deleted, nothing is
+written to the target folder, the audit record is `FAILED`.
 Peak memory of one excerpt ≈ 50 MiB window bytes + decoded window + masked window (Latin-1 text 1
 byte/char, other text 2 bytes/char) ≈ 250 MiB worst case; the window bytes are released before
 masking. A 50 MiB synthetic log must build its excerpt within 20 s on the CI machine
@@ -378,7 +410,8 @@ the StartCLI slots bound calls per node only.
 | no client home, no `ibis.jar`/JDK, launch failure, temp root not passable, vendor API missing | `CLI_UNAVAILABLE` |
 | trace: classifier as for every StartCLI run (`LoginFailure` → `AUTH_FAILED`, TLS, network, `MAINTENANCE_MODE`, 403 texts → `FORBIDDEN`); new rule `FileWasNotFound` → `NOT_FOUND`; success without the `Trace data (` message or without the file → `UNEXPECTED_RESPONSE` | as named |
 | webservice: `HelperFailures` (020 D-5) for launch, timeout, login, TLS, network, 403, API missing, protocol problems; `node error` with an access-denied text or HTTP 403 → `FORBIDDEN` "… needs the right the Workbench's Cluster Manager needs (`Configuration`)"; `part log error` with `not found on` → `NOT_FOUND`; `Server not in cluster mode.` or any other `node`/`part` error → `UNEXPECTED_RESPONSE` "the unsupported INUBIT interface may have changed" (scrubbed excerpt ≤ 200 chars) | as named |
-| `cliExportTimeout` exceeded (slot wait, TLS check, process) | `TIMEOUT` (no file, process tree killed) |
+| `cliExportTimeout` exceeded (slot wait, TLS check, process, excerpt permit wait) | `TIMEOUT` naming `cliExportTimeout` (no file, process tree killed) |
+| known credentials of some node not read within the bound | no error: file written, excerpt `withheld` with a hint (D-11) |
 | credentials not resolvable | the node's usual credential code (`SECRET_UNRESOLVED`, `AUTH_FAILED`, …) |
 | audit `PENDING` record not writable; helper resource missing | `INTERNAL` |
 
@@ -387,14 +420,29 @@ without a recording (trace missing file, 403 texts) are fixtures marked `reconst
 
 ## D-15 Timeout and concurrency (FR-013)
 
-**Decision**: one deadline per call = start of the download phase + node `cliExportTimeout`, shared by
-the slot wait, the TLS check (helper only, `min(server.timeout(), remaining)`) and the process
-(`remaining`). Both channels take a slot of the per-node fair semaphore
-(`CliConcurrencyLimiter.acquireForHelper`, `adapter/cli/CliConcurrencyLimiter.java:60`, 2
-permits, documented as "helper and log downloads"); other StartCLI runs on 8.1/9.0 stay without a
-slot (existing tools unchanged). `TIMEOUT` names `cliExportTimeout` in its next step and adds "large
-logs need a larger cliExportTimeout". The excerpt and the placement are local and not part of the
-deadline.
+**Decision**: one deadline per call, set by `ServerLogService` at the start of the download
+phase (after the version gate) = now + node `cliExportTimeout`, passed to
+`ServerLogPort.download(kind, version, deadlineNanos)`. It bounds every wait of the call:
+- in the adapter: the slot wait, the TLS check (helper only, `min(server.timeout(), remaining)`)
+  and the process (`remaining`). Both channels take a slot of the per-node fair semaphore
+  (`CliConcurrencyLimiter.acquireForHelper`, `adapter/cli/CliConcurrencyLimiter.java:60`, 2
+  permits, documented as "helper and log downloads"); other StartCLI runs on 8.1/9.0 stay without
+  a slot (existing tools unchanged). The slot-wait `TIMEOUT` of `CliConcurrencyLimiter.take`
+  today says "raise cliTimeout"; a new overload `acquireForHelper(server, wait, budgetSetting)`
+  names the setting the caller's budget comes from (`cliExportTimeout` here; the existing callers
+  keep `cliTimeout` and their texts byte-identical);
+- in the service, after the download: the credential wait (`ConfiguredSecrets.prepare`, bounded
+  by `min(prepareBound, remaining)`, D-11) and the `ExcerptPermit` wait (`remaining`, D-13).
+
+Every `TIMEOUT` names `cliExportTimeout` in its next step and adds "large logs need a larger
+cliExportTimeout"; process tree killed, private directory deleted, nothing in the target folder.
+
+Once the permit is held, building the excerpt and placing the file run to their end and are not
+cut off by the deadline: both are local, bounded work (≤ 20 s for a 50 MiB window on CI, D-13;
+placement = one local copy of ≤ the downloaded size plus a link), and interrupting a placement
+between the claim and the clean-up would risk a leftover file (SC-004). So a call ends at most this
+bounded local work after its deadline; every wait on INUBIT, on another call or on a credential
+store is inside the deadline (FR-013).
 
 **Note**: `cliExportTimeout` (built-in 120 s, the budget of the StartCLI exports) is used instead of
 `cliTimeout` (built-in 30 s), because a log download is a transfer like an export; decided after the
@@ -457,17 +505,20 @@ the logback output of a full call with secret-looking content (SC-003).
   `LogPresence` (`PRESENT`, `UNKNOWN`), `LogExcerpt` (+ `ExcerptLine`, `Truncation`),
   `ServerLogBounds`, `ServerLogResult`; `Capability`/`CapabilityMatrix` changes (D-6);
   `SecretTextMasker.maskLines` (D-11).
-- `domain/port/ServerLogPort`: `DownloadedLog download(ServerLogKind kind, InubitVersion version)`
-  where `DownloadedLog` (record `Path file`, `long size`, `Optional<String> inubitNode`,
+- `domain/port/ServerLogPort`: `DownloadedLog download(ServerLogKind kind, InubitVersion version,
+  long deadlineNanos)` (the call deadline of D-15 as a `System.nanoTime()` value, as the 020
+  adapters keep theirs) where `DownloadedLog` (record `Path file`, `long size`, `Optional<String> inubitNode`,
   `LogPresence presence`, `AutoCloseable`). `Gateway.serverLogs()` / `GatewayFactory.serverLogs(NodeId)`
   default methods throwing `CLI_UNAVAILABLE` (020 D-17 pattern); `PortSet` gets the component with
   a compatibility constructor; `V81PortSet`, `V81Gateway`, `AdapterGatewayFactory`,
   `StaleReportingPorts` (forward), `RefusingPorts` override.
 - Adapter: `adapter/cli/CliTraceRunner` (trace) and `adapter/cli/log/CliWebServiceLogAdapter`
   (helper), combined by `adapter/cli/log/CliServerLogAdapter implements ServerLogPort`
-  (dispatch by kind; the slot and deadline live here).
-- Application: `ServerLogService` (validation, target, opt-in, folder rules, audit, gate, port,
-  excerpt, placement, result, log line), `LogWindowReader`, `LogFileWriter`, `OwnerOnlyFolders`,
+  (dispatch by kind; the slot lives here, the deadline comes from the service).
+- `ServerLogResult.excerpt` is `Optional<LogExcerpt>`: empty means withheld (D-11) and is written
+  as `"excerpt": {"kind": "withheld"}`; the 020 `ContentKind` stays unchanged.
+- Application: `ServerLogService` (validation, target, opt-in, folder rules, audit, gate, call
+  deadline, port, known credentials via `ConfiguredSecrets`, excerpt, placement, result, log line), `LogWindowReader`, `LogFileWriter`, `OwnerOnlyFolders`,
   `ExcerptPermit`, `ServerLogAudit`.
 - Tool: `mcp/tools/DownloadServerLogTool`; schemas `download_server_log.{input,output}.json`.
 

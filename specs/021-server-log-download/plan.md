@@ -18,10 +18,12 @@ local folder and returns a masked, bounded excerpt with absolute line numbers:
   for groups with `unsupported.serverLogRead` (D-17).
 - Stage 1 is a behaviour-preserving refactor: the helper becomes `ClientHelper` and the shared
   helper adapter classes move to `adapter/cli/helper`; wire ids and 020 fixtures stay (D-3).
-- Both channels download into a private temporary directory under one `cliExportTimeout` deadline and a
-  per-node StartCLI slot (D-7, D-15); the excerpt is built from the private copy (window = last 50
-  MiB from the first whole line, 020 binary rule, line-preserving masking of the whole window
-  incl. known credentials, selection, oldest-first dropping, D-9 … D-13); then `LogFileWriter`
+- Both channels download into a private temporary directory under one `cliExportTimeout` deadline
+  per call (set by the service; it also bounds the credential wait and the excerpt-permit wait)
+  and a per-node StartCLI slot (D-7, D-15); the excerpt is built from the private copy (window =
+  last 50 MiB from the first whole line, 020 binary rule, line-preserving masking of the whole
+  window incl. the known credentials of every configured node via 019's `ConfiguredSecrets`,
+  withheld while some are unknown, selection, oldest-first dropping, D-9 … D-13); then `LogFileWriter`
   places the file with the `export_archives` folder rules and an atomic hard-link name claim
   (`-2`, `-3`, …) that never replaces a file and never shows partial content (D-7).
 - Two capabilities `trace_log_read` / `webservice_log_read`: 8.1 and 9.0 each supported only after
@@ -68,11 +70,14 @@ check + one helper JVM (webservice), bounded by `cliExportTimeout`; excerpt of a
   nothing left after an error;
 - FR-010/SC-003: masking on the whole window before selection, line numbers exact; no content or
   `contains` in logs or audit;
-- FR-013: `cliExportTimeout` per call (built-in 120 s), per-node slot for both
-  channels; other StartCLI runs unchanged;
+- FR-013: `cliExportTimeout` per call (built-in 120 s) bounds every wait of the call (slot, TLS
+  check, process, credential wait, excerpt permit); only the local excerpt build and placement
+  after the permit run to their end (bounded, D-15); every `TIMEOUT` names `cliExportTimeout`;
+  per-node slot for both channels; other StartCLI runs unchanged;
 - memory: one excerpt at a time, ≈ 250 MiB peak (D-13); the INUBIT server itself reads
   `trace.log` fully into its heap (vendor behaviour, documented);
-- `PackageBoundaryTest`: `application` only via ports (known credentials as
+- `PackageBoundaryTest`: `application` only via ports (known credentials through the 019 port
+  `domain/port/ConfiguredSecrets`, passed to the pure `LogExcerpt.build` as
   `Function<String, List<SecretSpan>>`), `Process*` only in `adapter/cli`, the helper references
   only `java/*`;
 - customer-neutral artifacts only (FR-018, CONTRIBUTING).
@@ -87,7 +92,9 @@ check + one helper JVM (webservice), bounded by `cliExportTimeout`; excerpt of a
   `EffectiveNodeConfig`, `Capability`, `CapabilityMatrix`, `VersionGate`, `NodeOverview`,
   `SecretTextMasker`, `TargetFolderRules`, `ArchiveFolderWriter`, `Gateway`, `GatewayFactory`,
   `PortSet` family, `CliCommand`, `CliOutputClassifier`, `CliResources`,
-  `CliConcurrencyLimiter` (doc), `QueueEntryHelperClassifier`, `Wiring`, `pom.xml`, docs.
+  `CliConcurrencyLimiter` (doc + overload naming the budget setting), `QueueEntryHelperClassifier`,
+  `Wiring` (the 019 `ProfileSecrets` instance shared with the new service), `pom.xml`, docs;
+- reused unchanged: `domain/port/ConfiguredSecrets` and `adapter/ProfileSecrets` (feature 019).
 
 ## Constitution Check
 
@@ -96,7 +103,7 @@ check + one helper JVM (webservice), bounded by `cliExportTimeout`; excerpt of a
 | Principle | Pre-research | Post-design |
 |---|---|---|
 | I. Safe by Default | ⚠️ the StartCLI `trace` command also switches tracing; the internal download takes any file name; a local file with clear-text content | ✅ <ul><li>Nothing changes on INUBIT: `CliCommand` admits `trace` only with `--download` (the `-d` branch returns before every state-changing branch, bytecode); the helper calls only login, `getNode`, `clusterDownload`, logout, with `webservice.log` as a constant (D-1, D-2, D-4; fake-vendor test records every call); SC-005 checked live.</li><li>Not a state-changing tool on INUBIT, so no write gate (FR-002); annotated `localWrite` (`readOnlyHint: false`, not destructive, not idempotent) so clients confirm the local file (FR-014).</li><li>The unsupported part is off by default (group opt-in, `NOT_CONFIGURED` before any request, production warning, D-17).</li><li>All inputs validated before any call (schema + service, folder rules); nothing reaches a shell (argument arrays, `--execCommand` quoting via `CliCommand`, helper request on stdin).</li></ul> |
-| II. Secrets Stay Out | ⚠️ logs contain credentials; StartCLI and the helper need credentials | ✅ <ul><li>Credentials only on stdin of StartCLI / the helper (existing mechanisms, D-16).</li><li>The excerpt is masked on the whole window (020 rules + the profile's known credentials, line-preserving) before selection; `ResultMapper` scrubs again (D-11).</li><li>The log file is clear text by design and is not part of the result (as `export_archives`); the description and docs say so (FR-004).</li><li>No content, excerpt or `contains` in logs or audit; messages are fixed or scrubbed texts (D-14, D-18).</li></ul> |
+| II. Secrets Stay Out | ⚠️ logs contain credentials; StartCLI and the helper need credentials | ✅ <ul><li>Credentials only on stdin of StartCLI / the helper (existing mechanisms, D-16).</li><li>The excerpt is masked on the whole window (020 rules + the known credentials of every configured node, prepared through 019's `ConfiguredSecrets`; line-preserving) before selection; while some credentials are not read yet the excerpt is withheld (fail closed); `ResultMapper` scrubs again (D-11).</li><li>The log file is clear text by design and is not part of the result (as `export_archives`); the description and docs say so (FR-004).</li><li>No content, excerpt or `contains` in logs or audit; messages are fixed or scrubbed texts (D-14, D-18).</li></ul> |
 | III. Test-First | ✅ | ✅ <ul><li>Every stage starts with failing tests (quickstart table).</li><li>Dedicated tests for the single allowed `trace` form, the four vendor calls, the opt-in refusal (no request), each masking rule incl. multi-line and window-start, no secret in argv/env/log/audit, no file after failures.</li><li>Offline only: fakes, scripted StartCLI, fake vendor classes, WireMock; live test opt-in, production refused.</li></ul> |
 | IV. Use-Case-Oriented Tools | ✅ "why did it fail" (US1), "what did the connector send" (US2) | ✅ one tool with `log` choice, task-oriented description incl. warnings, typed input schema, documented output shape (contracts/mcp-tools-delta.md). |
 | V. Adapter Isolation & Version Compatibility | ⚠️ an internal interface; no recordings yet | ✅ <ul><li>StartCLI (supported) for trace; the CLI-side helper only for what no documented channel offers (static evidence: `downloadFile` answers "Unsupported request" for `webservice.log`).</li><li>Version choice in `CapabilityMatrix` and `HelperVariant`, never in tool logic (D-6).</li><li>Argument arrays, explicit timeout, exit-code + output/frame evaluation, tested parsers (D-1, D-4, D-14).</li><li>8.1 and 9.0 declared supported per log only with recorded, neutralized contract fixtures; recording and matrix flip in one commit; missing recordings → "not yet verified" (D-22, D-23) — no deviation.</li></ul> |
@@ -150,7 +157,8 @@ src/main/java/de/dadecker/inubit/mcp/
 ├── domain/model/        # Capability (+TRACE_LOG_READ, +WEBSERVICE_LOG_READ), CapabilityMatrix,
 │                        # SecretTextMasker (+maskLines), ServerLogKind, LogPresence, LogWindow,
 │                        # ExcerptLine, Truncation, LogExcerpt, ServerLogBounds, ServerLogResult
-├── domain/port/         # ServerLogPort + DownloadedLog (new), Gateway, GatewayFactory (+default serverLogs)
+├── domain/port/         # ServerLogPort (+ call deadline) + DownloadedLog (new), Gateway, GatewayFactory
+│                        # (+default serverLogs); ConfiguredSecrets (019, reused)
 ├── application/         # ServerLogService, ServerLogRequest, ServerLogAudit, LogWindowReader,
 │                        # LogFileWriter, OwnerOnlyFolders (extracted), ExcerptPermit (new);
 │                        # TargetFolderRules (cloud wording), ArchiveFolderWriter (delegates),
@@ -158,13 +166,14 @@ src/main/java/de/dadecker/inubit/mcp/
 ├── adapter/             # PortSet, V81PortSet, V81Gateway, AdapterGatewayFactory, StaleReportingPorts,
 │                        # RefusingPorts (+ServerLogPort)
 ├── adapter/cli/         # CliCommand (trace --download), CliTraceRunner (new), CliOutputClassifier
-│                        # (FileWasNotFound), CliResources (LOG_PREFIX), CliConcurrencyLimiter (doc)
-├── adapter/cli/helper/  # new package: HelperInstallation, HelperTrustStore, HelperRequest (+op),
+│                        # (FileWasNotFound), CliResources (LOG_PREFIX), CliConcurrencyLimiter
+│                        # (doc, budget-named slot-wait text)
+├── adapter/cli/helper/  # new package: HelperInstallation, HelperTrustStore, HelperRequest (+op for serverLog),
 │                        # HelperFrames (+node, +part log), HelperVariant, HelperFailures (moved/extracted)
 ├── adapter/cli/queue/   # CliQueueEntryAdapter, QueueEntryHelperClassifier (uses HelperFailures), WfspParser
 ├── adapter/cli/log/     # new: CliServerLogAdapter, CliWebServiceLogAdapter, WebServiceLogClassifier
 ├── mcp/tools/           # DownloadServerLogTool (new)
-└── Wiring.java          # service, adapters, announcement, allowed(), known-span function
+└── Wiring.java          # service, adapters, announcement, allowed(), shared 019 ProfileSecrets
 src/main/resources/schemas/download_server_log.{input,output}.json, list_nodes.output.json
 src/test/java/…          # tests per quickstart; com/inubit/ibis/server/cluster/… + common/CurrentUser fakes;
                          # live/ServerLogLiveTest
@@ -193,11 +202,13 @@ docs/setup.md, docs/tools.md, docs/live-tests.md, README.md, SECURITY.md, CHANGE
    fallback, failures, races), `TargetFolderRules` wording, `ExcerptPermit`.
 7. **Trace channel**: `CliCommand` `trace`, `CliOutputClassifier` rule, `CliResources` prefix,
    `CliTraceRunner`.
-8. **Helper and webservice channel**: `ClientHelper` `op=serverLog` with fake vendor classes,
-   child-JVM test, `HelperRequest`/`HelperFrames` extension, `WebServiceLogClassifier`,
+8. **Helper and webservice channel**: `HelperRequest`/`HelperFrames` extension together with the
+   helper's optional `op` key (default `queueEntry`, 020 round trip unchanged), then `ClientHelper`
+   `op=serverLog` with fake vendor classes, child-JVM test, `WebServiceLogClassifier`,
    `CliWebServiceLogAdapter`, `CliServerLogAdapter` (deadline, slot), port wiring.
-9. **Service, audit and tool**: `ServerLogService`, `ServerLogAudit`, `DownloadServerLogTool`,
-   schemas, announcement, logging test.
+9. **Service, audit and tool**: `ServerLogService` (call deadline, credential wait, permit wait,
+   INFO line), `ServerLogAudit`, `DownloadServerLogTool` and schemas, then wiring with
+   announcement and `allowed()`.
 10. **Fixtures and contracts**: recorded 8.1/9.0 cases from stage 2, reconstructed cases,
     catalogue test, contract tests; matrix flipped per recorded (version, log).
 11. **Docs**: setup (FR-004 text), tools, live tests, README, SECURITY, CHANGELOG;

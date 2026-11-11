@@ -29,8 +29,8 @@ pre-commit hook blocks customer identifiers; never commit with `--no-verify`.
 
 **Version state during implementation (FR-017, D-6, D-22)**: `CapabilityMatrix.production()`
 declares both capabilities on 8.1 **and** 9.0 as `UNSUPPORTED` with the note "not yet verified"
-(T009) until the commit that adds the recorded fixture of that (version, log) flips it (T032,
-T045, T050, T051). Offline tests that need an admitted 8.1 or 9.0 node use a test declaration of
+(T009) until the commit that adds the recorded fixture of that (version, log) flips it (T033,
+T046, T051, T052). Offline tests that need an admitted 8.1 or 9.0 node use a test declaration of
 the matrix (the non-production `CapabilityMatrix` constructor, as 020's
 `adapter/cli/queue/QueueEntryVersionProfile.java`), never the production declaration.
 
@@ -154,7 +154,7 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   `+ TRACE_LOG_READ` (kind `READ`, channels `{CLI}`, label "downloading the trace log") and
   `+ WEBSERVICE_LOG_READ` (kind `READ`, channels `{CLI}`, label "downloading the web service
   log"); `domain/model/CapabilityMatrix.java` `production()`: 8.1 and 9.0 both capabilities
-  `UNSUPPORTED` with the note "not yet verified" (flipped only by T032, T045, T050, T051); 6.1
+  `UNSUPPORTED` with the note "not yet verified" (flipped only by T033, T046, T051, T052); 6.1
   unlisted (= `UNSUPPORTED`); unknown-version map both `UNSUPPORTED`;
   `application/VersionGate.java` `supportedLines` (8.1, 9.0 for both) and `cliOnlyStep` (both:
   "download the log in the Workbench (Administration, Server Log)"); `application/NodeOverview.java`
@@ -185,13 +185,14 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   `MAX_MAX_CHARS = 100_000`, `MAX_CONTAINS_CHARS = 200`, `MAX_NAME_SUFFIX = 999`),
   `ServerLogResult.java` (`node`, `log`, `Optional<String> inubitNode` (webservice only), `Path
   file` (absolute), `long sizeBytes`, `Instant downloadedAt` (UTC, second precision, = file
-  name), `LogExcerpt excerpt`, `List<String> hints`, `List<String> warnings`; `LogExcerpt` itself
+  name), `Optional<LogExcerpt> excerpt` ("empty = withheld, D-11"), `List<String> hints`, `List<String> warnings`; `LogExcerpt` itself
   in T015). Failing tests first in `domain/model/ServerLogKindTest.java`,
   `domain/model/LogWindowTest.java`, `domain/model/TruncationTest.java`,
   `domain/model/ExcerptLineTest.java` (invariants above rejected with `IllegalArgumentException`)
 - [ ] T011 Port plumbing (D-19, 020 D-17 pattern; after T010): `domain/port/ServerLogPort.java`
-  (`DownloadedLog download(ServerLogKind kind, InubitVersion version)`; "whole-call failures as
-  `ToolErrorException`; no file outside the private directory"), `domain/port/DownloadedLog.java`
+  (`DownloadedLog download(ServerLogKind kind, InubitVersion version, long deadlineNanos)`;
+  "`deadlineNanos` is the call deadline as a `System.nanoTime()` value set by the service (D-15);
+  whole-call failures as `ToolErrorException`; no file outside the private directory"), `domain/port/DownloadedLog.java`
   (record `Path file`, `long size`, `Optional<String> inubitNode`, `LogPresence presence`,
   `AutoCloseable` whose `close()` deletes the private directory; "`inubitNode` 1–128 chars of
   `[A-Za-z0-9_.:-]`"); `domain/port/Gateway.java` `+ default ServerLogPort serverLogs()` and
@@ -204,12 +205,17 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   refusal, nothing sent), `adapter/AdapterGatewayFactoryTest.java` (default without a
   configured adapter → `CLI_UNAVAILABLE`)
 - [ ] T012 [P] `adapter/cli/CliResources.java` `+ LOG_PREFIX = "inubit-mcp-log-"`, `logPrefix()`,
-  stale sweep includes it (D-7 step 2); `adapter/cli/CliConcurrencyLimiter.java` javadoc:
-  `acquireForHelper` serves "helper and log downloads" (behaviour unchanged, D-15). Failing tests
-  first in `adapter/cli/CliResourcesTest.java` (reservation with the log prefix creates
-  `inubit-mcp-log-<profile>-<pid>-<random>` owner-only below `java.io.tmpdir`; the stale sweep
-  removes a stale `inubit-mcp-log-*` directory of a dead pid and keeps one of the running
-  process)
+  stale sweep includes it (D-7 step 2); `adapter/cli/CliConcurrencyLimiter.java` (D-15):
+  javadoc `acquireForHelper` serves "helper and log downloads"; `+ acquireForHelper(server, wait,
+  String budgetSetting)` whose slot-wait `TIMEOUT` next step names `budgetSetting` ("Retry later;
+  check get_health; raise <budgetSetting> if the INUBIT server is just slow"); the existing
+  two-argument `acquireForHelper` and `acquire` delegate with `cliTimeout` (020 texts
+  byte-identical). Failing tests first in `adapter/cli/CliResourcesTest.java` (reservation with
+  the log prefix creates `inubit-mcp-log-<profile>-<pid>-<random>` owner-only below
+  `java.io.tmpdir`; the stale sweep removes a stale `inubit-mcp-log-*` directory of a dead pid and
+  keeps one of the running process) and `adapter/cli/CliConcurrencyLimiterTest.java` (slot wait
+  with `cliExportTimeout` → next step names `cliExportTimeout`, not `cliTimeout`; the existing
+  helper and StartCLI texts unchanged)
 
 ### Excerpt and local files (plan stages 5–6; shared by both logs)
 
@@ -281,14 +287,21 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   window starts at the first whole line within the last 50 MiB, `wholeFile: false`,
   `startLine` equals a naive line count + 1); sizes exactly 52,428,800 (whole) and 52,428,801;
   `\n` exactly at `start − 1`; no line break in the last 50 MiB; empty file
-- [ ] T017 [P] `application/ExcerptPermit.java` (D-13): process-wide fair semaphore with one
-  permit, `AutoCloseable` acquisition; the wait is local and not bounded by `cliExportTimeout`.
-  Failing tests first in `application/ExcerptPermitTest.java` (a second acquirer waits until the
-  first releases; FIFO order; release on exception)
-- [ ] T018 `domain/model/LogExcerptPerformanceTest.java` (D-13; after T015, T016): a 50 MiB
-  synthetic log generated in the test (secret-looking lines every 1,000 lines) is read by
-  `LogWindowReader` and its excerpt built by `LogExcerpt.build` within 20 s on the CI machine;
-  fix a non-linear masker path if it fails
+- [ ] T017 [P] `application/ExcerptPermit.java` (D-13, D-15): process-wide fair semaphore with one
+  permit; `Optional<Held> tryAcquire(Duration wait)` with `Held` `AutoCloseable` (release once);
+  the caller passes what is left of the call's `cliExportTimeout` deadline and maps an empty result
+  to `TIMEOUT` (T028). Failing tests first in `application/ExcerptPermitTest.java` (a second
+  acquirer waits until the first releases; FIFO order; release on exception; a wait longer than
+  `wait` → empty, the permit untouched; `Duration.ZERO` with a free permit → held; interrupted
+  wait → empty with the interrupt flag kept)
+- [ ] T018 `application/LogExcerptPerformanceTest.java` (D-11, D-13; after T015, T016): a 50 MiB
+  synthetic log generated in `@TempDir` (secret-looking lines every 1,000 lines, two configured
+  passwords occurring in it) is read by `application/LogWindowReader` and its excerpt built by
+  `LogExcerpt.build` with the **real** known-span function — an `infra/SecretScrubber` with the two
+  passwords registered, passed as `scrubber::occurrences` exactly as `adapter/ProfileSecrets`
+  delegates to it — within 20 s on the CI machine (the bound covers window read, scrubber scan,
+  masking and selection); both passwords absent from the excerpt; fix a non-linear masker or
+  scrubber path if it fails
 - [ ] T019 [P] `application/LogFileWriter.java` (FR-007, FR-008, FR-011, SC-004, D-7 step 4;
   after T006, T007): `Placed place(TargetFolderRules.CheckedFolder folder, String baseName, Path
   source)` → `Placed(Path file, long size)`; creates the folder and missing parents with
@@ -382,22 +395,28 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   named as budget; the 8.1 client chosen per 017; every v8_1/trace case → its code (`ok` result,
   `empty` 0 bytes, `missing` → `NOT_FOUND`, `login_failure` → `AUTH_FAILED`, `forbidden` →
   `FORBIDDEN`); success text missing or no file → `UNEXPECTED_RESPONSE`; no client home →
-  `CLI_UNAVAILABLE` naming `defaults.cliClients."8.1"`; private directory gone after success and
+  `CLI_UNAVAILABLE` naming `defaults.cliClients."8.1"`; edge case "maintenance mode, credentials
+  not available, TLS failure" with the existing StartCLI texts and mechanisms: credentials not
+  resolvable → `SECRET_UNRESOLVED` (the node's usual credential error) with **nothing launched**,
+  StartCLI maintenance answer → `MAINTENANCE_MODE`, TLS failure (pin probe / StartCLI TLS text) →
+  `TLS_ERROR`, each with the private directory deleted; private directory gone after success and
   failure; leak check
 - [ ] T026 [US1] `adapter/cli/log/CliServerLogAdapter.java` + `adapter/cli/log/package-info.java`
-  (FR-013, D-15, D-19; after T011, T025): `implements ServerLogPort`; one deadline per call = start
-  of the download phase + the node's `cliExportTimeout`, shared by the slot wait
-  (`CliConcurrencyLimiter.acquireForHelper`, 2 permits per node) and the process (`remaining`);
-  exceeded → `TIMEOUT` "The trace log download from <node> did not finish within cliExportTimeout
-  (<n> s)", next step naming `cliExportTimeout` plus "large logs need a larger cliExportTimeout";
-  process tree killed, private directory deleted; dispatch `TRACE` → `CliTraceRunner`;
-  `WEBSERVICE` is wired in T040 (until then the adapter throws `INTERNAL` "web service log channel
-  not wired", unreachable because `allowed()` does not admit `WEBSERVICE_LOG_READ` before T042);
+  (FR-013, D-15, D-19; after T011, T012, T025): `implements ServerLogPort`; uses the call deadline
+  it gets from the service (`deadlineNanos` = start of the download phase + the node's
+  `cliExportTimeout`), shared by the slot wait (`CliConcurrencyLimiter.acquireForHelper(server,
+  remaining, "cliExportTimeout")`, 2 permits per node) and the process (`remaining`); exceeded →
+  `TIMEOUT` "The trace log download from <node> did not finish within cliExportTimeout (<n> s)",
+  next step naming `cliExportTimeout` plus "large logs need a larger cliExportTimeout"; process
+  tree killed, private directory deleted; dispatch `TRACE` → `CliTraceRunner`;
+  `WEBSERVICE` is wired in T041 (until then the adapter throws `INTERNAL` "web service log channel
+  not wired", unreachable because `allowed()` does not admit `WEBSERVICE_LOG_READ` before T043);
   `adapter/AdapterGatewayFactory.java` creates it for 8.1/9.0 nodes. Failing tests first in
   `adapter/cli/log/CliServerLogAdapterTest.java` (`FakeProcessLauncher.hanging()` → `TIMEOUT`
   within the budget, slot released, nothing left; both permits held by others → slot wait ends
-  in `TIMEOUT`; a trace download takes a slot) and `adapter/cli/CliConcurrencyLimiterTest.java`
-  (other StartCLI runs on 8.1/9.0 still take no slot)
+  in `TIMEOUT` whose next step names `cliExportTimeout` and does not contain "raise cliTimeout";
+  a deadline already passed → `TIMEOUT` without launch; a trace download takes a slot) and
+  `adapter/cli/CliConcurrencyLimiterTest.java` (other StartCLI runs on 8.1/9.0 still take no slot)
 - [ ] T027 [US1] `application/ServerLogService.java` part 1 + `application/ServerLogRequest.java`
   — decision flow (contracts/mcp-tools-delta.md "Decision flow" steps 1–7, FR-001, FR-002,
   FR-011, D-7 step 1, D-14, D-18; after T009, T011, T019, T020, T026): `ServerLogRequest`
@@ -418,41 +437,67 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   `INTERNAL`, nothing sent); `VersionGate.admitWithDetection("download_server_log", node,
   TRACE_LOG_READ | WEBSERVICE_LOG_READ, READ, {CLI})`: `UNSUPPORTED_VERSION` closes the call's
   `auditId` with `REFUSED`, a detection error is passed through with its own code and message and
-  closes it with `FAILED`; then `ServerLogPort.download` in try-with-resources. Failing tests
-  first in `application/ServerLogServiceTest.java` (fake port recording calls; fake audit): each
+  closes it with `FAILED`; then the call deadline `deadlineNanos = System.nanoTime() + node
+  cliExportTimeout` (start of the download phase, D-15; `LongSupplier` seam for tests) and
+  `ServerLogPort.download(kind, version, deadlineNanos)` in try-with-resources. Failing tests
+  first in `application/ServerLogServiceTest.java` (fake port recording calls and the deadline it
+  got; fake audit): the port gets a deadline equal to the seam's time + `cliExportTimeout`; each
   invalid input → `INVALID_INPUT`, zero port calls, nothing created; folder rules (relative,
   `..`, network path, workspace, config dir, git working tree); webservice without opt-in →
   `NOT_CONFIGURED`, no detection, no port call (US2-3 on service level); undetectable version →
-  the detection's code (`UNREACHABLE`, `TLS_ERROR`, `AUTH_FAILED`, `TIMEOUT`), port not called
-  (US3-3); unwritable `PENDING` → `INTERNAL`, port not called; audit sequence per path; leak
+  the detection's code (`UNREACHABLE`, `TLS_ERROR`, `AUTH_FAILED`, `TIMEOUT`, `MAINTENANCE_MODE`,
+  `SECRET_UNRESOLVED`), port not called, audit `FAILED` (US3-3, edge case "maintenance mode,
+  credentials not available, TLS failure"); unwritable `PENDING` → `INTERNAL`, port not called; audit sequence per path; leak
   check (the `contains` text never in a message, audit record or `toString`)
 - [ ] T028 [US1] `ServerLogService` part 2 — excerpt, placement, result (FR-007…FR-010, FR-015,
-  D-7 steps 3–5, D-8, D-13, D-18; after T015–T019, T027): after the download: `ExcerptPermit` →
-  `LogWindowReader.read` → `LogExcerpt.build` with the injected known-span function
-  (`Function<String, List<SecretSpan>>`, D-11) → `LogFileWriter.place(folder,
+  D-7 steps 3–5, D-8, D-11, D-13, D-15, D-18; after T015–T019, T027): after the download:
+  `ConfiguredSecrets.prepare(min(prepareBound, remaining))` (`domain/port/ConfiguredSecrets`, the
+  `ProfileSecrets` instance feature 019's `KnowledgeService` uses; `prepareBound` =
+  `ProfileSecrets.timeout()` passed in by `Wiring` as for 019; `remaining` = what is left of the
+  call deadline) → `ExcerptPermit.tryAcquire(remaining)` (empty → `TIMEOUT` "The <log> log download from <node>
+  did not finish within cliExportTimeout (<n> s)", next step naming `cliExportTimeout`; nothing
+  in the folder, private directory deleted, audit `FAILED`) → `LogWindowReader.read` →
+  `LogExcerpt.build` with `ConfiguredSecrets::occurrences` as known-span function (D-11); if
+  `prepare` answered `NotReady`, no permit is taken and no excerpt is built: `"excerpt": {"kind":
+  "withheld"}` with the
+  hint "The excerpt is withheld: the credentials of <node> (<store>: <state>) have not been read
+  yet, so they could not be masked; the file is written" (fail closed, 019 option A; the
+  pending list names nodes and stores, never a value) → `LogFileWriter.place(folder,
   "<group>-<node>-<log>-<yyyyMMdd-HHmmss>", privateCopy)` with the UTC instant at which the
   download finished (injected `Clock`) → `ServerLogResult` (`downloadedAt` ISO-8601 UTC = the
   instant in the file name) → final audit `EXECUTED` (details `file`, `sizeBytes`, `inubitNode`) or
   `FAILED` → the private directory closed. Hints: empty → "The log is empty" (webservice:
   "The log is empty; web service logging may be disabled"); presence `UNKNOWN` → "The log is empty
-  or does not exist on the server". Warnings: "The log file contains clear-text content" always;
+  or does not exist on the server" (webservice: "The log is empty or does not exist on the server;
+  web service logging may be disabled", US2-4 second branch). Warnings: "The log file contains
+  clear-text content" always;
   "Read through an unsupported, undocumented INUBIT interface; diagnosis only" for webservice
   only; the cloud-sync warning of the folder rules; version and client warnings of the gate; an
   audit warning. Any failure after the download → no file of the call in the folder, private
   directory deleted, audit `FAILED`. Failing tests first in `application/ServerLogServiceTest.java`:
   US1-1 result shape (node, log, absolute file, size, `downloadedAt`, excerpt of the last 200
   lines); file bytes equal the download for UTF-8, Latin-1 and binary content (FR-008); US1-5
-  existing name → `-2`; empty log → file written, `kind: empty` + hint; `contains` without match
-  → file written, empty excerpt + hint; injected placement failure → no file, `FAILED`; masking
-  of a known profile password in the excerpt while the file keeps it (US1-3); leak check
-- [ ] T029 [US1] `application/ServerLogLoggingTest.java` (FR-015, SC-003, D-18; after T028): the
-  service writes exactly one `INFO` line per call `download_server_log on {node}: log {log}, file
-  {name|-}, {n|-} bytes, window {lines|-}, outcome {OK|<code>}` and adapter `DEBUG` only for
-  variant, client home and JDK; captured logback output of a full call with secret-looking log
-  content and a `contains` text contains no excerpt line, no `contains` text and no StartCLI
-  output at any level; fix the service/adapters if it fails
-- [ ] T030 [US1] Tool, schemas and wiring (FR-001, FR-002, FR-004, FR-014, D-17, D-20; after
-  T028): `mcp/tools/DownloadServerLogTool.java` (name `download_server_log`, the description
+  existing name → `-2`; empty log → file written, `kind: empty` + hint; 0 bytes with presence
+  `UNKNOWN` → the trace hint for `trace`, the hint with "web service logging may be disabled" for
+  `webservice` (US2-4); `contains` without match → file written, empty excerpt + hint; injected
+  placement failure → no file, `FAILED`; masking of a known profile password of **another** node
+  in the excerpt while the file keeps it (US1-3); a fake `ConfiguredSecrets` answering `NotReady`
+  → file written, `kind: withheld` + hint naming node and store, no log line in the result; the
+  permit held by another call longer than the remaining deadline → `TIMEOUT` naming
+  `cliExportTimeout`, no file in the folder, private directory deleted, audit `FAILED`; the
+  `prepare` bound never exceeds the remaining deadline; leak check
+- [ ] T029 [US1] `ServerLogService` INFO line and adapter DEBUG lines (FR-015, SC-003, D-18; after
+  T028): failing test first in `application/ServerLogLoggingTest.java` (captured logback output),
+  then the implementation in `application/ServerLogService.java` (exactly one `INFO` line per call,
+  success and every failure path after the input checks, `download_server_log on {node}: log
+  {log}, file {name|-}, {n|-} bytes, window {lines|-}, outcome {OK|<code>}`),
+  `adapter/cli/CliTraceRunner.java` and `adapter/cli/log/CliServerLogAdapter.java` (`DEBUG` only
+  for client home and JDK; the webservice adapter adds its variant line in T041). Tests: one INFO
+  line for success, for `NOT_FOUND` and for `TIMEOUT` with the fields above; a full call with
+  secret-looking log content and a `contains` text leaves no excerpt line, no `contains` text, no
+  StartCLI output and no masked value in the output at any level; leak check
+- [ ] T030 [P] [US1] Tool and schemas (FR-001, FR-004, FR-014, D-20; after T027):
+  `mcp/tools/DownloadServerLogTool.java` (name `download_server_log`, the description
   **verbatim** from contracts/mcp-tools-delta.md "Description", `ToolHints.localWrite("Download an
   INUBIT server log")` → `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint:
   false`, `openWorldHint: true`; maps arguments to `ServerLogRequest`);
@@ -461,29 +506,38 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   `webservice`; `targetFolder` 1–4096; `tailLines` 1–2000 default 200; `contains` 1–200 with
   pattern `^[^\u0000-\u001F\u007F-\u009F]{1,200}$`; `maxChars` 1–100000 default 20000;
   `additionalProperties: false`) and `download_server_log.output.json` (fields and variants of
-  the contract "Output"); `Wiring.java`: service, `CliServerLogAdapter`, known-span function
-  `SecretScrubber.global()::occurrences`, `TargetFolderRules`/`AuditPort` reuse; announcement
-  branch 1: some node `possiblyCapable(node, TRACE_LOG_READ)` && `clientSelection.anyCandidate(node)`;
-  `allowed()` adds `TRACE_LOG_READ` with `withClient`; offered in read-only mode, independent of
-  `write.*`, `archives.*` and production write opt-ins. Failing tests first:
+  the contract "Output", including `kind: withheld`). Failing tests first in
   `mcp/tools/DownloadServerLogToolTest.java` (schema rejects a group id, another `log`,
   `tailLines` 0 / 2001, `contains` empty / 201 chars / a control char, `maxChars` 0 / 100001,
   unknown properties; annotations; description contains "clear text", "business data and
   credentials", "supported trace download", "unsupported", "undocumented", "without vendor
-  support", "any INUBIT update", "never replaced"); `ToolAnnouncementTest.java` (test matrix
+  support", "any INUBIT update", "never replaced"; a result of every contract variant validates
+  against the output schema; arguments → `ServerLogRequest` with a fake service)
+- [ ] T031 [US1] Wiring, announcement and admission of the trace log (FR-002, D-11, D-17; after
+  T029, T030): `Wiring.java`: service, `CliServerLogAdapter`, the existing feature-019
+  `ProfileSecrets` instance as `ConfiguredSecrets` with its `timeout()` as `prepareBound` (the
+  local variable becomes a field shared by `KnowledgeService` and `ServerLogService`),
+  `TargetFolderRules`/`AuditPort` reuse; announcement branch 1: some node `possiblyCapable(node,
+  TRACE_LOG_READ)` && `clientSelection.anyCandidate(node)`; `allowed()` adds `TRACE_LOG_READ`
+  with `withClient`; offered in read-only mode, independent of `write.*`, `archives.*` and
+  production write opt-ins. Failing tests first: `ToolAnnouncementTest.java` (test matrix
   admitting 8.1: profile without any `unsupported` setting and a client home → announced (US1-6),
   also in read-only mode; no client home anywhere or every node pinned to 6.1 → not announced;
-  production matrix before T032 → tool list unchanged); `MainTest.java` (exact tool lists:
+  production matrix before T033 → tool list unchanged); `MainTest.java` (exact tool lists:
   0.9.1 list, plus `download_server_log` only where announced; SC-002);
   `mcp/tools/ListNodesToolTest.java` (`trace_log_read` in `usable`/`notUsable` for nodes with a
   client home; schema validates); `DownloadServerLogWiringTest.java` (trace end to end through
-  the wired server with `FakeProcessLauncher`: file in the folder, result as contract)
-- [ ] T031 [US1] 8.1 trace contract over the reconstructed cases (FR-017, D-22; after T030):
+  the wired server with `FakeProcessLauncher`: file in the folder, result as contract; a
+  password of another configured node in the log is masked in the excerpt)
+- [ ] T032 [US1] 8.1 trace contract over the reconstructed cases (FR-017, D-22; after T031):
   `adapter/cli/log/ServerLogV81ContractTest.java` runs `CliServerLogAdapter` + `ServerLogService`
   per `v8_1/trace` case (test matrix declaration): `ok` → result shape, `sizeBytes` = `ok.log`,
   masked excerpt; `empty` → `kind: empty`; `missing` → `NOT_FOUND` text; `login_failure` →
-  `AUTH_FAILED`; `forbidden` → `FORBIDDEN`; no file in the folder after each failure (SC-004)
-- [ ] T032 [US1] **[OWNER]** **[BLOCKED: T021]** Enable 8.1 trace in **one commit** (FR-017,
+  `AUTH_FAILED`; `forbidden` → `FORBIDDEN`; edge case "maintenance mode, credentials not
+  available, TLS failure": `SECRET_UNRESOLVED` (nothing launched), `MAINTENANCE_MODE`,
+  `TLS_ERROR`; after each failure no file in the folder (SC-004), private directory deleted and
+  audit `FAILED` with the code
+- [ ] T033 [US1] **[OWNER]** **[BLOCKED: T021]** Enable 8.1 trace in **one commit** (FR-017,
   D-21, D-22): the agent neutralizes the T021 output in the private directory: the recorded
   `trace.log` is replaced by a fictitious log of the same shape (timestamps, levels, `acme`
   classes, `node1`, `*.example.test`), the MB value in `.stdout` adjusted to its size,
@@ -499,7 +553,7 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   D-1, fix the `CliTraceRunner` rule test-first before the flip
 
 **Checkpoint**: build green; US1 works end to end (offline, and on the production matrix after
-T032); code review phase 3.
+T033); code review phase 3.
 
 ## Phase 4: User Story 2 – Get the web service log of a server (P1)
 
@@ -511,7 +565,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
 `FakeProcessLauncher` replaying helper frames: an opted-in 8.1 node → file, result with
 `inubitNode`; a group without the opt-in → `NOT_CONFIGURED`, zero WireMock requests, zero launches.
 
-- [ ] T033 [US2] **[LIVE] [OWNER]** 8.1 webservice spike (D-23 step 2, quickstart "Early live
+- [ ] T034 [US2] **[LIVE] [OWNER]** 8.1 webservice spike (D-23 step 2, quickstart "Early live
   tasks" 2; may start any time after T001, in parallel to Phases 2–3): the agent proposes the
   concrete action (which non-production 8.1 test server, the throw-away program **outside the
   repository** performing exactly D-2 steps 1–5 — login, `ClusterClient` with
@@ -526,7 +580,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   appended to `specs/021-server-log-download/research.md` "Spike findings". **If the single-node
   server answers `Server not in cluster mode.` or `getNode()` fails, stop US2 and report to the
   owner (D-2/D-5 do not hold)**
-- [ ] T034 [P] [US2] Fake vendor classes (D-22): `src/test/java/com/inubit/ibis/server/cluster/ClusterClient.java`
+- [ ] T035 [P] [US2] Fake vendor classes (D-22): `src/test/java/com/inubit/ibis/server/cluster/ClusterClient.java`
   (four-argument constructor `(I_IBISClientInterface, String user, String clientUID, String
   additionalUserGroup)`, `Node getNode()`, `MultipartDownloadThread clusterDownload(File, NodeName,
   String)` returning a **not started** thread), `Node` (`getNodeName()`), `NodeName` (`getName()`,
@@ -537,26 +591,34 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   (node name, `getNode` failure, download content or exception text, recorded call list with
   arguments); `testing/FakeInubitClient.java` packs them into the fake client JAR. Failing tests
   first in `testing/FakeInubitClientTest.java`
-- [ ] T035 [P] [US2] Helper request and frames (D-4; after T004): `adapter/cli/helper/HelperRequest.java`
-  becomes a record with the shared connection fields plus a sealed `Operation`
-  (`QueueEntryRead(objectType, fileName, Optional<Path> dataOut, Path variablesOut)` |
-  `ServerLogRead(ServerLogKind kind, Path logOut)`, "`kind` only `WEBSERVICE`"); `encode()` writes
-  `op=queueEntry` / `op=serverLog`; for `serverLog` exactly the keys `qe=1`, `op`, `nonce` (32
-  hex), `variant`, `url`, `trustStore`, `trustStorePassword`, `hostnameVerification`,
-  `log=webservice`, `logOut`, `user`, `password`, `end` (percent-encoded values) and **no file
-  name key**; `toString` leaves out user and passwords; `adapter/cli/helper/HelperFrames.java`
-  `+ NodeOk(String name)`, `NodeError(chain, message)`, part `LOG` in `PartOk` / `PartError`
-  (`node ok <nodeName>`, `node error <exceptionChain> <message>`, `part log ok <bytes>`, `part log
-  error <exceptionChain> <message>`); `CliQueueEntryAdapter` builds `QueueEntryRead`. Failing tests
-  first in `adapter/cli/helper/HelperRequestTest.java` (the D-4 stdin block; queue encoding equal
-  to 020 apart from the `op` line; leak check of `toString`) and
-  `adapter/cli/helper/HelperFramesTest.java` (new frames; every 020 `fixtures/queue-entry/**.frames`
-  parses as before)
-- [ ] T036 [US2] `ClientHelper` operation `serverLog` (FR-006, D-2, D-4, D-5; after T034, T035;
-  proceeds on the static facts; if T033 contradicts them, rework per the findings with the owner
-  informed): `src/helper/java/de/dadecker/inubit/mcp/helper/ClientHelper.java` reads `op`
-  (`queueEntry` | `serverLog`; keys of the other operation → malformed request, exit 2); `log`
-  accepts only `webservice` and maps it to the **constant** `webservice.log`; API check before
+- [ ] T036 [P] [US2] Helper request, frames and the optional `op` key (D-4; after T004, T010):
+  `adapter/cli/helper/HelperRequest.java` becomes a record with the shared connection fields plus
+  a sealed `Operation` (`QueueEntryRead(objectType, fileName, Optional<Path> dataOut, Path
+  variablesOut)` | `ServerLogRead(ServerLogKind kind, Path logOut)`, "`kind` only `WEBSERVICE`");
+  `encode()` writes **no `op` line for `QueueEntryRead`** (the 020 request stays byte-identical)
+  and `op=serverLog` as second line for `ServerLogRead`, then exactly the keys `nonce` (32 hex),
+  `variant`, `url`, `trustStore`, `trustStorePassword`, `hostnameVerification`, `log=webservice`,
+  `logOut`, `user`, `password`, `end` (percent-encoded values) and **no file name key**;
+  `toString` leaves out user and passwords; `adapter/cli/helper/HelperFrames.java` `+
+  NodeOk(String name)`, `NodeError(chain, message)`, part `LOG` in `PartOk` / `PartError` (`node ok
+  <nodeName>`, `node error <exceptionChain> <message>`, `part log ok <bytes>`, `part log error
+  <exceptionChain> <message>`); `CliQueueEntryAdapter` builds `QueueEntryRead`;
+  `src/helper/java/de/dadecker/inubit/mcp/helper/ClientHelper.java` accepts the **optional** key
+  `op` (absent = `queueEntry`; `op=queueEntry` reads exactly the 020 keys; any other value,
+  `serverLog` included until T037, → malformed request, exit 2; a repeated `op` → exit 2). Failing
+  tests first in `adapter/cli/helper/HelperRequestTest.java` (the 020 exact-encoding test
+  `encodesEveryKeyOnceInProtocolOrderWithPercentEncodedValues` unchanged; the `serverLog` stdin
+  block of D-4 exactly; leak check of `toString`; the existing round trip through the real helper
+  `theHelperAcceptsTheEncodedRequestAndReceivesEveryValueUnchanged` unchanged and green),
+  `adapter/cli/helper/ClientHelperTest.java` (a hand-built 020 request with `op=queueEntry` behaves
+  exactly as without it; `op=serverLog`, `op=other`, `op` twice → exit 2; every 020 test unchanged)
+  and `adapter/cli/helper/HelperFramesTest.java` (new frames; every 020
+  `fixtures/queue-entry/**.frames` parses as before)
+- [ ] T037 [US2] `ClientHelper` operation `serverLog` (FR-006, D-2, D-4, D-5; after T035, T036;
+  proceeds on the static facts; if T034 contradicts them, rework per the findings with the owner
+  informed): `src/helper/java/de/dadecker/inubit/mcp/helper/ClientHelper.java` admits
+  `op=serverLog` with exactly its keys (keys of the other operation → malformed request, exit 2);
+  `log` accepts only `webservice` and maps it to the **constant** `webservice.log`; API check before
   `start` (`api missing <what>`, exit 4): `ClusterClient` four-argument constructor, `getNode()`,
   `clusterDownload(File, NodeName, String)`, `Node.getNodeName()`, `NodeName.getName()`,
   `CurrentUser.getClientUID()`, `getUsedAdditionalUserGroup()`, the 020 members of the variant and
@@ -570,15 +632,19 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   anonymous classes, JDK classes only, reflection only, `release 17`. Failing tests first in
   `adapter/cli/helper/ClientHelperTest.java` (in-process with the fakes): the recorded vendor
   calls are exactly login, `getNode`, `clusterDownload(…, "webservice.log")`, logout, with the
-  `NodeName` from `getNode` passed explicitly; a request with a `fileName` key or `log=trace` →
-  exit 2; each `api missing` member → exit 4; `node error` → no download; download exception →
-  `part log error`; every 020 queue test unchanged; leak check of the frames
-- [ ] T037 [US2] `adapter/cli/helper/ClientHelperProcessTest.java` (after T036): the packaged
+  `NodeName` from `getNode` passed explicitly; a `serverLog` request with a `fileName` key or
+  `log=trace` → exit 2; each `api missing` member → exit 4; `node error` → no download; download
+  exception → `part log error`; every 020 queue test unchanged; leak check of the frames; and in
+  `adapter/cli/helper/HelperRequestTest.java` the named round trip
+  `theHelperAcceptsTheEncodedServerLogRequestAndReceivesEveryValueUnchanged` (encoded
+  `ServerLogRead` through the real helper, values received unchanged, next to the unchanged 020
+  round trip)
+- [ ] T038 [US2] `adapter/cli/helper/ClientHelperProcessTest.java` (after T037): the packaged
   helper runs `op=serverLog` in a real child JVM against the fake client home and writes
   `logOut`; `ClientHelperPackagingTest` still finds exactly one `ClientHelper.class` (major 61);
   `architecture/PackageBoundaryTest.java` (helper references only `java/*`) green
-- [ ] T038 [P] [US2] `adapter/cli/log/WebServiceLogClassifier.java` (D-5, D-8, D-14; after T005,
-  T035): frames + exit code → outcome or `ToolErrorException`; shared cases through
+- [ ] T039 [P] [US2] `adapter/cli/log/WebServiceLogClassifier.java` (D-5, D-8, D-14; after T005,
+  T036): frames + exit code → outcome or `ToolErrorException`; shared cases through
   `HelperFailures` (log subject); `node ok` name "1–128 chars of `[A-Za-z0-9_.:-]`", else
   `UNEXPECTED_RESPONSE`; `node error` with an access-denied text or HTTP 403 → `FORBIDDEN` "<node>
   refused the web service log download for the configured user", next step "Give the user the
@@ -590,31 +656,39 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   have changed after an INUBIT update" with a scrubbed excerpt ≤ 200 chars; `part log ok 0` →
   size 0, `PRESENT`. Failing tests first in `adapter/cli/log/WebServiceLogClassifierTest.java`
   (each case; name of 129 chars and with `/` rejected; leak check)
-- [ ] T039 [P] [US2] Reconstructed webservice fixtures (D-21; after T024):
+- [ ] T040 [P] [US2] Reconstructed webservice fixtures (D-21; after T024):
   `src/test/resources/fixtures/server-log/v8_1/webservice/{ok,empty,missing,forbidden,not_cluster_mode,api_missing,garbage_frames}.{frames,exit,log,origin}`,
   `.origin` "`reconstructed <source>`" (`missing` from the server text `File webservice.log not
   found on node1`); `ok.log` a fictitious SOAP log (`acme` services, `partner.example.test`, one
   `<wsse:Password>` element, one `Authorization: Basic …` header); `ok.frames` size and node name
   `node1` consistent with `ok.log`; `ServerLogFixtureCatalogueTest` covers them
-- [ ] T040 [US2] `adapter/cli/log/CliWebServiceLogAdapter.java` (FR-006, FR-012, D-2, D-6, D-16;
-  after T026, T036–T039): `HelperVariant.forVersion` (8.1 → `SOAP_81`, 9.0 → `REST_90`, else
+- [ ] T041 [US2] `adapter/cli/log/CliWebServiceLogAdapter.java` (FR-006, FR-012, D-2, D-6, D-16;
+  after T026, T037–T040): `HelperVariant.forVersion` (8.1 → `SOAP_81`, 9.0 → `REST_90`, else
   `UNSUPPORTED_VERSION`); `CliRunner.select(server, version)` + `checkLaunch` (no client home →
   `CLI_UNAVAILABLE` with the 017 text naming `defaults.cliClients."M.m"`; no `lib/ibis.jar` or JDK
   → `CLI_UNAVAILABLE`); TLS check `TlsPeer.handshake` with `min(server.timeout(), remaining)` and
   a one-time PKCS12 store with only the verified leaf (`HelperTrustStore`), `http` without store;
   private directory with `LOG_PREFIX`, `logOut` = `<dir>/out/webservice.log`; helper run via
   `ProcessRun` (argv = JDK, class path, class name only; request on stdin); classification →
-  `DownloadedLog(path, size, Optional.of(name), PRESENT)`; `CliServerLogAdapter` dispatches
-  `WEBSERVICE` here (the temporary `INTERNAL` of T026 removed), inside the same deadline and slot.
-  Failing tests first in `adapter/cli/log/CliWebServiceLogAdapterTest.java`
+  `DownloadedLog(path, size, Optional.of(name), PRESENT)`; `DEBUG` line for variant, client home
+  and JDK (D-18); `CliServerLogAdapter` dispatches `WEBSERVICE` here (the temporary `INTERNAL` of
+  T026 removed), inside the same service-given deadline and slot. Failing tests first in `adapter/cli/log/CliWebServiceLogAdapterTest.java`
   (`FakeProcessLauncher.onLaunch` reads the stdin request, copies `<case>.log` to `logOut`,
   replays `.frames`/`.exit`): argv without secrets, nothing secret in the environment; request
   with `op=serverLog`, `log=webservice` and no file name; each v8_1/webservice case → its code;
   invalid node name → `UNEXPECTED_RESPONSE`; no home / no `ibis.jar` / no JDK / `api missing` →
-  `CLI_UNAVAILABLE`; private directory deleted after success and failure; and in
-  `adapter/cli/log/CliServerLogAdapterTest.java`: webservice takes the slot, TLS check and process
-  share `cliExportTimeout`, `TIMEOUT` leaves nothing; leak check
-- [ ] T041 [P] [US2] Configuration view (FR-016, US2-6, D-17; after T008):
+  `CLI_UNAVAILABLE`; edge case "maintenance mode, credentials not available, TLS failure":
+  credentials not resolvable → `SECRET_UNRESOLVED` with **nothing launched** and no TLS check,
+  `TlsPeer.handshake` failure (untrusted certificate, pin mismatch) → `TLS_ERROR` with nothing
+  launched, a maintenance answer (020 `HelperFailures` mapping) → `MAINTENANCE_MODE`; private
+  directory deleted after success and failure; in `adapter/cli/log/CliServerLogAdapterTest.java`:
+  webservice takes the slot, TLS check and process share the `cliExportTimeout` deadline, slot-wait
+  `TIMEOUT` names `cliExportTimeout`, `TIMEOUT` leaves nothing; in
+  `application/ServerLogLoggingTest.java` a webservice call: the variant `DEBUG` line, no request
+  line, no frame and no helper output at any level; leak check
+- [ ] T042 [US2] Configuration view (FR-016, US2-6, D-17; after T009, which changes the same
+  `ConfigSummary.java`, `ConfigSummaryTest.java` and `MainTest.java`; not concurrently with T031 or
+  T033, which also change `MainTest.java`):
   `config/ConfigValidator.java` `checkServerLogReadOptIn`: warning on a `production: true` group
   "unsupported.serverLogRead is enabled on production {group} %s: the web service log is read
   through an undocumented INUBIT interface without vendor support" (`termWarning`);
@@ -626,8 +700,8 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   (unsupported)` / `Group prod (production): archives: refused (no archives.productionOptIn),
   serverLogRead: off`; order with both opt-ins), `MainTest.java` (`--check-config` "Warnings:"
   and the startup log `Configuration: …` warning)
-- [ ] T042 [US2] Announcement and admission of the web service log (FR-002, D-6, D-17; after T030,
-  T040): `Wiring.java` announcement branch 2: some node with `serverLogRead` &&
+- [ ] T043 [US2] Announcement and admission of the web service log (FR-002, D-6, D-17; after T031,
+  T041): `Wiring.java` announcement branch 2: some node with `serverLogRead` &&
   `possiblyCapable(node, WEBSERVICE_LOG_READ)` && `clientSelection.anyCandidate(node)`; `allowed()`
   adds `WEBSERVICE_LOG_READ` with `withClient && serverLogRead`. Failing tests first in
   `ToolAnnouncementTest.java` (opt-in only on a group pinned to 6.1 or without client home → this
@@ -637,26 +711,28 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   `unsupported.serverLogRead`, zero WireMock requests, zero launches (US2-3); opted-in single-node
   8.1 (test matrix) → file, `inubitNode: node1`, unsupported and clear-text warnings (US2-1); a
   cluster node whose helper reports `node2` → result names `node2` (US2-2)
-- [ ] T043 [US2] 8.1 webservice contract over the reconstructed cases (FR-017, D-22; after T042):
+- [ ] T044 [US2] 8.1 webservice contract over the reconstructed cases (FR-017, D-22; after T043):
   `adapter/cli/log/ServerLogV81ContractTest.java` webservice part per `v8_1/webservice` case (test
   matrix declaration): `ok` → result with `inubitNode`, masked `<wsse:Password>` and
   `Authorization`; `empty` → hint "The log is empty; web service logging may be disabled";
   `missing` → `NOT_FOUND` with the spec text, no file written (US2-4); `forbidden` → `FORBIDDEN`;
   `not_cluster_mode` and `garbage_frames` → `UNEXPECTED_RESPONSE`; `api_missing` →
-  `CLI_UNAVAILABLE`; no file in the folder after each failure
-- [ ] T044 [P] [US2] `docs/setup.md` (FR-004, US2-5, D-25): subsection `### Unsupported functions`
+  `CLI_UNAVAILABLE`; edge case "maintenance mode, credentials not available, TLS failure":
+  `SECRET_UNRESOLVED` and `TLS_ERROR` (nothing launched), `MAINTENANCE_MODE`; after each failure
+  no file in the folder, private directory deleted and audit `FAILED` with the code
+- [ ] T045 [P] [US2] `docs/setup.md` (FR-004, US2-5, D-25; after T009, which changes the section 6
+  examples of the same file): subsection `### Unsupported functions`
   gets the `unsupported.serverLogRead` table row, the YAML example and the FR-004 text
   **verbatim** from contracts/configuration-delta.md "Documentation text", after the
   `queueEntryRead` text; the sentence on the download budget names `cliExportTimeout` with its
-  built-in value **120 s** (`Defaults.BUILTIN_CLI_EXPORT_TIMEOUT`; the "30 s" in
-  configuration-delta.md is outdated, see `reviews/implementation.md`); section 6 gets one summary
+  built-in value **120 s** (`Defaults.BUILTIN_CLI_EXPORT_TIMEOUT`); section 6 gets one summary
   example with a `serverLogRead` opt-in (existing examples unchanged). Failing test first
   `config/ServerLogDocsTest.java`: the bold sentences of the FR-004 text are in `docs/setup.md`
   ("uses unsupported INUBIT functionality", "No vendor support, no stability guarantee", "any",
   "Diagnosis only", "Clear-text content", "in clear text", "Read-only on INUBIT", "Cluster
   nodes"); the YAML example parses with `ConfigLoader`
-- [ ] T045 [US2] **[OWNER]** **[BLOCKED: T033]** Enable 8.1 webservice in **one commit** (FR-017,
-  D-21–D-23): the agent neutralizes the T033 output as in T032 (fictitious SOAP log content of the
+- [ ] T046 [US2] **[OWNER]** **[BLOCKED: T034]** Enable 8.1 webservice in **one commit** (FR-017,
+  D-21–D-23): the agent neutralizes the T034 output as in T033 (fictitious SOAP log content of the
   same shape, sizes in the frames adjusted, node name → `node1`, identifier checks green) into
   `src/test/resources/fixtures/server-log/v8_1/webservice/ok.*` (and `missing.*` / `empty.*` where
   recorded), `.origin` "`recorded <date> 8.1.x neutralized`"; **the owner reviews the diff before
@@ -680,7 +756,7 @@ with its recording (FR-002, FR-017, US3-1…4).
 17/21 paths) and a 6.1 node; `FakeProcessLauncher` records the launched JDK, class path and the
 helper's `variant`.
 
-- [ ] T046 [US3] Version selection end to end (US3-1…US3-4, D-6): new
+- [ ] T047 [US3] Version selection end to end (US3-1…US3-4, D-6): new
   `adapter/cli/log/ServerLogVersionProfile.java` (test support like `QueueEntryVersionProfile`)
   and failing tests first in `adapter/cli/log/ServerLogVersionSelectionTest.java`: 8.1 trace →
   the `defaults.cliClients."8.1"` StartCLI client; 9.0 trace → the 9.0 client; 8.1 webservice →
@@ -690,38 +766,38 @@ helper's `variant`.
   detection's own code (`UNREACHABLE`, `TLS_ERROR`, `AUTH_FAILED`, `TIMEOUT`), no launch; no 9.0
   client home → `CLI_UNAVAILABLE` naming `defaults.cliClients."9.0"`; an 8.1 client chosen for a
   9.0 node (webservice, `api missing` `ClusterClient`) → `CLI_UNAVAILABLE`; production matrix 9.0
-  before T050/T051 → "… is not yet verified for INUBIT 9.0"; fixes in the adapters or the service
+  before T051/T052 → "… is not yet verified for INUBIT 9.0"; fixes in the adapters or the service
   only if a test fails
-- [ ] T047 [US3] 9.0 contract in the fallback state (FR-017, D-22; after T046):
+- [ ] T048 [US3] 9.0 contract in the fallback state (FR-017, D-22; after T047):
   reconstructed `src/test/resources/fixtures/server-log/v9_0/{trace,webservice}/<case>.*` (the
   v8_1 case sets, `.origin` "`reconstructed <source>`", fictitious content);
   `adapter/cli/log/ServerLogV90ContractTest.java`: while `v9_0/<log>/ok.origin` is not recorded,
   the production matrix refuses a 9.0 node "not yet verified" with no launch; with a test
   declaration the 9.0 StartCLI and `REST_90` paths run over the reconstructed cases;
   `ServerLogFixtureCatalogueTest` covers `v9_0/`
-- [ ] T048 [US3] **[LIVE] [OWNER]** 9.0 trace recording (D-23 step 1; as T021 for a
+- [ ] T049 [US3] **[LIVE] [OWNER]** 9.0 trace recording (D-23 step 1; as T021 for a
   non-production 9.0 test server with the 9.0 client; may start any time after T001): proposal,
   explicit approval of exactly that action, read-only run, outputs only in the private directory,
   trace state equal before and after (SC-005), neutral findings in research.md "Spike findings"
-- [ ] T049 [US3] **[LIVE] [OWNER]** 9.0 webservice spike (D-23 step 2; as T033 with the 9.0
+- [ ] T050 [US3] **[LIVE] [OWNER]** 9.0 webservice spike (D-23 step 2; as T034 with the 9.0
   `REST_90` client: `getNode()` over the REST client, `CurrentUser.getClientUID()`, node name,
   missing / 0-byte cases where they occur, `Server not in cluster mode.` on a single node): proposal,
   explicit approval, read-only, never production, outputs only in the private directory, neutral
   findings in research.md "Spike findings"
-- [ ] T050 [US3] **[OWNER]** **[BLOCKED: T048]** Enable 9.0 trace in **one commit**: neutralize as
-  in T032 into `src/test/resources/fixtures/server-log/v9_0/trace/ok.*` (`.origin` "`recorded
+- [ ] T051 [US3] **[OWNER]** **[BLOCKED: T049]** Enable 9.0 trace in **one commit**: neutralize as
+  in T033 into `src/test/resources/fixtures/server-log/v9_0/trace/ok.*` (`.origin` "`recorded
   <date> 9.0.x neutralized`"), owner reviews the diff, and `CapabilityMatrix` 9.0
   `TRACE_LOG_READ` → `SUPPORTED` in the same commit; updated first: `ServerLogV90ContractTest`
   (recorded `ok`, US3-1, SC-001), `CapabilityMatrixTest`, `ServerLogFixtureCatalogueTest`,
   `ToolAnnouncementTest` (`V9_0` pin now announces), `ServerLogVersionSelectionTest`
-- [ ] T051 [US3] **[OWNER]** **[BLOCKED: T049]** Enable 9.0 webservice in **one commit**: as T045
+- [ ] T052 [US3] **[OWNER]** **[BLOCKED: T050]** Enable 9.0 webservice in **one commit**: as T046
   for `v9_0/webservice/ok.*` and 9.0 `WEBSERVICE_LOG_READ` → `SUPPORTED`; updated first:
   `ServerLogV90ContractTest`, `CapabilityMatrixTest`, `ServerLogFixtureCatalogueTest`,
   `ToolAnnouncementTest`
-- [ ] T052 [US3] **[OWNER]** FR-017 fallback (only for a 9.0 log whose recording T048 / T049
+- [ ] T053 [US3] **[OWNER]** FR-017 fallback (only for a 9.0 log whose recording T049 / T050
   cannot be made or is declined): record the owner's decision and date in
   `specs/021-server-log-download/quickstart.md` (validation record) and `reviews/implementation.md`;
-  that (9.0, log) stays refused `UNSUPPORTED_VERSION` "not yet verified"; T056 and T058 state it in
+  that (9.0, log) stays refused `UNSUPPORTED_VERSION` "not yet verified"; T057 and T059 state it in
   the docs and the CHANGELOG; enabling it later is a follow-up change
 
 **Checkpoint**: build green; code review phase 5.
@@ -730,7 +806,7 @@ helper's `variant`.
 
 ### Live check (gates the feature; SC-001, SC-005; D-24)
 
-- [ ] T053 Live test code (offline part; after T042): `live/ServerLogLiveTest.java` (`@Tag("live")`,
+- [ ] T054 Live test code (offline part; after T043): `live/ServerLogLiveTest.java` (`@Tag("live")`,
   `-Plive`, production refused by `live/LiveTarget.java`; `INUBIT_LIVE_NODE`,
   `INUBIT_LIVE_LOG_FOLDER=<private folder outside every repository>`, skipped without them; calls
   `download_server_log` for `trace` and, if the group opts in, `webservice` through the wired
@@ -742,39 +818,42 @@ helper's `variant`.
   "Server log download (feature 021)" plus a row in the tests table. Failing tests first in
   `live/ServerLogLiveTestSupportTest.java` (env parsing, folder inside a repository refused,
   record-dir permissions)
-- [ ] T054 **[LIVE] [OWNER]** 8.1 live check (quickstart "Live check" steps 1–3; after T032, T045,
-  T053): after the operator approved the concrete run (non-production 8.1 test node of an
+- [ ] T055 **[LIVE] [OWNER]** 8.1 live check (quickstart "Live check" steps 1–3; after T033, T046,
+  T054): after the operator approved the concrete run (non-production 8.1 test node of an
   opted-in test group, private folder), `mvn -Plive -Dtest=ServerLogLiveTest verify`; by hand:
   files `rw-------`, sizes equal the results, the Workbench shows the same trace state as before
   (SC-005), the MCP server log contains no excerpt line; result rows in the quickstart validation
   record (fictitious ids only)
-- [ ] T055 **[LIVE] [OWNER]** 9.0 live check (quickstart "Live check" step 4; after T050/T051 or
-  T052, T053): as T054 against a non-production 9.0 test node for every 9.0 log enabled; rows in
+- [ ] T056 **[LIVE] [OWNER]** 9.0 live check (quickstart "Live check" step 4; after T051/T052 or
+  T053, T054): as T055 against a non-production 9.0 test node for every 9.0 log enabled; rows in
   the validation record
 
 ### Documentation (D-25)
 
-- [ ] T056 [P] `docs/tools.md` (FR-004, D-20, D-25; after T045 and T050/T051 or T052): new section
+- [ ] T057 [P] `docs/tools.md` (FR-004, D-20, D-25; after T045, T046 and T051/T052 or T053): new section
   `## download_server_log` starting with the tool description of contracts/mcp-tools-delta.md and
   a link to setup "Unsupported functions"; inputs with their limits ("`tailLines` 1–2,000, default
   200", "`contains` 1–200 characters, no control characters, plain text, case-insensitive, matched
   against the masked lines", "`maxChars` 1–100,000, default 20,000"); output and its variants;
   excerpt rules (window = first whole line within the last 50 MiB, masking of the whole window
   before selection, absolute line numbers, oldest lines dropped first); masking rules and the
-  limit "a secret-named JSON value opened before the window is not detected"; folder rules by
+  limit "a secret-named JSON value opened before the window is not detected"; the known
+  credentials of every configured node are masked, and while some are not read yet the excerpt is
+  withheld (`kind: withheld`, file still written); folder rules by
   reference to `export_archives` and the file name `<group>-<node>-<log>-<yyyyMMdd-HHmmss>[-n].log`
   (`-2` … `-999`, never replaced); errors table of the contract; memory need (≈ 250 MiB for one
-  excerpt, one at a time); "address cluster nodes directly"; "the server reads trace.log fully into
-  its memory"; `cliExportTimeout` for large logs; capability table rows (8.1 / 9.0 state as in the
+  excerpt, one at a time; waiting for it counts against `cliExportTimeout`); "address cluster
+  nodes directly"; "the server reads trace.log fully into its memory"; `cliExportTimeout` for large
+  logs; capability table rows (8.1 / 9.0 state as in the
   matrix); "Tool announcement" rule; `list_nodes` names `trace_log_read`, `webservice_log_read`.
   `config/ServerLogDocsTest.java` extended first (short form in `docs/tools.md` and in the tool
   description; the documented 9.0 state matches `CapabilityMatrix.production()`)
-- [ ] T057 [P] `README.md` tool table row for `download_server_log` and announcement row (trace:
+- [ ] T058 `README.md` tool table row for `download_server_log` and announcement row (trace:
   a node with a StartCLI installation not pinned to a refusing version; webservice: additionally
   `unsupported.serverLogRead`); `SECURITY.md`: the downloaded log file among the clear-text
   outputs (business data and credentials; only the excerpt is masked); `ServerLogDocsTest`
-  asserts the README row
-- [ ] T058 [P] `CHANGELOG.md` `[Unreleased]`: Added — `download_server_log` (trace through StartCLI's
+  asserts the README row (after T057, which extends the same `config/ServerLogDocsTest.java`)
+- [ ] T059 [P] `CHANGELOG.md` `[Unreleased]`: Added — `download_server_log` (trace through StartCLI's
   supported trace download; webservice through an unsupported, undocumented INUBIT interface,
   opt-in per group, diagnosis only), `unsupported.serverLogRead`, `list_nodes` capability names
   `trace_log_read` / `webservice_log_read`, `--check-config` line only with an opt-in, the 6.1
@@ -784,7 +863,7 @@ helper's `variant`.
 
 ### Full verification
 
-- [ ] T059 Full verification (after all other tasks): `mvn -B clean verify
+- [ ] T060 Full verification (after all other tasks): `mvn -B clean verify
   -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-021-tmp` and `python3 -I -m unittest discover -s
   tools/tests -v` green; `python3 -I tools/check-identifiers.py --all` and
   `NoCustomerIdentifiersTest` with the private lists green; `unzip -l target/inubit-mcp-server-*.jar`
@@ -798,45 +877,49 @@ helper's `variant`.
 
 - **Phase 1**: T001 first; T002 any time after T001.
 - **Phase 2 blocks every story.** Stage 1: T003 → T004 → T005; T006 ∥ T007 (∥ T003–T005). Then
-  T008 → T009; T010 → T011; T012, T013, T016, T017, T020 parallel after the stage-1 checkpoint;
-  T013 → T014 → T015 (also needs T010); T018 after T015, T016; T019 after T006, T007.
-- **US1** (after Phase 2): T022 ∥ T023 → T024 → T025 → T026 → T027 → T028 → T029 → T030 → T031;
-  T032 **blocked by T021** (recording) and needs T031.
-- **US2** (after Phase 2; T042 needs US1's T030): T034 ∥ T035 (T035 needs T004) → T036 → T037;
-  T038 needs T005, T035; T039 needs T024; T040 needs T026, T036–T039; T041 needs only T008
-  (any time); T042 needs T030, T040; T043 needs T042; T044 any time after T008; T045 **blocked by
-  T033** and needs T043.
-- **US3** (after US1 and US2 code): T046 needs T042; T047 needs T046; T050 **blocked by T048**,
-  T051 **blocked by T049**, both need T047; T052 only instead of T050 and/or T051.
-- **Recordings** T021, T033, T048, T049 need only T001 and the operator's approval; they run in
-  parallel to the offline work. Until T032 / T045 / T050 / T051 the corresponding (version, log)
+  T008 → T009; T010 → T011; T012, T013, T017, T020 parallel after the stage-1 checkpoint; T016
+  after T010; T013 → T014 → T015 (also needs T010); T018 after T015, T016; T019 after T006, T007.
+- **US1** (after Phase 2): T022 ∥ T023 → T024 → T025 → T026 (also needs T012) → T027 → T028 →
+  T029 → T031 → T032; T030 after T027, parallel to T028–T029; T031 needs T029 and T030; T033
+  **blocked by T021** (recording) and needs T032.
+- **US2** (after Phase 2; T043 needs US1's T031): T035 ∥ T036 (T036 needs T004) → T037 → T038;
+  T039 needs T005, T036; T040 needs T024; T041 needs T026, T029, T037–T040; T042 needs T009 and
+  runs sequentially with T031 and T033 (all three change `MainTest.java`); T043 needs T031, T041;
+  T044 needs T043; T045 needs T009 (same `docs/setup.md`); T046 **blocked by T034** and needs
+  T044.
+- **US3** (after US1 and US2 code): T047 needs T043; T048 needs T047; T051 **blocked by T049**,
+  T052 **blocked by T050**, both need T048; T053 only instead of T051 and/or T052.
+- **Recordings** T021, T034, T049, T050 need only T001 and the operator's approval; they run in
+  parallel to the offline work. Until T033 / T046 / T051 / T052 the corresponding (version, log)
   stays "not yet verified" in the production matrix.
-- **Phase 6**: T053 needs T042; T054 needs T032, T045, T053; T055 needs (T050/T051 or T052), T053;
-  T056–T058 need T045 and (T050/T051 or T052); T059 needs all others.
-- Story completion order: US1 (MVP) → US2 → US3. The feature is complete only when T032, T045 and
-  T054 are done and, per 9.0 log, either T050/T051 or T052 (FR-017, SC-001, SC-005).
+- **Phase 6**: T054 needs T043; T055 needs T033, T046, T054; T056 needs (T051/T052 or T053), T054;
+  T057 and T059 need T046 and (T051/T052 or T053), T057 also T045; T058 needs T057 (same
+  `ServerLogDocsTest.java`); T060 needs all others.
+- Story completion order: US1 (MVP) → US2 → US3. The feature is complete only when T033, T046 and
+  T055 are done and, per 9.0 log, either T051/T052 or T053 (FR-017, SC-001, SC-005).
 
 ## Parallel opportunities
 
 - **Phase 2**: T006 and T007 alongside the stage-1 chain T003 → T005; after the checkpoint T008,
-  T010, T012, T013, T016, T017, T020 together (then T009, T011, T014, T019).
-- **US1**: T022 ∥ T023; the recording T021 alongside everything else.
-- **US2**: T034 ∥ T035 ∥ T038 ∥ T039; T041 and T044 alongside US1 or US2 at any time; the spike
-  T033 alongside everything else.
-- **US3**: T048 ∥ T049 (operator) alongside US1/US2 work.
-- **Polish**: T056 ∥ T057 ∥ T058.
+  T010, T012, T013, T017, T020 together (then T009, T011, T014, T016, T019).
+- **US1**: T022 ∥ T023; T030 alongside T028–T029; the recording T021 alongside everything else.
+- **US2**: T035 ∥ T036 ∥ T040; after T036: T037 ∥ T039; T045 (after T009) alongside US1 or US2
+  work that does not touch `docs/setup.md`; T042 is not parallel (shares `MainTest.java` with T031
+  and T033); the spike T034 alongside everything else.
+- **US3**: T049 ∥ T050 (operator) alongside US1/US2 work.
+- **Polish**: T057 ∥ T059, then T058.
 - Builds always sequential (one `mvn` at a time, shared tmpdir).
 
 ## Implementation strategy
 
 - **MVP = Phase 1, Phase 2, Phase 3 (US1, trace log)**: on an 8.1 node (test matrix offline; production
-  after the recording T032) `download_server_log` with `log: trace` writes the trace log and returns
+  after the recording T033) `download_server_log` with `log: trace` writes the trace log and returns
   the masked excerpt; no opt-in needed.
 - **Increment 2 = US2**: the web service log behind `unsupported.serverLogRead`, configuration view,
-  setup docs; enabled for 8.1 after the spike T033 and T045.
+  setup docs; enabled for 8.1 after the spike T034 and T046.
 - **Increment 3 = US3**: version proof end to end; 9.0 enabled per log with its recording, or the
   FR-017 fallback.
 - **Finish**: live checks, tools/README/SECURITY/CHANGELOG, full verification.
-- Ask the operator for the four recording actions (T021, T033, T048, T049) **early** — right after
+- Ask the operator for the four recording actions (T021, T034, T049, T050) **early** — right after
   T001 — so they never block the offline work; each phase ends green and reviewed; owner and live
   gates are reported as soon as they are reached, not batched at the end.

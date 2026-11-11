@@ -97,8 +97,11 @@ Nothing is sent to INUBIT and nothing is created locally before steps 1–5 pass
    (schema failures never reach the server).
 6. Version gate (`admitWithDetection`; `trace_log_read` / `webservice_log_read`): refusal
    `UNSUPPORTED_VERSION` (audited `REFUSED`), detection error passed through (audited `FAILED`).
-7. StartCLI slot + download into a private temporary directory, bounded by `cliExportTimeout`.
-8. Excerpt from the private copy (masking, selection, bounds).
+7. Call deadline = now + `cliExportTimeout`; StartCLI slot + download into a private temporary
+   directory within it.
+8. Credentials of every configured node prepared (bounded by the remaining deadline; not all
+   known → excerpt withheld); excerpt permit (within the remaining deadline, else `TIMEOUT`);
+   excerpt from the private copy (masking, selection, bounds).
 9. Placement in `targetFolder` under the claimed name; final audit record; one INFO log line.
 
 ## Output (`schemas/download_server_log.output.json`)
@@ -152,7 +155,8 @@ Variants:
 
 | Case | Shape |
 |---|---|
-| empty log | `"excerpt": {"kind": "empty"}`, hint `The log is empty` (webservice: `; web service logging may be disabled`); for an adapter that reports presence `UNKNOWN`: `The log is empty or does not exist on the server` |
+| empty log | `"excerpt": {"kind": "empty"}`, hint `The log is empty` (webservice: `; web service logging may be disabled`); for an adapter that reports presence `UNKNOWN`: `The log is empty or does not exist on the server` (webservice: `The log is empty or does not exist on the server; web service logging may be disabled`) |
+| credentials of some configured node not read yet | `"excerpt": {"kind": "withheld"}`, hint `The excerpt is withheld: the credentials of prod/node2 (credential store: waiting) have not been read yet, so they could not be masked; the file is written`; the file is written as usual |
 | binary window | `"excerpt": {"kind": "binary", "detected": "GZIP"}`, hint `Binary content is not returned` (`detected` only if a signature matched) |
 | `contains` without match | `"selection": "contains", "matchingLines": 0, "returnedLines": 0, "lines": []`, hint `No line of the scanned window contains the search text` |
 | file > 50 MiB | `"window": {"startLine": 412877, …, "wholeFile": false}`, hint `Only the last 50 MiB were scanned; line numbers count the whole file` |
@@ -177,7 +181,7 @@ error no file of the call remains in `targetFolder`; a folder the call created s
 | `CLI_UNAVAILABLE` | no client home; `lib/ibis.jar` or JDK missing; StartCLI or helper could not start; temp root not passable; vendor class/method missing; no private temp directory | 017/020 texts, e.g. `The INUBIT client installation /opt/inubit-9.0/client (chosen for INUBIT 9.0) lacks com.inubit.ibis.server.cluster.ClusterClient` | `Check that defaults.cliClients."9.0" points to an INUBIT 9.0 client` |
 | `AUTH_FAILED` | login rejected (shared `CredentialGuard` back-off) | StartCLI text / `Login of the INUBIT client helper to test/node1 was rejected` | as StartCLI; on 9.x plus the internal-user-management hint |
 | `FORBIDDEN` | the user lacks the right (StartCLI login right; the Cluster Manager's `Configuration` right for the web service log) | `test/node1 refused the web service log download for the configured user` | `Give the user the right the Workbench's Cluster Manager needs` |
-| `TLS_ERROR` / `UNREACHABLE` / `TIMEOUT` | TLS check, connection; `cliExportTimeout` exceeded (slot + check + process) | existing texts; `The trace log download from test/node1 did not finish within cliExportTimeout (120 s)` | existing texts naming `tls.*` / `cliExportTimeout`, plus `large logs need a larger cliExportTimeout` |
+| `TLS_ERROR` / `UNREACHABLE` / `TIMEOUT` | TLS check, connection; `cliExportTimeout` exceeded (slot + check + process + excerpt permit wait) | existing texts; `The trace log download from test/node1 did not finish within cliExportTimeout (120 s)` | existing texts naming `tls.*` / `cliExportTimeout`, plus `large logs need a larger cliExportTimeout` |
 | `SECRET_UNRESOLVED` (or the node's other credential codes) | credentials not available | the node's usual credential error; nothing launched | as for the node's other StartCLI tools |
 | `MAINTENANCE_MODE` | the server reports maintenance (detection or StartCLI) | existing texts | — |
 | `UNEXPECTED_RESPONSE` | StartCLI without the `Trace data (` message or without the file; helper output without `end`, unknown frame, over 1 MiB, exit code ≠ frames, invalid node name, `Server not in cluster mode.`, any other INUBIT error of the internal download | `download_server_log got an unexpected answer from test/node1; the unsupported INUBIT interface may have changed after an INUBIT update` (trace: `… StartCLI did not confirm the trace download`) | `Download the log in the Workbench; report the INUBIT version` |
