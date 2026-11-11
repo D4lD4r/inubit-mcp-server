@@ -290,7 +290,7 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   window starts at the first whole line within the last 50 MiB, `wholeFile: false`,
   `startLine` equals a naive line count + 1); sizes exactly 52,428,800 (whole) and 52,428,801;
   `\n` exactly at `start − 1`; no line break in the last 50 MiB; empty file
-- [ ] T017 [P] `application/ExcerptPermit.java` (D-13, D-15): process-wide fair semaphore with one
+- [X] T017 [P] `application/ExcerptPermit.java` (D-13, D-15): process-wide fair semaphore with one
   permit; `Optional<Held> tryAcquire(Duration wait)` with `Held` `AutoCloseable` (release once);
   the caller passes what is left of the call's `cliExportTimeout` deadline and maps an empty result
   to `TIMEOUT` (T028). Failing tests first in `application/ExcerptPermitTest.java` (a second
