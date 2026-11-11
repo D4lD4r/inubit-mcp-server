@@ -16,9 +16,12 @@ import com.github.tomakehurst.wiremock.http.Fault;
 import de.dadecker.inubit.mcp.adapter.cli.CliClientProbe;
 import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
+import de.dadecker.inubit.mcp.adapter.cli.CliSystem;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.queue.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
@@ -36,6 +39,7 @@ import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
+import de.dadecker.inubit.mcp.domain.model.EntryPart;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LogQuery;
@@ -43,6 +47,7 @@ import de.dadecker.inubit.mcp.domain.model.LogType;
 import de.dadecker.inubit.mcp.domain.model.NodeAccess;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
+import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
@@ -55,6 +60,7 @@ import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -66,14 +72,17 @@ import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
+import de.dadecker.inubit.mcp.testing.TestCliRunners.FixedSystem;
 import de.dadecker.inubit.mcp.testing.TestPermits;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Proxy;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -1598,5 +1607,156 @@ class AdapterGatewayFactoryTest {
             assertThat(authenticatedCalls()).as("at most two failed logins").isEqualTo(2);
         }
         assertThat(loginsWith("test-password-2")).isEqualTo(1);
+    }
+
+    // --- feature 020 T022: the 8.1/9.0 port set reads queue entries over the CLI (D-17) -----
+
+    private static final Set<EntryPart> DATA_ONLY = Set.of(EntryPart.DATA);
+
+    private final FakeProcessLauncher helperLauncher = FakeProcessLauncher.of("", "", 0);
+    private final CliConcurrencyLimiter helperLimiter =
+        new CliConcurrencyLimiter(CapabilityMatrix.production());
+
+    /** As {@code Wiring} builds it: one helper host, process run and slot limiter for all. */
+    private PortSetRegistry queueEntryPorts(Path tempRoot, CliResources resources) {
+        HelperInstallation.Host host = Platform.windows()
+            ? new HelperInstallation.Host(true, Map.of(),
+                new FixedSystem(new CliSystem.Read(TestCliRunners.SYSTEM_DIRECTORY),
+                    Charset.forName("IBM850")),
+                ProcessContainment.Bound::new, resources, tempRoot)
+            : new HelperInstallation.Host(false, Map.of(),
+                new FixedSystem(new CliSystem.Unreadable("not Windows"), StandardCharsets.UTF_8),
+                ProcessContainment.Bound::new, resources, tempRoot);
+        return PortSetRegistry.v81Default(host, new ProcessRun(helperLauncher, resources),
+                helperLimiter).withV90()
+            .register(V61PortSet.RANGE, V61_PORTS, V61QueryRules.INSTANCE, V61_HEALTH);
+    }
+
+    /** A node with a (fake) StartCLI client and JDK below {@code root}. */
+    private static EffectiveNodeConfig cliNode(NodeId id, VersionSetting line, Path root)
+        throws IOException {
+        Path client = root.resolve("client");
+        Files.createDirectories(client.resolve("lib").resolve("shared"));
+        Files.createDirectories(client.resolve("conf"));
+        if (!Files.exists(client.resolve("lib").resolve("ibis.jar"))) {
+            Files.createFile(client.resolve("lib").resolve("ibis.jar"));
+        }
+        Path bin = Files.createDirectories(root.resolve("jdk").resolve("bin"));
+        for (String name : List.of("java", "java.exe")) {
+            Path java = bin.resolve(name);
+            if (!Files.exists(java)) {
+                Files.createFile(java);
+                if (!Platform.windows()) {
+                    Files.setPosixFilePermissions(java,
+                        PosixFilePermissions.fromString("rwx------"));
+                }
+            }
+        }
+        return TestNodeConfig.node().id(id.value())
+            .baseUrl("https://localhost:" + wireMock.httpsPort())
+            .trustStore(TestCertificates.get().trustStore()).versionLine(line)
+            .cliHome(client).cliJavaHome(root.resolve("jdk")).cliTimeout(Duration.ofSeconds(1))
+            .build();
+    }
+
+    private static QueueEntryRef entryOf(NodeId node) {
+        return new QueueEntryRef(node, "Workflow-0001", "Order-0001.xml", 772);
+    }
+
+    private static void assertNothingLeftBelow(Path tempRoot) throws IOException {
+        try (var left = Files.list(tempRoot)) {
+            assertThat(left).isEmpty();
+        }
+    }
+
+    @Test
+    void the81And90PortSetsReadQueueEntriesOverTheCliWithTheSharedStartCliSlots(
+        @TempDir Path root) throws IOException {
+        Path tempRoot = Files.createDirectories(root.resolve("tmp"));
+        EffectiveNodeConfig on81 = cliNode(DEV, VersionSetting.parse("8.1.17").orElseThrow(),
+            root);
+        EffectiveNodeConfig on90 = cliNode(ENT2, VersionSetting.parse("9.0.7").orElseThrow(),
+            root);
+        try (CliResources resources = new CliResources("acme", PrivateFiles.forHost());
+             AdapterGatewayFactory factory = factory(queueEntryPorts(tempRoot, resources),
+                 nodeVersions(on81, on90), on81, on90)) {
+            for (EffectiveNodeConfig node : List.of(on81, on90)) {
+                QueueEntryContentPort port = factory.queueEntryContent(node.id());
+                assertThat(port).as("still wrapped by the stale trigger")
+                    .isInstanceOf(StaleReportingPorts.QueueEntryContent.class);
+                assertThat(factory.queueEntryContent(node.id())).as("built once")
+                    .isSameAs(port);
+                assertThat(factory.forServer(node.id()).queueEntryContent()).isSameAs(port);
+                InubitVersion version = ((VersionSetting.Pinned) node.versionLine()).version();
+
+                // both slots of the node taken elsewhere: the helper waits for one (TIMEOUT)
+                try (CliConcurrencyLimiter.Permit first =
+                         helperLimiter.acquireForHelper(node, Duration.ZERO);
+                     CliConcurrencyLimiter.Permit second =
+                         helperLimiter.acquireForHelper(node, Duration.ZERO)) {
+                    assertThatThrownBy(() -> port.read(entryOf(node.id()), version, DATA_ONLY))
+                        .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                            assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT);
+                            assertThat(e.error().message())
+                                .startsWith("No StartCLI slot on " + node.id() + " became free");
+                            assertThat(e.error().node()).contains(node.id());
+                        });
+                }
+            }
+        }
+        assertThat(helperLauncher.launchCount()).isZero();
+        assertNothingLeftBelow(tempRoot);
+        assertThat(versions.events()).as("a slot timeout is no stale mark").isEmpty();
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void theQueueEntryHelperWaitsOutTheCredentialPauseOfTheNodesRestClient(@TempDir Path root)
+        throws IOException {
+        Path tempRoot = Files.createDirectories(root.resolve("tmp"));
+        systemInfo(401, "<html>HTTP Status 401</html>");
+        EffectiveNodeConfig node = cliNode(DEV, VersionSetting.V8_1, root);
+        try (CliResources resources = new CliResources("acme", PrivateFiles.forHost());
+             AdapterGatewayFactory factory = factory(queueEntryPorts(tempRoot, resources),
+                 nodeVersions(node), node)) {
+            assertThatThrownBy(() -> factory.monitoring(DEV).systemInfo())
+                .isInstanceOf(ToolErrorException.class);
+
+            assertThatThrownBy(() -> factory.queueEntryContent(DEV).read(entryOf(DEV),
+                InubitVersion.parse("8.1.17").orElseThrow(), DATA_ONLY))
+                .as("the guard of the node's REST client, so no further login")
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.AUTH_FAILED);
+                    assertThat(e.error().message()).contains("avoid account lockout");
+                    assertThat(e.error().node()).contains(DEV);
+                });
+        }
+        assertThat(helperLauncher.launchCount()).isZero();
+        assertNothingLeftBelow(tempRoot);
+        assertThat(authenticatedCalls()).as("the one failed login only").isEqualTo(1);
+    }
+
+    @Test
+    void aSixOneNodeRefusesQueueEntryContentWithoutContact(@TempDir Path root)
+        throws IOException {
+        Path tempRoot = Files.createDirectories(root.resolve("tmp"));
+        EffectiveNodeConfig node = withoutUsableClient(VersionSetting.V6_1);
+        try (CliResources resources = new CliResources("acme", PrivateFiles.forHost());
+             AdapterGatewayFactory factory = factory(queueEntryPorts(tempRoot, resources),
+                 nodeVersions(node), node)) {
+            QueueEntryContentPort port = factory.queueEntryContent(DEV);
+            assertThat(port).isInstanceOf(StaleReportingPorts.QueueEntryContent.class);
+
+            assertThatThrownBy(() -> port.read(entryOf(DEV),
+                InubitVersion.parse("6.1.0").orElseThrow(), DATA_ONLY))
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+                    assertThat(e.error().node()).contains(DEV);
+                });
+        }
+        assertThat(helperLauncher.launchCount()).isZero();
+        assertNothingLeftBelow(tempRoot);
+        assertThat(versions.events()).isEmpty();
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
     }
 }

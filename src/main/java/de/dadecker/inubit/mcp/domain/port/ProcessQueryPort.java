@@ -1,9 +1,13 @@
 package de.dadecker.inubit.mcp.domain.port;
 
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.Page;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
+import de.dadecker.inubit.mcp.domain.model.QueueEntries;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
+import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import java.time.Duration;
 import java.time.Instant;
 
@@ -43,4 +47,21 @@ public interface ProcessQueryPort {
      * caller never decides on an incomplete set without knowing it.
      */
     ProcessRows findByProcessId(String processId, Instant now, Duration hangingThreshold);
+
+    /**
+     * The rows of one process id with file name, size and error texts, for reading an entry
+     * (feature 020, D-9): the same request as {@link #findByProcessId}, newest first, at most
+     * {@link #MAX_ROWS_PER_PROCESS} rows. The default is for adapter lines without it.
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException
+     *     {@code UNSUPPORTED_VERSION} without contacting the server, unless the adapter
+     *     implements it
+     */
+    default QueueEntries queueEntries(String processId) {
+        throw new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
+            "Reading Queue Manager entries is not available for this adapter line;"
+                + " nothing was sent",
+            "This adapter line does not read the Queue Manager rows of an entry",
+            "Call list_nodes for what this node supports"));
+    }
 }

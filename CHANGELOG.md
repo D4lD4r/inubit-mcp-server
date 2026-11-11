@@ -14,6 +14,10 @@ Feature 019: a local knowledge per profile. Checked live against the server with
 client (the live check of `specs/019-local-knowledge/quickstart.md`); the conversation with an
 assistant was simulated.
 
+Feature 020: read the content of one Queue Manager entry in `ERROR` through an **unsupported,
+undocumented INUBIT interface**, off unless a group opts in. Verified on INUBIT 8.1 and 9.0
+against recorded, neutralized entries of a live non-production node of each version.
+
 ### Added
 
 - `find_partners` (feature 018), a read-only tool for the partners of the INUBIT Partner
@@ -74,6 +78,36 @@ assistant was simulated.
 
   See `docs/setup.md` ("Local knowledge") and `docs/tools.md` ("The local knowledge").
 
+- `read_queue_entry` (feature 020), a read-only tool for ONE Queue Manager entry in `ERROR` on
+  ONE node: the entry's metadata and error texts, the data stream that ended in the queue (text
+  cut at `maxChars`, default 20,000; binary content only as size and detected kind) and the
+  workflow variables (at most 200; 2,000 characters per value, 40,000 in total).
+  - It uses the read request of the Workbench's Queue Manager action "View file", an INUBIT
+    interface without documentation, vendor support or stability guarantee that may stop working
+    after any INUBIT update; **for diagnosis only**. A small helper runs it on the INUBIT client
+    installation of the node's version (SOAP on 8.1, the internal REST interface on 9.0); the
+    entry is found through the documented Queue Manager view, as with `find_processes`. Nothing on
+    INUBIT is changed.
+  - It returns business data. Credentials are masked by name (variables, XML elements and
+    attributes, JSON keys, `name=value` pairs, header lines, `Authorization` values); credentials
+    under neutral names or in encoded content may still appear.
+  - Candidate rules: with several `ERROR` entries of the process, `fileName` chooses one; an entry
+    not in `ERROR` is never read; `ERROR` rows without a queue file (`fileSize` 0) are ignored,
+    and if the process has only such rows the result is `INVALID_INPUT` pointing to
+    `query_logs`. A part that cannot be read while the entry exists is a partial result.
+  - Reads are not audited; the data stream and variable values are never logged.
+- The group setting `unsupported.queueEntryRead` (default `false`): only nodes of an opted-in
+  group offer `read_queue_entry`; a node of another group is refused with `NOT_CONFIGURED`. The
+  tool is announced only if such a node is not pinned to a version that refuses it and has an
+  INUBIT client home; without any opt-in the tool list is unchanged. An opt-in on a
+  `production: true` group starts the server with a warning.
+- The capability `queue_entry_read` in `list_nodes` (only for nodes of opted-in groups):
+  supported on INUBIT 8.1 and 9.0, refused on 6.1, on other lines (9.1, `V9_X`) and on
+  undeclared versions.
+- `--check-config` ends every group line with `queueEntryRead: enabled (unsupported)` or
+  `queueEntryRead: off`, but only when some group of the profile has the opt-in; otherwise its
+  output is unchanged.
+
 ### Changed
 
 - `list_nodes` reports an INUBIT 9.0 node as `partially_supported` instead of `supported`,
@@ -90,7 +124,10 @@ assistant was simulated.
   until then the list is withheld). This changes the rule of 0.7.0 that no credential is read at
   start, for profiles with notes. While a credential cannot be read (dialog denied, Parameter
   Store unreachable), both knowledge tools refuse with `PRECONDITION_FAILED`.
-- `docs/tools.md` describes twenty tools.
+- Internal: the StartCLI process pipeline (launch, bounded output, stdin, timeout, kill) moved
+  into `ProcessRun`, which the queue-entry helper shares; StartCLI behaviour and texts are
+  unchanged.
+- `docs/tools.md` describes twenty-one tools.
 
 ### Fixed
 

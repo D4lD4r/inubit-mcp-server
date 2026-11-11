@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "required": ["target", "processId"],
+  "properties": {
+    "target": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}/[a-z0-9][a-z0-9-]{0,31}$",
+      "description": "Id of exactly one {node} (`<{group}>/<{node}>`); {group} ids are rejected"
+    },
+    "processId": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,18}$",
+      "description": "The decimal Queue Manager id: processId from find_processes (queueLog workflowId); a UUID globalProcessId is not accepted"
+    },
+    "fileName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[^/\\\\\\u0000-\\u001F\\u007F-\\u009F]{1,255}$",
+      "description": "The queue file name as query_logs with logType queueLog lists it in fields.fileName; needed when the process has several ERROR entries"
+    },
+    "maxChars": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100000,
+      "default": 20000,
+      "description": "Maximum characters of the data stream text returned (masked text; the full size is always reported)"
+    }
+  },
+  "additionalProperties": false
+}

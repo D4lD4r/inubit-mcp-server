@@ -1,0 +1,2 @@
+recorded 2026-11-10 8.1.17 neutralized
+Data stream and variables: the spike download of one ERROR entry on a non-production 8.1.17 node (2026-11-10; the live check of 2026-11-11, tasks.md T034, downloaded identical bytes). Frames and exit code: that live check (tasks.md T035), its nonce replaced by the fixed nonce. Row: the entry's queueLog row, shaped like fixtures/v8_1/rest/log_queueLog_error.json. Every business value replaced by fictitious content of the same shape (research D-18); system names and protocol values kept.

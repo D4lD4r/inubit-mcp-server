@@ -1,0 +1,55 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<Properties version="4.1">
+	<Property name="ISFileSize">808</Property>
+	<Property name="ISCurrentTime" type="Long">1790861373727</Property>
+	<Property name="ISWorkflowName">Workflow-0001</Property>
+	<Property name="ISModuleName">Module-0001</Property>
+	<Property name="ISModuleId">10001001</Property>
+	<Property name="ISProcessId">100000027</Property>
+	<Property name="ISUserName">OWNERS</Property>
+	<Property name="ISServerName">inubit-dev-1.example.test</Property>
+	<Property name="ISNodeName">ip-192-0-2-1</Property>
+	<Property name="ISGlobalProcessId">100000027</Property>
+	<Property name="ISOverwriteSubWorkflowPriority" type="Boolean">false</Property>
+	<Property name="_hidden.ISCreateModuleRunId" type="Boolean">false</Property>
+	<Property name="connection">close</Property>
+	<Property name="content-type">application/pkcs7-mime; name="smime.p7m"; smime-type=enveloped-data</Property>
+	<Property name="as2-version">1.1</Property>
+	<Property name="as2-from">ORG-0001</Property>
+	<Property name="as2-to">ORG-0002</Property>
+	<Property name="message-id">&lt;100000027.10001.1790861373334@ip-192-0-2-86></Property>
+	<Property name="disposition-notification-to">ORG-0001</Property>
+	<Property name="disposition-notification-options">signed-receipt-protocol=required,pkcs7-signature; signed-receipt-micalg=optional,sha1</Property>
+	<Property name="mime-version">1.0</Property>
+	<Property name="cache-control">no-cache</Property>
+	<Property name="pragma">no-cache</Property>
+	<Property name="user-agent">Java/17.0.20.1</Property>
+	<Property name="host">localhost:8000</Property>
+	<Property name="accept">text/html, image/gif, image/jpeg, */*; q=0.2</Property>
+	<Property name="content-length">4096</Property>
+	<Property name="ASMessageID">&lt;100000027.10001.1790861373334@ip-192-0-2-86></Property>
+	<Property name="ASMessageTo">ORG-0002</Property>
+	<Property name="ASMessageFrom">ORG-0001</Property>
+	<Property name="ASMessageDate">Thu, 01 Oct 2026 15:29:33 +0200</Property>
+	<Property name="ASMessageMDNOptions">signed-receipt-protocol=required,pkcs7-signature; signed-receipt-micalg=optional,sha1</Property>
+	<Property name="ASMessageMICALG">sha-1</Property>
+	<Property name="EncryptionAlgorithm">DES_EDE3_CBC</Property>
+	<Property name="KeyEncryptionAlgorithm">RSAES-PKCS1-v1_5</Property>
+	<Property name="KeyEncryptionHashAlgorithm">Invalid oid</Property>
+	<Property name="ASMessageMIC">FrYLS/ACGckI5nboK3v3Vu4lq1I=</Property>
+	<Property name="HashingAlgorithm">sha-1</Property>
+	<Property name="SignatureAlgorithm">rsassa-pkcs1-v1_5</Property>
+	<Property name="ASMessageError">authentication-failed</Property>
+	<Property name="isSigned" type="Boolean">true</Property>
+	<Property name="isEncrypted" type="Boolean">true</Property>
+	<Property name="ASMessageContentType">application/xml; charset=UTF-8</Property>
+	<Property name="ASMessageContentTransferEncoding">binary</Property>
+	<Property name="var.inboundMessage" type="XmlDocument">&lt;?xml version="1.0" encoding="UTF-8"?>
+&lt;Error>&lt;Error>authentication-failed&lt;/Error>&lt;ErrorMessage>authentication-failed&lt;/ErrorMessage>&lt;/Error></Property>
+	<Property name="var.testMode.processId"></Property>
+	<Property name="var.testMode.file">AcmeTestMode.xml</Property>
+	<Property name="var.testMode">ok</Property>
+	<Property name="demux.totalIterations" type="Integer">1</Property>
+	<Property name="demux.iterator" type="Integer">1</Property>
+</Properties>

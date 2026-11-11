@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<Properties version="4.1">
+	<Property name="_hidden.ISTestClientUID">Toolset@12ab34cd:1a0f7f0aedf:-8000@@@client-1.example.test###9.0.10</Property>
+	<Property name="ISFileSize">1826</Property>
+	<Property name="ISCurrentTime" type="Long">1790949999941</Property>
+	<Property name="ISWorkflowName">Workflow-0001</Property>
+	<Property name="ISModuleName">Module-0001</Property>
+	<Property name="ISModuleId">103</Property>
+	<Property name="ISProcessId">100000090</Property>
+	<Property name="ISUserName">OWNERS</Property>
+	<Property name="ISServerName">inubit-qa-2.example.test</Property>
+	<Property name="ISNodeName">ip-192-0-2-1</Property>
+	<Property name="ISGlobalProcessId">100000090</Property>
+</Properties>

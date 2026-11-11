@@ -11,3 +11,7 @@ src/test/resources/fixtures/v9_0/cli/*.stdout -text
 
 # Windows recordings (feature 013) keep CRLF and the code page byte for byte
 src/test/resources/fixtures/windows/** -text
+
+# Queue-entry content cases (feature 020): the helper frames name their exact byte lengths
+src/test/resources/fixtures/queue-entry/**/*.data -text
+src/test/resources/fixtures/queue-entry/**/*.wfsp -text

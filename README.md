@@ -27,6 +27,7 @@ computer — that the assistant searches before researching in INUBIT and, after
 | `record_knowledge` | create a note, append a section or replace a note's content in the local knowledge, after you agreed; never deletes, keeps 10 versions | none (local files) |
 | `find_processes` | failed (`ERROR`), waiting, queued or hanging process instances | REST |
 | `query_logs` | log entries (systemLog, queueLog, auditLog, …) by time, workflow, severity, process id, text | REST |
+| `read_queue_entry` | the content of one Queue Manager entry in `ERROR`: metadata, data stream and workflow variables, credentials masked by name — through an **unsupported, undocumented INUBIT interface**, for diagnosis only, opt-in per group (`unsupported.queueEntryRead`) | REST + a helper on the INUBIT client |
 | `list_inventory` | diagrams or modules of the configured owner, filtered by name, type, INUBIT group | REST (diagrams), StartCLI (modules) |
 | `get_inventory_item` | one diagram or module: versions, tags, active flag, modules used; for a technical workflow its partner variables and the communication clouds that reference it | REST + StartCLI |
 | `find_partners` | partners of the INUBIT Partner Management in the owner's system diagrams: search or list them with their protocol entries, or compare them across nodes; passwords, keys and other secrets only as set or not set; every call audited | REST (model export) |
@@ -52,6 +53,7 @@ own explicit setting:
 | `record_knowledge` | unless the profile sets `knowledge.recording: false` |
 | `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item`, `find_partners` | a node is not pinned to an INUBIT version that refuses the tool (none of them is offered, e.g., in a profile of INUBIT 6.1 nodes only) |
 | `export_artifacts`, `export_archives` | a node has a StartCLI installation and is not pinned to an INUBIT version that refuses the export |
+| `read_queue_entry` | a node's group has `unsupported.queueEntryRead: true`, the node is not pinned to an INUBIT version that refuses it, and it has an INUBIT client home |
 | `restart_process`, `kill_process` | a node has effective write access (`write.enabled`) |
 | `import_artifacts`, `restore_backup`, `set_active`, `tag_artifacts` | a node has `development.enabled: true` (never on production) |
 | `deploy_release` | a group has a `deploy` record (stage chain); with a target in mode `EXECUTE` also `restore_backup` for deployment backups |

@@ -1,5 +1,7 @@
 package de.dadecker.inubit.mcp.testing;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import de.dadecker.inubit.mcp.adapter.NodeSecrets;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -15,7 +17,23 @@ import java.util.Map;
  */
 public final class TestSecrets {
 
+    /** Feature 020 (SC-003): a password as configured for a node. */
+    public static final String CONFIGURED_PASSWORD = "configured-password-0001";
+    /** Feature 020 (SC-003): the one-time password of a temporary trust store. */
+    public static final String TRUST_STORE_PASSWORD = "trust-store-password-0001";
+    /** Feature 020 (SC-003): a payload value under a credential-like name. */
+    public static final String CREDENTIAL_PAYLOAD_VALUE = "credential-payload-value-0001";
+
     private TestSecrets() {
+    }
+
+    /**
+     * Feature 020 (SC-003, "leak check"): {@code text} (a message, warning, log line, excerpt,
+     * frame or request) contains none of the secrets above.
+     */
+    public static void assertNoLeak(String text) {
+        assertThat(text).doesNotContain(CONFIGURED_PASSWORD, TRUST_STORE_PASSWORD,
+            CREDENTIAL_PAYLOAD_VALUE);
     }
 
     /** A credential store double holding {@code entries} (account → value). */

@@ -1,6 +1,9 @@
 package de.dadecker.inubit.mcp.adapter;
 
+import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
+import de.dadecker.inubit.mcp.adapter.cli.queue.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81QueryRules;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
@@ -26,9 +29,11 @@ import java.util.Optional;
  * {@link NodeAccess#CLI_ONLY}): its server is reached through StartCLI only, so its factories get
  * no REST client and {@code AdapterGatewayFactory} builds none for it.
  *
- * <p>Production uses {@link #v81Default()}, the 8.1 port set for every version, so unverified
- * reads run on the 8.1 adapters; {@code Wiring} registers the 9.0 range ({@link #withV90()}) and
- * the CLI-only 6.1 range on top. A later version adds its range with its own factory.
+ * <p>Production uses {@link #v81Default(HelperInstallation.Host, ProcessRun,
+ * CliConcurrencyLimiter)}, the 8.1 port set with the queue-entry helper (feature 020) for every
+ * version, so unverified reads run on the 8.1 adapters; {@code Wiring} registers the 9.0 range
+ * ({@link #withV90()}) and the CLI-only 6.1 range on top. A later version adds its range with its
+ * own factory.
  */
 public final class PortSetRegistry {
 
@@ -79,32 +84,57 @@ public final class PortSetRegistry {
     private final Factory defaultFactory;
     private final QueryRules defaultRules;
     private final List<Entry> entries;
+    /** The 8.1 port set {@link #withV90()} registers. */
+    private final Factory v81;
 
     /** A registry without ranges: {@code defaultFactory} serves every version, with 8.1 checks. */
     public PortSetRegistry(Factory defaultFactory) {
-        this(defaultFactory, V81QueryRules.INSTANCE, List.of());
+        this(defaultFactory, V81QueryRules.INSTANCE, List.of(), V81);
     }
 
     private PortSetRegistry(Factory defaultFactory, QueryRules defaultRules,
-        List<Entry> entries) {
+        List<Entry> entries, Factory v81) {
         this.defaultFactory = Objects.requireNonNull(defaultFactory, "defaultFactory");
         this.defaultRules = Objects.requireNonNull(defaultRules, "defaultRules");
         this.entries = List.copyOf(entries);
+        this.v81 = Objects.requireNonNull(v81, "v81");
     }
 
-    /** The 8.1 port set as default for every version, without ranges. */
+    /**
+     * The 8.1 port set as default for every version, without ranges and without queue-entry
+     * helper: its queue-entry content is refused as by {@link RefusingPorts}.
+     */
     public static PortSetRegistry v81Default() {
         return new PortSetRegistry(V81);
+    }
+
+    /**
+     * The 8.1 port set with the queue-entry helper (feature 020, research D-17) as default for
+     * every version, without ranges; {@link #withV90()} registers the same factory. Every node's
+     * helper runs on {@code host} and {@code processRun} and takes its StartCLI slot from the
+     * shared {@code limiter}.
+     */
+    public static PortSetRegistry v81Default(HelperInstallation.Host host, ProcessRun processRun,
+        CliConcurrencyLimiter limiter) {
+        Objects.requireNonNull(host, "host");
+        Objects.requireNonNull(processRun, "processRun");
+        Objects.requireNonNull(limiter, "limiter");
+        Factory withQueueEntries = node -> V81PortSet.create(node, host, processRun, limiter);
+        return new PortSetRegistry(withQueueEntries, V81QueryRules.INSTANCE, List.of(),
+            withQueueEntries);
     }
 
     /**
      * A copy of this registry in which the 8.1 port set, with the 8.1 query checks, serves
      * {@link #V90_RANGE} explicitly, without CLI health factory (feature 017, research D-14): the
      * 8.1 adapters are verified against the 9.0 fixtures, and a later 9.0 deviation gets its
-     * place here. A node moving between 8.1 and 9.0 has its ports rebuilt (other range).
+     * place here. A node moving between 8.1 and 9.0 has its ports rebuilt (other range). A
+     * registry from {@link #v81Default(HelperInstallation.Host, ProcessRun,
+     * CliConcurrencyLimiter)} registers its own 8.1 factory, with the queue-entry helper
+     * (feature 020); any other registers the 8.1 port set without it.
      */
     public PortSetRegistry withV90() {
-        return register(V90_RANGE, V81, V81QueryRules.INSTANCE);
+        return register(V90_RANGE, v81, V81QueryRules.INSTANCE);
     }
 
     /**
@@ -132,7 +162,7 @@ public final class PortSetRegistry {
         extended.add(new Entry(Objects.requireNonNull(range, "range"),
             Objects.requireNonNull(factory, "factory"), Objects.requireNonNull(rules, "rules"),
             cliHealth));
-        return new PortSetRegistry(defaultFactory, defaultRules, extended);
+        return new PortSetRegistry(defaultFactory, defaultRules, extended, v81);
     }
 
     /** The first registered range containing {@code version}, else the default. */

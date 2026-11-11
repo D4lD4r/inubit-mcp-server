@@ -127,8 +127,8 @@ class TemplateGrammarTest {
         // feature 004 adds import_artifacts, restore_backup, set_active, tag_artifacts and
         // run_e2e_test .{input,output}.json; feature 005 deploy_release; feature 015
         // export_archives; feature 018 find_partners; feature 019 read_knowledge and
-        // record_knowledge
-        assertThat(Files.list(SCHEMAS).count()).isEqualTo(40);
+        // record_knowledge; feature 020 read_queue_entry
+        assertThat(Files.list(SCHEMAS).count()).isEqualTo(42);
         assertThat(schemaTemplates()).filteredOn(t -> PLACEHOLDER.matcher(t).find())
             .hasSizeGreaterThan(15);
     }

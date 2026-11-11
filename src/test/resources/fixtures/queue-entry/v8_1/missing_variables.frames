@@ -1,0 +1,7 @@
+log4j:WARN No appenders could be found for logger (com.inubit.ibis.soap.IBISSoapClient).
+log4j:WARN Please initialize the log4j system properly.
+#QE1:0123456789abcdef0123456789abcdef start SOAP_81
+#QE1:0123456789abcdef0123456789abcdef login ok
+#QE1:0123456789abcdef0123456789abcdef part data ok 57
+#QE1:0123456789abcdef0123456789abcdef part variables error java.io.IOException %40Start%40Unable%20to%20download%40%40%40module-0001%281001%29%40100000207%4000000000-0a00-0000-0000-000000000207_1790861373736.wfsp%40End%40acme%2Fworkflow%2FWorkflow-0001%2Ferror%2Fmodule-0001%281001%29%40100000207%4000000000-0a00-0000-0000-000000000207_1790861373736.wfsp
+#QE1:0123456789abcdef0123456789abcdef end

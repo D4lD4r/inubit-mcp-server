@@ -917,6 +917,121 @@ class ListNodesToolTest {
         }
     }
 
+    // --- feature 020 T030: queue_entry_read only for opted-in nodes (FR-002, SC-002) --------
+
+    @Test
+    void queueEntryReadIsListedOnlyForNodesOfOptedInGroupsWithAClient() {
+        // test: opt-in and client home; prod: client home, no opt-in; lab: opt-in, no client
+        // home; next: opt-in and client home on 9.0 (supported since T038)
+        String baseUrl = "https://localhost:" + wireMock.httpsPort();
+        String yaml = """
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            groups:
+              - name: test
+                versionLine: V8_1
+                unsupported:
+                  queueEntryRead: true
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+              - name: prod
+                versionLine: V8_1
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+              - name: lab
+                versionLine: V8_1
+                unsupported:
+                  queueEntryRead: true
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+              - name: next
+                versionLine: V9_0
+                unsupported:
+                  queueEntryRead: true
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+            """.formatted(temp.resolve("audit"), temp.resolve("workspace"), CLI_HOME, baseUrl,
+            CLI_HOME, baseUrl, baseUrl, CLI_HOME, baseUrl);
+        ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
+            .parse(yaml, temp.resolve("config.yaml")).config();
+        SecretScrubber scrubber = new SecretScrubber();
+        AtomicInteger runs = new AtomicInteger();
+        Map<String, String> credentials = new HashMap<>();
+        for (String group : List.of("TEST", "PROD", "LAB", "NEXT")) {
+            credentials.put("INUBIT_ACME_" + group + "_USERNAME", "jdoe");
+            credentials.put("INUBIT_ACME_" + group + "_PASSWORD", PASSWORD);
+        }
+        try (TestWiring wiring = TestWiring.of(config, TestSecrets.store(credentials), scrubber,
+                path -> true, false, noStartCli(runs), Map.of());
+            McpTestClient wired = McpTestClient.start(wiring.toolHandlers(), scrubber)) {
+            wired.initialize();
+
+            JsonNode result = wired.callTool("list_nodes", Map.of());
+
+            assertThat(requests()).as("FR-004: no request to any node").isZero();
+            assertThat(runs.get()).as("FR-004: no StartCLI run").isZero();
+            assertMatchesOutputSchema(result);
+            JsonNode groups = result.path("structuredContent").path("groups");
+            JsonNode test = groups.path(0).path("nodes").path(0).path("version");
+            assertThat(usable(test)).containsExactly("monitoring", "process_diagnosis",
+                "log_diagnosis", "inventory", "partner_management", "workspace_export",
+                "queue_entry_read");
+            assertThat(notUsable(test)).isEmpty();
+            JsonNode prod = groups.path(1).path("nodes").path(0).path("version");
+            assertThat(usable(prod)).as("SC-002: as without feature 020").containsExactly(
+                "monitoring", "process_diagnosis", "log_diagnosis", "inventory",
+                "partner_management", "workspace_export");
+            assertThat(notUsable(prod)).isEmpty();
+            JsonNode lab = groups.path(2).path("nodes").path(0).path("version");
+            assertThat(usable(lab)).doesNotContain("queue_entry_read");
+            assertThat(notUsable(lab)).doesNotContain("queue_entry_read");
+            JsonNode next = groups.path(3).path("nodes").path(0).path("version");
+            assertThat(usable(next)).contains("queue_entry_read");
+            assertThat(notUsable(next)).doesNotContain("queue_entry_read");
+            assertThat(result.toString()).doesNotContain(PASSWORD);
+            TestSecrets.assertNoLeak(result.toString());
+        }
+    }
+
+    @Test
+    void anIncompatibleClientMakesQueueEntryReadNotUsableAsAWhole() {
+        // read_queue_entry is admitted for REST and StartCLI in one call, so a client the gate
+        // refuses refuses every call; unlike inventory it has no REST part that still runs
+        allowed = new HashMap<>(allowed);
+        Set<Capability> optedIn = EnumSet.copyOf(DEVELOPMENT);
+        optedIn.add(Capability.QUEUE_ENTRY_READ);
+        allowed.put(QA1, optedIn);
+        versions.clientProbed(QA1, new ProbedClient(ClientKey.NONE,
+            clientVersion("9.0.7", "9.0.0", "9.0.7")));
+
+        JsonNode result = versionClient.callTool("list_nodes", Map.of());
+
+        assertThat(requests()).as("FR-004: list_nodes contacts no node").isZero();
+        assertMatchesOutputSchema(result);
+        JsonNode version = listVersions().get("qa/node1");
+        assertThat(version.path("status").asString()).isEqualTo("partially_supported");
+        assertThat(usable(version)).containsExactly("monitoring", "process_diagnosis",
+            "log_diagnosis", "inventory");
+        assertThat(notUsable(version)).containsExactly("inventory (StartCLI parts)",
+            "workspace_export", "development_writes", "process_control", "queue_entry_read");
+        assertThat(reason(version, "queue_entry_read")).isEqualTo("StartCLI client 9.0.7 of"
+            + " qa/node1 supports INUBIT 9.0.0 to 9.0.7, which excludes INUBIT 8.1");
+        TestSecrets.assertNoLeak(result.toString());
+        assertThat(result.toString()).doesNotContain(PASSWORD);
+    }
+
     // --- feature 017 T026: startCli (research D-18, FR-015) ------------------------------------
 
     @Test

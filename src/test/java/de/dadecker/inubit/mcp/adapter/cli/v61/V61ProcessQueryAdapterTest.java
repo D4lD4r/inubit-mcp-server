@@ -660,6 +660,21 @@ class V61ProcessQueryAdapterTest {
     }
 
     @Test
+    void queueEntriesKeepsTheRefusingDefaultWithoutLaunching() throws NoSuchMethodException {
+        // feature 020 T012 (research D-9): 6.1 has no queue entry read
+        Launchers launchers = Launchers.replaying("ps_session_all");
+
+        ToolError error = errorOf(() -> adapter(launchers).queueEntries("400101"));
+
+        assertThat(V61ProcessQueryAdapter.class.getMethod("queueEntries", String.class)
+            .isDefault()).as("not overridden").isTrue();
+        assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+        assertThat(error.message()).contains("nothing was sent");
+        assertThat(launchers.sessions()).isZero();
+        assertThat(launchers.help.launchCount()).isZero();
+    }
+
+    @Test
     void aRejectedLoginIsAuthFailedForTheNode() {
         Launchers launchers = Launchers.replaying("login_failed");
 

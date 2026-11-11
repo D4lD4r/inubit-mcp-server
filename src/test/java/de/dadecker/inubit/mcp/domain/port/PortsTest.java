@@ -8,7 +8,9 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.XsltPort.XsltRequest;
+import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Arrays;
@@ -108,6 +110,31 @@ class PortsTest {
                 assertThat(e.error().message())
                     .contains("partner management is not available for this INUBIT version");
             });
+    }
+
+    @Test
+    void aGatewayWithoutQueueEntryAdapterReportsTheCliAsUnavailableForItsNode() {
+        // feature 020 T022 (research D-17): adapter lines without the CLI read
+        assertThatThrownBy(() -> new PreviousGateway().queueEntryContent())
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                assertThat(e.error().node()).contains(NODE);
+                assertThat(e.error().message()).contains("dev/node1");
+            });
+        GatewayFactory factory = (GatewayFactory) Proxy.newProxyInstance(
+            GatewayFactory.class.getClassLoader(), new Class<?>[] {GatewayFactory.class},
+            (proxy, method, args) -> {
+                if (method.isDefault()) {
+                    return InvocationHandler.invokeDefault(proxy, method, args);
+                }
+                if (method.getName().equals("forServer")) {
+                    return new PreviousGateway();
+                }
+                throw new AssertionError(method + " was not expected");
+            });
+        assertThatThrownBy(() -> factory.queueEntryContent(NODE))
+            .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE));
     }
 
     @Test

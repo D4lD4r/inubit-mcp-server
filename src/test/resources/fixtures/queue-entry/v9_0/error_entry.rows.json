@@ -1,0 +1,34 @@
+{
+  "queueLog": {
+    "total": 1,
+    "success": true,
+    "count": 1,
+    "row": [
+      {
+        "owner": "OWNERS",
+        "fileName": "workflow-0001(91)@100000090@00000000-0a00-0000-0000-000000000090_1790950000119",
+        "moduleType": "AS2 Connector",
+        "moduleName": "Workflow-0001(91)",
+        "index": 1,
+        "workflowName": "Workflow-0001",
+        "priority": "normal",
+        "node": "ip-192-0-2-1",
+        "fileSize": 1826,
+        "globalPId": 100000090,
+        "userDefined4": "",
+        "nextStartTime": "",
+        "userDefined5": "",
+        "startTime": 1790950000116,
+        "userDefined2": "",
+        "tag": "",
+        "userDefined3": "",
+        "userDefined1": "XsdException.ErrorModuleInputValidation",
+        "workflowId": 100000090,
+        "status": {
+          "level": 0,
+          "content": "Error"
+        }
+      }
+    ]
+  }
+}

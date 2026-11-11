@@ -1,0 +1,12 @@
+RECORDED – 8.1.17 ERROR entry of a Throw module (neutralized): a one-line SOAP fault as data
+stream (808 bytes, UTF-8, no secret) and 50 variables (3,458 bytes): the 11 INUBIT system
+variables, one _hidden. variable, then the AS2 connector variables, four business variables
+(var.*) and two demux.* variables. Expected (US1-1): processId and globalProcessId 100000027,
+module Module-0002(10001002) of type Throw, state Error, both error texts of the row; data kind
+text, UTF-8, not truncated, equal to the stored bytes (nothing to mask); all 50 variables in
+stored order, the first 12 system variables, the types Long, Boolean, XmlDocument and Integer
+kept, nothing masked, the empty var.testMode.processId reported as empty.
+
+Frames use the fixed nonce 0123456789abcdef0123456789abcdef; a replay replaces it with the
+nonce of its request. The recording has no vendor noise lines.
+Used by QueueEntryV81ContractTest (tasks.md T027, T035, research D-18, D-19).

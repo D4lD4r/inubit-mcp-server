@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -36,7 +37,8 @@ import org.slf4j.LoggerFactory;
  * <ul>
  *   <li>{@link CliRunner} announces every StartCLI launch ({@link #reserve()}) before it starts
  *       the process and registers it; {@link CliExportRunner} does the same for every export
- *       directory; both deregister when they are done.
+ *       directory, and the queue-entry helper of feature 020 for its call directory
+ *       ({@link #queuePrefix()}); all deregister when they are done.
  *   <li>{@link #close()} (on stdin EOF and in the JVM shutdown hook, i.e. also on SIGTERM)
  *       destroys the registered process trees, kills whatever is still alive after
  *       {@link CliRunner#KILL_GRACE} forcibly, and deletes the directories. It runs once; every
@@ -45,7 +47,8 @@ import org.slf4j.LoggerFactory;
  *       has given up waiting ({@link #RESERVATION_WAIT}) is stopped or deleted at once and
  *       refused.
  *   <li>A SIGKILL leaves no chance to clean up, so export directories are named
- *       {@code inubit-mcp-export-<profile>-<pid>-<random>} ({@link #exportPrefix()}), and
+ *       {@code inubit-mcp-export-<profile>-<pid>-<random>} ({@link #exportPrefix()}), the
+ *       queue-entry helper's {@code inubit-mcp-queue-<profile>-<pid>-<random>}, and
  *       {@link #sweepStale} deletes, at startup, the directories of this profile and this user
  *       whose MCP server process is no longer alive (plus such directories of feature 001);
  *       never those of another profile (002 research D-8). On Windows too (feature 013, R-10):
@@ -62,6 +65,8 @@ import org.slf4j.LoggerFactory;
 public final class CliResources implements AutoCloseable {
 
     public static final String EXPORT_PREFIX = "inubit-mcp-export-";
+    /** The directories of the queue-entry helper (feature 020, research D-8). */
+    public static final String QUEUE_PREFIX = "inubit-mcp-queue-";
     /**
      * The names of feature 001, {@code inubit-mcp-export-<pid>-<random>}: exactly two numeric
      * parts, so that no 002 name ({@code <profile>-<pid>-<random>}, three or more parts) matches.
@@ -186,7 +191,7 @@ public final class CliResources implements AutoCloseable {
          *     the registered processes (it gave up waiting for this one); the process is then
          *     stopped at once
          */
-        Registration process(LaunchedProcess process) {
+        public Registration process(LaunchedProcess process) {
             boolean late;
             synchronized (lock) {
                 late = stopped;
@@ -307,6 +312,15 @@ public final class CliResources implements AutoCloseable {
         return EXPORT_PREFIX + profile + "-" + ProcessHandle.current().pid() + "-";
     }
 
+    /**
+     * The name prefix of this process's queue-entry helper directories,
+     * {@code inubit-mcp-queue-<profile>-<pid>-} (feature 020, research D-8); the JDK appends a
+     * random number.
+     */
+    public String queuePrefix() {
+        return QUEUE_PREFIX + profile + "-" + ProcessHandle.current().pid() + "-";
+    }
+
     /** The name goes into a path passed to StartCLI: only valid profile names are accepted. */
     private static String validProfile(String profile) {
         if (!ProfileInfo.isValidName(profile)) {
@@ -316,13 +330,13 @@ public final class CliResources implements AutoCloseable {
     }
 
     /**
-     * {@code inubit-mcp-export-<profile>-<pid>-<random>} of exactly this profile: the profile name
+     * {@code <prefix><profile>-<pid>-<random>} of exactly this profile: the profile name
      * is matched literally and followed by exactly two numeric parts, so that no other profile's
      * directory matches (not even one whose name starts with this one, such as {@code acme-2}
      * for {@code acme}).
      */
-    private static Pattern profileDirectory(String profile) {
-        return Pattern.compile("^" + Pattern.quote(EXPORT_PREFIX + profile + "-")
+    private static Pattern profileDirectory(String prefix, String profile) {
+        return Pattern.compile("^" + Pattern.quote(prefix + profile + "-")
             + "([0-9]{1,19})-[0-9]+$");
     }
 
@@ -502,12 +516,15 @@ public final class CliResources implements AutoCloseable {
     }
 
     /**
-     * Deletes the export directories below {@code root} that belong to {@code owner} and to an
-     * MCP server process that is no longer alive (left behind by a SIGKILL). Only real
-     * directories of {@code profile} ({@code inubit-mcp-export-<profile>-<pid>-<random>}) and
-     * legacy directories of feature 001 ({@code inubit-mcp-export-<pid>-<random>}, which no
-     * running 002 server owns) are considered; another profile's directories, links and files
-     * are left alone (002 research D-8).
+     * Deletes the export and queue-entry helper directories below {@code root} that belong to
+     * {@code owner} and to an MCP server process that is no longer alive (left behind by a
+     * SIGKILL). Only real directories of {@code profile}
+     * ({@code inubit-mcp-export-<profile>-<pid>-<random>} and, as they may hold queue entry
+     * content, the queue-entry helper's
+     * {@code inubit-mcp-queue-<profile>-<pid>-<random>} of feature 020) and legacy directories
+     * of feature 001 ({@code inubit-mcp-export-<pid>-<random>}, which no running 002 server
+     * owns) are considered; another profile's directories, links and files are left alone (002
+     * research D-8).
      *
      * <p>PID reuse (US3 re-review N3): the check is conservative. A directory is deleted only if
      * no process with its pid is alive; if the pid of a killed MCP server has meanwhile been
@@ -538,18 +555,19 @@ public final class CliResources implements AutoCloseable {
             return 0;
         }
         long self = ProcessHandle.current().pid();
-        Pattern own = profileDirectory(validProfile(profile));
+        String valid = validProfile(profile);
+        List<Pattern> names = List.of(profileDirectory(EXPORT_PREFIX, valid),
+            profileDirectory(QUEUE_PREFIX, valid), LEGACY_DIRECTORY);
         int deleted = 0;
         try (DirectoryStream<Path> entries = Files.newDirectoryStream(root)) {
             for (Path entry : entries) {
                 String fileName = entry.getFileName().toString();
-                Matcher name = own.matcher(fileName);
-                if (!name.matches()) {
-                    name = LEGACY_DIRECTORY.matcher(fileName);
-                }
-                if (!name.matches()) {
+                Optional<Matcher> matched = names.stream().map(name -> name.matcher(fileName))
+                    .filter(Matcher::matches).findFirst();
+                if (matched.isEmpty()) {
                     continue;
                 }
+                Matcher name = matched.get();
                 long pid;
                 try {
                     pid = Long.parseLong(name.group(1));
@@ -570,7 +588,7 @@ public final class CliResources implements AutoCloseable {
                 }
             }
         } catch (IOException e) {
-            LOG.warn("Stale export directories in {} could not be listed ({})", root,
+            LOG.warn("Stale temporary directories in {} could not be listed ({})", root,
                 e.getClass().getSimpleName());
         }
         return deleted;
@@ -590,7 +608,7 @@ public final class CliResources implements AutoCloseable {
      * The next step when no private directory can be created in {@code parent} (feature 013,
      * FR-007): it names the directory and the access the server needs there.
      */
-    static String privateDirectoryStep(Path parent, boolean windows) {
+    public static String privateDirectoryStep(Path parent, boolean windows) {
         return "Make sure the account of the MCP server can create directories in " + parent
             + (windows ? " whose access is granted only to this account and SYSTEM (a protected"
                 + " access list without inherited entries)"
@@ -607,7 +625,7 @@ public final class CliResources implements AutoCloseable {
     }
 
     /** The cause when a private directory or file cannot be created. */
-    static final String NO_PRIVATE_ACCESS = "The temporary directory is not writable, or the"
+    public static final String NO_PRIVATE_ACCESS = "The temporary directory is not writable, or the"
         + " access to what is created in it cannot be restricted to the MCP server's account";
 
     private static ToolErrorException shuttingDown() {

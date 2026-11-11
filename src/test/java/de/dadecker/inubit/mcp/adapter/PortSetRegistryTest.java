@@ -1,12 +1,17 @@
 package de.dadecker.inubit.mcp.adapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.adapter.cli.CliClientProbe;
 import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.CliSystem;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
+import de.dadecker.inubit.mcp.adapter.cli.queue.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61HealthAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61ProcessQueryAdapter;
@@ -31,6 +36,9 @@ import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
+import de.dadecker.inubit.mcp.testing.TestCliRunners.FixedSystem;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
@@ -103,6 +111,36 @@ class PortSetRegistryTest {
         assertThat(PortSetRegistry.V90_RANGE).isEqualTo(new VersionRange(9, 0, 9, 0));
         assertThat(registry.select(effective(VersionSetting.V9_X)).range())
             .as("V9_X gives no major.minor").isEmpty();
+    }
+
+    @Test
+    void theQueueEntryDefaultServesNineZeroWithItsOwnFactory() {
+        // feature 020 T022 (research D-17): withV90 registers the 8.1 factory with the helper
+        try (CliResources resources = new CliResources("acme", PrivateFiles.forHost())) {
+            HelperInstallation.Host host = new HelperInstallation.Host(false, Map.of(),
+                new FixedSystem(new CliSystem.Unreadable("not Windows"), StandardCharsets.UTF_8),
+                ProcessContainment.Bound::new, resources, Path.of("helper-root").toAbsolutePath());
+            ProcessRun processRun = new ProcessRun(spec -> {
+                throw new AssertionError("nothing is launched: " + spec.command());
+            }, resources);
+            PortSetRegistry withHelper = PortSetRegistry.v81Default(host, processRun, LIMITER)
+                .withV90();
+            PortSetRegistry.Factory helperDefault = withHelper.select(Optional.empty()).factory();
+
+            assertThat(withHelper.select(effective(VersionSetting.V9_0)).factory())
+                .isSameAs(helperDefault);
+            assertThat(helperDefault).as("not the plain 8.1 port set")
+                .isNotSameAs(registry.select(Optional.empty()).factory());
+            assertThat(registry.select(effective(VersionSetting.V9_0)).factory())
+                .as("the plain registry keeps the plain 8.1 port set for 9.0")
+                .isSameAs(registry.select(Optional.empty()).factory());
+            assertThatNullPointerException().isThrownBy(() ->
+                PortSetRegistry.v81Default(null, processRun, LIMITER));
+            assertThatNullPointerException().isThrownBy(() ->
+                PortSetRegistry.v81Default(host, null, LIMITER));
+            assertThatNullPointerException().isThrownBy(() ->
+                PortSetRegistry.v81Default(host, processRun, null));
+        }
     }
 
     @Test

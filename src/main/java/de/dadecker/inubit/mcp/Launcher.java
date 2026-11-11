@@ -519,12 +519,13 @@ final class Launcher {
                 + " (" + e.getClass().getSimpleName() + "); the MCP server does not start");
             return EXIT_ERROR;
         }
-        // 002 research D-8: only this profile's and legacy (001) directories; feature 013
-        // (R-10): on Windows too, the owner compared with the user of the process token
+        // 002 research D-8: only this profile's and legacy (001) directories, with 020 D-8 the
+        // queue-entry helper's too; feature 013 (R-10): on Windows too, the owner compared with
+        // the user of the process token
         int swept = CliResources.sweepStale(Path.of(System.getProperty("java.io.tmpdir")),
             config.profile().name(), context.privateFiles());
         if (swept > 0) {
-            LOG.info("Deleted {} export director{} left behind by stopped MCP servers",
+            LOG.info("Deleted {} temporary director{} left behind by stopped MCP servers",
                 swept, swept == 1 ? "y" : "ies");
         }
         UpdateCheckSetting updateSetting = UpdateCheckSetting.resolve(config.updateCheck(),
