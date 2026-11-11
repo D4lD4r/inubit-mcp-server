@@ -38,11 +38,16 @@ Offered when at least one server is possibly capable of `PARTNER_MANAGEMENT`; th
       "withoutPartnerManagement": [{"name": "…", "diagramGroup": "…"}],
       "unreadableDiagrams": [         // per diagram, the server is still answered (D-4); also
                                       // UNEXPECTED_RESPONSE "…holds several diagrams of this name
-                                      // in this group…", and NOT_FOUND for an export with HTTP 404
+                                      // in this group…", UNEXPECTED_RESPONSE for an archive
+                                      // without a readable diagram (no or a malformed
+                                      // workflow.xml, a Partner Management of another structure
+                                      // such as a cloud without ModuleName; live check T034),
+                                      // and NOT_FOUND for an export with HTTP 404
         { "systemDiagram": {"name": "…", "diagramGroup": "…"}, "code": "UNEXPECTED_RESPONSE",
           "message": "the export of this name returned a diagram of another group or owner" } ],
       "warnings": ["9.0.3 on qa/node1 is not verified for partner management; …",
                    "an entry of partner ACME-0001 in Module-0901 references an unknown workflow"],
+                                      // the version gate's warnings also for a failed server
       "error": {…} }                 // only for a failed server: ToolError {code, message,
                                       // likelyCause, nextStep, node}; absent otherwise
   ],
@@ -137,7 +142,9 @@ could not be written; message names the `callId`).
 Server level (in `servers[].error`, others answered): `NOT_CONFIGURED` (no owner),
 `UNSUPPORTED_VERSION` (6.1), `CLI_UNAVAILABLE`, `UNREACHABLE`, `TLS_ERROR`, `AUTH_FAILED`,
 `FORBIDDEN`, `MAINTENANCE_MODE`, `TIMEOUT` (names the timeout setting), `UNEXPECTED_RESPONSE`
-(names the archive part that could not be read). No error contains export content or a value.
+(an answer that is not a ZIP archive; an archive without a readable diagram is an
+`unreadableDiagrams` entry naming the part instead). No error contains export content or a
+value.
 
 ## Guarantees
 

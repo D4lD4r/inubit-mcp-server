@@ -91,6 +91,14 @@ of `specs/019-local-knowledge/quickstart.md` is open).
   Store unreachable), both knowledge tools refuse with `PRECONDITION_FAILED`.
 - `docs/tools.md` describes twenty tools.
 
+### Fixed
+
+- `find_partners` (found by the live check of feature 018): one system diagram whose export holds
+  no readable diagram, e.g. with a communication cloud without `ModuleName`, no longer fails the
+  whole node; it is listed in `unreadableDiagrams` (`UNEXPECTED_RESPONSE`, naming the part) and
+  the node's other system diagrams are answered. A node whose read fails keeps the version
+  warning ("not verified for partner management") in `warnings`.
+
 ## [0.8.1] - 2026-11-11
 
 Fixes from the first INUBIT 9.0 live check and from imports on 8.1.
