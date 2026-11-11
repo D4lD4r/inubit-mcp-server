@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-11
+
+A fix for imports of new workflows.
+
 ### Fixed
 
 - `import_artifacts` no longer rolls back an import with `VERIFY_MISMATCH` because a workspace
@@ -1088,7 +1092,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.7.1...v0.8.0
