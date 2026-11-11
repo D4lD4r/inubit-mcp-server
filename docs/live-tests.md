@@ -343,6 +343,13 @@ Findings (follow-ups, not regressions of the checked steps):
   Management does not work on INUBIT 9.0 as it is. The failed server's `warnings` are empty: the
   version warning ("not verified for partner management") is dropped when the read fails.
 
+Both findings are fixed for 0.9.0. A system diagram without a readable Partner Management is now
+one `unreadableDiagrams` entry and a failed server keeps its version warning (#78). The INUBIT 9.0
+export was not a ZIP archive because INUBIT 9.0.10 sends it with `Content-Encoding: gzip`; the REST
+client decodes it since #77 (feature 017, F-3), so `find_partners` on INUBIT 9.0 needs that fix.
+With it, `find_partners` read every system diagram of the owner on the 9.0.10 node
+(`specs/017-inubit-9-support/quickstart.md`, re-check of 2026-11-11).
+
 ## Network drive check on Windows (feature 015)
 
 `export_archives` refuses a target folder on a mapped network drive (research R-10, FR-008): the
