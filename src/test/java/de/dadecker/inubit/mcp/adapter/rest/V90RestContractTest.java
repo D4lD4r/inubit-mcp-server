@@ -50,6 +50,7 @@ import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import de.dadecker.inubit.mcp.testing.V90Cases;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -59,6 +60,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -222,6 +224,21 @@ class V90RestContractTest {
             .allSatisfy(item -> assertThat(item.node()).isEqualTo(DEV));
         assertThat(inventory.diagramDetail("OWNERS", "Sample diagram 01").modules()).isNotEmpty();
         assertThat(inventory.diagramMetadata("Workflow-0101").active()).contains(true);
+    }
+
+    @Test
+    void theExportOf90ArrivesGzipEncodedAndIsReadAsTheArchive() throws IOException {
+        // live check 2026-11-11 (9.0.10, F-3): Content-Type application/zip and, although no
+        // Accept-Encoding is sent, Content-Encoding gzip around the ZIP
+        ByteArrayOutputStream gzipped = new ByteArrayOutputStream();
+        try (GZIPOutputStream out = new GZIPOutputStream(gzipped)) {
+            out.write(V90Cases.restBody("model_export_sample"));
+        }
+        stubGet(EXPORT, MediaRange.ANY, aResponse().withStatus(200)
+            .withHeader("Content-Type", "application/zip").withHeader("Content-Encoding", "gzip")
+            .withBody(gzipped.toByteArray()));
+
+        assertThat(inventory().diagramMetadata("Workflow-0101").active()).contains(true);
     }
 
     @Test

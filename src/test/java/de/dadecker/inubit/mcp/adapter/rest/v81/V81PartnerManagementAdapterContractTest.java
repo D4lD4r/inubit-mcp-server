@@ -28,6 +28,8 @@ import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort.Result;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort.UnreadableDiagram;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -35,6 +37,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -254,6 +257,25 @@ class V81PartnerManagementAdapterContractTest {
         assertThat(result.diagrams()).isEmpty();
         assertThat(result.unreadableDiagrams()).extracting(UnreadableDiagram::systemDiagram)
             .containsExactly(RECORDED);
+    }
+
+    @Test
+    void aGzipEncodedExportAsSentByInubit90IsRead() throws IOException {
+        // INUBIT 9.0.10 wraps the export in Content-Encoding gzip (feature 017 live check, F-3)
+        ByteArrayOutputStream gzipped = new ByteArrayOutputStream();
+        try (GZIPOutputStream out = new GZIPOutputStream(gzipped)) {
+            out.write(recordedZip());
+        }
+        stub(RECORDED.name(), aResponse().withStatus(200)
+            .withHeader("Content-Type", "application/zip").withHeader("Content-Encoding", "gzip")
+            .withBody(gzipped.toByteArray()));
+
+        Result result = adapter().read(OWNER, List.of(RECORDED));
+
+        assertThat(result.diagrams()).singleElement().satisfies(diagram ->
+            assertThat(diagram.clouds()).extracting(CommunicationCloud::moduleName)
+                .containsExactly("Module-0901", "Module-0902"));
+        assertThat(result.unreadableDiagrams()).isEmpty();
     }
 
     // --- unreadable archives ---------------------------------------------------------------
