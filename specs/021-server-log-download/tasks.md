@@ -248,7 +248,7 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   before the end-tag line empty; the end-tag line keeps the end tag and the text after it, the
   part before the end tag masked; line count unchanged); orphan end tag inside CDATA ignored; a matched
   start/end pair not affected; the JSON limit pinned by a test that documents it
-- [ ] T015 `domain/model/LogExcerpt.java` (+ `Selection` `TAIL` | `CONTAINS`) (FR-009 steps 2–5,
+- [X] T015 `domain/model/LogExcerpt.java` (+ `Selection` `TAIL` | `CONTAINS`) (FR-009 steps 2–5,
   D-10, D-12; after T010, T014): `LogExcerpt.build(LogWindow, int tailLines, Optional<String>
   contains, int maxChars, Function<String, List<SecretSpan>> known)`, pure; fields `ContentKind
   kind`, `Optional<BinarySignature> detected`, `Optional<Charset> charset`, window figures

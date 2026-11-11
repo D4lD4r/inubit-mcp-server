@@ -1,0 +1,7 @@
+SYNTHETIC – a trace log of 200 lines (LF) of exactly 300 characters each, 60,000 characters of
+line text in total (US1-4); line n reads "... node1 record <n, three digits> payload" followed by
+"field<n>=value;" repeated up to 300 characters.
+Expected from LogExcerpt.build with tailLines 200: maxChars 20,000 keeps the newest 66 lines
+(135–200, 19,800 characters) and drops 134; maxChars 299 keeps only line 200, cut to 299
+characters (droppedLines 199, cutLines 1).
+Used by LogExcerptTest (tasks.md T015, research D-12).

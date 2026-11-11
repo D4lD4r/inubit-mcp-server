@@ -1,0 +1,3 @@
+2026-11-02 12:00:00,001 INFO  [acme.import.Customer] node1 customer Müller imported
+2026-11-02 12:00:00,002 WARN  [acme.import.Customer] node1 street Hauptstraße 5 shortened
+2026-11-02 12:00:00,003 INFO  [acme.import.Customer] node1 Größe 12 µm accepted

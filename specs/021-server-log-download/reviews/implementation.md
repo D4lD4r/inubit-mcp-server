@@ -68,3 +68,7 @@ the new tool (`download_server_log`, contract `contracts/mcp-tools-delta.md`).
   1114bd18; T014 adds them. The orchestrator widened the exception to
   `!src/test/resources/fixtures/server-log/**/*.log` so the recorded `v8_1`/`v9_0` `.log`
   fixtures of T021/T033/T048/T049 are not silently ignored either.
+- T015 minors for later tasks: (1) T018 — release the decoded window text before `maskLines`
+  (read figures into locals) and confirm the D-13 memory bound; (2) T030 (output mapping) — the
+  no-whole-line variant has no `charset` and two hints; render it deliberately and align
+  contracts/mcp-tools-delta.md:166.

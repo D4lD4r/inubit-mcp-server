@@ -1,0 +1,6 @@
+SYNTHETIC – a gzip-compressed log (two fictitious lines compressed with mtime 0), as if a rotated
+log had been delivered instead of a text log; it starts with the gzip magic bytes 1F 8B and
+contains NUL bytes; keep the bytes, see .gitattributes.
+Expected from LogExcerpt.build: kind binary, detected GZIP, no charset and no lines, hint
+"Binary content is not returned".
+Used by LogExcerptTest (tasks.md T015, research D-10).

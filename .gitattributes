@@ -16,5 +16,7 @@ src/test/resources/fixtures/windows/** -text
 src/test/resources/fixtures/queue-entry/**/*.data -text
 src/test/resources/fixtures/queue-entry/**/*.wfsp -text
 
-# Server-log excerpt cases (feature 021): the CRLF case keeps its line ends byte for byte
+# Server-log excerpt cases (feature 021): the CRLF, Latin-1 and gzip cases keep their bytes
 src/test/resources/fixtures/server-log/excerpt/crlf.log -text
+src/test/resources/fixtures/server-log/excerpt/latin1.log -text
+src/test/resources/fixtures/server-log/excerpt/binary_gzip.log -text
