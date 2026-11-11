@@ -48,6 +48,7 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -608,7 +609,8 @@ public final class PartnerService {
     }
 
     private Found found(PartnerAudit audit, List<NodeId> targeted, PartnerQuery query) {
-        List<NodeResult<ServerRead>> results = read(targeted, query);
+        Map<NodeId, List<String>> admitted = new ConcurrentHashMap<>();
+        List<NodeResult<ServerRead>> results = read(targeted, query, admitted);
         Optional<ToolError> notFound = query.systemDiagram()
             .flatMap(name -> unknownSystemDiagram(name, results));
         boolean summary = query.search().isEmpty();
@@ -641,9 +643,8 @@ public final class PartnerService {
         String mode = summary ? "list" : "search";
         // the page is cut to the partners whose system diagram the servers list
         PartnerBounds.Servers servers = PartnerBounds.servers(
-            results.stream().map(PartnerService::serverView).toList(), results.stream()
-                .map(result -> result.payload().map(ServerRead::gateWarnings).orElse(0))
-                .toList(), page.stream().map(PartnerBounds.Item::sources).toList(), budget,
+            results.stream().map(result -> serverView(result, admitted)).toList(),
+            results.stream().map(result -> gateWarnings(result, admitted)).toList(), page.stream().map(PartnerBounds.Item::sources).toList(), budget,
             sizeOf);
         // nextOffset and truncated at their widest: paging can only shorten them
         int fixed = sizeOf.applyAsInt(new Found(audit.callId(), mode, false, servers.value(),
@@ -693,7 +694,8 @@ public final class PartnerService {
      * the result bounded as {@link #found} does (T027, {@link PartnerBounds}).
      */
     private Compared compared(PartnerAudit audit, List<NodeId> servers, PartnerQuery query) {
-        List<NodeResult<ServerRead>> results = read(servers, query);
+        Map<NodeId, List<String>> admitted = new ConcurrentHashMap<>();
+        List<NodeResult<ServerRead>> results = read(servers, query, admitted);
         Optional<ToolError> notFound = query.systemDiagram()
             .flatMap(name -> unknownSystemDiagram(name, results));
         boolean summary = query.search().isEmpty();
@@ -731,9 +733,8 @@ public final class PartnerService {
             .toList();
         // the page is cut to the partners whose system diagram every server holding them lists
         PartnerBounds.Servers bounded = PartnerBounds.servers(
-            results.stream().map(PartnerService::serverView).toList(), results.stream()
-                .map(result -> result.payload().map(ServerRead::gateWarnings).orElse(0))
-                .toList(), items.stream().map(PartnerBounds.ComparedItem::sources).toList(),
+            results.stream().map(result -> serverView(result, admitted)).toList(),
+            results.stream().map(result -> gateWarnings(result, admitted)).toList(), items.stream().map(PartnerBounds.ComparedItem::sources).toList(),
             budget, sizeOf);
         List<NotCompared> notCompared = notCompared(comparison, bounded.value());
         // nextOffset and truncated at their widest: paging can only shorten them
@@ -1165,7 +1166,12 @@ public final class PartnerService {
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     }
 
-    private static ServerView serverView(NodeResult<ServerRead> result) {
+    /**
+     * The view of one server's read; a failed server shows the version gate's warnings it was
+     * admitted with ({@code admitted}), as an answered one does.
+     */
+    private static ServerView serverView(NodeResult<ServerRead> result,
+        Map<NodeId, List<String>> admitted) {
         Optional<ServerRead> read = result.payload();
         List<SystemDiagramPartners> diagrams = read.map(ServerRead::diagrams).orElse(List.of());
         return new ServerView(result.node(), result.node().group(), read.map(ServerRead::owner),
@@ -1182,8 +1188,16 @@ public final class PartnerService {
                 .map(SystemDiagramPartners::diagram)
                 .toList(),
             read.map(ServerRead::unreadableDiagrams).orElse(List.of()),
-            read.map(ServerRead::warnings).orElse(List.of()),
+            read.map(ServerRead::warnings)
+                .orElseGet(() -> admitted.getOrDefault(result.node(), List.of())),
             result.error());
+    }
+
+    /** How many of the server view's first warnings are the version gate's. */
+    private static int gateWarnings(NodeResult<ServerRead> result,
+        Map<NodeId, List<String>> admitted) {
+        return result.payload().map(ServerRead::gateWarnings)
+            .orElseGet(() -> admitted.getOrDefault(result.node(), List.of()).size());
     }
 
     /** The masked values {@code partner} shows: in its fields and in the entries shown. */
@@ -1240,13 +1254,18 @@ public final class PartnerService {
      * @throws ToolErrorException {@code TARGET_UNKNOWN} before any server is contacted
      */
     List<NodeResult<ServerRead>> read(PartnerQuery query) {
-        return read(targets.resolve(query.target()), query);
+        return read(targets.resolve(query.target()), query, new ConcurrentHashMap<>());
     }
 
-    private List<NodeResult<ServerRead>> read(List<NodeId> servers, PartnerQuery query) {
+    /**
+     * @param admitted receives, per server admitted by the version gate, the gate's warnings, so
+     *                 that a server whose read fails afterwards (or misses its deadline) keeps them
+     */
+    private List<NodeResult<ServerRead>> read(List<NodeId> servers, PartnerQuery query,
+        Map<NodeId, List<String>> admitted) {
         Set<NodeId> pending = secretTiming.pending(servers);
         return secretTiming.explainTimeouts(fanOut.run(servers, this::deadline,
-            server -> read(TOOL, server, query)), pending);
+            server -> read(TOOL, server, query, admitted)), pending);
     }
 
     /**
@@ -1289,7 +1308,7 @@ public final class PartnerService {
         CompletableFuture<ServerRead> read = new CompletableFuture<>();
         Thread.ofVirtual().name("partner-usage " + server).start(() -> {
             try {
-                read.complete(read(INVENTORY_TOOL, server, query));
+                read.complete(read(INVENTORY_TOOL, server, query, new ConcurrentHashMap<>()));
             } catch (RuntimeException | Error e) {
                 read.completeExceptionally(e);
             }
@@ -1327,11 +1346,13 @@ public final class PartnerService {
             .plus(FAN_OUT_GRACE).plus(secretTiming.allowance(server));
     }
 
-    private ServerRead read(String tool, NodeId server, PartnerQuery query) {
+    private ServerRead read(String tool, NodeId server, PartnerQuery query,
+        Map<NodeId, List<String>> admitted) {
         // a node without owner is never contacted, not even for the version detection
         String owner = query.owner().orElseGet(() -> configuredOwner(server));
         VersionGate.Admission admission = gate.admit(tool, server, Capability.PARTNER_MANAGEMENT,
             Capability.Kind.READ, Set.of(Channel.REST));
+        admitted.put(server, List.copyOf(admission.warnings()));
         List<String> warnings = new ArrayList<>(admission.warnings());
         int gateWarnings = warnings.size();
         AtomicBoolean read = new AtomicBoolean();
