@@ -10,8 +10,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Feature 018: read the INUBIT Partner Management. Derived from INUBIT 8.1 exports and tested
 against fixtures; on INUBIT 9.0 it runs unverified.
 
-Feature 019: a local knowledge per profile. Not yet checked live in an MCP client (the live check
-of `specs/019-local-knowledge/quickstart.md` is open).
+Feature 019: a local knowledge per profile. Checked live against the server with a scripted MCP
+client (the live check of `specs/019-local-knowledge/quickstart.md`); the conversation with an
+assistant was simulated.
 
 Feature 020: read the content of one Queue Manager entry in `ERROR` through an **unsupported,
 undocumented INUBIT interface**, off unless a group opts in. Verified on INUBIT 8.1 and 9.0
