@@ -59,3 +59,5 @@ the new tool (`download_server_log`, contract `contracts/mcp-tools-delta.md`).
 - Code review T003–T007: one independent task review each, all APPROVED in round 1
   (`reviews/T003-r1.md` … `reviews/T007-r1.md`); minors: T004 (public HelperRequestTest fixture,
   revisit in T036), T005 (Login.REJECTED inferred from AUTH_FAILED), T007 (import style).
+- T008 minor: `config/GroupConfig.java:17` javadoc of `unsupported` still names only
+  `queueEntryRead`; fold into T042 (configuration view) or the docs pass.

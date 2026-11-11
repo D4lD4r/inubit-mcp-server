@@ -132,7 +132,7 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
 
 ### Configuration, capabilities, ports (plan stages 3–4)
 
-- [ ] T008 [P] Opt-in binding (FR-003, D-17): `config/UnsupportedConfig.java` → `record
+- [X] T008 [P] Opt-in binding (FR-003, D-17): `config/UnsupportedConfig.java` → `record
   UnsupportedConfig(Optional<Boolean> queueEntryRead, Optional<Boolean> serverLogRead)` (`EMPTY`
   unchanged in meaning); `config/Defaults.java` `+ BUILTIN_SERVER_LOG_READ = false`;
   `config/ConfigLoader.java` `requireStrictUnsupportedOptIn` checks `queueEntryRead` and

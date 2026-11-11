@@ -46,6 +46,8 @@ public record Defaults(
     public static final boolean BUILTIN_ARCHIVES_PRODUCTION_OPT_IN = false;
     /** Feature 020 (research D-15): {@code unsupported.queueEntryRead}, group-level only. */
     public static final boolean BUILTIN_QUEUE_ENTRY_READ = false;
+    /** Feature 021 (research D-17): {@code unsupported.serverLogRead}, group-level only. */
+    public static final boolean BUILTIN_SERVER_LOG_READ = false;
     public static final ConfirmationMode BUILTIN_CONFIRMATION = ConfirmationMode.SERVER;
     public static final VersionSetting BUILTIN_VERSION_LINE = VersionSetting.AUTO;
     public static final boolean BUILTIN_DEVELOPMENT_ENABLED = false;

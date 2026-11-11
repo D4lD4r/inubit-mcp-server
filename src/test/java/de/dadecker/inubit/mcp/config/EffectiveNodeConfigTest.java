@@ -32,6 +32,10 @@ import org.junit.jupiter.api.io.TempDir;
  *
  * <p>Feature 020 (T002, research D-15): {@code queueEntryRead()} is the group's
  * {@code unsupported.queueEntryRead}, built-in {@code false}, kept by every copy.
+ *
+ * <p>Feature 021 (T008, research D-17): {@code serverLogRead()} is the group's
+ * {@code unsupported.serverLogRead}, built-in {@code false}, kept by every copy and independent
+ * of {@code queueEntryRead()}.
  */
 class EffectiveNodeConfigTest {
 
@@ -217,26 +221,32 @@ class EffectiveNodeConfigTest {
             .isTrue();
     }
 
-    private static EffectiveNodeConfig withQueueEntryRead(UnsupportedConfig unsupported) {
+    private static EffectiveNodeConfig withUnsupported(UnsupportedConfig unsupported) {
         NodeConfig node = node(null);
         GroupConfig group = new GroupConfig("prod", true, List.of(node), null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null, null, unsupported);
         return resolve(Defaults.EMPTY, group, node);
     }
 
+    private static UnsupportedConfig queueEntryRead(boolean value) {
+        return new UnsupportedConfig(Optional.of(value), Optional.empty());
+    }
+
+    private static UnsupportedConfig serverLogRead(boolean value) {
+        return new UnsupportedConfig(Optional.empty(), Optional.of(value));
+    }
+
     @Test
     void theQueueEntryReadOptInIsTheGroupValueAndFalseByDefault() {
-        assertThat(withQueueEntryRead(null).queueEntryRead()).isFalse();
-        assertThat(withQueueEntryRead(UnsupportedConfig.EMPTY).queueEntryRead()).isFalse();
-        assertThat(withQueueEntryRead(new UnsupportedConfig(Optional.of(false)))
-            .queueEntryRead()).isFalse();
-        assertThat(withQueueEntryRead(new UnsupportedConfig(Optional.of(true)))
-            .queueEntryRead()).isTrue();
+        assertThat(withUnsupported(null).queueEntryRead()).isFalse();
+        assertThat(withUnsupported(UnsupportedConfig.EMPTY).queueEntryRead()).isFalse();
+        assertThat(withUnsupported(queueEntryRead(false)).queueEntryRead()).isFalse();
+        assertThat(withUnsupported(queueEntryRead(true)).queueEntryRead()).isTrue();
     }
 
     @Test
     void theQueueEntryReadOptInSurvivesEveryCopy() {
-        EffectiveNodeConfig optedIn = withQueueEntryRead(new UnsupportedConfig(Optional.of(true)));
+        EffectiveNodeConfig optedIn = withUnsupported(queueEntryRead(true));
         EffectiveNodeConfig.Cli other = new EffectiveNodeConfig.Cli(
             URI.create("https://other.example.test:8443/cli"), Optional.empty(), Optional.empty());
 
@@ -244,13 +254,38 @@ class EffectiveNodeConfigTest {
         assertThat(optedIn.withCli(other).queueEntryRead()).isTrue();
         assertThat(optedIn.entryProbe(Path.of("client"), Optional.empty()).queueEntryRead())
             .isTrue();
-        assertThat(withQueueEntryRead(null).withTimeout(Duration.ofSeconds(1)).withCli(other)
+        assertThat(withUnsupported(null).withTimeout(Duration.ofSeconds(1)).withCli(other)
             .entryProbe(Path.of("client"), Optional.empty()).queueEntryRead()).isFalse();
     }
 
     @Test
+    void theServerLogReadOptInIsTheGroupValueAndFalseByDefault() {
+        assertThat(withUnsupported(null).serverLogRead()).isFalse();
+        assertThat(withUnsupported(UnsupportedConfig.EMPTY).serverLogRead()).isFalse();
+        assertThat(withUnsupported(serverLogRead(false)).serverLogRead()).isFalse();
+        assertThat(withUnsupported(serverLogRead(true)).serverLogRead()).isTrue();
+        assertThat(withUnsupported(serverLogRead(true)).queueEntryRead()).isFalse();
+        assertThat(withUnsupported(queueEntryRead(true)).serverLogRead()).isFalse();
+    }
+
+    @Test
+    void theServerLogReadOptInSurvivesEveryCopy() {
+        EffectiveNodeConfig optedIn = withUnsupported(serverLogRead(true));
+        EffectiveNodeConfig.Cli other = new EffectiveNodeConfig.Cli(
+            URI.create("https://other.example.test:8443/cli"), Optional.empty(), Optional.empty());
+
+        assertThat(optedIn.withTimeout(Duration.ofSeconds(1)).serverLogRead()).isTrue();
+        assertThat(optedIn.withCli(other).serverLogRead()).isTrue();
+        assertThat(optedIn.entryProbe(Path.of("client"), Optional.empty()).serverLogRead())
+            .isTrue();
+        assertThat(withUnsupported(null).withTimeout(Duration.ofSeconds(1)).withCli(other)
+            .entryProbe(Path.of("client"), Optional.empty()).serverLogRead()).isFalse();
+    }
+
+    @Test
     void theConstructorWithoutCliSourcesIsNotOptedIn() {
-        EffectiveNodeConfig o = withQueueEntryRead(new UnsupportedConfig(Optional.of(true)));
+        EffectiveNodeConfig o = withUnsupported(
+            new UnsupportedConfig(Optional.of(true), Optional.of(true)));
 
         EffectiveNodeConfig built = new EffectiveNodeConfig(o.id(), o.production(), o.baseUrl(),
             o.allowInsecureHttp(), o.versionLine(), o.write(), o.tls(), o.cli(), o.inventory(),
@@ -259,6 +294,7 @@ class EffectiveNodeConfigTest {
             o.archivesProductionOptIn());
 
         assertThat(built.queueEntryRead()).isFalse();
+        assertThat(built.serverLogRead()).isFalse();
     }
 
     private static final String PIN_A =

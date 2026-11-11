@@ -634,9 +634,10 @@ public final class ConfigLoader {
     }
 
     /**
-     * Feature 020 (research D-15): {@code unsupported.queueEntryRead} of a group must be a YAML
-     * boolean, like {@link #requireStrictArchivesOptIn}. The value is never echoed. Other shapes
-     * are left to the binding.
+     * Feature 020 (research D-15) and 021 (research D-17): {@code unsupported.queueEntryRead} and
+     * {@code unsupported.serverLogRead} of a group must be YAML booleans, like
+     * {@link #requireStrictArchivesOptIn}. The value is never echoed. Other shapes are left to the
+     * binding.
      */
     private static void requireStrictUnsupportedOptIn(ObjectNode root, Path source) {
         JsonNode groups = root.get("groups");
@@ -644,10 +645,12 @@ public final class ConfigLoader {
             return;
         }
         for (int i = 0; i < groups.size(); i++) {
-            JsonNode optIn = groups.get(i).path("unsupported").path("queueEntryRead");
-            if (!optIn.isMissingNode() && !optIn.isNull() && !optIn.isBoolean()) {
-                throw new ConfigException("Invalid value at groups[" + i
-                    + "].unsupported.queueEntryRead in " + source + ": expected true or false");
+            for (String key : List.of("queueEntryRead", "serverLogRead")) {
+                JsonNode optIn = groups.get(i).path("unsupported").path(key);
+                if (!optIn.isMissingNode() && !optIn.isNull() && !optIn.isBoolean()) {
+                    throw new ConfigException("Invalid value at groups[" + i + "].unsupported."
+                        + key + " in " + source + ": expected true or false");
+                }
             }
         }
     }
