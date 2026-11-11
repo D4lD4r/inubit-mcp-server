@@ -42,7 +42,7 @@ class DevelopmentToolsReferenceTest {
             "| [`restore_backup`](#restore_backup) |", "| [`set_active`](#set_active) |",
             "| [`tag_artifacts`](#tag_artifacts) |", "| [`run_e2e_test`](#run_e2e_test) |",
             "| [`deploy_release`](#deploy_release) |",
-            "All seventeen tools");
+            "All eighteen tools");
     }
 
     @Test

@@ -24,11 +24,12 @@ the credentials from the credential store of the system of feature 011
 parameter, field or error code; see
 [Credentials from the credential store](#credentials-from-the-credential-store-feature-011)),
 `export_archives` of feature 015
-[its delta](../specs/015-workbench-archives/contracts/mcp-tools-delta.md), and the read-only
+[its delta](../specs/015-workbench-archives/contracts/mcp-tools-delta.md), the read-only
 INUBIT 6.1 nodes of feature 012
 [its delta](../specs/012-inubit-61-cli-reads/contracts/mcp-tools-delta.md) (see
-[INUBIT 6.1](#inubit-61-feature-012)).
-All seventeen tools are described here; each section quotes the description the server announces
+[INUBIT 6.1](#inubit-61-feature-012)), and `read_queue_entry` of feature 020
+[its delta](../specs/020-queue-entry-read/contracts/mcp-tools-delta.md).
+All eighteen tools are described here; each section quotes the description the server announces
 in `tools/list` for a profile `acme` without description and with the default terminology
 (Group/Node).
 
@@ -71,6 +72,7 @@ General rules:
 | [`get_health`](#get_health) | is a node up, ready, in maintenance; version and load | read-only, idempotent, open world | yes (REST) |
 | [`find_processes`](#find_processes) | failed, waiting or hanging process instances | read-only, idempotent, open world | yes (REST `queueLog`) |
 | [`query_logs`](#query_logs) | INUBIT log entries by time, workflow, severity, process id, text | read-only, idempotent, open world | yes (REST) |
+| [`read_queue_entry`](#read_queue_entry) | the content of ONE Queue Manager entry in `ERROR` (metadata, data stream, variables) through an **unsupported INUBIT interface**, opt-in per group | read-only, idempotent, open world | yes (REST `queueLog` + a helper on the INUBIT client) |
 | [`list_inventory`](#list_inventory) | diagrams or modules filtered by name, type, group | read-only, idempotent, open world | yes (diagrams: REST; modules: StartCLI export) |
 | [`get_inventory_item`](#get_inventory_item) | one diagram or module: versions, tags, active flag, modules used | read-only, idempotent, open world | yes (REST + StartCLI export with history) |
 | [`restart_process`](#restart_process--kill_process) | restart ONE process instance in ERROR on ONE node | **destructive**, non-idempotent, open world | yes (REST state read + StartCLI `processErrorStart`) |
@@ -98,6 +100,10 @@ when every production group lacks `archives.productionOptIn` (it refuses them pe
 `list_inventory`, `get_inventory_item`, `export_artifacts` and `export_archives` are not offered
 when no configured node may run their capability (feature 012), e.g. in a profile of INUBIT 6.1
 nodes only (see [tool announcement](#tool-announcement)).
+
+`read_queue_entry` is **offered only if** a node's group has `unsupported.queueEntryRead: true`
+([setup.md](setup.md#unsupported-functions)), that node is not pinned to a version that refuses
+the tool, and it has an INUBIT client home (see [its section](#read_queue_entry)).
 
 The development tools of feature 004 are **offered only if at least one node is a development
 stage** (`development.enabled: true`, never on production groups; see
@@ -130,6 +136,7 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 | `list_inventory` `MODULE`, `get_inventory_item` (diagram details via REST; the module list and every version history via StartCLI) | `inventory` | read | REST + StartCLI | supported | the REST part runs with a warning; the StartCLI part also needs the client check | refused |
 | `export_artifacts`, `export_archives` | `workspace_export` | read on INUBIT | StartCLI | supported | runs with a warning if the client check passes (refused on 9.1 with an 8.1 client) | refused |
 | `check_artifacts` | – (its optional module lookup: `inventory` over StartCLI) | read | none, optional module lookup | runs | runs; the module lookup as `inventory` | runs; the module lookup is skipped |
+| `read_queue_entry` | `queue_entry_read` | read (unsupported vendor interface) | REST lookup + helper on the INUBIT client | supported (8.1 and 9.0) | refused (no warning run) | refused |
 | `import_artifacts`, `restore_backup` of a development backup, `set_active`, `tag_artifacts` | `development_writes` | write | StartCLI + REST | supported | refused | refused |
 | `restore_backup` of a deployment backup, `deploy_release` | `deployment` | write | StartCLI + REST | supported; `deploy_release` only within one minor version (8.1 → 8.1, 9.0 → 9.0) | refused; `deploy_release` also only within one minor version | refused |
 | `run_e2e_test` | `e2e_test` | write | SOAP + REST | supported | refused | refused |
@@ -139,7 +146,7 @@ A deployment backup restored on a node that is also a development stage is check
 `development_writes`; both capabilities have the same states in this version. Refusal and
 warning texts name the capability in words: `monitoring`, `process diagnosis`, `log diagnosis`,
 `inventory`, `workspace export`, `development writes`, `deployment`, `end-to-end test`,
-`process control`. Before feature 012, `find_processes` and `query_logs` shared the capability
+`process control`, `reading Queue Manager entries`. Before feature 012, `find_processes` and `query_logs` shared the capability
 `diagnosis`; `list_nodes` and `--check-config` now show the two capabilities instead, with the
 same states on every version other than 6.1.
 
@@ -282,7 +289,10 @@ whose only development nodes are `V9_X`. Since feature 012 the same rule applies
 `find_processes` (process diagnosis), `query_logs` (log diagnosis), `list_inventory` and
 `get_inventory_item` (inventory), `export_artifacts` and `export_archives` (workspace export),
 e.g. in a profile whose only nodes are pinned to INUBIT 6.1; `list_nodes`, `get_health` and
-`check_artifacts` are always offered. `AUTO` nodes count as possibly capable; a later detection
+`check_artifacts` are always offered. Feature 020: `read_queue_entry` is offered only if a node
+of a group with `unsupported.queueEntryRead: true` is not pinned to a version that refuses
+`queue_entry_read` (6.1, a line other than 8.1 and 9.0) and has an INUBIT client home for one of
+its possible versions. `AUTO` nodes count as possibly capable; a later detection
 does not change the list, it leads to refusals.
 
 ### INUBIT 6.1 (feature 012)
@@ -582,7 +592,7 @@ part of the result.
 | `server` | `{version, source, at?}` with `source` `detected` (an `AUTO` node, detected before a tool call), `observed` (read by `get_health`, also on a pinned node) or `pinned` (the pin, without `at`; `6.1` for `V6_1`, `8.1` for `V8_1`, `9.0` for `V9_0`, `9.x` for `V9_X`); or only `{"state": "not_yet_detected"}` (call `get_health`), or `{"state": "unknown", "reason": "<error code>", "at": …}` after a failed detection. Times are ISO-8601 to the second |
 | `client` | the StartCLI client as in `get_health`: `{version, supportedFrom?, supportedTo?, comparison}` with `comparison` `match`, `mismatch` or `not_comparable` (the server version is unknown or has no patch, e.g. `V8_1`); or only `state`: `not_available` (no StartCLI installation), `not_yet_detected` (not probed yet; after a timed-out probe with `reason` `TIMEOUT` and `at`) or `unknown` (the probe failed: error code in `reason`, `at`) |
 | `status` | `supported` (every capability the configuration allows is supported), `partially_supported` (some are usable, others are unverified or not usable), `unsupported` (none is usable) or `unknown` (an `AUTO` node whose version is not yet detected or unknown) |
-| `capabilities` | `usable`: the capabilities whose tools run on the node now (supported, or unverified for reads except on INUBIT 6.1, and not refused by the client), out of those its configuration allows (the reads always; `workspace_export` with a StartCLI installation; `development_writes` on a development stage; `deployment` in a group that receives deployments; `e2e_test` where `e2eTests` allows it; `process_control` with write access). `notUsable`: `[{capability, reason}]` with the reason the call would be refused; `inventory (StartCLI parts)` when `inventory` runs for its REST part but the client refuses its StartCLI parts (module list, version histories) |
+| `capabilities` | `usable`: the capabilities whose tools run on the node now (supported, or unverified for reads except on INUBIT 6.1, and not refused by the client), out of those its configuration allows (the reads always; `workspace_export` with a StartCLI installation; `development_writes` on a development stage; `deployment` in a group that receives deployments; `e2e_test` where `e2eTests` allows it; `process_control` with write access; `queue_entry_read` only for nodes whose group has `unsupported.queueEntryRead: true`). `notUsable`: `[{capability, reason}]` with the reason the call would be refused; `inventory (StartCLI parts)` when `inventory` runs for its REST part but the client refuses its StartCLI parts (module list, version histories) |
 | `warnings` | only when non-empty: a pin contradicted by `get_health`, a client that differs from the server or excludes it (see [the warnings](#inubit-versions-and-capabilities-feature-009)) |
 
 | `startCli` field | Meaning |
@@ -971,6 +981,177 @@ Times must fit INUBIT's epoch milliseconds (e.g. `+999999999-12-31T23:59:59Z` or
   `offset: <nextOffset>`.
 - "Which certificates in the key manager expire before the end of the year?" →
   `query_logs(target: "dev", logType: "keyManagerLog", until: "2026-12-31T23:59:59Z")`.
+
+## `read_queue_entry`
+
+> **Unsupported INUBIT functionality.** This tool reads Queue Manager entries through an
+> undocumented internal INUBIT interface, without vendor support or stability guarantee; it may
+> stop working after any INUBIT update. For diagnosis only; it returns business data. Enable it
+> per group with `unsupported.queueEntryRead` only after reading
+> [setup.md, Unsupported functions](setup.md#unsupported-functions).
+
+> [acme] Reads the content of one INUBIT Queue Manager entry in state ERROR: the entry's metadata,
+> the data stream that ended in the queue (text cut at maxChars; binary content only as size and
+> kind) and the workflow variables, with credentials masked as ${secret:…}. Use it after
+> find_processes or query_logs (logType queueLog) showed an ERROR entry whose cause is not in the
+> error text. UNSUPPORTED: uses an undocumented internal INUBIT interface (the Workbench's Queue
+> Manager "View file") without vendor support or stability guarantee; it may stop working or behave
+> differently after any INUBIT update; for diagnosis only. Returns business data of the entry;
+> credentials under unusual names may not be masked. Available only for groups with
+> unsupported.queueEntryRead.
+
+Feature 020 ([its delta](../specs/020-queue-entry-read/contracts/mcp-tools-delta.md)). Reads the
+content of ONE Queue Manager entry in state `ERROR` on ONE node: its metadata, the data stream
+that ended in the queue and the workflow variables — what the Workbench shows with the Queue
+Manager action "View file". Use it after `find_processes` or `query_logs` (`logType` `queueLog`)
+showed an `ERROR` entry whose cause is not in the error text. The entry is found through the
+documented Queue Manager view (REST `queueLog`, as `find_processes`); its content is read by a
+small helper that the server starts on the INUBIT client installation of the node's version (the
+StartCLI client, `defaults.cliClients`), with the read request of "View file" only: on INUBIT 8.1
+the Workbench's SOAP interface, on INUBIT 9.0 its internal REST interface. Nothing is changed:
+no restart, kill, delete, modify, export or upload; the entry stays in the Queue Manager as it
+was.
+
+The tool is annotated `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`,
+`openWorldHint: true` (title "Read a Queue Manager entry"). It is **offered only if** at least one
+node belongs to a group with `unsupported.queueEntryRead: true`, is not pinned to a version that
+refuses `queue_entry_read` (6.1, a line other than 8.1 and 9.0), and has an INUBIT client home for
+one of its possible versions (`cli.home`, `defaults.cliClients`, `defaults.cliHome`); otherwise
+the tool list is that of a profile without the opt-in. Reads are not audited; the data stream and
+the variable values are never logged (the log names the node, process id, file name, sizes and
+the outcome).
+
+**Input** (`read_queue_entry.input.json`):
+
+| Property | Rules |
+|---|---|
+| `target` (required) | id of exactly one node (`<group>/<node>`); a group id is `INVALID_INPUT` |
+| `processId` (required) | the decimal Queue Manager id without leading zero, pattern `^[1-9][0-9]{0,18}$`: `processId` from `find_processes` (queueLog `workflowId`). A UUID `globalProcessId` is not accepted |
+| `fileName` | the queue file name as `query_logs` with `logType` `queueLog` lists it in `fields.fileName` (1–255 characters, no `/`, `\` or control characters); needed when the process has several `ERROR` entries |
+| `maxChars` | maximum characters of the data stream text returned, 1–100,000, default 20,000 (on the masked text; the full size is always reported) |
+
+**Which entry is read** (candidate rules). The candidates are the Queue Manager rows of
+`processId` in state `ERROR` that have a queue file; with `fileName`, the row with that file
+name. Only the content of an `ERROR` entry is requested:
+
+- exactly one candidate: it is read;
+- several candidates without `fileName`: `INVALID_INPUT` listing them (file name, workflow,
+  module, time) — repeat the call with `fileName`;
+- rows of the process, none in `ERROR` (or `fileName` names a row that is not in `ERROR`):
+  `INVALID_INPUT` listing their states (a row without queue file as e.g. `WAITING (without queue
+  file)`); no content request;
+- only `ERROR` rows without a queue file (`fileName` absent or blank, `fileSize` 0, seen on
+  INUBIT 8.1): `INVALID_INPUT` "… has 2 ERROR entries in the Queue Manager without a queue file
+  (fileSize 0); there is no content to read", next step "Read their error texts with query_logs
+  (logType queueLog) for process 1234". Such rows are never candidates and are ignored beside an
+  `ERROR` row with a file;
+- no row for the process, or `fileName` not among its rows with a file: `NOT_FOUND`;
+- the entry left the Queue Manager between the lookup and the content request (restarted, killed
+  or deleted meanwhile): `NOT_FOUND`.
+
+**Output** (`read_queue_entry.output.json`):
+
+```json
+{"node": "test/node1",
+ "entry": {"processId": "1234", "globalProcessId": "0f0e0d0c-0000-4000-8000-000000000001",
+   "workflow": "Workflow-0001", "module": "Module-0001", "moduleType": "Throw",
+   "state": "ERROR", "rawState": "Error", "since": "2026-11-10T08:15:30Z",
+   "fileName": "Module-0001(4711)@1234@0a1b2c3d", "sizeBytes": 772,
+   "errorTexts": {"userDefined1": "ACME-ERROR", "userDefined2": "Wrong data type for receiver"}},
+ "data": {"available": true, "kind": "text", "charset": "UTF-8", "sizeBytes": 772,
+   "totalChars": 772, "returnedChars": 772, "truncated": false,
+   "text": "<soap:Envelope …><wsse:Password>${secret:data.Password}</wsse:Password>…"},
+ "variables": {"available": true, "totalCount": 51, "returnedCount": 51, "truncated": false,
+   "items": [
+     {"name": "ISFileSize", "system": true, "type": "Long", "kind": "text", "value": "772", "masked": false},
+     {"name": "apiToken", "system": false, "kind": "text", "value": "${secret:variables.apiToken}", "masked": true},
+     {"name": "var.order", "system": false, "type": "XmlDocument", "kind": "text", "value": "<Order><Id>Order-0001</Id>…", "masked": false, "totalChars": 5120, "truncated": true}]},
+ "warnings": ["Read through an unsupported, undocumented INUBIT interface; diagnosis only"]}
+```
+
+| Field | Meaning |
+|---|---|
+| `node` | the node read |
+| `entry` | the Queue Manager row: `processId`, `globalProcessId`, `workflow`, `module`, `moduleType`, `state` (`ERROR`), `rawState` (INUBIT's value), `since` (ISO-8601 UTC, when the entry entered the Queue Manager), `fileName`, `sizeBytes` (of the data stream), `errorTexts` (the error text columns of the row; absent when empty) |
+| `data` | the data stream: `available`; `kind` `text`, `binary` or `empty`; for text `charset` (`UTF-8` if the whole stream is valid UTF-8, else `ISO-8859-1`), `sizeBytes`, `totalChars`, `returnedChars`, `truncated` and `text` (masked, cut at `maxChars`); for binary `sizeBytes`, `detected` (if a signature matched) and `hint`; unavailable: `reason` |
+| `variables` | the workflow variables: `available`, `totalCount`, `returnedCount`, `truncated`, `items`; unavailable: `reason` |
+| `variables.items[]` | `name` (`nameTruncated` when cut at 200 characters), `system` (`true` for INUBIT's own properties `ISFileSize`, `ISCurrentTime`, `ISWorkflowName`, `ISModuleName`, `ISModuleId`, `ISProcessId`, `ISUserName`, `ISServerName`, `ISNodeName`, `ISGlobalProcessId`, `ISOverwriteSubWorkflowPriority` and every name starting with `_hidden.`), `type` (where INUBIT names one), `kind` (`text`, `empty` or `binary`), `value` (text), `masked`; a cut value has `totalChars` and `truncated`; an empty value has `sizeBytes` (0) and a binary value `sizeBytes` and `detected` instead of `value` |
+| `warnings` | always `Read through an unsupported, undocumented INUBIT interface; diagnosis only` |
+
+Variants:
+
+| Part | Shape |
+|---|---|
+| `data` empty | `{"available": true, "kind": "empty", "sizeBytes": 0}` |
+| `data` binary | `{"available": true, "kind": "binary", "sizeBytes": 20480, "detected": "ZIP", "hint": "Binary content is not returned"}` |
+| variable empty or binary | `{"name": "payload", "system": false, "kind": "binary", "sizeBytes": 2048, "detected": "GZIP", "masked": false}`; empty: `"kind": "empty", "sizeBytes": 0`, no `value` |
+| `data` / `variables` unavailable | `{"available": false, "reason": "…"}` with `too large (12582912 bytes; limit 10 MiB)`, `INUBIT did not find the content of this entry`, `INUBIT reported an error: <excerpt>` or `unexpected format; the unsupported INUBIT interface may have changed` |
+
+A part that is unavailable while the entry still exists is a **partial result**, not an error:
+the metadata and the other part are returned.
+
+**Text or binary.** The data stream (and each variable value) is binary if it starts with a known
+signature (ZIP, GZIP, PDF, PNG, JPEG, GIF, Java serialized object) or if its first 8 KiB contain a
+NUL byte or more than 10 % control bytes; binary content is never returned, only its size, the
+detected kind and a hint. UTF-16 text counts as binary.
+
+**Masking** (applied before the bounds, to the data stream and every variable value). The terms
+are, case-insensitive, `password`, `passwd`, `pwd`, `secret`, `token`, `apikey`, `api_key`,
+`credential`, `authorization`, `private`, `keystore` and `cookie`:
+
+- a variable whose name contains a term gets the value `${secret:variables.<name>}`
+  (`masked: true`);
+- in text, the value of an XML element or attribute, a JSON key or a `name=value` pair whose local
+  name contains a term becomes `${secret:data.<name>}` (an element's whole content, a JSON
+  object or array as a whole; a cut-off element up to the next `<`);
+- a header-style line `name: value` whose name contains a term (e.g. `X-Api-Key:`) is masked to
+  the end of the line;
+- every HTTP `Authorization` / `Proxy-Authorization` value and every `Basic`/`Bearer` credential
+  becomes `${secret:authorization}`;
+- the known credentials of the profile are scrubbed as in every other result.
+
+**Residual risk:** masking works by name. A credential under a neutral name (for example INUBIT's
+`<Property name="password">`, whose element is `Property`), inside binary or encoded content
+(Base64, URL-encoded) or in free text **may still appear in the result**, and the business data
+of the entry always does. Enable the tool only where that is acceptable (see
+[setup.md](setup.md#unsupported-functions)); on a `production: true` group the server starts with
+a warning.
+
+**Bounds** (on the masked text): `text` at most `maxChars` (default 20,000, at most 100,000); at
+most 200 variables; each `value` at most 2,000 characters; all values together at most 40,000
+characters (a value past that budget is `""` with `truncated: true`; names do not count). A data
+stream or variable set larger than 10 MiB is not processed (`too large`). The whole result stays
+below about 190,000 characters. Each call is bounded by the node's `cliTimeout` and takes one
+StartCLI slot of the node (the wait for a free slot is bounded as for StartCLI).
+
+**Versions:** `queue_entry_read` is supported on INUBIT 8.1 and 9.0, each verified against a
+recorded, neutralized entry of that version; INUBIT 6.1, any other line (9.1, `V9_X`) and an
+undeclared version are refused with `UNSUPPORTED_VERSION` (`… supported: 8.1, 9.0`). The version
+of an `AUTO` node is detected first; if that fails, the detection's own error is returned
+(during the 60 s back-off: `The INUBIT version of test/node1 could not be detected (UNREACHABLE
+at 2026-11-10T08:15:30Z); read_queue_entry needs it`).
+
+**Errors** (as `ToolError`, see [Common shapes](#common-shapes-page-and-toolerror)):
+
+| Code | When |
+|---|---|
+| `INVALID_INPUT` | an input fails its check (`Invalid processId 'abc'`, `Invalid fileName: …`, `Invalid maxChars 0 (1–100000)`), a group id as `target`, and the candidate cases above (several `ERROR` entries, none in `ERROR`, only `ERROR` rows without a queue file) |
+| `TARGET_UNKNOWN` | unknown id |
+| `NOT_CONFIGURED` | the node's group has no `unsupported.queueEntryRead: true` (checked before the version detection; nothing is sent): `read_queue_entry is not enabled for group test: unsupported.queueEntryRead is not set`, next step `Set unsupported.queueEntryRead: true on group test and restart the MCP client (unsupported INUBIT functionality, see docs/setup.md "Unsupported functions")` |
+| `UNSUPPORTED_VERSION` | see Versions |
+| `NOT_FOUND` | no row of the process, `fileName` not among its rows, or the entry left the Queue Manager after the lookup: `Process 1234 is not (or no longer) in the Queue Manager of test/node1; nothing was read`, next step `Look the instance up again with find_processes` |
+| `CLI_UNAVAILABLE` | no INUBIT client home for the node's version, `lib/ibis.jar` or the JDK missing, the helper could not start, a vendor class or method missing (`The INUBIT client installation … (chosen for INUBIT 9.0) lacks …`), no private temporary directory |
+| `AUTH_FAILED` | the helper's login was rejected (the same back-off as StartCLI) |
+| `FORBIDDEN` | INUBIT refuses the Queue Manager read for the configured user; next step `Give the user the Queue Manager right the Workbench needs for "View file"` |
+| `TLS_ERROR`, `UNREACHABLE`, `TIMEOUT` | TLS check before the launch, login or download connection; the node's `cliTimeout` exceeded (slot wait, TLS check and helper together); no partial content |
+| `SECRET_UNRESOLVED` (or the node's other credential codes) | the node's credentials are not available yet; nothing is launched |
+| `MAINTENANCE_MODE` | the Queue Manager lookup answers 503 in maintenance mode |
+| `UNEXPECTED_RESPONSE` | an unusable queue row, or unexpected helper output: `read_queue_entry got an unexpected answer from test/node1; the unsupported INUBIT interface may have changed after an INUBIT update`, next step `Read the entry in the Workbench (Queue Manager, View file); report the INUBIT version` |
+| `INTERNAL` | the helper is missing from the build or its private files cannot be written; the server is shutting down |
+
+**Example prompt**: "Why did process 1234 fail on test/node1? Show me the data that ended in the
+queue." → `find_processes(target: "test/node1", states: ["ERROR"])`, then
+`read_queue_entry(target: "test/node1", processId: "1234")`.
 
 ## Inventory: owner, groups, caching
 

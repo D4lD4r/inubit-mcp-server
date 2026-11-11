@@ -491,7 +491,7 @@ refused before any content request (FR-006, FR-019, US3-1…5).
 
 ## Phase 7: Polish
 
-- [ ] T040 [P] `docs/tools.md`: section `## read_queue_entry` (short warning first, link to setup
+- [X] T040 [P] `docs/tools.md`: section `## read_queue_entry` (short warning first, link to setup
   "Unsupported functions", inputs, output with variants, errors table, candidate rules, masking
   rules and the residual risk, bounds), capability table row, "Tool announcement" rule,
   `list_nodes` capability name; `README.md` tool list — `QueueEntryDocsTest` extended first (short

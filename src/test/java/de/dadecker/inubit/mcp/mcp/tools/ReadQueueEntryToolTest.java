@@ -20,6 +20,7 @@ import de.dadecker.inubit.mcp.domain.model.QueueEntryRow;
 import de.dadecker.inubit.mcp.domain.model.RawEntryContent;
 import de.dadecker.inubit.mcp.domain.model.RawEntryContent.PartResult;
 import de.dadecker.inubit.mcp.domain.model.RawVariable;
+import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -30,7 +31,10 @@ import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -140,6 +144,16 @@ class ReadQueueEntryToolTest {
 
         assertThat(description).contains("unsupported:", "undocumented",
             "without vendor support", "any inubit update", "diagnosis only", "business data");
+    }
+
+    /** T040: docs/tools.md quotes the description as announced for a profile {@code acme}. */
+    @Test
+    void docsToolsQuotesTheDescriptionAsRendered() throws IOException {
+        String tools = Files.readString(Path.of("docs/tools.md"))
+            .replaceAll("\\n> ?", " ").replaceAll("\\s+", " ");
+
+        assertThat(tools).contains(
+            "[acme] " + Terminology.DEFAULT.render(ReadQueueEntryTool.DESCRIPTION));
     }
 
     // --- input schema -------------------------------------------------------------------------
