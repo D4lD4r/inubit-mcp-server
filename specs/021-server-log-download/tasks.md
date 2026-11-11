@@ -111,7 +111,7 @@ decisions go to `specs/021-server-log-download/reviews/implementation.md`.
   byte-identical. Failing tests first in `adapter/cli/helper/HelperFailuresTest.java`
   (characterization of every shared case with the queue subject and with a log subject);
   `adapter/cli/queue/QueueEntryHelperClassifierTest.java` unchanged and green; leak check
-- [ ] T006 [P] Extract `application/OwnerOnlyFolders.java` from `application/ArchiveFolderWriter.java`
+- [X] T006 [P] Extract `application/OwnerOnlyFolders.java` from `application/ArchiveFolderWriter.java`
   (`createFolder`, around line 300; D-7): "creates a folder and its missing parents `rwx------`,
   never changes existing permissions; refuses a concurrently created symbolic link";
   `ArchiveFolderWriter` delegates (behaviour unchanged). Failing tests first in

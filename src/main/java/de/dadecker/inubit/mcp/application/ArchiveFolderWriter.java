@@ -11,7 +11,6 @@ import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystemException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -19,9 +18,7 @@ import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Deque;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
@@ -39,12 +36,10 @@ import java.util.function.Supplier;
  * after the caller's collision check — and the temporary name is deleted. The final name thus
  * only ever appears complete.
  *
- * <p>The target folder and its missing parents are created right before the first archive, one
- * level at a time from the nearest existing ancestor, each {@code rwx------} on POSIX; the
- * permissions of existing folders are never changed. Existing levels are detected following
- * symbolic links; a level created concurrently is accepted only as a real directory — a symbolic
- * link created concurrently is refused and fails the archive. POSIX attributes are used only when
- * the default file system supports the {@code posix} view.
+ * <p>The target folder and its missing parents are created right before the first archive by
+ * {@link OwnerOnlyFolders} (owner-only, existing permissions never changed); a symbolic link
+ * created concurrently in place of a level is refused and fails the archive. POSIX attributes are
+ * used only when the default file system supports the {@code posix} view.
  *
  * <p>Without hard links ({@code UnsupportedOperationException}, or a {@code FileSystemException}
  * other than {@code FileAlreadyExistsException} from the link, e.g. FAT/exFAT) the temporary
@@ -164,8 +159,6 @@ public final class ArchiveFolderWriter {
     private static final String PART = ".part";
     private static final Set<PosixFilePermission> FILE_PERMISSIONS =
         PosixFilePermissions.fromString("rw-------");
-    private static final Set<PosixFilePermission> DIRECTORY_PERMISSIONS =
-        PosixFilePermissions.fromString("rwx------");
 
     private final FileOps ops;
     private final boolean posix =
@@ -193,7 +186,7 @@ public final class ArchiveFolderWriter {
             return new Result(written, List.of(), List.of(), warnings);
         }
         try {
-            createFolder(folder);
+            OwnerOnlyFolders.create(folder, ops::createDirectory);
         } catch (IOException | RuntimeException e) {
             return stopped(written, warnings, archives, 0,
                 "The target folder could not be created: " + reason(e));
@@ -294,32 +287,6 @@ public final class ArchiveFolderWriter {
         } catch (IOException | RuntimeException e) {
             remove(file, warnings);
             throw e;
-        }
-    }
-
-    private void createFolder(Path folder) throws IOException {
-        Deque<Path> missing = new ArrayDeque<>();
-        for (Path level = folder; level != null && !Files.exists(level);
-            level = level.getParent()) {
-            missing.push(level);
-        }
-        for (Path level : missing) {
-            try {
-                if (posix) {
-                    ops.createDirectory(level,
-                        PosixFilePermissions.asFileAttribute(DIRECTORY_PERMISSIONS));
-                } else {
-                    ops.createDirectory(level);
-                }
-            } catch (FileAlreadyExistsException e) {
-                if (Files.isDirectory(level, LinkOption.NOFOLLOW_LINKS)) {
-                    continue; // created concurrently: accepted as it is
-                }
-                throw e;
-            }
-            if (posix) {
-                Files.setPosixFilePermissions(level, DIRECTORY_PERMISSIONS);
-            }
         }
     }
 
