@@ -54,7 +54,7 @@ decisions go to `specs/021-server-log-download/reviews/implementation.md`.
 
 ## Phase 1: Setup
 
-- [ ] T001 Baseline: `mvn -o -q clean verify` with the tmpdir above and the Python tests are green
+- [X] T001 Baseline: `mvn -o -q clean verify` with the tmpdir above and the Python tests are green
   on the branch (0.9.1 suite); create `specs/021-server-log-download/reviews/implementation.md`
   and note there the test count (surefire + failsafe) and the exact 0.9.1 tool list of
   `MainTest` as the SC-002 reference, plus the owner decisions in force: timeout =
