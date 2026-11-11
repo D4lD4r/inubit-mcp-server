@@ -293,7 +293,7 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   to `TIMEOUT` (T028). Failing tests first in `application/ExcerptPermitTest.java` (a second
   acquirer waits until the first releases; FIFO order; release on exception; a wait longer than
   `wait` → empty, the permit untouched; `Duration.ZERO` with a free permit → held; interrupted
-  wait → empty with the interrupt flag kept)
+  wait → empty with the interrupt flag kept) Callers clamp the remaining time to `Duration.ZERO` before `tryAcquire` (never negative); test `tryAcquire(Duration.ZERO)` takes a free permit and refuses a busy one.
 - [ ] T018 `application/LogExcerptPerformanceTest.java` (D-11, D-13; after T015, T016): a 50 MiB
   synthetic log generated in `@TempDir` (secret-looking lines every 1,000 lines, two configured
   passwords occurring in it) is read by `application/LogWindowReader` and its excerpt built by
@@ -366,7 +366,7 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   `FileWasNotFound` → `NOT_FOUND` "trace.log does not exist on <node>", next step "Check the trace
   settings of the server in the Workbench" — in the trace context only. Failing tests first in
   `adapter/cli/CliOutputClassifierTest.java` (marker in the trace context → `NOT_FOUND`; the same
-  marker in an export context → classification unchanged; existing rules unchanged; leak check)
+  marker in an export context → classification unchanged; existing rules unchanged; leak check) Mechanism: a trace-specific entry point `CliOutputClassifier.classifyTraceDownload(CliResult)` applies the `FileWasNotFound` → `NOT_FOUND` rule and otherwise delegates to `classify(CliResult)`; `CliTraceRunner` (T025) calls only `classifyTraceDownload`; the test asserts that `classify(CliResult)` (export context) still maps the same output as before.
 - [ ] T024 [US1] Reconstructed trace fixtures and catalogue (D-21, D-22):
   `src/test/resources/fixtures/server-log/v8_1/trace/{ok,empty,missing,login_failure,forbidden}.{stdout,stderr,exit,log,origin}`,
   all `.origin` "`reconstructed <source>`" (sources: research "Static facts" for `ok`/`empty`/
@@ -485,7 +485,7 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   → file written, `kind: withheld` + hint naming node and store, no log line in the result; the
   permit held by another call longer than the remaining deadline → `TIMEOUT` naming
   `cliExportTimeout`, no file in the folder, private directory deleted, audit `FAILED`; the
-  `prepare` bound never exceeds the remaining deadline; leak check
+  `prepare` bound never exceeds the remaining deadline; leak check The remaining time after the download is clamped to `Duration.ZERO`; test "deadline already passed after download": `ConfiguredSecrets.prepare(Duration.ZERO)` is called, the permit is still taken if free, and the file is placed.
 - [ ] T029 [US1] `ServerLogService` INFO line and adapter DEBUG lines (FR-015, SC-003, D-18; after
   T028): failing test first in `application/ServerLogLoggingTest.java` (captured logback output),
   then the implementation in `application/ServerLogService.java` (exactly one `INFO` line per call,
@@ -512,7 +512,7 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   unknown properties; annotations; description contains "clear text", "business data and
   credentials", "supported trace download", "unsupported", "undocumented", "without vendor
   support", "any INUBIT update", "never replaced"; a result of every contract variant validates
-  against the output schema; arguments → `ServerLogRequest` with a fake service)
+  against the output schema; arguments → `ServerLogRequest` with a fake service) The output field `excerpt.returnedLines` is `lines.size()`, set during JSON mapping, and is part of the output schema.
 - [ ] T031 [US1] Wiring, announcement and admission of the trace log (FR-002, D-11, D-17; after
   T029, T030): `Wiring.java`: service, `CliServerLogAdapter`, the existing feature-019
   `ProfileSecrets` instance as `ConfiguredSecrets` with its `timeout()` as `prepareBound` (the
@@ -720,7 +720,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   `CLI_UNAVAILABLE`; edge case "maintenance mode, credentials not available, TLS failure":
   `SECRET_UNRESOLVED` and `TLS_ERROR` (nothing launched), `MAINTENANCE_MODE`; after each failure
   no file in the folder, private directory deleted and audit `FAILED` with the code
-- [ ] T045 [P] [US2] `docs/setup.md` (FR-004, US2-5, D-25; after T009, which changes the section 6
+- [ ] T045 [P] [US2] `docs/setup.md` (FR-004, US2-5, D-25; after T009 and T042, which changes the section 6
   examples of the same file): subsection `### Unsupported functions`
   gets the `unsupported.serverLogRead` table row, the YAML example and the FR-004 text
   **verbatim** from contracts/configuration-delta.md "Documentation text", after the
@@ -730,7 +730,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   `config/ServerLogDocsTest.java`: the bold sentences of the FR-004 text are in `docs/setup.md`
   ("uses unsupported INUBIT functionality", "No vendor support, no stability guarantee", "any",
   "Diagnosis only", "Clear-text content", "in clear text", "Read-only on INUBIT", "Cluster
-  nodes"); the YAML example parses with `ConfigLoader`
+  nodes"); the YAML example parses with `ConfigLoader` Also depends on T042 (the summary line format); the example is copied verbatim from the `ConfigSummaryTest` golden text.
 - [ ] T046 [US2] **[OWNER]** **[BLOCKED: T034]** Enable 8.1 webservice in **one commit** (FR-017,
   D-21–D-23): the agent neutralizes the T034 output as in T033 (fictitious SOAP log content of the
   same shape, sizes in the frames adjusted, node name → `node1`, identifier checks green) into
@@ -903,7 +903,7 @@ helper's `variant`.
 - **Phase 2**: T006 and T007 alongside the stage-1 chain T003 → T005; after the checkpoint T008,
   T010, T012, T013, T017, T020 together (then T009, T011, T014, T016, T019).
 - **US1**: T022 ∥ T023; T030 alongside T028–T029; the recording T021 alongside everything else.
-- **US2**: T035 ∥ T036 ∥ T040; after T036: T037 ∥ T039; T045 (after T009) alongside US1 or US2
+- **US2**: T035 ∥ T036 ∥ T040; after T036: T037 ∥ T039; T045 (after T009 and T042) alongside US1 or US2
   work that does not touch `docs/setup.md`; T042 is not parallel (shares `MainTest.java` with T031
   and T033); the spike T034 alongside everything else.
 - **US3**: T049 ∥ T050 (operator) alongside US1/US2 work.

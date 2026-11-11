@@ -288,8 +288,9 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
   MUST reach the client side the way StartCLI gets them (never on a command line, never in tool
   parameters).
 - **FR-013**: Every wait and transfer of a call (a StartCLI concurrency slot, the server's login
-  credentials, the version check, the download, a free slot for building the excerpt) MUST be
-  bounded by the node's `cliExportTimeout`; exceeding it is `TIMEOUT` and no file remains (FR-011).
+  credentials, the download, a free slot for building the excerpt) MUST be
+  bounded by the node's `cliExportTimeout`; the version check before it is bounded by the node's
+  `timeout`, as for every tool (its result is cached); exceeding it is `TIMEOUT` and no file remains (FR-011).
   Credentials read only for masking follow FR-010. The call MUST count against the StartCLI
   concurrency limit of that server. Building the excerpt (bounded by the 50 MiB window, FR-009) and
   moving the downloaded file to its final name are completed even if the deadline passes

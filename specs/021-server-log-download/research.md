@@ -448,6 +448,9 @@ store is inside the deadline (FR-013).
 `cliTimeout` (built-in 30 s), because a log download is a transfer like an export; decided after the
 plan phase and changed in spec FR-013.
 
+
+**Version check**: `VersionGate.admitWithDetection` runs before the call deadline starts and is bounded by the node's REST `timeout`, as for every tool (its result is cached); spec FR-013 states this. The remaining time passed to `ConfiguredSecrets.prepare` and `ExcerptPermit.tryAcquire` is clamped to `Duration.ZERO`.
+
 ## D-16 TLS and credentials (FR-012)
 
 **Decision**: trace uses StartCLI's existing TLS handling unchanged (trust store arguments, the

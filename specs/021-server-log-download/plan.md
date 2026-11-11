@@ -70,7 +70,7 @@ check + one helper JVM (webservice), bounded by `cliExportTimeout`; excerpt of a
   nothing left after an error;
 - FR-010/SC-003: masking on the whole window before selection, line numbers exact; no content or
   `contains` in logs or audit;
-- FR-013: `cliExportTimeout` per call (built-in 120 s) bounds every wait of the call (slot, TLS
+- FR-013: the version check is bounded by the node's `timeout` (cached, as for every tool); `cliExportTimeout` per call (built-in 120 s) bounds every other wait of the call (slot, TLS
   check, process, credential wait, excerpt permit); only the local excerpt build and placement
   after the permit run to their end (bounded, D-15); every `TIMEOUT` names `cliExportTimeout`;
   per-node slot for both channels; other StartCLI runs unchanged;
