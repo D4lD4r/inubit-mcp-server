@@ -278,7 +278,9 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
   result says that it was withheld, names the node and credential source that is not ready, and
   says that every excerpt is withheld until that source can be read. This applies only to
   credentials read for masking; if the addressed server's own login credentials cannot be read,
-  the call fails with `SECRET_UNRESOLVED` or `TIMEOUT` (FR-011).
+  the call fails with the error
+  the other tools of the server report for it (today `AUTH_FAILED` or `UNREACHABLE`), or with
+  `TIMEOUT` (FR-011, FR-013).
 - **FR-011**: Errors MUST use the existing error codes: `INVALID_INPUT` (bad input, folder rules),
   `NOT_FOUND` (log file does not exist on the server), `NOT_CONFIGURED`, `UNSUPPORTED_VERSION`,
   `CLI_UNAVAILABLE`, `AUTH_FAILED`, `FORBIDDEN` (the user lacks the right the Workbench needs),
