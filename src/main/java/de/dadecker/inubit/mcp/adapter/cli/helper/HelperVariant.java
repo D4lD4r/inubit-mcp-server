@@ -1,4 +1,4 @@
-package de.dadecker.inubit.mcp.adapter.cli.queue;
+package de.dadecker.inubit.mcp.adapter.cli.helper;
 
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.MajorMinor;
@@ -7,10 +7,11 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import java.util.Objects;
 
 /**
- * The code path of the queue-entry helper per INUBIT version (feature 020, research D-4, D-6):
- * the SOAP client of 8.1 or the REST client of 9.0. The name is the request's {@code variant}.
+ * The code path of the client helper per INUBIT version (feature 020, research D-4, D-6; moved
+ * and renamed from {@code QueueEntryVariant} in feature 021, D-3): the SOAP client of 8.1 or the
+ * REST client of 9.0. The name is the request's {@code variant}.
  */
-public enum QueueEntryVariant {
+public enum HelperVariant {
 
     /** INUBIT 8.1: the SOAP client of the client installation. */
     SOAP_81,
@@ -26,7 +27,7 @@ public enum QueueEntryVariant {
      * @throws ToolErrorException {@code UNSUPPORTED_VERSION} (without node) for any version but
      *     8.1 and 9.0
      */
-    public static QueueEntryVariant forVersion(MajorMinor version) {
+    public static HelperVariant forVersion(MajorMinor version) {
         Objects.requireNonNull(version, "version");
         if (version.equals(V81)) {
             return SOAP_81;

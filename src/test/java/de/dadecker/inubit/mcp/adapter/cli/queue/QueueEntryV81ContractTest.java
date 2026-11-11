@@ -17,6 +17,7 @@ import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher.Answer;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.rest.v81.QueueEntryRowFixtures;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.QueueEntryService;

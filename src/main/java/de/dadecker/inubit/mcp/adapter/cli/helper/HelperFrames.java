@@ -1,4 +1,4 @@
-package de.dadecker.inubit.mcp.adapter.cli.queue;
+package de.dadecker.inubit.mcp.adapter.cli.helper;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;

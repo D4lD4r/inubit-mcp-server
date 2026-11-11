@@ -21,7 +21,7 @@ import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
-import de.dadecker.inubit.mcp.adapter.cli.queue.HelperInstallation;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;

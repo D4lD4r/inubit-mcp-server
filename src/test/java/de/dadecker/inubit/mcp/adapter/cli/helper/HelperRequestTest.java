@@ -1,4 +1,4 @@
-package de.dadecker.inubit.mcp.adapter.cli.queue;
+package de.dadecker.inubit.mcp.adapter.cli.helper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -39,10 +39,11 @@ import org.junit.jupiter.params.provider.MethodSource;
  * The stdin request of the queue-entry helper (research D-4, data-model "Helper request"): its
  * encoding, its validation and its {@code toString}, and a round trip through the helper itself
  * (loaded as in {@link ClientHelperTest}), so the server writes exactly what the helper
- * accepts.
+ * accepts. Public because {@code QueueEntryHelperClassifierTest} (another package since feature
+ * 021, D-3) builds its requests with {@link #request}.
  */
 @Timeout(60)
-class HelperRequestTest {
+public class HelperRequestTest {
 
     private static final String NONCE = "0123456789abcdef0123456789abcdef";
     private static final URI URL_81 =
@@ -320,22 +321,22 @@ class HelperRequestTest {
     // --- helpers ---------------------------------------------------------------------------
 
     /** The fields of a request; {@link #request} builds a valid 8.1 one, changed by an edit. */
-    static final class Builder {
-        String nonce = NONCE;
-        String variant = "SOAP_81";
-        URI url = URL_81;
-        Optional<HelperRequest.TrustStore> trustStore = Optional.of(
+    public static final class Builder {
+        public String nonce = NONCE;
+        public String variant = "SOAP_81";
+        public URI url = URL_81;
+        public Optional<HelperRequest.TrustStore> trustStore = Optional.of(
             new HelperRequest.TrustStore(TRUST_STORE, Secret.of(TestSecrets.TRUST_STORE_PASSWORD)));
-        boolean hostnameVerification = true;
-        String objectType = OBJECT_TYPE;
-        String fileName = FILE;
-        Optional<Path> dataOut = Optional.of(DATA_OUT);
-        Path variablesOut = VARIABLES_OUT;
-        String user = USER;
-        Secret password = Secret.of(TestSecrets.CONFIGURED_PASSWORD);
+        public boolean hostnameVerification = true;
+        public String objectType = OBJECT_TYPE;
+        public String fileName = FILE;
+        public Optional<Path> dataOut = Optional.of(DATA_OUT);
+        public Path variablesOut = VARIABLES_OUT;
+        public String user = USER;
+        public Secret password = Secret.of(TestSecrets.CONFIGURED_PASSWORD);
     }
 
-    static HelperRequest request(Consumer<Builder> edit) {
+    public static HelperRequest request(Consumer<Builder> edit) {
         Builder r = new Builder();
         edit.accept(r);
         return new HelperRequest(r.nonce, r.variant, r.url, r.trustStore, r.hostnameVerification,

@@ -88,7 +88,7 @@ decisions go to `specs/021-server-log-download/reviews/implementation.md`.
   `META-INF/inubit-mcp/client-helper/de/dadecker/inubit/mcp/helper/ClientHelper.class`, major
   version 61, and no `META-INF/inubit-mcp/queue-entry-helper/` entry. Done when every 020 test is
   green and `git diff --stat src/test/resources/fixtures/queue-entry` is empty
-- [ ] T004 Move the shared helper adapter classes (D-3; after T003): new package
+- [X] T004 Move the shared helper adapter classes (D-3; after T003): new package
   `adapter/cli/helper/` (`package-info.java`) receives `HelperInstallation.java`,
   `HelperTrustStore.java`, `HelperRequest.java`, `HelperFrames.java` and
   `QueueEntryVariant.java` renamed `HelperVariant.java` (`SOAP_81`, `REST_90`, `forVersion`);

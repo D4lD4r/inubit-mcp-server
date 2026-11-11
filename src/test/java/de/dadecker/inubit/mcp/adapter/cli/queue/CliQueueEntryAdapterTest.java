@@ -20,6 +20,8 @@ import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher.Answer;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperTrustStore;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.adapter.rest.TlsTestServer;
 import de.dadecker.inubit.mcp.config.CredentialNames;

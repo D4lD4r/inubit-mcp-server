@@ -6,6 +6,10 @@ import de.dadecker.inubit.mcp.adapter.cli.CliResult;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.TlsPeer;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperRequest;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperTrustStore;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperVariant;
 import de.dadecker.inubit.mcp.adapter.cli.queue.QueueEntryHelperClassifier.Failure;
 import de.dadecker.inubit.mcp.adapter.cli.queue.QueueEntryHelperClassifier.Login;
 import de.dadecker.inubit.mcp.adapter.cli.queue.QueueEntryHelperClassifier.Outcome;
@@ -149,9 +153,9 @@ public final class CliQueueEntryAdapter implements QueueEntryContentPort {
             throw new IllegalArgumentException("No part requested");
         }
         MajorMinor release = MajorMinor.of(version);
-        QueueEntryVariant variant;
+        HelperVariant variant;
         try {
-            variant = QueueEntryVariant.forVersion(release);
+            variant = HelperVariant.forVersion(release);
         } catch (ToolErrorException e) {
             throw located(e);
         }

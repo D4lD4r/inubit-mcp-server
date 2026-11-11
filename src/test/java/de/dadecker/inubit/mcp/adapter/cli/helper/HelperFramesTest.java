@@ -1,16 +1,16 @@
-package de.dadecker.inubit.mcp.adapter.cli.queue;
+package de.dadecker.inubit.mcp.adapter.cli.helper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import de.dadecker.inubit.mcp.adapter.cli.queue.HelperFrames.ApiMissing;
-import de.dadecker.inubit.mcp.adapter.cli.queue.HelperFrames.End;
-import de.dadecker.inubit.mcp.adapter.cli.queue.HelperFrames.LoginError;
-import de.dadecker.inubit.mcp.adapter.cli.queue.HelperFrames.LoginOk;
-import de.dadecker.inubit.mcp.adapter.cli.queue.HelperFrames.Part;
-import de.dadecker.inubit.mcp.adapter.cli.queue.HelperFrames.PartError;
-import de.dadecker.inubit.mcp.adapter.cli.queue.HelperFrames.PartOk;
-import de.dadecker.inubit.mcp.adapter.cli.queue.HelperFrames.Problem;
-import de.dadecker.inubit.mcp.adapter.cli.queue.HelperFrames.Start;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.ApiMissing;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.End;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.LoginError;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.LoginOk;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Part;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.PartError;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.PartOk;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Problem;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Start;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.util.List;
 import java.util.stream.Stream;

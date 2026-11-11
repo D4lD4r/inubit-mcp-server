@@ -1,9 +1,9 @@
-package de.dadecker.inubit.mcp.adapter.cli.queue;
+package de.dadecker.inubit.mcp.adapter.cli.helper;
 
-import static de.dadecker.inubit.mcp.adapter.cli.queue.ClientHelperTest.call;
-import static de.dadecker.inubit.mcp.adapter.cli.queue.ClientHelperTest.encode;
-import static de.dadecker.inubit.mcp.adapter.cli.queue.ClientHelperTest.outputs;
-import static de.dadecker.inubit.mcp.adapter.cli.queue.ClientHelperTest.request;
+import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.call;
+import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.encode;
+import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.outputs;
+import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.request;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;

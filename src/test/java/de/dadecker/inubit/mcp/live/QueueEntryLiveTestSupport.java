@@ -3,7 +3,7 @@ package de.dadecker.inubit.mcp.live;
 import static org.assertj.core.api.Assertions.fail;
 
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
-import de.dadecker.inubit.mcp.adapter.cli.queue.HelperInstallation;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.queue.WfspParser;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRow;

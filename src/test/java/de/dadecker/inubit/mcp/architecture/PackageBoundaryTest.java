@@ -252,6 +252,28 @@ class PackageBoundaryTest {
     }
 
     /**
+     * Feature 021 (D-3): the adapter code shared by both helper operations lives in
+     * {@code adapter.cli.helper}; the queue-entry read ({@code adapter.cli.queue}) and the log
+     * download ({@code adapter.cli.log}) reach it but not each other, and it reaches neither.
+     */
+    @Test
+    void theHelperOperationsShareOnlyTheHelperPackage() {
+        String queue = BASE + "adapter/cli/queue/";
+        String log = BASE + "adapter/cli/log/";
+        String helper = BASE + "adapter/cli/helper/";
+        assertThat(Path.of("src", "main", "java", helper, "package-info.java"))
+            .as("package-info of adapter.cli.helper").isRegularFile();
+        assertThat(types(queue + "CliQueueEntryAdapter")).as("scan sees the shared package")
+            .contains(helper + "HelperInstallation");
+        assertThat(violations(inPackage("adapter/cli/queue"), forbidden(log)))
+            .as("adapter.cli.queue → adapter.cli.log").isEmpty();
+        assertThat(violations(inPackage("adapter/cli/log"), forbidden(queue)))
+            .as("adapter.cli.log → adapter.cli.queue").isEmpty();
+        assertThat(violations(inPackage("adapter/cli/helper"), forbidden(queue, log)))
+            .as("adapter.cli.helper → adapter.cli.queue / adapter.cli.log").isEmpty();
+    }
+
+    /**
      * The packages of the workspace adapters, the SOAP adapter, the AWS adapter and the credential
      * store adapters exist and are documented. A {@code package-info} without annotations compiles
      * to no class file, so the sources are checked.
