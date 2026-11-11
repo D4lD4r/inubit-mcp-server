@@ -54,7 +54,7 @@ refactor, D-3). Every new output field is additive.
 | Type | Change | Responsibility |
 |---|---|---|
 | `adapter/cli/CliCommand` | changed | command `trace`, option `--download` (path only); `traceDownload(Path, boolean windows)`; `build()` refuses `trace` without `--download` | FR-005 |
-| `adapter/cli/CliTraceRunner` | new | precondition check, reservation + private dir (`LOG_PREFIX`), `CliRunner.run(…, traceDownload(dir/trace.log), remaining, "cliTimeout", guard)`, classification, `Trace data (` check, file check → `DownloadedLog` | D-1 |
+| `adapter/cli/CliTraceRunner` | new | precondition check, reservation + private dir (`LOG_PREFIX`), `CliRunner.run(…, traceDownload(dir/trace.log), remaining, "cliExportTimeout", guard)`, classification, `Trace data (` check, file check → `DownloadedLog` | D-1 |
 | `adapter/cli/CliOutputClassifier` | changed | `+` marker rule `FileWasNotFound` → `NOT_FOUND` (trace context only) | D-8 |
 | `adapter/cli/CliResources` | changed | `+ LOG_PREFIX = "inubit-mcp-log-"`, `logPrefix()`; stale sweep includes it | D-7 |
 | `adapter/cli/CliConcurrencyLimiter` | changed | javadoc: `acquireForHelper` also serves log downloads (behaviour unchanged) | D-15 |
@@ -67,7 +67,7 @@ refactor, D-3). Every new output field is additive.
 | `adapter/cli/queue/QueueEntryHelperClassifier` | changed | delegates the shared part to `HelperFailures`; queue-specific part unchanged | — |
 | `adapter/cli/log/WebServiceLogClassifier` | new | `node …` and `part log …` frames → outcome or `ToolErrorException` (D-14) | — |
 | `adapter/cli/log/CliWebServiceLogAdapter` | new | variant, selection, `checkLaunch`, TLS check + trust store, private dir, helper run via `ProcessRun`, classification → `DownloadedLog` | D-2, D-16 |
-| `adapter/cli/log/CliServerLogAdapter` | new | `implements ServerLogPort`; deadline (`cliTimeout`) and slot (`acquireForHelper`) for both kinds; dispatches to `CliTraceRunner` / `CliWebServiceLogAdapter` | D-15 |
+| `adapter/cli/log/CliServerLogAdapter` | new | `implements ServerLogPort`; deadline (`cliExportTimeout`) and slot (`acquireForHelper`) for both kinds; dispatches to `CliTraceRunner` / `CliWebServiceLogAdapter` | D-15 |
 | `PortSet`, `V81PortSet`, `V81Gateway`, `AdapterGatewayFactory`, `StaleReportingPorts`, `RefusingPorts` | changed | `+ ServerLogPort` (compatibility constructor; 6.1 refusing) | 020 D-17 pattern |
 
 ## Helper (`src/helper/java`)

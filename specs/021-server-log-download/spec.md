@@ -175,7 +175,7 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
 
 - **Group id as target**: rejected by the input schema; a log belongs to one server.
 - **Very large log**: the download is not size-limited by the tool; it is bounded by the node's
-  `cliTimeout` (then `TIMEOUT`, and no file is left behind). The excerpt is always bounded (FR-009).
+  `cliExportTimeout` (then `TIMEOUT`, and no file is left behind). The excerpt is always bounded (FR-009).
 - **Empty log** (size 0): the file is written, the result says the log is empty, no excerpt.
 - **Missing versus empty**: where INUBIT answers a missing file differently from an empty one,
   a missing file is `NOT_FOUND`; where the interface cannot tell them apart, the answer is treated
@@ -275,7 +275,7 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
 - **FR-012**: Connections MUST verify TLS like the server's other StartCLI connections; credentials
   MUST reach the client side the way StartCLI gets them (never on a command line, never in tool
   parameters).
-- **FR-013**: Each call MUST be bounded by the node's `cliTimeout` and count against the StartCLI
+- **FR-013**: Each call MUST be bounded by the node's `cliExportTimeout` and count against the StartCLI
   concurrency limit of that server.
 - **FR-014**: The tool MUST be annotated as not read-only for the local machine
   (`readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`,

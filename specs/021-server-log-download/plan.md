@@ -18,7 +18,7 @@ local folder and returns a masked, bounded excerpt with absolute line numbers:
   for groups with `unsupported.serverLogRead` (D-17).
 - Stage 1 is a behaviour-preserving refactor: the helper becomes `ClientHelper` and the shared
   helper adapter classes move to `adapter/cli/helper`; wire ids and 020 fixtures stay (D-3).
-- Both channels download into a private temporary directory under one `cliTimeout` deadline and a
+- Both channels download into a private temporary directory under one `cliExportTimeout` deadline and a
   per-node StartCLI slot (D-7, D-15); the excerpt is built from the private copy (window = last 50
   MiB from the first whole line, 020 binary rule, line-preserving masking of the whole window
   incl. known credentials, selection, oldest-first dropping, D-9 … D-13); then `LogFileWriter`
@@ -58,7 +58,7 @@ records in the existing audit log.
 **Project Type**: single Maven module, shaded JAR; the helper's compiler execution is renamed.
 
 **Performance Goals**: one call = version check (cached) + one StartCLI run (trace) or one TLS
-check + one helper JVM (webservice), bounded by `cliTimeout`; excerpt of a 50 MiB window within
+check + one helper JVM (webservice), bounded by `cliExportTimeout`; excerpt of a 50 MiB window within
 20 s on CI (linear masker); line counting of a larger prefix streams at disk speed.
 
 **Constraints**:
@@ -68,7 +68,7 @@ check + one helper JVM (webservice), bounded by `cliTimeout`; excerpt of a 50 Mi
   nothing left after an error;
 - FR-010/SC-003: masking on the whole window before selection, line numbers exact; no content or
   `contains` in logs or audit;
-- FR-013: `cliTimeout` per call (built-in 30 s, owner question 1), per-node slot for both
+- FR-013: `cliExportTimeout` per call (built-in 120 s), per-node slot for both
   channels; other StartCLI runs unchanged;
 - memory: one excerpt at a time, ≈ 250 MiB peak (D-13); the INUBIT server itself reads
   `trace.log` fully into its heap (vendor behaviour, documented);
@@ -111,9 +111,8 @@ Tracking).
 
 ### Open questions for the owner (do not block the plan; defaults chosen)
 
-1. **Timeout setting** (FR-013): the spec bounds a download by `cliTimeout` (built-in 30 s). Large
-   logs may need longer; `cliExportTimeout` (120 s) fits downloads better. Default: follow the
-   spec (`cliTimeout`, docs advise raising it); switching needs a spec change.
+1. **Timeout setting** (FR-013): decided — `cliExportTimeout` (built-in 120 s) instead of
+   `cliTimeout` (30 s), since a log download is a transfer like an export; spec FR-013 changed.
 2. **SC-002 reading**: `trace_log_read` needs no opt-in, so `list_nodes` lists it for every node
    with a client and the 6.1 `cliOnly` summary lists it as refused (additive, like
    `partner_management` in 018; golden texts with capability lists change by one name). Default:

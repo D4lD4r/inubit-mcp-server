@@ -354,7 +354,7 @@ absolute line numbers exact without a second mapping.
 ## D-13 Memory and time bounds of the excerpt
 
 **Decision**: one excerpt is built at a time per MCP server process (`application/ExcerptPermit`,
-a fair semaphore with one permit; the wait is local and short and not bounded by `cliTimeout`).
+a fair semaphore with one permit; the wait is local and short and not bounded by `cliExportTimeout`).
 Peak memory of one excerpt ≈ 50 MiB window bytes + decoded window + masked window (Latin-1 text 1
 byte/char, other text 2 bytes/char) ≈ 250 MiB worst case; the window bytes are released before
 masking. A 50 MiB synthetic log must build its excerpt within 20 s on the CI machine
@@ -378,7 +378,7 @@ the StartCLI slots bound calls per node only.
 | no client home, no `ibis.jar`/JDK, launch failure, temp root not passable, vendor API missing | `CLI_UNAVAILABLE` |
 | trace: classifier as for every StartCLI run (`LoginFailure` → `AUTH_FAILED`, TLS, network, `MAINTENANCE_MODE`, 403 texts → `FORBIDDEN`); new rule `FileWasNotFound` → `NOT_FOUND`; success without the `Trace data (` message or without the file → `UNEXPECTED_RESPONSE` | as named |
 | webservice: `HelperFailures` (020 D-5) for launch, timeout, login, TLS, network, 403, API missing, protocol problems; `node error` with an access-denied text or HTTP 403 → `FORBIDDEN` "… needs the right the Workbench's Cluster Manager needs (`Configuration`)"; `part log error` with `not found on` → `NOT_FOUND`; `Server not in cluster mode.` or any other `node`/`part` error → `UNEXPECTED_RESPONSE` "the unsupported INUBIT interface may have changed" (scrubbed excerpt ≤ 200 chars) | as named |
-| `cliTimeout` exceeded (slot wait, TLS check, process) | `TIMEOUT` (no file, process tree killed) |
+| `cliExportTimeout` exceeded (slot wait, TLS check, process) | `TIMEOUT` (no file, process tree killed) |
 | credentials not resolvable | the node's usual credential code (`SECRET_UNRESOLVED`, `AUTH_FAILED`, …) |
 | audit `PENDING` record not writable; helper resource missing | `INTERNAL` |
 
@@ -387,18 +387,18 @@ without a recording (trace missing file, 403 texts) are fixtures marked `reconst
 
 ## D-15 Timeout and concurrency (FR-013)
 
-**Decision**: one deadline per call = start of the download phase + node `cliTimeout`, shared by
+**Decision**: one deadline per call = start of the download phase + node `cliExportTimeout`, shared by
 the slot wait, the TLS check (helper only, `min(server.timeout(), remaining)`) and the process
 (`remaining`). Both channels take a slot of the per-node fair semaphore
 (`CliConcurrencyLimiter.acquireForHelper`, `adapter/cli/CliConcurrencyLimiter.java:60`, 2
 permits, documented as "helper and log downloads"); other StartCLI runs on 8.1/9.0 stay without a
-slot (existing tools unchanged). `TIMEOUT` names `cliTimeout` in its next step and adds "large
-logs need a larger cliTimeout". The excerpt and the placement are local and not part of the
+slot (existing tools unchanged). `TIMEOUT` names `cliExportTimeout` in its next step and adds "large
+logs need a larger cliExportTimeout". The excerpt and the placement are local and not part of the
 deadline.
 
-**Note**: the built-in `cliTimeout` is 30 s (`config/Defaults.java:38`); a large log may need more.
-The spec fixes `cliTimeout`; `cliExportTimeout` (120 s) would be the alternative (owner question
-in plan.md).
+**Note**: `cliExportTimeout` (built-in 120 s, the budget of the StartCLI exports) is used instead of
+`cliTimeout` (built-in 30 s), because a log download is a transfer like an export; decided after the
+plan phase and changed in spec FR-013.
 
 ## D-16 TLS and credentials (FR-012)
 
