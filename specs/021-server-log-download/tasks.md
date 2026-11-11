@@ -172,7 +172,7 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   service name without an opt-in; a 6.1 group with `serverLogRead: true` lists "downloading the
   web service log" as refused); update the `docs/setup.md` section 6 summary examples to the new
   golden texts (configuration-delta "Capability lists")
-- [ ] T010 [P] Domain types (data-model "Domain"; D-19): `domain/model/ServerLogKind.java`
+- [X] T010 [P] Domain types (data-model "Domain"; D-19): `domain/model/ServerLogKind.java`
   (`TRACE("trace", "trace.log")`, `WEBSERVICE("webservice", "webservice.log")`; `wireName` = tool
   input, `fileName` "used only for messages and the helper constant check"; `fromWire` rejects
   anything else), `LogPresence.java` (`PRESENT`, `UNKNOWN`; "`UNKNOWN` only for a 0-byte answer
