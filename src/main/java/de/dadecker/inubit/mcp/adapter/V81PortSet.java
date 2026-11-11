@@ -39,12 +39,13 @@ final class V81PortSet {
             node.scrubber());
         return new PortSet(ports.processes(), ports.logs(), ports.inventory(),
             ports.processControl(), ports.artifacts(), ports.imports(), ports.tags(),
-            ports.partners(), queueEntries);
+            ports.partners(), queueEntries, ports.serverLogs());
     }
 
     /**
-     * Without queue-entry helper: queue-entry content is refused as by {@link RefusingPorts}
-     * ({@link PortSet}'s compatibility constructor).
+     * Without queue-entry helper: queue-entry content is refused as by {@link RefusingPorts}, a
+     * server log download fails with {@code CLI_UNAVAILABLE} ({@link PortSet}'s compatibility
+     * constructors).
      */
     static PortSet create(PortSetRegistry.NodeResources node) {
         V81InventoryAdapter inventory = new V81InventoryAdapter(node.server().id(), node.client(),

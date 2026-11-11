@@ -15,11 +15,13 @@ import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
 import de.dadecker.inubit.mcp.domain.model.RawEntryContent;
+import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
+import de.dadecker.inubit.mcp.domain.port.DownloadedLog;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
@@ -27,6 +29,7 @@ import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
+import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import java.time.Duration;
 import java.time.Instant;
@@ -42,7 +45,7 @@ import java.util.Set;
  */
 public final class RefusingPorts implements ProcessQueryPort, LogPort, InventoryPort,
     ProcessControlPort, ArtifactPort, ImportPort, TagPort, PartnerManagementPort,
-    QueueEntryContentPort {
+    QueueEntryContentPort, ServerLogPort {
 
     private final NodeId node;
 
@@ -180,6 +183,11 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
 
     @Override
     public RawEntryContent read(QueueEntryRef ref, InubitVersion version, Set<EntryPart> parts) {
+        throw refusal();
+    }
+
+    @Override
+    public DownloadedLog download(ServerLogKind kind, InubitVersion version, long deadlineNanos) {
         throw refusal();
     }
 }

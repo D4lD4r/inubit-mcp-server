@@ -189,7 +189,7 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   in T015). Failing tests first in `domain/model/ServerLogKindTest.java`,
   `domain/model/LogWindowTest.java`, `domain/model/TruncationTest.java`,
   `domain/model/ExcerptLineTest.java` (invariants above rejected with `IllegalArgumentException`)
-- [ ] T011 Port plumbing (D-19, 020 D-17 pattern; after T010): `domain/port/ServerLogPort.java`
+- [X] T011 Port plumbing (D-19, 020 D-17 pattern; after T010): `domain/port/ServerLogPort.java`
   (`DownloadedLog download(ServerLogKind kind, InubitVersion version, long deadlineNanos)`;
   "`deadlineNanos` is the call deadline as a `System.nanoTime()` value set by the service (D-15);
   whole-call failures as `ToolErrorException`; no file outside the private directory"), `domain/port/DownloadedLog.java`
@@ -390,7 +390,7 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   requested path (the path in the message is never used or returned); otherwise
   `UNEXPECTED_RESPONSE` "download_server_log got an unexpected answer from <node>; … StartCLI did
   not confirm the trace download", next step "Download the log in the Workbench; report the INUBIT
-  version"; returns `DownloadedLog(path, size, Optional.empty(), PRESENT)` whose `close()` deletes
+  version"; returns `DownloadedLog(path, size, Optional.empty(), PRESENT, cleanup)` whose `close()` deletes
   the directory (also on failure, timeout, interruption, shutdown). Failing tests first in
   `adapter/cli/CliTraceRunnerTest.java` (`ScriptedProcessLauncher` / `FakeProcessLauncher.onLaunch`
   writes `<case>.log` to the `--download` path and prints `<case>.stdout`): argv array and the

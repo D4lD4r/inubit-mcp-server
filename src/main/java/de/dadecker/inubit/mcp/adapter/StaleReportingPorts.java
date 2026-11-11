@@ -15,11 +15,13 @@ import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
 import de.dadecker.inubit.mcp.domain.model.RawEntryContent;
+import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
+import de.dadecker.inubit.mcp.domain.port.DownloadedLog;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
@@ -28,6 +30,7 @@ import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
+import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import java.time.Duration;
@@ -66,7 +69,8 @@ final class StaleReportingPorts {
             new Inventory(ports.inventory()), new ProcessControl(ports.processControl()),
             new Artifacts(ports.artifacts()), new Imports(ports.imports()),
             new Tags(ports.tags()), new Partners(ports.partners()),
-            new QueueEntryContent(ports.queueEntryContent()));
+            new QueueEntryContent(ports.queueEntryContent()),
+            new ServerLogs(ports.serverLogs()));
     }
 
     private <T> T call(Supplier<T> call) {
@@ -345,6 +349,20 @@ final class StaleReportingPorts {
         public RawEntryContent read(QueueEntryRef ref, InubitVersion version,
             Set<EntryPart> parts) {
             return call(() -> delegate.read(ref, version, parts));
+        }
+    }
+
+    final class ServerLogs implements ServerLogPort {
+        private final ServerLogPort delegate;
+
+        ServerLogs(ServerLogPort delegate) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public DownloadedLog download(ServerLogKind kind, InubitVersion version,
+            long deadlineNanos) {
+            return call(() -> delegate.download(kind, version, deadlineNanos));
         }
     }
 }

@@ -48,6 +48,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeAccess;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
+import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
@@ -61,6 +62,7 @@ import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
+import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -505,6 +507,26 @@ class AdapterGatewayFactoryTest {
                 .isInstanceOf(StaleReportingPorts.Partners.class);
             assertThat(wireMock.getAllServeEvents()).isEmpty();
         }
+    }
+
+    @Test
+    void withoutAConfiguredServerLogAdapterADownloadFailsWithCliUnavailable()
+        throws NoSuchMethodException {
+        // feature 021 T011 (research D-19): the 8.1 gateway hands out the port set's server-log
+        // port behind the stale-reporting decorator; no 8.1 adapter is configured yet
+        assertThat(V81Gateway.class.getDeclaredMethod("serverLogs").getDeclaringClass())
+            .isEqualTo(V81Gateway.class);
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
+            ServerLogPort port = factory.serverLogs(DEV);
+            assertThat(port).isInstanceOf(StaleReportingPorts.ServerLogs.class)
+                .isSameAs(factory.forServer(DEV).serverLogs());
+
+            assertThat(codeOf(() -> port.download(ServerLogKind.TRACE,
+                InubitVersion.parse("8.1.17").orElseThrow(), System.nanoTime())))
+                .isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+            assertThat(wireMock.getAllServeEvents()).isEmpty();
+        }
+        assertThat(versions.events()).as("no stale mark").isEmpty();
     }
 
     @Test
@@ -1734,6 +1756,23 @@ class AdapterGatewayFactoryTest {
         assertThat(helperLauncher.launchCount()).isZero();
         assertNothingLeftBelow(tempRoot);
         assertThat(authenticatedCalls()).as("the one failed login only").isEqualTo(1);
+    }
+
+    @Test
+    void aSixOneNodeRefusesServerLogsWithoutContact() {
+        // feature 021 T011 (research D-19): the 6.1 port set refuses as RefusingPorts
+        EffectiveNodeConfig node = withoutUsableClient(VersionSetting.V6_1);
+        try (AdapterGatewayFactory factory = factory(WITH_V61, nodeVersions(node), node)) {
+            ServerLogPort port = factory.serverLogs(DEV);
+            assertThat(port).isInstanceOf(StaleReportingPorts.ServerLogs.class);
+
+            assertThatThrownBy(() -> port.download(ServerLogKind.TRACE,
+                InubitVersion.parse("6.1.0").orElseThrow(), System.nanoTime()))
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error()).isEqualTo(new RefusingPorts(DEV).refusal().error()));
+        }
+        assertThat(versions.events()).isEmpty();
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
     }
 
     @Test
