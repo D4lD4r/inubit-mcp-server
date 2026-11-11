@@ -43,7 +43,7 @@ import java.util.Set;
  * Workbench's "View file", FR-007); 8.1 logs out at the end. Client methods are looked up on
  * {@code I_IBISClientInterface}, because the 9.0 client is a private class.
  */
-public final class QueueEntryHelper {
+public final class ClientHelper {
 
     static final int EXIT_OK = 0;
     static final int EXIT_FAILED = 1;
@@ -71,7 +71,7 @@ public final class QueueEntryHelper {
     private static final String MASK = "******";
     private static final String EMPTY_TOKEN = "-";
 
-    private QueueEntryHelper() {
+    private ClientHelper() {
     }
 
     public static void main(String[] args) {

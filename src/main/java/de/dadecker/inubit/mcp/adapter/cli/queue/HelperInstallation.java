@@ -36,9 +36,9 @@ import java.util.Optional;
 public final class HelperInstallation implements AutoCloseable {
 
     /** The helper's main class. */
-    public static final String MAIN_CLASS = "de.dadecker.inubit.mcp.helper.QueueEntryHelper";
-    static final String CLASS_FILE = "de/dadecker/inubit/mcp/helper/QueueEntryHelper.class";
-    static final String RESOURCE = "META-INF/inubit-mcp/queue-entry-helper/" + CLASS_FILE;
+    public static final String MAIN_CLASS = "de.dadecker.inubit.mcp.helper.ClientHelper";
+    static final String CLASS_FILE = "de/dadecker/inubit/mcp/helper/ClientHelper.class";
+    static final String RESOURCE = "META-INF/inubit-mcp/client-helper/" + CLASS_FILE;
     /** The {@code --add-opens} of {@code bin/startcli.sh} of 8.1.17 and 9.0.10 (research D-3). */
     static final List<String> ADD_OPENS = List.of(
         "java.xml/com.sun.org.apache.xerces.internal.dom", "java.base/java.lang",

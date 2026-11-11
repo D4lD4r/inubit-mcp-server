@@ -73,7 +73,7 @@ decisions go to `specs/021-server-log-download/reviews/implementation.md`.
 
 ### Stage 1: behaviour-preserving refactor (D-3, D-7)
 
-- [ ] T003 Rename the helper (D-3): `pom.xml` execution `compile-queue-entry-helper` →
+- [X] T003 Rename the helper (D-3): `pom.xml` execution `compile-queue-entry-helper` →
   `compile-client-helper`, `outputDirectory`
   `${project.build.outputDirectory}/META-INF/inubit-mcp/client-helper` (`<release>17</release>`
   unchanged); `git mv src/helper/java/de/dadecker/inubit/mcp/helper/QueueEntryHelper.java

@@ -49,7 +49,7 @@ import org.junit.jupiter.api.io.TempDir;
  * private directory {@code inubit-mcp-queue-<profile>-<pid>-<random>} with {@code helper/},
  * {@code vendor/} and {@code out/}, the exact argument array on POSIX and on a simulated Windows
  * host, and each precondition, refused with nothing created. The launch with this argument array
- * in a real child JVM is {@link QueueEntryHelperProcessTest}.
+ * in a real child JVM is {@link ClientHelperProcessTest}.
  */
 class HelperInstallationTest {
 
@@ -116,7 +116,7 @@ class HelperInstallationTest {
             expected.addAll(ADD_OPENS);
             expected.addAll(List.of("-cp",
                 directory + "/helper:" + home + "/lib/*:" + home + "/lib/shared/*",
-                QueueEntryHelperPackagingTest.HELPER_CLASS));
+                ClientHelperPackagingTest.HELPER_CLASS));
             assertThat(spec.command()).containsExactlyElementsOf(expected);
             assertThat(spec.environment())
                 .isEqualTo(StartCliEnvironment.posix(PARENT, jdk.toString()));
@@ -147,7 +147,7 @@ class HelperInstallationTest {
             expected.addAll(List.of("-cp",
                 directory.resolve("helper") + ";" + home.resolve("lib") + separator + "*;"
                     + home.resolve("lib").resolve("shared") + separator + "*",
-                QueueEntryHelperPackagingTest.HELPER_CLASS));
+                ClientHelperPackagingTest.HELPER_CLASS));
             assertThat(spec.command()).containsExactlyElementsOf(expected);
             assertThat(spec.environment()).isEqualTo(StartCliEnvironment.windows(PARENT,
                 jdk.toString(), TestCliRunners.SYSTEM_DIRECTORY));
@@ -396,10 +396,10 @@ class HelperInstallationTest {
         assertThat(installation.trustStoreFile()).isEqualTo(directory.resolve("trust.p12"))
             .doesNotExist();
         try (InputStream packaged = getClass().getClassLoader().getResourceAsStream(
-            QueueEntryHelperPackagingTest.RESOURCE_DIRECTORY
-                + QueueEntryHelperPackagingTest.HELPER_FILE)) {
+            ClientHelperPackagingTest.RESOURCE_DIRECTORY
+                + ClientHelperPackagingTest.HELPER_FILE)) {
             assertThat(directory.resolve("helper")
-                .resolve(QueueEntryHelperPackagingTest.HELPER_FILE))
+                .resolve(ClientHelperPackagingTest.HELPER_FILE))
                 .hasBinaryContent(packaged.readAllBytes());
         }
     }

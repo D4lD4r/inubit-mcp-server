@@ -14,15 +14,18 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 /**
- * Feature 020 (research D-2): the queue-entry helper is compiled by its own compiler execution
- * ({@code compile-queue-entry-helper}, release 17) into a resource directory of the compiled
- * classes: exactly one class file, Java 17 bytecode, not loadable as a class of the server.
- * {@link QueueEntryHelperPackagingIT} checks the same inside the shaded JAR.
+ * Feature 020 (research D-2), renamed in feature 021 (D-3): the client helper is compiled by its
+ * own compiler execution ({@code compile-client-helper}, release 17) into a resource directory of
+ * the compiled classes: exactly one class file, Java 17 bytecode, not loadable as a class of the
+ * server; the 020 directory {@code queue-entry-helper/} is gone. {@link ClientHelperPackagingIT}
+ * checks the same inside the shaded JAR.
  */
-class QueueEntryHelperPackagingTest {
+class ClientHelperPackagingTest {
 
-    static final String RESOURCE_DIRECTORY = "META-INF/inubit-mcp/queue-entry-helper/";
-    static final String HELPER_CLASS = "de.dadecker.inubit.mcp.helper.QueueEntryHelper";
+    static final String RESOURCE_DIRECTORY = "META-INF/inubit-mcp/client-helper/";
+    /** The resource directory of feature 020, which the rename removed. */
+    static final String OLD_RESOURCE_DIRECTORY = "META-INF/inubit-mcp/queue-entry-helper/";
+    static final String HELPER_CLASS = "de.dadecker.inubit.mcp.helper.ClientHelper";
     static final String HELPER_FILE = HELPER_CLASS.replace('.', '/') + ".class";
     /** The class-file major version of Java 17. */
     static final int JAVA_17 = 61;
@@ -38,6 +41,11 @@ class QueueEntryHelperPackagingTest {
     }
 
     @Test
+    void theOldResourceDirectoryIsGone() throws Exception {
+        assertThat(compiledClasses().resolve(OLD_RESOURCE_DIRECTORY)).doesNotExist();
+    }
+
+    @Test
     void theHelperIsJava17Bytecode() throws Exception {
         assertThat(majorVersion(Files.readAllBytes(resourceDirectory().resolve(HELPER_FILE))))
             .isEqualTo(JAVA_17);
@@ -46,14 +54,17 @@ class QueueEntryHelperPackagingTest {
     @Test
     void theHelperIsNotAClassOfTheServer() {
         assertThatThrownBy(() -> Class.forName(HELPER_CLASS, false,
-            QueueEntryHelperPackagingTest.class.getClassLoader()))
+            ClientHelperPackagingTest.class.getClassLoader()))
             .isInstanceOf(ClassNotFoundException.class);
     }
 
     /** The helper's resource directory below the compiled production classes. */
     static Path resourceDirectory() throws URISyntaxException {
-        Path root = Path.of(Main.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-        return root.resolve(RESOURCE_DIRECTORY);
+        return compiledClasses().resolve(RESOURCE_DIRECTORY);
+    }
+
+    private static Path compiledClasses() throws URISyntaxException {
+        return Path.of(Main.class.getProtectionDomain().getCodeSource().getLocation().toURI());
     }
 
     static int majorVersion(byte[] classFile) throws IOException {

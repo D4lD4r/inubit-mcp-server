@@ -1711,7 +1711,7 @@ class AdapterGatewayFactoryTest {
     }
 
     @Test
-    void theQueueEntryHelperWaitsOutTheCredentialPauseOfTheNodesRestClient(@TempDir Path root)
+    void theClientHelperWaitsOutTheCredentialPauseOfTheNodesRestClient(@TempDir Path root)
         throws IOException {
         Path tempRoot = Files.createDirectories(root.resolve("tmp"));
         systemInfo(401, "<html>HTTP Status 401</html>");

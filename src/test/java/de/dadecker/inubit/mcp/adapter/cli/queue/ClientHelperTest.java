@@ -37,13 +37,13 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * The queue-entry helper of feature 020 (research D-2, D-4) in-process: it is loaded from its
- * resource directory {@code META-INF/inubit-mcp/queue-entry-helper/} of the compiled classes by a
+ * resource directory {@code META-INF/inubit-mcp/client-helper/} of the compiled classes by a
  * {@link URLClassLoader} whose parent is the test class loader (so the fake vendor classes under
  * {@code com.inubit.ibis} are visible), and {@code run(InputStream, PrintStream, ClassLoader)} is
  * called reflectively; {@code main} and its {@code System.exit} are never called here.
  */
 @Timeout(60)
-class QueueEntryHelperTest {
+class ClientHelperTest {
 
     private static final String NONCE = "0123456789abcdef0123456789abcdef";
     private static final String URL_81 = "https://inubit.example.test:8443/ibis/servlet/IBIS";
@@ -65,9 +65,9 @@ class QueueEntryHelperTest {
 
     @BeforeAll
     static void loadHelper() throws Exception {
-        URL dir = QueueEntryHelperPackagingTest.resourceDirectory().toUri().toURL();
-        loader = new URLClassLoader(new URL[] {dir}, QueueEntryHelperTest.class.getClassLoader());
-        helper = Class.forName(QueueEntryHelperPackagingTest.HELPER_CLASS, true, loader);
+        URL dir = ClientHelperPackagingTest.resourceDirectory().toUri().toURL();
+        loader = new URLClassLoader(new URL[] {dir}, ClientHelperTest.class.getClassLoader());
+        helper = Class.forName(ClientHelperPackagingTest.HELPER_CLASS, true, loader);
         assertThat(helper.getClassLoader()).as("loaded from the resource directory")
             .isSameAs(loader);
     }
@@ -611,7 +611,7 @@ class QueueEntryHelperTest {
 
     /** The test class loader, which sees the fake vendor classes under {@code com.inubit.ibis}. */
     static ClassLoader vendor() {
-        return QueueEntryHelperTest.class.getClassLoader();
+        return ClientHelperTest.class.getClassLoader();
     }
 
     /**
@@ -702,12 +702,12 @@ class QueueEntryHelperTest {
         return new Call(name, List.of(arguments));
     }
 
-    /** Calls {@code QueueEntryHelper.run} with {@code request} on stdin. */
+    /** Calls {@code ClientHelper.run} with {@code request} on stdin. */
     static Run run(String request, ClassLoader vendor) throws Exception {
         return run(new ByteArrayInputStream(request.getBytes(StandardCharsets.UTF_8)), vendor);
     }
 
-    /** Calls {@code QueueEntryHelper.run} with {@code in} as stdin. */
+    /** Calls {@code ClientHelper.run} with {@code in} as stdin. */
     static Run run(InputStream in, ClassLoader vendor) throws Exception {
         Method run = helper.getDeclaredMethod("run", InputStream.class, PrintStream.class,
             ClassLoader.class);

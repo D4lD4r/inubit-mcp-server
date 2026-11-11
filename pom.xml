@@ -386,15 +386,16 @@
         </pluginManagement>
 
         <plugins>
-            <!-- feature 020 (research D-2): the queue-entry helper runs in the JVM of the INUBIT
-                 client (8.1: JDK 17), so its single class is compiled for Java 17 into a resource
-                 directory; it ships inside the JAR but is not a class of the server. -->
+            <!-- feature 020 (research D-2), renamed in feature 021 (D-3): the client helper runs in
+                 the JVM of the INUBIT client (8.1: JDK 17), so its single class is compiled for
+                 Java 17 into a resource directory; it ships inside the JAR but is not a class of
+                 the server. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>compile-queue-entry-helper</id>
+                        <id>compile-client-helper</id>
                         <phase>compile</phase>
                         <goals>
                             <goal>compile</goal>
@@ -404,7 +405,7 @@
                             <compileSourceRoots>
                                 <compileSourceRoot>${project.basedir}/src/helper/java</compileSourceRoot>
                             </compileSourceRoots>
-                            <outputDirectory>${project.build.outputDirectory}/META-INF/inubit-mcp/queue-entry-helper</outputDirectory>
+                            <outputDirectory>${project.build.outputDirectory}/META-INF/inubit-mcp/client-helper</outputDirectory>
                         </configuration>
                     </execution>
                 </executions>

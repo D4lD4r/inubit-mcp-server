@@ -1,9 +1,9 @@
 package de.dadecker.inubit.mcp.adapter.cli.queue;
 
-import static de.dadecker.inubit.mcp.adapter.cli.queue.QueueEntryHelperTest.call;
-import static de.dadecker.inubit.mcp.adapter.cli.queue.QueueEntryHelperTest.encode;
-import static de.dadecker.inubit.mcp.adapter.cli.queue.QueueEntryHelperTest.outputs;
-import static de.dadecker.inubit.mcp.adapter.cli.queue.QueueEntryHelperTest.request;
+import static de.dadecker.inubit.mcp.adapter.cli.queue.ClientHelperTest.call;
+import static de.dadecker.inubit.mcp.adapter.cli.queue.ClientHelperTest.encode;
+import static de.dadecker.inubit.mcp.adapter.cli.queue.ClientHelperTest.outputs;
+import static de.dadecker.inubit.mcp.adapter.cli.queue.ClientHelperTest.request;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
@@ -52,7 +52,7 @@ import org.junit.jupiter.api.io.TempDir;
  * The vendor fakes read their script from {@code <home>/conf} and record their calls there.
  */
 @Timeout(90)
-class QueueEntryHelperProcessTest {
+class ClientHelperProcessTest {
 
     private static final String NONCE = "0123456789abcdef0123456789abcdef";
     private static final String HELPER_LABEL = "the queue-entry helper";
@@ -242,7 +242,7 @@ class QueueEntryHelperProcessTest {
         FakeInubitClient client, Path data, Path variables) {
         List<String> arguments = spec.command().subList(1, spec.command().size());
         assertThat(arguments.get(arguments.size() - 1))
-            .isEqualTo(QueueEntryHelperPackagingTest.HELPER_CLASS);
+            .isEqualTo(ClientHelperPackagingTest.HELPER_CLASS);
         assertThat(arguments.subList(0, arguments.size() - 1)).allSatisfy(argument ->
             assertThat(argument.startsWith("-") || argument.contains(File.pathSeparator))
                 .as("JVM option or class path: %s", argument).isTrue());

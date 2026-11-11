@@ -38,7 +38,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 /**
  * The stdin request of the queue-entry helper (research D-4, data-model "Helper request"): its
  * encoding, its validation and its {@code toString}, and a round trip through the helper itself
- * (loaded as in {@link QueueEntryHelperTest}), so the server writes exactly what the helper
+ * (loaded as in {@link ClientHelperTest}), so the server writes exactly what the helper
  * accepts.
  */
 @Timeout(60)
@@ -63,9 +63,9 @@ class HelperRequestTest {
 
     @BeforeAll
     static void loadHelper() throws Exception {
-        URL dir = QueueEntryHelperPackagingTest.resourceDirectory().toUri().toURL();
+        URL dir = ClientHelperPackagingTest.resourceDirectory().toUri().toURL();
         loader = new URLClassLoader(new URL[] {dir}, HelperRequestTest.class.getClassLoader());
-        helper = Class.forName(QueueEntryHelperPackagingTest.HELPER_CLASS, true, loader);
+        helper = Class.forName(ClientHelperPackagingTest.HELPER_CLASS, true, loader);
     }
 
     @AfterAll
@@ -346,7 +346,7 @@ class HelperRequestTest {
         return new Call(name, List.of(arguments));
     }
 
-    /** Calls {@code QueueEntryHelper.run} in-process with the fake vendor classes. */
+    /** Calls {@code ClientHelper.run} in-process with the fake vendor classes. */
     static Run run(FakeInubitScript script, byte[] stdin) throws Exception {
         Method run = helper.getDeclaredMethod("run", InputStream.class, PrintStream.class,
             ClassLoader.class);
