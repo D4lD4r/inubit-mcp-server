@@ -98,4 +98,38 @@ Record the result (client, version, pass/fail per step) in the PR description.
 - `python3 -I -m unittest discover -s tools/tests`: 411 tests OK.
 - `tools/check-identifiers.py --all`: clean.
 
-**Live**: not done yet (T041, left to the person).
+**Live, 2026-11-11** (T041; `origin/main` 97c697a, jar built with `mvn -o clean package
+-DskipTests`, reports version 0.8.1). The released 0.8.1 jar was not usable: 0.8.1 is cut from
+`release/0.8.x` and holds neither feature 018 nor 019 (no knowledge classes or schemas, no
+`Knowledge:` line). Client: a scripted Python JSON-RPC stdio client (`initialize`, `tools/list`,
+`tools/call`); the conversation of steps 2–4 (ask, propose, agree; answer from the note) was
+simulated, the server side of it checked: the instructions wording and the tools offered.
+Scratch profile `acme-test` with `--config` outside the user configuration directory, group
+`test` with node `node1` (`https://node1.test.example.test:8443`, never contacted), credentials
+from `awsParameterStore` answered by a local stand-in for SSM `GetParameters` with synthetic
+values (the knowledge tools need readable credentials, D-7; the Keychain was not touched).
+- Step 1 **pass**: `Knowledge: ~/.inubit-mcp/acme-test/knowledge (absent), recording on, 0 notes`.
+- Step 2 **pass**: the instructions carry the knowledge paragraph (propose first, record only
+  after agreement, never secrets) and "The local knowledge of this profile is empty."; the
+  search found nothing; `create` of `acme/order-export` wrote the note `-rw-------` in folders
+  `drwx------` (also `.lock`); two audit lines `record_knowledge` (node `-`, `PENDING`, then
+  `EXECUTED` with `name`, `mode`, `sizeBefore` 0, `sizeAfter` 261), without the content.
+- Step 3 **pass** (after a restart): the instructions list `- "acme/order-export" — "ACME order
+  export" [topics: "acme", "export"]` under "Notes (newest first):"; search and read return the
+  note with `lastChange` and `source`.
+- Step 4 **pass**: `append` "Contact: ops@example.test" gave `historyVersions` 1 and one file in
+  `.history/acme/order-export.md/` (`-rw-------`).
+- Step 5 **pass**: with `password: Example-Only-1` added by hand, the read shows `password: ***`
+  with `masked: 1`; the search for `Example-Only-1` has no hit; `replace` is refused with
+  `PRECONDITION_FAILED` ("holds a secret (password assignment in line 12 (key password)) …
+  nothing was written"), audited as `REFUSED`. After removing the line by hand, `replace`
+  succeeded (`historyVersions` 2); `Example-Only-1` was nowhere in the profile's folders.
+- Step 6 **pass**: with `knowledge.recording: false`, `tools/list` has no `record_knowledge`
+  (a call is answered `Tool not found`); the instructions say "The local knowledge is read-only
+  for this profile; do not propose new notes." and still list the note; `--check-config` shows
+  `(ok), recording off, 1 notes`.
+- Step 7 **pass**: `~/.inubit-mcp/acme-test/` deleted; the other profiles' folders unchanged.
+- Observations: (a) with `recording: false` the hits still report `writable: true`, although
+  `record_knowledge` is not offered (`writable` reflects only the note and its name);
+  (b) the server writes a note without a final line break, so a line added by hand with `>>`
+  joins the last line (the secret was still masked, as key `example.testpassword`).
