@@ -15,3 +15,6 @@ src/test/resources/fixtures/windows/** -text
 # Queue-entry content cases (feature 020): the helper frames name their exact byte lengths
 src/test/resources/fixtures/queue-entry/**/*.data -text
 src/test/resources/fixtures/queue-entry/**/*.wfsp -text
+
+# Server-log excerpt cases (feature 021): the CRLF case keeps its line ends byte for byte
+src/test/resources/fixtures/server-log/excerpt/crlf.log -text

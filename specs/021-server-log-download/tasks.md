@@ -219,7 +219,7 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
 
 ### Excerpt and local files (plan stages 5–6; shared by both logs)
 
-- [ ] T013 [P] `domain/model/SecretTextMasker.java` `+ String maskLines(String window,
+- [X] T013 [P] `domain/model/SecretTextMasker.java` `+ String maskLines(String window,
   List<SecretSpan> known)`, part 1 (FR-010, D-11): the same rules 1–7 as `mask(String)` on ranges
   of the original text, plus the known-credential spans as rule 0 (replacement `***`), merged by
   the existing order (earliest start, then longest, then lower rule number); **replacement keeps

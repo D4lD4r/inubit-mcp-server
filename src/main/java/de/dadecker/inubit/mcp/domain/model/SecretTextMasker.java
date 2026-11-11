@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
  *
  * <p>Each rule yields ranges on the original text; overlapping ranges are merged into one, which
  * is replaced by the placeholder of the range with the earliest start, then the longest, then the
- * lower rule number.
+ * lower rule number ({@link #maskLines}: the known credential spans are rule 0).
  */
 public final class SecretTextMasker {
 
@@ -127,6 +127,26 @@ public final class SecretTextMasker {
     /** {@code text} with the secret values of rules 1–7 masked; linear in its length. */
     public static String mask(String text) {
         Objects.requireNonNull(text, "text");
+        return replace(text, ranges(text), false);
+    }
+
+    /**
+     * {@code window} with the secret values of rules 1–7 and the {@code known} credential spans
+     * (rule 0, {@link Masked#MASK_TOKEN}) masked, keeping every line (feature 021, FR-010, D-11):
+     * a masked region becomes its replacement followed by every {@code \r} and {@code \n} of the
+     * region in order, so line N of the result is line N of {@code window}.
+     */
+    public static String maskLines(String window, List<SecretSpan> known) {
+        Objects.requireNonNull(window, "window");
+        List<Range> ranges = ranges(window);
+        for (SecretSpan span : known) {
+            add(ranges, span.start(), span.end(), Masked.MASK_TOKEN, 0);
+        }
+        return replace(window, ranges, true);
+    }
+
+    /** The ranges of rules 1–7 in {@code text}. */
+    private static List<Range> ranges(String text) {
         List<Range> ranges = new ArrayList<>();
         xmlElements(text, ranges);
         xmlAttributes(text, ranges);
@@ -135,7 +155,7 @@ public final class SecretTextMasker {
         headerLines(text, ranges);
         nameValuePairs(text, ranges);
         basicAndBearer(text, ranges);
-        return replace(text, ranges);
+        return ranges;
     }
 
     /** Rule 1: the content of a secret-named element up to its matching end tag. */
@@ -431,19 +451,40 @@ public final class SecretTextMasker {
         }
     }
 
-    private static String replace(String text, List<Range> ranges) {
+    /**
+     * {@code text} with each merged region of {@code ranges} replaced; with {@code keepLines}, the
+     * replacement is followed by the {@code \r} and {@code \n} of the region.
+     */
+    private static String replace(String text, List<Range> ranges, boolean keepLines) {
         ranges.sort(Comparator.comparingInt(Range::start)
             .thenComparing(Comparator.comparingInt(Range::end).reversed())
             .thenComparingInt(Range::rule));
         StringBuilder masked = new StringBuilder(text.length());
+        int regionStart = 0;
         int done = 0;
         for (Range range : ranges) {
             if (range.start() >= done) {
+                if (keepLines) {
+                    appendLineBreaks(masked, text, regionStart, done);
+                }
                 masked.append(text, done, range.start()).append(range.replacement());
+                regionStart = range.start();
             }
             done = Math.max(done, range.end());
         }
+        if (keepLines) {
+            appendLineBreaks(masked, text, regionStart, done);
+        }
         return masked.append(text, done, text.length()).toString();
+    }
+
+    private static void appendLineBreaks(StringBuilder masked, String text, int from, int to) {
+        for (int i = from; i < to; i++) {
+            char c = text.charAt(i);
+            if (c == '\r' || c == '\n') {
+                masked.append(c);
+            }
+        }
     }
 
     private static String localName(String name) {
