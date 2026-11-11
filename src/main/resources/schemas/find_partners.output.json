@@ -1,0 +1,717 @@
+{
+  "type": "object",
+  "required": [
+    "callId",
+    "mode",
+    "compared",
+    "servers",
+    "referencableWorkflows",
+    "partners",
+    "total",
+    "offset",
+    "limit",
+    "truncated"
+  ],
+  "properties": {
+    "callId": {
+      "type": "string",
+      "description": "The call id shared by the audit records of this call"
+    },
+    "mode": {
+      "enum": [
+        "search",
+        "list"
+      ],
+      "description": "search with a search term, list without"
+    },
+    "compared": {
+      "type": "boolean",
+      "description": "Whether {nodes} were compared: with one {group} of several {nodes} or with compareWith"
+    },
+    "servers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Server"
+      },
+      "description": "One entry per targeted {node}, then per compared {node} (compareWith), in config order; a failed {node} has its error and no data"
+    },
+    "referencableWorkflows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "systemDiagram",
+          "cloud",
+          "workflows"
+        ],
+        "properties": {
+          "systemDiagram": {
+            "$ref": "#/$defs/DiagramRef"
+          },
+          "cloud": {
+            "type": "string"
+          },
+          "moduleId": {
+            "type": "string",
+            "description": "The cloud's module id; only when two communication clouds of one system diagram share a name"
+          },
+          "workflows": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "The technical workflows the entries of a communication cloud can reference, per cloud that contributed a partner"
+    },
+    "partners": {
+      "type": "array",
+      "description": "The matching partners: with search in export order, each in full; without search ordered by system diagram group and name, communication cloud, partner Id, then Name, each as a summary; a single {node} answers Partner, a comparison ComparedPartner (in comparison order with search)"
+    },
+    "similarValues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Only when a search matched nothing: up to five similar non-secret partner Ids and names"
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of matching partners"
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    },
+    "nextOffset": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The offset of the next page; absent on the last page"
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "Whether the result was cut to stay within the size bound"
+    },
+    "incomplete": {
+      "type": "boolean",
+      "description": "Only in a comparison: whether a compared {node} failed"
+    },
+    "notCompared": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/NotCompared"
+      },
+      "description": "Only in a comparison: the failed {nodes} in config order, each with its error code, and each system diagram one {node} could not read (systemDiagram); the full error is listed with its {node}. That {node} is left out of onlyOn and every statement for that system diagram's partners"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "properties": {
+        "compared": {
+          "const": false
+        },
+        "partners": {
+          "items": {
+            "$ref": "#/$defs/Partner"
+          }
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "incomplete"
+            ]
+          },
+          {
+            "required": [
+              "notCompared"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "properties": {
+        "compared": {
+          "const": true
+        },
+        "partners": {
+          "items": {
+            "$ref": "#/$defs/ComparedPartner"
+          }
+        }
+      },
+      "required": [
+        "incomplete",
+        "notCompared"
+      ]
+    }
+  ],
+  "$defs": {
+    "DiagramRef": {
+      "type": "object",
+      "required": [
+        "name",
+        "diagramGroup"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "diagramGroup": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Server": {
+      "type": "object",
+      "required": [
+        "node",
+        "group",
+        "systemDiagramsRead",
+        "withoutPartnerManagement",
+        "unreadableDiagrams",
+        "warnings"
+      ],
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "group": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string",
+          "description": "The owner whose system diagrams were read"
+        },
+        "collectedAt": {
+          "type": "string",
+          "description": "ISO-8601: when the (cached) data was collected"
+        },
+        "fromCache": {
+          "type": "boolean"
+        },
+        "systemDiagramsRead": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "diagramGroup",
+              "clouds"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "diagramGroup": {
+                "type": "string"
+              },
+              "clouds": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "cloud",
+                    "partners"
+                  ],
+                  "properties": {
+                    "cloud": {
+                      "type": "string"
+                    },
+                    "moduleId": {
+                      "type": "string",
+                      "description": "The cloud's module id; only when two communication clouds of one system diagram share a name"
+                    },
+                    "partners": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Every system diagram read, with each communication cloud and its number of partners; no clouds for a system diagram without Partner Management"
+        },
+        "withoutPartnerManagement": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DiagramRef"
+          },
+          "description": "The system diagrams read that hold no Partner Management"
+        },
+        "unreadableDiagrams": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "systemDiagram",
+              "code",
+              "message"
+            ],
+            "properties": {
+              "systemDiagram": {
+                "$ref": "#/$defs/DiagramRef"
+              },
+              "code": {
+                "$ref": "#/$defs/ErrorCode"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "System diagrams that could not be read; the other system diagrams of the {node} are answered"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Version warnings and references that do not resolve"
+        },
+        "error": {
+          "$ref": "#/$defs/ToolError"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Setting": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "masked": {
+          "const": true,
+          "description": "A secret: its value is never shown"
+        },
+        "set": {
+          "type": "boolean",
+          "description": "Only for a masked value: whether it is set"
+        }
+      },
+      "additionalProperties": false,
+      "description": "A field or setting: value if shown, else masked with set"
+    },
+    "Partner": {
+      "type": "object",
+      "required": [
+        "systemDiagram",
+        "cloud",
+        "fields",
+        "maskedCount",
+        "entries"
+      ],
+      "properties": {
+        "systemDiagram": {
+          "$ref": "#/$defs/DiagramRef"
+        },
+        "cloud": {
+          "type": "string",
+          "description": "Module name of the communication cloud"
+        },
+        "moduleId": {
+          "type": "string",
+          "description": "The cloud's module id; only when two communication clouds of one system diagram share a name"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Setting"
+          }
+        },
+        "maskedCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of masked values of the partner"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Entry"
+          },
+          "description": "The protocol entries in export order, never merged; with protocol or workflow only the matching ones"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Entry": {
+      "type": "object",
+      "required": [
+        "protocol",
+        "workflow",
+        "protocolSettings"
+      ],
+      "properties": {
+        "protocol": {
+          "type": "string"
+        },
+        "workflow": {
+          "$ref": "#/$defs/Workflow"
+        },
+        "format": {
+          "type": "string",
+          "description": "Absent in a list summary"
+        },
+        "protocolSettings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Setting"
+          },
+          "description": "In a list summary only ServerName and Login, if present"
+        },
+        "additionalParameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Setting"
+          },
+          "description": "Absent in a list summary"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Workflow": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unresolved": {
+          "const": true
+        }
+      },
+      "additionalProperties": false,
+      "description": "The referenced technical workflow; name null and unresolved true if the reference does not resolve"
+    },
+    "ComparedPartner": {
+      "type": "object",
+      "required": [
+        "systemDiagram",
+        "cloud",
+        "fields",
+        "entries",
+        "maskedCount",
+        "ambiguous"
+      ],
+      "properties": {
+        "systemDiagram": {
+          "$ref": "#/$defs/DiagramRef"
+        },
+        "cloud": {
+          "type": "string",
+          "description": "Module name of the communication cloud"
+        },
+        "moduleId": {
+          "type": "string",
+          "description": "The cloud's module id; only when two communication clouds of one system diagram share a name"
+        },
+        "key": {
+          "type": "object",
+          "required": [
+            "field",
+            "value"
+          ],
+          "properties": {
+            "field": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "description": "The partner key the {nodes} were matched by; absent for a partner without key, which is compared on its {node} alone"
+        },
+        "onlyOn": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "The {nodes} holding the partner, if not every answering {node} does; absent otherwise. A partner without key or with an ambiguous key is compared alone: onlyOn names its {node} only, which does not mean the others lack it"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ComparedSetting"
+          }
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ComparedEntry"
+          },
+          "description": "Matched by protocol, workflow and position; with protocol or workflow only the matching ones"
+        },
+        "maskedCount": {
+          "$ref": "#/$defs/GroupedCount"
+        },
+        "ambiguous": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "node",
+              "partners",
+              "moduleIds"
+            ],
+            "properties": {
+              "node": {
+                "type": "string"
+              },
+              "partners": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "moduleIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Why the key is not matched on one {node}: several partners of the key, or several clouds of the module name"
+        }
+      },
+      "additionalProperties": false,
+      "description": "One partner matched across the {nodes} holding it; without search the summary fields plus only differing values and onlyOn entries"
+    },
+    "ComparedEntry": {
+      "type": "object",
+      "required": [
+        "protocol",
+        "workflow",
+        "position",
+        "protocolSettings"
+      ],
+      "properties": {
+        "protocol": {
+          "type": "string"
+        },
+        "workflow": {
+          "$ref": "#/$defs/Workflow"
+        },
+        "position": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position among the entries of this protocol and workflow"
+        },
+        "onlyOn": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "The {nodes} holding the entry, if not every {node} holding the partner does"
+        },
+        "format": {
+          "$ref": "#/$defs/ComparedSetting",
+          "description": "The format attribute as a setting named format; in a list summary only if it differs"
+        },
+        "protocolSettings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ComparedSetting"
+          }
+        },
+        "additionalParameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ComparedSetting"
+          },
+          "description": "In a list summary only the differing ones, absent if none"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ComparedSetting": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "equal": {
+          "type": "string",
+          "description": "The value, equal on every {node} holding it"
+        },
+        "differs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The value per {node}"
+        },
+        "masked": {
+          "const": true,
+          "description": "A secret: its value is never shown"
+        },
+        "set": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "description": "Only for a masked value: whether it is set, per {node}"
+        },
+        "sameOn": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "Only for a masked value: the {nodes} grouped by equal stored values; the only statement about stored secrets"
+        },
+        "equality": {
+          "type": "string",
+          "description": "Only for a masked value: why no sameOn statement is made"
+        },
+        "onlyOn": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "The {nodes} holding it, if not every {node} holding its partner or entry does"
+        }
+      },
+      "additionalProperties": false,
+      "description": "A compared field or setting: a shown value equal or differs per {node}; a masked one with set per {node}"
+    },
+    "GroupedCount": {
+      "type": "object",
+      "properties": {
+        "equal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "differs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "equal"
+          ]
+        },
+        {
+          "required": [
+            "differs"
+          ]
+        }
+      ],
+      "description": "Number of masked values: equal on every {node} holding the partner, or per {node}"
+    },
+    "NotCompared": {
+      "type": "object",
+      "required": [
+        "node",
+        "code"
+      ],
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "systemDiagram": {
+          "$ref": "#/$defs/DiagramRef"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ErrorCode": {
+      "enum": [
+        "TARGET_UNKNOWN",
+        "UNREACHABLE",
+        "TIMEOUT",
+        "TLS_ERROR",
+        "AUTH_FAILED",
+        "FORBIDDEN",
+        "MAINTENANCE_MODE",
+        "NOT_FOUND",
+        "INVALID_INPUT",
+        "CLI_UNAVAILABLE",
+        "UNEXPECTED_RESPONSE",
+        "WRITE_DISABLED",
+        "PRODUCTION_PROTECTED",
+        "CONFIRMATION_REQUIRED",
+        "CONFIRMATION_INVALID",
+        "PRECONDITION_FAILED",
+        "UNSUPPORTED_VERSION",
+        "NOT_CONFIGURED",
+        "INTERNAL"
+      ]
+    },
+    "ToolError": {
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "likelyCause",
+        "nextStep"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "type": "string"
+        },
+        "likelyCause": {
+          "type": "string"
+        },
+        "nextStep": {
+          "type": "string"
+        },
+        "node": {
+          "type": "string"
+        },
+        "excerpt": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

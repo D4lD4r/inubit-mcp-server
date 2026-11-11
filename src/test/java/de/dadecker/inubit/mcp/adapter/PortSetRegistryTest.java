@@ -11,6 +11,9 @@ import de.dadecker.inubit.mcp.adapter.cli.v61.V61HealthAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61ProcessQueryAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
+import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
+import de.dadecker.inubit.mcp.adapter.rest.MaintenanceProbe;
+import de.dadecker.inubit.mcp.adapter.rest.v81.V81PartnerManagementAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81QueryRules;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
@@ -38,7 +41,8 @@ import org.junit.jupiter.api.Test;
  * Feature 012 T025: the 6.1 registration (research D-4). The registry is built as {@code Wiring}
  * builds it: the 8.1 port set as default, the 6.1 port set and its StartCLI health port for
  * {@link V61PortSet#RANGE}, CLI-only; feature 017 (T006, research D-14): the 8.1 port set also
- * registered for {@link PortSetRegistry#V90_RANGE}.
+ * registered for {@link PortSetRegistry#V90_RANGE}. Feature 018 (T013, research D-4): the
+ * partner management port is the 8.1 REST adapter on 9.0 and refuses on 6.1.
  */
 class PortSetRegistryTest {
 
@@ -125,11 +129,32 @@ class PortSetRegistryTest {
 
         assertThat(ports.processes()).isInstanceOf(V61ProcessQueryAdapter.class);
         assertThat(List.of(ports.logs(), ports.inventory(), ports.processControl(),
-            ports.artifacts(), ports.imports(), ports.tags()))
+            ports.artifacts(), ports.imports(), ports.tags(), ports.partners()))
             .allSatisfy(port -> assertThat(port).isInstanceOf(RefusingPorts.class));
         assertThatThrownBy(() -> ports.logs().query(null))
             .isInstanceOfSatisfying(ToolErrorException.class, e ->
                 assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION));
+        assertThatThrownBy(() -> ports.partners().read("OWNERS", List.of()))
+            .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION));
+    }
+
+    @Test
+    void theNineZeroPortSetReadsPartnerManagementsWithThe81RestAdapter() {
+        SecretScrubber scrubber = new SecretScrubber();
+        EffectiveNodeConfig server = TestNodeConfig.node().versionLine(VersionSetting.V9_0)
+            .build();
+        try (InubitHttpClient client = new InubitHttpClient(server, Optional.empty(),
+            Optional.empty(), MaintenanceProbe.NONE, scrubber)) {
+            PortSetRegistry.NodeResources node = new PortSetRegistry.NodeResources(server,
+                credentials(server), new CredentialGuard(server.secretLabels(),
+                    Clock.systemUTC()), client, noStartCli(), scrubber);
+
+            PortSet ports = registry.select(effective(VersionSetting.V9_0)).factory()
+                .create(node);
+
+            assertThat(ports.partners()).isInstanceOf(V81PartnerManagementAdapter.class);
+        }
     }
 
     @Test
@@ -146,13 +171,16 @@ class PortSetRegistryTest {
         SecretScrubber scrubber = new SecretScrubber();
         EffectiveNodeConfig server = TestNodeConfig.node().versionLine(VersionSetting.V6_1)
             .build();
-        NodeCredentials credentials = new NodeCredentials(server.id(),
+        return new PortSetRegistry.NodeResources(server, credentials(server),
+            new CredentialGuard(server.secretLabels(), Clock.systemUTC()), null, noStartCli(),
+            scrubber);
+    }
+
+    private static NodeCredentials credentials(EffectiveNodeConfig server) {
+        return new NodeCredentials(server.id(),
             Optional.of(new SourcedValue<>("jdoe", "INUBIT_DEV_USERNAME")),
             Optional.of(new SourcedValue<>(Secret.of("registry-test-pw"), "INUBIT_DEV_PASSWORD")),
             Optional.empty(), Optional.empty());
-        return new PortSetRegistry.NodeResources(server, credentials,
-            new CredentialGuard(server.secretLabels(), Clock.systemUTC()), null, noStartCli(),
-            scrubber);
     }
 
     /** A runner that fails on any StartCLI launch. */
