@@ -280,7 +280,7 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   surrogate pair at the cut point; a text occurring only inside a masked value never matches;
   `linesBefore` 412,876 → first number 412,877; binary, Latin-1, empty, no-newline, CRLF cases;
   leak check (no masked value in any line)
-- [ ] T016 [P] `application/LogWindowReader.java` (FR-009 step 1, D-9; after T010): `LogWindow
+- [X] T016 [P] `application/LogWindowReader.java` (FR-009 step 1, D-9; after T010): `LogWindow
   read(Path file, long size)`; `size ≤ 50 MiB (52,428,800 bytes)` → whole file, `linesBefore =
   0`; otherwise `start = size − 52,428,800` and the window begins at the first position `p ≥
   start` with `byte[p − 1] == '\n'` (a partial first line is not part of it); `linesBefore` =

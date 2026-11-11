@@ -72,3 +72,5 @@ the new tool (`download_server_log`, contract `contracts/mcp-tools-delta.md`).
   (read figures into locals) and confirm the D-13 memory bound; (2) T030 (output mapping) — the
   no-whole-line variant has no `charset` and two hints; render it deliberately and align
   contracts/mcp-tools-delta.md:166.
+- T016 minors (test-only, LogWindowReaderTest): add a test for '\n' only at `size - 1`, and assert
+  `linesBefore() == 0` in the no-line-break test; handed to T018 (same package).
