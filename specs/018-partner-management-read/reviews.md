@@ -175,3 +175,44 @@ partner data. `V81PartnerManagementAdapter.export` now drops the excerpt (FR-008
 Open follow-up, outside 018: `V81InventoryAdapter.diagramMetadata` (the system diagram export of
 `get_inventory_item`) can still quote the export body in an `UNEXPECTED_RESPONSE` excerpt (T030
 review).
+
+## Live check T034 fixes — code review (97c697a..23d0961)
+
+The live check T034 found that one system diagram the Partner Management reader cannot read (a
+communication cloud without `ModuleName`) failed the whole server (finding A), and that a failed
+server lost the version gate's warning (finding C). Fixed in 84c4b98 (A: an archive without a
+readable diagram is an `unreadableDiagrams` entry, `UNEXPECTED_RESPONSE`), d5184e4 (C: the gate's
+warnings of each admitted server are kept per call and shown for a failed server too) and 23d0961
+(docs, contract, spec, CHANGELOG). Finding B (an INUBIT 9.0 export that is not a ZIP archive) is
+left to feature 017; an answer that is not a ZIP archive still fails the server.
+
+2 findings:
+1. [major] `found()` and `compared()` read the live per-call map of admitted servers twice, once
+   for the server view and once for the gate count. A read past the fan-out deadline is not
+   awaited and can still be admitted in between, so the count could exceed the view's warnings
+   and `PartnerBounds.servers` would fail with `IndexOutOfBoundsException` before the audit.
+2. [minor] A damaged ZIP archive or a `workflow.xml` over 64 MiB (`DiagramExportParser`) still
+   fails the whole server; the docs did not say so.
+
+Decisions judged (accepted): a per-diagram entry does not mark the node's known version stale, as
+the name-collision and HTTP 404 cases; messages name the archive part, never a value; the non-ZIP
+case stays at server level to leave finding B untouched. Verdict: CHANGES REQUESTED.
+
+Fix round, one line per finding:
+1. Fixed (7cd3a79): `found()` and `compared()` take one snapshot (`Map.copyOf`) of the admitted
+   servers right after the fan-out and use it for the view and the count. No test: the window
+   between the two reads cannot be hit deterministically; the snapshot closes it by construction.
+2. Documented (b076c07): docs/tools.md, the contract and the spec name a damaged archive and a
+   `workflow.xml` over 64 MiB as failures of the whole node. Making them per diagram would also
+   change the non-ZIP path of finding B.
+
+Review of the fix round: reviews/live-fixes-cr-r1.md (APPROVED). Before the fix round, full build
+`mvn -o -q clean verify` green: 6392 unit tests (58 skipped) + 3 integration tests.
+
+Read-only live check of the fix with a jar built from 23d0961: on ENT, `find_partners` answers the
+node with its partners and lists the system diagram whose cloud has no `ModuleName` in
+`unreadableDiagrams` (A); on the INUBIT 9.0 node of INT, whose export is still not a ZIP archive
+(B), the failed server keeps the version gate's warning (C). One audit record per call and server.
+
+After the fix round (b076c07): full build `mvn -o -q clean verify` green with 6392 unit tests (58
+skipped) + 3 integration tests.

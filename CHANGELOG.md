@@ -104,6 +104,11 @@ of `specs/019-local-knowledge/quickstart.md` is open).
   are now sent one after the other, as are those of `query_logs` with several severities. Two tool calls that query the logs of the same
   node at the same time can still collide; INUBIT then answers one of them this way. Found in the
   INUBIT 9.0 live check (feature 017, T047, F-4).
+- `find_partners` (found by the live check of feature 018): one system diagram whose export holds
+  no readable diagram, e.g. with a communication cloud without `ModuleName`, no longer fails the
+  whole node; it is listed in `unreadableDiagrams` (`UNEXPECTED_RESPONSE`, naming the part) and
+  the node's other system diagrams are answered. A node whose read fails keeps the version
+  warning ("not verified for partner management") in `warnings`.
 
 ## [0.8.1] - 2026-11-11
 
