@@ -13,6 +13,8 @@ target/
 
 # Logs
 *.log
+# Server-log excerpt fixtures (feature 021) are test input, not logs
+!src/test/resources/fixtures/server-log/**/*.log
 
 # Python
 __pycache__/

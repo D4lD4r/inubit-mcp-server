@@ -15,8 +15,9 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * Feature 021 (T013, FR-010, research D-11): {@code maskLines} masks rules 1–7 and the known
- * credential spans (rule 0) and keeps every line break of the window.
+ * Feature 021 (T013, T014, FR-010, research D-11): {@code maskLines} masks rules 1–7 and the
+ * known credential spans (rule 0), masks from the window start up to an end tag without start tag,
+ * and keeps every line break of the window.
  */
 class SecretTextMaskerLinesTest {
 
@@ -137,6 +138,50 @@ class SecretTextMaskerLinesTest {
             .isEqualTo("x***\n</pwd>");
     }
 
+    // end tag without start tag (T014)
+
+    @Test
+    void anEndTagWithoutStartTagMasksFromTheWindowStart() {
+        String window = SECRET + "\n" + SECRET + "\nx " + SECRET + "</ns:token> after\nnext";
+
+        assertThat(SecretTextMasker.maskLines(window, List.of()))
+            .isEqualTo("${secret:data.token}\n\n</ns:token> after\nnext");
+    }
+
+    @Test
+    void anEndTagWithoutStartTagInsideCdataIsIgnored() {
+        String window = "a " + SECRET + "\n<![CDATA[b " + SECRET + "</password>]]>\nc";
+
+        assertThat(SecretTextMasker.maskLines(window, List.of())).isEqualTo(window);
+    }
+
+    @Test
+    void aMatchedStartAndEndTagDoNotMaskFromTheWindowStart() {
+        String window = "a " + SECRET + "\n<password>" + SECRET + "\n</password>\nc";
+
+        assertThat(SecretTextMasker.maskLines(window, List.of()))
+            .isEqualTo("a " + SECRET + "\n<password>${secret:data.password}\n</password>\nc");
+    }
+
+    @Test
+    void anEndTagWithoutStartTagLeavesMaskUnchanged() {
+        String window = SECRET + "\n</password> after";
+
+        assertThat(SecretTextMasker.mask(window)).isEqualTo(window);
+    }
+
+    /**
+     * Documented limit (FR-010, D-11): the rest of a secret JSON object opened before the window
+     * has no key in the window, so it is not detected.
+     */
+    @Test
+    void aSecretJsonValueOpenedBeforeTheWindowIsNotDetected() {
+        String window = "    \"user\": \"acme\",\n    \"code\": \"" + SECRET + "\"\n  },\n"
+            + "  \"mode\": 1\n}";
+
+        assertThat(SecretTextMasker.maskLines(window, List.of())).isEqualTo(window);
+    }
+
     // fixtures
 
     /** US1-8. */
@@ -155,6 +200,24 @@ class SecretTextMaskerLinesTest {
             .isEqualTo("2026-11-02 08:15:01,113 INFO  [acme.http.Client] node1 login request sent");
         assertThat(out.subList(0, 9)).isEqualTo(in.subList(0, 9));
         assertThat(out.subList(12, out.size())).isEqualTo(in.subList(12, in.size()));
+        TestSecrets.assertNoLeak(String.join("\n", out));
+    }
+
+    /** US1-9. */
+    @Test
+    void aPasswordElementOpenedBeforeTheWindowIsMaskedUpToItsEndTag() throws IOException {
+        String window = Files.readString(EXCERPT.resolve("secrets_window_start.log"));
+        List<String> in = lines(window);
+
+        List<String> out = lines(SecretTextMasker.maskLines(window, List.of()));
+
+        assertThat(out.get(0)).isEqualTo("${secret:data.password}");
+        assertThat(out.get(1)).isEmpty();
+        assertThat(out.get(2)).isEqualTo("</password><mode>basic</mode></login>");
+        assertThat(out.subList(3, 5)).isEqualTo(in.subList(3, 5));
+        assertThat(out.get(5)).isEqualTo(
+            "<login><user>acme</user><password>${secret:data.password}</password></login>");
+        assertThat(out.subList(6, out.size())).isEqualTo(in.subList(6, in.size()));
         TestSecrets.assertNoLeak(String.join("\n", out));
     }
 
@@ -204,7 +267,8 @@ class SecretTextMaskerLinesTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"secrets_multiline.log", "secrets_everywhere.log", "crlf.log"})
+    @ValueSource(strings = {"secrets_multiline.log", "secrets_everywhere.log", "crlf.log",
+        "secrets_window_start.log"})
     void theLineCountOfEveryFixtureIsKept(String fixture) throws IOException {
         String window = Files.readString(EXCERPT.resolve(fixture));
 

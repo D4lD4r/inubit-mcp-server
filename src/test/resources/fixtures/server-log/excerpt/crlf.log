@@ -1,0 +1,6 @@
+2026-11-02 10:00:00,001 INFO  [acme.http.Server] node1 request received
+Authorization: Basic YWNtZTpjcmVkZW50aWFsLXBheWxvYWQtdmFsdWUtMDAwMQ==
+<password>credential-payload-value-0001
+credential-payload-value-0001
+credential-payload-value-0001</password> done
+2026-11-02 10:00:00,005 INFO  [acme.http.Server] node1 request finished

@@ -64,3 +64,7 @@ the new tool (`download_server_log`, contract `contracts/mcp-tools-delta.md`).
 - T009 open point for T031 (wiring): `NodeOverview.refusal` does not use matrix notes, so
   `list_nodes` would say "… does not support downloading the trace log yet" instead of "not yet
   verified" while a (version, log) pair is unrecorded. Decide in T031 whether to show the note.
+- T014: the global `*.log` rule in `.gitignore` had kept the T013 `.log` fixtures out of commit
+  1114bd18; T014 adds them. The orchestrator widened the exception to
+  `!src/test/resources/fixtures/server-log/**/*.log` so the recorded `v8_1`/`v9_0` `.log`
+  fixtures of T021/T033/T048/T049 are not silently ignored either.

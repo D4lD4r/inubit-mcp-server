@@ -236,7 +236,7 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   `</password>` followed by the text after it on that line, line 13 keeps number 13 and its
   text); the line count of the output equals the input for every
   fixture; CRLF preserved; `domain/model/SecretTextMaskerTest.java` unchanged and green
-- [ ] T014 `SecretTextMasker.maskLines` part 2 (FR-010, D-11, US1-9; after T013): **end tag without
+- [X] T014 `SecretTextMasker.maskLines` part 2 (FR-010, D-11, US1-9; after T013): **end tag without
   start tag** (outer pass only, not inside CDATA): an end tag `</(prefix:)?name>` of a secret
   local name with no open start tag of that name before it in the window adds the range `[0,
   start of that end tag)` with the element's placeholder; the end tag itself stays; the lines up

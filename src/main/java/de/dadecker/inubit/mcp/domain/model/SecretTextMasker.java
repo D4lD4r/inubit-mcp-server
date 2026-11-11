@@ -16,9 +16,10 @@ import java.util.regex.Pattern;
 /**
  * Masks the values of secret-named XML elements, XML attributes, JSON keys, header-style lines
  * and {@code name=value} pairs, and HTTP {@code Authorization} values and {@code Basic}/{@code
- * Bearer} credentials, in the text of a Queue Manager entry (feature 020, FR-011, D-11). Pure,
- * without an XML or JSON parser, so it works on cut-off and broken text; everything outside the
- * masked values stays unchanged.
+ * Bearer} credentials, in the text of a Queue Manager entry (feature 020, FR-011, D-11) and, with
+ * {@link #maskLines}, in a server-log window (feature 021, FR-010). Pure, without an XML or JSON
+ * parser, so it works on cut-off and broken text; everything outside the masked values stays
+ * unchanged.
  *
  * <p>Each rule yields ranges on the original text; overlapping ranges are merged into one, which
  * is replaced by the placeholder of the range with the earliest start, then the longest, then the
@@ -127,28 +128,35 @@ public final class SecretTextMasker {
     /** {@code text} with the secret values of rules 1–7 masked; linear in its length. */
     public static String mask(String text) {
         Objects.requireNonNull(text, "text");
-        return replace(text, ranges(text), false);
+        return replace(text, ranges(text, false), false);
     }
 
     /**
      * {@code window} with the secret values of rules 1–7 and the {@code known} credential spans
      * (rule 0, {@link Masked#MASK_TOKEN}) masked, keeping every line (feature 021, FR-010, D-11):
      * a masked region becomes its replacement followed by every {@code \r} and {@code \n} of the
-     * region in order, so line N of the result is line N of {@code window}.
+     * region in order, so line N of the result is line N of {@code window}. An end tag of a secret
+     * element without an open start tag in the window (the element was opened before the window)
+     * masks from the window start up to that end tag. A secret JSON value opened before the window
+     * is not detected.
      */
     public static String maskLines(String window, List<SecretSpan> known) {
         Objects.requireNonNull(window, "window");
-        List<Range> ranges = ranges(window);
+        Objects.requireNonNull(known, "known");
+        List<Range> ranges = ranges(window, true);
         for (SecretSpan span : known) {
             add(ranges, span.start(), span.end(), Masked.MASK_TOKEN, 0);
         }
         return replace(window, ranges, true);
     }
 
-    /** The ranges of rules 1–7 in {@code text}. */
-    private static List<Range> ranges(String text) {
+    /**
+     * The ranges of rules 1–7 in {@code text}; with {@code windowStart}, rule 1 also masks from the
+     * start of {@code text} up to an end tag without start tag.
+     */
+    private static List<Range> ranges(String text, boolean windowStart) {
         List<Range> ranges = new ArrayList<>();
-        xmlElements(text, ranges);
+        xmlElements(text, windowStart, ranges);
         xmlAttributes(text, ranges);
         jsonKeys(text, ranges);
         authorizationHeaders(text, ranges);
@@ -159,8 +167,8 @@ public final class SecretTextMasker {
     }
 
     /** Rule 1: the content of a secret-named element up to its matching end tag. */
-    private static void xmlElements(String text, List<Range> ranges) {
-        elements(text, 0, text.length(), false, ranges);
+    private static void xmlElements(String text, boolean windowStart, List<Range> ranges) {
+        elements(text, 0, text.length(), false, windowStart, ranges);
     }
 
     /**
@@ -168,17 +176,19 @@ public final class SecretTextMasker {
      * name pairs each end tag with the innermost open start tag of the same name, so nested start
      * tags of that name are counted. CDATA is opaque to the pairing; the interior of each CDATA
      * section (an embedded document) gets its own pass, bounded by the section. A start tag left
-     * open masks up to the next {@code <} (outside CDATA on the outer pass) or the end.
+     * open masks up to the next {@code <} (outside CDATA on the outer pass) or the end. With
+     * {@code windowStart} (outer pass only), a secret end tag without an open start tag of its
+     * qualified name masks from 0 up to that end tag.
      */
     private static void elements(String text, int from, int to, boolean inCdata,
-                                 List<Range> ranges) {
+                                 boolean windowStart, List<Range> ranges) {
         Map<String, Deque<Integer>> open = new HashMap<>();
         Matcher tag = TAG.matcher(text).region(from, to);
         while (tag.find()) {
             if (tag.group(1) != null) {
                 if (!inCdata) {
                     int end = tag.group(1).endsWith("]]>") ? tag.end() - 3 : tag.end();
-                    elements(text, tag.start() + CDATA_OPEN, end, true, ranges);
+                    elements(text, tag.start() + CDATA_OPEN, end, true, false, ranges);
                 }
             } else if (tag.group(2) != null) {
                 if (!tag.group(3).endsWith("/") && secretName(tag.group(2))) {
@@ -188,6 +198,8 @@ public final class SecretTextMasker {
                 Deque<Integer> starts = open.get(tag.group(4));
                 if (starts != null && !starts.isEmpty()) {
                     add(ranges, starts.pop(), tag.start(), elementPlaceholder(tag.group(4)), 1);
+                } else if (windowStart && secretName(tag.group(4))) {
+                    add(ranges, 0, tag.start(), elementPlaceholder(tag.group(4)), 1);
                 }
             }
         }
