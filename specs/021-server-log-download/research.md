@@ -357,8 +357,11 @@ password of a node not yet contacted is known before masking; `LogExcerpt.build`
 not run yet. If `prepare` answers `NotReady`, the call fails closed for the excerpt only, as 019
 option A does for notes: the file is written, the result carries `"excerpt": {"kind": "withheld"}`
 and the hint "The excerpt is withheld: the credentials of <node> (<store>: <state>) have not been
-read yet, so they could not be masked; the file is written" (names and states only, never a
-value). The port lives in `domain/port`, so `PackageBoundaryTest` (no `application` → `infra`)
+read yet, so they could not be masked; every excerpt is withheld until this source can be read;
+the file is written" (names and states only, never a value; FR-010, US1-10: the call counts as
+successful, audit `EXECUTED`; no `ExcerptPermit` is taken). This applies only to credentials
+read for masking; the addressed server's own login credentials are prepared before the download
+and fail the call (D-15). The port lives in `domain/port`, so `PackageBoundaryTest` (no `application` → `infra`)
 stays green; `ResultMapper` scrubs the result again as for every tool.
 
 **Rationale**: masking before selection (spec FR-009 order) is the only way a value spanning lines
@@ -423,6 +426,18 @@ without a recording (trace missing file, 403 texts) are fixtures marked `reconst
 **Decision**: one deadline per call, set by `ServerLogService` at the start of the download
 phase (after the version gate) = now + node `cliExportTimeout`, passed to
 `ServerLogPort.download(kind, version, deadlineNanos)`. It bounds every wait of the call:
+- in the service, before the download: the server's **login credentials** (FR-013). Without this
+  step the first wait would be `GatewayFactory.serverLogs(node)` → `AdapterGatewayFactory`
+  `Slot.gateway()` → `awaitCredentials()` (`adapter/AdapterGatewayFactory.java:343`), which waits
+  `secrets.timeout()` of the credential source (up to 60 s), not the call deadline. So right after
+  setting `deadlineNanos` the service calls `GatewayFactory.prepareCredentials(node, remaining)`
+  (`domain/port/GatewayFactory.java:189`, as `HealthService` does for `get_health`, 010 R-9):
+  `READY` → `serverLogs(node)` finds the credentials held and `awaitCredentials()` returns at once;
+  `PENDING` (the fetch outlived the bound and continues for the next call) → `TIMEOUT` naming
+  `cliExportTimeout`, the port is not called, audit `FAILED`; a failed fetch is thrown by
+  `prepareCredentials` and passes through with its own classified code (the node's usual
+  credential code, D-14; `NodeSecrets` classifies today as `AUTH_FAILED` or `UNREACHABLE`), the
+  port is not called, audit `FAILED`;
 - in the adapter: the slot wait, the TLS check (helper only, `min(server.timeout(), remaining)`)
   and the process (`remaining`). Both channels take a slot of the per-node fair semaphore
   (`CliConcurrencyLimiter.acquireForHelper`, `adapter/cli/CliConcurrencyLimiter.java:60`, 2
@@ -431,8 +446,9 @@ phase (after the version gate) = now + node `cliExportTimeout`, passed to
   today says "raise cliTimeout"; a new overload `acquireForHelper(server, wait, budgetSetting)`
   names the setting the caller's budget comes from (`cliExportTimeout` here; the existing callers
   keep `cliTimeout` and their texts byte-identical);
-- in the service, after the download: the credential wait (`ConfiguredSecrets.prepare`, bounded
-  by `min(prepareBound, remaining)`, D-11) and the `ExcerptPermit` wait (`remaining`, D-13).
+- in the service, after the download: the credential wait for masking (`ConfiguredSecrets.prepare`,
+  bounded by `min(prepareBound, remaining)`, D-11) and, only if it answered `Ready`, the
+  `ExcerptPermit` wait (`remaining`, D-13); `NotReady` takes no permit (excerpt withheld).
 
 Every `TIMEOUT` names `cliExportTimeout` in its next step and adds "large logs need a larger
 cliExportTimeout"; process tree killed, private directory deleted, nothing in the target folder.
@@ -449,7 +465,23 @@ store is inside the deadline (FR-013).
 plan phase and changed in spec FR-013.
 
 
-**Version check**: `VersionGate.admitWithDetection` runs before the call deadline starts and is bounded by the node's REST `timeout`, as for every tool (its result is cached); spec FR-013 states this. The remaining time passed to `ConfiguredSecrets.prepare` and `ExcerptPermit.tryAcquire` is clamped to `Duration.ZERO`.
+**Version check**: `VersionGate.admitWithDetection(…, {CLI})` runs before the call deadline
+starts. It has two bounded parts, both as for every StartCLI-based tool:
+- the version detection of an `AUTO` node (none for a pinned `versionLine`), bounded by the
+  node's REST `timeout`, its result cached (spec FR-013);
+- because the call's channels contain `CLI`, the 017 client check of `VersionGate.judge`
+  (`application/VersionGate.java:346-358`): if the StartCLI client chosen for the version is
+  available and `NodeVersions.needsClientProbe` says no result of that client is known and no
+  failed probe of it lies within the last 60 s, `probeClient` runs the client probe bounded by the
+  node's `cliTimeout` (`VersionGate.java:444-446`, `cliTimeouts.apply(node)`); its result is
+  recorded and reused by later calls (a failed probe gives a warning and is not repeated for
+  60 s). So the probe runs at most once per client and back-off window, not on every call.
+
+Neither part is inside the `cliExportTimeout` deadline; the probe adds at most `cliTimeout`
+before the deadline starts, and only on a call that finds no usable probe result. The spec
+needs no change: FR-013 bounds the version check "as for every tool", which includes the 017
+probe. The remaining time passed to `GatewayFactory.prepareCredentials`,
+`ConfiguredSecrets.prepare` and `ExcerptPermit.tryAcquire` is clamped to `Duration.ZERO`.
 
 ## D-16 TLS and credentials (FR-012)
 

@@ -19,7 +19,8 @@ local folder and returns a masked, bounded excerpt with absolute line numbers:
 - Stage 1 is a behaviour-preserving refactor: the helper becomes `ClientHelper` and the shared
   helper adapter classes move to `adapter/cli/helper`; wire ids and 020 fixtures stay (D-3).
 - Both channels download into a private temporary directory under one `cliExportTimeout` deadline
-  per call (set by the service; it also bounds the credential wait and the excerpt-permit wait)
+  per call (set by the service; it also bounds the server's login-credential wait through
+  `GatewayFactory.prepareCredentials`, the credential wait for masking and the excerpt-permit wait)
   and a per-node StartCLI slot (D-7, D-15); the excerpt is built from the private copy (window =
   last 50 MiB from the first whole line, 020 binary rule, line-preserving masking of the whole
   window incl. the known credentials of every configured node via 019's `ConfiguredSecrets`,
@@ -70,8 +71,14 @@ check + one helper JVM (webservice), bounded by `cliExportTimeout`; excerpt of a
   nothing left after an error;
 - FR-010/SC-003: masking on the whole window before selection, line numbers exact; no content or
   `contains` in logs or audit;
-- FR-013: the version check is bounded by the node's `timeout` (cached, as for every tool); `cliExportTimeout` per call (built-in 120 s) bounds every other wait of the call (slot, TLS
-  check, process, credential wait, excerpt permit); only the local excerpt build and placement
+- FR-013: the version check runs before the deadline, as for every tool: the detection of an
+  `AUTO` node bounded by the node's `timeout`, and (channel `CLI`) the 017 client probe bounded by
+  `cliTimeout`, both cached (the probe runs only while no result of the chosen client is known,
+  D-15); `cliExportTimeout` per call (built-in 120 s) bounds every other wait of the call: the
+  server's login credentials (`GatewayFactory.prepareCredentials(node, remaining)` before
+  `serverLogs(node)`, so `AdapterGatewayFactory`'s `awaitCredentials()` with up to 60 s never
+  waits; `PENDING` → `TIMEOUT`), slot, TLS check, process, credentials for masking, excerpt
+  permit; only the local excerpt build and placement
   after the permit run to their end (bounded, D-15); every `TIMEOUT` names `cliExportTimeout`;
   per-node slot for both channels; other StartCLI runs unchanged;
 - memory: one excerpt at a time, ≈ 250 MiB peak (D-13); the INUBIT server itself reads

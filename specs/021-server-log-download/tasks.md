@@ -232,8 +232,9 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   spanning lines 10–12, line 13 after it), `secrets_everywhere.log` (every rule 1–7 once,
   `Authorization: Basic …`, `Bearer …`, a profile password), `crlf.log`. Failing tests first in
   `domain/model/SecretTextMaskerLinesTest.java`: one test per rule; known span masked (US1-3);
-  US1-8 (token on line 10, lines 11–12 empty, the unmasked rest of line 12 after the end tag
-  kept, line 13 keeps number 13); the line count of the output equals the input for every
+  US1-8 (the value replaced by the mask token on line 10, line 11 empty, line 12 equals
+  `</password>` followed by the text after it on that line, line 13 keeps number 13 and its
+  text); the line count of the output equals the input for every
   fixture; CRLF preserved; `domain/model/SecretTextMaskerTest.java` unchanged and green
 - [ ] T014 `SecretTextMasker.maskLines` part 2 (FR-010, D-11, US1-9; after T013): **end tag without
   start tag** (outer pass only, not inside CDATA): an end tag `</(prefix:)?name>` of a secret
@@ -243,7 +244,9 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   before the window is **not** detected (documented limit). Fixture
   `src/test/resources/fixtures/server-log/excerpt/secrets_window_start.{log,README}`. Failing
   tests first in `domain/model/SecretTextMaskerLinesTest.java`: US1-9 (every line from the window
-  start up to and including the end tag masked); orphan end tag inside CDATA ignored; a matched
+  start up to the end tag masked: the placeholder on the first line, every following line
+  before the end-tag line empty; the end-tag line keeps the end tag and the text after it, the
+  part before the end tag masked; line count unchanged); orphan end tag inside CDATA ignored; a matched
   start/end pair not affected; the JSON limit pinned by a test that documents it
 - [ ] T015 `domain/model/LogExcerpt.java` (+ `Selection` `TAIL` | `CONTAINS`) (FR-009 steps 2–5,
   D-10, D-12; after T010, T014): `LogExcerpt.build(LogWindow, int tailLines, Optional<String>
@@ -438,10 +441,26 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   TRACE_LOG_READ | WEBSERVICE_LOG_READ, READ, {CLI})`: `UNSUPPORTED_VERSION` closes the call's
   `auditId` with `REFUSED`, a detection error is passed through with its own code and message and
   closes it with `FAILED`; then the call deadline `deadlineNanos = System.nanoTime() + node
-  cliExportTimeout` (start of the download phase, D-15; `LongSupplier` seam for tests) and
-  `ServerLogPort.download(kind, version, deadlineNanos)` in try-with-resources. Failing tests
+  cliExportTimeout` (start of the download phase, D-15; `LongSupplier` seam for tests); then the
+  server's login credentials: `GatewayFactory.prepareCredentials(node, remaining)`
+  (`domain/port/GatewayFactory.java:189`, `remaining` = what is left of the call deadline, clamped
+  to `Duration.ZERO`) **before** `GatewayFactory.serverLogs(node)`, so that the credential wait in
+  `AdapterGatewayFactory` `Slot.gateway()` → `awaitCredentials()` (bounded only by the credential
+  source's own `timeout()`, up to 60 s) finds them held and does not wait outside the call deadline
+  (FR-013 "the server's login credentials"): `PENDING` → `TIMEOUT` "The <log> log download from
+  <node> did not finish within cliExportTimeout (<n> s): the login credentials of <node> were not
+  read in time", next step naming `cliExportTimeout`, the port not called, audit `FAILED`; a failed
+  fetch passes through with its own classified code (the node's usual credential code, D-14; today
+  `AUTH_FAILED` or `UNREACHABLE` from `NodeSecrets`), the port not called, audit `FAILED`; `READY`
+  → `GatewayFactory.serverLogs(node)` and `ServerLogPort.download(kind, version, deadlineNanos)` in
+  try-with-resources. Failing tests
   first in `application/ServerLogServiceTest.java` (fake port recording calls and the deadline it
-  got; fake audit): the port gets a deadline equal to the seam's time + `cliExportTimeout`; each
+  got; fake `GatewayFactory` recording the `prepareCredentials` bound; fake audit): the port gets a
+  deadline equal to the seam's time + `cliExportTimeout`; `prepareCredentials` is called before
+  `serverLogs` with a bound equal to the remaining deadline (= `cliExportTimeout` at the seam's
+  time); `prepareCredentials` answering `PENDING` → `TIMEOUT` naming `cliExportTimeout`, port not
+  called, audit `FAILED`; `prepareCredentials` throwing `AUTH_FAILED` → `AUTH_FAILED` passed
+  through, port not called, audit `FAILED`; each
   invalid input → `INVALID_INPUT`, zero port calls, nothing created; folder rules (relative,
   `..`, network path, workspace, config dir, git working tree); webservice without opt-in →
   `NOT_CONFIGURED`, no detection, no port call (US2-3 on service level); undetectable version →
@@ -461,8 +480,9 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   `prepare` answered `NotReady`, no permit is taken and no excerpt is built: `"excerpt": {"kind":
   "withheld"}` with the
   hint "The excerpt is withheld: the credentials of <node> (<store>: <state>) have not been read
-  yet, so they could not be masked; the file is written" (fail closed, 019 option A; the
-  pending list names nodes and stores, never a value) → `LogFileWriter.place(folder,
+  yet, so they could not be masked; every excerpt is withheld until this source can be read; the
+  file is written" (fail closed, 019 option A; the pending list names nodes and stores, never a
+  value; FR-010) → `LogFileWriter.place(folder,
   "<group>-<node>-<log>-<yyyyMMdd-HHmmss>", privateCopy)` with the UTC instant at which the
   download finished (injected `Clock`) → `ServerLogResult` (`downloadedAt` ISO-8601 UTC = the
   instant in the file name) → final audit `EXECUTED` (details `file`, `sizeBytes`, `inubitNode`) or
@@ -482,7 +502,9 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   `webservice` (US2-4); `contains` without match → file written, empty excerpt + hint; injected
   placement failure → no file, `FAILED`; masking of a known profile password of **another** node
   in the excerpt while the file keeps it (US1-3); a fake `ConfiguredSecrets` answering `NotReady`
-  → file written, `kind: withheld` + hint naming node and store, no log line in the result; the
+  → file written, `kind: withheld` + hint naming node and store and containing "every excerpt is
+  withheld until this source can be read", no log line in the result, no permit taken, audit
+  `EXECUTED` (US1-10); the
   permit held by another call longer than the remaining deadline → `TIMEOUT` naming
   `cliExportTimeout`, no file in the folder, private directory deleted, audit `FAILED`; the
   `prepare` bound never exceeds the remaining deadline; leak check The remaining time after the download is clamped to `Duration.ZERO`; test "deadline already passed after download": `ConfiguredSecrets.prepare(Duration.ZERO)` is called, the permit is still taken if free, and the file is placed.
@@ -885,7 +907,7 @@ helper's `variant`.
 - **US2** (after Phase 2; T043 needs US1's T031): T035 ∥ T036 (T036 needs T004) → T037 → T038;
   T039 needs T005, T036; T040 needs T024; T041 needs T026, T029, T037–T040; T042 needs T009 and
   runs sequentially with T031 and T033 (all three change `MainTest.java`); T043 needs T031, T041;
-  T044 needs T043; T045 needs T009 (same `docs/setup.md`); T046 **blocked by T034** and needs
+  T044 needs T043; T045 needs T009 and T042 (same `docs/setup.md`); T046 **blocked by T034** and needs
   T044.
 - **US3** (after US1 and US2 code): T047 needs T043; T048 needs T047; T051 **blocked by T049**,
   T052 **blocked by T050**, both need T048; T053 only instead of T051 and/or T052.

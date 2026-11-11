@@ -39,7 +39,7 @@ refactor, D-3). Every new output field is additive.
 
 | Type | Change | Responsibility |
 |---|---|---|
-| `ServerLogService` | new | `ServerLogResult download(ServerLogRequest)`: validate → resolve one server → opt-in (webservice) → folder rules → audit `PENDING` → `VersionGate.admitWithDetection("download_server_log", node, capability, READ, {CLI})` → call deadline (now + `cliExportTimeout`) → `ServerLogPort.download(kind, version, deadline)` (try-with-resources) → `ConfiguredSecrets.prepare(min(prepareBound, remaining))` → `ExcerptPermit.tryAcquire(remaining)` (empty → `TIMEOUT`) → `LogWindowReader` → `LogExcerpt.build` with `ConfiguredSecrets::occurrences` (skipped if `NotReady`: excerpt withheld) → `LogFileWriter.place` → final audit → INFO log line; dependencies include `ConfiguredSecrets` and `Duration prepareBound` from `Wiring` (as 019's `KnowledgeService`) |
+| `ServerLogService` | new | `ServerLogResult download(ServerLogRequest)`: validate → resolve one server → opt-in (webservice) → folder rules → audit `PENDING` → `VersionGate.admitWithDetection("download_server_log", node, capability, READ, {CLI})` → call deadline (now + `cliExportTimeout`) → `GatewayFactory.prepareCredentials(node, remaining)` (`PENDING` → `TIMEOUT`, fetch failure passed through; port not called) → `GatewayFactory.serverLogs(node)` → `ServerLogPort.download(kind, version, deadline)` (try-with-resources) → `ConfiguredSecrets.prepare(min(prepareBound, remaining))`: `Ready` → `ExcerptPermit.tryAcquire(remaining)` (empty → `TIMEOUT`) → `LogWindowReader` → `LogExcerpt.build` with `ConfiguredSecrets::occurrences`; `NotReady` → no permit, no excerpt (withheld) → `LogFileWriter.place` → final audit → INFO log line; dependencies include `ConfiguredSecrets` and `Duration prepareBound` from `Wiring` (as 019's `KnowledgeService`) |
 | `ServerLogRequest` | new | `String target`, `String log`, `String targetFolder`, `OptionalInt tailLines`, `Optional<String> contains`, `OptionalInt maxChars`, `Optional<String> mcpClient` | `toString` without `contains` |
 | `LogWindowReader` | new | `LogWindow read(Path file, long size)`: start at the first line beginning within the last 50 MiB; streams the prefix to count `\n` (64 KiB blocks) | D-9 |
 | `ExcerptPermit` | new | process-wide fair semaphore, 1 permit; `Optional<Held> tryAcquire(Duration wait)`, the wait bounded by the remaining call deadline | D-13, D-15 |
@@ -109,11 +109,17 @@ call ──► checks (input, target, opt-in, folder) ──► audit PENDING �
         ▼                                            ▼
    deadline = now + cliExportTimeout
         │
+   login credentials of the server prepared (≤ deadline)
+        │ PENDING: TIMEOUT, fetch failure: its code; port not called, audit FAILED
+        ▼
    private dir created ──► download (slot, TLS, process ≤ deadline) ──► DownloadedLog (private copy)
         │ failure: dir deleted, audit FAILED                  │
         ▼                                                     ▼
-   credentials prepared (≤ deadline; NotReady → excerpt withheld) ──► ExcerptPermit (≤ deadline,
-        else TIMEOUT) ──► excerpt ──► place (.part → link/claim) ──► audit EXECUTED ──► dir deleted
+   credentials for masking prepared (≤ deadline)
+        ├─ Ready ────► ExcerptPermit (≤ deadline, else TIMEOUT) ──► excerpt ──┐
+        └─ NotReady ─► no permit, excerpt withheld ───────────────────────────┤
+                                                                              ▼
+                        place (.part → link/claim) ──► audit EXECUTED ──► dir deleted
         │ failure: created files deleted, dir deleted, audit FAILED
 ```
 

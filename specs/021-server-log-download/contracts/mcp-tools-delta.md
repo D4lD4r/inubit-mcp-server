@@ -97,11 +97,14 @@ Nothing is sent to INUBIT and nothing is created locally before steps 1–5 pass
    (schema failures never reach the server).
 6. Version gate (`admitWithDetection`; `trace_log_read` / `webservice_log_read`): refusal
    `UNSUPPORTED_VERSION` (audited `REFUSED`), detection error passed through (audited `FAILED`).
-7. Call deadline = now + `cliExportTimeout`; StartCLI slot + download into a private temporary
-   directory within it.
+7. Call deadline = now + `cliExportTimeout`; the server's login credentials prepared within it
+   (`GatewayFactory.prepareCredentials`; not read in time → `TIMEOUT` naming `cliExportTimeout`, a
+   failed fetch → its own code; nothing sent, audited `FAILED`); StartCLI slot + download into a
+   private temporary directory within it.
 8. Credentials of every configured node prepared (bounded by the remaining deadline; not all
-   known → excerpt withheld); excerpt permit (within the remaining deadline, else `TIMEOUT`);
-   excerpt from the private copy (masking, selection, bounds).
+   known → excerpt withheld, no excerpt permit taken); otherwise excerpt permit (within the
+   remaining deadline, else `TIMEOUT`) and excerpt from the private copy (masking, selection,
+   bounds).
 9. Placement in `targetFolder` under the claimed name; final audit record; one INFO log line.
 
 ## Output (`schemas/download_server_log.output.json`)
@@ -156,7 +159,7 @@ Variants:
 | Case | Shape |
 |---|---|
 | empty log | `"excerpt": {"kind": "empty"}`, hint `The log is empty` (webservice: `; web service logging may be disabled`); for an adapter that reports presence `UNKNOWN`: `The log is empty or does not exist on the server` (webservice: `The log is empty or does not exist on the server; web service logging may be disabled`) |
-| credentials of some configured node not read yet | `"excerpt": {"kind": "withheld"}`, hint `The excerpt is withheld: the credentials of prod/node2 (credential store: waiting) have not been read yet, so they could not be masked; the file is written`; the file is written as usual |
+| credentials of some configured node not read yet | `"excerpt": {"kind": "withheld"}`, hint `The excerpt is withheld: the credentials of prod/node2 (credential store: waiting) have not been read yet, so they could not be masked; every excerpt is withheld until this source can be read; the file is written`; the file is written as usual; the call is successful (audit `EXECUTED`) |
 | binary window | `"excerpt": {"kind": "binary", "detected": "GZIP"}`, hint `Binary content is not returned` (`detected` only if a signature matched) |
 | `contains` without match | `"selection": "contains", "matchingLines": 0, "returnedLines": 0, "lines": []`, hint `No line of the scanned window contains the search text` |
 | file > 50 MiB | `"window": {"startLine": 412877, …, "wholeFile": false}`, hint `Only the last 50 MiB were scanned; line numbers count the whole file` |
