@@ -93,6 +93,15 @@ masked excerpt. Testable offline.
    called, **Then** the existing file is not replaced (the call picks a free name as in FR-007).
 6. **Given** a profile in which no group has any `unsupported` setting, **When** the server starts,
    **Then** the tool is offered (for `log: trace`) wherever a StartCLI client is configured.
+7. **Given** a trace log of 60 MiB, **When** the tool is called, **Then** the excerpt comes from the
+   window starting at the first whole line within the last 50 MiB, the result says that the window
+   is smaller than the file, and each excerpt line carries its line number in the whole file.
+8. **Given** a log in which a `<password>` element spans lines 10–12 and line 13 follows, **When**
+   the excerpt is built, **Then** the value is replaced by the mask token on line 10, lines 11–12
+   are empty, the unmasked rest of line 12 after the end tag stays, and line 13 keeps number 13.
+9. **Given** a window whose first lines continue a `<password>` element opened before the window
+   and close it with `</password>`, **When** the excerpt is built, **Then** every line from the start
+   of the window up to and including the end tag is masked.
 
 ---
 
@@ -122,9 +131,11 @@ for a group without the opt-in the call is refused before any request.
    **Then** it is refused with `NOT_CONFIGURED` naming the missing setting, and no request is sent
    to the server.
 4. **Given** web service logging is disabled on the server or the file does not exist yet,
-   **When** the tool is called, **Then** it fails with `NOT_FOUND` saying that the server has no web
-   service log and that web service logging can be enabled in the server configuration; no file is
-   written.
+   **When** the tool is called, **Then**, where the interface tells a missing file apart (edge case
+   "Missing versus empty"), it fails with `NOT_FOUND` saying that the server has no web service log
+   and that web service logging can be enabled in the server configuration, and no file is written;
+   otherwise the result reports an empty log with the hint that web service logging may be
+   disabled.
 5. **Given** the documentation of the opt-in, **When** an operator reads it, **Then** it states that
    the web service log is read through unsupported, undocumented INUBIT functionality without
    vendor support or stability guarantee, that it may stop working after any INUBIT update, and that
@@ -249,10 +260,12 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
   on the whole scanned window before lines are selected (FR-009). Masking MUST keep every line
   break of the window: a masked value spanning several lines is replaced by the mask token on its
   first line and the other lines it covered remain as empty lines, so line N of the masked window is
-  line N of the window. If the window contains the end tag of a secret-named element whose start
+  line N of the window; a line the masked value covers only in part keeps its unmasked text, only
+  lines it covers completely become empty. If the window contains the end tag of a secret-named element whose start
   tag is not in the window (it was opened before the window), every line from the start of the
   window up to and including that end tag is masked the same way: when in doubt, content is left
-  out rather than shown.
+  out rather than shown. A secret-named JSON value (object or array) that opens before the window
+  is not detected; the documentation names this limit.
 - **FR-011**: Errors MUST use the existing error codes: `INVALID_INPUT` (bad input, folder rules),
   `NOT_FOUND` (log file does not exist on the server), `NOT_CONFIGURED`, `UNSUPPORTED_VERSION`,
   `CLI_UNAVAILABLE`, `AUTH_FAILED`, `FORBIDDEN` (the user lacks the right the Workbench needs),
