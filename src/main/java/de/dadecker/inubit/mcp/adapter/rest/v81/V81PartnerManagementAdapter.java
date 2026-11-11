@@ -35,10 +35,13 @@ import java.util.Optional;
  * others are still read. Name, group and owner are compared exactly (case-sensitive), so the owner
  * must be passed as {@code listDiagrams} returned it. A diagram whose export answers HTTP 404
  * (deleted or renamed since it was listed) is reported as unreadable with {@code NOT_FOUND} as
- * well. An export that cannot be read is {@code UNEXPECTED_RESPONSE} naming the part, never its
- * content; other request failures come from {@link InubitHttpClient}, without the excerpt of the
- * answer (T030, FR-008: the answer to a Partner Management export may quote partner data). All
- * errors carry the server id.
+ * well. An archive without a readable diagram (no or a malformed {@code workflow.xml}, a Partner
+ * Management the reader cannot read, such as a communication cloud without {@code ModuleName}) is
+ * reported as unreadable with {@code UNEXPECTED_RESPONSE} naming the part, never its content, and
+ * the other diagrams are still read (live check T034). An answer that is not a ZIP archive is the
+ * server's {@code UNEXPECTED_RESPONSE}; other request failures come from
+ * {@link InubitHttpClient}, without the excerpt of the answer (T030, FR-008: the answer to a
+ * Partner Management export may quote partner data). All errors carry the server id.
  */
 public final class V81PartnerManagementAdapter implements PartnerManagementPort {
 
@@ -76,17 +79,20 @@ public final class V81PartnerManagementAdapter implements PartnerManagementPort 
                     + " under this name (deleted or renamed since it was listed)"));
                 continue;
             }
-            Element root = workflowRoot(diagram, export.body());
-            Optional<String> mismatch = mismatch(root, diagram, owner);
-            if (mismatch.isPresent()) {
+            try {
+                Element root = workflowRoot(diagram, export.body());
+                Optional<String> mismatch = mismatch(root, diagram, owner);
+                if (mismatch.isPresent()) {
+                    throw new UnreadableExport(mismatch.get());
+                }
+                PartnerManagementReader.Result read = partners(diagram, root);
+                diagrams.add(read.partners());
+                if (!read.warnings().isEmpty()) {
+                    warnings.put(diagram, read.warnings());
+                }
+            } catch (UnreadableExport e) {
                 unreadable.add(new UnreadableDiagram(diagram, ErrorCode.UNEXPECTED_RESPONSE,
-                    mismatch.get()));
-                continue;
-            }
-            PartnerManagementReader.Result read = partners(diagram, root);
-            diagrams.add(read.partners());
-            if (!read.warnings().isEmpty()) {
-                warnings.put(diagram, read.warnings());
+                    e.getMessage()));
             }
         }
         return new Result(diagrams, unreadable, warnings);
@@ -111,14 +117,21 @@ public final class V81PartnerManagementAdapter implements PartnerManagementPort 
         }
     }
 
+    /**
+     * The root of the {@code workflow.xml} of {@code body}.
+     *
+     * @throws ToolErrorException {@code UNEXPECTED_RESPONSE} of the server if {@code body} is not
+     *     a ZIP archive: the server did not answer with an export at all
+     * @throws UnreadableExport if the archive has no {@code workflow.xml} or it is not well-formed
+     */
     private Element workflowRoot(DiagramRef diagram, byte[] body) {
         byte[] xml = DiagramExportParser.workflowEntry(server, body).orElseThrow(() ->
-            InventoryXml.unexpected(server, "The export of " + where(diagram) + " has no "
+            new UnreadableExport("The export of " + where(diagram) + " has no "
                 + DiagramExportParser.WORKFLOW_ENTRY));
         try {
             return XmlTree.parse(xml).root();
         } catch (IllegalArgumentException e) {
-            throw InventoryXml.unexpected(server, "The " + DiagramExportParser.WORKFLOW_ENTRY
+            throw new UnreadableExport("The " + DiagramExportParser.WORKFLOW_ENTRY
                 + " of the export of " + where(diagram) + " is not well-formed XML");
         }
     }
@@ -148,9 +161,20 @@ public final class V81PartnerManagementAdapter implements PartnerManagementPort 
         try {
             return PartnerManagementReader.read(diagram, root);
         } catch (IllegalArgumentException e) {
-            throw InventoryXml.unexpected(server, "The Partner Management in the "
+            throw new UnreadableExport("The Partner Management in the "
                 + DiagramExportParser.WORKFLOW_ENTRY + " of the export of " + where(diagram)
                 + " cannot be read: " + e.getMessage());
+        }
+    }
+
+    /**
+     * The export of one diagram holds no readable diagram; its message names the part, never a
+     * value, and becomes the diagram's {@link UnreadableDiagram} entry.
+     */
+    private static final class UnreadableExport extends RuntimeException {
+
+        UnreadableExport(String message) {
+            super(message, null, false, false);
         }
     }
 

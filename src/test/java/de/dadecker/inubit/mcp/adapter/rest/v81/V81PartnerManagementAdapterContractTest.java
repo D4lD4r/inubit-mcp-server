@@ -6,6 +6,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
@@ -270,44 +271,79 @@ class V81PartnerManagementAdapterContractTest {
         assertThat(error.node()).contains(ID);
     }
 
-    @Test
-    void anExportWithoutWorkflowXmlIsUnexpectedNamingTheEntry() {
-        stubExport(RECORDED.name(), withWorkflowXml(null));
+    // --- one diagram whose export cannot be read (live check T034, finding A) ---------------
 
-        ToolError error = errorOf(() -> adapter().read(OWNER, List.of(RECORDED)));
+    /**
+     * Reads {@link #RECORDED}, whose export is {@code broken}, and {@link #SYNTHETIC}: the
+     * recorded diagram gives no data and is reported per diagram, the other is still answered.
+     */
+    private UnreadableDiagram unreadableBeside(byte[] broken) {
+        stubExport(RECORDED.name(), broken);
+        stubExport(SYNTHETIC.name(), syntheticExport());
 
-        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
-        assertThat(error.message()).contains(WORKFLOW_XML, RECORDED.name());
-        assertThat(error.node()).contains(ID);
+        Result result = adapter().read(OWNER, List.of(RECORDED, SYNTHETIC));
+
+        assertThat(result.diagrams()).extracting(d -> d.diagram()).containsExactly(SYNTHETIC);
+        assertThat(result.warnings()).containsOnlyKeys(SYNTHETIC);
+        assertThat(result.unreadableDiagrams()).singleElement().satisfies(unreadable -> {
+            assertThat(unreadable.systemDiagram()).isEqualTo(RECORDED);
+            assertThat(unreadable.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            assertThat(unreadable.message()).contains("GRP-PM/SystemDiagram-01 on dev/node1")
+                .doesNotContain(RECORDED_VALUE);
+        });
+        return result.unreadableDiagrams().get(0);
     }
 
     @Test
-    void aWorkflowXmlThatIsNotWellFormedIsUnexpectedWithoutItsContent() {
+    void anExportWithoutWorkflowXmlGivesNoDataAndIsReportedPerDiagram() {
+        assertThat(unreadableBeside(withWorkflowXml(null)).message()).contains(WORKFLOW_XML);
+    }
+
+    @Test
+    void aWorkflowXmlThatIsNotWellFormedIsReportedPerDiagramWithoutItsContent() {
         String xml = recordedWorkflowXml();
-        stubExport(RECORDED.name(), withWorkflowXml(xml.substring(0, xml.indexOf(RECORDED_VALUE)
-            + RECORDED_VALUE.length()).getBytes(StandardCharsets.UTF_8)));
+        UnreadableDiagram unreadable = unreadableBeside(withWorkflowXml(xml.substring(0,
+            xml.indexOf(RECORDED_VALUE) + RECORDED_VALUE.length())
+            .getBytes(StandardCharsets.UTF_8)));
 
-        ToolError error = errorOf(() -> adapter().read(OWNER, List.of(RECORDED)));
-
-        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
-        assertThat(error.message()).contains(WORKFLOW_XML, "not well-formed")
-            .doesNotContain(RECORDED_VALUE);
-        assertThat(error.toString()).doesNotContain(RECORDED_VALUE);
+        assertThat(unreadable.message()).contains(WORKFLOW_XML, "not well-formed");
+        assertThat(unreadable.toString()).doesNotContain(RECORDED_VALUE);
     }
 
     @Test
-    void aPartnerManagementOfAnotherStructureIsUnexpectedNamingThePartNotTheContent() {
-        stubExport(RECORDED.name(), recordedWith(" protocol=\"WebService\"", ""));
+    void aPartnerManagementOfAnotherStructureIsReportedPerDiagramNamingThePartNotTheContent() {
+        UnreadableDiagram unreadable = unreadableBeside(
+            recordedWith(" protocol=\"WebService\"", ""));
 
-        ToolError error = errorOf(() -> adapter().read(OWNER, List.of(RECORDED)));
-
-        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
-        assertThat(error.message()).contains(WORKFLOW_XML, "GRP-PM/SystemDiagram-01",
-            "protocol").doesNotContain(RECORDED_VALUE);
-        assertThat(error.toString()).doesNotContain(RECORDED_VALUE);
-        assertThat(error.node()).contains(ID);
+        assertThat(unreadable.message()).contains(WORKFLOW_XML, "protocol");
+        assertThat(unreadable.toString()).doesNotContain(RECORDED_VALUE);
     }
 
+    @Test
+    void aCommunicationCloudWithoutModuleNameIsReportedPerDiagram() {
+        UnreadableDiagram unreadable = unreadableBeside(
+            recordedWith("<ModuleName>Module-0901</ModuleName>", ""));
+
+        assertThat(unreadable.message()).contains(WORKFLOW_XML, "ModuleName")
+            .doesNotContain("Module-0902");
+    }
+
+    @Test
+    void unreadableDiagramsKeepTheirOrderAndDoNotStopTheOthers() {
+        stubExport(SYNTHETIC.name(), syntheticExport());
+        stubExport(RECORDED.name(), recordedWith("<ModuleName>Module-0901</ModuleName>", ""));
+        DiagramRef third = new DiagramRef("SystemDiagram-03", RECORDED.diagramGroup());
+        stub(third.name(), aResponse().withStatus(404));
+
+        Result result = adapter().read(OWNER, List.of(SYNTHETIC, RECORDED, third));
+
+        assertThat(result.diagrams()).extracting(d -> d.diagram()).containsExactly(SYNTHETIC);
+        assertThat(result.unreadableDiagrams()).extracting(UnreadableDiagram::systemDiagram,
+            UnreadableDiagram::code).containsExactly(
+                tuple(RECORDED, ErrorCode.UNEXPECTED_RESPONSE),
+                tuple(third, ErrorCode.NOT_FOUND));
+        assertThat(wireMock.getAllServeEvents()).hasSize(3);
+    }
 
     // --- REST failures map to the existing error kinds -------------------------------------
 
