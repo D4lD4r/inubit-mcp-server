@@ -50,3 +50,12 @@ the new tool (`download_server_log`, contract `contracts/mcp-tools-delta.md`).
 - T007: the refusal messages of the other folder rules still say "Archives with clear-text secrets…"
   (kept identical by T007's done criterion). When the log caller is wired (T027/T028), check that
   a log refusal does not talk about archives; if it does, add a subject for those messages too.
+
+## Checkpoint stage 1 (after T007, commit fdb82ee8)
+
+- `mvn -o -q clean verify` (tmpdir outside the checkout): exit 0; 7309 tests (surefire + failsafe),
+  0 failures, 0 errors, 58 skipped (baseline 7248; +61 from T003–T007).
+- `git diff --stat main -- src/test/resources/fixtures/queue-entry`: empty.
+- Code review T003–T007: one independent task review each, all APPROVED in round 1
+  (`reviews/T003-r1.md` … `reviews/T007-r1.md`); minors: T004 (public HelperRequestTest fixture,
+  revisit in T036), T005 (Login.REJECTED inferred from AUTH_FAILED), T007 (import style).
