@@ -497,7 +497,7 @@ refused before any content request (FR-006, FR-019, US3-1…5).
   `list_nodes` capability name; `README.md` tool list — `QueueEntryDocsTest` extended first (short
   form present in `docs/tools.md`; 9.0 state matches the matrix: supported after T038, "not yet
   verified" under T039)
-- [ ] T041 [P] `CHANGELOG.md` `[Unreleased]`: new tool `read_queue_entry` (unsupported INUBIT
+- [X] T041 [P] `CHANGELOG.md` `[Unreleased]`: new tool `read_queue_entry` (unsupported INUBIT
   interface, opt-in per group, diagnosis only), `unsupported.queueEntryRead`, `--check-config`
   line only with an opt-in, 9.0 state (verified or "not yet verified"), internal `ProcessRun`
   extraction without behaviour change
