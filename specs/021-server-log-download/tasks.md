@@ -326,7 +326,7 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   file of the call; placeholder fallback; neither links nor atomic moves; bytes identical to the
   source for UTF-8, Latin-1 and binary (FR-008); `application/ArchiveFolderWriterTest.java`
   unchanged
-- [ ] T020 [P] `application/ServerLogAudit.java` (FR-015, D-18), built like
+- [X] T020 [P] `application/ServerLogAudit.java` (FR-015, D-18), built like
   `application/ArchiveExportAudit.java`: capability `download_server_log`, step `EXECUTE`, one
   `auditId` per call; `REFUSED`; `PENDING` → `EXECUTED` | `FAILED` (with the error code); inputs
   in fixed order `log`, `targetFolder`, `tailLines`, `maxChars`, `containsGiven` (`true` /
