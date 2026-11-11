@@ -91,6 +91,14 @@ of `specs/019-local-knowledge/quickstart.md` is open).
   Store unreachable), both knowledge tools refuse with `PRECONDITION_FAILED`.
 - `docs/tools.md` describes twenty tools.
 
+### Fixed
+
+- The model export of INUBIT 9.0 (`get_inventory_item` of a diagram, `find_partners`) failed
+  with `UNEXPECTED_RESPONSE` "not a ZIP archive": INUBIT 9.0.10 sends it with
+  `Content-Encoding: gzip`, although no `Accept-Encoding` is requested, and Java's HTTP client
+  does not decode it. The REST client now removes a `gzip` content encoding; the body limit of
+  64 MB applies to the decoded size. Found in the INUBIT 9.0 live check (feature 017, T047, F-3).
+
 ## [0.8.1] - 2026-11-11
 
 Fixes from the first INUBIT 9.0 live check and from imports on 8.1.
