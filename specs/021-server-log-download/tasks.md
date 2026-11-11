@@ -61,7 +61,7 @@ decisions go to `specs/021-server-log-download/reviews/implementation.md`.
   `cliExportTimeout` (built-in 120 s, `config/Defaults.java` `BUILTIN_CLI_EXPORT_TIMEOUT`; spec
   FR-013, D-15) and plan open question 2 (additive `trace_log_read` in `list_nodes` and the 6.1
   `cliOnly` summary) at its default unless the owner overrides
-- [ ] T002 [P] Fixture root (D-21): `src/test/resources/fixtures/server-log/README.md` describing
+- [X] T002 [P] Fixture root (D-21): `src/test/resources/fixtures/server-log/README.md` describing
   the layout `{v8_1,v9_0}/{trace,webservice}/<case>.<ext>` (trace: `.stdout`, `.stderr`, `.exit`,
   `.log`, `.origin`; webservice: `.frames`, `.exit`, `.log`, `.origin`) and
   `excerpt/<case>.{log,README}`; the `.origin` formats "`recorded <date> <version> neutralized`" /
