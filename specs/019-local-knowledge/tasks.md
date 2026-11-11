@@ -295,8 +295,9 @@ readiness and a failing-audit fake.
 
 ## Live check (SC-001; after the implementation, by the person)
 
-- [ ] T041 Live check steps 1–7 of `quickstart.md` "Live check" with a scratch profile; result
-  (client, version, pass/fail per step) in the PR description
+- [X] T041 Live check steps 1–7 of `quickstart.md` "Live check" with a scratch profile; result
+  (client, version, pass/fail per step) in the PR description (#72 was merged first, so in the
+  quickstart validation record)
 
 ## Dependencies
 
