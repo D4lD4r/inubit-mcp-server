@@ -2143,7 +2143,8 @@ every write; each step that refuses sends nothing to INUBIT:
    a placeholder without a value is `SECRET_UNRESOLVED`);
 9. the import protocol must name exactly the sent artifacts; the scope is exported again and
    every sent artifact must equal the intended state, with exactly the reason in its check-in
-   comment;
+   comment (secrets compared as the re-export renders them: a plain value the workspace sends at
+   a secret path, e.g. in a property named like a certificate, equals its placeholder);
 10. success: only the changed files and their `.meta/` records are replaced by the verified
     server state and committed as one history entry
     `<import|restore|activate|deactivate> <node>: … [<auditId>]` with the trailers

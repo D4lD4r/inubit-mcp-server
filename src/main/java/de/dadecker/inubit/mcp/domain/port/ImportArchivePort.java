@@ -123,8 +123,10 @@ public interface ImportArchivePort {
      * True if {@code server}, the workspace file {@code path} as a re-export after an import
      * shows it, is what the target makes of {@code sent} on that import: {@link #equivalent},
      * or different only in what INUBIT rewrites on the import of that file (a Saxon factory, a
-     * comment added to a workflow module sent without one). Only for the verification of an
-     * import and of its rollback; the default rewrites nothing.
+     * comment added to a workflow module sent without one). The secrets of {@code sent} count as
+     * the re-export renders them: a plain value at a path that the redaction treats as secret
+     * is imported as its placeholder (a re-export never shows a secret value). Only for the
+     * verification of an import and of its rollback; the default rewrites nothing.
      */
     default boolean importedAs(String path, byte[] sent, byte[] server) {
         return equivalent(path, sent, server);
