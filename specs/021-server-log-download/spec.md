@@ -77,16 +77,21 @@ masked excerpt. Testable offline.
 1. **Given** a server with a configured StartCLI client, **When** the tool is called with
    `log: trace` and a target folder, **Then** the trace log of that server is written as a new
    file into the folder and the result contains the server, the log, the absolute file path, the
-   size in bytes and the last 200 lines as excerpt.
+   size in bytes and the last 200 lines as excerpt (fewer, with a truncation marker, if they
+   exceed `maxChars`, FR-009 step 5).
 2. **Given** the same call with `contains: "OutOfMemoryError"`, **When** the tool runs, **Then** the
    excerpt contains only the last matching lines (at most `tailLines`), each with its line number
    in the file, and the result says how many lines matched in total.
 3. **Given** the trace log contains a line `Authorization: Basic …` or a configured INUBIT
    password of the profile, **When** the excerpt is built, **Then** those values are masked in the
    excerpt; the file itself is the verbatim download.
-4. **Given** a file with the generated name already exists in the folder, **When** the tool is
+4. **Given** a trace log whose last 200 lines have 60,000 characters in total and the default
+   `maxChars` of 20,000, **When** the tool is called, **Then** the excerpt holds only the newest
+   lines that fit, the oldest are dropped, and the truncation marker names how many lines were
+   dropped.
+5. **Given** a file with the generated name already exists in the folder, **When** the tool is
    called, **Then** the existing file is not replaced (the call picks a free name as in FR-007).
-5. **Given** a profile in which no group has any `unsupported` setting, **When** the server starts,
+6. **Given** a profile in which no group has any `unsupported` setting, **When** the server starts,
    **Then** the tool is offered (for `log: trace`) wherever a StartCLI client is configured.
 
 ---
@@ -221,9 +226,11 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
   owner-only if missing) MUST apply. File permissions follow `export_archives` (POSIX `rw-------`).
 - **FR-008**: The file MUST be the verbatim content INUBIT delivered (no masking, no re-encoding).
 - **FR-009**: The result MUST contain the server, the log, the INUBIT node name where known, the
-  absolute file path, the size in bytes, the time of the download, and an excerpt built in this
+  absolute file path, the size in bytes, the time of the download (UTC, ISO-8601, the same instant
+  as in the file name), and an excerpt built in this
   order:
-  1. The **scanned window** is the last 50 MiB of the file (the whole file if smaller); the result
+  1. The **scanned window** starts at the first line that begins within the last 50 MiB of the
+     file (the whole file if smaller); a partial first line is not part of the window. The result
      says when the window is smaller than the file. A window classified as binary (rule of feature
      020) gives no excerpt (edge case above).
   2. The window is **masked** as a whole (FR-010).
@@ -239,8 +246,13 @@ call against a 9.0 server the 9.0 client; a 6.1 or not yet detectable server is 
 - **FR-010**: Masking MUST apply the text rules of `read_queue_entry` (FR-011 of feature 020:
   secret-named XML elements and attributes, JSON keys, `name=value` pairs and header-style lines,
   `Authorization` and `Basic`/`Bearer` credentials) and scrub the known credentials of the profile,
-  on the whole scanned window before lines are selected (FR-009). A secret-named element whose
-  start tag lies before the window is not detected; the documentation names this limit.
+  on the whole scanned window before lines are selected (FR-009). Masking MUST keep every line
+  break of the window: a masked value spanning several lines is replaced by the mask token on its
+  first line and the other lines it covered remain as empty lines, so line N of the masked window is
+  line N of the window. If the window contains the end tag of a secret-named element whose start
+  tag is not in the window (it was opened before the window), every line from the start of the
+  window up to and including that end tag is masked the same way: when in doubt, content is left
+  out rather than shown.
 - **FR-011**: Errors MUST use the existing error codes: `INVALID_INPUT` (bad input, folder rules),
   `NOT_FOUND` (log file does not exist on the server), `NOT_CONFIGURED`, `UNSUPPORTED_VERSION`,
   `CLI_UNAVAILABLE`, `AUTH_FAILED`, `FORBIDDEN` (the user lacks the right the Workbench needs),
