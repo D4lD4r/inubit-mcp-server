@@ -1290,12 +1290,13 @@ Per entry of `servers`: `node`, `group`, `owner` (whose system diagrams were rea
 system diagram read, each with its communication clouds and their number of `partners` — `0` for
 a cloud without partners; no clouds for a system diagram without Partner Management),
 `withoutPartnerManagement` (the system diagrams read that hold no Partner Management),
-`unreadableDiagrams` (system diagrams whose export returned another diagram than the requested one,
-`UNEXPECTED_RESPONSE`, or no diagram at all, `NOT_FOUND`, each with `code` and `message`; the
-node's other system diagrams are still answered), `warnings` (the version warning, references that
-do not resolve) and, for a failed node only, `error` (a `ToolError`, the node has no data then).
-Any other failure of one export (an HTTP error, a timeout, a missing or malformed workflow, a
-Partner Management that cannot be read) fails the **whole node**: it is the node's `error`.
+`unreadableDiagrams` (system diagrams whose export returned another diagram than the requested one
+or no readable one, `UNEXPECTED_RESPONSE`, or no diagram at all, `NOT_FOUND`, each with `code` and
+`message`; the node's other system diagrams are still answered), `warnings` (the version warning,
+also for a failed node, and references that do not resolve) and, for a failed node only, `error`
+(a `ToolError`, the node has no data then). A failure of the export request itself (an HTTP error,
+a timeout, an answer that is not a ZIP archive or a damaged one, a `workflow.xml` larger than
+64 MiB) fails the **whole node**: it is the node's `error`.
 
 ```json
 {"callId":"…","mode":"search","compared":false,
@@ -1357,10 +1358,10 @@ partners of every node (`compared: true`):
 - **Failed nodes and unreadable system diagrams.** A failed node is named in `notCompared`
   (`{node, code}`, its full error in `servers`) and `incomplete` is `true`; `onlyOn` and every
   statement consider the answering nodes only. A system diagram that a node **could not read**
-  because of a name collision or HTTP 404 (see below) is listed in that node's
-  `unreadableDiagrams` and in `notCompared` (`{node, code, systemDiagram}`), the result is
-  `incomplete`, and that node is left out of the statements of that system diagram's partners
-  only: it neither holds nor lacks them. Any other failed export fails the whole node.
+  (a name collision, HTTP 404 or an archive without a readable diagram, see below) is listed in
+  that node's `unreadableDiagrams` and in `notCompared` (`{node, code, systemDiagram}`), the
+  result is `incomplete`, and that node is left out of the statements of that system diagram's
+  partners only: it neither holds nor lacks them. A failed export request fails the whole node.
 
 ```json
 {"key":{"field":"Id","value":"ACME-0001"},"cloud":"Module-0901",
@@ -1399,9 +1400,17 @@ When the export of a system diagram's name returns a diagram of another diagram 
 several diagrams of that name in the group, or not the requested one, that system diagram is
 reported **unreadable** (`unreadableDiagrams`, `UNEXPECTED_RESPONSE`, e.g. "the export of this
 name returned a diagram of another group or owner; the name is not unique"); a system diagram
-deleted or renamed since it was listed is `NOT_FOUND` (HTTP 404). Only these two cases make a
-single system diagram unreadable; the node's other system diagrams are still answered. Rename one
-of the colliding diagrams in the Workbench to read it.
+deleted or renamed since it was listed is `NOT_FOUND` (HTTP 404). Rename one of the colliding
+diagrams in the Workbench to read it.
+
+**System diagrams that cannot be read.** An export whose archive holds no readable diagram (no
+`workflow/workflow.xml`, XML that is not well-formed, or a Partner Management of another
+structure, e.g. a communication cloud without `ModuleName`) makes that system diagram unreadable
+too (`UNEXPECTED_RESPONSE`, naming the part, never a value). These cases and the two above are the
+only ones that make a single system diagram unreadable; the node's other system diagrams are still
+answered, and the node's known version is not marked stale. An answer that is not a ZIP
+archive at all, a damaged ZIP archive, a `workflow.xml` larger than 64 MiB, an HTTP error or a
+timeout fails the whole node.
 
 **Errors.** Call level (`isError`, no partner data): `INVALID_INPUT`, `TARGET_UNKNOWN`,
 `NOT_FOUND` (the `systemDiagram` exists on no answering node: "No system diagram named

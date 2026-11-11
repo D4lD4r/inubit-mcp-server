@@ -302,6 +302,26 @@ class V81ProcessQueryAdapterTest {
     }
 
     @Test
+    void theRequestsOfAMergedPlanAreSentOneAfterTheOther() {
+        // INUBIT runs one queueLog query per user at a time and answers an overlapping one with
+        // HTTP 500 MonitoringLockedByOtherClient (8.1 and 9.0, feature 017 live check F-4)
+        int delay = 300;
+        wireMock.stubFor(post(urlPathEqualTo(PATH))
+            .willReturn(json(0, List.of()).withFixedDelay(delay)));
+
+        adapter().find(query(Set.of(), true, Optional.empty(), Optional.empty(),
+            Optional.empty(), Optional.empty(), 0, 5));
+
+        List<Long> received = wireMock.findAll(postRequestedFor(urlPathEqualTo(PATH))).stream()
+            .map(request -> request.getLoggedDate().getTime()).sorted().toList();
+        assertThat(received).hasSize(4);
+        for (int i = 1; i < received.size(); i++) {
+            assertThat(received.get(i) - received.get(i - 1)).as("gap before request %d", i)
+                .isGreaterThanOrEqualTo(delay);
+        }
+    }
+
+    @Test
     void errorWithHangingOnlyIsAnEmptyPageWithoutRequest() {
         Page<ProcessInstance> page = adapter().find(query(Set.of(ProcessState.ERROR), true,
             Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), 0, 5));

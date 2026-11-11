@@ -60,7 +60,7 @@ diagrams, Technical Workflows)
 | GET | `/model/modelByName/{diagramName}` | auth | XML; encode spaces as `%20` |
 | GET | `/model/nodeByModel/{modelName}/{nodeId}` | auth | XML |
 | GET | `/model/nodeByName/{diagramName}/{moduleName}` | auth | XML; removed from 9.0 docs |
-| GET | `/model/export/{diagramName}` | auth | ZIP stream (`.diagram.zip`) |
+| GET | `/model/export/{diagramName}` | auth | ZIP stream (`.diagram.zip`); 9.0.10 sends it as `Content-Type: application/zip` with `Content-Encoding: gzip` (even with `Accept-Encoding: identity`), 8.1 plain without `Content-Type` |
 | PUT | `/model/import` | auth | XML `<Protocol>`; **UNVERIFIED** how the ZIP is transmitted |
 | DELETE | `/diagrams/{id}`, `/diagrams/{id}/version/{v}` | SysAdmin | version delete since 8.1.6 |
 | DELETE | `/modules?moduleName=`, `/modules/{id}`, `/modules/{id}/version/{v}` | SysAdmin | |
