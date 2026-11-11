@@ -298,5 +298,77 @@ class CliCommandTest {
         assertInvalidInput(() -> CliCommand.command("import").quoted("--returnProtocol", "x"));
         assertInvalidInput(() -> CliCommand.command("export").emptyQuoted("--includeHistory"));
     }
+
+    // --- feature 021 (T022, FR-005, research D-1): the trace download only -------------------
+
+    @Test
+    void traceDownloadIsTheOnlyTraceCommand() {
+        assertThat(CliCommand.traceDownload(file("/tmp/inubit-mcp-1/trace.log"), WINDOWS)
+            .commandLine())
+            .isEqualTo("trace --download '" + DRIVE + "/tmp/inubit-mcp-1/trace.log'");
+        assertThat(CliCommand.traceDownload(file("/tmp/inubit-mcp-1/trace.log"), WINDOWS).name())
+            .isEqualTo("trace");
+        assertThat(CliCommand.command("trace")
+            .path("--download", file("/tmp/x/trace.log"), WINDOWS).build().commandLine())
+            .isEqualTo("trace --download '" + DRIVE + "/tmp/x/trace.log'");
+    }
+
+    @Test
+    void onWindowsTheTraceFileIsRenderedWithForwardSlashes() {
+        assertThat(CliCommand.traceDownload(
+            Path.of("C:\\Users\\svc\\AppData\\Local\\Temp\\inubit-mcp-1\\trace.log"), true)
+            .commandLine())
+            .isEqualTo("trace --download 'C:/Users/svc/AppData/Local/Temp/inubit-mcp-1/trace.log'");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"on", "off", "-l", "-nl", "-p", "-r", "-d", "--level", "--exportFile",
+        "--download;x", ""})
+    void traceRefusesEveryOtherOptionOrFlag(String option) {
+        assertInvalidInput(() -> CliCommand.command("trace").flag(option));
+        assertInvalidInput(() -> CliCommand.command("trace").quoted(option, "info"));
+        assertInvalidInput(() -> CliCommand.command("trace").emptyQuoted(option));
+        assertInvalidInput(() -> CliCommand.command("trace")
+            .path(option, file("/tmp/x/trace.log"), WINDOWS));
+    }
+
+    @Test
+    void downloadTakesAFilePathOnly() {
+        assertInvalidInput(() -> CliCommand.command("trace").flag("--download"));
+        assertInvalidInput(() -> CliCommand.command("trace").quoted("--download", "trace.log"));
+        assertInvalidInput(() -> CliCommand.command("trace").emptyQuoted("--download"));
+        assertInvalidInput(() -> CliCommand.command("trace")
+            .repositoryPath("--download", "/Root/trace.log"));
+        assertInvalidInput(() -> CliCommand.traceDownload(file("/tmp/it's/trace.log"), WINDOWS));
+        assertInvalidInput(() -> CliCommand.traceDownload(file("/tmp/../etc/trace.log"),
+            WINDOWS));
+        assertInvalidInput(() -> CliCommand.traceDownload(Path.of("relative/trace.log"),
+            WINDOWS));
+        assertInvalidInput(() -> CliCommand.traceDownload(Path.of("C:x.log"), true));
+    }
+
+    @Test
+    void traceNeedsExactlyOneDownloadAndNothingElse() {
+        // a missing --download would switch or show the trace state (SC-005)
+        assertInvalidInput(() -> CliCommand.command("trace").build());
+        assertInvalidInput(() -> CliCommand.command("trace").processId("1"));
+        assertInvalidInput(() -> CliCommand.command("trace")
+            .path("--download", file("/tmp/x/trace.log"), WINDOWS).processId("1"));
+        assertInvalidInput(() -> CliCommand.command("trace")
+            .path("--download", file("/tmp/x/a.log"), WINDOWS)
+            .path("--download", file("/tmp/x/b.log"), WINDOWS).build());
+        assertInvalidInput(() -> CliCommand.command("trace")
+            .path("--download", file("/tmp/x/trace.log"), WINDOWS).flag("-l"));
+        assertInvalidInput(() -> CliCommand.command("trace")
+            .path("--download", file("/tmp/x/trace.log"), WINDOWS).flag("on"));
+    }
+
+    @Test
+    void otherCommandsDoNotTakeDownload() {
+        assertInvalidInput(() -> CliCommand.command("export")
+            .path("--download", file("/tmp/x/trace.log"), WINDOWS));
+        assertInvalidInput(() -> CliCommand.command("import")
+            .path("--download", file("/tmp/x/trace.log"), WINDOWS));
+    }
 }
 

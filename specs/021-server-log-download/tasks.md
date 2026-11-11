@@ -358,7 +358,7 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   the Workbench is noted before and after and must be equal (SC-005). The neutral facts (message
   form `Trace data (<n> MB) stored to: …`, exit code, empty-file behaviour if observed; no log
   content, no names) are appended to `specs/021-server-log-download/research.md` "Spike findings"
-- [ ] T022 [P] [US1] `adapter/cli/CliCommand.java` (FR-005, D-1): command `trace` with exactly one
+- [X] T022 [P] [US1] `adapter/cli/CliCommand.java` (FR-005, D-1): command `trace` with exactly one
   allowed option `--download` (a value option, only through `Builder.path`) and the factory
   `CliCommand.traceDownload(Path file, boolean windows)`; `build()` refuses `trace` without
   `--download` and with any other option, flag, positional argument or process id. Failing tests
