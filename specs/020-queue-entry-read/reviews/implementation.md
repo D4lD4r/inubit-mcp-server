@@ -672,3 +672,17 @@ decisions cover the neutralized 8.1 recording (T027, T035) and the neutralized 9
 Task state: T027, T034 and T035 are ticked with the 8.1 fixtures; T036 (the owner created the
 9.0 entry himself) and T037 are ticked with T038, which commits the 9.0 fixtures; T039 does not
 apply once T038 is done.
+
+## T038: 9.0 enabled (2026-11-11)
+
+- The reviewed 9.0 recording (`v9_0/error_entry.*`, `v9_0/not_found_file.*` replacing the
+  reconstructed one) and the flip of `CapabilityMatrix` 9.0 `QUEUE_ENTRY_READ` → `SUPPORTED`
+  (note removed) are one commit, as `QueueEntryFixtureCatalogueTest` requires.
+- `QueueEntryV90ContractTest` now runs every 9.0 case through `CapabilityMatrix.production()`,
+  the recorded `error_entry` read in full (US3-2, SC-001).
+- The test-only 9.0 declaration `QueueEntryVersionProfile.OPENED` and the live-test switch
+  `INUBIT_LIVE_QUEUE_ENTRY_OPEN_9_0` (T037) equalled production after the flip and were removed;
+  `QueueEntryServiceVersionTest` runs against production alone.
+- The note mechanism of `CapabilityMatrix.Entry` stays (FR-019 fallback for a future version);
+  `VersionGateTest` keeps the refusal with a note through a test declaration, since production
+  has no note any more.

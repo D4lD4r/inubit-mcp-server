@@ -9,15 +9,12 @@ import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
 import de.dadecker.inubit.mcp.adapter.cli.queue.QueueEntryVersionProfile;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
-import de.dadecker.inubit.mcp.domain.model.Capability;
-import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.EntryPart;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.ProcessState;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRow;
-import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -46,8 +43,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.opentest4j.TestAbortedException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -156,39 +151,6 @@ class QueueEntryLiveTestSupportTest {
             .isEqualTo("Module-0000(0)@0@00000000");
         assertThat(QueueEntryRow.isValidFileName(QueueEntryLiveTestSupport.NOT_FOUND_FILE_NAME))
             .isTrue();
-    }
-
-    // --- INUBIT_LIVE_QUEUE_ENTRY_OPEN_9_0 (tasks.md T037) ----------------------------------------
-
-    @Test
-    void withoutTheOpeningVariableTheProductionDeclarationIsUsed() {
-        assertThat(QueueEntryLiveTestSupport.matrix(Map.of())).isSameAs(CapabilityMatrix
-            .production());
-        assertThat(QueueEntryLiveTestSupport.matrix(Map.of(
-            QueueEntryLiveTestSupport.OPEN_9_0_VARIABLE, " "))).isSameAs(CapabilityMatrix
-            .production());
-    }
-
-    @Test
-    void theOpeningVariableOpensQueueEntryReadOn90OnlyThroughTheTestDeclaration() {
-        CapabilityMatrix matrix = QueueEntryLiveTestSupport.matrix(Map.of(
-            QueueEntryLiveTestSupport.OPEN_9_0_VARIABLE, "true"));
-
-        assertThat(matrix).isSameAs(QueueEntryVersionProfile.OPENED);
-        assertThat(matrix.state(InubitVersion.parse("9.0.10"),
-            Capability.QUEUE_ENTRY_READ)).isEqualTo(SupportState.SUPPORTED);
-        assertThat(CapabilityMatrix.production().state(InubitVersion.parse("9.0.10"),
-            Capability.QUEUE_ENTRY_READ)).isEqualTo(SupportState.UNSUPPORTED);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"yes", "TRUE", " true", "true ", "1"})
-    void anyOtherValueOfTheOpeningVariableIsRefused(String value) {
-        assertThatThrownBy(() -> QueueEntryLiveTestSupport.matrix(Map.of(
-            QueueEntryLiveTestSupport.OPEN_9_0_VARIABLE, value)))
-            .isInstanceOf(AssertionError.class)
-            .hasMessageContaining(QueueEntryLiveTestSupport.OPEN_9_0_VARIABLE)
-            .hasMessageContaining("true");
     }
 
     // --- INUBIT_LIVE_RECORD_DIR ----------------------------------------------------------------

@@ -30,9 +30,12 @@ class CapabilityMatrixTest {
             .isEqualTo(SupportState.SUPPORTED);
     }
 
-    /** Feature 017 (T004, research D-9): 9.0 is declared like 8.1, REST and CLI. */
+    /**
+     * Feature 017 (T004, research D-9): 9.0 is declared like 8.1, REST and CLI; feature 020
+     * (T038): reading Queue Manager entries included since its 9.0 recording.
+     */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = "QUEUE_ENTRY_READ", mode = Mode.EXCLUDE)
+    @EnumSource(Capability.class)
     void everyCapabilityIsSupportedOn90LikeOn81(Capability capability) {
         assertThat(production.state(version("9.0.7"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -269,7 +272,7 @@ class CapabilityMatrixTest {
     // --- feature 020 T003: reading Queue Manager entries (FR-006, FR-019 fallback, D-6) -------
 
     @Test
-    void queueEntryReadIsSupportedOn81Only() {
+    void queueEntryReadIsSupportedOn81And90WithoutNote() {
         assertThat(Capability.QUEUE_ENTRY_READ.kind()).isEqualTo(Kind.READ);
         assertThat(Capability.QUEUE_ENTRY_READ.label()).isEqualTo("reading Queue Manager entries");
         assertThat(production.state(version("8.1.17"), Capability.QUEUE_ENTRY_READ))
@@ -277,19 +280,15 @@ class CapabilityMatrixTest {
         assertThat(production.stateOfLine(8, OptionalInt.of(1), Capability.QUEUE_ENTRY_READ))
             .isEqualTo(SupportState.SUPPORTED);
         assertThat(production.note(version("8.1.17"), Capability.QUEUE_ENTRY_READ)).isEmpty();
-    }
-
-    /** The FR-019 fallback: 9.0 stays refused until its recording exists (T038 flips it). */
-    @Test
-    void queueEntryReadIsUnsupportedOn90WithTheNoteNotYetVerified() {
+        // T038: the recorded 9.0 error entry enabled 9.0; the "not yet verified" note is gone
         assertThat(production.state(version("9.0.7"), Capability.QUEUE_ENTRY_READ))
-            .isEqualTo(SupportState.UNSUPPORTED);
+            .isEqualTo(SupportState.SUPPORTED);
         assertThat(production.stateOfLine(9, OptionalInt.of(0), Capability.QUEUE_ENTRY_READ))
-            .isEqualTo(SupportState.UNSUPPORTED);
-        assertThat(production.note(version("9.0.7"), Capability.QUEUE_ENTRY_READ))
-            .contains("not yet verified");
-        assertThat(production.note(version("9.0.7"), Capability.INVENTORY))
-            .as("only the queue entry read carries a note").isEmpty();
+            .isEqualTo(SupportState.SUPPORTED);
+        for (Capability capability : Capability.values()) {
+            assertThat(production.note(version("9.0.7"), capability)).as("%s", capability)
+                .isEmpty();
+        }
         assertThat(production.channels(version("9.0.7"), Capability.QUEUE_ENTRY_READ))
             .isEqualTo(Capability.QUEUE_ENTRY_READ.channels());
     }

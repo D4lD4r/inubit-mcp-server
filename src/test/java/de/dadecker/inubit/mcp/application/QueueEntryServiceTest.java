@@ -249,7 +249,7 @@ class QueueEntryServiceTest {
     }
 
     @Test
-    void nineZeroIsRefusedAsNotYetVerified() {
+    void nineZeroIsAdmittedSinceItsRecording() {
         FakeVersionDetection nineZero = new FakeVersionDetection(versions)
             .answer(TEST, "9.0.7");
         QueueEntryService service90 = new QueueEntryService(new TargetResolver(List.of(TEST)),
@@ -257,13 +257,13 @@ class QueueEntryServiceTest {
                 CapabilityMatrix.production()),
             node -> rows.port(node), node -> content.port(node), scrubber::scrub);
 
-        ToolError error = errorOf(() -> service90.readRaw(TEST.value(), PID, Optional.empty(),
-            OptionalInt.empty()));
+        rows.answer(entries(errorRow(FILE)));
+        content.answer(read());
 
-        assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
-        assertThat(error.message()).contains("not yet verified");
-        assertThat(rows.requests).isEmpty();
-        assertThat(content.calls).isEmpty();
+        service90.readRaw(TEST.value(), PID, Optional.empty(), OptionalInt.empty());
+
+        assertThat(rows.requests).as("T038: 9.0 is supported").isNotEmpty();
+        assertThat(content.calls).isNotEmpty();
     }
 
     /** US3-4: the detection's own error, no lookup and no content request. */

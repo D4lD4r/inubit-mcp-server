@@ -67,18 +67,22 @@ The first line is one of:
 | 8.1 | `cutoff_tag` | a cut inside an unclosed secret element or placeholder leaks nothing |
 | 8.1 | `too_large` | the row reports more than 10 MiB: only the variables are requested |
 | 8.1 | `rows_*` | lookup answers (see above) |
-| 9.0 | `missing_workflow`, `not_found_file` | 9.0 helper failures; INUBIT reports both parts not found: partial result while the row stays, `NOT_FOUND` once it left |
+| 9.0 | `error_entry` | recorded 9.0.10 ERROR entry (neutralized): metadata, text, all 11 variables as system variables, nothing masked |
+| 9.0 | `missing_workflow`, `not_found_file` | 9.0 helper failures (`not_found_file` is recorded); INUBIT reports both parts not found: partial result while the row stays, `NOT_FOUND` once it left |
 
 `QueueEntryV81ContractTest` runs the real `CliQueueEntryAdapter` and `QueueEntryService` over
 every 8.1 case with a `.rows.json` (fake process launcher, no helper process, no network); its
 case list must equal those files. `QueueEntryV90ContractTest` does the same for every 9.0 case
-with `.frames` (9.0 opened by a test-only capability matrix, the row answered in the test); its
-case list must equal those files.
+with `.frames` through the production capability matrix (the rows of `error_entry` from its
+`.rows.json`, those of the failure cases answered in the test); its case list must equal those
+files.
 
 ## Recording (OWNER)
 
 - `v8_1/error_entry.*` (tasks.md T027, T035) and `v8_1/not_found_file.*` (T035) are the
   neutralized 8.1.17 recordings; the owner reviews their diff before they are committed.
   `QueueEntryV81ContractTest` runs the `error_entry` case.
+- `v9_0/error_entry.*` and `v9_0/not_found_file.*` (T037, T038) are the neutralized 9.0.10
+  recordings, reviewed before they were committed; `QueueEntryV90ContractTest` runs both.
 - INUBIT 9.0 is `SUPPORTED` for `read_queue_entry` in the capability matrix exactly when
   `v9_0/error_entry.origin` starts with `recorded`.

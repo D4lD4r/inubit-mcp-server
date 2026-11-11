@@ -17,11 +17,7 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
-import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
-import de.dadecker.inubit.mcp.domain.model.Channel;
-import de.dadecker.inubit.mcp.domain.model.SupportState;
-import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.Platform;
@@ -40,13 +36,11 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.util.ArrayList;
-import java.util.EnumMap;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -55,7 +49,7 @@ import java.util.stream.Stream;
  * a JDK 21, plain {@code http} nodes on {@code *.example.test} (no handshake, no network). The
  * helper is a {@link FakeProcessLauncher} that answers the request it reads from stdin, so the
  * launched JDK, class path, working directory and the request's {@code variant} and {@code url}
- * can be checked; no process is started. {@link #OPENED} opens 9.0 for a test's gate.
+ * can be checked; no process is started.
  */
 public final class QueueEntryVersionProfile implements AutoCloseable {
 
@@ -68,21 +62,6 @@ public final class QueueEntryVersionProfile implements AutoCloseable {
     /** The 9.0 class an 8.1 client installation lacks (helper source, {@code REST_90}). */
     public static final String REST_CLIENT_FACTORY =
         "com.inubit.ibis.client.rest.InubitClientFactory";
-
-    /**
-     * A test-only declaration: the production one with {@code QUEUE_ENTRY_READ} supported on 9.0,
-     * as it will be once the 9.0 recording exists (tasks.md T038); 6.1, other and unknown versions
-     * as in production. {@link CapabilityMatrix#production()} keeps 9.0 refused (FR-019).
-     */
-    public static final CapabilityMatrix OPENED = new CapabilityMatrix(List.of(
-        new CapabilityMatrix.Entry(new VersionRange(6, 1, 6, 1),
-            Map.of(Capability.MONITORING, SupportState.UNSUPPORTED,
-                Capability.PROCESS_DIAGNOSIS, SupportState.UNSUPPORTED),
-            Map.of(Capability.MONITORING, Set.of(Channel.CLI),
-                Capability.PROCESS_DIAGNOSIS, Set.of(Channel.CLI)), true),
-        new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1), all(SupportState.SUPPORTED)),
-        new CapabilityMatrix.Entry(new VersionRange(9, 0, 9, 0), all(SupportState.SUPPORTED))),
-        unknownVersions());
 
     private static final Map<String, String> PARENT = Map.of(
         "PATH", "/usr/bin:/bin",
@@ -248,25 +227,6 @@ public final class QueueEntryVersionProfile implements AutoCloseable {
             out.append('\n');
         }
         return new Answer(out.toString(), exit);
-    }
-
-    private static Map<Capability, SupportState> all(SupportState state) {
-        Map<Capability, SupportState> states = new EnumMap<>(Capability.class);
-        for (Capability capability : Capability.values()) {
-            states.put(capability, state);
-        }
-        return states;
-    }
-
-    /** Reads unverified, writes and {@code QUEUE_ENTRY_READ} unsupported, as in production. */
-    private static Map<Capability, SupportState> unknownVersions() {
-        Map<Capability, SupportState> states = new EnumMap<>(Capability.class);
-        for (Capability capability : Capability.values()) {
-            states.put(capability, capability.kind() == Capability.Kind.READ
-                && capability != Capability.QUEUE_ENTRY_READ
-                ? SupportState.UNVERIFIED : SupportState.UNSUPPORTED);
-        }
-        return states;
     }
 
     private static String percentDecode(String value) {

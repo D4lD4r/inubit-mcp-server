@@ -179,10 +179,10 @@ class ToolAnnouncementTest {
     }
 
     @Test
-    void anOptedInNineZeroNodeDoesNotAnnounceItUnderTheFallback() {
-        // CapabilityMatrix.production(): 9.0 is "not yet verified" (FR-019 fallback)
+    void anOptedInNineZeroNodeWithItsClientAnnouncesIt() {
+        // CapabilityMatrix.production(): 9.0 is supported since its recording (T038)
         assertThat(queueEntryTools("V9_0", optIn("true"), true))
-            .contains("export_artifacts").doesNotContain("read_queue_entry");
+            .contains("export_artifacts", "read_queue_entry");
     }
 
     @Test

@@ -1,2 +1,2 @@
-reconstructed spike 2026-11-10
-Not recorded: the helper frames are written from the helper protocol (research D-4, D-18).
+recorded 2026-11-11 9.0.10 neutralized
+Frames and exit code: the live check on a non-production 9.0.10 node (tasks.md T037, research D-21), the download of a file name INUBIT does not have in an existing workflow; its nonce replaced by the fixed nonce, the owner and workflow name in the messages replaced by fictitious names (research D-18). The file name module-0000(0)@0@00000000 was fictitious already.

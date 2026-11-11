@@ -1,8 +1,12 @@
-RECONSTRUCTED – 9.0 download of a queue file INUBIT does not have (exit 0). The marker text
-`@Start@Unable to download@@@<file>@End@<owner>/workflow/<workflow>/error/<file>` was observed
-by the spike of 2026-11-10 on 9.0.10 (research "Spike facts"); names are fictitious, the
-exception class was not recorded (java.io.IOException). Expected: both parts NotFound.
+RECORDED – 9.0.10 download of a queue file INUBIT does not have, in an existing workflow
+(exit 0, neutralized). INUBIT answers both parts with the exception chain
+java.lang.RuntimeException>com.inubit.ibis.utils.InubitException and a two-line message
+"Exception from service object: @Start@Unable to download@@@Unable to download@End@<path>",
+the path naming owner, workflow, state and file (.wfsp for the variables), as on 8.1.17.
+Expected: the marker "@Start@Unable to download" classifies both parts NotFound.
 
 Frames use the fixed nonce 0123456789abcdef0123456789abcdef; a replay replaces it with the
-nonce of its request. Lines without the frame prefix are vendor noise the classifier ignores.
-Used by QueueEntryHelperClassifierTest (tasks.md T019, research D-5).
+nonce of its request. Lines without the frame prefix are vendor noise the classifier ignores
+(one recorded warning of the helper's network library).
+Used by QueueEntryHelperClassifierTest and QueueEntryV90ContractTest (tasks.md T019, T037, T038,
+research D-5, D-18, D-21).

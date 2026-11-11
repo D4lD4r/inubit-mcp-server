@@ -462,13 +462,13 @@ refused before any content request (FR-006, FR-019, US3-1…5).
   to `recorded … neutralized`); `QueueEntryHelperClassifierTest` and the contract test stay green
   with the recorded marker (or the marker rule is corrected first); the owner reviews the diff
   before the commit (depends on T027, T034)
-- [ ] T036 **[OWNER]** 9.0 ERROR entry (FR-019, D-20): the agent proposes one concrete trigger
+- [X] T036 **[OWNER]** 9.0 ERROR entry (FR-019, D-20): the agent proposes one concrete trigger
   (which non-production 9.0 test server, which test workflow and Throw module, the fictitious
   payload incl. a variable `apiToken`, how the entry is created and later removed) and **waits for
   the owner's explicit approval of exactly that action**; then the owner or, after approval, the
   agent creates the entry. If the owner declines or no 9.0 test server exists → skip T037/T038
   and do T039
-- [ ] T037 **[LIVE] [OWNER]** 9.0 live check and recording, **prepared, not committed** (depends
+- [X] T037 **[LIVE] [OWNER]** 9.0 live check and recording, **prepared, not committed** (depends
   on T036): run `QueueEntryLiveTest` against the 9.0 entry with `INUBIT_LIVE_RECORD_DIR` (entry
   plus the negative case); with the 9.0 node opened only through a test declaration of the matrix,
   since production 9.0 stays refused until T038; neutralize as in T027 in the private directory
@@ -476,7 +476,7 @@ refused before any content request (FR-006, FR-019, US3-1…5).
   `recorded <date> 9.0.x neutralized`); the owner reviews the neutralized files; afterwards the
   owner removes the test entry in the Workbench (the tool never does); result in the quickstart
   validation record
-- [ ] T038 [US3] Enable 9.0 in **one commit** (depends on T037): the reviewed recording files of
+- [X] T038 [US3] Enable 9.0 in **one commit** (depends on T037): the reviewed recording files of
   T037 under `src/test/resources/fixtures/queue-entry/v9_0/` **and** `domain/model/CapabilityMatrix.java`
   9.0 `QUEUE_ENTRY_READ` → `SUPPORTED` (note removed) together, because
   `QueueEntryFixtureCatalogueTest` requires "9.0 `SUPPORTED` ⇔ recorded `v9_0/error_entry.origin`"
@@ -486,7 +486,8 @@ refused before any content request (FR-006, FR-019, US3-1…5).
 - [ ] T039 **[OWNER]** FR-019 fallback (only if T036 is declined or impossible): record the owner's
   decision and date in `quickstart.md` (validation record) and `reviews/implementation.md`; 9.0 stays
   refused "not yet verified"; T040/T041 state it in docs and CHANGELOG; enabling 9.0 later is a
-  follow-up change
+  follow-up change — **not applicable**: T036 was done (the owner created the 9.0 entry) and
+  T038 enabled 9.0
 
 ## Phase 7: Polish
 

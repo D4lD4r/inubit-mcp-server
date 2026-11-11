@@ -21,7 +21,7 @@ import java.util.Set;
  * <p>An entry may declare channels per capability that replace the capability's own
  * {@link Capability#channels()}, and may be {@code cliOnly}: the node is reached through StartCLI
  * only (feature 012, research D-3). It may carry a note per capability that the refusal uses,
- * e.g. "not yet verified" (feature 020, research D-6).
+ * e.g. "not yet verified" (feature 020, research D-6); the production declaration has none.
  */
 public final class CapabilityMatrix {
 
@@ -70,12 +70,10 @@ public final class CapabilityMatrix {
         true);
 
     /**
-     * 9.0: as 8.1, except reading Queue Manager entries, which stays refused until its 9.0
-     * recording exists (feature 020, FR-019 fallback, research D-20).
+     * 9.0: as 8.1, reading Queue Manager entries included since its recorded 9.0 error entry
+     * (feature 020, FR-019, research D-20).
      */
-    private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0),
-        with(ALL_SUPPORTED, Capability.QUEUE_ENTRY_READ, SupportState.UNSUPPORTED), Map.of(),
-        false, Map.of(Capability.QUEUE_ENTRY_READ, "not yet verified"));
+    private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0), ALL_SUPPORTED);
 
     /** Unknown versions: reading Queue Manager entries is refused, not run with a warning. */
     private static final CapabilityMatrix PRODUCTION = new CapabilityMatrix(
@@ -100,8 +98,8 @@ public final class CapabilityMatrix {
      * The production declaration of research D-3: 6.1.x CLI-only with every capability
      * unsupported; 8.1.x and (feature 017, research D-9) 9.0.x all supported; any other known
      * version and unknown versions: reads unverified, writes unsupported. Feature 020 (research
-     * D-6): reading Queue Manager entries is supported on 8.1 only; on 9.0 it is unsupported with
-     * the note "not yet verified", on any other and on unknown versions unsupported.
+     * D-6, D-20): reading Queue Manager entries is supported on 8.1 and 9.0, on any other and on
+     * unknown versions unsupported.
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;

@@ -922,7 +922,7 @@ class ListNodesToolTest {
     @Test
     void queueEntryReadIsListedOnlyForNodesOfOptedInGroupsWithAClient() {
         // test: opt-in and client home; prod: client home, no opt-in; lab: opt-in, no client
-        // home; next: opt-in on 9.0, not yet verified (FR-019 fallback)
+        // home; next: opt-in and client home on 9.0 (supported since T038)
         String baseUrl = "https://localhost:" + wireMock.httpsPort();
         String yaml = """
             profile:
@@ -996,10 +996,8 @@ class ListNodesToolTest {
             assertThat(usable(lab)).doesNotContain("queue_entry_read");
             assertThat(notUsable(lab)).doesNotContain("queue_entry_read");
             JsonNode next = groups.path(3).path("nodes").path(0).path("version");
-            assertThat(usable(next)).doesNotContain("queue_entry_read");
-            assertThat(notUsable(next)).contains("queue_entry_read");
-            assertThat(reason(next, "queue_entry_read")).contains("next/node1",
-                "reading Queue Manager entries");
+            assertThat(usable(next)).contains("queue_entry_read");
+            assertThat(notUsable(next)).doesNotContain("queue_entry_read");
             assertThat(result.toString()).doesNotContain(PASSWORD);
             TestSecrets.assertNoLeak(result.toString());
         }

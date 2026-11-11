@@ -61,8 +61,8 @@ class QueueEntryFixtureCatalogueTest {
     void everyFileBelongsToACaseWithItsOriginAndReadme() throws IOException {
         assertThat(violations(ROOT)).isEmpty();
         assertThat(cases(ROOT)).as("cases").contains("v8_1/not_found_file",
-            "v8_1/rows_two_errors", "v8_1/secrets_everywhere", "v9_0/missing_workflow",
-            "v9_0/not_found_file");
+            "v8_1/rows_two_errors", "v8_1/secrets_everywhere", "v9_0/error_entry",
+            "v9_0/missing_workflow", "v9_0/not_found_file");
     }
 
     @Test
@@ -70,6 +70,8 @@ class QueueEntryFixtureCatalogueTest {
         SupportState state = CapabilityMatrix.production().stateOfLine(9, OptionalInt.of(0),
             Capability.QUEUE_ENTRY_READ);
 
+        assertThat(state).as("9.0 enabled with its recording (T038)")
+            .isEqualTo(SupportState.SUPPORTED);
         assertThat(nineZeroViolation(ROOT, state)).isEmpty();
     }
 
@@ -157,6 +159,7 @@ class QueueEntryFixtureCatalogueTest {
     @Test
     void theNineZeroRuleFailsInBothDirections(@TempDir Path temp) throws IOException {
         Path copy = copy(ROOT, temp.resolve("queue-entry"));
+        Files.delete(copy.resolve("v9_0/error_entry.origin"));
 
         assertThat(nineZeroViolation(copy, SupportState.SUPPORTED)).contains("9.0 is SUPPORTED"
             + " for QUEUE_ENTRY_READ, but v9_0/error_entry.origin does not start with"

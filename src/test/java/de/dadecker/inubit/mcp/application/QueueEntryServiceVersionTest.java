@@ -11,10 +11,8 @@ import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
 import de.dadecker.inubit.mcp.adapter.cli.queue.QueueEntryVersionProfile;
-import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
-import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Page;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
@@ -24,7 +22,6 @@ import de.dadecker.inubit.mcp.domain.model.ProcessState;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryResult;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRow;
-import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
@@ -58,9 +55,8 @@ import org.junit.jupiter.params.provider.EnumSource;
  * {@link de.dadecker.inubit.mcp.adapter.cli.queue.CliQueueEntryAdapter} per node on one profile
  * ({@link QueueEntryVersionProfile}: a client installation and JDK per version). The helper is a
  * {@link FakeProcessLauncher} per node that records the launched JDK, class path and request.
- * 9.0 is opened by {@link #OPENED}, a test-only declaration; {@link
- * CapabilityMatrix#production()} keeps 9.0 refused (FR-019 fallback, asserted below). No server
- * is contacted.
+ * Every case runs against {@link CapabilityMatrix#production()}, which supports 9.0 since its
+ * recording (tasks.md T038). No server is contacted.
  */
 @Timeout(60)
 class QueueEntryServiceVersionTest {
@@ -74,11 +70,8 @@ class QueueEntryServiceVersionTest {
     private static final String FILE = "Module-0001(4711)@1234@0a1b2c3d";
     private static final Instant NOW = Instant.parse("2026-11-10T09:00:00Z");
 
-    /** The shipped matrix; the cases that do not need 9.0 opened run against it. */
+    /** The shipped matrix. */
     static final CapabilityMatrix SHIPPED = CapabilityMatrix.production();
-
-    /** 9.0 opened for this test only ({@link QueueEntryVersionProfile#OPENED}). */
-    static final CapabilityMatrix OPENED = QueueEntryVersionProfile.OPENED;
 
     @TempDir
     Path root;
@@ -117,7 +110,7 @@ class QueueEntryServiceVersionTest {
     /** US3-1. */
     @Test
     void anEightOneNodeIsReadWithSoapThe81ClientItsJdkAndTheServletAddress() {
-        QueueEntryResult result = service(OPENED).read(N81.value(), PID, Optional.empty(),
+        QueueEntryResult result = service(SHIPPED).read(N81.value(), PID, Optional.empty(),
             OptionalInt.empty());
 
         assertThat(result.node()).isEqualTo(N81);
@@ -134,10 +127,10 @@ class QueueEntryServiceVersionTest {
         profile.assertTempRootEmpty();
     }
 
-    /** US3-2, with 9.0 opened by the test's declaration. */
+    /** US3-2. */
     @Test
     void aNineZeroNodeIsReadWithRestThe90ClientItsJdkAndTheBaseUrl() {
-        QueueEntryResult result = service(OPENED).read(N90.value(), PID, Optional.empty(),
+        QueueEntryResult result = service(SHIPPED).read(N90.value(), PID, Optional.empty(),
             OptionalInt.empty());
 
         assertThat(result.node()).isEqualTo(N90);
@@ -154,7 +147,7 @@ class QueueEntryServiceVersionTest {
     /** One profile, both versions: each node gets its own variant, client and JDK. */
     @Test
     void oneProfileReadsEachNodeWithTheClientOfItsVersion() {
-        QueueEntryService service = service(OPENED);
+        QueueEntryService service = service(SHIPPED);
 
         service.read(N90.value(), PID, Optional.empty(), OptionalInt.empty());
         service.read(N81.value(), PID, Optional.empty(), OptionalInt.empty());
@@ -167,20 +160,6 @@ class QueueEntryServiceVersionTest {
             .containsEntry("variant", "REST_90");
         assertThat(launchers.get(N90).last().spec().command().get(0))
             .isEqualTo(java(profile.jdk21()));
-    }
-
-    /** The test's declaration does not change production: 9.0 stays "not yet verified". */
-    @Test
-    void productionStillRefusesNineZeroWithoutALaunch() {
-        ToolError error = errorOf(() -> service(SHIPPED).read(N90.value(),
-            PID, Optional.empty(), OptionalInt.empty()));
-
-        assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
-        assertThat(error.message()).contains("not yet verified for INUBIT 9.0");
-        assertThat(CapabilityMatrix.production().state(
-            InubitVersion.parse("9.0.10"), Capability.QUEUE_ENTRY_READ))
-            .isEqualTo(SupportState.UNSUPPORTED);
-        assertNothingSent();
     }
 
     /** US3-3: a 6.1 node (pinned, no detection). */
@@ -231,7 +210,7 @@ class QueueEntryServiceVersionTest {
     @Test
     void withinTheBackOffTheRecordedDetectionCodeIsReplayedWithoutLaunch() {
         detection.fail(UNDETECTED, ErrorCode.UNREACHABLE);
-        QueueEntryService service = service(OPENED);
+        QueueEntryService service = service(SHIPPED);
         errorOf(() -> service.read(UNDETECTED.value(), PID, Optional.empty(),
             OptionalInt.empty()));
         clock.advance(Duration.ofSeconds(30));
@@ -252,7 +231,7 @@ class QueueEntryServiceVersionTest {
         nodes.put(N90, profile.withoutClients(N90.value(), VersionSetting.AUTO)
             .cliClient("8.1", profile.client81(), Optional.of(profile.jdk17())));
 
-        ToolError error = errorOf(() -> service(OPENED).read(N90.value(), PID, Optional.empty(),
+        ToolError error = errorOf(() -> service(SHIPPED).read(N90.value(), PID, Optional.empty(),
             OptionalInt.empty()));
 
         assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
@@ -271,7 +250,7 @@ class QueueEntryServiceVersionTest {
         launchers.put(N90, QueueEntryVersionProfile.helperLacking(
             QueueEntryVersionProfile.REST_CLIENT_FACTORY));
 
-        ToolError error = errorOf(() -> service(OPENED).read(N90.value(), PID, Optional.empty(),
+        ToolError error = errorOf(() -> service(SHIPPED).read(N90.value(), PID, Optional.empty(),
             OptionalInt.empty()));
 
         assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);

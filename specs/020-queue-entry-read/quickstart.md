@@ -23,7 +23,7 @@ server).
 |---|---|
 | no group opts in: tool list and every tool unchanged (US2-1, SC-002) | `ToolAnnouncementTest`, `MainTest` (exact tool list), `ListNodesToolTest` (no `queue_entry_read`), full suite green |
 | opt-in on `test`, not on `prod`: tool announced; call for `prod/node1` → `NOT_CONFIGURED`, no request, no detection (US2-2, FR-002) | `ToolAnnouncementTest`, `ReadQueueEntryWiringTest` (zero WireMock requests, no launch) |
-| announcement needs opt-in + not pinned to 6.1/other line + client home (FR-002); fallback: `V9_0` pin does not announce | `ToolAnnouncementTest` |
+| announcement needs opt-in + not pinned to 6.1/other line + client home (FR-002); a `V9_0` pin with opt-in and client announces (since T038) | `ToolAnnouncementTest` |
 | `unsupported.queueEntryRead`: booleans load; `"true"`, `1`, list → error without value; other key under `unsupported`, key on node or in `defaults` → unknown key (FR-003) | `ConfigLoaderTest` |
 | production group with opt-in → warning at startup and in `--check-config`; with an opt-in in the profile every group line ends with `queueEntryRead: off/enabled (unsupported)`; without any opt-in the summary is byte-for-byte unchanged (US2-3, US2-5, FR-017, SC-002) | `ConfigValidatorTest`, `ConfigSummaryTest` (existing golden texts unchanged), `MainTest` |
 | docs contain the FR-004 sentences; tool description has the short warning (US2-4, FR-004) | `QueueEntryDocsTest` |
@@ -40,7 +40,7 @@ server).
 | TLS: handshake with trust store / pin / hostname setting before launch; trust store holds only the verified leaf; mismatch → `TLS_ERROR`, nothing launched; `http` → no store (FR-014) | `TlsPeerTest`, `HelperTrustStoreTest`, `CliQueueEntryAdapterTest` (`HandshakeStartCliPinProbeTest` unchanged) |
 | private temp dir owner-only, removed after success, failure, timeout and shutdown (D-8) | `CliQueueEntryAdapterTest`, `CliResourcesTest` |
 | contract 8.1: recorded neutralized `error_entry` → metadata, text, 51 variables, system flags (US1-1, FR-008, FR-010, FR-019) | `QueueEntryV81ContractTest` |
-| contract 9.0: recorded `error_entry` (or, under the fallback, refusal "not yet verified") (FR-019) | `QueueEntryV90ContractTest`, `QueueEntryFixtureCatalogueTest` (9.0 `SUPPORTED` ⇔ recorded `.origin`) |
+| contract 9.0: recorded neutralized `error_entry` → metadata, text, 11 system variables, nothing masked, through the production declaration (US3-2, FR-019, SC-001) | `QueueEntryV90ContractTest`, `QueueEntryFixtureCatalogueTest` (9.0 `SUPPORTED` ⇔ recorded `.origin`) |
 | text cut at `maxChars` with `truncated`, `totalChars`, `sizeBytes`; binary ZIP/PDF/… → size, kind, hint; UTF-16 → binary; Latin-1 → `ISO-8859-1`; empty → `kind: empty` (US1-2, US1-3, FR-009) | `EntryContentClassifierTest`, `QueueEntryServiceTest` |
 | masking: credential-named variables, `<wsse:Password>`, attribute, JSON key (string, object), `name=value` quoted and unquoted, header line, `Authorization`, Basic/Bearer, cut-off start tag, self-closing element, known profile credential (US1-4…6, FR-011, SC-003) | `SecretTextMaskerTest` (one test per rule), `QueueEntryServiceTest` (scrubber), `QueueEntryLoggingTest` (no value in the captured log) |
 | variables: 250 → 200 + `totalCount`; value > 2,000; 40,000 budget; name > 200; binary value (US1-9, FR-010) | `QueueEntryServiceTest` |
@@ -72,8 +72,6 @@ server).
 
    Optional, to produce the fixture recording: `INUBIT_LIVE_RECORD_DIR=<private directory outside
    the repository>`.
-   On 9.0, until T038, add `INUBIT_LIVE_QUEUE_ENTRY_OPEN_9_0=true`: the production declaration
-   refuses 9.0, so the test wires a test declaration that supports it (T037, docs/live-tests.md).
 3. **Expect**: `[live] read_queue_entry test/node1 process 1234: data <n> bytes (<kind>), <m>
    variables, entry unchanged`; the test asserts that state, `startTime`, `fileSize` and
    `fileName` of the row are the same before and after (SC-004) and that the captured log holds
@@ -100,3 +98,4 @@ server).
 | 2026-11-11 | `int/node-b`, `test/node-c` (processes 1000002, 1000003) | 8.1.x | passed (`test/node-c` after a live test support fix: the SC-003 log check flagged a variable holding the process id). Finding: queue rows without `fileName` (fileSize 0) failed a lookup with `UNEXPECTED_RESPONSE`; fixed as T034-F1 |
 | 2026-11-11 | `int/node-d` | 9.0.10 | no ERROR entry: a test workflow's Throw error appeared only in the systemLog, the Queue Manager stayed empty; the owner then created an ERROR entry himself (T036) |
 | 2026-11-11 | `int/node-d` (process 1000004) | 9.0.10 | passed: `QueueEntryLiveTest` with `INUBIT_LIVE_QUEUE_ENTRY_OPEN_9_0=true` and `INUBIT_LIVE_RECORD_DIR` (1,810 B text, 11 variables, all system variables, 0 masked; queue row unchanged, SC-004; negative case both parts `NotFound`, recorded). Recording neutralized privately, awaiting the owner's review before T038 (T037). The entry has no credential-named variable, so the 9.0 masking path is covered by the offline tests only |
+| 2026-11-11 | — | 9.0.10 | T038: the neutralized 9.0 recording reviewed (coordinator decision on the owner's standing instruction, `reviews/implementation.md`) and committed as `v9_0/error_entry.*` and `v9_0/not_found_file.*`; 9.0 enabled in the production declaration in the same commit; the test-only `INUBIT_LIVE_QUEUE_ENTRY_OPEN_9_0` of T037 removed. The removal of the 9.0 test entry on `int/node-d` is the owner's own step in the Workbench, outside this repository |

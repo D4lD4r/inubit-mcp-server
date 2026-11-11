@@ -1,0 +1,13 @@
+RECORDED – 9.0.10 ERROR entry of an AS2 Connector module (neutralized): a one-line XML business
+message as data stream (1,826 bytes, UTF-8, no line terminator, no secret) and 11 variables
+(746 bytes): one _hidden. variable, then 10 INUBIT system variables (ISOverwriteSubWorkflowPriority
+is not set). Expected (US1-1): processId and globalProcessId 100000090, module Workflow-0001(91)
+of type AS2 Connector (the connector module carries its workflow's name), state Error, the row's
+error text in userDefined1 (userDefined2 empty); data kind text, UTF-8, not truncated, equal to
+the stored bytes (nothing to mask); all 11 variables in stored order, all 11 system variables,
+the type Long kept, nothing masked (no variable name contains a secret term).
+
+Frames use the fixed nonce 0123456789abcdef0123456789abcdef; a replay replaces it with the
+nonce of its request. Lines without the frame prefix are vendor noise the classifier ignores
+(one recorded warning of the helper's network library).
+Used by QueueEntryV90ContractTest (tasks.md T037, T038, research D-18, D-19).

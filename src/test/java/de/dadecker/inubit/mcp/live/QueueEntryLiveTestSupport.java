@@ -4,9 +4,7 @@ import static org.assertj.core.api.Assertions.fail;
 
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.queue.HelperInstallation;
-import de.dadecker.inubit.mcp.adapter.cli.queue.QueueEntryVersionProfile;
 import de.dadecker.inubit.mcp.adapter.cli.queue.WfspParser;
-import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRow;
 import de.dadecker.inubit.mcp.domain.model.RawEntryContent.PartResult;
@@ -44,8 +42,6 @@ final class QueueEntryLiveTestSupport {
 
     static final String ENTRY_VARIABLE = "INUBIT_LIVE_QUEUE_ENTRY";
     static final String RECORD_DIR_VARIABLE = "INUBIT_LIVE_RECORD_DIR";
-    /** Opens {@code read_queue_entry} on 9.0 for the live test only (tasks.md T037). */
-    static final String OPEN_9_0_VARIABLE = "INUBIT_LIVE_QUEUE_ENTRY_OPEN_9_0";
     /** The fictitious file name of the negative case: an existing workflow, no such file. */
     static final String NOT_FOUND_FILE_NAME = "Module-0000(0)@0@00000000";
     /**
@@ -90,24 +86,6 @@ final class QueueEntryLiveTestSupport {
                 + " control characters, as read_queue_entry accepts it");
         }
         return new Entry(processId, Optional.of(fileName));
-    }
-
-    /**
-     * The capability declaration of the live test: the production one, or with
-     * {@code INUBIT_LIVE_QUEUE_ENTRY_OPEN_9_0=true} the test declaration
-     * {@link QueueEntryVersionProfile#OPENED}, which supports {@code QUEUE_ENTRY_READ} on 9.0 so
-     * that the 9.0 recording can be taken (tasks.md T037). The production declaration keeps 9.0
-     * refused until that recording is reviewed (T038).
-     */
-    static CapabilityMatrix matrix(Map<String, String> environment) {
-        String value = environment.get(OPEN_9_0_VARIABLE);
-        if (value == null || value.isBlank()) {
-            return CapabilityMatrix.production();
-        }
-        if (!value.equals("true")) {
-            fail(OPEN_9_0_VARIABLE + " must be true or unset");
-        }
-        return QueueEntryVersionProfile.OPENED;
     }
 
     /**

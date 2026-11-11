@@ -1298,14 +1298,43 @@ class VersionGateTest {
         assertThat(appender.list).isEmpty();
     }
 
-    /** The FR-019 fallback: the refusal uses the matrix note of the 9.0 entry. */
+    /** T038: 9.0 is admitted since its recorded error entry. */
     @Test
-    void queueEntryReadOn90IsRefusedAsNotYetVerified() {
+    void queueEntryReadIsAdmittedOn90() {
         detection.answer("9.0.10");
 
-        ToolError detected = refusal(() -> gate().admit("read_queue_entry", AUTO,
+        Admission detected = gate().admit("read_queue_entry", AUTO,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST);
+        Admission line = gate().admit("read_queue_entry", V9_0,
+            Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST);
+
+        assertThat(detected.warnings()).isEmpty();
+        assertThat(detected.version()).contains(version("9.0.10"));
+        assertThat(line.warnings()).isEmpty();
+        assertThat(appender.list).isEmpty();
+    }
+
+    /**
+     * The FR-019 fallback mechanism: a refusal uses the matrix note of the entry (the production
+     * declaration has no note since T038; a test declaration with the former 9.0 note).
+     */
+    @Test
+    void queueEntryReadIsRefusedWithTheNoteOfItsEntry() {
+        detection.answer("9.0.10");
+        Map<Capability, SupportState> states = new EnumMap<>(Capability.class);
+        for (Capability capability : Capability.values()) {
+            states.put(capability, SupportState.SUPPORTED);
+        }
+        states.put(Capability.QUEUE_ENTRY_READ, SupportState.UNSUPPORTED);
+        CapabilityMatrix noted = new CapabilityMatrix(List.of(
+            new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1), Map.of(
+                Capability.QUEUE_ENTRY_READ, SupportState.SUPPORTED)),
+            new CapabilityMatrix.Entry(new VersionRange(9, 0, 9, 0), states, Map.of(), false,
+                Map.of(Capability.QUEUE_ENTRY_READ, "not yet verified"))), Map.of());
+
+        ToolError detected = refusal(() -> gate(noted).admit("read_queue_entry", AUTO,
             Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST));
-        ToolError line = refusal(() -> gate().admit("read_queue_entry", V9_0,
+        ToolError line = refusal(() -> gate(noted).admit("read_queue_entry", V9_0,
             Capability.QUEUE_ENTRY_READ, Kind.READ, CLI_REST));
 
         assertThat(detected.message()).isEqualTo("read_queue_entry: INUBIT 9.0.10 on dev/node1:"
