@@ -204,7 +204,7 @@ empty; code review of T003–T007 recorded in `reviews/implementation.md`.
   `adapter/StaleReportingPortsTest.java` (forwarding), `adapter/RefusingPortsTest.java` (6.1
   refusal, nothing sent), `adapter/AdapterGatewayFactoryTest.java` (default without a
   configured adapter → `CLI_UNAVAILABLE`)
-- [ ] T012 [P] `adapter/cli/CliResources.java` `+ LOG_PREFIX = "inubit-mcp-log-"`, `logPrefix()`,
+- [X] T012 [P] `adapter/cli/CliResources.java` `+ LOG_PREFIX = "inubit-mcp-log-"`, `logPrefix()`,
   stale sweep includes it (D-7 step 2); `adapter/cli/CliConcurrencyLimiter.java` (D-15):
   javadoc `acquireForHelper` serves "helper and log downloads"; `+ acquireForHelper(server, wait,
   String budgetSetting)` whose slot-wait `TIMEOUT` next step names `budgetSetting` ("Retry later;

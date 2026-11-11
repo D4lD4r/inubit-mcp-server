@@ -48,7 +48,8 @@ import org.slf4j.LoggerFactory;
  *       refused.
  *   <li>A SIGKILL leaves no chance to clean up, so export directories are named
  *       {@code inubit-mcp-export-<profile>-<pid>-<random>} ({@link #exportPrefix()}), the
- *       queue-entry helper's {@code inubit-mcp-queue-<profile>-<pid>-<random>}, and
+ *       queue-entry helper's {@code inubit-mcp-queue-<profile>-<pid>-<random>}, the server-log
+ *       downloads' {@code inubit-mcp-log-<profile>-<pid>-<random>} (feature 021), and
  *       {@link #sweepStale} deletes, at startup, the directories of this profile and this user
  *       whose MCP server process is no longer alive (plus such directories of feature 001);
  *       never those of another profile (002 research D-8). On Windows too (feature 013, R-10):
@@ -67,6 +68,8 @@ public final class CliResources implements AutoCloseable {
     public static final String EXPORT_PREFIX = "inubit-mcp-export-";
     /** The directories of the queue-entry helper (feature 020, research D-8). */
     public static final String QUEUE_PREFIX = "inubit-mcp-queue-";
+    /** The private copies of downloaded server logs (feature 021, research D-7). */
+    public static final String LOG_PREFIX = "inubit-mcp-log-";
     /**
      * The names of feature 001, {@code inubit-mcp-export-<pid>-<random>}: exactly two numeric
      * parts, so that no 002 name ({@code <profile>-<pid>-<random>}, three or more parts) matches.
@@ -321,6 +324,15 @@ public final class CliResources implements AutoCloseable {
         return QUEUE_PREFIX + profile + "-" + ProcessHandle.current().pid() + "-";
     }
 
+    /**
+     * The name prefix of this process's server-log download directories,
+     * {@code inubit-mcp-log-<profile>-<pid>-} (feature 021, research D-7); the JDK appends a
+     * random number.
+     */
+    public String logPrefix() {
+        return LOG_PREFIX + profile + "-" + ProcessHandle.current().pid() + "-";
+    }
+
     /** The name goes into a path passed to StartCLI: only valid profile names are accepted. */
     private static String validProfile(String profile) {
         if (!ProfileInfo.isValidName(profile)) {
@@ -516,15 +528,16 @@ public final class CliResources implements AutoCloseable {
     }
 
     /**
-     * Deletes the export and queue-entry helper directories below {@code root} that belong to
-     * {@code owner} and to an MCP server process that is no longer alive (left behind by a
-     * SIGKILL). Only real directories of {@code profile}
+     * Deletes the export, queue-entry helper and server-log directories below {@code root} that
+     * belong to {@code owner} and to an MCP server process that is no longer alive (left behind
+     * by a SIGKILL). Only real directories of {@code profile}
      * ({@code inubit-mcp-export-<profile>-<pid>-<random>} and, as they may hold queue entry
-     * content, the queue-entry helper's
-     * {@code inubit-mcp-queue-<profile>-<pid>-<random>} of feature 020) and legacy directories
-     * of feature 001 ({@code inubit-mcp-export-<pid>-<random>}, which no running 002 server
-     * owns) are considered; another profile's directories, links and files are left alone (002
-     * research D-8).
+     * content or log content, the queue-entry helper's
+     * {@code inubit-mcp-queue-<profile>-<pid>-<random>} of feature 020 and the server-log
+     * downloads' {@code inubit-mcp-log-<profile>-<pid>-<random>} of feature 021) and legacy
+     * directories of feature 001 ({@code inubit-mcp-export-<pid>-<random>}, which no running
+     * 002 server owns) are considered; another profile's directories, links and files are left
+     * alone (002 research D-8).
      *
      * <p>PID reuse (US3 re-review N3): the check is conservative. A directory is deleted only if
      * no process with its pid is alive; if the pid of a killed MCP server has meanwhile been
@@ -557,7 +570,8 @@ public final class CliResources implements AutoCloseable {
         long self = ProcessHandle.current().pid();
         String valid = validProfile(profile);
         List<Pattern> names = List.of(profileDirectory(EXPORT_PREFIX, valid),
-            profileDirectory(QUEUE_PREFIX, valid), LEGACY_DIRECTORY);
+            profileDirectory(QUEUE_PREFIX, valid), profileDirectory(LOG_PREFIX, valid),
+            LEGACY_DIRECTORY);
         int deleted = 0;
         try (DirectoryStream<Path> entries = Files.newDirectoryStream(root)) {
             for (Path entry : entries) {

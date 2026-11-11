@@ -21,8 +21,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * A further run waits up to the node's {@code cliTimeout}, then fails with {@code TIMEOUT}. Other
  * nodes get no limit. The local client probes ({@link CliVersionProbe}, {@link CliClientProbe})
  * take no permit; the {@link de.dadecker.inubit.mcp.adapter.CredentialGuard} applies on top.
- * Helper runs (feature 020, research D-14, FR-016) take the same per-node permits on every
- * version line; StartCLI runs on other nodes still take none.
+ * Helper runs (feature 020, research D-14, FR-016) and log downloads (feature 021, research
+ * D-15) take the same per-node permits on every version line; StartCLI runs on other nodes still
+ * take none.
  */
 public final class CliConcurrencyLimiter {
 
@@ -47,21 +48,37 @@ public final class CliConcurrencyLimiter {
         if (!matrix.isCliOnly(NodeVersionState.initial(server.versionLine()).effectiveVersion())) {
             return new Permit(null);
         }
-        return take(server, server.cliTimeout());
+        return take(server, server.cliTimeout(), "cliTimeout");
     }
 
     /**
      * A permit for one helper run on {@code server}, on any version line; close it when the run
-     * is over. Shares the permits with {@link #acquire} on the same node.
+     * is over. Shares the permits with {@link #acquire} on the same node. The slot-wait
+     * {@code TIMEOUT} names {@code cliTimeout} as the setting to raise.
      *
      * @throws ToolErrorException {@code TIMEOUT} if no permit is free within {@code wait} or the
      *     caller is interrupted while waiting
      */
     public Permit acquireForHelper(EffectiveNodeConfig server, Duration wait) {
-        return take(server, wait);
+        return acquireForHelper(server, wait, "cliTimeout");
     }
 
-    private Permit take(EffectiveNodeConfig server, Duration wait) {
+    /**
+     * A permit for one run on {@code server}, on any version line; serves helper and log
+     * downloads (feature 021, research D-15). Close it when the run is over. Shares the permits
+     * with {@link #acquire} on the same node.
+     *
+     * @param budgetSetting the node setting {@code wait} comes from, named in the next step of
+     *     the slot-wait {@code TIMEOUT}
+     * @throws ToolErrorException {@code TIMEOUT} if no permit is free within {@code wait} or the
+     *     caller is interrupted while waiting
+     */
+    public Permit acquireForHelper(EffectiveNodeConfig server, Duration wait,
+        String budgetSetting) {
+        return take(server, wait, budgetSetting);
+    }
+
+    private Permit take(EffectiveNodeConfig server, Duration wait, String budgetSetting) {
         Semaphore semaphore = semaphores.computeIfAbsent(server.id(),
             id -> new Semaphore(PERMITS, true));
         boolean acquired;
@@ -80,7 +97,8 @@ public final class CliConcurrencyLimiter {
                     + Durations.human(wait),
                 PERMITS + " other StartCLI runs on the node are still running (the INUBIT server"
                     + " is slow or unreachable)",
-                "Retry later; check get_health; raise cliTimeout if the INUBIT server is just slow")
+                "Retry later; check get_health; raise " + budgetSetting
+                    + " if the INUBIT server is just slow")
                 .withNode(server.id()));
         }
         return new Permit(semaphore);
