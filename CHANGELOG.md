@@ -7,6 +7,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `import_artifacts` no longer rolls back an import with `VERIFY_MISMATCH` because a workspace
+  file holds a plain value at a path the redaction treats as secret, e.g. a variable name in a
+  workflow module's map entry named like a certificate (`…Certificate`). Such a value cannot be
+  a placeholder while the node has no value for it (a new workflow), and the re-export always
+  shows it as its placeholder. The verify now compares the sent file with its secrets in the
+  redacted form of the re-export; a placeholder in the workspace still comes back as itself, and
+  every other difference still fails the verify.
+
 ## [0.9.0] - 2026-11-11
 
 Feature 018: read the INUBIT Partner Management. Derived from INUBIT 8.1 exports and tested

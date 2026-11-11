@@ -485,4 +485,88 @@ class V81ImportArchivesTest {
                 .as(difference).isFalse();
         });
     }
+
+    // --- a plain value at a secret path (verify of a new workflow) --------------------------
+
+    /**
+     * A new workflow whose Workflow Connector maps variables named like certificates: the values
+     * are variable names, not secrets, and cannot be placeholders (the node has no value for a
+     * new module ID), but the redaction treats any property named {@code …certificate…} as one.
+     */
+    private static final String CONNECTOR_SENT = """
+        <Workflow>
+          <WorkflowName>Workflow-0001</WorkflowName>
+          <WorkflowModule moduleType="technical">
+            <ModuleId>1002</ModuleId>
+            <ModuleName>Module-0002</ModuleName>
+            <Properties version="4.1">
+              <Property name="useVariableFiltering" type="Boolean">true</Property>
+              <Property name="InputVariablesMap" type="Map">
+                <Property name="FilenameClientCertificate">FilenameClientCertificate</Property>
+                <Property name="var.alpha">var.alpha</Property>
+              </Property>
+            </Properties>
+          </WorkflowModule>
+        </Workflow>
+        """;
+    private static final String CONNECTOR_PLACEHOLDER =
+        "${secret:WorkflowModule(1002)/InputVariablesMap/FilenameClientCertificate}";
+
+    /** {@link #CONNECTOR_SENT} as the re-export renders it: the value as its placeholder. */
+    private static String connectorRendered() {
+        return CONNECTOR_SENT.replace(">FilenameClientCertificate<",
+            ">" + CONNECTOR_PLACEHOLDER + "<");
+    }
+
+    @Test
+    void aPlainValueAtASecretPathIsImportedAsItsPlaceholder() {
+        assertThat(archives.equivalent(WORKFLOW, bytes(CONNECTOR_SENT),
+            bytes(connectorRendered()))).as("the workspace comparison is unchanged").isFalse();
+        assertThat(archives.importedAs(WORKFLOW, bytes(CONNECTOR_SENT),
+            bytes(connectorRendered()))).isTrue();
+        // a placeholder in the workspace resolves on the node and comes back as itself
+        assertThat(archives.importedAs(WORKFLOW, bytes(connectorRendered()),
+            bytes(connectorRendered()))).isTrue();
+    }
+
+    @Test
+    void besideAPlainValueAtASecretPathRealDifferencesStayDifferences() {
+        String server = connectorRendered();
+        Map<String, String> differences = new java.util.LinkedHashMap<>();
+        differences.put("another variable mapped", server.replace(">var.alpha<", ">var.beta<"));
+        differences.put("another flag", server.replace(">true<", ">false<"));
+        differences.put("the value lost on the node", server.replace(CONNECTOR_PLACEHOLDER, ""));
+        differences.put("the mapping missing", server.replace(
+            "<Property name=\"FilenameClientCertificate\">" + CONNECTOR_PLACEHOLDER
+                + "</Property>", ""));
+        differences.put("the placeholder of another path", server.replace("(1002)", "(1003)"));
+
+        differences.forEach((difference, changed) -> {
+            assertThat(changed).as(difference).isNotEqualTo(server);
+            assertThat(archives.importedAs(WORKFLOW, bytes(CONNECTOR_SENT), bytes(changed)))
+                .as(difference).isFalse();
+        });
+    }
+
+    @Test
+    void aPlainValueAtASecretPathOfAModuleIsImportedAsItsPlaceholder() {
+        String path = "dev/o/modules/AS2 Connector/Module-0024/module.xml";
+        String sent = "<Properties version=\"4.1\">"
+            + "<Property name=\"Mime.Decrypt.Password\" type=\"Password\">plain</Property>"
+            + "<Property name=\"ClientCertificateAlias\">partner</Property>"
+            + "<Property name=\"ServerCertificate\" type=\"InternalDocument\""
+            + " documentName=\"server.cer\">@file:ServerCertificate.bin</Property>"
+            + "<Property name=\"Url\">https://as2.example.test</Property>"
+            + "</Properties>";
+        String server = sent.replace(">plain<", ">${secret:Mime.Decrypt.Password}<")
+            .replace(">partner<", ">${secret:ClientCertificateAlias}<");
+
+        assertThat(archives.importedAs(path, bytes(sent), bytes(server))).isTrue();
+        // the reference to an extracted document stays a reference (the document is compared
+        // as its own file)
+        assertThat(archives.importedAs(path, bytes(sent), bytes(server.replace(
+            "@file:ServerCertificate.bin", "${secret:ServerCertificate}")))).isFalse();
+        assertThat(archives.importedAs(path, bytes(sent), bytes(server.replace(
+            "as2.example.test", "as2.example.org")))).isFalse();
+    }
 }

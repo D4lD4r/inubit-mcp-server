@@ -5,8 +5,11 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.ImportAssembler.CheckinComment
 import de.dadecker.inubit.mcp.adapter.archive.v81.ImportAssembler.Request;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Node;
+import de.dadecker.inubit.mcp.domain.model.SecretPlaceholder;
+import de.dadecker.inubit.mcp.domain.model.WorkspacePath;
 import de.dadecker.inubit.mcp.domain.port.ImportArchivePort;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -62,14 +65,59 @@ public final class V81ImportArchives implements ImportArchivePort {
     /**
      * {@link #equivalent}, or equivalent after the rewrite of {@link SaxonFactoryRewrite}
      * (issue #55), or after the comments of {@link ModuleCommentRewrite} that the import added
-     * to workflow modules sent without one.
+     * to workflow modules sent without one — each with the secrets of {@code sent} as the
+     * re-export renders them ({@link #redacted}): a plain value at a secret path is imported as
+     * its placeholder.
      */
     @Override
     public boolean importedAs(String path, byte[] sent, byte[] server) {
-        return equivalent(path, sent, server) || SaxonFactoryRewrite.asImported(path, sent,
-            server).filter(imported -> equivalent(path, imported, server)).isPresent()
-            || ModuleCommentRewrite.withoutAddedComments(path, sent, server)
-                .filter(stored -> equivalent(path, sent, stored)).isPresent();
+        byte[] rendered = redacted(path, sent);
+        return equivalent(path, rendered, server) || SaxonFactoryRewrite.asImported(path,
+            rendered, server).filter(imported -> equivalent(path, imported, server)).isPresent()
+            || ModuleCommentRewrite.withoutAddedComments(path, rendered, server)
+                .filter(stored -> equivalent(path, rendered, stored)).isPresent();
+    }
+
+    /**
+     * The workspace file {@code path} with its secrets as a re-export renders them: in a workflow
+     * file and a {@code module.xml} every value at a secret path ({@link SecretPaths}, the walk
+     * of {@link SecretRedactor}) replaced by its placeholder, so that a plain value the workspace
+     * sends at such a path (e.g. a variable name in a map entry named like a certificate) compares
+     * with the placeholder the re-export shows. A placeholder stays itself; a reference to an
+     * extracted document ({@code @file:}) stays a reference, as the export extracts documents
+     * after the redaction. Any other file, XML that cannot be read and a file without such a
+     * value come back unchanged.
+     */
+    static byte[] redacted(String path, byte[] file) {
+        if (file == null || !path.endsWith(".xml")) {
+            return file;
+        }
+        WorkspacePath.Kind kind;
+        try {
+            kind = WorkspacePath.parse(Path.of(path)).kind();
+        } catch (RuntimeException e) {
+            return file; // not the path of a workspace artifact file
+        }
+        if (kind != WorkspacePath.Kind.WORKFLOW && kind != WorkspacePath.Kind.MODULE) {
+            return file;
+        }
+        boolean[] replaced = {false};
+        SecretPaths paths = new SecretPaths((artifact, secret, secretKind, value) -> {
+            if (value.startsWith(EmbeddedDocuments.FILE_REFERENCE)) {
+                return value;
+            }
+            String placeholder = new SecretPlaceholder(secret).render();
+            replaced[0] |= !placeholder.equals(value);
+            return placeholder;
+        });
+        try {
+            Element root = XmlTree.parse(file).root();
+            Element walked = kind == WorkspacePath.Kind.WORKFLOW ? paths.workflow("", root)
+                : paths.module("", root);
+            return replaced[0] ? XmlNormalizer.normalize(walked) : file;
+        } catch (RuntimeException e) {
+            return file;
+        }
     }
 
     @Override
