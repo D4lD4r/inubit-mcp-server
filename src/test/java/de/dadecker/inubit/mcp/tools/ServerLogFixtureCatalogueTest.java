@@ -40,7 +40,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * T024 (feature 021, research D-21, D-22): the closed world of the server-log fixtures in
@@ -53,7 +52,9 @@ import org.junit.jupiter.params.provider.ValueSource;
  * (research "Spike findings"); a web service {@code part log ok <bytes>} frame names the size of
  * its {@code .log} in bytes. For every (version, log) the production capability matrix says
  * {@code SUPPORTED} exactly when {@code <version>/<log>/ok.origin} starts with {@code recorded}.
- * T040: the 8.1 web service cases are classified as their names say.
+ * T040: the 8.1 web service cases are classified as their names say. T048: the reconstructed 9.0
+ * cases, classified as the 8.1 ones in the {@code REST_90} variant; while their {@code ok} cases are
+ * not recorded, the production matrix supports neither 9.0 log (FR-017).
  */
 class ServerLogFixtureCatalogueTest {
 
@@ -85,28 +86,52 @@ class ServerLogFixtureCatalogueTest {
             "v8_1/trace/missing", "v8_1/trace/login_failure", "v8_1/trace/forbidden",
             "v8_1/webservice/ok", "v8_1/webservice/empty", "v8_1/webservice/missing",
             "v8_1/webservice/forbidden", "v8_1/webservice/not_cluster_mode",
-            "v8_1/webservice/api_missing", "v8_1/webservice/garbage_frames");
+            "v8_1/webservice/api_missing", "v8_1/webservice/garbage_frames",
+            "v9_0/trace/ok", "v9_0/trace/empty", "v9_0/trace/missing",
+            "v9_0/trace/login_failure", "v9_0/trace/forbidden", "v9_0/webservice/ok",
+            "v9_0/webservice/empty", "v9_0/webservice/missing", "v9_0/webservice/forbidden",
+            "v9_0/webservice/not_cluster_mode", "v9_0/webservice/api_missing",
+            "v9_0/webservice/garbage_frames");
     }
 
-    /** T040: {@code ok} and {@code empty} are the log of INUBIT node {@code node1} in .log. */
+    /** T040, T048: {@code ok} and {@code empty} are the log of INUBIT node {@code node1} in .log. */
     @ParameterizedTest
-    @ValueSource(strings = {"ok", "empty"})
-    void a81WebServiceDownloadCaseIsTheLogOfNode1(String name) throws IOException {
-        Path log = ROOT.resolve("v8_1/webservice/" + name + ".log");
+    @CsvSource({"v8_1, ok", "v8_1, empty", "v9_0, ok", "v9_0, empty"})
+    void aWebServiceDownloadCaseIsTheLogOfNode1(String version, String name) throws IOException {
+        Path log = ROOT.resolve(version + "/webservice/" + name + ".log");
 
-        assertThat(classify81WebService(name))
+        assertThat(classifyWebService(version, name))
             .isEqualTo(new Downloaded("node1", size(log), LogPresence.PRESENT));
     }
 
-    /** T040: every failing 8.1 web service case fails with the code its name stands for. */
+    /** T040, T048: every failing web service case fails with the code its name stands for. */
     @ParameterizedTest
-    @CsvSource({"missing, NOT_FOUND", "forbidden, FORBIDDEN",
-        "not_cluster_mode, UNEXPECTED_RESPONSE", "api_missing, CLI_UNAVAILABLE",
-        "garbage_frames, UNEXPECTED_RESPONSE"})
-    void a81WebServiceFailureCaseFailsWithTheCodeOfItsName(String name, ErrorCode code)
-        throws IOException {
-        assertThat(classify81WebService(name)).isInstanceOfSatisfying(Failure.class,
+    @CsvSource({"v8_1, missing, NOT_FOUND", "v8_1, forbidden, FORBIDDEN",
+        "v8_1, not_cluster_mode, UNEXPECTED_RESPONSE", "v8_1, api_missing, CLI_UNAVAILABLE",
+        "v8_1, garbage_frames, UNEXPECTED_RESPONSE", "v9_0, missing, NOT_FOUND",
+        "v9_0, forbidden, FORBIDDEN", "v9_0, not_cluster_mode, UNEXPECTED_RESPONSE",
+        "v9_0, api_missing, CLI_UNAVAILABLE", "v9_0, garbage_frames, UNEXPECTED_RESPONSE"})
+    void aWebServiceFailureCaseFailsWithTheCodeOfItsName(String version, String name,
+        ErrorCode code) throws IOException {
+        assertThat(classifyWebService(version, name)).isInstanceOfSatisfying(Failure.class,
             failure -> assertThat(failure.error().code()).isEqualTo(code));
+    }
+
+    /**
+     * T048 (FR-017, D-22): until the 9.0 recordings (T051 trace, T052 web service) every 9.0 case
+     * is reconstructed and the production matrix supports neither 9.0 log.
+     */
+    @ParameterizedTest
+    @CsvSource({"trace, TRACE_LOG_READ", "webservice, WEBSERVICE_LOG_READ"})
+    void every90CaseIsReconstructedAndTheProductionMatrixDoesNotSupport90(String log,
+        Capability capability) throws IOException {
+        List<String> cases = cases(ROOT).stream()
+            .filter(name -> name.startsWith("v9_0/" + log + "/")).toList();
+
+        assertThat(cases).isNotEmpty().allSatisfy(name ->
+            assertThat(firstLine(ROOT.resolve(name + ".origin"))).startsWith("reconstructed "));
+        assertThat(CapabilityMatrix.production().stateOfLine(9, OptionalInt.of(0), capability))
+            .isEqualTo(SupportState.UNSUPPORTED);
     }
 
     @Test
@@ -320,17 +345,24 @@ class ServerLogFixtureCatalogueTest {
         return Optional.empty();
     }
 
-    /** The 8.1 web service case {@code name} replayed through the classifier (research D-4). */
-    private static Outcome classify81WebService(String name) throws IOException {
-        Path frames = ROOT.resolve("v8_1/webservice/" + name + ".frames");
-        int exit = Integer.parseInt(firstLine(ROOT.resolve("v8_1/webservice/" + name + ".exit")));
+    /**
+     * The web service case {@code name} of {@code version} replayed through the classifier
+     * (research D-4), for a request in the version's variant ({@code SOAP_81}, {@code REST_90}).
+     */
+    private static Outcome classifyWebService(String version, String name) throws IOException {
+        Path frames = ROOT.resolve(version + "/webservice/" + name + ".frames");
+        int exit = Integer.parseInt(firstLine(ROOT.resolve(version + "/webservice/" + name
+            + ".exit")));
         CliResult result = new CliResult(exit, Files.readString(frames, StandardCharsets.UTF_8),
             "", Duration.ofSeconds(1), false, 1 << 20);
         SecretLabels labels = new SecretLabels.Store(
             new CredentialNames("INUBIT_ACME", NodeId.parse("test/node1")), StoreKind.KEYCHAIN);
+        int[] line = VERSIONS.get(version);
+        String variant = line[0] == 9 ? "REST_90" : "SOAP_81";
         return new WebServiceLogClassifier(new SecretScrubber(), labels).classify(
-            HelperRequestTest.serverLogRequest(r -> { }), result,
-            Path.of("/opt/acme/inubit-8.1/client"), new MajorMinor(8, 1));
+            HelperRequestTest.serverLogRequest(r -> r.variant = variant), result,
+            Path.of("/opt/acme/inubit-" + line[0] + "." + line[1] + "/client"),
+            new MajorMinor(line[0], line[1]));
     }
 
     /**

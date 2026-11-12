@@ -1,0 +1,2 @@
+reconstructed fixtures/server-log/v8_1/trace/login_failure.* (from the recorded 8.1.17 StartCLI login failure); only ibis.jar:8.1.17 in the stack frames becomes ibis.jar:9.0.10, as in fixtures/v9_0/cli/login_failed.stdout (StartCLI texts unchanged in 9.0, docs/research/inubit-interfaces.md §2 and §4).
+StartCLI fails at the login before trace opens the file; the empty .log only gives the fake launcher something to write. Not verified against a 9.0 client or server.

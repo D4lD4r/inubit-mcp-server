@@ -798,7 +798,7 @@ helper's `variant`.
   9.0 node (webservice, `api missing` `ClusterClient`) → `CLI_UNAVAILABLE`; production matrix 9.0
   before T051/T052 → "… is not yet verified for INUBIT 9.0"; fixes in the adapters or the service
   only if a test fails
-- [ ] T048 [US3] 9.0 contract in the fallback state (FR-017, D-22; after T047):
+- [X] T048 [US3] 9.0 contract in the fallback state (FR-017, D-22; after T047):
   reconstructed `src/test/resources/fixtures/server-log/v9_0/{trace,webservice}/<case>.*` (the
   v8_1 case sets, `.origin` "`reconstructed <source>`", fictitious content);
   `adapter/cli/log/ServerLogV90ContractTest.java`: while `v9_0/<log>/ok.origin` is not recorded,

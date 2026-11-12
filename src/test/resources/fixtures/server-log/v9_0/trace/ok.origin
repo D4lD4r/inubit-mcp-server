@@ -1,0 +1,2 @@
+reconstructed fixtures/server-log/v8_1/trace/ok.* (recorded 2026-11-11 8.1.17 neutralized) and research.md "Static facts" (TraceCommand trace -d and the trace download handler are identical in 8.1.17 and 9.0.10).
+stdout, stderr and exit copied unchanged; the fictitious ok.log is the 8.1 one with the times moved (09:14 -> 10:21, 11.11.26 -> 12.11.26), so its size and the MB value (0) stay. Not verified against a 9.0 client or server. T051 replaces this case by the neutralized 9.0 recording.

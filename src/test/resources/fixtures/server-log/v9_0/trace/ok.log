@@ -1,0 +1,46 @@
+DEBUG 12.11.26 10:21:02,118 [acme-mq WriteCheckTimer] KeepAliveMonitor          WriteChecker: 10000ms elapsed since last write check.
+TRACE 12.11.26 10:21:02,118 [acme-mq WriteCheckTimer] KeepAliveMonitor          ssl://mq1.example.test:61617 no message sent since last write check, sending a KeepAliveInfo
+DEBUG 12.11.26 10:21:02,119 [acme-mq Worker 12] KeepAliveMonitor          Running WriteCheck[ssl://mq1.example.test:61617]
+DEBUG 12.11.26 10:21:03,402 [node1-engine-3] ProcessEngine             node1 workflow Order-0001 started (process 100001)
+TRACE 12.11.26 10:21:03,425 [node1-engine-3] ModuleExecutor            Order-0001 module Map-Order entered
+TRACE 12.11.26 10:21:03,427 [node1-engine-3] ModuleExecutor            Order-0001 module Map-Order left after 2 ms
+DEBUG 12.11.26 10:21:03,449 [node1-engine-3] HttpConnector             Order-0001 POST https://orders.example.test/api/orders, request headers:
+Authorization: Basic YWNtZTp0cmFjZS1zZWNyZXQtMDAwMQ==
+Content-Type: application/xml
+DEBUG 12.11.26 10:21:03,666 [node1-engine-3] HttpConnector             Order-0001 HTTP 201 from orders.example.test in 217 ms
+DEBUG 12.11.26 10:21:03,688 [node1-engine-3] ProcessEngine             node1 workflow Order-0001 finished (process 100001)
+DEBUG 12.11.26 10:21:07,196 [node1-engine-5] ProcessEngine             node1 workflow Invoice-0002 started (process 100002)
+TRACE 12.11.26 10:21:07,220 [node1-engine-5] SoapConnector             Invoice-0002 envelope to https://billing.example.test/soap:
+<login>
+  <user>acme</user>
+  <password>trace-secret-0002</password>
+</login>
+DEBUG 12.11.26 10:21:07,487 [node1-engine-5] SoapConnector             Invoice-0002 HTTP 405 from billing.example.test in 267 ms, response:
+<html>
+<head><title>405 Not Allowed</title></head>
+</html>
+ERROR 12.11.26 10:21:07,491 [node1-engine-5] ProcessEngineTask         Invoice-0002: module Send-Invoice failed
+acme.flow.ConnectorException: @Start@ConnectorException@@@Connection to the remote system failed.@End@HTTP 405 from billing.example.test
+	at acme.flow.connector.SoapConnector.send(SoapConnector.java:412) ~[acme-flow.jar:1.0.0]
+	at acme.flow.engine.ProcessEngineTask.execute(ProcessEngineTask.java:188) ~[acme-flow.jar:1.0.0]
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136) ~[?:?]
+	at java.lang.Thread.run(Thread.java:840) [?:?]
+Caused by: java.io.IOException: Empty input
+	at acme.flow.connector.SoapConnector.readAnswer(SoapConnector.java:530) ~[acme-flow.jar:1.0.0]
+	... 4 more
+DEBUG 12.11.26 10:21:07,518 [node1-engine-5] ProcessEngine             node1 workflow Invoice-0002 ended with error (process 100002)
+DEBUG 12.11.26 10:21:12,118 [acme-mq WriteCheckTimer] KeepAliveMonitor          WriteChecker: 10000ms elapsed since last write check.
+TRACE 12.11.26 10:21:12,118 [acme-mq WriteCheckTimer] KeepAliveMonitor          ssl://mq1.example.test:61617 no message sent since last write check, sending a KeepAliveInfo
+DEBUG 12.11.26 10:21:12,119 [acme-mq Worker 13] KeepAliveMonitor          Running WriteCheck[ssl://mq1.example.test:61617]
+DEBUG 12.11.26 10:21:15,630 [node1-poller-1] FtpConnector              Inbox-0004 polling ftp.example.test:21
+ERROR 12.11.26 10:21:15,641 [node1-poller-1] FtpConnector              Inbox-0004 connection to ftp.example.test:21 failed
+java.net.ConnectException: Connection refused
+	at sun.nio.ch.Net.pollConnect(Native Method) ~[?:?]
+	at java.net.Socket.connect(Socket.java:633) ~[?:?]
+	at acme.flow.connector.FtpConnector.connect(FtpConnector.java:96) ~[acme-flow.jar:1.0.0]
+	at acme.flow.connector.FtpConnector.poll(FtpConnector.java:61) ~[acme-flow.jar:1.0.0]
+DEBUG 12.11.26 10:21:18,904 [node1-engine-3] ProcessEngine             node1 workflow Order-0003 started (process 100003)
+TRACE 12.11.26 10:21:18,931 [node1-engine-3] ModuleExecutor            Order-0003 module Map-Order entered
+TRACE 12.11.26 10:21:18,932 [node1-engine-3] ModuleExecutor            Order-0003 module Map-Order left after 1 ms
+DEBUG 12.11.26 10:21:19,151 [node1-engine-3] ProcessEngine             node1 workflow Order-0003 finished (process 100003)
+DEBUG 12.11.26 10:21:20,000 [node1-cache-1] ClusterCacheSync          node1 cluster cache in sync with node2.example.test

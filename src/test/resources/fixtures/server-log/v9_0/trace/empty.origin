@@ -1,0 +1,2 @@
+reconstructed fixtures/server-log/v8_1/trace/empty.* (research.md "Static facts" and D-8) and research.md "Static facts" (TraceCommand trace -d and the trace download handler are identical in 8.1.17 and 9.0.10); copied unchanged.
+An empty trace log was not observed on 9.0. Not verified against a 9.0 client or server.

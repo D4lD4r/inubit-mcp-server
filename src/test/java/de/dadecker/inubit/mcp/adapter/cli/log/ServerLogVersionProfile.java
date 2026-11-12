@@ -48,8 +48,8 @@ import java.util.stream.Stream;
  * installation has StartCLI ({@link FakeStartCli}) for the trace log and what the INUBIT client
  * helper needs for the web service log. StartCLI and the helper are a {@link FakeProcessLauncher},
  * so the launched JDK, client, working directory and the helper request's {@code variant} and
- * {@code url} can be checked; no process is started. Until the 9.0 fixtures exist (T048) both
- * versions replay the 8.1 {@code ok} cases.
+ * {@code url} can be checked; no process is started. The version selection replays the 8.1
+ * {@code ok} cases on both versions; the 9.0 contract (T048) replays the {@code v9_0} cases.
  */
 public final class ServerLogVersionProfile implements AutoCloseable {
 
@@ -58,8 +58,7 @@ public final class ServerLogVersionProfile implements AutoCloseable {
     /** The nonce in the recorded frames; the fake helper answers with the request's nonce. */
     private static final String FIXTURE_NONCE = "0123456789abcdef0123456789abcdef";
     private static final Pattern DOWNLOAD = Pattern.compile("--download '([^']+)'");
-    private static final String TRACE = "server-log/v8_1/trace/";
-    private static final String WEB_SERVICE = "server-log/v8_1/webservice/";
+    private static final String FIXTURES = "server-log/";
     /** The server's environment, with credentials no launch may get (leak check). */
     private static final Map<String, String> PARENT = Map.of(
         "PATH", "/usr/bin:/bin",
@@ -142,9 +141,19 @@ public final class ServerLogVersionProfile implements AutoCloseable {
 
     /** StartCLI replaying the 8.1 {@code ok} trace case: writes its log to the download path. */
     public static FakeProcessLauncher startCli() {
-        return FakeProcessLauncher.of(text(TRACE + "ok.stdout"), text(TRACE + "ok.stderr"),
-            Integer.parseInt(text(TRACE + "ok.exit").strip())).onLaunch(spec -> write(
-                downloadFile(spec), FakeProcessLauncher.resource(TRACE + "ok.log")));
+        return startCli("v8_1", "ok");
+    }
+
+    /**
+     * StartCLI replaying trace case {@code fixtureCase} of {@code version} ({@code v8_1},
+     * {@code v9_0}): prints its {@code .stdout} and {@code .stderr}, exits with its {@code .exit}
+     * and writes its {@code .log} to the download path.
+     */
+    public static FakeProcessLauncher startCli(String version, String fixtureCase) {
+        String trace = FIXTURES + version + "/trace/" + fixtureCase;
+        return FakeProcessLauncher.of(text(trace + ".stdout"), text(trace + ".stderr"),
+            Integer.parseInt(text(trace + ".exit").strip())).onLaunch(spec -> write(
+                downloadFile(spec), FakeProcessLauncher.resource(trace + ".log")));
     }
 
     /**
@@ -152,11 +161,21 @@ public final class ServerLogVersionProfile implements AutoCloseable {
      * writes its log to the request's {@code logOut}.
      */
     public static FakeProcessLauncher helper() {
+        return helper("v8_1", "ok");
+    }
+
+    /**
+     * The helper replaying web service case {@code fixtureCase} of {@code version}: writes its
+     * {@code .log} to the request's {@code logOut} and answers with its {@code .frames} and
+     * {@code .exit}; a recorded {@code start SOAP_81} becomes the requested {@code variant}.
+     */
+    public static FakeProcessLauncher helper(String version, String fixtureCase) {
+        String webService = FIXTURES + version + "/webservice/";
         return FakeProcessLauncher.of("", "", 0).responding(stdin -> {
             Map<String, String> fields = QueueEntryVersionProfile.request(stdin);
             write(Path.of(fields.get("logOut")),
-                FakeProcessLauncher.resource(WEB_SERVICE + "ok.log"));
-            return replay("ok", fields);
+                FakeProcessLauncher.resource(webService + fixtureCase + ".log"));
+            return replay(webService, fixtureCase, fields);
         });
     }
 
@@ -165,8 +184,8 @@ public final class ServerLogVersionProfile implements AutoCloseable {
      * {@code api_missing} web service case, exit 4.
      */
     public static FakeProcessLauncher helperLackingClusterClient() {
-        return FakeProcessLauncher.of("", "", 0).responding(stdin ->
-            replay("api_missing", QueueEntryVersionProfile.request(stdin)));
+        return FakeProcessLauncher.of("", "", 0).responding(stdin -> replay(
+            FIXTURES + "v8_1/webservice/", "api_missing", QueueEntryVersionProfile.request(stdin)));
     }
 
     /** The {@code --download} path of a StartCLI launch. */
@@ -197,14 +216,15 @@ public final class ServerLogVersionProfile implements AutoCloseable {
     }
 
     /**
-     * The frames and exit code of web service case {@code fixtureCase}, with the request's nonce
-     * and {@code variant}.
+     * The frames and exit code of web service case {@code fixtureCase} in {@code webService}, with
+     * the request's nonce and {@code variant}.
      */
-    private static Answer replay(String fixtureCase, Map<String, String> fields) {
-        String frames = text(WEB_SERVICE + fixtureCase + ".frames")
+    private static Answer replay(String webService, String fixtureCase,
+        Map<String, String> fields) {
+        String frames = text(webService + fixtureCase + ".frames")
             .replace(FIXTURE_NONCE, fields.get("nonce"))
             .replace(" start SOAP_81", " start " + fields.get("variant"));
-        return new Answer(frames, Integer.parseInt(text(WEB_SERVICE + fixtureCase + ".exit")
+        return new Answer(frames, Integer.parseInt(text(webService + fixtureCase + ".exit")
             .strip()));
     }
 
