@@ -195,7 +195,7 @@ src/main/java/de/dadecker/inubit/mcp/
 ├── config/              # AdministrationConfig, UploadsConfig (new); GroupConfig, ProfileConfig, Defaults,
 │                        # ConfigLoader, ConfigValidator, ConfigSummary, EffectiveNodeConfig,
 │                        # CredentialNames/ParameterNames (entry namespace)
-├── domain/model/        # InterfaceCoverage, CoverageEntry, CoverageState, SecretRules, JsonLeafMasker, ServerSettings,
+├── domain/model/        # InterfaceCoverage, CoverageEntry, CoverageState, SecretRules, ServerSettings,
 │                        # ConfigurationView, UserSummary, UserDetail, LoginEntry, Message*, ModuleDetail,
 │                        # ProcessMetadata, LibraryEntry, IsConnectorCheck, ChangePreview, ChangeResult,
 │                        # ExportCondition, ExportFilter, Runtime* (new); Capability, CapabilityMatrix
@@ -216,7 +216,8 @@ src/main/java/de/dadecker/inubit/mcp/
 │                        # V81ObjectAdministrationAdapter, V81LibraryAdministrationAdapter,
 │                        # V81SettingsAdministrationAdapter, V81UserAdministrationAdapter + parsers
 │                        # (LicenseXmlParser, ConfigurationJsonParser, UserListXmlParser,
-│                        # ModuleDetailJsonParser, ProcessMetadataParser, IsConnectorCheckParser) (new)
+│                        # ModuleDetailJsonParser, ProcessMetadataParser, IsConnectorCheckParser,
+│                        # JsonLeafMasker) (new)
 ├── adapter/cli/         # CliCommand (+commands), CliSessionCommand (version-neutral), CliRunner,
 │                        # CliSessionParser (from V61SessionParser), CliOutputClassifier (new forms)
 ├── adapter/cli/admin/   # new: CliSettingsRunner, CliUserRunner, CliOperationRunner, CliTagAdminRunner,

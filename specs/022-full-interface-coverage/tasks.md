@@ -239,16 +239,17 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
     - `adapter/cli/CliRunnerSessionTest.java`: the secret is on stdin only, never in `LaunchSpec`
       argv/env, and an echo in stdout is masked; leak check.
   - All 6.1 tests stay green; `fixtures/v6_1` unchanged.
-- [ ] T013 `SecretRules` extraction (D-19):
+- [X] T013 `SecretRules` extraction (D-19):
   - `domain/model/SecretRules.java` (public): `isSecretName(String)`, `isSecretPath(String)`,
     `masks(String name, Optional<String> type, boolean encrypted, String value)`. It uses the
     patterns of `adapter/archive/v81/PartnerSecretRules.java` (`SECRET_TYPE`, `SECRET_NAME`) and
     `KeyMaterial`.
   - `PartnerSecretRules` delegates to it.
-  - `domain/model/JsonLeafMasker.java` walks a Jackson tree and masks leaves by `SecretRules`,
+  - `adapter/rest/v81/JsonLeafMasker.java` (package-private; `domain` may not use Jackson,
+    `PackageBoundaryTest`) walks a Jackson tree and masks leaves by `SecretRules`,
     returning a masked copy and `maskedCount`.
   - Failing tests first: `domain/model/SecretRulesTest.java` and
-    `domain/model/JsonLeafMaskerTest.java` (nested objects, arrays, `encrypted` sibling flag, key
+    `adapter/rest/v81/JsonLeafMaskerTest.java` (nested objects, arrays, `encrypted` sibling flag, key
     material value).
   - All 018 tests stay green unchanged.
 
@@ -299,6 +300,11 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
   - a section's leaves are flattened to `{path, value | masked}` through `JsonLeafMasker`, with
     `maskedCount`;
   - output is bounded by `ResultLimiter` with `truncated`.
+  - From the T013 review: one key-material rule only (FR-010): `SecretPaths.isKeyMaterial` keeps
+    only its placeholder and `documentName` checks and calls `SecretRules` for the value, so
+    partner masking and configuration masking cannot diverge (018 tests unchanged). Check the
+    recorded configuration JSON (T014) for sibling type fields; if it has them, `JsonLeafMasker`
+    passes them as the `type` argument of `SecretRules.masks`.
   - Failing tests first: `ConfigurationJsonParserTest.java` (both root keys, sections only, one
     section, unknown section â†’ `NOT_FOUND` naming the listing, masking; leak check).
 - [ ] T018 [US1] StartCLI settings parsers in the new package `adapter/cli/admin/`
