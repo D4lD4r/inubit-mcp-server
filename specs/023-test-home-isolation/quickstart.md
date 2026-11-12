@@ -8,11 +8,12 @@
 ## 1. Red first (on the commit with only the new tests)
 
 ```bash
-mvn -q test -Dtest='WiringHomeIsolationTest,UserHomeReadGuardTest' -Dsurefire.failIfNoSpecifiedTests=false
+mvn -q test -Dtest='WiringAuditTest#anImportLeavesTheRealHomeUntouched,UserHomeReadGuardTest'
 ```
 
 Expected: both fail. The guard lists `ConfigLoader.java:124` and `Wiring.java` lines 461, 492, 527,
-544; the isolation test names a new file below `~/.inubit-mcp/acme/backups`.
+544; the audit test names the import's backup `<auditId>.json` below `~/.inubit-mcp/acme/backups`.
+(Check the surefire summary: 2 test classes run, so a typo cannot pass silently.)
 
 ## 2. Green
 
@@ -28,10 +29,14 @@ Expected: `BUILD SUCCESS`, and `find` prints nothing.
 
 ## 4. Unchanged locations of a real server (SC-005)
 
-`WiringHomeIsolationTest` covers backups and the forbidden export root for a handed-in home; the
-existing `MainProcessTest` starts the packaged server with `-Duser.home=<temp>` and its state appears
-below that home. Code check: `Launcher` passes `context.userHome()` and `Context.system` reads
-`user.home`.
+```bash
+mvn -q test -Dtest='WiringHomeLocationsTest,MainTest,FileUpdateCacheTest,ExportArchivesWiringTest'
+```
+
+Expected: green. `WiringHomeLocationsTest` checks all locations of data-model.md for a handed-in
+home, `MainTest` that `Context.system` hands over `user.home` and the launcher passes the context
+home to the wiring, `FileUpdateCacheTest` the update-check cache path, `ExportArchivesWiringTest`
+the forbidden export root.
 
 ## 5. Live tests (optional, when a test target is configured)
 

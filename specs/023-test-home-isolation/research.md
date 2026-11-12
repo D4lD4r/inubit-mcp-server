@@ -27,11 +27,15 @@ Base: `main` at 0.9.1 (5ec65996).
 
 - **Decision**: `TestWiring` creates one fresh directory per built server
   (`Files.createTempDirectory("inubit-mcp-home")`), hands it to `Wiring`, exposes it as
-  `userHome()`, and deletes it recursively in `close()`. A homes registry with one JVM shutdown hook
-  deletes every home not yet deleted (servers a test never closes). A deletion failure is logged
-  and ignored (test cleanup must not fail a test).
+  `userHome()`, and deletes it recursively in `close()`; a static registry with one JVM shutdown hook
+  deletes every such home not yet deleted (servers a test never closes). A deletion failure is
+  logged at WARN and otherwise ignored (test cleanup must not fail a test). A second factory family
+  takes a caller-owned home (`withHome(…, Path userHome)`): `TestWiring` never deletes such a home;
+  the caller does.
 - **Rationale**: FR-005: the 24 test classes that use `TestWiring` stay unchanged and get isolation
   without choosing a home; the per-server directory keeps backups of one test invisible to another.
+  The caller-owned variant exists for tests that need state to survive a restart of the server
+  (the live tests, D-4).
 - **Alternatives considered**: a `Path userHome` parameter on every `TestWiring` factory (24 call
   sites, more churn without more safety); one shared temp home per JVM (tests would see each
   other's backups and ledgers).
@@ -47,29 +51,40 @@ Base: `main` at 0.9.1 (5ec65996).
 ## D-4 Live tests
 
 - **Decision**: `LiveTarget` keeps loading the configuration and the credential store with the real
-  home. Every wiring it builds goes through one private `isolated(ProfileConfig, Path workspace)`
-  step that replaces `auditDirectory`, `workspace` (unless the test gave one) and
-  `knowledge.directory` (keeping `knowledge.recording`) by directories below one temporary
-  directory per `LiveTarget`; backups, ledger and packages follow the temporary home from D-2.
+  home. Since `LiveTarget` is a record, the state lives in an extra record component, a small
+  holder `LiveState` set in `resolve`/`resolveDeployment` (the two `new LiveTarget(...)` calls), which
+  owns one temporary directory (created lazily with
+  `Files.createTempDirectory("inubit-mcp-live")`, path printed once to stderr as
+  `[live] state directory: <path>`, deleted recursively by a JVM shutdown hook) and builds every
+  wiring with
+  - `TestWiring.withHome(…, <tmp>/home)`, the same home for all wirings of that `LiveTarget`, so
+    backups, ledger and packages survive from one wiring to the next as on a real server
+    (`DevelopmentLiveTest` imports in one wiring and restores the `backupRef` in a later one);
+  - a configuration copy from one package-private `isolated(ProfileConfig, Path workspace)` step that sets
+    `auditDirectory = <tmp>/audit`, `workspace` = the caller's workspace or `<tmp>/workspace`, and
+    `knowledge = new KnowledgeConfig(<tmp>/knowledge, recording kept)`.
   `CredentialStoreLiveTest` only reads the credential store and stays unchanged.
 - **Rationale**: FR-006 and US4: the real configuration may name the real audit, workspace and
   knowledge directories; a live deploy would otherwise append to the real audit log.
 - **Alternatives considered**: exempt the audit log of live runs for traceability (Constitution VII):
   rejected, the owner asked for no test artefacts in the home; the server-side INUBIT audit of the
-  test node is unaffected.
+  test node is unaffected. A fresh home per live wiring: breaks restore across wirings.
 
 ## D-5 Guard test (static scan)
 
-- **Decision**: `UserHomeReadGuardTest` (package `de.dadecker.inubit.mcp.security`, next to the other
-  source-scanning checks) walks `src/main/java`, removes comments, and reports `file:line` for:
+- **Decision**: `UserHomeReadGuardTest` in package `de.dadecker.inubit.mcp.architecture` (next to the
+  other production-source scans such as `TemplateGrammarTest`) walks `src/main/java` and
+  blanks out comments with a single-pass scanner whose states are code, string literal, char
+  literal, text block, line comment and block comment: comment characters become spaces, newlines are
+  kept (so line numbers stay exact), literals stay intact (a `/*` or `//` inside `"https://…"`,
+  `"**/*.xml"` or `'"'` is not a comment; a `"user.home"` inside a Javadoc is gone). It then reports `file:line` for:
   - the string literal `"user.home"` in code;
-  - `getenv("HOME")` / `getenv("USERPROFILE")` and `getenv().get("HOME")` /
-    `getenv().get("USERPROFILE")`;
-  - `getProperty(X)` / `getenv(X)` / `getenv().get(X)` where `X` is a `static final String`
-    constant of the same file whose value is one of the three names.
-  The allowed place is `Launcher.java`, inside `Context.system` only (the method body is located by
-  its signature; a read elsewhere in `Launcher.java` is reported). The test also asserts that the
-  allowed place still contains exactly one read, so a moved entry point cannot leave the guard
+  - `getenv("HOME")`, `getenv("USERPROFILE")`, and `getenv().get(…)` /
+    `getenv().getOrDefault(…)` with `"HOME"` or `"USERPROFILE"`;
+  - `getProperty(X)`, `getenv(X)`, `getenv().get(X)`, `getenv().getOrDefault(X, …)` where `X` is a
+    `static final String` constant of the same file whose value is one of the three names.
+  The allowed place is the body of `static Context system(` in `Launcher.java`; the test asserts no
+  finding outside it and exactly one inside it, so a moved entry point cannot leave the guard
   vacuous.
 - **Rationale**: FR-007/US2 ask for file and line, which only a source scan gives. Allowlists such as
   `List.of("HOME", …)` in `StartCliEnvironment`, `KeychainStore`, `SecretServiceStore` and the whole
@@ -83,25 +98,36 @@ Base: `main` at 0.9.1 (5ec65996).
 
 - **Decision**: The test goes into `WiringAuditTest`, whose `import_artifacts` scenario on
   `dev/node1` / `GRP-01` with owner `jdoe` and profile `acme` produces exactly the backups found in
-  the real home (manifest `scope: diagram group GRP-01`, `kind: IMPORT`). A new test
-  `anImportLeavesTheRealHomeUntouched` snapshots `<user.home>/.inubit-mcp/acme` (path → size and
-  modification time; an absent directory is an empty snapshot) before the import and asserts:
-  1. the snapshot after the import is identical (no new or changed file below the real test-profile
-     directory);
-  2. (with the fix) the backup manifest of the import lies below
-     `<handed-in home>/.inubit-mcp/acme/backups`.
+  the real home (D-8). A new test `anImportLeavesTheRealHomeUntouched` runs that import and takes its
+  audit id (a random UUID per call) from the test's own audit log. It asserts:
+  1. no file whose name starts with that audit id exists below `<user.home>/.inubit-mcp` (backup
+     manifests and zips are named `<auditId>.json` / `<auditId>-<n>.zip`);
+  2. (with the fix) `<auditId>.json` exists below `<handed-in home>/.inubit-mcp/acme/backups`.
   Assertion 1 is committed first and observed red on the unchanged code (it writes one backup into
-  the real home, removed with the follow-up cleanup); assertion 2 comes with the fix, together with
-  the test's `@TempDir` home. The snapshot is limited to the test profile `acme` because the
-  developer's real server may write `update-check.json` or its own profile directory at any time.
+  the real home, removed with the follow-up cleanup); assertion 2 and the test's `@TempDir` home come
+  with the fix. Keying on the audit id makes the test immune to other processes (older worktrees,
+  the developer's own server) writing below the real home at the same time.
   The forbidden export root following the handed-in home (FR-008, second half) is asserted in
-  `ExportArchivesWiringTest`: an export into `testWiring.userHome().resolve(".inubit-mcp/x")` is
-  refused as a forbidden target.
+  `ExportArchivesWiringTest`: an export into `testWiring.userHome().resolve(".inubit-mcp/export")`
+  is refused as a forbidden target.
 - **Rationale**: The owner asked for a test that is red while a wiring test writes below the real
   `~/.inubit-mcp`; reusing the scenario that actually caused the backups avoids a second fake-server
   fixture. Reading the real home in test code is allowed (only production code is guarded).
-- **Alternatives considered**: a new test class with its own import fixture (duplicates
-  `WiringAuditTest`'s harness); only the static guard (does not prove where state lands).
+- **Alternatives considered**: a before/after snapshot of `~/.inubit-mcp/acme` (fails spuriously
+  when another worktree writes an identical-looking acme backup meanwhile); a new test class with its
+  own import fixture (duplicates `WiringAuditTest`'s harness); only the static guard (does not prove
+  where state lands).
+
+## D-6a Test seam for the resolved locations
+
+- **Decision**: `Wiring` gets a package-private `HomeLocations homeLocations()` returning a small
+  package-private record (backups, deployments, packages, forbiddenExportRoot), filled in the
+  canonical constructor from the same variables it hands to the services.
+- **Rationale**: FR-009/SC-005 need the four `Wiring`-derived paths checked as the services get them;
+  the deployment ledger and packages are otherwise only observable through a full fake deployment.
+  The seam is package-private and adds no behaviour.
+- **Alternatives considered**: a full fake `deploy_release` through the wiring (large fixture for a
+  path check); reflection on private fields (brittle).
 
 ## D-7 Dead factory
 
@@ -110,6 +136,18 @@ Base: `main` at 0.9.1 (5ec65996).
 
 ## D-8 Inventory: which tests write into the real home today
 
-Method: one full `mvn verify` on `main` with `-DargLine=-Duser.home=<sandbox>`, a marker in the
-sandbox, then `find <sandbox> -newer <marker>`. Result: see the section below (filled in after the
-run).
+Method: one full `mvn verify` on `main` (5ec65996) with `-DargLine=-Duser.home=<sandbox>`, a marker
+in the sandbox, then `find <sandbox> -newer <marker>` (2026-11-12, build green, exit 0).
+
+| Below `<sandbox>/.inubit-mcp` | Files | Writer |
+|---|---|---|
+| `acme/backups/<auditId>.json` + `<auditId>-1.zip` | 2 × 2 | `WiringAuditTest` (two `import_artifacts` tests): manifest `node dev/node1`, `owner jdoe`, `scope diagram group GRP-01`, `kind IMPORT`, `takenAt 2026-10-21T08:00:00Z` |
+| `acme/deployments`, `acme/packages`, `audit`, `workspace`, `knowledge`, `update-check.json` | 0 | – |
+
+The other wiring tests named in the defect report (e.g. `ExportArtifactsWiringTest`,
+`NoSecretLeakTest`, `KnowledgeToolsWiringTest`) reach the process home on `main` only through the
+read-only forbidden export root; they write nothing there. The surefire JVM of failsafe (`*IT`) wrote
+nothing either. During the same run another worktree's test run (older code on another branch) wrote
+two further acme backups into the real home: the defect report's higher counts (40 files per night)
+come from several branches running the suite. Branches that merge after this fix inherit it through
+the `Wiring` signature (their new call sites do not compile without a home).
