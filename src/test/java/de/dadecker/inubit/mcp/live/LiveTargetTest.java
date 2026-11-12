@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.TestWiring;
+import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -337,5 +338,38 @@ class LiveTargetTest {
         assertThat(parameters.requests()).singleElement().satisfies(request ->
             assertThat(request.names()).containsExactly("/inubit/qa/username",
                 "/inubit/qa/password"));
+    }
+
+    // --- feature 023 T008 (research D-4) ---
+
+    @Test
+    void everyWiringWritesItsStateBelowOneTemporaryDirectoryOutsideTheRealHome()
+        throws IOException {
+        Path file = profileFile("acme");
+        Files.writeString(file, Files.readString(file) + "knowledge:\n  recording: false\n");
+        env.put("INUBIT_MCP_PROFILE", "acme");
+        env.put("INUBIT_LIVE_NODE", "test/node1");
+        LiveTarget live = resolve();
+        ProfileConfig config = live.loaded().config();
+        Path state = live.stateDirectory();
+
+        ProfileConfig isolated = live.isolated(config, null);
+        assertThat(isolated.auditDirectory()).startsWithRaw(state);
+        assertThat(isolated.workspace()).startsWithRaw(state);
+        assertThat(isolated.knowledge().directory()).startsWithRaw(state);
+        assertThat(isolated.knowledge().recording()).isFalse();
+        Path workspace = home.resolve("workspace");
+        assertThat(live.isolated(config, workspace).workspace()).isEqualTo(workspace);
+
+        // backups, deployments and packages follow userHome() (WiringHomeLocationsTest)
+        Path realState = Path.of(System.getProperty("user.home"), ".inubit-mcp");
+        try (TestWiring first = live.wiring(config, new FakeCredentialStore(),
+                FakeParameterStore::new);
+            TestWiring second = live.wiring(config, new FakeCredentialStore(),
+                FakeParameterStore::new)) {
+            assertThat(first.userHome()).startsWithRaw(state);
+            assertThat(first.userHome().startsWith(realState)).as("below " + realState).isFalse();
+            assertThat(second.userHome()).isEqualTo(first.userHome());
+        }
     }
 }

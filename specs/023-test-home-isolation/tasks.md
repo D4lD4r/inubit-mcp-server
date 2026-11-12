@@ -137,7 +137,7 @@ reads the process home.
 
 **Independent test**: `LiveTargetTest` green; optional live run per quickstart step 5.
 
-- [ ] T008 [US4] `test/live/LiveTarget.java` (research D-4, contract): `LiveTarget` is a record, so
+- [X] T008 [US4] `test/live/LiveTarget.java` (research D-4, contract): `LiveTarget` is a record, so
   add a component `LiveState state` (a small holder class in the same file or package) created in
   `resolve`/`resolveDeployment` (the `new LiveTarget(...)` calls at about lines 97 and 170); the
   holder owns one temporary directory per `LiveTarget`, created lazily with `Files.createTempDirectory("inubit-mcp-live")`, its path printed
