@@ -17,7 +17,7 @@ everything else is reused or extended.
 | `kind` | `READ` \| `WRITE` \| `EXPORT` | |
 | `area` | `A`…`E` \| `PORTAL` \| `START` | |
 | `story` | `US1`…`US7` \| none | none only for `covered`, `excluded` or `undocumented` rows |
-| `states` | `Map<InubitLine, CoverageState>` | exactly `V8_1` and `V9_0` |
+| `states` | `Map<MajorMinor, CoverageState>` (the existing version-line type) | exactly 8.1 and 9.0 |
 | `waits` | `-`, or one or more of `L-n` and `9.0-pin` joined by `+` (e.g. `L-1+9.0-pin`) | what a `planned` row of a delivered story waits for, one item per reason; `-` on every other row |
 
 Unique key: (`channel`, `entry`).

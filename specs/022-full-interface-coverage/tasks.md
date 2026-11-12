@@ -119,7 +119,7 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
   - Failing test first: `architecture/RestEndpointRegistryTest.java` scans the compiled classes
     and fails when a class other than `RestEndpoint` holds the constant `/ibis/rest`.
   - Done when all existing REST tests are green unchanged.
-- [ ] T006 Coverage domain (D-2, data-model "Coverage"):
+- [X] T006 Coverage domain (D-2, data-model "Coverage"):
   - `domain/model/CoverageEntry.java`;
   - `domain/model/CoverageState.java`: sealed, with `Reachable(tool, action)`, `Covered(tool)`,
     `Planned`, `Undocumented`, `Excluded(reason)`;
@@ -154,6 +154,10 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
     - Every other entry: `planned` with its story from the spec Background table.
   - Header: `delivered-stories:` empty; every row `waits` = `-`.
   - Also add `domain/model/InterfaceCoverage.production()`, which loads this resource.
+  - From the T006 review: each `delivered-stories` token is checked against `US[1-7]` (failure
+    with the line number, one test), and `failsOnAnUnknownChannelKindAreaStoryOrAnEmptyEntry` in
+    `InterfaceCoverageTest` asserts the expected message part per case (`channel`, `kind`,
+    `area`, `story`, `entry`).
   - Failing test first: `InterfaceCoverageResourceTest` asserts that the file loads, has at least
     one row per area A–E, has no `planned` row without a story, and that `lls` is excluded.
 - [ ] T008 Coverage checks (FR-003; after T005, T007): `architecture/InterfaceCoverageCheckTest.java`
