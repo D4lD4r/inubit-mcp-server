@@ -253,7 +253,11 @@ public final class HelperFailures {
                 + " client");
     }
 
-    private ToolError unexpected(String likelyCause) {
+    /**
+     * {@code UNEXPECTED_RESPONSE} of the subject's tool with {@code likelyCause}, for an answer
+     * the operation does not know.
+     */
+    public ToolError unexpected(String likelyCause) {
         return error(ErrorCode.UNEXPECTED_RESPONSE, subject.tool() + " got an unexpected answer"
                 + " from " + labels.node() + "; the unsupported INUBIT interface may have"
                 + " changed after an INUBIT update", likelyCause,

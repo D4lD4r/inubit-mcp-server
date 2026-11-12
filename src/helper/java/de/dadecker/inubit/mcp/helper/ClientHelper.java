@@ -327,9 +327,10 @@ public final class ClientHelper {
             return;
         }
         if (name == null) {
-            // a node lookup without a node name is a failed one: no node to download from
-            frame(out, nonce, "node", "error", NullPointerException.class.getName(),
-                "the cluster client returned no node name");
+            // a node lookup without a node name is a failed one: no node to download from;
+            // nothing was thrown, so the frame carries no exception chain
+            frame(out, nonce, "node", "error", "",
+                "the cluster client returned no node or node name");
             return;
         }
         frame(out, nonce, "node", "ok", name);

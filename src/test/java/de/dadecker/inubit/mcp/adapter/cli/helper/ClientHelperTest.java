@@ -757,9 +757,12 @@ class ClientHelperTest {
         assertThat(frames(run.out())).containsExactly(
             List.of("start", "SOAP_81"),
             List.of("login", "ok"),
-            List.of("node", "error", "java.lang.NullPointerException",
-                "the cluster client returned no node name"),
+            List.of("node", "error", "-", "the cluster client returned no node or node name"),
             List.of("end"));
+        // nothing was thrown, so the frame carries no exception chain
+        assertThat(HelperFrames.parse(NONCE, run.out()).frames()).contains(
+            new HelperFrames.NodeError(List.of(),
+                "the cluster client returned no node or node name"));
         assertThat(logOut).doesNotExist();
         assertThat(script.calls()).extracting(Call::name)
             .noneMatch(name -> name.contains("clusterDownload")

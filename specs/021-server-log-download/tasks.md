@@ -670,7 +670,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   helper runs `op=serverLog` in a real child JVM against the fake client home and writes
   `logOut`; `ClientHelperPackagingTest` still finds exactly one `ClientHelper.class` (major 61);
   `architecture/PackageBoundaryTest.java` (helper references only `java/*`) green
-- [ ] T039 [P] [US2] `adapter/cli/log/WebServiceLogClassifier.java` (D-5, D-8, D-14; after T005,
+- [X] T039 [P] [US2] `adapter/cli/log/WebServiceLogClassifier.java` (D-5, D-8, D-14; after T005,
   T036): frames + exit code → outcome or `ToolErrorException`; shared cases through
   `HelperFailures` (log subject); `node ok` name "1–128 chars of `[A-Za-z0-9_.:-]`", else
   `UNEXPECTED_RESPONSE`; `node error` with an access-denied text or HTTP 403 → `FORBIDDEN` "<node>
