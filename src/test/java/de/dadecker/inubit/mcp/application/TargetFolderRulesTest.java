@@ -41,8 +41,7 @@ class TargetFolderRulesTest {
     private static final String CLOUD = "the archives (with clear-text secrets) will be"
         + " synchronized to the cloud";
     /** The subject the {@code download_server_log} caller passes (feature 021 D-7 step 6). */
-    private static final String LOG_SUBJECT = "the log file (with clear-text content) will be"
-        + " synchronized to the cloud";
+    private static final TargetFolderRules.Subject LOG_SUBJECT = ServerLogService.FOLDER_SUBJECT;
 
     private static final boolean POSIX =
         FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
@@ -510,31 +509,71 @@ class TargetFolderRulesTest {
                 + ": the log file (with clear-text content) will be synchronized to the cloud");
     }
 
-    /** Feature 021 D-7 step 6: only the cloud warning depends on the caller. */
+    /**
+     * Feature 021 D-7 step 6 and review note T007: every rule refuses the same folders for both
+     * callers with the same message; a refusal's cause and next step name the caller's subject, so
+     * a log refusal never talks about archives, and the archive texts stay byte-identical.
+     */
     @Test
-    void appliesEveryOtherRuleIdenticallyForTheLogSubject() throws IOException {
+    void appliesEveryOtherRuleIdenticallyWithTheSubjectsWording() throws IOException {
         Path repo = Files.createDirectories(root.resolve("repo"));
         Files.createDirectories(repo.resolve(".git"));
         Path file = Files.writeString(root.resolve("file.txt"), "x");
         probe.remote = 'Z';
-        Map<String, TargetFolderRules> refused = new java.util.LinkedHashMap<>();
-        refused.put("logs", rules());
-        refused.put(root + "/a/../b", rules());
-        refused.put(file.toString(), rules());
-        refused.put(workspace.resolve("logs").toString(), rules());
-        refused.put(home.resolve(".inubit-mcp").toString(), rules());
-        refused.put(repo.resolve("logs").toString(), rules());
-        refused.put("\\\\server\\share\\logs", windowsRules());
-        refused.put("Z:\\logs", windowsRules());
+        String relativeCause = "targetFolder must be the absolute path of a local folder";
+        String dotCause = "The path is not in its plain form";
+        String dotStep = "Pass the absolute path without '.' and '..' elements";
+        String writableCause = "The path names a file, or the folder's permissions do not allow"
+            + " writing";
+        String writableStep = "Choose a writable folder, or a new folder below a writable one";
+        String serverCause = "The server's own directories hold its configuration, state and"
+            + " audit records; ";
+        String serverStep = "Choose a folder outside the server's directories";
+        String gitStep = "Choose a folder outside every git working tree";
+        String networkStep = "Choose a folder on a local disk";
+        record Texts(TargetFolderRules rules, String archiveCause, String archiveStep,
+            String logCause, String logStep) {
+        }
+        Map<String, Texts> refused = new java.util.LinkedHashMap<>();
+        refused.put("logs", new Texts(rules(),
+            relativeCause, "Pass the absolute path of the folder for the archives",
+            relativeCause, "Pass the absolute path of the folder for the log file"));
+        refused.put(root + "/a/../b", new Texts(rules(), dotCause, dotStep, dotCause, dotStep));
+        refused.put(file.toString(), new Texts(rules(),
+            writableCause, writableStep, writableCause, writableStep));
+        for (String server : List.of(workspace.resolve("logs").toString(),
+            home.resolve(".inubit-mcp").toString())) {
+            refused.put(server, new Texts(rules(),
+                serverCause + "archives with clear-text secrets must not be placed there",
+                serverStep,
+                serverCause + "log files with clear-text content must not be placed there",
+                serverStep));
+        }
+        refused.put(repo.resolve("logs").toString(), new Texts(rules(),
+            "Archives with clear-text secrets in a git working tree are easily committed", gitStep,
+            "Log files with clear-text content in a git working tree are easily committed",
+            gitStep));
+        for (String network : List.of("\\\\server\\share\\logs", "Z:\\logs")) {
+            refused.put(network, new Texts(windowsRules(),
+                "Archives with clear-text secrets must stay on a local disk", networkStep,
+                "Log files with clear-text content must stay on a local disk", networkStep));
+        }
 
-        for (Map.Entry<String, TargetFolderRules> entry : refused.entrySet()) {
+        for (Map.Entry<String, Texts> entry : refused.entrySet()) {
+            Texts texts = entry.getValue();
             ToolErrorException archive = catchThrowableOfType(ToolErrorException.class,
-                () -> entry.getValue().check(entry.getKey()));
+                () -> texts.rules().check(entry.getKey()));
             ToolErrorException log = catchThrowableOfType(ToolErrorException.class,
-                () -> entry.getValue().check(entry.getKey(), LOG_SUBJECT));
+                () -> texts.rules().check(entry.getKey(), LOG_SUBJECT));
             assertThat(archive).as("refusal of '%s'", entry.getKey()).isNotNull();
             assertThat(log).as("refusal of '%s'", entry.getKey()).isNotNull();
-            assertThat(log.error()).isEqualTo(archive.error());
+            assertThat(log.error().code()).isEqualTo(archive.error().code());
+            assertThat(log.error().message()).isEqualTo(archive.error().message());
+            assertThat(archive.error().likelyCause()).isEqualTo(texts.archiveCause());
+            assertThat(archive.error().nextStep()).isEqualTo(texts.archiveStep());
+            assertThat(log.error().likelyCause()).isEqualTo(texts.logCause());
+            assertThat(log.error().nextStep()).isEqualTo(texts.logStep());
+            assertThat(log.error().toString()).doesNotContainIgnoringCase("archive");
         }
         Path folder = root.resolve("logs");
         assertThat(rules().check(folder.toString(), LOG_SUBJECT))

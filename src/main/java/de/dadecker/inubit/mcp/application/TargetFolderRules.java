@@ -35,18 +35,38 @@ import java.util.regex.Pattern;
  *       {@code workspace} and {@code auditDirectory}, and the configuration roots;</li>
  *   <li>the folder does not lie inside a git working tree (a {@code .git} entry, file or
  *       directory, in the folder or an ancestor);</li>
- *   <li>a folder below a known cloud-sync root is accepted with a warning, whose subject the
- *       caller names ({@link #check(String, String)}).</li>
+ *   <li>a folder below a known cloud-sync root is accepted with a warning.</li>
  * </ol>
  * Rules 4 to 6 are checked on the path as given and on the path with symbolic links resolved
  * (for a missing folder: its nearest existing ancestor resolved, joined with the missing rest),
  * against each root as given and resolved the same way, so that a link in either direction, also
- * a forbidden root that is itself a link, is caught.
+ * a forbidden root that is itself a link, is caught. The refusals and the warning name what the
+ * folder is for: the archives of {@code export_archives}, or the {@link Subject} another caller
+ * passes to {@link #check(String, Subject)}.
  */
 public final class TargetFolderRules {
 
-    private static final String ARCHIVES_CLOUD_SUBJECT = "the archives (with clear-text secrets)"
-        + " will be synchronized to the cloud";
+    /**
+     * What the folder is for, as a caller's refusals and cloud-sync warning name it (feature 021
+     * research D-7 step 6).
+     *
+     * @param files   what is placed in the folder, e.g. {@code the archives}
+     * @param content what must not land in the wrong place, in lower case, e.g.
+     *     {@code archives with clear-text secrets}
+     * @param cloud   the end of the cloud-sync warning, naming what will be synchronized
+     */
+    public record Subject(String files, String content, String cloud) {
+
+        public Subject {
+            Objects.requireNonNull(files, "files");
+            Objects.requireNonNull(content, "content");
+            Objects.requireNonNull(cloud, "cloud");
+        }
+    }
+
+    private static final Subject ARCHIVES = new Subject("the archives",
+        "archives with clear-text secrets",
+        "the archives (with clear-text secrets) will be synchronized to the cloud");
     private static final Pattern CONTROL = Pattern.compile("\\p{Cc}");
     private static final List<String> ONE_DRIVE_VARIABLES =
         List.of("OneDrive", "OneDriveCommercial", "OneDriveConsumer");
@@ -123,24 +143,27 @@ public final class TargetFolderRules {
      * @throws ToolErrorException {@code INVALID_INPUT} naming the rule and the folder
      */
     public CheckedFolder check(String targetFolder) {
-        return check(targetFolder, ARCHIVES_CLOUD_SUBJECT);
+        return check(targetFolder, ARCHIVES);
     }
 
     /**
-     * Checks {@code targetFolder}; only the cloud-sync warning depends on the caller (feature 021
-     * research D-7 step 6).
+     * Checks {@code targetFolder} for {@code subject}; the rules and the refusal messages are the
+     * same for every caller, only the refusals' causes and next steps and the cloud-sync warning
+     * name the subject (feature 021 research D-7 step 6).
      *
-     * @param cloudSubject the end of the cloud-sync warning, naming what will be synchronized
      * @throws ToolErrorException {@code INVALID_INPUT} naming the rule and the folder
      */
-    public CheckedFolder check(String targetFolder, String cloudSubject) {
+    public CheckedFolder check(String targetFolder, Subject subject) {
+        Objects.requireNonNull(subject, "subject");
+        String content = Character.toUpperCase(subject.content().charAt(0))
+            + subject.content().substring(1);
         if (windows) {
-            checkNetwork(targetFolder);
+            checkNetwork(targetFolder, content);
         }
         Path given = parse(targetFolder).filter(Path::isAbsolute).orElseThrow(() -> refused(
             targetFolder, "is not an absolute path",
             "targetFolder must be the absolute path of a local folder",
-            "Pass the absolute path of the folder for the archives"));
+            "Pass the absolute path of the folder for " + subject.files()));
         for (Path element : given) {
             String name = element.toString();
             if (name.equals(".") || name.equals("..")) {
@@ -170,8 +193,7 @@ public final class TargetFolderRules {
                     throw refused(targetFolder, "is or lies inside one of the server's"
                             + " directories: " + root.label() + " " + root.path(),
                         "The server's own directories hold its configuration, state and audit"
-                            + " records; archives with clear-text secrets must not be placed"
-                            + " there",
+                            + " records; " + subject.content() + " must not be placed there",
                         "Choose a folder outside the server's directories");
                 }
             }
@@ -181,8 +203,7 @@ public final class TargetFolderRules {
                 if (Files.exists(dir.resolve(".git"), LinkOption.NOFOLLOW_LINKS)) {
                     throw refused(targetFolder, "is or lies inside a git working tree (a .git"
                             + " entry in " + dir + ")",
-                        "Archives with clear-text secrets in a git working tree are easily"
-                            + " committed",
+                        content + " in a git working tree are easily committed",
                         "Choose a folder outside every git working tree");
                 }
             }
@@ -190,15 +211,15 @@ public final class TargetFolderRules {
 
         List<String> warnings = new ArrayList<>();
         cloudRoot(forms).ifPresent(root -> warnings.add(shown("The target folder " + path
-            + " lies below the cloud-sync folder " + root + ": " + cloudSubject)));
+            + " lies below the cloud-sync folder " + root + ": " + subject.cloud())));
         return new CheckedFolder(path, exists, nearest, warnings);
     }
 
-    private void checkNetwork(String raw) {
+    /** {@code content}: the subject's content, capitalized. */
+    private void checkNetwork(String raw, String content) {
         if (raw.length() >= 2 && separator(raw.charAt(0)) && separator(raw.charAt(1))) {
             throw refused(raw, "is a network path (a UNC path)",
-                "Archives with clear-text secrets must stay on a local disk",
-                "Choose a folder on a local disk");
+                content + " must stay on a local disk", "Choose a folder on a local disk");
         }
         if (raw.length() >= 3 && isAsciiLetter(raw.charAt(0)) && raw.charAt(1) == ':'
             && separator(raw.charAt(2))) {
@@ -206,8 +227,7 @@ public final class TargetFolderRules {
             if (probe.remoteDrive(letter)) {
                 throw refused(raw, "is a network path (" + letter + ": is a mapped network"
                         + " drive)",
-                    "Archives with clear-text secrets must stay on a local disk",
-                    "Choose a folder on a local disk");
+                    content + " must stay on a local disk", "Choose a folder on a local disk");
             }
         }
     }

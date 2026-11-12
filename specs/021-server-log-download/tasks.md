@@ -425,7 +425,7 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   in `TIMEOUT` whose next step names `cliExportTimeout` and does not contain "raise cliTimeout";
   a deadline already passed → `TIMEOUT` without launch; a trace download takes a slot) and
   `adapter/cli/CliConcurrencyLimiterTest.java` (other StartCLI runs on 8.1/9.0 still take no slot)
-- [ ] T027 [US1] `application/ServerLogService.java` part 1 + `application/ServerLogRequest.java`
+- [X] T027 [US1] `application/ServerLogService.java` part 1 + `application/ServerLogRequest.java`
   — decision flow (contracts/mcp-tools-delta.md "Decision flow" steps 1–7, FR-001, FR-002,
   FR-011, D-7 step 1, D-14, D-18; after T009, T011, T019, T020, T026): `ServerLogRequest`
   (`target`, `log`, `targetFolder`, `OptionalInt tailLines`, `Optional<String> contains`,
