@@ -286,7 +286,7 @@ the opt-in gets the list and one node's details; a group without it is refused b
   Manager id or the log's process id, the 0-byte case if seen, the permission-check confirmation;
   no names, no values) are appended to `specs/024-unsupported-node-tools/research.md` "Spike
   findings"; deviations from D-2/D-7/D-8/D-10 are listed for the owner before the affected flip
-- [ ] T019 [US1] Reconstructed cluster-nodes fixtures and catalogue (D-26, D-27; after T011):
+- [X] T019 [US1] Reconstructed cluster-nodes fixtures and catalogue (D-26, D-27; after T011):
   `src/test/resources/fixtures/node-tools/v8_1/cluster-nodes/{ok,single,details,details_truncated,details_unknown,details_error,unknown_status,api_missing,garbage}.{frames,exit,origin}`
   (all `reconstructed <source>`, fictitious `node1`/`node2`, `zone-a`, `/opt/inubit/…`,
   `10.0.0.11:7800`); new `tools/NodeToolsFixtureCatalogueTest.java`: every case has a valid

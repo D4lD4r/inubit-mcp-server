@@ -1,0 +1,2 @@
+reconstructed the helper protocol (contracts/helper-protocol-delta.md "Frames", research D-2, D-7) as ClientHelper writes it for op=clusterNodes (research D-4 of feature 020: the API check before start writes api missing <what> and exits 4).
+<what> is the NoSuchMethodException text of a missing ClusterClient.getNodes(); no client was created, so no vendor output precedes it.

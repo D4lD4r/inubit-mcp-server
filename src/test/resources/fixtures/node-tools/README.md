@@ -31,6 +31,10 @@ name before the suffix (`<case>.<ext>`).
 | `.message` | `io-log` only: the message the helper downloads to `messageOut` |
 | `.origin` | provenance (required) |
 
+The frames carry the fixed nonce `0123456789abcdef0123456789abcdef` of the queue-entry and
+server-log fixtures. The request a case answers (e.g. `details=node1` for `cluster-nodes`) is named
+in its `.origin`.
+
 ### StartCLI cases (`<version>/log-level/<case>.*`)
 
 | Suffix | Content |
