@@ -183,19 +183,22 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   shared with the 021 fakes; fictitious data only. Failing test first:
   `adapter/cli/helper/FakeVendorClassesTest.java` (recorder lists calls in order; forbidden
   methods fail the test)
-- [ ] T011 `ClientHelper` op `clusterNodes` (D-2, D-7; after T008, T010): `getNodes()` → `member`
-  frames for the first 200 (`-` for `null`, status `name()`, tokens cut at 200 chars), `members ok
+- [X] T011 `ClientHelper` op `clusterNodes` (D-2, D-7; after T008, T010): `getNodes()` → `member`
+  frames for the first 200 (`-` for `null`, status `name()`, uptime `-` without status, tokens
+  cut at 200 chars and 600 percent-encoded bytes), `members ok
   <total>` / `members error`; `details`: not a
   member → `details unknown` without a request; member → `getNode(NodeName.nodeName(name))`,
   node information map flattened (`<outer>.<inner>`), ≤ 500 `detail` frames, key ≤ 200 and value ≤
   4,000 chars with `cut`, encoded `detail` frames together ≤ 256 KiB; `details ok <n> <truncated>` /
   `details error`; API check of the operation. Failing tests
   first in `adapter/cli/helper/ClientHelperTest.java` (frame sequence for two members, one without
-  answer; unknown status text passed raw; details of a member; `details unknown` sends no
+  answer; status `name()` written unchanged, `-` for `null` — the unknown-status classification
+  is covered by the T019 fixture `unknown_status`; uptime `-` without status; details of a member; `details unknown` sends no
   `getNode(NodeName)`; nested map flattened; cut marker; **total budget**: node information whose
   `detail` frames exceed 256 KiB → the helper stops before the frame that would exceed it and
   writes `details ok <n> true` (also at 500 entries), the whole stdout stays below 1 MiB; more than
-  200 members → 200 `member` frames and `members ok <total>`; member tokens cut at 200 chars; vendor calls exactly login, `getNode`,
+  200 members → 200 `member` frames and `members ok <total>`; member tokens cut at 200 chars and
+  600 encoded bytes, non-ASCII members and details keep the whole stdout below 1 MiB; vendor calls exactly login, `getNode`,
   `getNodes`, [`getNode(NodeName)`], logout; `api missing` for a missing `getNodes`; leak check)
 - [ ] T012 `ClientHelper` op `nodeConfig` (D-10; after T011, same file): a constant list of the 20
   names inside the helper; per requested name `getNodeConfigurationProperty(<own NodeName>, name)`

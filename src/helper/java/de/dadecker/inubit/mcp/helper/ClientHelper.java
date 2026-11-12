@@ -26,21 +26,23 @@ import java.util.Set;
 /**
  * Reads through the INUBIT client installation whose class path it runs on: one queue manager
  * entry (feature 020, research D-1, D-2, D-4), the web service log of the node it reaches
- * (feature 021, D-2, D-4, D-5) or the name of that node (feature 024, D-2, D-3). The server
- * starts it in a child JVM; it is compiled for Java 17, uses JDK classes only and is a single
- * class without nested or anonymous classes, because it is shipped as one class-file resource.
+ * (feature 021, D-2, D-4, D-5), the name of that node or the cluster's nodes (feature 024, D-2,
+ * D-3, D-7). The server starts it in a child JVM; it is compiled for Java 17, uses JDK classes
+ * only and is a single class without nested or anonymous classes, because it is shipped as one
+ * class-file resource.
  *
  * <p>Protocol: the request arrives on stdin (UTF-8, {@code qe=1} first, one {@code key=value} per
  * line with every value percent-encoded, {@code end} last; the optional key {@code op} names the
  * operation, {@code queueEntry} (also when absent), {@code serverLog} (feature 021 D-4) or
  * {@code ownNode}, {@code clusterNodes}, {@code nodeConfig}, {@code ioLog} (feature 024 D-2),
- * each with its own keys; this version performs {@code ownNode} and answers a valid request of
- * the other three with exit 2 after the API check); results are the stdout lines that start
- * with {@code #QE1:<nonce> }, followed by space-separated percent-encoded tokens, so output of
- * the vendor libraries cannot forge one; an empty token is written as {@code -}. Exit codes: 0
- * after {@code end}, 1 anything else (also any unexpected {@link Throwable}), 2 malformed
- * request, 3 login failed (also a vendor class that fails to initialize while the client is
- * created), 4 vendor API missing. The request, the passwords and the content are never printed.
+ * each with its own keys; this version performs {@code ownNode} and {@code clusterNodes} and
+ * answers a valid request of the other two with exit 2 after the API check); results are the
+ * stdout lines that start with {@code #QE1:<nonce> }, followed by space-separated
+ * percent-encoded tokens, so output of the vendor libraries cannot forge one; an empty token is
+ * written as {@code -}. Exit codes: 0 after {@code end}, 1 anything else (also any unexpected
+ * {@link Throwable}), 2 malformed request, 3 login failed (also a vendor class that fails to
+ * initialize while the client is created), 4 vendor API missing. The request, the passwords and
+ * the content are never printed.
  *
  * <p>Vendor classes are resolved only through the {@link ClassLoader} given to {@link #run} and
  * used only by reflection: 8.1 ({@code SOAP_81}) through {@code IBISSoapClient}, 9.0
@@ -49,9 +51,10 @@ import java.util.Set;
  * {@code MultipartDownloadThread} (the Workbench's "View file", FR-007); the web service log
  * through a {@code ClusterClient}, as the Workbench's Cluster Manager does: the answering node
  * from {@code getNode()}, then {@code clusterDownload} of the constant {@code webservice.log}
- * from that node (FR-006); the own node through the same {@code getNode()}. 8.1 logs out at the
- * end. Client methods are looked up on {@code I_IBISClientInterface}, because the 9.0 client is
- * a private class.
+ * from that node (FR-006); the own node through the same {@code getNode()}, the cluster's nodes
+ * through {@code getNodes()} and one node's information through {@code getNode(NodeName)}
+ * (FR-010, FR-011). 8.1 logs out at the end. Client methods are looked up on
+ * {@code I_IBISClientInterface}, because the 9.0 client is a private class.
  */
 public final class ClientHelper {
 
@@ -108,10 +111,28 @@ public final class ClientHelper {
     private static final String CLUSTER_CLIENT = "com.inubit.ibis.server.cluster.ClusterClient";
     private static final String NODE = "com.inubit.ibis.server.cluster.data.Node";
     private static final String NODE_NAME = "com.inubit.ibis.server.cache.NodeName";
+    private static final String NODE_INFORMATION =
+        "com.inubit.ibis.server.datafacade.NodeInformation";
+    private static final String MAP_PROPERTY = "com.inubit.ibis.utils.property.type.MapProperty";
+    private static final String IBIS_PROPERTY = "com.inubit.ibis.utils.property.type.IBISProperty";
     private static final String CURRENT_USER = "com.inubit.ibis.common.CurrentUser";
     private static final int MESSAGE_LIMIT = 1_000;
     private static final String MASK = "******";
     private static final String EMPTY_TOKEN = "-";
+    /** The {@code member} frames of {@code clusterNodes} at most (024 D-2, D-7). */
+    private static final int MAX_MEMBERS = 200;
+    private static final int MAX_MEMBER_CHARS = 200;
+    /**
+     * The bytes of one percent-encoded {@code member} token at most: never cuts 200 ASCII
+     * characters (3 bytes each at most) and keeps a {@code member} frame at about 3,070 bytes, so
+     * 200 of them stay below 600 KiB (024 D-2).
+     */
+    private static final int MAX_MEMBER_TOKEN_BYTES = 600;
+    private static final int MAX_DETAILS = 500;
+    private static final int MAX_DETAIL_KEY_CHARS = 200;
+    private static final int MAX_DETAIL_VALUE_CHARS = 4_000;
+    /** The encoded {@code detail} frames together (whole lines) at most (024 D-2). */
+    private static final int DETAILS_BUDGET_BYTES = 256 * 1024;
 
     private ClientHelper() {
     }
@@ -160,7 +181,7 @@ public final class ClientHelper {
             return EXIT_API_MISSING;
         }
         String op = request.get(OP);
-        if (CLUSTER_NODES.equals(op) || NODE_CONFIG.equals(op) || IO_LOG.equals(op)) {
+        if (NODE_CONFIG.equals(op) || IO_LOG.equals(op)) {
             // a valid request, but this helper version does not perform these yet: nothing sent
             return EXIT_MALFORMED;
         }
@@ -216,7 +237,8 @@ public final class ClientHelper {
             // Node first: clusterDownload's parameter type is the NodeName found here
             Class<?> nodeName = Class.forName(NODE_NAME, false, vendor);
             api.put("getName", nodeName.getMethod("getName"));
-            api.put("getNodeName", Class.forName(NODE, false, vendor).getMethod("getNodeName"));
+            Class<?> node = Class.forName(NODE, false, vendor);
+            api.put("getNodeName", node.getMethod("getNodeName"));
             Class<?> currentUser = Class.forName(CURRENT_USER, false, vendor);
             api.put("getClientUID", currentUser.getMethod("getClientUID"));
             api.put("getUsedAdditionalUserGroup",
@@ -229,8 +251,33 @@ public final class ClientHelper {
                 api.put("clusterDownload", cluster.getMethod("clusterDownload", File.class,
                     nodeName, String.class));
             }
+            if (CLUSTER_NODES.equals(request.get(OP))) {
+                clusterNodesApi(api, vendor, cluster, nodeName, node);
+            }
         }
         return api;
+    }
+
+    /**
+     * The members {@code clusterNodes} calls beyond the node lookup (024 D-2); the named node's
+     * {@code getNode} is keyed {@code getNamedNode}.
+     */
+    private static void clusterNodesApi(Map<String, Executable> api, ClassLoader vendor,
+        Class<?> cluster, Class<?> nodeName, Class<?> node) throws ReflectiveOperationException {
+        api.put("nodeName", nodeName.getMethod("nodeName", String.class));
+        api.put("getNodes", cluster.getMethod("getNodes"));
+        api.put("getNamedNode", cluster.getMethod("getNode", nodeName));
+        for (String getter : List.of("getStatus", "getVersion", "getZoneName", "getNodeID",
+            "getUptime", "getNodeInformation")) {
+            api.put(getter, node.getMethod(getter));
+        }
+        api.put("getNodeInformationMap", Class.forName(NODE_INFORMATION, false, vendor)
+            .getMethod("getNodeInformationMap"));
+        api.put("getStringValue", Class.forName(IBIS_PROPERTY, false, vendor)
+            .getMethod("getStringValue"));
+        Class<?> map = Class.forName(MAP_PROPERTY, false, vendor);
+        api.put("getPropertyNames", map.getMethod("getPropertyNames"));
+        api.put("get", map.getMethod("get", String.class));
     }
 
     /** The download thread class and the members that report its result. */
@@ -268,7 +315,8 @@ public final class ClientHelper {
     }
 
     /**
-     * Logs in, reads the requested parts, the web service log or the own node and logs out (8.1);
+     * Logs in, reads the requested parts, the web service log, the own node or the cluster's
+     * nodes and logs out (8.1);
      * returns the exit code.
      */
     private static int read(Map<String, String> request, Map<String, Executable> api,
@@ -295,6 +343,8 @@ public final class ClientHelper {
                 readServerLog(api, client, request, out, secrets);
             } else if (OWN_NODE.equals(request.get(OP))) {
                 lookUpNode(api, client, request, out, secrets);
+            } else if (CLUSTER_NODES.equals(request.get(OP))) {
+                listClusterNodes(api, client, request, out, secrets);
             } else {
                 if (request.get("parts").startsWith("data")) {
                     download(api, client, request, "data", request.get("fileName"),
@@ -405,6 +455,175 @@ public final class ClientHelper {
         }
         frame(out, nonce, "node", "ok", name);
         return new Object[] {cluster, node};
+    }
+
+    /**
+     * Looks up the answering node, lists the cluster's members ({@code getNodes()}) and, if
+     * {@code details} names one of them, writes that node's information (024 D-2, D-7). The
+     * members are read before the first {@code member} frame, so a failure or a {@code null}
+     * node list gives {@code members error} alone.
+     */
+    private static void listClusterNodes(Map<String, Executable> api, Object client,
+        Map<String, String> request, PrintStream out, List<String> secrets)
+        throws ReflectiveOperationException {
+        Object[] node = lookUpNode(api, client, request, out, secrets);
+        if (node == null) {
+            return;
+        }
+        String nonce = request.get("nonce");
+        String details = request.get("details");
+        List<String[]> members = new ArrayList<>();
+        int count = 0;
+        boolean listed = false;
+        Object nodes;
+        try {
+            nodes = call(api, "getNodes", node[0]);
+            for (Object member : nodes == null ? List.of() : (Iterable<?>) nodes) {
+                Object nodeName = call(api, "getNodeName", member);
+                String name = nodeName == null ? null : (String) call(api, "getName", nodeName);
+                listed |= !details.isEmpty() && details.equals(name);
+                if (count++ < MAX_MEMBERS) {
+                    members.add(member(api, member, name));
+                }
+            }
+        } catch (InvocationTargetException | LinkageError e) {
+            Throwable failure = vendorFailure(e);
+            frame(out, nonce, "members", "error", chain(failure), messages(failure, secrets));
+            return;
+        }
+        if (nodes == null) {
+            // nothing was thrown, so the frame carries no exception chain
+            frame(out, nonce, "members", "error", "", "the cluster client returned no node list");
+            return;
+        }
+        for (String[] member : members) {
+            frame(out, nonce, member);
+        }
+        frame(out, nonce, "members", "ok", Integer.toString(count));
+        if (details.isEmpty()) {
+            return;
+        }
+        if (!listed) {
+            // the name never reaches the server unless it is a listed member (D-7)
+            frame(out, nonce, "details", "unknown");
+            return;
+        }
+        writeDetails(api, node[0], details, nonce, out, secrets);
+    }
+
+    /**
+     * The tokens of the {@code member} frame of {@code member}: the status constant's
+     * {@code name()}; a member without status did not answer, so its uptime (a primitive, 0)
+     * is none; every token cut by {@link #cut} at 200 characters and 600 encoded bytes.
+     */
+    private static String[] member(Map<String, Executable> api, Object member, String name)
+        throws ReflectiveOperationException {
+        Object status = call(api, "getStatus", member);
+        String[] tokens = {"member", name, status == null ? null : ((Enum<?>) status).name(),
+            (String) call(api, "getVersion", member), (String) call(api, "getZoneName", member),
+            (String) call(api, "getNodeID", member),
+            status == null ? null : String.valueOf(call(api, "getUptime", member))};
+        for (int i = 1; i < tokens.length; i++) {
+            tokens[i] = tokens[i] == null ? ""
+                : cut(tokens[i], MAX_MEMBER_CHARS, MAX_MEMBER_TOKEN_BYTES);
+        }
+        return tokens;
+    }
+
+    /**
+     * Asks for the node {@code name} ({@code getNode(NodeName)}) and writes its node information
+     * as {@code detail} frames: at most 500, key and value cut (token {@code cut}), and only as
+     * long as the frames stay within the 256 KiB budget; then {@code details ok} (D-2). The
+     * entries are read before the first {@code detail} frame, so a failure gives
+     * {@code details error} alone.
+     */
+    private static void writeDetails(Map<String, Executable> api, Object cluster, String name,
+        String nonce, PrintStream out, List<String> secrets) throws ReflectiveOperationException {
+        List<String[]> entries = new ArrayList<>();
+        Object map = null;
+        try {
+            Object node = call(api, "getNamedNode", cluster, call(api, "nodeName", null, name));
+            Object information = node == null ? null : call(api, "getNodeInformation", node);
+            map = information == null ? null : call(api, "getNodeInformationMap", information);
+            if (map != null) {
+                flatten(api, map, "", entries);
+            }
+        } catch (InvocationTargetException | LinkageError e) {
+            Throwable failure = vendorFailure(e);
+            frame(out, nonce, "details", "error", chain(failure), messages(failure, secrets));
+            return;
+        }
+        if (map == null) {
+            // nothing was thrown, so the frame carries no exception chain
+            frame(out, nonce, "details", "error", "",
+                "the cluster client returned no node information");
+            return;
+        }
+        int written = 0;
+        int budget = DETAILS_BUDGET_BYTES;
+        boolean truncated = false;
+        for (String[] entry : entries) {
+            String key = cut(entry[0], MAX_DETAIL_KEY_CHARS, Integer.MAX_VALUE);
+            String value = cut(entry[1], MAX_DETAIL_VALUE_CHARS, Integer.MAX_VALUE);
+            // percent-encoded, so its length is its size in bytes
+            String line = key.length() < entry[0].length() || value.length() < entry[1].length()
+                ? line(nonce, "detail", key, value, "cut") : line(nonce, "detail", key, value);
+            if (written == MAX_DETAILS || line.length() > budget) {
+                truncated = true;
+                break;
+            }
+            out.print(line);
+            out.flush();
+            budget -= line.length();
+            written++;
+        }
+        frame(out, nonce, "details", "ok", Integer.toString(written), Boolean.toString(truncated));
+    }
+
+    /**
+     * Adds the entries of the map property {@code map} to {@code entries} as key and value (empty
+     * for none), in the map's order; the entries of a nested map property as
+     * {@code <outer>.<inner>}.
+     */
+    private static void flatten(Map<String, Executable> api, Object map, String prefix,
+        List<String[]> entries) throws ReflectiveOperationException {
+        for (Object name : (Iterable<?>) call(api, "getPropertyNames", map)) {
+            String key = prefix + name;
+            Object property = call(api, "get", map, name);
+            if (property != null && isMapProperty(property)) {
+                flatten(api, property, key + ".", entries);
+            } else {
+                Object value = property == null ? null : call(api, "getStringValue", property);
+                entries.add(new String[] {key, value == null ? "" : (String) value});
+            }
+        }
+    }
+
+    private static boolean isMapProperty(Object property) {
+        for (Class<?> type = property.getClass(); type != null; type = type.getSuperclass()) {
+            if (MAP_PROPERTY.equals(type.getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * {@code text} cut, whole characters only, at {@code maxChars} characters and at
+     * {@code maxEncodedBytes} bytes of its percent-encoded form.
+     */
+    private static String cut(String text, int maxChars, int maxEncodedBytes) {
+        int end = 0;
+        int bytes = 0;
+        while (end < text.length()) {
+            int next = text.offsetByCodePoints(end, 1);
+            bytes += encode(text.substring(end, next)).length();
+            if (next > maxChars || bytes > maxEncodedBytes) {
+                break;
+            }
+            end = next;
+        }
+        return text.substring(0, end);
     }
 
     /**
@@ -612,12 +831,17 @@ public final class ClientHelper {
      * that is just {@code -} carries nothing either).
      */
     static void frame(PrintStream out, String nonce, String... tokens) {
+        out.print(line(nonce, tokens));
+        out.flush();
+    }
+
+    /** The line of the frame {@code tokens}, with its line feed, as {@link #frame} writes it. */
+    private static String line(String nonce, String... tokens) {
         StringBuilder line = new StringBuilder(FRAME_PREFIX).append(nonce);
         for (String token : tokens) {
             line.append(' ').append(token.isEmpty() ? EMPTY_TOKEN : encode(token));
         }
-        out.print(line.append('\n'));
-        out.flush();
+        return line.append('\n').toString();
     }
 
     private static String encode(String token) {

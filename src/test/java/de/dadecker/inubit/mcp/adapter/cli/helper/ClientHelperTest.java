@@ -2,9 +2,11 @@ package de.dadecker.inubit.mcp.adapter.cli.helper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.Call;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.Failure;
+import de.dadecker.inubit.mcp.testing.FakeInubitScript.Member;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.NullFrom;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.ByteArrayInputStream;
@@ -25,6 +27,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import javax.tools.ToolProvider;
@@ -42,11 +45,12 @@ import org.junit.jupiter.params.provider.ValueSource;
 /**
  * The client helper in-process: the queue-entry read of feature 020 (research D-2, D-4) and the
  * server-log read of feature 021 (D-2, D-4, D-5), and the request check of the node-tool
- * operations with the own-node lookup of feature 024 (D-2, D-3). It is loaded from its resource
- * directory {@code META-INF/inubit-mcp/client-helper/} of the compiled classes by a
- * {@link URLClassLoader} whose parent is the test class loader (so the fake vendor classes under
- * {@code com.inubit.ibis} are visible), and {@code run(InputStream, PrintStream, ClassLoader)} is
- * called reflectively; {@code main} and its {@code System.exit} are never called here.
+ * operations with the own-node lookup and the cluster node list of feature 024 (D-2, D-3, D-7).
+ * It is loaded from its resource directory {@code META-INF/inubit-mcp/client-helper/} of the
+ * compiled classes by a {@link URLClassLoader} whose parent is the test class loader (so the
+ * fake vendor classes under {@code com.inubit.ibis} are visible), and
+ * {@code run(InputStream, PrintStream, ClassLoader)} is called reflectively; {@code main} and
+ * its {@code System.exit} are never called here.
  */
 @Timeout(60)
 class ClientHelperTest {
@@ -63,6 +67,7 @@ class ClientHelperTest {
         .concat(TestSecrets.CREDENTIAL_PAYLOAD_VALUE).concat("</Property></Properties>")
         .getBytes(StandardCharsets.UTF_8);
     private static final String NODE = "inubit-node-01";
+    private static final String NODE_2 = "inubit-node-02";
     static final String CLIENT_UID = "fake-client-uid-0001";
     private static final String WEBSERVICE_LOG = "webservice.log";
     private static final byte[] LOG = ("2026-11-12 10:00:00,000 1 [WebService] request\n"
@@ -401,11 +406,11 @@ class ClientHelperTest {
     }
 
     /**
-     * The three node-tool operations whose vendor calls this helper version does not make yet
+     * The two node-tool operations whose vendor calls this helper version does not make yet
      * answer a valid request with exit 2 as well, after the API check and before the login.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"clusterNodes", "nodeConfig", "ioLog"})
+    @ValueSource(strings = {"nodeConfig", "ioLog"})
     void aValidRequestOfAnOperationNotYetPerformedEndsWithExitTwoBeforeAnyVendorCall(String op)
         throws Exception {
         FakeInubitScript script = new FakeInubitScript().node(NODE);
@@ -1290,6 +1295,464 @@ class ClientHelperTest {
         assertThat(script.calls()).isEmpty();
     }
 
+    // --- operation clusterNodes (feature 024: FR-010, FR-011, D-2, D-7) ----------------------
+
+    @Test
+    void soap81ClusterNodesListsTheMembersInOrderAndAMemberWithoutAnswerWithDashes()
+        throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE).members(
+            new Member(NODE, "ACTIVE", "9.0.10", "zone-a", "node-id-0001", 3_600_000L),
+            Member.unanswered(NODE_2));
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> { }), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "ok", NODE),
+            List.of("member", NODE, "ACTIVE", "9.0.10", "zone-a", "node-id-0001", "3600000"),
+            List.of("member", NODE_2, "-", "-", "-", "-", "-"),
+            List.of("members", "ok", "2"),
+            List.of("end"));
+        assertThat(HelperFrames.parse(NONCE, run.out()).frames()).containsExactly(
+            new HelperFrames.Start("SOAP_81"), new HelperFrames.LoginOk(),
+            new HelperFrames.NodeOk(NODE),
+            new HelperFrames.Member(NODE, "ACTIVE", "9.0.10", "zone-a", "node-id-0001",
+                Optional.of(3_600_000L)),
+            new HelperFrames.Member(NODE_2, "", "", "", "", Optional.empty()),
+            new HelperFrames.MembersOk(2), new HelperFrames.End());
+        assertThat(script.calls()).as("login, own node, node list and logout (FR-007)")
+            .containsExactly(
+                call("IBISSoapClient.<init>", URL_81 + "?isCli", TRUST_STORE,
+                    TestSecrets.TRUST_STORE_PASSWORD, "null", "null", "true"),
+                call("IBISSoapClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+                call("ClusterClient.<init>", "IBISSoapClient", USER, CLIENT_UID, "null"),
+                call("ClusterClient.getNode"),
+                call("ClusterClient.getNodes"),
+                call("IBISSoapClient.logoutUser", USER));
+        TestSecrets.assertNoLeak(run.out());
+    }
+
+    @Test
+    void rest90ClusterNodesUsesTheFactoryClientAndDoesNotLogOut() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .members(new Member(NODE, "ACTIVE", "8.1.17", null, "node-id-0001", 0L));
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> {
+            lines.put("variant", "REST_90");
+            lines.put("url", encode(URL_90));
+        }), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).contains(
+            List.of("member", NODE, "ACTIVE", "8.1.17", "-", "node-id-0001", "0"),
+            List.of("members", "ok", "1"), List.of("end"));
+        assertThat(script.calls()).endsWith(
+            call("RestClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+            call("ClusterClient.<init>", "RestClient", USER, CLIENT_UID, "null"),
+            call("ClusterClient.getNode"),
+            call("ClusterClient.getNodes"));
+    }
+
+    /**
+     * The helper writes the status constant's {@code name()} unchanged; classifying a text the
+     * server does not know is the server's (D-7, the T019 fixture {@code unknown_status}).
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"ACTIVE", "MAINTENANCE", "OFFLINE"})
+    void theStatusIsTheNameOfTheVendorConstantUnchanged(String status) throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .members(new Member(NODE, status, "9.0.10", "zone-a", "node-id-0001", 5L));
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> { }), vendor());
+
+        assertThat(frames(run.out())).contains(
+            List.of("member", NODE, status, "9.0.10", "zone-a", "node-id-0001", "5"));
+    }
+
+    /** A member without status did not answer: its uptime (a primitive, 0) is no uptime. */
+    @Test
+    void aMemberWithoutStatusHasNoUptimeWhatEverTheNodeCarries() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE).members(
+            new Member(NODE_2, null, "9.0.10", null, null, 1_234L),
+            Member.unanswered("inubit-node-03"),
+            new Member(NODE, "OFFLINE", null, null, null, 0L));
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> { }), vendor());
+
+        assertThat(frames(run.out())).filteredOn(frame -> frame.get(0).equals("member"))
+            .containsExactly(
+                List.of("member", NODE_2, "-", "9.0.10", "-", "-", "-"),
+                List.of("member", "inubit-node-03", "-", "-", "-", "-", "-"),
+                List.of("member", NODE, "OFFLINE", "-", "-", "-", "0"));
+    }
+
+    @Test
+    void moreThanTwoHundredMembersGiveTwoHundredMemberFramesAndTheirTotal() throws Exception {
+        Member[] members = new Member[201];
+        for (int i = 0; i < members.length; i++) {
+            members[i] = Member.unanswered(String.format("inubit-node-%03d", i));
+        }
+        FakeInubitScript script = new FakeInubitScript().node(NODE).members(members);
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> { }), vendor());
+
+        List<List<String>> memberFrames = framesStartingWith(run.out(), "member");
+        assertThat(memberFrames).hasSize(200);
+        assertThat(memberFrames.get(199).get(1)).isEqualTo("inubit-node-199");
+        assertThat(frames(run.out())).endsWith(List.of("members", "ok", "201"), List.of("end"));
+    }
+
+    /**
+     * Every member token is cut at 200 characters and, whole characters only, at 600 bytes of its
+     * percent-encoded form: 200 ASCII characters are never cut by the byte bound (3 bytes each at
+     * most), non-ASCII ones are (D-2).
+     */
+    @Test
+    void memberTokensAreCutAtTwoHundredCharactersAndSixHundredEncodedBytes() throws Exception {
+        String emoji = "\uD83D\uDE00";
+        FakeInubitScript script = new FakeInubitScript().node(NODE).members(
+            new Member("n".repeat(201), "ACTIVE", " ".repeat(200), "\u00fc".repeat(250),
+                "\u20ac".repeat(250), 1L),
+            new Member(NODE, "ACTIVE", emoji.repeat(150), "z".repeat(200), "%".repeat(201), 1L));
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> { }), vendor());
+
+        assertThat(framesStartingWith(run.out(), "member")).containsExactly(
+            List.of("member", "n".repeat(200), "ACTIVE", " ".repeat(200), "\u00fc".repeat(100),
+                "\u20ac".repeat(66), "1"),
+            List.of("member", NODE, "ACTIVE", emoji.repeat(50), "z".repeat(200),
+                "%".repeat(200), "1"));
+        for (String line : run.out().split("\n")) {
+            for (String token : line.split(" ")) {
+                assertThat(token.length()).as("an encoded token").isLessThanOrEqualTo(600);
+            }
+        }
+    }
+
+    @Test
+    void detailsOfAListedMemberAreItsNodeInformationFlattenedInTheReceivedOrder()
+        throws Exception {
+        Map<String, Object> jdk = new LinkedHashMap<>();
+        jdk.put("Vendor", "Eclipse Adoptium");
+        jdk.put("Version", "17.0.12");
+        Map<String, Object> information = new LinkedHashMap<>();
+        information.put("ServerVersion", "9.0.10");
+        information.put("JDK", jdk);
+        information.put("InternalNodeAddress", "node-02.example.test:5701");
+        information.put("LogDirectory", null);
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .members(Member.unanswered(NODE), Member.unanswered(NODE_2))
+            .nodeInformation(NODE_2, information);
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> lines.put("details",
+            NODE_2)), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).endsWith(
+            List.of("members", "ok", "2"),
+            List.of("detail", "ServerVersion", "9.0.10"),
+            List.of("detail", "JDK.Vendor", "Eclipse Adoptium"),
+            List.of("detail", "JDK.Version", "17.0.12"),
+            List.of("detail", "InternalNodeAddress", "node-02.example.test:5701"),
+            List.of("detail", "LogDirectory", "-"),
+            List.of("details", "ok", "5", "false"),
+            List.of("end"));
+        assertThat(HelperFrames.parse(NONCE, run.out()).frames())
+            .contains(new HelperFrames.Detail("JDK.Vendor", "Eclipse Adoptium", false),
+                new HelperFrames.DetailsOk(5, false));
+        assertThat(script.calls()).endsWith(
+            call("ClusterClient.getNode"),
+            call("ClusterClient.getNodes"),
+            call("ClusterClient.getNode", NODE_2),
+            call("IBISSoapClient.logoutUser", USER));
+    }
+
+    @Test
+    void detailsOfANameThatIsNoListedMemberAreUnknownAndNotAskedFor() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .members(Member.unanswered(NODE), Member.unanswered(NODE_2))
+            .nodeInformation("inubit-node-09", Map.of("ServerVersion", "9.0.10"));
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> lines.put("details",
+            "inubit-node-09")), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).endsWith(
+            List.of("members", "ok", "2"), List.of("details", "unknown"), List.of("end"));
+        assertThat(script.calls()).as("no getNode(NodeName)").endsWith(
+            call("ClusterClient.getNode"),
+            call("ClusterClient.getNodes"),
+            call("IBISSoapClient.logoutUser", USER));
+    }
+
+    @Test
+    void aKeyOverTwoHundredOrAValueOverFourThousandCharactersIsCutAndMarked() throws Exception {
+        Map<String, Object> outer = new LinkedHashMap<>();
+        outer.put("i".repeat(60), "inner");
+        Map<String, Object> information = new LinkedHashMap<>();
+        information.put("k".repeat(201), "v");
+        information.put("long", "v".repeat(4_001));
+        information.put("k".repeat(200), "v".repeat(4_000));
+        information.put("o".repeat(150), outer);
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .members(Member.unanswered(NODE)).nodeInformation(NODE, information);
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> lines.put("details",
+            NODE)), vendor());
+
+        assertThat(framesStartingWith(run.out(), "detail")).containsExactly(
+            List.of("detail", "k".repeat(200), "v", "cut"),
+            List.of("detail", "long", "v".repeat(4_000), "cut"),
+            List.of("detail", "k".repeat(200), "v".repeat(4_000)),
+            List.of("detail", ("o".repeat(150) + "." + "i".repeat(60)).substring(0, 200),
+                "inner", "cut"));
+        assertThat(frames(run.out())).contains(List.of("details", "ok", "4", "false"));
+    }
+
+    /**
+     * The encoded {@code detail} frames (whole lines) together stay within 256 KiB: the helper
+     * stops before the frame that would exceed it and reports the details as truncated (D-2).
+     */
+    @Test
+    void detailFramesStopBeforeTheOneThatWouldExceedTheBudget() throws Exception {
+        Map<String, Object> information = new LinkedHashMap<>();
+        for (int i = 0; i < 100; i++) {
+            information.put(String.format("key-%03d", i), "\u20ac".repeat(4_000));
+        }
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .members(Member.unanswered(NODE)).nodeInformation(NODE, information);
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> lines.put("details",
+            NODE)), vendor());
+
+        List<String> detailLines = Arrays.stream(run.out().split("\n"))
+            .filter(line -> line.startsWith("#QE1:" + NONCE + " detail ")).toList();
+        int bytes = detailLines.stream().mapToInt(line -> line.length() + 1).sum();
+        int oneFrame = detailLines.get(0).length() + 1;
+        assertThat(bytes).isLessThanOrEqualTo(256 * 1024).isGreaterThan(256 * 1024 - oneFrame);
+        assertThat(frames(run.out())).contains(
+            List.of("details", "ok", Integer.toString(detailLines.size()), "true"));
+        assertThat(detailLines.size()).isLessThan(100);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {500, 501})
+    void atMostFiveHundredDetailsAreWrittenTruncatedOnlyWhenThereAreMore(int entries)
+        throws Exception {
+        Map<String, Object> information = new LinkedHashMap<>();
+        for (int i = 0; i < entries; i++) {
+            information.put(String.format("key-%03d", i), "v");
+        }
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .members(Member.unanswered(NODE)).nodeInformation(NODE, information);
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> lines.put("details",
+            NODE)), vendor());
+
+        assertThat(framesStartingWith(run.out(), "detail")).hasSize(500);
+        assertThat(frames(run.out())).contains(
+            List.of("details", "ok", "500", Boolean.toString(entries > 500)));
+    }
+
+    /**
+     * The largest answer: 200 members whose tokens are non-ASCII (9 encoded bytes per character)
+     * and node information up to the detail budget; the whole stdout stays below the 1 MiB cap
+     * of 020 and parses.
+     */
+    @Test
+    void theLargestClusterNodesAnswerWithNonAsciiTokensStaysBelowTheOneMibCap() throws Exception {
+        String euros = "\u20ac".repeat(250);
+        Member[] members = new Member[201];
+        // the largest uptime the frame parser takes (18 digits)
+        long uptime = 999_999_999_999_999_999L;
+        members[0] = new Member(NODE, "MAINTENANCE", euros, euros, euros, uptime);
+        for (int i = 1; i < members.length; i++) {
+            members[i] = new Member(euros + i, "OFFLINE", euros, euros, euros, uptime);
+        }
+        Map<String, Object> information = new LinkedHashMap<>();
+        for (int i = 0; i < 600; i++) {
+            information.put("\u20ac".repeat(200) + i, "\u20ac".repeat(4_000));
+        }
+        FakeInubitScript script = new FakeInubitScript().node(NODE).members(members)
+            .nodeInformation(NODE, information);
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> lines.put("details",
+            NODE)), vendor());
+
+        assertThat(run.out().getBytes(StandardCharsets.UTF_8).length)
+            .isLessThan(ProcessRun.MAX_OUTPUT_BYTES);
+        HelperFrames parsed = HelperFrames.parse(NONCE, run.out());
+        assertThat(parsed.problem()).isEmpty();
+        assertThat(parsed.ended()).isTrue();
+        assertThat(parsed.frames()).filteredOn(HelperFrames.Member.class::isInstance)
+            .hasSize(200);
+        assertThat(parsed.frames()).filteredOn(HelperFrames.DetailsOk.class::isInstance)
+            .map(frame -> ((HelperFrames.DetailsOk) frame).truncated()).containsExactly(true);
+    }
+
+    @Test
+    void aFailedNodeListIsAMembersErrorWithMaskedPasswordsAndNoDetails() throws Exception {
+        String echo = "user jdoe with " + TestSecrets.CONFIGURED_PASSWORD + " and store "
+            + TestSecrets.TRUST_STORE_PASSWORD + " refused";
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .membersFail(new Failure("java.lang.IllegalStateException", "no cluster"),
+                new Failure("java.io.IOException", echo))
+            .nodeInformation(NODE, Map.of("ServerVersion", "9.0.10"));
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> lines.put("details",
+            NODE)), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "ok", NODE),
+            List.of("members", "error", "java.lang.IllegalStateException>java.io.IOException",
+                "no cluster\nuser jdoe with ****** and store ****** refused"),
+            List.of("end"));
+        assertThat(script.calls()).endsWith(
+            call("ClusterClient.getNodes"), call("IBISSoapClient.logoutUser", USER));
+        TestSecrets.assertNoLeak(run.out());
+        TestSecrets.assertNoLeak(decoded(run.out()));
+    }
+
+    @Test
+    void aFailedNodeInformationRequestIsADetailsErrorAfterTheMembers() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .members(Member.unanswered(NODE), Member.unanswered(NODE_2))
+            .nodeInformationFails(NODE_2, new Failure("java.io.IOException",
+                "node inubit-node-02 did not answer"));
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> lines.put("details",
+            NODE_2)), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).endsWith(
+            List.of("members", "ok", "2"),
+            List.of("details", "error", "java.io.IOException",
+                "node inubit-node-02 did not answer"),
+            List.of("end"));
+        assertThat(script.calls()).last().isEqualTo(call("IBISSoapClient.logoutUser", USER));
+    }
+
+    /** A node list that is {@code null} is a failed one, as a node lookup without a node. */
+    @Test
+    void aNodeListReturningNullIsAMembersErrorWithoutExceptionChainAndStillLogsOut()
+        throws Exception {
+        String cluster = "com.inubit.ibis.server.cluster.ClusterClient";
+        ClassLoader vendor = replacing(cluster, "package com.inubit.ibis.server.cluster;\n"
+            + "import com.inubit.ibis.server.cache.NodeName;\n"
+            + "import com.inubit.ibis.server.cluster.data.Node;\n"
+            + "import com.inubit.ibis.server.cluster.data.NodeList;\n"
+            + "public class ClusterClient {\n"
+            + "public ClusterClient(com.inubit.ibis.utils.I_IBISClientInterface c, String u,"
+            + " String id, String g) { }\n"
+            + "public Node getNode() { return new Node(NodeName.nodeName(\"" + NODE + "\")); }\n"
+            + "public NodeList getNodes() { return null; }\n"
+            + "public Node getNode(NodeName n) { return null; }\n"
+            + "}\n");
+        FakeInubitScript script = new FakeInubitScript();
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> lines.put("details",
+            NODE)), vendor);
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "ok", NODE),
+            List.of("members", "error", "-", "the cluster client returned no node list"),
+            List.of("end"));
+        assertThat(script.calls()).last().isEqualTo(call("IBISSoapClient.logoutUser", USER));
+    }
+
+    /** A named node without node information (a member that did not answer) is no exception. */
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "new Node(n)"})
+    void aNamedNodeWithoutNodeInformationIsADetailsErrorWithoutExceptionChain(String answer)
+        throws Exception {
+        String cluster = "com.inubit.ibis.server.cluster.ClusterClient";
+        ClassLoader vendor = replacing(cluster, "package com.inubit.ibis.server.cluster;\n"
+            + "import com.inubit.ibis.server.cache.NodeName;\n"
+            + "import com.inubit.ibis.server.cluster.data.Node;\n"
+            + "import com.inubit.ibis.server.cluster.data.NodeList;\n"
+            + "public class ClusterClient {\n"
+            + "public ClusterClient(com.inubit.ibis.utils.I_IBISClientInterface c, String u,"
+            + " String id, String g) { }\n"
+            + "public Node getNode() { return new Node(NodeName.nodeName(\"" + NODE + "\")); }\n"
+            + "public NodeList getNodes() { NodeList l = new NodeList();"
+            + " l.add(new Node(NodeName.nodeName(\"" + NODE + "\"))); return l; }\n"
+            + "public Node getNode(NodeName n) { return " + answer + "; }\n"
+            + "}\n");
+
+        Run run = run(new FakeInubitScript(), nodeToolRequest("clusterNodes",
+            lines -> lines.put("details", NODE)), vendor);
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).endsWith(
+            List.of("member", NODE, "-", "-", "-", "-", "-"),
+            List.of("members", "ok", "1"),
+            List.of("details", "error", "-", "the cluster client returned no node information"),
+            List.of("end"));
+    }
+
+    @Test
+    void aFailedOwnNodeLookupEndsTheClusterNodesReadBeforeTheNodeList() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().members(Member.unanswered(NODE))
+            .nodeFails(new Failure("java.lang.Exception", "Server not in cluster mode."));
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> { }), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "error", "java.lang.Exception", "Server not in cluster mode."),
+            List.of("end"));
+        assertThat(script.calls()).extracting(Call::name)
+            .doesNotContain("ClusterClient.getNodes");
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("missingClusterNodesMembers")
+    void clusterNodesWithoutAVendorMemberEndsWithApiMissingAndExitFourBeforeAnyCall(
+        String missing, String className, String source) throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .members(Member.unanswered(NODE));
+
+        Run run = run(script, nodeToolRequest("clusterNodes", lines -> { }),
+            replacing(className, source));
+
+        assertThat(run.exit()).isEqualTo(4);
+        assertThat(frames(run.out())).containsExactly(List.of("api", "missing", missing));
+        assertThat(script.calls()).isEmpty();
+    }
+
+    static Stream<Arguments> missingClusterNodesMembers() {
+        String cluster = "com.inubit.ibis.server.cluster.ClusterClient";
+        String constructor = "public ClusterClient(com.inubit.ibis.utils.I_IBISClientInterface c,"
+            + " String u, String id, String g) { }";
+        String getNode = "public com.inubit.ibis.server.cluster.data.Node getNode() {"
+            + " return null; }";
+        String getNodes = "public com.inubit.ibis.server.cluster.data.NodeList getNodes() {"
+            + " return null; }";
+        String getNamedNode = "public com.inubit.ibis.server.cluster.data.Node getNode("
+            + "com.inubit.ibis.server.cache.NodeName n) { return null; }";
+        String nodeName = "com.inubit.ibis.server.cache.NodeName";
+        String information = "com.inubit.ibis.server.datafacade.NodeInformation";
+        return Stream.of(
+            Arguments.of(cluster + ".getNodes()", cluster,
+                stub(cluster, constructor, getNode, getNamedNode)),
+            Arguments.of(cluster + ".getNode(" + nodeName + ")", cluster,
+                stub(cluster, constructor, getNode, getNodes)),
+            Arguments.of(nodeName + ".nodeName(java.lang.String)", nodeName,
+                stub(nodeName, "public String getName() { return null; }")),
+            Arguments.of(information + ".getNodeInformationMap()", information,
+                stub(information)));
+    }
+
     // --- the frame writer (D-4) -----------------------------------------------------------
 
     @Test
@@ -1506,6 +1969,11 @@ class ClientHelperTest {
                 .map(token -> URLDecoder.decode(token, StandardCharsets.UTF_8)).toList());
         }
         return frames;
+    }
+
+    /** The decoded frames whose first token is {@code first}. */
+    static List<List<String>> framesStartingWith(String out, String first) {
+        return frames(out).stream().filter(frame -> frame.get(0).equals(first)).toList();
     }
 
     static String decoded(String out) {

@@ -89,15 +89,19 @@ unsupported API, against FR-007).
     calls);
   - `clusterNodes`: per element of `getNodes()`, for the first 200 only, one `member <name>
     <status> <version> <zone> <nodeId> <uptimeMs>` (`-` for `null`; `status` is the enum
-    constant's `name()`, any text; every token cut at 200 characters), then `members ok <count>`
+    constant's `name()`, any text; `uptimeMs` `-` when `status` is `null`, as a member without
+    answer has the primitive uptime 0; every token cut, whole characters only, at 200 characters
+    and at 600 bytes of its percent-encoded form), then `members ok <count>`
     (`count` = all elements) or `members error <chain> <message>`; with `details`: if the name is
     not among the members → `details unknown` (no request); else per flattened node-information
     entry `detail <key> <value>` (at most 500 entries, key ≤ 200 and value ≤ 4,000 characters,
     longer ones cut by the helper with the token `cut` appended; **total budget 256 KiB** of
     encoded `detail` frames — when the next frame would exceed it, the helper stops) and
     `details ok <count> <truncated>` (`truncated` = `true` when the entry cap or the budget
-    stopped it), or `details error <chain> <message>`. With 200 `member` frames of ≤ 1 KiB each
-    and the budget, a `clusterNodes` answer stays far below the 1 MiB stdout cap of 020;
+    stopped it), or `details error <chain> <message>`. The byte bound per member token never cuts
+    200 ASCII characters (≤ 3 encoded bytes each) but does cut non-ASCII ones (up to 9 bytes per
+    character), so a `member` frame is about 3,070 bytes at most and 200 of them ≤ 600 KiB; with the budget, a
+    `clusterNodes` answer stays below the 1 MiB stdout cap of 020;
   - `nodeConfig`: per name `config <name> ok <type> <editable> <deprecated> <displayName>
     <category> <description> <value>` (`type` = simple class name of `getType()`, flags
     `true`/`false`, value = `getStringValue()`), `config <name> absent` (`null` answer) or
