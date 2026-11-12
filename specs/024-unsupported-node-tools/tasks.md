@@ -238,7 +238,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   `adapter/AdapterGatewayFactoryTest.java` and `adapter/RefusingPortsTest.java` (new ports reach the
   version's adapter; 6.1 refuses with the gate text; defaults throw `CLI_UNAVAILABLE`);
   `architecture/PackageBoundaryTest.java` green with the new packages
-- [ ] T016 Helper runner and shared classification (D-3, D-20, D-24; after T008, T009, T015):
+- [X] T016 Helper runner and shared classification (D-3, D-20, D-24; after T008, T009, T015):
   `adapter/cli/node/NodeHelperRunner.java` (variant via `HelperVariant.forVersion`,
   `CliRunner.select` + `checkLaunch`, TLS check + one-time trust store, private directory through
   `CliResources` with prefix `inubit-mcp-node-`, slot `CliConcurrencyLimiter.acquireForHelper(server,

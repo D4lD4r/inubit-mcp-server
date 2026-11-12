@@ -27,7 +27,8 @@ import java.util.Optional;
 /**
  * The installation of the helper for one call (feature 020, research D-2, D-3, D-8): the private
  * directory {@code <tmp>/inubit-mcp-queue-<profile>-<pid>-<random>} (for a server log
- * {@code inubit-mcp-log-…}, feature 021 research D-7) with
+ * {@code inubit-mcp-log-…}, feature 021 research D-7; for a node tool {@code inubit-mcp-node-…},
+ * feature 024 research D-24) with
  * {@code helper/} (the helper class from the MCP server's own jar), {@code vendor/} (the
  * client's {@code java.io.tmpdir}), {@code out/} (the content files) and, written by the caller,
  * {@link HelperTrustStore#FILE_NAME}; and the argument array that starts the helper on the
@@ -71,7 +72,9 @@ public final class HelperInstallation implements AutoCloseable {
         /** The queue-entry read of feature 020: {@code inubit-mcp-queue-…}. */
         QUEUE_ENTRY("the queue-entry helper", "The queue-entry helper"),
         /** The server-log download of feature 021: {@code inubit-mcp-log-…}. */
-        SERVER_LOG("the INUBIT client helper", "The INUBIT client helper");
+        SERVER_LOG("the INUBIT client helper", "The INUBIT client helper"),
+        /** A node tool of feature 024: {@code inubit-mcp-node-…}. */
+        NODE_TOOLS("the INUBIT client helper", "The INUBIT client helper");
 
         private final String label;
         private final String subject;
@@ -87,7 +90,11 @@ public final class HelperInstallation implements AutoCloseable {
         }
 
         private String prefix(CliResources resources) {
-            return this == QUEUE_ENTRY ? resources.queuePrefix() : resources.logPrefix();
+            return switch (this) {
+                case QUEUE_ENTRY -> resources.queuePrefix();
+                case SERVER_LOG -> resources.logPrefix();
+                case NODE_TOOLS -> resources.nodePrefix();
+            };
         }
     }
 

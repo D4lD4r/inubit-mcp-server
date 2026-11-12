@@ -49,7 +49,8 @@ import org.slf4j.LoggerFactory;
  *   <li>A SIGKILL leaves no chance to clean up, so export directories are named
  *       {@code inubit-mcp-export-<profile>-<pid>-<random>} ({@link #exportPrefix()}), the
  *       queue-entry helper's {@code inubit-mcp-queue-<profile>-<pid>-<random>}, the server-log
- *       downloads' {@code inubit-mcp-log-<profile>-<pid>-<random>} (feature 021), and
+ *       downloads' {@code inubit-mcp-log-<profile>-<pid>-<random>} (feature 021), the node
+ *       tools' helper runs' {@code inubit-mcp-node-<profile>-<pid>-<random>} (feature 024), and
  *       {@link #sweepStale} deletes, at startup, the directories of this profile and this user
  *       whose MCP server process is no longer alive (plus such directories of feature 001);
  *       never those of another profile (002 research D-8). On Windows too (feature 013, R-10):
@@ -70,6 +71,8 @@ public final class CliResources implements AutoCloseable {
     public static final String QUEUE_PREFIX = "inubit-mcp-queue-";
     /** The private copies of downloaded server logs (feature 021, research D-7). */
     public static final String LOG_PREFIX = "inubit-mcp-log-";
+    /** The directories of the node tools' helper runs (feature 024, research D-24). */
+    public static final String NODE_PREFIX = "inubit-mcp-node-";
     /**
      * The names of feature 001, {@code inubit-mcp-export-<pid>-<random>}: exactly two numeric
      * parts, so that no 002 name ({@code <profile>-<pid>-<random>}, three or more parts) matches.
@@ -333,6 +336,15 @@ public final class CliResources implements AutoCloseable {
         return LOG_PREFIX + profile + "-" + ProcessHandle.current().pid() + "-";
     }
 
+    /**
+     * The name prefix of this process's node-tools helper directories,
+     * {@code inubit-mcp-node-<profile>-<pid>-} (feature 024, research D-24); the JDK appends a
+     * random number.
+     */
+    public String nodePrefix() {
+        return NODE_PREFIX + profile + "-" + ProcessHandle.current().pid() + "-";
+    }
+
     /** The name goes into a path passed to StartCLI: only valid profile names are accepted. */
     private static String validProfile(String profile) {
         if (!ProfileInfo.isValidName(profile)) {
@@ -528,13 +540,14 @@ public final class CliResources implements AutoCloseable {
     }
 
     /**
-     * Deletes the export, queue-entry helper and server-log directories below {@code root} that
-     * belong to {@code owner} and to an MCP server process that is no longer alive (left behind
-     * by a SIGKILL). Only real directories of {@code profile}
+     * Deletes the export, queue-entry helper, server-log and node-tools directories below
+     * {@code root} that belong to {@code owner} and to an MCP server process that is no longer
+     * alive (left behind by a SIGKILL). Only real directories of {@code profile}
      * ({@code inubit-mcp-export-<profile>-<pid>-<random>} and, as they may hold queue entry
      * content or log content, the queue-entry helper's
      * {@code inubit-mcp-queue-<profile>-<pid>-<random>} of feature 020 and the server-log
-     * downloads' {@code inubit-mcp-log-<profile>-<pid>-<random>} of feature 021) and legacy
+     * downloads' {@code inubit-mcp-log-<profile>-<pid>-<random>} of feature 021 and the node
+     * tools' {@code inubit-mcp-node-<profile>-<pid>-<random>} of feature 024) and legacy
      * directories of feature 001 ({@code inubit-mcp-export-<pid>-<random>}, which no running
      * 002 server owns) are considered; another profile's directories, links and files are left
      * alone (002 research D-8).
@@ -571,7 +584,7 @@ public final class CliResources implements AutoCloseable {
         String valid = validProfile(profile);
         List<Pattern> names = List.of(profileDirectory(EXPORT_PREFIX, valid),
             profileDirectory(QUEUE_PREFIX, valid), profileDirectory(LOG_PREFIX, valid),
-            LEGACY_DIRECTORY);
+            profileDirectory(NODE_PREFIX, valid), LEGACY_DIRECTORY);
         int deleted = 0;
         try (DirectoryStream<Path> entries = Files.newDirectoryStream(root)) {
             for (Path entry : entries) {

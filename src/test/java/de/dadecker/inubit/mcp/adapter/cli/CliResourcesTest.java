@@ -518,6 +518,33 @@ class CliResourcesTest {
         assertThat(otherProfile).as("another profile's").exists();
     }
 
+    // --- feature 024 (D-24): the private directories of the node tools' helper runs ---
+
+    @Test
+    void aNodeDirectoryIsNamedByProfileAndPid() {
+        CliResources resources = new CliResources("acme", FILES);
+
+        assertThat(resources.nodePrefix())
+            .isEqualTo("inubit-mcp-node-acme-" + ProcessHandle.current().pid() + "-");
+    }
+
+    @Test
+    void theSweepDeletesAStaleNodeDirectoryOfADeadProcessAndKeepsOneOfTheRunningProcess()
+        throws Exception {
+        long dead = deadPid();
+        long self = ProcessHandle.current().pid();
+        Path stale = exportDir(CliResources.NODE_PREFIX + "acme-" + dead + "-12345");
+        Path running = exportDir(CliResources.NODE_PREFIX + "acme-" + self + "-12345");
+        Path otherProfile = exportDir(CliResources.NODE_PREFIX + "globex-" + dead + "-12345");
+
+        int deleted = CliResources.sweepStale(root, "acme", FILES);
+
+        assertThat(deleted).isEqualTo(1);
+        assertThat(stale).doesNotExist();
+        assertThat(running).as("this process is alive").exists();
+        assertThat(otherProfile).as("another profile's").exists();
+    }
+
     @Test
     void aMissingRootIsNothingToSweep() throws IOException {
         assertThat(CliResources.sweepStale(root.resolve("missing"), "acme", FILES)).isZero();

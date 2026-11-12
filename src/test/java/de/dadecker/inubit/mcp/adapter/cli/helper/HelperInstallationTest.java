@@ -196,13 +196,27 @@ class HelperInstallationTest {
     }
 
     @Test
+    void aNodeToolsInstallationIsANodeDirectory() throws Exception {
+        Path home = client("client");
+        Path jdk = jdk();
+
+        try (HelperInstallation installation = HelperInstallation.install(host(),
+            selection(node().cliHome(home).cliJavaHome(jdk)), Optional.of(jdk.toString()),
+            HelperInstallation.Use.NODE_TOOLS)) {
+            assertThat(installation.directory().getParent()).isEqualTo(tempRoot);
+            assertThat(installation.directory().getFileName().toString())
+                .matches("inubit-mcp-node-acme-" + ProcessHandle.current().pid() + "-[0-9]+");
+        }
+    }
+
+    @Test
     void everyUseHasItsOwnSentenceStartText() {
         // the sentence start is given per constant, not derived from a label starting with "the";
         // the switch has no default, so a new constant cannot compile without its texts
         for (HelperInstallation.Use use : HelperInstallation.Use.values()) {
             assertThat(use.subject()).as(use.name()).isEqualTo(switch (use) {
                 case QUEUE_ENTRY -> "The queue-entry helper";
-                case SERVER_LOG -> "The INUBIT client helper";
+                case SERVER_LOG, NODE_TOOLS -> "The INUBIT client helper";
             });
         }
     }
