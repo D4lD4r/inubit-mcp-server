@@ -220,6 +220,40 @@ class VersionGateActionTest {
         });
     }
 
+    /**
+     * T021 (T010 review): a StartCLI client whose range excludes the node's version refuses only
+     * the StartCLI parts; the REST parts are still read (FR-013).
+     */
+    @Test
+    void cliPartsOfANodeWithAnIncompatibleClientAreUnavailableAndRestPartsAdmitted() {
+        withClient.add(V9_0);
+        versions.clientProbed(V9_0, new ProbedClient(ClientKey.NONE, clientFor81()));
+
+        PartAdmission admission = gate.admitParts("get_server_settings", V9_0, SETTINGS,
+            Set.of(CONFIGURATION_PART, THREADS_PART));
+
+        assertThat(admission.admitted()).containsExactly(CONFIGURATION_PART);
+        assertThat(admission.unavailable()).singleElement().satisfies(part -> {
+            assertThat(part.part()).isEqualTo(UnavailablePart.THREADS);
+            assertThat(part.reason()).startsWith("UNSUPPORTED_VERSION: threads: StartCLI client"
+                + " 8.1.12 of test/node1 supports INUBIT 8.1.0 to 8.1.99, which excludes INUBIT"
+                + " 9.0").doesNotEndWith("; nothing was sent");
+            assertThat(part.nextStep()).isPresent();
+        });
+    }
+
+    @Test
+    void anIncompatibleClientRefusesACallOfStartCliPartsOnly() {
+        withClient.add(V9_0);
+        versions.clientProbed(V9_0, new ProbedClient(ClientKey.NONE, clientFor81()));
+
+        ToolError error = refusal(() -> gate.admitParts("get_server_settings", V9_0, SETTINGS,
+            Set.of(THREADS_PART)));
+
+        assertThat(error.message()).startsWith("get_server_settings: StartCLI client 8.1.12")
+            .endsWith("; nothing was sent");
+    }
+
     @Test
     void noAdmittedPartRefusesTheCall() {
         ToolError version = refusal(() -> gate.admitParts("get_server_settings", V9_0, SETTINGS,
@@ -261,6 +295,12 @@ class VersionGateActionTest {
     private static ClientVersion compatibleClient() {
         return new ClientVersion(InubitVersion.parse("9.0.7").orElseThrow(),
             InubitVersion.parse("9.0.0"), InubitVersion.parse("9.0.99"));
+    }
+
+    /** A client for INUBIT 8.1 only. */
+    private static ClientVersion clientFor81() {
+        return new ClientVersion(InubitVersion.parse("8.1.12").orElseThrow(),
+            InubitVersion.parse("8.1.0"), InubitVersion.parse("8.1.99"));
     }
 
     private static ToolError refusal(Runnable call) {

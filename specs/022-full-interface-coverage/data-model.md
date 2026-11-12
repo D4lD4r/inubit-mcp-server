@@ -134,8 +134,9 @@ One per server:
 - `node`;
 - `license`: `expiryDate`, `licensedThreads`, `licensee` (masked by D-19). `licensedThreads`
   comes from `/metrics`, the source `get_health` uses (US1 AS7). Only when `/metrics` is not
-  licensed does it come from `GET /license`. The `sources` entry names which one was used;
-  `expiryDate` and `licensee` always come from `GET /license`;
+  licensed does it come from `GET /license`. `sources` maps each field to its channel (FR-009),
+  so `licensedThreads` is `REST` in both cases; the endpoint is not shown (orchestrator decision
+  during T021). `expiryDate` and `licensee` always come from `GET /license`;
 - `workflowThreads`;
 - `privilegedWorkflows`: `percentage`, `workflows[]` (≤ 200 names, truncation marker);
 - `dbConnectionTolerance`: `faultThreshold`, `dropRatePercent`, `dropIntervalSeconds`;
@@ -146,7 +147,9 @@ One per server:
 - `sources`: `Map<field, CLI|REST>`;
 - `unavailable`: a list of `UnavailablePart`, using the parts `license`, `threads`,
   `privilegedWorkflows`, `dbConnectionTolerance`, `configuration` and `serverTime`, with the reason
-  (for example `FORBIDDEN: role System Administrator`).
+  (for example `FORBIDDEN: role System Administrator`). A failed monitoring read is reported under
+  `get_health`'s part names: `status` (healthcheck), `version` (system info), `load` (metrics,
+  including `METRICS_NOT_LICENSED`), so FR-013 holds for those facts too (decision during T021).
 
 `ConfigurationView`:
 

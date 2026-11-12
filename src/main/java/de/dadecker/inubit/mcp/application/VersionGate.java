@@ -498,7 +498,9 @@ public final class VersionGate {
      * node's major.minor and, for a StartCLI part, the node has a StartCLI client at that version.
      * Every other part is reported as an {@link UnavailablePart} with {@code UNSUPPORTED_VERSION}
      * ("not yet verified", "not documented for this version" or the exclusion reason) or
-     * {@code CLI_UNAVAILABLE}.
+     * {@code CLI_UNAVAILABLE}. When the call has REST and StartCLI parts and only the StartCLI
+     * channel is refused (the node's StartCLI client does not support its version), the StartCLI
+     * parts are reported with that refusal and the REST parts are admitted (T021, FR-013).
      *
      * @param parts a non-empty subset of {@link ActionSpec#parts()}
      * @throws ToolErrorException as {@link #admitCall} for the capability admission and an
@@ -512,8 +514,22 @@ public final class VersionGate {
                 + spec.tool() + "/" + spec.action());
         }
         return named(tool, () -> {
-            ActionAdmission judged = admitAction(node, spec,
-                parts.stream().map(Part::channel).collect(Collectors.toUnmodifiableSet()));
+            Set<Channel> channels =
+                parts.stream().map(Part::channel).collect(Collectors.toUnmodifiableSet());
+            ActionAdmission judged;
+            // T021 (T010 review): a refusal that only the StartCLI channel adds (a client whose
+            // range excludes the version) refuses only the StartCLI parts (FR-013)
+            Optional<ToolError> cliRefusal = Optional.empty();
+            try {
+                judged = admitAction(node, spec, channels);
+            } catch (ToolErrorException e) {
+                if (e.error().code() != ErrorCode.UNSUPPORTED_VERSION
+                    || !channels.equals(Set.of(Channel.REST, Channel.CLI))) {
+                    throw e;
+                }
+                judged = admitAction(node, spec, Set.of(Channel.REST));
+                cliRefusal = Optional.of(e.error());
+            }
             Optional<InubitVersion> version = judged.admission().version();
             boolean client = selection.current(node, version).isPresent()
                 && selection.available(node, version);
@@ -527,6 +543,12 @@ public final class VersionGate {
                         + gap.get().key().channel() + " " + gap.get().key().entry() + " is "
                         + why(gap.get().state(), judged.line()), COVERAGE_CAUSE,
                         coverageStep()));
+                } else if (part.channel() == Channel.CLI && cliRefusal.isPresent()) {
+                    // the REST parts are still sent, so without "nothing was sent"
+                    ToolError error = cliRefusal.get();
+                    refused.put(part, ToolError.of(ErrorCode.UNSUPPORTED_VERSION, part.name()
+                        + ": " + error.message().replace(NOTHING_SENT, ""),
+                        error.likelyCause(), error.nextStep()));
                 } else if (part.channel() == Channel.CLI && !client) {
                     refused.put(part, ToolError.of(ErrorCode.CLI_UNAVAILABLE, part.name()
                         + " is read through StartCLI, and no StartCLI client is installed for "

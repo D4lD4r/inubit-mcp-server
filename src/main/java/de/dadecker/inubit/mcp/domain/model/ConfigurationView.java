@@ -56,7 +56,10 @@ public record ConfigurationView(List<String> sections, Optional<String> section,
      * {@code null} and an empty string as {@code ""}, never as {@code Optional.empty()}.
      *
      * @param path  the path of the leaf below the section, e.g. {@code /smtp/host}; empty for a
-     *              section that is a single value
+     *              section that is a single value. A path longer than
+     *              {@link ItemBounds#MAX_FIELD_CHARS} is cut with the truncation marker, so two
+     *              long paths with a common prefix can show the same {@code path}; the values
+     *              keep the order of the document.
      * @param value the value; empty when masked
      */
     public record Leaf(String path, Optional<String> value) {

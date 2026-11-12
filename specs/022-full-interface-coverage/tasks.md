@@ -353,7 +353,7 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
     `ItemBounds.MAX_FIELD_CHARS` with the truncation marker.
   - Failing tests first: `adapter/rest/v81/V81SettingsAdapterTest.java` (WireMock: 200; 403 â†’
     `FORBIDDEN` naming "System Administrator"; 503 â†’ `MAINTENANCE_MODE`) and `WiringAuditTest`.
-- [ ] T021 [US1] `application/ServerSettingsService.java`:
+- [X] T021 [US1] `application/ServerSettingsService.java`:
   - `read(target, parts, section)`;
   - a stage gives one entry per server (AS5);
   - default parts are all but `configuration`; a section implies `configuration`;
@@ -384,6 +384,10 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
     `contracts/mcp-tools-delta.md`;
   - `ToolHints.readOnly(title, true)`;
   - registered in `Wiring.toolHandlers()` when `anyPossiblyCapable(SERVER_SETTINGS)`.
+  - From the T021 review (comments only): the `ServerSettingsService` class Javadoc says the three
+    monitoring reads run on every call (the result always carries version, memory share, blocking
+    queue size and maintenance mode); the `VersionGate.admitParts` comment says "a refusal that only
+    the StartCLI channel adds" instead of naming only the incompatible client.
   - Failing tests first:
     - `mcp/tools/GetServerSettingsToolTest.java` (full description text, annotations, validation
       errors);
