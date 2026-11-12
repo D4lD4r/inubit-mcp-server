@@ -123,7 +123,7 @@ class DownloadServerLogWiringTest {
                 "test/node1", "log", "trace", "targetFolder", folder.toString())));
 
             Path file = Path.of(result.path("file").asString());
-            assertThat(file.getParent()).isEqualTo(folder.toRealPath());
+            assertThat(file.getParent().toRealPath()).isEqualTo(folder.toRealPath());
             assertThat(Files.readString(file, StandardCharsets.UTF_8))
                 .as("the file keeps the content").isEqualTo(LOG);
             assertThat(result.path("sizeBytes").asLong())
@@ -234,7 +234,7 @@ class DownloadServerLogWiringTest {
             assertThat(content.path("log").asString()).isEqualTo("webservice");
             assertThat(content.path("inubitNode").asString()).isEqualTo("node1");
             Path file = Path.of(content.path("file").asString());
-            assertThat(file.getParent()).isEqualTo(folder.toRealPath());
+            assertThat(file.getParent().toRealPath()).isEqualTo(folder.toRealPath());
             assertThat(file.getFileName().toString())
                 .matches("test-node1-webservice-\\d{8}-\\d{6}(-2)?\\.log");
             assertThat(file).hasBinaryContent(webServiceFixture("ok.log"));
