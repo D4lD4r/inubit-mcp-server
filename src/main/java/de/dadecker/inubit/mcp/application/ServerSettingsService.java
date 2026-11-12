@@ -274,10 +274,12 @@ public final class ServerSettingsService {
     /**
      * The fan-out deadline of {@code server}: the reads run one after the other, so
      * {@code timeout} for the version gate's detection, each of the three monitoring calls and
-     * the two REST settings reads; with StartCLI parts {@code cliTimeout} for the client probe,
-     * the wait for the concurrency limiter and the session, and {@code timeout} for the TLS
-     * handshake (as {@link DiagnosisService}); plus {@link #FAN_OUT_GRACE} and the secret read
-     * allowance (feature 010).
+     * the two REST settings reads; with StartCLI parts {@code timeout} for the TLS handshake and
+     * three times {@code cliTimeout}, the multiplier {@link DiagnosisService} uses; here they stand
+     * for the client probe, the session and one of headroom (the settings session takes no
+     * concurrency-limiter slot, so there is no limiter wait); plus {@link #FAN_OUT_GRACE} and the
+     * secret read allowance
+     * (feature 010).
      */
     private Duration deadline(NodeId server, boolean cli) {
         Duration timeout = timeouts.apply(server);

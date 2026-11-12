@@ -434,7 +434,7 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
 - [ ] T026 [US1] 9.0 contracts and flip [BLOCKED: T024]: `SettingsV90ContractTest.java`, rows
   and matrix for `v9_0`, catalogue entries.
   - the same for the `v9_0` column of `license -td` / `license -ts` (`covered:get_server_settings`);
-- [ ] T027 [US1] Docs and release notes (FR-027):
+- [X] T027 [US1] Docs and release notes (FR-027):
   - `docs/tools.md`: section `get_server_settings`, the capability list, the error codes used;
   - `docs/setup.md`: the role "System Administrator" for license and configuration;
   - `docs/research/inubit-interfaces.md`: §1.3 and §2.2 now point to the coverage page;

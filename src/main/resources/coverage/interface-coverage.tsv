@@ -1,5 +1,5 @@
 # source: vendor pages "Command Line Interface" (with subpages) and "REST API" (every endpoint page), INUBIT 8.1 and 9.0, retrieved 2026-11-12
-# delivered-stories:
+# delivered-stories: US1
 #
 # Feature 022 coverage list (contracts/coverage-list.md, research D-2). One row per entry:
 # CLI: one command with one option or option value set, as the vendor writes it;
@@ -14,13 +14,13 @@ channel	entry	kind	area	story	v8_1	v9_0	waits
 
 # A. Server state and settings
 # license -td, license -ts: planned until covered:get_server_settings (US1) (research D-6 "Covered rows before their tool exists")
-CLI	license -td	READ	A	US1	planned	planned	-
-CLI	license -ts	READ	A	US1	planned	planned	-
-CLI	threads showNumberOfWorkflowThreads	READ	A	US1	planned	planned	-
-CLI	privilegedWorkflows showThreadsPercentage	READ	A	US1	planned	planned	-
-CLI	privilegedWorkflows showWorkflowList	READ	A	US1	planned	planned	-
-CLI	dbconnectiontolerance show	READ	A	US1	planned	planned	-
-CLI	date	READ	A	US1	planned	planned	-
+CLI	license -td	READ	A	US1	planned	planned	L-5+9.0-pin
+CLI	license -ts	READ	A	US1	planned	planned	L-5+9.0-pin
+CLI	threads showNumberOfWorkflowThreads	READ	A	US1	planned	planned	L-1+L-5+9.0-pin
+CLI	privilegedWorkflows showThreadsPercentage	READ	A	US1	planned	planned	L-1+L-5+9.0-pin
+CLI	privilegedWorkflows showWorkflowList	READ	A	US1	planned	planned	L-1+L-5+9.0-pin
+CLI	dbconnectiontolerance show	READ	A	US1	planned	planned	L-1+L-5+9.0-pin
+CLI	date	READ	A	US1	planned	planned	L-1+L-5+9.0-pin
 CLI	getBlockingQueueSize	READ	A	-	covered:get_health	covered:get_health	-
 CLI	-sv	READ	A	-	covered:get_health	covered:get_health	-
 CLI	-pctmem	READ	A	-	covered:get_health	covered:get_health	-
@@ -52,8 +52,8 @@ REST	GET /healthcheck	READ	A	-	reachable:get_health/default	reachable:get_health
 REST	GET /metrics	READ	A	-	reachable:get_health/default	reachable:get_health/default	-
 REST	GET /system/info	READ	A	-	reachable:get_health/default	reachable:get_health/default	-
 REST	GET /ready	READ	A	-	reachable:get_health/default	reachable:get_health/default	-
-REST	GET /configurations	READ	A	US1	planned	planned	-
-REST	GET /license	READ	A	US1	planned	planned	-
+REST	GET /configurations	READ	A	US1	planned	planned	L-11+9.0-pin
+REST	GET /license	READ	A	US1	planned	planned	L-5+9.0-pin
 REST	POST /ready/{status}	WRITE	A	US4	planned	planned	-
 REST	PUT /license	WRITE	A	US6	planned	planned	-
 REST	PUT /configurations	WRITE	A	US6	planned	planned	-

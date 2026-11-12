@@ -33,10 +33,12 @@ INUBIT 6.1 nodes of feature 012
 [`find_partners`](#find_partners)), the local knowledge of feature 019
 [its delta](../specs/019-local-knowledge/contracts/mcp-tools-delta.md) (see
 [The local knowledge](#the-local-knowledge-feature-019)), `read_queue_entry` of feature 020
-[its delta](../specs/020-queue-entry-read/contracts/mcp-tools-delta.md), and
+[its delta](../specs/020-queue-entry-read/contracts/mcp-tools-delta.md),
 `download_server_log` of feature 021
-[its delta](../specs/021-server-log-download/contracts/mcp-tools-delta.md).
-All twenty-two tools are described here; each section quotes the description the server
+[its delta](../specs/021-server-log-download/contracts/mcp-tools-delta.md), and
+`get_server_settings` of feature 022
+[its delta](../specs/022-full-interface-coverage/contracts/mcp-tools-delta.md).
+All twenty-three tools are described here; each section quotes the description the server
 announces in `tools/list` for a profile `acme` without description and with the default
 terminology (Group/Node).
 
@@ -78,6 +80,7 @@ General rules:
 |---|---|---|---|
 | [`list_nodes`](#list_nodes) | which groups and nodes exist | read-only, idempotent, closed world | no (configuration only) |
 | [`get_health`](#get_health) | is a node up, ready, in maintenance; version and load | read-only, idempotent, open world | yes (REST) |
+| [`get_server_settings`](#get_server_settings) | license, workflow threads, privileged workflows, DB connection tolerance, server time and, on request, the server configuration of a node | read-only, idempotent, open world | yes (REST `license`, `configurations` and the calls of `get_health`; StartCLI session for the other settings) |
 | [`read_knowledge`](#read_knowledge) | list, search or read the notes of the profile's local knowledge | read-only, idempotent, closed world | no (local files only) |
 | [`record_knowledge`](#record_knowledge) | create a note, append a section or replace a note's content in the local knowledge | not read-only (writes local files), not destructive, non-idempotent, closed world | no (local files only) |
 | [`find_processes`](#find_processes) | failed, waiting or hanging process instances | read-only, idempotent, open world | yes (REST `queueLog`) |
@@ -126,6 +129,10 @@ pinned to a version that refuses the trace log download, or its group has
 log download (see [its section](#download_server_log)). It changes nothing on INUBIT, so it is
 offered in read-only mode, independent of `write.*`, `archives.*` and the production opt-ins.
 
+`get_server_settings` is **offered only if** a node is not pinned to a version that refuses
+`server_settings`, with or without a StartCLI installation; while no INUBIT version is verified
+for it, it is not offered at all (see [its section](#get_server_settings)).
+
 The development tools of feature 004 are **offered only if at least one node is a development
 stage** (`development.enabled: true`, never on production groups; see
 [setup.md](setup.md#development-settings)); `run_e2e_test` only if, in addition, such a node's
@@ -151,6 +158,7 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 |---|---|---|---|---|---|---|
 | `list_nodes` | – | read | none | runs | runs (no INUBIT contact) | runs (no INUBIT contact) |
 | `get_health` | `monitoring` | read | REST; on 6.1 StartCLI | supported | runs with a warning; never refused | refused in this version (the report carries the refusal) |
+| `get_server_settings` | `server_settings` | read | REST + StartCLI | **refused until verified** per version, see [its section](#get_server_settings) | refused (no warning run) | refused |
 | `find_processes` | `process_diagnosis` | read | REST; on 6.1 StartCLI | supported | runs with a warning | refused in this version; the input `tag` always |
 | `query_logs` | `log_diagnosis` | read | REST | supported | runs with a warning | refused |
 | `list_inventory` `DIAGRAM` | `inventory` | read | REST | supported | runs with a warning | refused |
@@ -171,7 +179,7 @@ A deployment backup restored on a node that is also a development stage is check
 warning texts name the capability in words: `monitoring`, `process diagnosis`, `log diagnosis`,
 `inventory`, `partner management`, `workspace export`, `development writes`, `deployment`,
 `end-to-end test`, `process control`, `reading Queue Manager entries`, `downloading the trace
-log`, `downloading the web service log`. Before feature 012,
+log`, `downloading the web service log`, `reading server settings`. Before feature 012,
 `find_processes` and `query_logs` shared the capability `diagnosis`; `list_nodes` and
 `--check-config` now show the two capabilities instead, with the same states on every version
 other than 6.1.
@@ -328,8 +336,10 @@ its possible versions. Feature 021: `download_server_log` is offered only if a n
 client home for one of its possible versions and either is not pinned to a version that refuses
 `trace_log_read` (6.1, a line other than 8.1 and 9.0), or its group has
 `unsupported.serverLogRead: true` and it is not pinned to a version that refuses
-`webservice_log_read`; write settings do not matter. `AUTO` nodes count as possibly capable; a
-later detection does not change the list, it leads to refusals.
+`webservice_log_read`; write settings do not matter. Feature 022: `get_server_settings` is offered
+only if a node is not pinned to a version that refuses `server_settings`; a StartCLI installation
+is not needed. `AUTO` nodes count as possibly capable as long as some version supports the
+capability; a later detection does not change the list, it leads to refusals.
 
 ### INUBIT 6.1 (feature 012)
 
@@ -825,6 +835,152 @@ of 10 s for a call for several nodes.
   `reachable: false` with `error.code: UNREACHABLE`, the others normally, within its timeout + 1 s.
 - "Show the system information of qa/node1" → `includeSystemInfo: true`.
 - "Is there a newer version of the MCP server?" → `get_health`: `serverUpdate`.
+
+## `get_server_settings`
+
+> [acme] Read the settings of the INUBIT nodes: license (expiry date, licensed threads,
+> licensee), workflow threads, privileged workflows, DB connection tolerance and server time, and
+> on request the server configuration. `target` takes the id of one node (`<group>/<node>`) or of
+> one group (one entry per node). `parts` picks what to read (default: all but
+> `configuration`). Without `configurationSection` the configuration is listed by section names;
+> with it, that section's values are shown, secrets masked. Version, memory share, blocking queue
+> size and maintenance mode are always included, from the same source as get_health. License and
+> configuration need the INUBIT role "System Administrator"; a part that cannot be read is listed
+> under `unavailable` with the reason, the other parts are returned. Reads only; changes nothing
+> on INUBIT.
+
+Feature 022 ([its delta](../specs/022-full-interface-coverage/contracts/mcp-tools-delta.md)).
+Reads the settings of one node, or of every node of a group (one entry per node, in configuration
+order). Nothing is changed on INUBIT. The tool is annotated `readOnlyHint: true`,
+`destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true` (title "Read INUBIT server
+settings").
+
+**Versions.** Each part is read through documented INUBIT entries (StartCLI commands, REST
+endpoints), and the server sends an entry only on an INUBIT version for which it has been verified
+against a recorded, neutralized answer of that version. The entries and their state per version
+are listed in [interface-coverage.md](interface-coverage.md). The capability `server_settings`
+(`reading server settings` in messages) is declared per version:
+
+- INUBIT 8.1: not yet verified; refused with `UNSUPPORTED_VERSION` (`… reading server settings is
+  not yet verified for INUBIT 8.1`) until the recordings of a live 8.1 node are under contract
+  test.
+- INUBIT 9.0: not yet verified; refused the same way until the recordings of a live 9.0 node are
+  under contract test.
+- INUBIT 6.1, any other line (9.1, `V9_X`) and an unknown version: refused (no warning run).
+
+While neither 8.1 nor 9.0 is verified, `get_server_settings` is not in `tools/list`, and
+`list_nodes` shows `server_settings` under `notUsable` of every 8.1 and 9.0 node with the reason
+`INUBIT 8.1 on test/node1: reading server settings is not yet verified for INUBIT 8.1`; such a
+node is therefore `partially_supported`. The tool is offered as soon as one version is verified
+(see [Tool announcement](#tool-announcement)).
+
+**Input** (`get_server_settings.input.json`):
+
+| Property | Type | Default | Meaning |
+|---|---|---|---|
+| `target` | string (id pattern), required | – | the id of one group (all its nodes) or of one node |
+| `parts` | array of part names, at least one, no duplicates | all but `configuration` | what to read: `license`, `threads`, `privilegedWorkflows`, `dbConnectionTolerance`, `serverTime`, `configuration` |
+| `configurationSection` | string, 1–200 characters, no control characters | – | the configuration section whose values are shown, case-sensitive; implies the part `configuration` |
+
+The parts and where they come from:
+
+| Part | Result fields | Read through |
+|---|---|---|
+| `license` | `license`: `expiryDate` (ISO-8601 date), `licensedThreads`, `licensee` (always shown as `***`) | REST `GET /license`; `licensedThreads` from `/metrics` as in `get_health`, from `GET /license` only when `/metrics` is not licensed |
+| `threads` | `workflowThreads` | StartCLI `threads showNumberOfWorkflowThreads` |
+| `privilegedWorkflows` | `privilegedWorkflows`: `percentage`, `workflows` (at most 200 names), `truncated` | StartCLI `privilegedWorkflows showThreadsPercentage` and `privilegedWorkflows showWorkflowList` |
+| `dbConnectionTolerance` | `dbConnectionTolerance`: `faultThreshold`, `dropRatePercent`, `dropIntervalSeconds` | StartCLI `dbconnectiontolerance show` |
+| `serverTime` | `serverTime`, as the node shows it | StartCLI `date` |
+| `configuration` | `configuration` (see below) | REST `GET /configurations` |
+
+- `version`, `memoryUsedPercent`, `blockingQueueSize` and `maintenanceMode` are in every result,
+  whatever `parts` asks for. They come from the same `/system/info`, `/metrics` and healthcheck
+  calls `get_health` makes; the StartCLI commands `-sv`, `-pctmem`, `getBlockingQueueSize` and
+  `-maintenanceState` are never sent.
+- The StartCLI parts of one node run in one StartCLI session (the commands on stdin, ending with
+  `exit`), bounded by the node's `cliTimeout`. A node without a StartCLI client for its version
+  gets the REST parts; its StartCLI parts are listed in `unavailable` with `CLI_UNAVAILABLE`.
+  The same holds when the node's StartCLI client does not support its INUBIT version
+  (`UNSUPPORTED_VERSION` for the StartCLI parts only).
+- **Roles.** `GET /license` and `GET /configurations` need the INUBIT role "System
+  Administrator" for the configured account; without it these parts are listed in `unavailable`
+  with `FORBIDDEN` naming the role, and the other parts are returned. The StartCLI parts need the
+  right "CLI login access" (see [setup.md](setup.md#1-prerequisites)).
+
+**Output** (`get_server_settings.output.json`): `{ "settings": [ServerSettings], "serverUpdate"?:
+ServerUpdate }` — one entry per resolved node, in configuration order; `serverUpdate` as in
+[`get_health`](#get_health). The call itself fails only for invalid input or an unknown `target`.
+
+```json
+{"settings": [
+  {"node": "test/node1",
+   "license": {"expiryDate": "2027-03-31", "licensedThreads": 20, "licensee": "***"},
+   "workflowThreads": 16,
+   "privilegedWorkflows": {"percentage": 25, "workflows": ["ORDER_Import"], "truncated": false},
+   "dbConnectionTolerance": {"faultThreshold": 5, "dropRatePercent": 1, "dropIntervalSeconds": 180},
+   "blockingQueueSize": 1000, "version": "8.1.17", "memoryUsedPercent": 41.2,
+   "maintenanceMode": false, "serverTime": "Wed Nov 11 08:15:30 CET 2026",
+   "sources": {"blockingQueueSize": "REST", "dbConnectionTolerance": "CLI", "license": "REST",
+     "licensedThreads": "REST", "maintenanceMode": "REST", "memoryUsedPercent": "REST",
+     "privilegedWorkflows": "CLI", "serverTime": "CLI", "version": "REST",
+     "workflowThreads": "CLI"},
+   "unavailable": [], "warnings": []}]}
+```
+
+| `ServerSettings` field | Meaning |
+|---|---|
+| `node` | the node id |
+| `license`, `workflowThreads`, `privilegedWorkflows`, `dbConnectionTolerance`, `serverTime`, `configuration` | the asked parts that could be read (see the table above); absent when not asked for or not read |
+| `blockingQueueSize`, `version`, `memoryUsedPercent`, `maintenanceMode` | as in `get_health` (`maxBlockingQueueSize`, `version`, `memoryUsedPercent`, `maintenanceMode`); absent when the call that reads them failed |
+| `sources` | for every returned fact, the channel it came from: `REST` or `CLI` (StartCLI), sorted by field |
+| `unavailable` | the parts that could not be read: `{part, reason, likelyCause?, nextStep?}`, `reason` starting with a code (e.g. `FORBIDDEN: The INUBIT account lacks the role System Administrator for GET /license (HTTP 403)`). Besides the six parts, a failed monitoring call is listed under the part names of `get_health`: `status` (healthcheck), `version` (`/system/info`), `load` (`/metrics`, also `METRICS_NOT_LICENSED: …`) |
+| `warnings` | the version and client warnings of the version check (texts in [the warnings table](#inubit-versions-and-capabilities-feature-009)) |
+| `error` | only for a node that could not be read at all (no asked part can be read on its version, its version is unknown, it did not answer within its budget); then the entry has only `node` and `error` |
+
+**The configuration.** Without `configurationSection`, `configuration` holds `sections`, the
+section names in document order (the keys below the root key `ServerConfiguration`, or
+`SeverConfiguration` as the vendor documents the GET answer), and `maskedCount` 0. With
+`configurationSection` it holds `section` (the name), `values`, `maskedCount` and `truncated`:
+
+- `values` are the section's scalar values, each with `path` and `value`; `path` is a JSON pointer
+  below the section (e.g. `/ErrorHost`), array elements by index; a JSON `null` is shown as `null`.
+- Masking: a value whose path, name or content the secret rules flag has `masked` (`true`) instead
+  of `value`; `maskedCount` counts them. The same secret rules mask the partner settings of
+  [`find_partners`](#find_partners).
+- `truncated` is `true` when values were left out: the values are bounded by
+  `resultLimits.maxItems` and `resultLimits.maxChars` ([setup.md](setup.md)), the characters
+  shared among the nodes of the call. A value is cut to 2,000 characters and a path to 200, with
+  the truncation marker; two long paths with the same first 200 characters therefore look the same
+  (the values keep the document order).
+- An unknown section is `NOT_FOUND` for the part `configuration`: `The configuration of
+  test/node1 has no section 'Mail'`, next step `List the section names with get_server_settings,
+  part configuration, without configurationSection`. Section names differ between INUBIT
+  versions.
+
+**Errors** (as `ToolError`, see [Common shapes](#common-shapes-page-and-toolerror)); except for
+`INVALID_INPUT` and `TARGET_UNKNOWN` they appear per node, in `unavailable` for one part or as the
+node's `error`:
+
+| Code | When |
+|---|---|
+| `INVALID_INPUT` | invalid arguments (an unknown part, an empty `parts`, a control character in `configurationSection`) are rejected by the input schema with a plain-text validation message; the service's own check for an unknown part is only a defensive fallback behind the schema |
+| `TARGET_UNKNOWN` | unknown id |
+| `UNSUPPORTED_VERSION` | the node's version is not verified for `server_settings` (see Versions); for one part: its entry is not verified for the node's version (`threads via CLI threads showNumberOfWorkflowThreads is not yet verified for INUBIT 9.0`) or the StartCLI client does not support the version; as the node's `error` when no asked part can be read (`… on test/node1: no requested part can be read: …; nothing was sent`) |
+| `CLI_UNAVAILABLE` | a StartCLI part on a node without a StartCLI client for its version (`threads is read through StartCLI, and no StartCLI client is installed for test/node1`); as the node's `error` when every asked part is a StartCLI part |
+| `FORBIDDEN` | `license`, `configuration`: the account lacks the role "System Administrator" (HTTP 403); the StartCLI parts: the account lacks the right "CLI login access" (not reported as a login failure) |
+| `NOT_FOUND` | `configuration`: no section named `configurationSection` |
+| `AUTH_FAILED`, `TLS_ERROR`, `UNREACHABLE`, `TIMEOUT` | the login was rejected (with the account-lockout protection of [`get_health`](#get_health)), TLS check, connection; `TIMEOUT` of the StartCLI session after `cliTimeout` marks all StartCLI parts |
+| `MAINTENANCE_MODE` | the REST parts while the node is in maintenance mode (HTTP 503); `maintenanceMode` is still reported from the healthcheck |
+| `UNEXPECTED_RESPONSE` | an answer the server cannot read: a StartCLI output in an unknown form (the part is listed as unavailable, never filled with a guessed value), a license document without a readable expiry date or with a DTD, a configuration that is not a JSON object below one of the two root keys |
+
+**Example prompts**:
+
+- "When does the license of prod/node1 expire?" → `get_server_settings(target: "prod/node1",
+  parts: ["license"])`.
+- "Which configuration sections does test/node1 have?" → `get_server_settings(target:
+  "test/node1", parts: ["configuration"])`; then `configurationSection` with one of the names.
+- "Compare the workflow threads of all nodes of test" → `get_server_settings(target: "test",
+  parts: ["threads"])`.
 
 ## `find_processes`
 
