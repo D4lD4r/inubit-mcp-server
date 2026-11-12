@@ -672,3 +672,42 @@ in a private directory outside the repository.
   (Administration → trace settings). Before the run (23:35 UTC): tracing enabled, level `info`;
   after the run (23:39 UTC): `tracingEnabled=true`, `TracingLevel=info` — unchanged (SC-005).
   All times 2026-11-11 UTC.
+
+### 8.1 webservice spike (D-23 step 2, T034, 2026-11-12 UTC)
+
+Setting: the same non-production INUBIT 8.1 test server, run without a cluster: the owner states
+that the profile has no cluster servers, and get_health systemInfo of the same day reports
+`ActiveNodesCount=1`; the server's operation mode setting itself (SINGLE/CLUSTER) was not read.
+Approval: the owner's standing permission for tests on the non-production groups ent and int, not
+an approval of this specific action; the profile's 8.1 client on Java 17 with the classpath, `--add-opens` and
+system properties of the 020 helper launch; the profile's credentials on stdin; TLS through a
+one-time trust store of the verified peer chain (as 020), hostname verification off as the profile
+sets it. A throwaway program outside the repository performed exactly D-2 steps 1–5 once; the only
+file name sent was the constant `webservice.log`. Raw output and the file stay owner-only in a
+private directory outside the repository.
+
+- **Step 1** `new IBISSoapClient(url + "?isCli", …)` + `loginUserCli`: ok.
+- **Step 2** `CurrentUser.getClientUID()` works in a plain JVM (a non-empty value of 60
+  characters); `CurrentUser.getUsedAdditionalUserGroup()` returns `null`. `new ClusterClient(client,
+  user, uid, null)` is accepted.
+- **Step 3** `getNode()` works on this server without a cluster (one active node, see Setting): no
+  `Server not in cluster mode.`, a non-empty node name (22 characters). D-2 and D-5 hold; US2
+  continues.
+- **Step 4** `clusterDownload(<private dir>/webservice.log, node, "webservice.log")`, `start()`,
+  `join()`: `exceptionOccured()` false; the file exists at the requested path; about 7.5 s for
+  about 21.4 MiB (22.4 million bytes). Nothing on stderr.
+- **Step 5** `logoutUser(user)`: ok. Exit code `0`.
+- **File**: plain ASCII text, about 383,000 lines. Entries start with
+  `yyyy-MM-dd HH:mm:ss,SSS <id> [WebService …]` and continue over many lines: HTTP request and
+  response header blocks and SOAP bodies (only about 2 % of the lines start with a timestamp). The
+  run used umask `077`, so the file mode it got says nothing about the vendor's own mode; the
+  adapter treats the file like the trace file (private directory, then `LogFileWriter`).
+- **Secrets in the content**: no `Authorization` header, no `Basic`/`Bearer` credential and no
+  password element in this file (the word `password` occurs nowhere, case-insensitive, so the
+  `UsernameToken` elements below carry no `Password` child either); `Set-Cookie` header lines occur (2,810). `SecretTextMasker.maskLines`
+  over the whole file masks every one of them by the header rule (`cookie` is a secret term),
+  keeps the line count, and takes about 1.7 s for the 21 MiB. Its 4,168 placeholders are
+  `${secret:data.Set-Cookie}` (2,810) and `${secret:data.UsernameToken}` (1,358, the WS-Security
+  `UsernameToken` element of SOAP headers, masked whole because `token` is a secret term).
+- **Missing file / 0-byte file / failure texts**: not observed (the server has a non-empty
+  `webservice.log`; no step failed), so the classifier cases stay reconstructed (D-21).

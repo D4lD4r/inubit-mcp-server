@@ -592,7 +592,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
 `FakeProcessLauncher` replaying helper frames: an opted-in 8.1 node → file, result with
 `inubitNode`; a group without the opt-in → `NOT_CONFIGURED`, zero WireMock requests, zero launches.
 
-- [ ] T034 [US2] **[LIVE] [OWNER]** 8.1 webservice spike (D-23 step 2, quickstart "Early live
+- [X] T034 [US2] **[LIVE] [OWNER]** 8.1 webservice spike (D-23 step 2, quickstart "Early live
   tasks" 2; may start any time after T001, in parallel to Phases 2–3): the agent proposes the
   concrete action (which non-production 8.1 test server, the throw-away program **outside the
   repository** performing exactly D-2 steps 1–5 — login, `ClusterClient` with
