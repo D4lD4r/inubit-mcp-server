@@ -110,8 +110,8 @@ class DownloadServerLogWiringTest {
                 "INUBIT_ACME_TEST_USERNAME", "jdoe",
                 "INUBIT_ACME_TEST_PASSWORD", TestSecrets.CONFIGURED_PASSWORD,
                 "INUBIT_ACME_PROD_USERNAME", "jdoe",
-                "INUBIT_ACME_PROD_PASSWORD", PROD_PASSWORD)), scrubber, Files::exists, false,
-                startCli(), Map.of("PATH", Platform.searchPath()),
+                "INUBIT_ACME_PROD_PASSWORD", PROD_PASSWORD)), scrubber, Files::exists,
+                Platform.windows(), startCli(), Map.of("PATH", Platform.searchPath()),
                 TraceMatrix.admittingEightOne());
             McpTestClient mcp = McpTestClient.start(wiring.toolHandlers(), scrubber)) {
             ToolHandler tool = wiring.toolHandlers().stream()
@@ -308,7 +308,7 @@ class DownloadServerLogWiringTest {
         return TestWiring.of(config, TestSecrets.store(Map.of(
                 "INUBIT_ACME_TEST_USERNAME", "jdoe",
                 "INUBIT_ACME_TEST_PASSWORD", TestSecrets.CONFIGURED_PASSWORD)),
-            new SecretScrubber(), Files::exists, false, launcher,
+            new SecretScrubber(), Files::exists, Platform.windows(), launcher,
             Map.of("PATH", Platform.searchPath()),
             WebServiceMatrix.admittingEightOneWithoutTrace());
     }

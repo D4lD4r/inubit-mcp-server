@@ -165,7 +165,7 @@ class ServerLogLoggingTest {
             + NAME + ", " + CONTENT.getBytes(StandardCharsets.UTF_8).length + " bytes, window 3,"
             + " outcome OK");
         assertThat(debugLines()).contains("dev/node1: trace log download, client " + client81
-            + ", JDK /opt/jdk-17");
+            + ", JDK " + Path.of("/opt/jdk-17"));
         String logged = allLines();
         assertThat(logged).doesNotContain(EXCERPT_TEXT, "Other-Line-0001", CONTAINS, "acme.Login",
             STARTCLI_TEXT, "Trace data", "JAVA_HOME is set", "SECURITY WARNING");
