@@ -249,7 +249,8 @@ class DownloadServerLogWiringTest {
 
     @Test
     void aClusterNodeNamesTheInubitNodeTheHelperReports() throws Exception {
-        // US2-2, research D-5: the log of the node the configured address reaches, named by it
+        // US2-2, research D-5: the log of the node the configured address reaches, named by it;
+        // the helper's name differs from the configured one, so it cannot be a copy of that
         Path folder = Files.createDirectories(temp.resolve("logs"));
         List<String> urls = new CopyOnWriteArrayList<>();
 
@@ -260,12 +261,12 @@ class DownloadServerLogWiringTest {
                   - name: node2
                     baseUrl: http://node2.example.test:8000
                     allowInsecureHttp: true
-            """, helper("node2", urls))) {
+            """, helper("inubit-b", urls))) {
             JsonNode result = ResultJson.mapper().valueToTree(downloadTool(wiring).handle(Map.of(
                 "target", "test/node2", "log", "webservice", "targetFolder", folder.toString())));
 
             assertThat(result.path("node").asString()).isEqualTo("test/node2");
-            assertThat(result.path("inubitNode").asString()).isEqualTo("node2");
+            assertThat(result.path("inubitNode").asString()).isEqualTo("inubit-b");
             assertThat(Path.of(result.path("file").asString()))
                 .hasBinaryContent(webServiceFixture("ok.log"));
         }

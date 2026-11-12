@@ -740,7 +740,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   `unsupported.serverLogRead`, zero WireMock requests, zero launches (US2-3); opted-in single-node
   8.1 (test matrix) → file, `inubitNode: node1`, unsupported and clear-text warnings (US2-1); a
   cluster node whose helper reports `node2` → result names `node2` (US2-2)
-- [ ] T044 [US2] 8.1 webservice contract over the reconstructed cases (FR-017, D-22; after T043):
+- [X] T044 [US2] 8.1 webservice contract over the reconstructed cases (FR-017, D-22; after T043):
   `adapter/cli/log/ServerLogV81ContractTest.java` webservice part per `v8_1/webservice` case (test
   matrix declaration): `ok` → result with `inubitNode`, masked `<wsse:Password>` and
   `Authorization`; `empty` → hint "The log is empty; web service logging may be disabled";
