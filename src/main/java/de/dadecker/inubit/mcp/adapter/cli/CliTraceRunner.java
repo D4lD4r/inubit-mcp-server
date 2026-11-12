@@ -18,6 +18,8 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Downloads {@code trace.log} of one server through StartCLI (feature 021, research D-1, D-7,
@@ -44,6 +46,7 @@ public final class CliTraceRunner {
     static final String FILE_NAME = "trace.log";
     static final String CONFIRMATION_PATTERN = "^Trace data \\(\\S+ MB\\) stored to: .+$";
     private static final Pattern CONFIRMATION = Pattern.compile(CONFIRMATION_PATTERN);
+    private static final Logger LOG = LoggerFactory.getLogger(CliTraceRunner.class);
 
     private final EffectiveNodeConfig server;
     private final NodeCredentials credentials;
@@ -84,6 +87,11 @@ public final class CliTraceRunner {
     public DownloadedLog download(Duration remaining) {
         Objects.requireNonNull(remaining, "remaining");
         checkPreconditions();
+        // the client CliRunner#run chooses; never StartCLI's output (research D-18)
+        EffectiveNodeConfig client = runner.select(server).server();
+        LOG.debug("{}: trace log download, client {}, JDK {}", server.id(),
+            client.cli().home().map(Path::toString).orElse("-"),
+            runner.javaHome(client).orElse("-"));
         // announced before the directory exists, so that a concurrent shutdown deletes it
         CliResources.Reservation reservation;
         try {

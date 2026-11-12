@@ -513,7 +513,7 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   permit held by another call longer than the remaining deadline → `TIMEOUT` naming
   `cliExportTimeout`, no file in the folder, private directory deleted, audit `FAILED`; the
   `prepare` bound never exceeds the remaining deadline; leak check The remaining time after the download is clamped to `Duration.ZERO`; test "deadline already passed after download": `ConfiguredSecrets.prepare(Duration.ZERO)` is called, the permit is still taken if free, and the file is placed.
-- [ ] T029 [US1] `ServerLogService` INFO line and adapter DEBUG lines (FR-015, SC-003, D-18; after
+- [X] T029 [US1] `ServerLogService` INFO line and adapter DEBUG lines (FR-015, SC-003, D-18; after
   T028): failing test first in `application/ServerLogLoggingTest.java` (captured logback output),
   then the implementation in `application/ServerLogService.java` (exactly one `INFO` line per call,
   success and every failure path after the input checks, `download_server_log on {node}: log

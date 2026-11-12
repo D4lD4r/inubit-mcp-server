@@ -20,6 +20,7 @@ import de.dadecker.inubit.mcp.domain.port.ConfiguredSecrets.Readiness;
 import de.dadecker.inubit.mcp.domain.port.DownloadedLog;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -31,12 +32,15 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * {@code download_server_log} (feature 021): downloads one server log of one node into a private
@@ -87,6 +91,8 @@ public final class ServerLogService {
     private static final Pattern CONTROL = Pattern.compile("\\p{Cc}");
     private static final String SCHEMA_STEP = "Correct the parameter as the tool's input schema"
         + " describes";
+    private static final String UNKNOWN = "-";
+    private static final Logger LOG = LoggerFactory.getLogger(ServerLogService.class);
 
     private final TargetResolver targets;
     private final Predicate<NodeId> optedIn;
@@ -143,7 +149,7 @@ public final class ServerLogService {
     }
 
     /**
-     * Downloads the requested log as the class description says.
+     * Downloads the requested log as the class description says; logs one INFO line either way.
      *
      * @throws ToolErrorException a refusal of steps 1–4, {@code INTERNAL} for an unwritable audit
      *     record that must precede the download, the gate's refusal or the detection's error,
@@ -156,14 +162,59 @@ public final class ServerLogService {
         ServerLogAudit record = new ServerLogAudit(audit, request.target(), request.log(),
             request.targetFolder(), request.tailLines(), request.maxChars(),
             request.contains().isPresent(), request.mcpClient());
-        Checked checked;
+        Progress progress = new Progress();
+        String outcome = ErrorCode.INTERNAL.name();
         try {
-            checked = check(request, record);
+            Checked checked;
+            try {
+                checked = check(request, record);
+            } catch (ToolErrorException e) {
+                throw record.refused(e.error());
+            }
+            progress.node = Optional.of(checked.node());
+            record.pending();
+            ServerLogResult result = run(record, checked, progress);
+            outcome = "OK";
+            return result;
         } catch (ToolErrorException e) {
-            throw record.refused(e.error());
+            if (progress.node.isEmpty()) {
+                progress.node = e.error().node();
+            }
+            outcome = e.error().code().name();
+            throw e;
+        } finally {
+            log(request, progress, outcome);
         }
-        record.pending();
-        return run(record, checked);
+    }
+
+    /** What the call's INFO line names, as far as the call got (D-18). */
+    private static final class Progress {
+        private Optional<NodeId> node = Optional.empty();
+        private OptionalLong bytes = OptionalLong.empty();
+        private OptionalLong windowLines = OptionalLong.empty();
+        private Optional<Path> file = Optional.empty();
+    }
+
+    /**
+     * The one INFO line of a call (FR-015, D-18): the log only once valid, the node once resolved,
+     * the file name (not its path), the size and the scanned window's line count once known;
+     * never content, excerpt lines or the {@code contains} text.
+     */
+    private static void log(ServerLogRequest request, Progress progress, String outcome) {
+        String log;
+        try {
+            log = ServerLogKind.fromWire(request.log()).wireName();
+        } catch (IllegalArgumentException e) {
+            log = UNKNOWN;
+        }
+        LOG.info("{} on {}: log {}, file {}, {} bytes, window {}, outcome {}",
+            ServerLogAudit.CAPABILITY, progress.node.map(NodeId::toString).orElse(UNKNOWN), log,
+            progress.file.map(file -> file.getFileName().toString()).orElse(UNKNOWN),
+            shown(progress.bytes), shown(progress.windowLines), outcome);
+    }
+
+    private static String shown(OptionalLong value) {
+        return value.isPresent() ? String.valueOf(value.getAsLong()) : UNKNOWN;
     }
 
     /** The outcome of steps 1–4, with the excerpt's inputs (defaults applied). */
@@ -256,7 +307,7 @@ public final class ServerLogService {
      * Steps 6 and 7 after the {@code PENDING} record: every failure closes the record, the gate's
      * {@code UNSUPPORTED_VERSION} with {@code REFUSED}, everything else with {@code FAILED}.
      */
-    private ServerLogResult run(ServerLogAudit record, Checked checked) {
+    private ServerLogResult run(ServerLogAudit record, Checked checked, Progress progress) {
         VersionGate.Admission admission;
         try {
             admission = gate.admitWithDetection(ServerLogAudit.CAPABILITY, checked.node(),
@@ -268,7 +319,7 @@ public final class ServerLogService {
             throw unexpected(record, e);
         }
         try {
-            return fetch(record, checked, admission);
+            return fetch(record, checked, admission, progress);
         } catch (ToolErrorException e) {
             // an adapter error without a node (e.g. the PortSet's CLI_UNAVAILABLE) names the server
             ToolErrorException named = e.error().node().isPresent() ? e
@@ -281,7 +332,7 @@ public final class ServerLogService {
 
     /** Step 7: the call deadline, the server's login credentials, the download. */
     private ServerLogResult fetch(ServerLogAudit record, Checked checked,
-        VersionGate.Admission admission) {
+        VersionGate.Admission admission, Progress progress) {
         NodeId node = checked.node();
         // the gate admits the server logs only on a known major.minor
         InubitVersion version = admission.version().orElseThrow(() -> new IllegalStateException(
@@ -302,8 +353,9 @@ public final class ServerLogService {
             version, deadlineNanos)) {
             Instant downloadedAt = clock.instant().truncatedTo(ChronoUnit.SECONDS);
             record.downloaded(downloaded.size(), downloaded.inubitNode());
+            progress.bytes = OptionalLong.of(downloaded.size());
             return excerptAndPlace(record, checked, admission, downloaded, downloadedAt, budget,
-                deadlineNanos);
+                deadlineNanos, progress);
         }
     }
 
@@ -314,7 +366,7 @@ public final class ServerLogService {
      */
     private ServerLogResult excerptAndPlace(ServerLogAudit record, Checked checked,
         VersionGate.Admission admission, DownloadedLog downloaded, Instant downloadedAt,
-        Duration budget, long deadlineNanos) {
+        Duration budget, long deadlineNanos, Progress progress) {
         List<String> hints = new ArrayList<>();
         if (downloaded.size() == 0) {
             hints.add(emptyHint(checked.kind(), downloaded.presence()));
@@ -327,9 +379,11 @@ public final class ServerLogService {
             hints.add(withheldHint(notReady));
         } else {
             excerpt = Optional.of(excerpt(checked, downloaded, budget, deadlineNanos));
+            progress.windowLines = OptionalLong.of(excerpt.get().window().lines());
         }
         LogFileWriter.Placed placed = place(checked, downloaded, downloadedAt);
         record.file(placed.file());
+        progress.file = Optional.of(placed.file());
         List<String> warnings = new ArrayList<>();
         if (checked.kind() == ServerLogKind.WEBSERVICE) {
             warnings.add(UNSUPPORTED_WARNING);
