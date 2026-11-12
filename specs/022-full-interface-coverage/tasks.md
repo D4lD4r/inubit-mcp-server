@@ -225,7 +225,7 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
     key as given (not capitalized), with a test for the AUTO-undetected case.
   - Failing tests first: `domain/model/CapabilityMatrixTest.java` and
     `mcp/tools/ListNodesToolTest.java` (`server_settings` in `notUsable` with "not yet verified").
-- [ ] T012 Version-neutral StartCLI session (D-7):
+- [X] T012 Version-neutral StartCLI session (D-7):
   - `adapter/cli/CliSessionCommand.java`: the 6.1 constants are kept; a builder adds commands
     with the quoting and value rules of `CliCommand` (`VALUE`, `REPOSITORY_PATH`); an allowlist
     map `SESSION_OPTIONS`, empty for 8.1/9.0 until the stories add commands.
@@ -318,6 +318,8 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
     `date`;
   - `adapter/cli/admin/CliSettingsRunner.java` runs them in one session bounded by `cliTimeout`
     and maps each block to its parser; a failed block marks only its part unavailable (FR-013).
+  - From T012: `InterfaceCoverageCheckTest` check 1 also reads `CliSessionCommand.SESSION_OPTIONS`
+    (every admitted command/option has a row), now that it gets entries.
   - Failing tests first:
     - `adapter/cli/CliSessionCommandTest` (allowed forms; `threads setNumberOfWorkflowThreads`
       rejected);
@@ -387,6 +389,10 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
   - Same commit as the fixtures.
   - If L-1 showed no session on 8.1, switch `CliSettingsRunner` to one script call per command
     first and record the D-7 fallback in `research.md`.
+  - From the T012 review: align `CliSessionParser` with the recorded L-1 form. If the client
+    echoes each command after the prompt, drop the echoed command line from each block and accept
+    the echoed `exit`; otherwise remove the echo from `CliRunnerSessionTest`'s client model. Note
+    the recorded behaviour in the parser Javadoc.
 - [ ] T026 [US1] 9.0 contracts and flip [BLOCKED: T024]: `SettingsV90ContractTest.java`, rows
   and matrix for `v9_0`, catalogue entries.
   - the same for the `v9_0` column of `license -td` / `license -ts` (`covered:get_server_settings`);
@@ -1141,6 +1147,12 @@ takes or returns a password; the login user cannot be changed (US7 AS1â€“AS10).
     ever a `PrivateUploadCopy` path from T076),
     `--syncLDAPUsers`, `msgsend -s '<subject>' '<text>'`, `msgdel <id>`.
   - `CliCommand` rejects `--password` in every form.
+  - From T012: add a value form that takes a `Secret` (its text holds a placeholder, so
+    `CliSessionCommand.text()`/`toString()` never contain the value), the Windows non-ASCII refusal
+    for every extra secret (as `refuseWindowsCredentials` does for the login password), and state
+    in `CliRunner.runSession`'s Javadoc that production callers pass `SecretScrubber.global()`
+    (log masking only uses it). A session that carries secrets and whose output was truncated at
+    `maxOutputBytes` returns no output text (a cut echo could leave a prefix of a secret).
   - Failing tests first: `CliCommandTest`, `CliSessionCommandTest`, and
     `security/PasswordNeverOnCommandLineTest.java` (every recorded `LaunchSpec` of the user tests:
     argv and env contain no entry value).

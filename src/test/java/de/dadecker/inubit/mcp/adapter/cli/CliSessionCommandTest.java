@@ -4,16 +4,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.adapter.cli.CliSessionCommand.Listing;
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/** T016: the allow-listed commands of a 6.1 StartCLI session (research D-5, D-10). */
+/**
+ * T016: the allow-listed commands of a 6.1 StartCLI session (research D-5, D-10); feature 022
+ * T012: the version-neutral builder with the value rules of {@link CliCommand} (research D-7).
+ */
 class CliSessionCommandTest {
 
     @Test
@@ -61,8 +69,9 @@ class CliSessionCommandTest {
 
     @Test
     void noFreeTextIsAccepted() {
-        // no public constructor and no public method that takes text: every command comes from
-        // a constant or from a Listing plus a bounded number
+        // no public constructor; the only public method that takes text is command(name), which
+        // admits allow-listed names only (feature 022, research D-7): every other command comes
+        // from a constant or from a Listing plus a bounded number
         List<Constructor<?>> constructors = Arrays.stream(
             CliSessionCommand.class.getDeclaredConstructors())
             .filter(constructor -> !Modifier.isPrivate(constructor.getModifiers()))
@@ -71,10 +80,73 @@ class CliSessionCommandTest {
 
         List<Method> methods = Arrays.stream(CliSessionCommand.class.getDeclaredMethods())
             .filter(method -> Modifier.isPublic(method.getModifiers()))
+            .filter(method -> !method.getName().equals("command"))
             .toList();
         assertThat(methods).isNotEmpty().allSatisfy(method ->
             assertThat(method.getParameterTypes())
                 .doesNotContain(String.class, CharSequence.class, Object.class, char[].class));
+    }
+
+    // --- feature 022 (T012, research D-7): commands built from the session allowlist ----------
+
+    /** An allowlist for the builder's rules; the production one admits nothing yet. */
+    private static final Map<String, Set<String>> ALLOWLIST = Map.of(
+        "show", Set.of("--group", "--path", "--all"));
+
+    private static void assertInvalid(ThrowingCallable call, String value) {
+        assertThatThrownBy(call).isInstanceOfSatisfying(ToolErrorException.class, e -> {
+            assertThat(e.error().code()).isEqualTo(ErrorCode.INVALID_INPUT);
+            if (!value.isEmpty()) {
+                assertThat(e.getMessage()).doesNotContain(value);
+            }
+        });
+    }
+
+    @Test
+    void noBuiltCommandIsAdmittedFor81And90Yet() {
+        assertThat(CliSessionCommand.SESSION_OPTIONS).isEmpty();
+        assertInvalid(() -> CliSessionCommand.command("threads"), "");
+        assertInvalid(() -> CliSessionCommand.command("passwd"), "");
+        assertInvalid(() -> CliSessionCommand.command(null), "");
+    }
+
+    @Test
+    void aCommandOrOptionOutsideTheAllowlistIsRejected() {
+        assertInvalid(() -> CliSessionCommand.command("delete", ALLOWLIST), "");
+        assertInvalid(() -> CliSessionCommand.command("show", ALLOWLIST).flag("--force"),
+            "--force");
+        assertInvalid(() -> CliSessionCommand.command("show", ALLOWLIST)
+            .quoted("--password", "Dev"), "--password");
+        assertInvalid(() -> CliSessionCommand.command("show", ALLOWLIST)
+            .repositoryPath("--target", "/Root/Dev"), "--target");
+    }
+
+    @Test
+    void aValueIsQuotedAsInCliCommand() {
+        CliSessionCommand command = CliSessionCommand.command("show", ALLOWLIST)
+            .quoted("--group", "Dev Team_1.0")
+            .repositoryPath("--path", "/Root/Dev/Orders")
+            .flag("--all")
+            .build();
+
+        assertThat(command.text())
+            .isEqualTo("show --group 'Dev Team_1.0' --path '/Root/Dev/Orders' --all");
+        assertThat(CliSessionCommand.command("show", ALLOWLIST).build().text()).isEqualTo("show");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"it's", "-x", "a\nb", "a;b", "", "a$b", "x\u00e4"})
+    void aValueOutsideTheValueRuleIsRejected(String value) {
+        assertInvalid(() -> CliSessionCommand.command("show", ALLOWLIST)
+            .quoted("--group", value), value);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/Root", "/Other/Dev", "/Root/../Dev", "/Root/./Dev", "Root/Dev",
+        "/Root/Dev'"})
+    void aRepositoryPathOutsideItsRuleIsRejected(String path) {
+        assertInvalid(() -> CliSessionCommand.command("show", ALLOWLIST)
+            .repositoryPath("--path", path), path);
     }
 
     @Test

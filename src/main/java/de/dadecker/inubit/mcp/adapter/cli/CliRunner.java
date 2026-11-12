@@ -26,6 +26,7 @@ import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.ClientCheckLookup;
 import de.dadecker.inubit.mcp.domain.port.WriteLock;
 import de.dadecker.inubit.mcp.infra.Secret;
+import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -41,8 +42,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,7 +57,8 @@ import org.slf4j.LoggerFactory;
  *       {@code [startcli.sh, -u, <user>, [--trustStoreFilePath, <p12>],
  *       [--disableHostNameVerification], --execCommand, <command>, <cliUrl>]}. There is never a
  *       {@code -p}; the password plus {@code \n} is written to stdin, which is then closed.
- *   <li>An interactive session on INUBIT 6.1 ({@link #runSession}, feature 012, research D-5):
+ *   <li>An interactive session ({@link #runSession}, feature 012, research D-5; for any version
+ *       since feature 022, research D-7):
  *       {@code [startcli.sh, -u, <user>, [--trustStoreFilePath, <path>],
  *       [--disableHostNameVerification], <cliUrl>]}; stdin receives the password line, one line
  *       per {@link CliSessionCommand} and {@code exit}, and is then closed. Environment,
@@ -448,7 +452,8 @@ public final class CliRunner {
 
     /**
      * Logs in as {@code username} in StartCLI's interactive mode (INUBIT 6.1, feature 012,
-     * research D-5) and runs {@code commands}, then {@code exit}, in one process, guarded like
+     * research D-5; any version since feature 022, research D-7) and runs {@code commands}, then
+     * {@code exit}, in one process, guarded like
      * {@link #run(EffectiveNodeConfig, String, Secret, CliCommand, Duration, CredentialGuard)}.
      * Neither the password nor a command appears in the argument array. The trust store and the
      * host-name option are passed as {@code options} allow (research D-8); every refusal is
@@ -478,7 +483,24 @@ public final class CliRunner {
         CliClientOptions options, List<CliSessionCommand> commands, Duration timeout,
         int maxOutputBytes, CredentialGuard guard) {
         return runSession(selection, true, username, password, options, commands, timeout,
-            maxOutputBytes, guard);
+            maxOutputBytes, guard, UnaryOperator.identity());
+    }
+
+    /**
+     * A session whose commands carry {@code secrets} (feature 022, research D-7, FR-022): as
+     * {@link #runSession(Selection, String, Secret, CliClientOptions, List, Duration, int,
+     * CredentialGuard)}, for any INUBIT version; each secret is registered with
+     * {@code scrubber} before anything starts, so every later scrub (excerpts, logs) masks it, and
+     * stdout and stderr of the result are scrubbed, so the client's echo of a command's secret
+     * never reaches a parser.
+     */
+    public CliResult runSession(Selection selection, String username, Secret password,
+        Set<Secret> secrets, SecretScrubber scrubber, CliClientOptions options,
+        List<CliSessionCommand> commands, Duration timeout, int maxOutputBytes,
+        CredentialGuard guard) {
+        secrets.forEach(scrubber::register);
+        return runSession(selection, true, username, password, options, commands, timeout,
+            maxOutputBytes, guard, scrubber::scrub);
     }
 
     /**
@@ -492,12 +514,12 @@ public final class CliRunner {
         CliClientOptions options, List<CliSessionCommand> commands, Duration timeout,
         int maxOutputBytes, CredentialGuard guard) {
         return runSession(selection, false, username, password, options, commands, timeout,
-            maxOutputBytes, guard);
+            maxOutputBytes, guard, UnaryOperator.identity());
     }
 
     private CliResult runSession(Selection selection, boolean launchGuard, String username,
         Secret password, CliClientOptions options, List<CliSessionCommand> commands,
-        Duration timeout, int maxOutputBytes, CredentialGuard guard) {
+        Duration timeout, int maxOutputBytes, CredentialGuard guard, UnaryOperator<String> mask) {
         EffectiveNodeConfig server = selection.server();
         if (windows) {
             refuseWindowsCredentials(server, username, password);
@@ -522,9 +544,12 @@ public final class CliRunner {
         arguments.add(server.cli().url().toString());
         List<CliSessionCommand> lines = new ArrayList<>(commands);
         lines.add(CliSessionCommand.EXIT);
-        return guarded(guard.acquire(), () -> execute(selection, arguments,
+        CliResult result = guarded(guard.acquire(), () -> execute(selection, arguments,
             Optional.of(password), lines, timeout, "cliTimeout", extraJavaToolOptions,
             maxOutputBytes, StartHook.DIRECT));
+        return new CliResult(result.exitCode(), mask.apply(result.stdout()),
+            mask.apply(result.stderr()), result.duration(), result.truncated(),
+            result.outputBound(), result.clientMajor());
     }
 
     /**
