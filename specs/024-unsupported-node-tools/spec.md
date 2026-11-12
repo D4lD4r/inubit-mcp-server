@@ -262,12 +262,12 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
 
 - **FR-001**: The system MUST offer these tools; the `target` or `node` of every tool is exactly one
   server id `<group>/<node>` (a group id is rejected by the input schema): `list_cluster_nodes`
-  (inputs `target`; optional `nodeName`), `read_io_log` (inputs `target`; `workflow`; `processId`; optional
-  `message`: a reference from the listing; optional `module`: filter for the listing; optional
-  `maxChars`), `get_node_config` (inputs `target`; optional `names`: list of allowlisted names),
-  `set_temporary_log_level` (inputs `node`; `loggers`: 1–5 names; `level`; optional
-  `durationMinutes`; optional `confirmationCode`) and `reset_temporary_log_level` (inputs `node`
-  or `leaseId`; optional `forget`; optional `confirmationCode`).
+  (inputs `target`; optional `nodeName`), `read_io_log` (inputs `target`; `workflow`; `processId`;
+  optional `message`: a reference from the listing; optional `module`: filter for the listing;
+  optional `maxChars`), `get_node_config` (inputs `target`; optional `names`: list of allowlisted
+  names), `set_temporary_log_level` (inputs `node`; `loggers`: 1–5 names; `level`; optional
+  `durationMinutes`; optional `confirmationCode`) and `reset_temporary_log_level` (inputs `node` or
+  `leaseId`; optional `forget`; optional `confirmationCode`).
 - **FR-002**: Each tool MUST be offered only when at least one node has the INUBIT client
   installation configured and its group sets the tool's opt-in; each opt-in is a group setting,
   boolean, default `false`: `unsupported.nodeStatusRead` (`list_cluster_nodes`),
@@ -347,12 +347,12 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   `com.inubit.ibis` followed by one or more dot-separated Java identifiers; level one of `TRACE`,
   `DEBUG`, `INFO`, `WARN`, `ERROR`; `durationMinutes` 1–60, default 10.
 - **FR-042**: Before a change (set, reset, and every automatic reset) the MCP server MUST ask the
-  addressed server which INUBIT node answers, record it in the lease, and refuse a set or reset
-  when an open lease of that server names another node; an automatic reset then sends nothing and
-  marks the lease `RESET_FAILED` with the reason "other node answers". Without an open lease a
-  reset compares against nothing and records the answering node in its result. The documentation MUST state the precondition that a server entry addresses one
-  node directly (as for 021) and the remaining risk that a load balancer may route the change to
-  another node.
+  addressed server which INUBIT node answers, record it in the lease, and refuse a set or reset when
+  an open lease of that server names another node; an automatic reset then sends nothing and marks
+  the lease `RESET_FAILED` with the reason "other node answers". Without an open lease a reset
+  compares against nothing and records the answering node in its result. The documentation MUST
+  state the precondition that a server entry addresses one node directly (as for 021) and the
+  remaining risk that a load balancer may route the change to another node.
 - **FR-043**: After a successful set the MCP server MUST record a lease (server, INUBIT node,
   loggers with level, set time, expiry, owner instance, audit id) durably and owner-only in the
   profile's data directory, serialized against concurrent instances. The owner instance is
@@ -384,8 +384,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
 - **I/O message reference**: process name, process ID, module name and ID, direction, index.
 - **Node configuration value**: name, value, type, display name, description, category, flags.
 - **Log-level lease**: lease ID, server, INUBIT node, loggers with level, set time, expiry, owner
-  instance,
-  state (`ACTIVE`, `RESET`, `RESET_FAILED`), last reset attempt.
+  instance, state (`ACTIVE`, `RESET`, `RESET_FAILED`), last reset attempt.
 
 ## Success Criteria *(mandatory)*
 
