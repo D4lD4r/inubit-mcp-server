@@ -115,6 +115,15 @@ class InterfaceCoverageTest {
                 + "REST\tGET /license\tREAD\tA\tUS1\tplanned\tplanned\t-\n"));
 
         assertThat(coverage.entries()).hasSize(1);
+        assertThat(coverage.deliveredStories()).isEmpty();
+    }
+
+    @Test
+    void deliveredStoriesNamesTheStoriesOfTheHeaderComment() {
+        InterfaceCoverage coverage = InterfaceCoverage.load(new StringReader(
+            "# delivered-stories: US1, US3\n" + HEADER + "\n"));
+
+        assertThat(coverage.deliveredStories()).containsExactlyInAnyOrder("US1", "US3");
     }
 
     // --- failure rules ------------------------------------------------------------------------

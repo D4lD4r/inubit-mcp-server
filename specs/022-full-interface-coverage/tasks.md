@@ -162,7 +162,7 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
     `area`, `story`, `entry`).
   - Failing test first: `InterfaceCoverageResourceTest` asserts that the file loads, has at least
     one row per area A–E, has no `planned` row without a story, and that `lls` is excluded.
-- [ ] T008 Coverage checks (FR-003; after T005, T007): `architecture/InterfaceCoverageCheckTest.java`
+- [X] T008 Coverage checks (FR-003; after T005, T007): `architecture/InterfaceCoverageCheckTest.java`
   implements checks 1–5 of `contracts/coverage-list.md`. Check 6 is added in T010.
   - Checks 1–3 read `CliCommand.OPTIONS`, the `CliSessionCommand` constants, `RestEndpoint.values()`
     and `TestWiring` tool handlers.
@@ -206,7 +206,9 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
     - no part admitted → refused.
   - Also add check 6 of `contracts/coverage-list.md` to `architecture/InterfaceCoverageCheckTest.java`:
     every registered `ActionSpec` declares at least one row, and every declared row exists. It
-    passes with the empty catalogue and gains entries with each story.
+    passes with the empty catalogue and gains entries with each story. From the T008 review:
+    derive the test's `ALL_STORIES` from one shared source with `CoverageEntry`'s story pattern
+    (e.g. a public `CoverageEntry.STORIES`).
 - [ ] T011 Capability for US1 and the pattern for later stories (D-1; after T010):
   - In `domain/model/Capability.java` add `SERVER_SETTINGS` (READ, REST+CLI) with its `label()`.
   - In `CapabilityMatrix.production()`: 8.1 and 9.0 `UNSUPPORTED` + "not yet verified"; 6.1

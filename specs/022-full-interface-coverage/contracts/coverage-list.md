@@ -56,8 +56,9 @@ message names the command that rewrites the page (`mvn -q -Dcoverage.write=true 
 1. Every `CliCommand.OPTIONS` command/option pair and every `CliSessionCommand` has a row.
 2. Every `RestEndpoint` value has a row.
 3. Every `reachable:` and `covered:` tool is a registered tool. Every `reachable:` action is a
-   value of the tool's `action`, `view` or `content` enum (the first of them its input schema
-   has), or `default` for a tool that has none of the three.
+   value of the tool's `action`, `view` or `content` enum (the first of these properties that
+   has an `enum` in its input schema), or `default` for a tool where none of them has one (a
+   free-text `content`, as in `record_knowledge`, does not count).
 4. Every row has both version states; `story` is set for every `planned` row.
 5. A row of a story in `delivered-stories` that is still `planned` for a version must carry a
    `waits` value: `L-n` (a live check) or `9.0-pin` (the 9.0 recordings wait for the test

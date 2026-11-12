@@ -37,11 +37,13 @@ public final class InterfaceCoverage {
 
     private final List<CoverageEntry> entries;
     private final Map<CoverageKey, CoverageEntry> byKey;
+    private final Set<String> deliveredStories;
 
     private InterfaceCoverage(List<CoverageEntry> entries,
-        Map<CoverageKey, CoverageEntry> byKey) {
+        Map<CoverageKey, CoverageEntry> byKey, Set<String> deliveredStories) {
         this.entries = List.copyOf(entries);
         this.byKey = Map.copyOf(byKey);
+        this.deliveredStories = Set.copyOf(deliveredStories);
     }
 
     /**
@@ -100,7 +102,7 @@ public final class InterfaceCoverage {
         for (Map.Entry<Integer, CoverageEntry> row : rows.entrySet()) {
             checkDelivery(row.getKey(), row.getValue(), delivered);
         }
-        return new InterfaceCoverage(new ArrayList<>(rows.values()), byKey);
+        return new InterfaceCoverage(new ArrayList<>(rows.values()), byKey, delivered);
     }
 
     /**
@@ -120,6 +122,11 @@ public final class InterfaceCoverage {
     /** Every row, in file order. */
     public List<CoverageEntry> entries() {
         return entries;
+    }
+
+    /** The stories of the {@code delivered-stories} line, e.g. {@code US1}; empty if none. */
+    public Set<String> deliveredStories() {
+        return deliveredStories;
     }
 
     /**
