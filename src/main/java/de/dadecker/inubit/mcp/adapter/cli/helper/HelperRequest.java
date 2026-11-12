@@ -1,6 +1,9 @@
 package de.dadecker.inubit.mcp.adapter.cli.helper;
 
 import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
+import de.dadecker.inubit.mcp.domain.model.node.IoLogBounds;
+import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
 import de.dadecker.inubit.mcp.infra.Secret;
 import java.net.URI;
 import java.nio.ByteBuffer;
@@ -12,18 +15,23 @@ import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * The stdin request of the client helper (research D-4, data-model "Helper request"):
  * {@code qe=1}, one {@code key=value} line per field with the value percent-encoded (RFC 3986,
  * unreserved characters kept, UTF-8), {@code end}. The shared connection fields come with one
  * {@link Operation}: a {@link QueueEntryRead} is encoded exactly as in feature 020 (no {@code op}
- * line), a {@link ServerLogRead} with {@code op=serverLog} as the second line. The constructors
+ * line), every other operation with its {@code op} as the second line ({@code serverLog} of
+ * feature 021; {@code ownNode}, {@code clusterNodes}, {@code nodeConfig} and {@code ioLog} of
+ * feature 024, D-2). The constructors
  * refuse what the helper would reject as malformed, naming the field but never its value;
  * {@link #toString()} leaves out the user and both passwords.
  *
@@ -41,6 +49,8 @@ public record HelperRequest(String nonce, String variant, URI url,
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final byte[] HEX = "0123456789ABCDEF".getBytes(StandardCharsets.US_ASCII);
     private static final byte[] END = "end\n".getBytes(StandardCharsets.US_ASCII);
+    private static final Pattern DETAILS = Pattern.compile("[A-Za-z0-9_.:-]{1,128}");
+    private static final Pattern PROCESS_ID = Pattern.compile("[0-9A-Za-z_-]{1,64}");
 
     /** A trust store file and its one-time password. */
     public record TrustStore(Path file, Secret password) {
@@ -52,8 +62,9 @@ public record HelperRequest(String nonce, String variant, URI url,
         }
     }
 
-    /** What the helper does after the login (D-4). */
-    public sealed interface Operation permits QueueEntryRead, ServerLogRead {
+    /** What the helper does after the login (D-4; feature 024 D-2). */
+    public sealed interface Operation
+        permits QueueEntryRead, ServerLogRead, OwnNode, ClusterNodes, NodeConfig, IoLog {
     }
 
     /**
@@ -95,6 +106,85 @@ public record HelperRequest(String nonce, String variant, URI url,
         }
     }
 
+    /** The lookup of the answering node only ({@code op=ownNode}, feature 024 D-3). */
+    public record OwnNode() implements Operation {
+    }
+
+    /**
+     * The members of the cluster ({@code op=clusterNodes}, feature 024 D-2, D-7).
+     *
+     * @param details the member whose node information is read as well, 1 to 128 characters of
+     *     {@code [A-Za-z0-9_.:-]}; empty for the list only
+     */
+    public record ClusterNodes(Optional<String> details) implements Operation {
+        public ClusterNodes {
+            Objects.requireNonNull(details, "details");
+            if (details.isPresent() && !DETAILS.matcher(details.get()).matches()) {
+                throw new IllegalArgumentException(
+                    "details must be 1 to 128 characters of [A-Za-z0-9_.:-]");
+            }
+        }
+    }
+
+    /**
+     * Node configuration values of the answering node ({@code op=nodeConfig}, feature 024 D-10).
+     *
+     * @param names 1 to 20 distinct names (the enum has 20 constants), sent in this order
+     */
+    public record NodeConfig(List<NodeConfigName> names) implements Operation {
+        public NodeConfig {
+            Objects.requireNonNull(names, "names");
+            for (NodeConfigName name : names) {
+                Objects.requireNonNull(name, "names");
+            }
+            names = List.copyOf(names);
+            if (names.isEmpty()) {
+                throw new IllegalArgumentException("names must not be empty");
+            }
+            if (new HashSet<>(names).size() != names.size()) {
+                throw new IllegalArgumentException("names must be distinct");
+            }
+        }
+    }
+
+    /**
+     * The I/O log listing of a process run and optionally one of its messages ({@code op=ioLog},
+     * feature 024 D-8, D-9).
+     *
+     * @param processId 1 to 64 characters of {@code [0-9A-Za-z_-]}
+     * @param workflow 1 to 200 characters without control characters, {@code @@@} or {@code ###}
+     * @param ref the message to read; empty for the listing only
+     * @param listOut where the listing goes
+     * @param messageOut where the message goes; present exactly when {@code ref} is
+     */
+    public record IoLog(String processId, String workflow, Optional<IoMessageRef> ref,
+        Path listOut, Optional<Path> messageOut) implements Operation {
+        public IoLog {
+            Objects.requireNonNull(processId, "processId");
+            Objects.requireNonNull(workflow, "workflow");
+            Objects.requireNonNull(ref, "ref");
+            Objects.requireNonNull(listOut, "listOut");
+            Objects.requireNonNull(messageOut, "messageOut");
+            if (!PROCESS_ID.matcher(processId).matches()) {
+                throw new IllegalArgumentException(
+                    "processId must be 1 to 64 characters of [0-9A-Za-z_-]");
+            }
+            requireText("workflow", workflow);
+            if (workflow.length() > IoLogBounds.MAX_WORKFLOW_CHARS
+                || workflow.chars().anyMatch(Character::isISOControl)
+                || workflow.contains("@@@") || workflow.contains("###")) {
+                throw new IllegalArgumentException("workflow must have at most "
+                    + IoLogBounds.MAX_WORKFLOW_CHARS
+                    + " characters and no control character, '@@@' or '###'");
+            }
+            requireText("listOut", listOut.toString());
+            if (ref.isPresent() != messageOut.isPresent()) {
+                throw new IllegalArgumentException("messageOut must be given exactly with ref");
+            }
+            messageOut.ifPresent(path -> requireText("messageOut", path.toString()));
+        }
+    }
+
     public HelperRequest {
         Objects.requireNonNull(nonce, "nonce");
         Objects.requireNonNull(variant, "variant");
@@ -128,8 +218,17 @@ public record HelperRequest(String nonce, String variant, URI url,
     public byte[] encode() {
         List<Map.Entry<String, String>> fields = new ArrayList<>();
         fields.add(Map.entry("qe", "1"));
-        if (operation instanceof ServerLogRead) {
-            fields.add(Map.entry("op", "serverLog"));
+        String op = switch (operation) {
+            case QueueEntryRead read -> "";
+            case ServerLogRead read -> "serverLog";
+            case OwnNode node -> "ownNode";
+            case ClusterNodes nodes -> "clusterNodes";
+            case NodeConfig config -> "nodeConfig";
+            case IoLog log -> "ioLog";
+        };
+        if (!op.isEmpty()) {
+            // the 020 queue-entry read has no op line, so its encoding stays byte-identical
+            fields.add(Map.entry("op", op));
         }
         fields.add(Map.entry("nonce", nonce));
         fields.add(Map.entry("variant", variant));
@@ -151,6 +250,19 @@ public record HelperRequest(String nonce, String variant, URI url,
             case ServerLogRead read -> {
                 fields.add(Map.entry("log", read.kind().wireName()));
                 fields.add(Map.entry("logOut", read.logOut().toString()));
+            }
+            case OwnNode node -> {
+            }
+            case ClusterNodes nodes -> fields.add(Map.entry("details", nodes.details().orElse("")));
+            case NodeConfig config -> fields.add(Map.entry("names", config.names().stream()
+                .map(NodeConfigName::wireName).collect(Collectors.joining(","))));
+            case IoLog log -> {
+                fields.add(Map.entry("processId", log.processId()));
+                fields.add(Map.entry("workflow", log.workflow()));
+                fields.add(Map.entry("ref", log.ref().map(IoMessageRef::value).orElse("")));
+                fields.add(Map.entry("listOut", log.listOut().toString()));
+                fields.add(Map.entry("messageOut",
+                    log.messageOut().map(Path::toString).orElse("")));
             }
         }
         fields.add(Map.entry("user", user));

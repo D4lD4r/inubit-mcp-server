@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,20 +25,22 @@ import java.util.Set;
 
 /**
  * Reads through the INUBIT client installation whose class path it runs on: one queue manager
- * entry (feature 020, research D-1, D-2, D-4) or the web service log of the node it reaches
- * (feature 021, D-2, D-4, D-5). The server starts it in a child JVM; it is compiled for Java 17,
- * uses JDK classes only and is a single class without nested or anonymous classes, because it is
- * shipped as one class-file resource.
+ * entry (feature 020, research D-1, D-2, D-4), the web service log of the node it reaches
+ * (feature 021, D-2, D-4, D-5) or the name of that node (feature 024, D-2, D-3). The server
+ * starts it in a child JVM; it is compiled for Java 17, uses JDK classes only and is a single
+ * class without nested or anonymous classes, because it is shipped as one class-file resource.
  *
  * <p>Protocol: the request arrives on stdin (UTF-8, {@code qe=1} first, one {@code key=value} per
  * line with every value percent-encoded, {@code end} last; the optional key {@code op} names the
- * operation, {@code queueEntry} (also when absent) or {@code serverLog}, each with its own keys,
- * feature 021 D-4); results are the stdout lines that start with {@code #QE1:<nonce> }, followed
- * by space-separated percent-encoded tokens, so output of the vendor libraries cannot forge one;
- * an empty token is written as {@code -}. Exit codes: 0 after {@code end}, 1 anything else (also
- * any unexpected {@link Throwable}), 2 malformed request, 3 login failed (also a vendor class
- * that fails to initialize while the client is created), 4 vendor API missing. The request, the
- * passwords and the content are never printed.
+ * operation, {@code queueEntry} (also when absent), {@code serverLog} (feature 021 D-4) or
+ * {@code ownNode}, {@code clusterNodes}, {@code nodeConfig}, {@code ioLog} (feature 024 D-2),
+ * each with its own keys; this version performs {@code ownNode} and answers a valid request of
+ * the other three with exit 2 after the API check); results are the stdout lines that start
+ * with {@code #QE1:<nonce> }, followed by space-separated percent-encoded tokens, so output of
+ * the vendor libraries cannot forge one; an empty token is written as {@code -}. Exit codes: 0
+ * after {@code end}, 1 anything else (also any unexpected {@link Throwable}), 2 malformed
+ * request, 3 login failed (also a vendor class that fails to initialize while the client is
+ * created), 4 vendor API missing. The request, the passwords and the content are never printed.
  *
  * <p>Vendor classes are resolved only through the {@link ClassLoader} given to {@link #run} and
  * used only by reflection: 8.1 ({@code SOAP_81}) through {@code IBISSoapClient}, 9.0
@@ -46,8 +49,9 @@ import java.util.Set;
  * {@code MultipartDownloadThread} (the Workbench's "View file", FR-007); the web service log
  * through a {@code ClusterClient}, as the Workbench's Cluster Manager does: the answering node
  * from {@code getNode()}, then {@code clusterDownload} of the constant {@code webservice.log}
- * from that node (FR-006). 8.1 logs out at the end. Client methods are looked up on
- * {@code I_IBISClientInterface}, because the 9.0 client is a private class.
+ * from that node (FR-006); the own node through the same {@code getNode()}. 8.1 logs out at the
+ * end. Client methods are looked up on {@code I_IBISClientInterface}, because the 9.0 client is
+ * a private class.
  */
 public final class ClientHelper {
 
@@ -62,13 +66,34 @@ public final class ClientHelper {
     private static final String OP = "op";
     private static final String QUEUE_ENTRY = "queueEntry";
     private static final String SERVER_LOG = "serverLog";
+    private static final String OWN_NODE = "ownNode";
+    private static final String CLUSTER_NODES = "clusterNodes";
+    private static final String NODE_CONFIG = "nodeConfig";
+    private static final String IO_LOG = "ioLog";
     private static final List<String> SHARED_KEYS = List.of("qe", OP, "nonce", "variant", "url",
         "trustStore", "trustStorePassword", "hostnameVerification", "user", "password");
-    private static final List<String> QUEUE_ENTRY_KEYS = List.of("objectType", "fileName",
-        "parts", "dataOut", "variablesOut");
-    private static final List<String> SERVER_LOG_KEYS = List.of("log", "logOut");
+    /** The keys of each operation, every one required exactly once (021 D-4, 024 D-2). */
+    private static final Map<String, List<String>> OPERATION_KEYS = Map.of(
+        QUEUE_ENTRY, List.of("objectType", "fileName", "parts", "dataOut", "variablesOut"),
+        SERVER_LOG, List.of("log", "logOut"),
+        OWN_NODE, List.of(),
+        CLUSTER_NODES, List.of("details"),
+        NODE_CONFIG, List.of("names"),
+        IO_LOG, List.of("processId", "workflow", "ref", "listOut", "messageOut"));
     private static final List<String> NOT_EMPTY = List.of("url", "objectType", "fileName",
-        "variablesOut", "logOut", "user", "password");
+        "variablesOut", "logOut", "names", "processId", "workflow", "listOut", "user",
+        "password");
+    /**
+     * The node configuration names {@code nodeConfig} may read, the helper's own list (024 D-10):
+     * no name outside it reaches the server.
+     */
+    private static final List<String> NODE_CONFIG_NAMES = List.of("OperationMode", "ClusterName",
+        "ZoneName", "NodeName", "LocalMaintenanceMode", "ActivateClusterManager", "ClusterDebug",
+        "ContainerShutdownOnNodeFailure", "RegisterMBeans", "RegisterInternalMBeans",
+        "RuntimeDataCacheXMXPercentage", "socketTimeoutInMillisecs", "indexEnabled",
+        "iterationCount", "DataSourceLocation", "LogsDBDataSourceLocation",
+        "RepositoryDataSourceLocation", "ClusterBindAddress", "noOfRetries", "retryInterval");
+    private static final int MAX_WORKFLOW_CHARS = 200;
     /** The only server log the helper reads, a constant so no request names a file (D-2). */
     private static final String WEBSERVICE_LOG = "webservice.log";
     private static final char[] HEX = "0123456789ABCDEF".toCharArray();
@@ -134,6 +159,11 @@ public final class ClientHelper {
             frame(out, nonce, "api", "missing", String.valueOf(e.getMessage()));
             return EXIT_API_MISSING;
         }
+        String op = request.get(OP);
+        if (CLUSTER_NODES.equals(op) || NODE_CONFIG.equals(op) || IO_LOG.equals(op)) {
+            // a valid request, but this helper version does not perform these yet: nothing sent
+            return EXIT_MALFORMED;
+        }
         frame(out, nonce, "start", request.get("variant"));
         return read(request, api, out);
     }
@@ -172,17 +202,18 @@ public final class ClientHelper {
             api.put("InubitClientFactory", factory.getConstructor());
             api.put("getRestInstance", factory.getMethod("getRestInstance", data));
         }
-        Class<?> download = Class.forName(DOWNLOAD_THREAD, false, vendor);
-        if (!Thread.class.isAssignableFrom(download)) {
-            throw new ClassNotFoundException(DOWNLOAD_THREAD + " as a Thread");
-        }
-        api.put("exceptionOccured", download.getMethod("exceptionOccured"));
-        api.put("getException", download.getMethod("getException"));
         if (QUEUE_ENTRY.equals(request.get(OP))) {
+            Class<?> download = downloadThread(api, vendor);
             api.put("MultipartDownloadThread", sixArgumentConstructor(download));
             api.put("setOutputFile", download.getMethod("setOutputFile", File.class));
         } else {
-            // NodeName and Node first: clusterDownload's parameter type is the NodeName found here
+            boolean serverLog = SERVER_LOG.equals(request.get(OP));
+            if (serverLog) {
+                // first, as in feature 021, so the same member is named when several are missing
+                downloadThread(api, vendor);
+            }
+            // every other operation starts with the node lookup (021 D-5, 024 D-3); NodeName and
+            // Node first: clusterDownload's parameter type is the NodeName found here
             Class<?> nodeName = Class.forName(NODE_NAME, false, vendor);
             api.put("getName", nodeName.getMethod("getName"));
             api.put("getNodeName", Class.forName(NODE, false, vendor).getMethod("getNodeName"));
@@ -194,10 +225,24 @@ public final class ClientHelper {
             api.put("ClusterClient", cluster.getConstructor(client, String.class, String.class,
                 String.class));
             api.put("getNode", cluster.getMethod("getNode"));
-            api.put("clusterDownload", cluster.getMethod("clusterDownload", File.class, nodeName,
-                String.class));
+            if (serverLog) {
+                api.put("clusterDownload", cluster.getMethod("clusterDownload", File.class,
+                    nodeName, String.class));
+            }
         }
         return api;
+    }
+
+    /** The download thread class and the members that report its result. */
+    private static Class<?> downloadThread(Map<String, Executable> api, ClassLoader vendor)
+        throws ReflectiveOperationException {
+        Class<?> download = Class.forName(DOWNLOAD_THREAD, false, vendor);
+        if (!Thread.class.isAssignableFrom(download)) {
+            throw new ClassNotFoundException(DOWNLOAD_THREAD + " as a Thread");
+        }
+        api.put("exceptionOccured", download.getMethod("exceptionOccured"));
+        api.put("getException", download.getMethod("getException"));
+        return download;
     }
 
     /**
@@ -223,8 +268,8 @@ public final class ClientHelper {
     }
 
     /**
-     * Logs in, reads the requested parts or the web service log and logs out (8.1); returns the
-     * exit code.
+     * Logs in, reads the requested parts, the web service log or the own node and logs out (8.1);
+     * returns the exit code.
      */
     private static int read(Map<String, String> request, Map<String, Executable> api,
         PrintStream out) throws ReflectiveOperationException, InterruptedException {
@@ -248,6 +293,8 @@ public final class ClientHelper {
             frame(out, nonce, "login", "ok");
             if (SERVER_LOG.equals(request.get(OP))) {
                 readServerLog(api, client, request, out, secrets);
+            } else if (OWN_NODE.equals(request.get(OP))) {
+                lookUpNode(api, client, request, out, secrets);
             } else {
                 if (request.get("parts").startsWith("data")) {
                     download(api, client, request, "data", request.get("fileName"),
@@ -304,13 +351,36 @@ public final class ClientHelper {
 
     /**
      * Looks up the answering node and downloads its {@code webservice.log} into {@code logOut},
-     * naming that node explicitly (D-5); writes the {@code node} frame and, after
-     * {@code node ok}, the {@code part log} frame. A lookup that yields no node or no node name
-     * is a {@code node error}.
+     * naming that node explicitly (D-5); after {@code node ok}, writes the {@code part log}
+     * frame.
      */
     private static void readServerLog(Map<String, Executable> api, Object client,
         Map<String, String> request, PrintStream out, List<String> secrets)
         throws ReflectiveOperationException, InterruptedException {
+        Object[] node = lookUpNode(api, client, request, out, secrets);
+        if (node == null) {
+            return;
+        }
+        String nonce = request.get("nonce");
+        File file = new File(request.get("logOut"));
+        try {
+            Thread thread = (Thread) call(api, "clusterDownload", node[0], file, node[1],
+                WEBSERVICE_LOG);
+            transfer(api, thread, file, nonce, "log", out, secrets);
+        } catch (InvocationTargetException | LinkageError e) {
+            partError(out, nonce, "log", vendorFailure(e), secrets);
+        }
+    }
+
+    /**
+     * Creates the {@code ClusterClient}, asks it for the answering node ({@code getNode()}) and
+     * writes the {@code node} frame (021 D-5, 024 D-3). Returns the cluster client and the
+     * node's {@code NodeName}, in this order, after {@code node ok}; {@code null} after
+     * {@code node error}. A lookup that yields no node or no node name is a {@code node error}.
+     */
+    private static Object[] lookUpNode(Map<String, Executable> api, Object client,
+        Map<String, String> request, PrintStream out, List<String> secrets)
+        throws ReflectiveOperationException {
         String nonce = request.get("nonce");
         Object cluster;
         Object node;
@@ -324,24 +394,17 @@ public final class ClientHelper {
         } catch (InvocationTargetException | LinkageError e) {
             Throwable failure = vendorFailure(e);
             frame(out, nonce, "node", "error", chain(failure), messages(failure, secrets));
-            return;
+            return null;
         }
         if (name == null) {
-            // a node lookup without a node name is a failed one: no node to download from;
+            // a node lookup without a node name is a failed one: no node to work with;
             // nothing was thrown, so the frame carries no exception chain
             frame(out, nonce, "node", "error", "",
                 "the cluster client returned no node or node name");
-            return;
+            return null;
         }
         frame(out, nonce, "node", "ok", name);
-        File file = new File(request.get("logOut"));
-        try {
-            Thread thread = (Thread) call(api, "clusterDownload", cluster, file, node,
-                WEBSERVICE_LOG);
-            transfer(api, thread, file, nonce, "log", out, secrets);
-        } catch (InvocationTargetException | LinkageError e) {
-            partError(out, nonce, "log", vendorFailure(e), secrets);
-        }
+        return new Object[] {cluster, node};
     }
 
     /**
@@ -452,8 +515,8 @@ public final class ClientHelper {
             }
             int equals = line.indexOf('=');
             String key = equals < 0 ? "" : line.substring(0, equals);
-            if ((!SHARED_KEYS.contains(key) && !QUEUE_ENTRY_KEYS.contains(key)
-                && !SERVER_LOG_KEYS.contains(key)) || request.containsKey(key)) {
+            if ((!SHARED_KEYS.contains(key) && !isOperationKey(key))
+                || request.containsKey(key)) {
                 throw new IllegalArgumentException("unknown or repeated key");
             }
             request.put(key, decode(line.substring(equals + 1)));
@@ -464,13 +527,22 @@ public final class ClientHelper {
         return request;
     }
 
+    private static boolean isOperationKey(String key) {
+        for (List<String> keys : OPERATION_KEYS.values()) {
+            if (keys.contains(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Checks the keys of the operation, each exactly once, and their values. */
     private static void validate(Map<String, String> request) {
-        boolean queueEntry = QUEUE_ENTRY.equals(request.get(OP));
-        if (!queueEntry && !SERVER_LOG.equals(request.get(OP))) {
+        String op = request.get(OP);
+        List<String> operationKeys = OPERATION_KEYS.get(op);
+        if (operationKeys == null) {
             throw new IllegalArgumentException("unknown operation");
         }
-        List<String> operationKeys = queueEntry ? QUEUE_ENTRY_KEYS : SERVER_LOG_KEYS;
         if (request.size() != SHARED_KEYS.size() + operationKeys.size()
             || !request.keySet().containsAll(SHARED_KEYS)
             || !request.keySet().containsAll(operationKeys)) {
@@ -486,16 +558,52 @@ public final class ClientHelper {
             || !List.of("true", "false").contains(request.get("hostnameVerification"))) {
             throw new IllegalArgumentException("invalid value");
         }
-        if (queueEntry) {
-            String parts = request.get("parts");
-            if (!List.of("data,variables", "variables").contains(parts)
-                || parts.startsWith("data") && request.get("dataOut").isEmpty()) {
-                throw new IllegalArgumentException("invalid value");
-            }
-        } else if (!"webservice".equals(request.get("log"))) {
+        boolean valid = switch (op) {
+            case QUEUE_ENTRY -> List.of("data,variables", "variables").contains(
+                request.get("parts"))
+                && !(request.get("parts").startsWith("data") && request.get("dataOut").isEmpty());
             // the only kind; the helper maps it to the constant file name (D-2, D-4)
+            case SERVER_LOG -> "webservice".equals(request.get("log"));
+            case CLUSTER_NODES -> request.get("details").isEmpty()
+                || request.get("details").matches("[A-Za-z0-9_.:-]{1,128}");
+            case NODE_CONFIG -> validNames(request.get("names"));
+            case IO_LOG -> validIoLog(request);
+            default -> true;
+        };
+        if (!valid) {
             throw new IllegalArgumentException("invalid value");
         }
+    }
+
+    /** Comma-separated, distinct names of {@link #NODE_CONFIG_NAMES} (at most all of them). */
+    private static boolean validNames(String names) {
+        Set<String> seen = new HashSet<>();
+        for (String name : names.split(",", -1)) {
+            if (!NODE_CONFIG_NAMES.contains(name) || !seen.add(name)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The {@code ioLog} values (024 D-2, D-8): a process id, a workflow name that cannot change
+     * the object or download name it is put into, a message reference with its target file or
+     * neither.
+     */
+    private static boolean validIoLog(Map<String, String> request) {
+        String workflow = request.get("workflow");
+        for (int i = 0; i < workflow.length(); i++) {
+            if (Character.isISOControl(workflow.charAt(i))) {
+                return false;
+            }
+        }
+        String ref = request.get("ref");
+        return request.get("processId").matches("[0-9A-Za-z_-]{1,64}")
+            && workflow.length() <= MAX_WORKFLOW_CHARS
+            && !workflow.contains("@@@") && !workflow.contains("###")
+            && (ref.isEmpty() || ref.matches("[A-Za-z0-9_-]{22}"))
+            && ref.isEmpty() == request.get("messageOut").isEmpty();
     }
 
     /**

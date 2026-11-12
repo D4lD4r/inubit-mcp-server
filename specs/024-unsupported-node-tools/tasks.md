@@ -147,7 +147,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
 
 ### Helper protocol (plan stage 3; D-2, contracts/helper-protocol-delta.md)
 
-- [ ] T008 Request side and `ownNode` (D-2, D-3; after T006, T007): `adapter/cli/helper/HelperRequest.java` sealed
+- [X] T008 Request side and `ownNode` (D-2, D-3; after T006, T007): `adapter/cli/helper/HelperRequest.java` sealed
   `Operation` `+ OwnNode`, `ClusterNodes(Optional<String> details)`, `NodeConfig(List<NodeConfigName>
   names)` (the enum of T006), `IoLog(String processId, String workflow,
   Optional<IoMessageRef> ref, Path listOut, Optional<Path> messageOut)` (`IoMessageRef` of T007); `encode()` writes `op=<name>` as the second line

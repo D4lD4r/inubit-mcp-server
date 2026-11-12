@@ -41,8 +41,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * The client helper in-process: the queue-entry read of feature 020 (research D-2, D-4) and the
- * server-log read of feature 021 (D-2, D-4, D-5). It is loaded from its resource directory
- * {@code META-INF/inubit-mcp/client-helper/} of the compiled classes by a
+ * server-log read of feature 021 (D-2, D-4, D-5), and the request check of the node-tool
+ * operations with the own-node lookup of feature 024 (D-2, D-3). It is loaded from its resource
+ * directory {@code META-INF/inubit-mcp/client-helper/} of the compiled classes by a
  * {@link URLClassLoader} whose parent is the test class loader (so the fake vendor classes under
  * {@code com.inubit.ibis} are visible), and {@code run(InputStream, PrintStream, ClassLoader)} is
  * called reflectively; {@code main} and its {@code System.exit} are never called here.
@@ -66,6 +67,15 @@ class ClientHelperTest {
     private static final String WEBSERVICE_LOG = "webservice.log";
     private static final byte[] LOG = ("2026-11-12 10:00:00,000 1 [WebService] request\n"
         + "<soapenv:Envelope/>\n").getBytes(StandardCharsets.UTF_8);
+    /** The 20 names {@code nodeConfig} may read (contracts/helper-protocol-delta.md). */
+    private static final List<String> NODE_CONFIG_NAMES = List.of("OperationMode", "ClusterName",
+        "ZoneName", "NodeName", "LocalMaintenanceMode", "ActivateClusterManager", "ClusterDebug",
+        "ContainerShutdownOnNodeFailure", "RegisterMBeans", "RegisterInternalMBeans",
+        "RuntimeDataCacheXMXPercentage", "socketTimeoutInMillisecs", "indexEnabled",
+        "iterationCount", "DataSourceLocation", "LogsDBDataSourceLocation",
+        "RepositoryDataSourceLocation", "ClusterBindAddress", "noOfRetries", "retryInterval");
+    /** A message reference (22 characters of the Base64url alphabet). */
+    private static final String REF = "AbCdEfGhIjKlMnOpQr_-01";
 
     private static URLClassLoader loader;
     private static Class<?> helper;
@@ -230,7 +240,181 @@ class ClientHelperTest {
             Arguments.of("server log with op as the last key", serverLogRequest(lines -> {
                 lines.remove("op");
                 lines.put("op", "serverLog");
-            })));
+            })),
+            // feature 024 (D-2)
+            Arguments.of("own node on 8.1", nodeToolRequest("ownNode", lines -> { })),
+            Arguments.of("own node on 9.0 over http without trust store",
+                nodeToolRequest("ownNode", lines -> {
+                    lines.put("variant", "REST_90");
+                    lines.put("url", "http%3A%2F%2Finubit.example.test%3A8000");
+                    lines.put("trustStore", "");
+                    lines.put("trustStorePassword", "");
+                    lines.put("hostnameVerification", "false");
+                })),
+            Arguments.of("cluster nodes without details",
+                nodeToolRequest("clusterNodes", lines -> { })),
+            Arguments.of("cluster nodes with details",
+                nodeToolRequest("clusterNodes", lines -> lines.put("details", NODE))),
+            Arguments.of("cluster nodes with 128 characters of details", nodeToolRequest(
+                "clusterNodes", lines -> lines.put("details",
+                    "inubit-node_01.zone%3A" + "n".repeat(108)))),
+            Arguments.of("node config with one name",
+                nodeToolRequest("nodeConfig", lines -> lines.put("names", "ClusterBindAddress"))),
+            Arguments.of("node config with all twenty names", nodeToolRequest("nodeConfig",
+                lines -> lines.put("names", String.join("%2C", NODE_CONFIG_NAMES)))),
+            Arguments.of("io log listing", nodeToolRequest("ioLog", lines -> { })),
+            Arguments.of("io log message", nodeToolRequest("ioLog", lines -> {
+                lines.put("ref", REF);
+                lines.put("messageOut", "%2Fvar%2Fqe-0001%2Fout%2Fmessage.bin");
+            })),
+            Arguments.of("io log at its limits", nodeToolRequest("ioLog", lines -> {
+                lines.put("processId", "P".repeat(64));
+                lines.put("workflow", "Workflow%20%C3%BC%20" + "w".repeat(189));
+            })),
+            Arguments.of("io log workflow with single separator characters",
+                nodeToolRequest("ioLog", lines -> lines.put("workflow",
+                    "Order%40Shop%23%23Inbound"))));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("malformedNodeToolRequests")
+    void aMalformedNodeToolRequestEndsWithExitTwoBeforeAnyVendorCall(String label,
+        String request) throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE);
+
+        Run run = run(script, request, vendor());
+
+        assertThat(run.exit()).isEqualTo(2);
+        assertThat(run.out()).as("no value is echoed").isEmpty();
+        assertThat(script.calls()).as("nothing is sent").isEmpty();
+    }
+
+    static Stream<Arguments> malformedNodeToolRequests() {
+        return Stream.of(
+            // a key of another operation, a repeated or missing key, an unknown or repeated op
+            Arguments.of("own node with a details key",
+                nodeToolRequest("ownNode", lines -> lines.put("details", ""))),
+            Arguments.of("own node with a fileName key",
+                nodeToolRequest("ownNode", lines -> lines.put("fileName", "Order-0001.xml"))),
+            Arguments.of("own node with a log key",
+                nodeToolRequest("ownNode", lines -> lines.put("log", "webservice"))),
+            Arguments.of("own node in another case",
+                nodeToolRequest("ownNode", lines -> lines.put("op", "OwnNode"))),
+            Arguments.of("own node op repeated", nodeToolRequest("ownNode", lines -> { })
+                .replace("op=ownNode\n", "op=ownNode\nop=ownNode\n")),
+            Arguments.of("cluster nodes keys without op",
+                nodeToolRequest("clusterNodes", lines -> lines.remove("op"))),
+            Arguments.of("cluster nodes without the details key",
+                nodeToolRequest("clusterNodes", lines -> lines.remove("details"))),
+            Arguments.of("cluster nodes with details repeated",
+                nodeToolRequest("clusterNodes", lines -> { })
+                    .replace("end\n", "details=" + NODE + "\nend\n")),
+            Arguments.of("cluster nodes with a names key",
+                nodeToolRequest("clusterNodes", lines -> lines.put("names", "NodeName"))),
+            Arguments.of("cluster nodes details with a space",
+                nodeToolRequest("clusterNodes", lines -> lines.put("details", "inubit%20node"))),
+            Arguments.of("cluster nodes details with a slash",
+                nodeToolRequest("clusterNodes", lines -> lines.put("details", "inubit%2Fnode"))),
+            Arguments.of("cluster nodes details with a non-ASCII letter",
+                nodeToolRequest("clusterNodes", lines -> lines.put("details", "n%C3%BCde"))),
+            Arguments.of("cluster nodes details of 129 characters", nodeToolRequest(
+                "clusterNodes", lines -> lines.put("details", "n".repeat(129)))),
+            Arguments.of("node config without the names key",
+                nodeToolRequest("nodeConfig", lines -> lines.remove("names"))),
+            Arguments.of("node config with empty names",
+                nodeToolRequest("nodeConfig", lines -> lines.put("names", ""))),
+            Arguments.of("node config with a name outside the list",
+                nodeToolRequest("nodeConfig", lines -> lines.put("names", "Database"))),
+            Arguments.of("node config with a password name",
+                nodeToolRequest("nodeConfig", lines -> lines.put("names",
+                    "NodeName%2CClusterPassword"))),
+            Arguments.of("node config with a name in another case",
+                nodeToolRequest("nodeConfig", lines -> lines.put("names", "operationMode"))),
+            Arguments.of("node config with a repeated name",
+                nodeToolRequest("nodeConfig", lines -> lines.put("names",
+                    "NodeName%2CZoneName%2CNodeName"))),
+            Arguments.of("node config with an empty name",
+                nodeToolRequest("nodeConfig", lines -> lines.put("names",
+                    "OperationMode%2C%2CNodeName"))),
+            Arguments.of("node config with a trailing comma",
+                nodeToolRequest("nodeConfig", lines -> lines.put("names", "OperationMode%2C"))),
+            Arguments.of("node config with a space after the comma",
+                nodeToolRequest("nodeConfig", lines -> lines.put("names",
+                    "OperationMode%2C%20NodeName"))),
+            Arguments.of("node config with twenty-one names", nodeToolRequest("nodeConfig",
+                lines -> lines.put("names",
+                    String.join("%2C", NODE_CONFIG_NAMES) + "%2COperationMode"))),
+            Arguments.of("node config with a details key",
+                nodeToolRequest("nodeConfig", lines -> lines.put("details", ""))),
+            Arguments.of("io log without the processId key",
+                nodeToolRequest("ioLog", lines -> lines.remove("processId"))),
+            Arguments.of("io log with an empty processId",
+                nodeToolRequest("ioLog", lines -> lines.put("processId", ""))),
+            Arguments.of("io log processId of 65 characters",
+                nodeToolRequest("ioLog", lines -> lines.put("processId", "P".repeat(65)))),
+            Arguments.of("io log processId with a dot",
+                nodeToolRequest("ioLog", lines -> lines.put("processId", "P.0001"))),
+            Arguments.of("io log without the workflow key",
+                nodeToolRequest("ioLog", lines -> lines.remove("workflow"))),
+            Arguments.of("io log with an empty workflow",
+                nodeToolRequest("ioLog", lines -> lines.put("workflow", ""))),
+            Arguments.of("io log workflow of 201 characters",
+                nodeToolRequest("ioLog", lines -> lines.put("workflow", "w".repeat(201)))),
+            Arguments.of("io log workflow with a line break",
+                nodeToolRequest("ioLog", lines -> lines.put("workflow", "Workflow%0A0001"))),
+            Arguments.of("io log workflow with a C1 control character",
+                nodeToolRequest("ioLog", lines -> lines.put("workflow", "Workflow%C2%850001"))),
+            Arguments.of("io log workflow with the entry separator",
+                nodeToolRequest("ioLog", lines -> lines.put("workflow",
+                    "Workflow%40%40%400001"))),
+            Arguments.of("io log workflow with the download separator",
+                nodeToolRequest("ioLog", lines -> lines.put("workflow",
+                    "Workflow%23%23%230001"))),
+            Arguments.of("io log without the ref key",
+                nodeToolRequest("ioLog", lines -> lines.remove("ref"))),
+            Arguments.of("io log ref of 21 characters", nodeToolRequest("ioLog", lines -> {
+                lines.put("ref", REF.substring(1));
+                lines.put("messageOut", "%2Fvar%2Fqe-0001%2Fout%2Fmessage.bin");
+            })),
+            Arguments.of("io log ref of 23 characters", nodeToolRequest("ioLog", lines -> {
+                lines.put("ref", REF + "A");
+                lines.put("messageOut", "%2Fvar%2Fqe-0001%2Fout%2Fmessage.bin");
+            })),
+            Arguments.of("io log ref with a Base64 plus", nodeToolRequest("ioLog", lines -> {
+                lines.put("ref", "%2B" + REF.substring(1));
+                lines.put("messageOut", "%2Fvar%2Fqe-0001%2Fout%2Fmessage.bin");
+            })),
+            Arguments.of("io log ref without messageOut",
+                nodeToolRequest("ioLog", lines -> lines.put("ref", REF))),
+            Arguments.of("io log messageOut without ref", nodeToolRequest("ioLog",
+                lines -> lines.put("messageOut", "%2Fvar%2Fqe-0001%2Fout%2Fmessage.bin"))),
+            Arguments.of("io log without the messageOut key",
+                nodeToolRequest("ioLog", lines -> lines.remove("messageOut"))),
+            Arguments.of("io log without the listOut key",
+                nodeToolRequest("ioLog", lines -> lines.remove("listOut"))),
+            Arguments.of("io log with an empty listOut",
+                nodeToolRequest("ioLog", lines -> lines.put("listOut", ""))),
+            Arguments.of("io log with a logOut key", nodeToolRequest("ioLog",
+                lines -> lines.put("logOut", "%2Fvar%2Fqe-0001%2Fout%2Fwebservice.log"))),
+            Arguments.of("io log with a details key",
+                nodeToolRequest("ioLog", lines -> lines.put("details", ""))));
+    }
+
+    /**
+     * The three node-tool operations whose vendor calls this helper version does not make yet
+     * answer a valid request with exit 2 as well, after the API check and before the login.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"clusterNodes", "nodeConfig", "ioLog"})
+    void aValidRequestOfAnOperationNotYetPerformedEndsWithExitTwoBeforeAnyVendorCall(String op)
+        throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE);
+
+        Run run = run(script, nodeToolRequest(op, lines -> { }), vendor());
+
+        assertThat(run.exit()).isEqualTo(2);
+        assertThat(run.out()).isEmpty();
+        assertThat(script.calls()).isEmpty();
     }
 
     @ParameterizedTest
@@ -908,6 +1092,22 @@ class ClientHelperTest {
             Arguments.of("SOAP_81", "com.inubit.ibis.common.CurrentUser"));
     }
 
+    @Test
+    void aServerLogChecksTheDownloadThreadBeforeTheClusterClassesAsInFeature021()
+        throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE).file(WEBSERVICE_LOG, LOG);
+
+        Run run = run(script, serverLogRequest(lines -> { }),
+            hiding("com.inubit.ibis.configuration.utils.io.MultipartDownloadThread",
+                "com.inubit.ibis.server.cache.NodeName",
+                "com.inubit.ibis.server.cluster.ClusterClient"));
+
+        assertThat(run.exit()).isEqualTo(4);
+        assertThat(frames(run.out())).containsExactly(List.of("api", "missing",
+            "com.inubit.ibis.configuration.utils.io.MultipartDownloadThread"));
+        assertThat(script.calls()).isEmpty();
+    }
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("missingServerLogMembers")
     void aServerLogWithoutAVendorMemberEndsWithApiMissingAndExitFourBeforeAnyCall(
@@ -953,6 +1153,141 @@ class ClientHelperTest {
             Arguments.of(currentUser + ".getClientUID()", currentUser, stub(currentUser, group)),
             Arguments.of(currentUser + ".getUsedAdditionalUserGroup()", currentUser,
                 stub(currentUser, clientUid)));
+    }
+
+    // --- operation ownNode (feature 024: FR-004, FR-042, D-2, D-3) --------------------------
+
+    @Test
+    void soap81OwnNodeLogsInLooksUpTheAnsweringNodeAndLogsOutOnly() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE);
+
+        Run run = run(script, nodeToolRequest("ownNode", lines -> { }), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "ok", NODE),
+            List.of("end"));
+        assertThat(HelperFrames.parse(NONCE, run.out()).frames()).containsExactly(
+            new HelperFrames.Start("SOAP_81"), new HelperFrames.LoginOk(),
+            new HelperFrames.NodeOk(NODE), new HelperFrames.End());
+        assertThat(script.calls()).as("only login, own node and logout (FR-007)")
+            .containsExactly(
+                call("IBISSoapClient.<init>", URL_81 + "?isCli", TRUST_STORE,
+                    TestSecrets.TRUST_STORE_PASSWORD, "null", "null", "true"),
+                call("IBISSoapClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+                call("ClusterClient.<init>", "IBISSoapClient", USER, CLIENT_UID, "null"),
+                call("ClusterClient.getNode"),
+                call("IBISSoapClient.logoutUser", USER));
+        TestSecrets.assertNoLeak(run.out());
+    }
+
+    @Test
+    void rest90OwnNodeUsesTheFactoryClientAndDoesNotLogOut() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE);
+
+        Run run = run(script, nodeToolRequest("ownNode", lines -> {
+            lines.put("variant", "REST_90");
+            lines.put("url", encode(URL_90));
+        }), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "REST_90"),
+            List.of("login", "ok"),
+            List.of("node", "ok", NODE),
+            List.of("end"));
+        assertThat(script.calls()).endsWith(
+            call("InubitClientFactory.getRestInstance"),
+            call("RestClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+            call("ClusterClient.<init>", "RestClient", USER, CLIENT_UID, "null"),
+            call("ClusterClient.getNode"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SOAP_81", "REST_90"})
+    void aFailedOwnNodeLookupIsANodeErrorFollowedByEndWithMaskedPasswords(String variant)
+        throws Exception {
+        String echo = "user jdoe with " + TestSecrets.CONFIGURED_PASSWORD + " and store "
+            + TestSecrets.TRUST_STORE_PASSWORD + " refused";
+        FakeInubitScript script = new FakeInubitScript()
+            .nodeFails(new Failure("java.lang.Exception", "Server not in cluster mode."),
+                new Failure("java.io.IOException", echo));
+
+        Run run = run(script, nodeToolRequest("ownNode", lines -> lines.put("variant", variant)),
+            vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", variant),
+            List.of("login", "ok"),
+            List.of("node", "error", "java.lang.Exception>java.io.IOException",
+                "Server not in cluster mode.\nuser jdoe with ****** and store ****** refused"),
+            List.of("end"));
+        if (variant.equals("SOAP_81")) {
+            assertThat(script.calls()).last().isEqualTo(call("IBISSoapClient.logoutUser", USER));
+        }
+        TestSecrets.assertNoLeak(run.out());
+        TestSecrets.assertNoLeak(decoded(run.out()));
+    }
+
+    @ParameterizedTest
+    @EnumSource(NullFrom.class)
+    void anOwnNodeLookupReturningNullIsANodeErrorAndStillLogsOut(NullFrom call)
+        throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE).nodeLookupReturnsNull(call);
+
+        Run run = run(script, nodeToolRequest("ownNode", lines -> { }), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "error", "-", "the cluster client returned no node or node name"),
+            List.of("end"));
+        assertThat(script.calls()).last().isEqualTo(call("IBISSoapClient.logoutUser", USER));
+    }
+
+    @Test
+    void aFailedLoginEndsTheOwnNodeLookupBeforeTheClusterClient() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .loginFails(new Failure("java.lang.SecurityException", "LoginFailure"));
+
+        Run run = run(script, nodeToolRequest("ownNode", lines -> { }), vendor());
+
+        assertThat(run.exit()).isEqualTo(3);
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "error", "java.lang.SecurityException", "LoginFailure"));
+        assertThat(script.calls()).extracting(Call::name)
+            .noneMatch(name -> name.startsWith("ClusterClient"));
+    }
+
+    @Test
+    void ownNodeChecksOnlyTheMembersItCallsSoItRunsWithoutTheDownloadThread() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE);
+
+        Run run = run(script, nodeToolRequest("ownNode", lines -> { }),
+            hiding("com.inubit.ibis.configuration.utils.io.MultipartDownloadThread"));
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).contains(List.of("node", "ok", NODE), List.of("end"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"com.inubit.ibis.server.cluster.ClusterClient",
+        "com.inubit.ibis.server.cluster.data.Node", "com.inubit.ibis.server.cache.NodeName",
+        "com.inubit.ibis.common.CurrentUser"})
+    void ownNodeWithoutAClusterClassEndsWithApiMissingAndExitFourBeforeAnyCall(
+        String hiddenClass) throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE);
+
+        Run run = run(script, nodeToolRequest("ownNode", lines -> { }), hiding(hiddenClass));
+
+        assertThat(run.exit()).isEqualTo(4);
+        assertThat(frames(run.out())).containsExactly(List.of("api", "missing", hiddenClass));
+        assertThat(script.calls()).isEmpty();
     }
 
     // --- the frame writer (D-4) -----------------------------------------------------------
@@ -1033,6 +1368,40 @@ class ClientHelperTest {
         return text.append("end\n").toString();
     }
 
+    /**
+     * A well-formed 8.1 request of the node-tool operation {@code op} (feature 024, D-2) with
+     * valid keys of that operation, every value percent-encoded, changed by {@code edit}.
+     */
+    static String nodeToolRequest(String op, Consumer<Map<String, String>> edit) {
+        Map<String, String> lines = new LinkedHashMap<>();
+        lines.put("qe", "1");
+        lines.put("op", op);
+        lines.put("nonce", NONCE);
+        lines.put("variant", "SOAP_81");
+        lines.put("url", "https%3A%2F%2Finubit.example.test%3A8443%2Fibis%2Fservlet%2FIBIS");
+        lines.put("trustStore", "%2Fvar%2Fqe-0001%2Ftrust.p12");
+        lines.put("trustStorePassword", TestSecrets.TRUST_STORE_PASSWORD);
+        lines.put("hostnameVerification", "true");
+        switch (op) {
+            case "clusterNodes" -> lines.put("details", "");
+            case "nodeConfig" -> lines.put("names", "OperationMode%2CNodeName");
+            case "ioLog" -> {
+                lines.put("processId", "P-0001_a");
+                lines.put("workflow", "Workflow-0001");
+                lines.put("ref", "");
+                lines.put("listOut", "%2Fvar%2Fqe-0001%2Fout%2Fio.list");
+                lines.put("messageOut", "");
+            }
+            default -> { }
+        }
+        lines.put("user", "jdoe");
+        lines.put("password", TestSecrets.CONFIGURED_PASSWORD);
+        edit.accept(lines);
+        StringBuilder text = new StringBuilder();
+        lines.forEach((key, value) -> text.append(key).append('=').append(value).append('\n'));
+        return text.append("end\n").toString();
+    }
+
     /** Runs the helper with {@code script} active. */
     static Run run(FakeInubitScript script, String request, ClassLoader vendor) throws Exception {
         try (FakeInubitScript.Activation ignored = script.activate()) {
@@ -1102,13 +1471,13 @@ class ClientHelperTest {
         };
     }
 
-    /** A vendor class loader without {@code hiddenClass}. */
-    static ClassLoader hiding(String hiddenClass) {
+    /** A vendor class loader without the {@code hiddenClasses}. */
+    static ClassLoader hiding(String... hiddenClasses) {
         return new ClassLoader(vendor()) {
             @Override
             protected Class<?> loadClass(String name, boolean resolve)
                 throws ClassNotFoundException {
-                if (name.equals(hiddenClass)) {
+                if (Arrays.asList(hiddenClasses).contains(name)) {
                     throw new ClassNotFoundException(name);
                 }
                 return super.loadClass(name, resolve);
