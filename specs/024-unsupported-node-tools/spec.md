@@ -87,6 +87,8 @@ of nodes and the details of one node; a group without it is refused before any r
 4. **Given** a group without the opt-in, **When** the tool is called, **Then** it is refused with
    `NOT_CONFIGURED` naming `unsupported.nodeStatusRead`, and nothing is sent to INUBIT.
 5. **Given** a single-node server, **When** the tool is called, **Then** it lists that one node.
+6. **Given** a `nodeName` that is not in the cluster's list, **When** the tool is called, **Then**
+   it is refused with `INVALID_INPUT` naming the known nodes.
 
 ---
 
@@ -125,6 +127,8 @@ before any download.
    result says the message is empty or no longer exists (the answer cannot tell them apart).
 6. **Given** a group without the opt-in, **When** the tool is called, **Then** it is refused with
    `NOT_CONFIGURED` naming `unsupported.ioLogRead`, and nothing is sent.
+7. **Given** `maxChars` outside 1–100,000, **When** the tool is called, **Then** it is refused with
+   `INVALID_INPUT` before any request.
 
 ---
 
@@ -204,9 +208,14 @@ server shutdown or the next start resets the node; refusals happen before any ch
 8. **Given** no lease for the node, **When** the reset is confirmed, **Then** `trace -r` is sent,
    an audit record is written, and the result says no lease was open and names the INUBIT node
    that answered.
-9. **Given** a `RESET_FAILED` lease whose server entry was removed from the configuration,
-   **When** the reset is called with its lease ID and `forget: true`, **Then** the lease ends
-   without any request, audited, and the result says the level may still be raised.
+9. **Given** a `RESET_FAILED` lease with the reason "other node answers", **When** the reset is
+   confirmed with its lease ID and `forget: true`, **Then** the lease ends as `FORGOTTEN` without
+   any request, audited, and the result says the level may still be raised on that node.
+10. **Given** a lease whose server entry was removed from the configuration, **When** 7 days have
+    passed after its expiry, **Then** it ends as `FORGOTTEN`, audited; until then the startup log
+    and `--check-config` show it.
+11. **Given** a node whose lease is `RESET_FAILED`, **When** a new set is requested, **Then** it is
+    refused before any change, naming the failed reset.
 
 ---
 
@@ -266,8 +275,9 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   optional `message`: a reference from the listing; optional `module`: filter for the listing;
   optional `maxChars`), `get_node_config` (inputs `target`; optional `names`: list of allowlisted
   names), `set_temporary_log_level` (inputs `node`; `loggers`: 1–5 names; `level`; optional
-  `durationMinutes`; optional `confirmationCode`) and `reset_temporary_log_level` (inputs `node` or
-  `leaseId`; optional `forget`; optional `confirmationCode`).
+  `durationMinutes`; optional `confirmationCode`) and `reset_temporary_log_level` (inputs exactly
+  one of `node` or `leaseId`; `forget: true` only with and always with `leaseId`; optional
+  `confirmationCode`; other combinations are refused with `INVALID_INPUT`).
 - **FR-002**: Each tool MUST be offered only when at least one node has the INUBIT client
   installation configured and its group sets the tool's opt-in; each opt-in is a group setting,
   boolean, default `false`: `unsupported.nodeStatusRead` (`list_cluster_nodes`),
@@ -354,28 +364,35 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   state the precondition that a server entry addresses one node directly (as for 021) and the
   remaining risk that a load balancer may route the change to another node.
 - **FR-043**: After a successful set the MCP server MUST record a lease (server, INUBIT node,
-  loggers with level, set time, expiry, owner instance, audit id) durably and owner-only in the
-  profile's data directory, serialized against concurrent instances. The owner instance is
-  identified by process ID plus process start time. A set that merges into an existing lease makes
-  the setting instance the owner. The owner resets the node with `trace -r` when the lease expires
-  (within one minute) and before it shuts down (all its nodes in parallel, waiting at most
-  `cliTimeout` in total; a lease not reset then stays open). Every running instance MUST, at least
-  every minute and at its start, take over and reset expired or `RESET_FAILED` leases whose owner
-  instance no longer runs. These cleanup resets MUST run whenever the node is still configured and
-  has credentials, also when write tools are off (owner decision, see Clarifications); otherwise
-  the lease is `RESET_FAILED` and a startup warning. A failed reset MUST be retried at least every
-  minute while an instance runs and at every start until it succeeds or the reset tool ends the
-  lease. Every automatic reset,
-  successful or failed, MUST produce an audit record (tool, server, node, lease, outcome).
+  loggers with level, set time, expiry, owner instance, audit id) durably, readable and writable
+  only by the operating-system user, in the profile's data directory, serialized against concurrent
+  instances. The owner instance is identified by process ID plus process start time. A set that
+  merges into an existing lease makes the setting instance the owner. The owner resets the node with
+  `trace -r` when the lease expires (within one minute) and before it shuts down (all its nodes in
+  parallel, waiting at most `cliTimeout` in total; a lease not reset then stays open). A set for a
+  node whose lease is `RESET_FAILED` MUST be refused before any change until that reset succeeded or
+  the lease was forgotten. Every running instance MUST, at least every minute and at its start, take
+  over and reset expired or `RESET_FAILED` leases whose owner instance no longer runs. These cleanup
+  resets MUST run whenever all preconditions of FR-005 and FR-006 hold (node configured, client
+  installation and credentials available, version supported and detectable), also when write tools
+  are off (owner decision, see Clarifications); otherwise the lease is `RESET_FAILED` and a startup
+  warning. A failed reset MUST be retried at least every minute while an instance runs and at every
+  start until it succeeds or the reset tool ends the lease. Every automatic reset, successful or
+  failed, MUST produce an audit record (tool, server, node, lease, outcome).
 - **FR-044**: `reset_temporary_log_level` with `node` MUST reset the addressed node and end its
   lease; it MUST also reset a node without a lease (cleaning up an earlier change). With `leaseId`
-  and `forget: true` it MUST end a lease that cannot be reset any more (server entry removed,
-  another node answers) without sending anything, audited, with a result saying the level may
-  still be raised on that node until its restart.
+  and `forget: true` it MUST end a lease that cannot be reset (another node answers) without
+  sending anything, audited, with a result saying the level may still be raised on that node until
+  its restart; this is only possible while the lease's server is configured, and the guards of
+  FR-040 are checked against that server's group. A lease whose server entry is no longer
+  configured MUST end automatically 7 days after its expiry in the state `FORGOTTEN` (audited, a
+  startup warning until then).
 - **FR-045**: The set and reset results MUST state that the reset restores every temporary level on
   the node, also those of other users, that levels can be lost earlier (restart, log configuration
   reload), and the expiry. `get_health` MUST show the open and failed leases of a node (also when
-  write tools are off). Ended leases MUST be kept for 7 days, then removed.
+  write tools are off); leases of servers that are no longer configured MUST appear in the startup
+  log and the configuration summary (`--check-config`). Ended leases (`RESET`, `FORGOTTEN`) MUST be
+  kept for 7 days, then removed.
 
 ### Key Entities
 
@@ -384,7 +401,8 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
 - **I/O message reference**: process name, process ID, module name and ID, direction, index.
 - **Node configuration value**: name, value, type, display name, description, category, flags.
 - **Log-level lease**: lease ID, server, INUBIT node, loggers with level, set time, expiry, owner
-  instance, state (`ACTIVE`, `RESET`, `RESET_FAILED`), last reset attempt.
+  instance, state (`ACTIVE`, `RESET`, `RESET_FAILED`, `FORGOTTEN`), last reset attempt and its
+  reason.
 
 ## Success Criteria *(mandatory)*
 
