@@ -750,7 +750,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   `SECRET_UNRESOLVED` and `TLS_ERROR` (nothing launched), `MAINTENANCE_MODE` from the detection
   before launch (service level); after each failure
   no file in the folder, private directory deleted and audit `FAILED` with the code
-- [ ] T045 [P] [US2] `docs/setup.md` (FR-004, US2-5, D-25; after T009 and T042, which changes the section 6
+- [X] T045 [P] [US2] `docs/setup.md` (FR-004, US2-5, D-25; after T009 and T042, which changes the section 6
   examples of the same file): subsection `### Unsupported functions`
   gets the `unsupported.serverLogRead` table row, the YAML example and the FR-004 text
   **verbatim** from contracts/configuration-delta.md "Documentation text", after the
