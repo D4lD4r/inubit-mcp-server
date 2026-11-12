@@ -4,8 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.inubit.ibis.client.rest.InubitClientFactory;
+import com.inubit.ibis.common.CurrentUser;
 import com.inubit.ibis.configuration.utils.ConnectionData;
 import com.inubit.ibis.configuration.utils.io.MultipartDownloadThread;
+import com.inubit.ibis.server.cache.NodeName;
+import com.inubit.ibis.server.cluster.ClusterClient;
+import com.inubit.ibis.server.cluster.data.Node;
 import com.inubit.ibis.soap.IBISSoapClient;
 import com.inubit.ibis.utils.I_IBISClientInterface;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.Call;
@@ -38,6 +42,8 @@ class FakeInubitClientTest {
     private static final String OBJECT_TYPE = "queue_manager@@@Workflow-0001@@@error";
     private static final String MISSING = "@Start@Unable to download@@@" + FILE
         + "@End@acme/workflow/Workflow-0001/error/" + FILE;
+    private static final String NODE = "inubit-node-01";
+    private static final String LOG = "webservice.log";
 
     @TempDir
     Path dir;
@@ -151,6 +157,95 @@ class FakeInubitClientTest {
         }
     }
 
+    /** Feature 021 (research D-2, D-22): the cluster client's node and log download. */
+    @Test
+    void clusterClientReturnsTheScriptedNodeAndANotStartedLogDownload() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .file(LOG, "2026-11-12 10:00:00,000 1 [WebService]\n".getBytes(StandardCharsets.UTF_8));
+        Path log = dir.resolve(LOG);
+        try (FakeInubitScript.Activation ignored = script.activate()) {
+            IBISSoapClient client = new IBISSoapClient("https://inubit.example.test/ibis?isCli",
+                null, null, null, null, false);
+            client.loginUserCli(USER, TestSecrets.CONFIGURED_PASSWORD);
+            assertThat(CurrentUser.getClientUID()).isNotEmpty();
+            assertThat(CurrentUser.getUsedAdditionalUserGroup()).isNull();
+            ClusterClient cluster = new ClusterClient(client, USER, CurrentUser.getClientUID(),
+                CurrentUser.getUsedAdditionalUserGroup());
+            Node node = cluster.getNode();
+            NodeName nodeName = node.getNodeName();
+            assertThat(nodeName.getName()).isEqualTo(NODE);
+            MultipartDownloadThread thread = cluster.clusterDownload(log.toFile(), nodeName, LOG);
+            assertThat(thread.getState()).isEqualTo(Thread.State.NEW);
+            assertThat(log).doesNotExist();
+            thread.start();
+            thread.join();
+            assertThat(thread.exceptionOccured()).isFalse();
+            client.logoutUser(USER);
+        }
+        assertThat(log).hasContent("2026-11-12 10:00:00,000 1 [WebService]");
+        assertThat(script.calls()).containsExactly(
+            call("IBISSoapClient.<init>", "https://inubit.example.test/ibis?isCli", "null",
+                "null", "null", "null", "false"),
+            call("IBISSoapClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+            call("ClusterClient.<init>", "IBISSoapClient", USER, CurrentUser.getClientUID(),
+                "null"),
+            call("ClusterClient.getNode"),
+            call("ClusterClient.clusterDownload", log.toString(), NODE, LOG),
+            call("MultipartDownloadThread.start"),
+            call("MultipartDownloadThread.exceptionOccured"),
+            call("IBISSoapClient.logoutUser", USER));
+    }
+
+    @Test
+    void nodeNameFactoryKeepsTheName() {
+        assertThat(NodeName.nodeName(NODE).getName()).isEqualTo(NODE);
+    }
+
+    @Test
+    void getNodeFailureThrowsTheScriptedChain() {
+        FakeInubitScript script = new FakeInubitScript().nodeFails(
+            new Failure(Exception.class.getName(), "Server not in cluster mode."));
+        try (FakeInubitScript.Activation ignored = script.activate()) {
+            ClusterClient cluster = new ClusterClient(new IBISSoapClient(
+                "http://inubit.example.test/ibis?isCli", null, null, null, null, false), USER,
+                CurrentUser.getClientUID(), null);
+            assertThatThrownBy(cluster::getNode).isExactlyInstanceOf(Exception.class)
+                .hasMessage("Server not in cluster mode.");
+        }
+        assertThat(script.calls()).endsWith(call("ClusterClient.getNode"));
+    }
+
+    @Test
+    void unscriptedNodeIsAFailure() {
+        try (FakeInubitScript.Activation ignored = new FakeInubitScript().activate()) {
+            ClusterClient cluster = new ClusterClient(new IBISSoapClient(
+                "http://inubit.example.test/ibis?isCli", null, null, null, null, false), USER,
+                CurrentUser.getClientUID(), null);
+            assertThatThrownBy(cluster::getNode).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("node");
+        }
+    }
+
+    @Test
+    void logDownloadFailureIsReportedByTheThreadAndWritesNothing() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .fileFails(LOG, new Failure(Exception.class.getName(), "Unable to download " + LOG));
+        Path log = dir.resolve(LOG);
+        try (FakeInubitScript.Activation ignored = script.activate()) {
+            ClusterClient cluster = new ClusterClient(new IBISSoapClient(
+                "http://inubit.example.test/ibis?isCli", null, null, null, null, false), USER,
+                CurrentUser.getClientUID(), null);
+            MultipartDownloadThread thread = cluster.clusterDownload(log.toFile(),
+                cluster.getNode().getNodeName(), LOG);
+            thread.start();
+            thread.join();
+            assertThat(thread.exceptionOccured()).isTrue();
+            assertThat(thread.getException()).isExactlyInstanceOf(Exception.class)
+                .hasMessage("Unable to download " + LOG);
+        }
+        assertThat(log).doesNotExist();
+    }
+
     @Test
     void onlyOneScriptIsActiveAndClosingDeactivatesIt() {
         FakeInubitScript script = new FakeInubitScript();
@@ -179,6 +274,10 @@ class FakeInubitClientTest {
                 "com/inubit/ibis/client/rest/InubitClientFactory.class",
                 "com/inubit/ibis/configuration/utils/io/MultipartDownloadThread.class",
                 "com/inubit/ibis/utils/I_IBISClientInterface.class",
+                "com/inubit/ibis/server/cluster/ClusterClient.class",
+                "com/inubit/ibis/server/cluster/data/Node.class",
+                "com/inubit/ibis/server/cache/NodeName.class",
+                "com/inubit/ibis/common/CurrentUser.class",
                 "de/dadecker/inubit/mcp/testing/FakeInubitScript.class");
             assertThat(classes).allMatch(name -> name.startsWith("com/inubit/ibis/")
                 || name.startsWith("de/dadecker/inubit/mcp/testing/FakeInubitScript"));

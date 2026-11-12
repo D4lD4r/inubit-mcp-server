@@ -607,7 +607,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   appended to `specs/021-server-log-download/research.md` "Spike findings". **If the single-node
   server answers `Server not in cluster mode.` or `getNode()` fails, stop US2 and report to the
   owner (D-2/D-5 do not hold)**
-- [ ] T035 [P] [US2] Fake vendor classes (D-22): `src/test/java/com/inubit/ibis/server/cluster/ClusterClient.java`
+- [X] T035 [P] [US2] Fake vendor classes (D-22): `src/test/java/com/inubit/ibis/server/cluster/ClusterClient.java`
   (four-argument constructor `(I_IBISClientInterface, String user, String clientUID, String
   additionalUserGroup)`, `Node getNode()`, `MultipartDownloadThread clusterDownload(File, NodeName,
   String)` returning a **not started** thread), `Node` (`getNodeName()`), `NodeName` (`getName()`,
