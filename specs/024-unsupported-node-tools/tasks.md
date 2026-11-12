@@ -77,7 +77,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   of US4-3 — owner may override)); the state of feature 022 (merged or not → which guard T047 uses and
   whether T074 runs here); and ask the operator **now** for the read spikes T018 and T060 (they run
   in parallel to the offline work)
-- [ ] T002 [P] Fixture root (D-26): `src/test/resources/fixtures/node-tools/README.md` describing the
+- [X] T002 [P] Fixture root (D-26): `src/test/resources/fixtures/node-tools/README.md` describing the
   layout `{v8_1,v9_0}/{cluster-nodes,io-log,node-config,log-level}/<case>.<ext>` (helper cases:
   `.frames`, `.exit`, io-log also `.list`, `.message`; StartCLI cases: `.stdout`, `.stderr`,
   `.exit`; every case `.origin`), the `.origin` formats "`recorded <date> <version> neutralized`" /
