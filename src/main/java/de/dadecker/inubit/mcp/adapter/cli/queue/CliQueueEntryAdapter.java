@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.TlsPeer;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperRequest;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperRequest.QueueEntryRead;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperTrustStore;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperVariant;
 import de.dadecker.inubit.mcp.adapter.cli.queue.QueueEntryHelperClassifier.Failure;
@@ -176,17 +177,19 @@ public final class CliQueueEntryAdapter implements QueueEntryContentPort {
                 deadline);
             boolean data = parts.contains(EntryPart.DATA);
             Path out = installation.outDirectory();
+            QueueEntryRead read = new QueueEntryRead(variant.objectType(ref.workflow()),
+                ref.fileName(), data ? Optional.of(out.resolve(DATA_FILE)) : Optional.empty(),
+                out.resolve(VARIABLES_FILE));
             HelperRequest request = new HelperRequest(HelperRequest.newNonce(), variant.name(),
                 selected.cli().url(), trustStore,
-                !selected.tls().disableHostnameVerification(), variant.objectType(ref.workflow()),
-                ref.fileName(), data ? Optional.of(out.resolve(DATA_FILE)) : Optional.empty(),
-                out.resolve(VARIABLES_FILE), current.username().orElseThrow().value(),
-                current.password().orElseThrow().value());
+                !selected.tls().disableHostnameVerification(),
+                current.username().orElseThrow().value(),
+                current.password().orElseThrow().value(), read);
             Outcome outcome = run(installation, request, clientHome, release, deadline);
             if (outcome instanceof Failure failure) {
                 throw new ToolErrorException(located(failure.error()));
             }
-            return content((Reported) outcome, request, parts);
+            return content((Reported) outcome, read, parts);
         }
     }
 
@@ -265,14 +268,14 @@ public final class CliQueueEntryAdapter implements QueueEntryContentPort {
             .withNode(server.id()));
     }
 
-    private RawEntryContent content(Reported reported, HelperRequest request,
+    private RawEntryContent content(Reported reported, QueueEntryRead read,
         Set<EntryPart> parts) {
         PartResult<byte[]> data = parts.contains(EntryPart.DATA)
-            ? part(reported.parts().get(EntryPart.DATA), request.dataOut().orElseThrow(),
+            ? part(reported.parts().get(EntryPart.DATA), read.dataOut().orElseThrow(),
                 bytes -> new PartResult.Read<>(bytes))
             : new PartResult.NotRequested<>(NOT_REQUESTED);
         PartResult<List<RawVariable>> variables = parts.contains(EntryPart.VARIABLES)
-            ? part(reported.parts().get(EntryPart.VARIABLES), request.variablesOut(),
+            ? part(reported.parts().get(EntryPart.VARIABLES), read.variablesOut(),
                 WfspParser::parse)
             : new PartResult.NotRequested<>(NOT_REQUESTED);
         return new RawEntryContent(data, variables);

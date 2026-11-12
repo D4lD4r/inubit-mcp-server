@@ -29,12 +29,13 @@ import java.util.Set;
  * because it is shipped as one class-file resource.
  *
  * <p>Protocol: the request arrives on stdin (UTF-8, {@code qe=1} first, one {@code key=value} per
- * line with every value percent-encoded, {@code end} last); results are the stdout lines that
- * start with {@code #QE1:<nonce> }, followed by space-separated percent-encoded tokens, so output
- * of the vendor libraries cannot forge one; an empty token is written as {@code -}. Exit codes: 0
- * after {@code end}, 1 anything else (also any unexpected {@link Throwable}), 2 malformed request,
- * 3 login failed (also a vendor class that fails to initialize while the client is created), 4
- * vendor API missing. The request, the passwords and the content are never printed.
+ * line with every value percent-encoded, {@code end} last; the optional key {@code op} names the
+ * operation, absent meaning {@code queueEntry}, the only one so far, feature 021 D-4); results
+ * are the stdout lines that start with {@code #QE1:<nonce> }, followed by space-separated
+ * percent-encoded tokens, so output of the vendor libraries cannot forge one; an empty token is
+ * written as {@code -}. Exit codes: 0 after {@code end}, 1 anything else (also any unexpected
+ * {@link Throwable}), 2 malformed request, 3 login failed (also a vendor class that fails to
+ * initialize while the client is created), 4 vendor API missing. The request, the passwords and the content are never printed.
  *
  * <p>Vendor classes are resolved only through the {@link ClassLoader} given to {@link #run} and
  * used only by reflection: 8.1 ({@code SOAP_81}) through {@code IBISSoapClient}, 9.0
@@ -53,7 +54,9 @@ public final class ClientHelper {
 
     private static final String END = "end";
     private static final String FRAME_PREFIX = "#QE1:";
-    private static final List<String> KEYS = List.of("qe", "nonce", "variant", "url",
+    private static final String OP = "op";
+    private static final String QUEUE_ENTRY = "queueEntry";
+    private static final List<String> KEYS = List.of("qe", OP, "nonce", "variant", "url",
         "trustStore", "trustStorePassword", "hostnameVerification", "objectType", "fileName",
         "parts", "dataOut", "variablesOut", "user", "password");
     private static final List<String> NOT_EMPTY = List.of("url", "objectType", "fileName",
@@ -363,6 +366,8 @@ public final class ClientHelper {
             }
             request.put(key, decode(line.substring(equals + 1)));
         }
+        // a request without op is a feature-020 queue-entry read (021 D-4)
+        request.putIfAbsent(OP, QUEUE_ENTRY);
         validate(request);
         return request;
     }
@@ -377,7 +382,8 @@ public final class ClientHelper {
             }
         }
         String parts = request.get("parts");
-        if (!request.get("nonce").matches("[0-9a-fA-F]{32}")
+        if (!QUEUE_ENTRY.equals(request.get(OP))
+            || !request.get("nonce").matches("[0-9a-fA-F]{32}")
             || !List.of("SOAP_81", "REST_90").contains(request.get("variant"))
             || !List.of("true", "false").contains(request.get("hostnameVerification"))
             || !List.of("data,variables", "variables").contains(parts)

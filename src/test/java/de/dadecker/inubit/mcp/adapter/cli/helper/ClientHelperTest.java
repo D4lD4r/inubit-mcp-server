@@ -131,7 +131,13 @@ class ClientHelperTest {
             Arguments.of("escape with non-ASCII digits", request(lines -> lines.put("password",
                 TestSecrets.CONFIGURED_PASSWORD + "%\u0663\u0663"))),
             Arguments.of("escape decodes to invalid UTF-8", request(lines -> lines.put(
-                "trustStorePassword", TestSecrets.TRUST_STORE_PASSWORD + "%FF"))));
+                "trustStorePassword", TestSecrets.TRUST_STORE_PASSWORD + "%FF"))),
+            // feature 021 (D-4): op is optional; until T037 only queueEntry is an operation
+            Arguments.of("operation serverLog", withOp("op=serverLog")),
+            Arguments.of("unknown operation", withOp("op=other")),
+            Arguments.of("empty operation", withOp("op=")),
+            Arguments.of("operation in another case", withOp("op=QueueEntry")),
+            Arguments.of("operation repeated", withOp("op=queueEntry\nop=queueEntry")));
     }
 
     @ParameterizedTest(name = "{0}")
@@ -162,7 +168,39 @@ class ClientHelperTest {
                 lines.put("nonce", NONCE.toUpperCase());
                 lines.put("fileName", "Order%20%C3%BC%2b0001.xml");
             })),
-            Arguments.of("CRLF line ends", request(lines -> { }).replace("\n", "\r\n")));
+            Arguments.of("CRLF line ends", request(lines -> { }).replace("\n", "\r\n")),
+            Arguments.of("operation queueEntry", withOp("op=queueEntry")),
+            Arguments.of("operation queueEntry as the last key",
+                request(lines -> lines.put("op", "queueEntry"))));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SOAP_81", "REST_90"})
+    void aRequestWithOpQueueEntryBehavesExactlyAsTheSameRequestWithout(String variant)
+        throws Exception {
+        Path data = dir.resolve("data.bin");
+        Path variables = dir.resolve("variables.wfsp");
+        String request = request(lines -> {
+            lines.put("variant", variant);
+            lines.put("url", encode(variant.equals("SOAP_81") ? URL_81 : URL_90));
+            outputs(lines, data, variables);
+        });
+        FakeInubitScript without = new FakeInubitScript()
+            .file(FILE, DATA)
+            .file(FILE + ".wfsp", VARIABLES);
+        FakeInubitScript with = new FakeInubitScript()
+            .file(FILE, DATA)
+            .file(FILE + ".wfsp", VARIABLES);
+
+        Run plain = run(without, request, vendor());
+        Run withOp = run(with, request.replace("qe=1\n", "qe=1\nop=queueEntry\n"), vendor());
+
+        assertThat(plain.exit()).isZero();
+        assertThat(withOp.exit()).isEqualTo(plain.exit());
+        assertThat(withOp.out()).isEqualTo(plain.out());
+        assertThat(with.calls()).isEqualTo(without.calls());
+        assertThat(data).hasBinaryContent(DATA);
+        assertThat(variables).hasBinaryContent(VARIABLES);
     }
 
     // --- the vendor flows (FR-006, FR-007, FR-014, FR-015, D-4) ----------------------------
@@ -600,6 +638,11 @@ class ClientHelperTest {
         StringBuilder text = new StringBuilder();
         lines.forEach((key, value) -> text.append(key).append('=').append(value).append('\n'));
         return text.append("end\n").toString();
+    }
+
+    /** The well-formed 8.1 request with {@code opLines} as the lines after {@code qe=1}. */
+    static String withOp(String opLines) {
+        return request(lines -> { }).replace("qe=1\n", "qe=1\n" + opLines + "\n");
     }
 
     /** Runs the helper with {@code script} active. */

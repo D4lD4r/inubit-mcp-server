@@ -618,7 +618,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   (node name, `getNode` failure, download content or exception text, recorded call list with
   arguments); `testing/FakeInubitClient.java` packs them into the fake client JAR. Failing tests
   first in `testing/FakeInubitClientTest.java`
-- [ ] T036 [P] [US2] Helper request, frames and the optional `op` key (D-4; after T004, T010):
+- [X] T036 [P] [US2] Helper request, frames and the optional `op` key (D-4; after T004, T010):
   `adapter/cli/helper/HelperRequest.java` becomes a record with the shared connection fields plus
   a sealed `Operation` (`QueueEntryRead(objectType, fileName, Optional<Path> dataOut, Path
   variablesOut)` | `ServerLogRead(ServerLogKind kind, Path logOut)`, "`kind` only `WEBSERVICE`");

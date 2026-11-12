@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.adapter.cli.helper;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.Call;
@@ -36,11 +37,11 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * The stdin request of the queue-entry helper (research D-4, data-model "Helper request"): its
- * encoding, its validation and its {@code toString}, and a round trip through the helper itself
- * (loaded as in {@link ClientHelperTest}), so the server writes exactly what the helper
- * accepts. Public because {@code QueueEntryHelperClassifierTest} (another package since feature
- * 021, D-3) builds its requests with {@link #request}.
+ * The stdin request of the client helper (research D-4, data-model "Helper request"): its
+ * encoding for both operations, its validation and its {@code toString}, and a round trip through
+ * the helper itself (loaded as in {@link ClientHelperTest}), so the server writes exactly what the
+ * helper accepts. Public because {@code QueueEntryHelperClassifierTest} (another package since
+ * feature 021, D-3) builds its requests with {@link #request}.
  */
 @Timeout(60)
 public class HelperRequestTest {
@@ -55,6 +56,7 @@ public class HelperRequestTest {
     private static final String USER = "jdoe";
     private static final String OBJECT_TYPE = "queue_manager@@@Workflow-0001@@@error";
     private static final String FILE = "Order-0001.xml";
+    private static final Path LOG_OUT = Path.of("/var/qe-0001/out/webservice.log");
 
     private static URLClassLoader loader;
     private static Class<?> helper;
@@ -92,6 +94,25 @@ public class HelperRequestTest {
             + "parts=data%2Cvariables\n"
             + "dataOut=" + encoded(DATA_OUT) + "\n"
             + "variablesOut=" + encoded(VARIABLES_OUT) + "\n"
+            + "user=jdoe\n"
+            + "password=" + TestSecrets.CONFIGURED_PASSWORD + "\n"
+            + "end\n");
+    }
+
+    @Test
+    void encodesAServerLogRequestWithItsOperationSecondAndNoFileName() {
+        String text = new String(serverLogRequest(r -> { }).encode(), StandardCharsets.UTF_8);
+
+        assertThat(text).isEqualTo("qe=1\n"
+            + "op=serverLog\n"
+            + "nonce=" + NONCE + "\n"
+            + "variant=SOAP_81\n"
+            + "url=https%3A%2F%2Finubit.example.test%3A8443%2Fibis%2Fservlet%2FIBIS\n"
+            + "trustStore=" + encoded(TRUST_STORE) + "\n"
+            + "trustStorePassword=" + TestSecrets.TRUST_STORE_PASSWORD + "\n"
+            + "hostnameVerification=true\n"
+            + "log=webservice\n"
+            + "logOut=" + encoded(LOG_OUT) + "\n"
             + "user=jdoe\n"
             + "password=" + TestSecrets.CONFIGURED_PASSWORD + "\n"
             + "end\n");
@@ -182,6 +203,26 @@ public class HelperRequestTest {
             invalid("null variablesOut", r -> r.variablesOut = null, "variablesOut"));
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidServerLogRequests")
+    void anInvalidServerLogRequestIsRefusedNamingTheFieldButNoValue(String label,
+        Consumer<Builder> edit, String field) {
+        assertThatThrownBy(() -> serverLogRequest(edit))
+            .isInstanceOfAny(IllegalArgumentException.class, NullPointerException.class)
+            .hasMessageContaining(field)
+            .satisfies(e -> TestSecrets.assertNoLeak(String.valueOf(e.getMessage())))
+            .satisfies(e -> assertThat(e.getMessage()).doesNotContain(USER));
+    }
+
+    static Stream<Arguments> invalidServerLogRequests() {
+        return Stream.of(
+            invalid("trace is not read by the helper", r -> r.kind = ServerLogKind.TRACE, "kind"),
+            invalid("null kind", r -> r.kind = null, "kind"),
+            invalid("null logOut", r -> r.logOut = null, "logOut"),
+            invalid("empty logOut", r -> r.logOut = Path.of(""), "logOut"),
+            invalid("empty user", r -> r.user = "", "user"));
+    }
+
     /** The percent-encoded form of a path as this platform writes it ({@code \} on Windows). */
     private static String encoded(Path path) {
         return path.toString().replace("/", "%2F").replace("\\", "%5C");
@@ -203,6 +244,16 @@ public class HelperRequestTest {
             .doesNotContain("jdoe-0001", "user", "password");
         TestSecrets.assertNoLeak(request.toString());
         TestSecrets.assertNoLeak(String.valueOf(request.trustStore()));
+    }
+
+    @Test
+    void toStringOfAServerLogRequestNamesTheLogButNeitherUserNorPasswords() {
+        HelperRequest request = serverLogRequest(r -> r.user = "jdoe-0001");
+
+        assertThat(request.toString())
+            .contains(NONCE, "SOAP_81", URL_81.toString(), "WEBSERVICE", LOG_OUT.toString())
+            .doesNotContain("jdoe-0001", "user", "password");
+        TestSecrets.assertNoLeak(request.toString());
     }
 
     // --- round trip through the helper (D-4) -----------------------------------------------
@@ -320,7 +371,10 @@ public class HelperRequestTest {
 
     // --- helpers ---------------------------------------------------------------------------
 
-    /** The fields of a request; {@link #request} builds a valid 8.1 one, changed by an edit. */
+    /**
+     * The fields of a request; {@link #request} builds a valid 8.1 queue-entry read and
+     * {@link #serverLogRequest} a valid 8.1 server-log read from them, changed by an edit.
+     */
     public static final class Builder {
         public String nonce = NONCE;
         public String variant = "SOAP_81";
@@ -334,13 +388,23 @@ public class HelperRequestTest {
         public Path variablesOut = VARIABLES_OUT;
         public String user = USER;
         public Secret password = Secret.of(TestSecrets.CONFIGURED_PASSWORD);
+        public ServerLogKind kind = ServerLogKind.WEBSERVICE;
+        public Path logOut = LOG_OUT;
     }
 
     public static HelperRequest request(Consumer<Builder> edit) {
         Builder r = new Builder();
         edit.accept(r);
         return new HelperRequest(r.nonce, r.variant, r.url, r.trustStore, r.hostnameVerification,
-            r.objectType, r.fileName, r.dataOut, r.variablesOut, r.user, r.password);
+            r.user, r.password, new HelperRequest.QueueEntryRead(r.objectType, r.fileName,
+                r.dataOut, r.variablesOut));
+    }
+
+    public static HelperRequest serverLogRequest(Consumer<Builder> edit) {
+        Builder r = new Builder();
+        edit.accept(r);
+        return new HelperRequest(r.nonce, r.variant, r.url, r.trustStore, r.hostnameVerification,
+            r.user, r.password, new HelperRequest.ServerLogRead(r.kind, r.logOut));
     }
 
     static Call call(String name, String... arguments) {

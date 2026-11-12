@@ -11,7 +11,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * The frames the queue-entry helper wrote for one call (research D-4, data-model "Helper
+ * The frames the client helper wrote for one call (research D-4, data-model "Helper
  * frames"): only stdout lines that start with {@code #QE1:<nonce> } of that call count, every
  * other line (vendor output, a frame of another nonce) is ignored; tokens are percent-decoded and
  * {@code -} is an empty token. Parsing stops at the first unknown frame type, malformed frame or
@@ -33,15 +33,16 @@ public record HelperFrames(List<Frame> frames, Optional<Problem> problem) {
         FRAME_AFTER_END
     }
 
-    /** The part a {@code part} frame is about. */
+    /** The part a {@code part} frame is about: a queue entry's part or the server log. */
     public enum Part {
         DATA,
-        VARIABLES
+        VARIABLES,
+        LOG
     }
 
     /** One frame. */
-    public sealed interface Frame permits Start, LoginOk, LoginError, PartOk, PartError,
-        ApiMissing, End {
+    public sealed interface Frame permits Start, LoginOk, LoginError, NodeOk, NodeError, PartOk,
+        PartError, ApiMissing, End {
     }
 
     /** {@code start <variant>}: the request was read and the vendor classes were found. */
@@ -68,14 +69,31 @@ public record HelperFrames(List<Frame> frames, Optional<Problem> problem) {
         }
     }
 
-    /** {@code part <data|variables> ok <bytes>}: the part was written to its file. */
+    /** {@code node ok <nodeName>}: the name of the node the server log comes from (D-5). */
+    public record NodeOk(String name) implements Frame {
+        public NodeOk {
+            Objects.requireNonNull(name, "name");
+        }
+    }
+
+    /** {@code node error <exceptionChain> <message>}, as {@link LoginError}. */
+    public record NodeError(List<String> exceptionChain, String message) implements Frame {
+        public NodeError {
+            exceptionChain = List.copyOf(exceptionChain);
+            Objects.requireNonNull(message, "message");
+        }
+    }
+
+    /** {@code part <data|variables|log> ok <bytes>}: the part was written to its file. */
     public record PartOk(Part part, long bytes) implements Frame {
         public PartOk {
             Objects.requireNonNull(part, "part");
         }
     }
 
-    /** {@code part <data|variables> error <exceptionChain> <message>}, as {@link LoginError}. */
+    /**
+     * {@code part <data|variables|log> error <exceptionChain> <message>}, as {@link LoginError}.
+     */
     public record PartError(Part part, List<String> exceptionChain, String message)
         implements Frame {
         public PartError {
@@ -144,6 +162,7 @@ public record HelperFrames(List<Frame> frames, Optional<Problem> problem) {
         return switch (type) {
             case "start" -> Optional.of(new Start(only(rest, 1).get(0)));
             case "login" -> Optional.of(login(rest));
+            case "node" -> Optional.of(node(rest));
             case "part" -> Optional.of(part(rest));
             case "api" -> Optional.of(apiMissing(rest));
             case "end" -> Optional.of(end(rest));
@@ -163,10 +182,22 @@ public record HelperFrames(List<Frame> frames, Optional<Problem> problem) {
         throw new IllegalArgumentException("malformed login frame");
     }
 
+    private static Frame node(List<String> tokens) {
+        if (tokens.size() == 2 && tokens.get(0).equals("ok")) {
+            return new NodeOk(only(tokens, 2).get(1));
+        }
+        if (tokens.size() == 3 && tokens.get(0).equals("error")) {
+            List<String> error = only(tokens, 3);
+            return new NodeError(chain(error.get(1)), error.get(2));
+        }
+        throw new IllegalArgumentException("malformed node frame");
+    }
+
     private static Frame part(List<String> tokens) {
         Part part = switch (tokens.isEmpty() ? "" : tokens.get(0)) {
             case "data" -> Part.DATA;
             case "variables" -> Part.VARIABLES;
+            case "log" -> Part.LOG;
             default -> throw new IllegalArgumentException("unknown part");
         };
         String outcome = tokens.size() < 2 ? "" : tokens.get(1);

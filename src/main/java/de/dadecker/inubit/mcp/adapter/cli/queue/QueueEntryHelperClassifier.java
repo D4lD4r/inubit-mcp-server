@@ -9,6 +9,7 @@ import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Part;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.PartError;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.PartOk;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperRequest;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperRequest.QueueEntryRead;
 import de.dadecker.inubit.mcp.config.SecretLabels;
 import de.dadecker.inubit.mcp.domain.model.EntryPart;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -168,8 +169,9 @@ public final class QueueEntryHelperClassifier {
      * {@code login ok}, one frame per requested part in order, {@code end}.
      */
     private static Optional<List<Frame>> partFrames(List<Frame> frames, HelperRequest request) {
-        List<Part> expected = request.dataOut().isPresent()
-            ? List.of(Part.DATA, Part.VARIABLES) : List.of(Part.VARIABLES);
+        boolean data = request.operation() instanceof QueueEntryRead read
+            && read.dataOut().isPresent();
+        List<Part> expected = data ? List.of(Part.DATA, Part.VARIABLES) : List.of(Part.VARIABLES);
         if (frames.size() != expected.size() + 3 || !HelperFailures.started(frames, request)
             || !(frames.get(1) instanceof LoginOk)) {
             return Optional.empty();
@@ -215,6 +217,8 @@ public final class QueueEntryHelperClassifier {
         return switch (part) {
             case DATA -> EntryPart.DATA;
             case VARIABLES -> EntryPart.VARIABLES;
+            // partFrames lets only the requested queue-entry parts through
+            case LOG -> throw new IllegalStateException("not a queue-entry part");
         };
     }
 }
