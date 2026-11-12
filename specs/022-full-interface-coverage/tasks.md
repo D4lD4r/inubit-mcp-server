@@ -124,8 +124,8 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
   - `domain/model/CoverageState.java`: sealed, with `Reachable(tool, action)`, `Covered(tool)`,
     `Planned`, `Undocumented`, `Excluded(reason)`;
   - `domain/model/InterfaceCoverage.java` with `entries()`, `state(channel, entry, line)` and
-    `offered(tool, action, line)` (true only when every declared entry is `Reachable` for that
-    line);
+    `offered(Set<CoverageKey>, line)` (true only when every given entry is `Reachable` for that
+    line; callers pass the entries of a concrete call or part, D-2);
   - a loader that parses the TSV format of `contracts/coverage-list.md`: comment lines,
     `delivered-stories`, the header `channel entry kind area story v8_1 v9_0`.
   - Loading fails on a duplicate (`channel`, `entry`), a missing version state, an unknown state
@@ -171,15 +171,29 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
   - Generate and commit the page.
 - [ ] T010 `ActionSpec` and the coverage gate (D-2, D-12 step 5; after T006, T008):
   - `application/ActionSpec.java`: `tool`, `action`, `Area` (`OPERATION`, `OBJECTS`, `LIBRARIES`,
-    `SETTINGS`, `USERS`, `RUNTIME_DATA`, `READ`), `entries`, `kind` (`READ`, `CHANGE`,
-    `RUNTIME_READ`), `bulk`, `backup`, `restartNotice`.
+    `SETTINGS`, `USERS`, `RUNTIME_DATA`, `READ`), `entries(input)` (the entries a concrete call
+    sends, by variant), `parts` (per part: entries and channel, for multi-part reads),
+    `declaredEntries()` (the union), `kind` (`READ`, `CHANGE`, `RUNTIME_READ`), `bulk`, `backup`,
+    `restartNotice` (research D-2, "gate per call").
+  - `domain/model/InterfaceCoverage.java` gains `refusal(Set<CoverageKey>, line)`, the first
+    entry that is not `Reachable` with its state, for the error text.
   - `application/ActionCatalog.java`: registry by (tool, action).
-  - `application/VersionGate.java`: new `admitAction(String tool, NodeId, ActionSpec)`. It runs
-    the existing capability admission, then `InterfaceCoverage.offered`. When not offered, it
-    gives `UNSUPPORTED_VERSION` with the message naming the action and "not yet verified" (or the
-    exclusion reason).
-  - Failing tests first: `application/VersionGateActionTest.java` covering `reachable`,
-    `planned`, `excluded`, `undocumented` on 9.0, and 6.1 always refused.
+  - `application/VersionGate.java`:
+    - new `admitCall(String tool, NodeId, ActionSpec, Set<CoverageKey> callEntries)`: runs the
+      existing capability admission, then `InterfaceCoverage.offered(callEntries)`; when not
+      offered, `UNSUPPORTED_VERSION` naming the variant and "not yet verified", "not documented
+      for this version" or the exclusion reason;
+    - new `admitParts(String tool, NodeId, ActionSpec, Set<Part>)`: returns the admitted parts and,
+      for each other part, an `UnavailablePart` with that reason or `CLI_UNAVAILABLE` (no client
+      for a CLI part). It refuses only when no requested part is admitted.
+  - Failing tests first: `application/VersionGateActionTest.java`:
+    - `reachable`, `planned`, `excluded`, `undocumented` on 9.0; 6.1 always refused;
+    - a variant refused while its sibling variant is admitted (`moduleName` vs `moduleId` on
+      9.0);
+    - a part not reachable → `unavailable` with "not yet verified" while the others are admitted;
+    - a node without a StartCLI client → CLI parts `unavailable` with `CLI_UNAVAILABLE`, REST parts
+      admitted;
+    - no part admitted → refused.
   - Also add check 6 of `contracts/coverage-list.md` to `architecture/InterfaceCoverageCheckTest.java`:
     every registered `ActionSpec` declares at least one row, and every declared row exists. It
     passes with the empty catalogue and gains entries with each story.
@@ -310,12 +324,16 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
   - version, memory share, blocking queue size and maintenance come from the same `MonitoringPort`
     calls `HealthService` uses, with no StartCLI call for them (AS7, FR-002);
   - each part has its source in `sources`;
-  - the action is admitted through `VersionGate.admitAction` with
-    `ActionSpec(get_server_settings, default, READ, entries…)`;
+  - admitted through `VersionGate.admitParts` with `ActionSpec(get_server_settings, default, READ)`
+    and one part per fact group, each with its entries and channel; a part that is not reachable,
+    or a CLI part on a node without a client, goes to `unavailable` (FR-013); the call is refused
+    only when no part is admitted;
   - `licensedThreads` comes from `/metrics`, and from `GET /license` only when `/metrics` is not
     licensed; `sources` names which.
   - Failing tests first: `application/ServerSettingsServiceTest.java`:
     - AS1, AS3, AS4 (role missing for license → the other parts returned), AS5, AS7;
+    - one part `excluded` in a test coverage file → the other parts returned;
+    - node without a StartCLI client → the REST parts returned, the CLI parts `unavailable`;
     - no `-sv`/`-pctmem`/`getBlockingQueueSize` ever sent (`ScriptedProcessLauncher` records
       argv and stdin).
 - [ ] T022 [US1] Tool `mcp/tools/GetServerSettingsTool.java`:
@@ -474,8 +492,10 @@ forms write files under the unchanged folder rules (US3 AS1–AS8).
   - Failing tests first: adapter tests with WireMock and scripted StartCLI.
 - [ ] T043 [US3] `application/ModelDetailService.java` and tool `mcp/tools/ReadModelDetailsTool.java`:
   - schemas `read_model_details.{input,output}.json`;
-  - actions `module` (`moduleId` | `moduleName`; `moduleName` on 9.0 gives
-    `UNSUPPORTED_VERSION`, row `undocumented`), `metadata`, `libraries` (paged), `checkIsConnector`;
+  - actions `module` (`moduleId` | `moduleName`), `metadata`, `libraries` (paged),
+    `checkIsConnector`; each call is admitted with `VersionGate.admitCall` and its own entries:
+    `moduleName` on 9.0 gives `UNSUPPORTED_VERSION` (row `undocumented`), while `moduleId` on 9.0
+    is admitted (test);
   - read-only, idempotent;
   - announcement on `MODEL_DETAILS`.
   - Failing tests first: `ModelDetailServiceTest.java` (AS2, AS3, AS6 read part, AS8),
@@ -546,7 +566,8 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
     3. write off → `WRITE_DISABLED`;
     4. area opt-in missing → `NOT_CONFIGURED` with next step `administration.<area>` (skipped for
        `OPERATION`);
-    5. `VersionGate.admitAction` → `UNSUPPORTED_VERSION`;
+    5. `VersionGate.admitCall` with the entries of this call (`ActionSpec.entries(input)`) →
+       `UNSUPPORTED_VERSION` naming the variant;
     6. availability → `CLI_UNAVAILABLE` / `AUTH_FAILED`.
   - The area check reads `EffectiveNodeConfig.administration()`, which does not exist yet: add a
     stub `enabled(Area)` that is true only for `OPERATION` and `READ` until T067.
@@ -695,8 +716,10 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
     sent), `ManageTagsToolTest.java`.
 - [ ] T065 [US4] Cross-cutting safety tests for the two tools:
   - `application/WriteRaceToolsTest.java` +2 (version change → refused, nothing sent);
-  - a production refusal test for every action (SC-004);
-  - a "write off" refusal test for every action (SC-003);
+  - new `application/ChangeToolsProductionRefusalTest.java`: a production refusal test for every
+    action of every change tool, parameterized over `ActionCatalog` (SC-004); later stories add
+    their tools to it;
+  - a "write off" refusal test for every action, in the same class (SC-003);
   - `security/OperationSecretLeakTest.java`.
 - [ ] T066 [US4] Contracts, flips, docs and PR [BLOCKED: T054, T055]:
   - `OperateV81ContractTest.java`, `TagAdminV81ContractTest.java`;
@@ -791,7 +814,7 @@ code, and names the operation id and host; the reads need only the opt-in (US5 A
   - the description says the archive stays on the INUBIT hosts and the operator moves it, and
     gives the order of steps.
   - Failing tests first: `TransferRuntimeDataToolTest.java`, `ToolAnnouncementTest`,
-    `WriteRaceToolsTest` +1, the production/write-off refusal tests,
+    `WriteRaceToolsTest` +1, the tool's actions added to `ChangeToolsProductionRefusalTest`,
     `security/RuntimeTransferSecretLeakTest.java`.
 - [ ] T074 [US5] Contracts, flips, docs and PR [BLOCKED: T069]:
   - `RuntimeTransferV81ContractTest.java`;
@@ -955,6 +978,8 @@ fails (US6 AS1–AS17).
     - rename: old and new name and the referencing objects (AS9);
     - metadata import: the metadata it replaces (AS12);
   - the backup before every delete, rename or import (T083), and nothing is sent if it fails;
+  - each call admitted with `VersionGate.admitCall` and the entries of its variant (with or
+    without `version`, the `rename` kind), so an excluded variant does not block the others;
   - `startIsConnector` is offered only when its row is `reachable` (T079, L-14);
   - the metadata import file goes to StartCLI only as a `PrivateUploadCopy`;
   - lock key `node|OBJECTS|<kind>:<name>`.
@@ -970,7 +995,8 @@ fails (US6 AS1–AS17).
     - upload name, size and SHA-256 (AS3);
     - `deleteAllLibraries` lists every file, and the confirmation is valid only for that list
       (AS4, FR-017);
-    - keys: module, owner and alias, with the key password from `secretEntry` (AS8);
+    - keys: module, owner and alias, with the key password from `secretEntry` (AS8); the module is
+      backed up first (T083, FR-018), and nothing is sent if that fails (test);
     - an EDI target that exists is backed up first (AS15);
     - plug-ins re-read after (AS14);
   - `restartNeeded` for libraries;
@@ -1012,6 +1038,7 @@ fails (US6 AS1–AS17).
   - license preview and re-read (AS7);
   - `restartNeeded`: always for threads and the privileged share, per T079 for the rest;
   - no backup (FR-018: the preview shows the current value);
+  - each call admitted with `VersionGate.admitCall` and its own entries;
   - `setBackupStartOption` (`--backupFile`, `--backupRepository`, settings area): offered only
     when its rows are `reachable` after T079 (L-16), with the arguments and checks found there;
     otherwise the rows are `excluded` and the action is left out of the schema.
@@ -1025,7 +1052,7 @@ fails (US6 AS1–AS17).
   - Failing tests first: tool test, `ToolAnnouncementTest`.
 - [ ] T090 [US6] Cross-cutting safety for both tools:
   - `WriteRaceToolsTest` +2;
-  - production and write-off refusals per action (SC-003, SC-004);
+  - both tools' actions added to `ChangeToolsProductionRefusalTest` (SC-003, SC-004);
   - an area-off refusal per action (`NOT_CONFIGURED`);
   - `security/AdministrationSecretLeakTest.java` (configuration, key password, upload content).
 - [ ] T091 [US6] Contracts, flips, docs and PR [BLOCKED: T079]:
@@ -1089,7 +1116,8 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
   - the CLI-access right rule per T092 (L-15).
   - Failing tests first: `OwnAccessTest.java` (each refusal; a change between preview and send →
     refused).
-- [ ] T095 [P] [US7] `adapter/cli/admin/UserImportFileParser.java` (format per T092):
+- [ ] T095 [US7] `adapter/cli/admin/UserImportFileParser.java` (format per T092; after T094,
+  whose `OwnAccess` gives the login user's group and roles to `UserImportCheck`):
   - finds logins, groups and roles in an import file (hardened XML, or the found format);
   - an unparsable file gives `INVALID_INPUT`.
 
@@ -1113,6 +1141,9 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
   (`Area.USERS`):
   - actions `createUser` (without password here), `createGroup`, `createRole`, `setGroups`,
     `addGroups`, `removeGroups`, `deleteUser`, `deleteGroup`;
+  - each call admitted with `VersionGate.admitCall` and its own entries, so `createUser` without
+    a password stays offered when `create -cu --password` is excluded, and `setGroups` sends
+    only the options given;
   - `createUser` without `secretEntry`: the description names what T092 (L-18) found (AS1);
   - `deleteUser` requires both reference choices and re-reads the list, because INUBIT answers
     200 even for an unknown user (AS5);
@@ -1152,7 +1183,7 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
   - destructive;
   - announced when some group has `users`.
   - Failing tests first: tool test, `ToolAnnouncementTest`, `WriteRaceToolsTest` +1, the
-    refusal tests per action, `security/UserAdminSecretLeakTest.java`.
+    tool's actions added to `ChangeToolsProductionRefusalTest`, `security/UserAdminSecretLeakTest.java`.
 - [ ] T102 [US7] Contracts, flips, docs and PR [BLOCKED: T092]:
   - `UserAdminV81ContractTest.java`;
   - rows (`passwd`/`create -cu --password` set to `excluded:secret only on a visible command line`
@@ -1217,12 +1248,14 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
   records); T014 (live) at any time.
 - **US2**: T029 first; then T030 and T031 side by side.
 - **US3**: T040 [P] beside T041.
-- **US4**: T048, T050 [P]; then `operate_server` (T056–T061) and `manage_tags` (T062–T064) in
-  parallel after T049–T053.
+- **US4**: T048, T050 [P]. Then `operate_server` (T056–T061) and `manage_tags` (T062–T064)
+  after T049–T053, with serial points: T062 after T056 (`CliCommand.java`, `CliCommandTest.java`)
+  and T063 after T058 (the `Gateway`/`PortSet` set).
 - **US5**: T067 and T068 [P].
-- **US6**: T075 [P]; then `administer_objects` (T080–T086) and `change_server_settings`
-  (T087–T089) in parallel after T076–T078.
-- **US7**: T094, T095 [P].
+- **US6**: T075 [P]. Then `administer_objects` (T080–T086) and `change_server_settings`
+  (T087–T089) after T076–T078, with serial points: T087 after T080 and T082 (`CliCommand.java`,
+  `CliCommandTest.java`, the `Gateway`/`PortSet` set).
+- **US7**: T094, then T095.
 
 Never run two Maven builds at the same time in the same checkout.
 

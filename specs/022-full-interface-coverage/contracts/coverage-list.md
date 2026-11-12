@@ -48,7 +48,7 @@ its rows then change to `workflows`.
 message names the command that rewrites the page (`mvn -q -Dcoverage.write=true test
 -Dtest=InterfaceCoverageDocsTest`).
 
-## Checks (`InterfaceCoverageTest`)
+## Checks (`architecture/InterfaceCoverageCheckTest`)
 
 1. Every `CliCommand.OPTIONS` command/option pair and every `CliSessionCommand` has a row.
 2. Every `RestEndpoint` value has a row.
@@ -60,5 +60,5 @@ message names the command that rewrites the page (`mvn -q -Dcoverage.write=true 
    open), except rows waiting on a live check, which carry `planned` plus a comment line
    `# waits: L-n`. Once all seven stories are delivered, no exception is left: every row is
    `reachable`, `covered`, `undocumented` or `excluded` (SC-001).
-6. Every action of the new tools declares at least one row (`ActionSpec.entries`), and every
+6. Every action of the new tools declares at least one row (`ActionSpec.declaredEntries()`), and every
    declared row exists.

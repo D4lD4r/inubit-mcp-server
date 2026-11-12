@@ -97,7 +97,8 @@ touched).
 - FR-008: reads send only read forms. `CliCommand` and `CliSessionCommand` admit only the options
   the coverage list names (`CliCommandTest`).
 - FR-014/SC-003/SC-004: every change goes through `ChangeGuard`; production needs its opt-in;
-  `WriteRaceToolsTest` and `ProductionRefusalTest` grow by every new change tool.
+  `WriteRaceToolsTest` and the new `ChangeToolsProductionRefusalTest` (created in T065) grow by
+  every new change tool.
 - FR-022/Principle II: no secret in an input, result, argv, environment, log or audit record. The
   `PasswordNeverOnCommandLineTest` inspects every recorded `LaunchSpec`.
 - `PackageBoundaryTest`: tools only through `application`, `application` only through ports,
@@ -194,7 +195,7 @@ src/main/java/de/dadecker/inubit/mcp/
 ├── config/              # AdministrationConfig, UploadsConfig (new); GroupConfig, ProfileConfig, Defaults,
 │                        # ConfigLoader, ConfigValidator, ConfigSummary, EffectiveNodeConfig,
 │                        # CredentialNames/ParameterNames (entry namespace)
-├── domain/model/        # InterfaceCoverage, CoverageEntry, CoverageState, SecretRules, ServerSettings,
+├── domain/model/        # InterfaceCoverage, CoverageEntry, CoverageState, SecretRules, JsonLeafMasker, ServerSettings,
 │                        # ConfigurationView, UserSummary, UserDetail, LoginEntry, Message*, ModuleDetail,
 │                        # ProcessMetadata, LibraryEntry, IsConnectorCheck, ChangePreview, ChangeResult,
 │                        # ExportCondition, ExportFilter, Runtime* (new); Capability, CapabilityMatrix
@@ -204,20 +205,23 @@ src/main/java/de/dadecker/inubit/mcp/
 ├── application/         # ServerSettingsService, UserReadService, ModelDetailService, ServerOperationService,
 │                        # TagAdministrationService, RuntimeTransferService, ObjectAdministrationService,
 │                        # SettingsAdministrationService, UserAdministrationService, ChangeGuard,
-│                        # RuntimeReadGuard, ChangeLocks, OwnAccess, UploadFiles, ActionSpec, ChangeAudit
-│                        # (new); BackupStore, ImportService (restore), VersionGate, NodeOverview,
+│                        # RuntimeReadGuard, ChangeLocks, ChangeChallenges, OwnAccess, UserImportCheck,
+│                        # UploadFiles, ActionSpec, ActionCatalog, ChangeAudit, AdministrationBackups,
+│                        # RuntimeExportPaths (new); BackupStore, ImportService (restore), VersionGate, NodeOverview,
 │                        # ExportArchives service
 ├── adapter/             # PortSet, V81PortSet, V81Gateway, AdapterGatewayFactory, StaleReportingPorts,
 │                        # RefusingPorts, NodeSecrets (entry)
 ├── adapter/rest/        # RestEndpoint, Multipart (new); InubitHttpClient (put, delete, multipart)
 ├── adapter/rest/v81/    # V81SettingsAdapter, V81UserAdapter, V81ModelDetailAdapter,
-│                        # V81ObjectAdministrationAdapter, V81SettingsAdministrationAdapter + parsers
+│                        # V81ObjectAdministrationAdapter, V81LibraryAdministrationAdapter,
+│                        # V81SettingsAdministrationAdapter, V81UserAdministrationAdapter + parsers
 │                        # (LicenseXmlParser, ConfigurationJsonParser, UserListXmlParser,
 │                        # ModuleDetailJsonParser, MetadataParser) (new)
 ├── adapter/cli/         # CliCommand (+commands), CliSessionCommand (version-neutral), CliRunner,
 │                        # CliSessionParser (from V61SessionParser), CliOutputClassifier (new forms)
 ├── adapter/cli/admin/   # new: CliSettingsRunner, CliUserRunner, CliOperationRunner, CliTagAdminRunner,
-│                        # CliRuntimeTransferRunner, CliLibraryRunner + parsers (Threads, Privileged,
+│                        # CliRuntimeTransferRunner, CliLibraryRunner, CliObjectRunner,
+│                        # CliUserAdministrationRunner + parsers (Threads, Privileged,
 │                        # DbTolerance, Finger, UserGroups, Who, MsgList, RuntimeExportAnswer, BlockedList)
 ├── adapter/archive/v81/ # PartnerSecretRules delegates to SecretRules
 ├── mcp/tools/           # GetServerSettingsTool, ReadUsersTool, ReadModelDetailsTool, OperateServerTool,
@@ -262,7 +266,8 @@ their live check is open, with the action not offered, as FR-004 allows.
    `administration.runtimeData` opt-in (the `administration` block starts here); L-9, L-10
    (approved).
 6. **Increment 6 – US6**:
-   - the opt-ins `objects`, `libraries` and `settings`;
+   - the enforcement of the opt-ins `objects`, `libraries` and `settings` (the `administration`
+     block itself arrives in increment 5);
    - `UploadsConfig` and `UploadFiles`;
    - secret entries (`NodeSecrets.entry`, namespaces);
    - `InubitHttpClient` PUT, DELETE and multipart;

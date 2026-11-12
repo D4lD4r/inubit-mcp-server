@@ -64,15 +64,29 @@ per tool:
 When US3 adds `content`, its rows change from `export_archives/default` to
 `export_archives/workflows`.
 
-Every action of the new tools names its coverage entries. An action is offered for a version only
-when all its entries are `reachable` for that version. Otherwise the action is refused with
-`UNSUPPORTED_VERSION` and the note "not yet verified". `CapabilityMatrix` stays at the level of a
+**Gate per call** (plan review round 2): an action does not have one fixed entry set. Its
+`ActionSpec` gives `entries(input)`, the coverage entries a concrete call sends. These depend on
+the variant: `moduleId` or `moduleName`, with or without `version`, the `rename` kind,
+`setGroup` and/or `setAdditionalGroups`, with or without `secretEntry`.
+
+- **A call** is admitted only when every entry of `entries(input)` is `reachable` for the node's
+  version. Otherwise it is refused with `UNSUPPORTED_VERSION`, naming the variant and either
+  "not yet verified", "not documented for this version" or the exclusion reason. A sibling
+  variant whose entries are reachable stays offered. Examples:
+  - `module` by `moduleId` works on 9.0 while `moduleName` is `undocumented`;
+  - `createUser` without a password works when `create -cu --password` is excluded.
+- **Multi-part reads** (`get_server_settings`; `read_users` per view) are not refused for one
+  part. Each part has its own entries and channel. A part whose entries are not reachable, or
+  whose channel is not available on the node (no StartCLI client), is reported under
+  `unavailable` with its reason: "not yet verified", the exclusion reason or `CLI_UNAVAILABLE`.
+  The call is refused only when no requested part can be read (FR-013, spec Assumptions: a stage
+  without a client gets the REST parts). `CapabilityMatrix` stays at the level of a
 capability per tool: a tool's capability is `SUPPORTED` for a version once at least one of its
 actions is reachable there.
 
 Tests (FR-003):
 
-- `InterfaceCoverageTest`: every command and option in `CliCommand.OPTIONS`, every
+- `InterfaceCoverageCheckTest` (`architecture/`): every command and option in `CliCommand.OPTIONS`, every
   `CliSessionCommand`, and every `RestEndpoint` value appears in the list. Every
   `reachable` / `covered` tool exists in `Wiring.toolHandlers()`. Every row has a state for both
   versions. No row is `planned` once `story` is delivered: the release check reads a
@@ -300,8 +314,9 @@ log.
 **Rationale**: the spec edge case lists exactly these refusals. One open handle avoids a gap
 between the check and the read.
 
-**Alternatives**: copying to a private temp file first (doubles the I/O for 200 MiB libraries
-without a gain over the open handle).
+**Alternatives**: for REST uploads, a private copy first was rejected: it doubles the I/O for
+200 MiB libraries without a gain over the open handle. For StartCLI uploads the private copy is
+the decision above, because StartCLI opens the file again by path.
 
 ## D-12 Guards and protection order (FR-014, FR-015, FR-016)
 
@@ -521,7 +536,7 @@ among the answers blocked in maintenance mode (L-2). The read before the change 
 
 | Action | Command | Check |
 |---|---|---|
-| `setWorkflowThreads` | `threads setNumberOfWorkflowThreads n` | 1 … the licensed threads from `GET /license` (fallback `/metrics licensedThreads`); refused otherwise |
+| `setWorkflowThreads` | `threads setNumberOfWorkflowThreads n` | 1 … the licensed threads from `/metrics` (`licensedThreads`, the source `get_health` uses), fallback `GET /license` when `/metrics` is not licensed; refused otherwise |
 | `setPrivilegedShare` | `privilegedWorkflows setThreadsPercentage p` | 0 … 99, as documented |
 | `setDbConnectionTolerance` | `dbconnectiontolerance set …` | fault threshold, drop rate, drop interval; ranges from L-5 |
 | `changeConfiguration` | `PUT /configurations` | `changes[1..20]` of `{path, value \| secretEntry}`; the server reads the full configuration, applies the changes and sends the full document back (L-11 checks whether a partial document is accepted) |

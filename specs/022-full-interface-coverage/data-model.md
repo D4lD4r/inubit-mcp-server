@@ -39,8 +39,11 @@ Loaded from `coverage/interface-coverage.tsv`:
 
 - `entries()`
 - `state(channel, entry, line)`
-- `offered(tool, action, line)`: true only when every entry the action declares is `Reachable`
-  for that line.
+- `offered(Set<CoverageKey> entries, line)`: true only when every given entry is `Reachable`
+  for that line. Callers pass the entries of a concrete call (`ActionSpec.entries(input)`) or of
+  one part (D-2, "gate per call").
+- `refusal(Set<CoverageKey> entries, line)`: the first entry that is not `Reachable`, with its
+  state, for the error text.
 
 Parsing fails at start on:
 
@@ -55,7 +58,10 @@ checks them against the registered tools (coverage-list check 3).
 
 ### ActionSpec (new, application)
 
-Per tool action: `tool`, `action`, `area` (`Area`), `entries` (the coverage keys it sends),
+Per tool action: `tool`, `action`, `area` (`Area`), `entries(input)` (the coverage keys a
+concrete call sends, depending on its variant), `parts` (for multi-part reads: per part its
+entries and channel, empty otherwise), `declaredEntries()` (the union of all variants and parts,
+for coverage check 6),
 `kind` (`READ`, `CHANGE`, `RUNTIME_READ`), `bulk` (boolean), `backup` (`BackupKind` or none),
 `restartNotice` (none, always, or by setting).
 

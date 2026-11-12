@@ -13,7 +13,7 @@ groups:
     administration:        # all default false
       objects: true        # delete, rename, metadata import, repository delete, IS Connector start
       libraries: false     # libraries, plug-ins, EDI rules, module keys
-      settings: false      # threads, privileged share, DB tolerance, configuration, license
+      settings: false      # threads, privileged share, DB tolerance, configuration, license, backup start options
       users: false         # users, groups, roles, imports, messages
       runtimeData: false   # run-time data export, import, resume, delete, validate, list blocked
 ```
