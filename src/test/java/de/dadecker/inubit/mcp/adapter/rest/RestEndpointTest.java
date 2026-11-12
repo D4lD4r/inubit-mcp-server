@@ -21,7 +21,17 @@ class RestEndpointTest {
                 "POST /log/{name}",
                 "GET /model/models",
                 "GET /model/modelByName/{name}",
-                "GET /model/export/{name}");
+                "GET /model/export/{name}",
+                "GET /license",
+                "GET /configurations");
+    }
+
+    @Test
+    void theSettingsEndpointsOfFeature022() {
+        assertThat(RestEndpoint.LICENSE.path()).isEqualTo("/ibis/rest/license");
+        assertThat(RestEndpoint.CONFIGURATIONS.path()).isEqualTo("/ibis/rest/configurations");
+        assertThat(RestEndpoint.LICENSE.method()).isEqualTo(Method.GET);
+        assertThat(RestEndpoint.CONFIGURATIONS.method()).isEqualTo(Method.GET);
     }
 
     @Test

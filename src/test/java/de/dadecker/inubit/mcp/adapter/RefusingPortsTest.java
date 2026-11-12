@@ -11,11 +11,13 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
 import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -49,7 +51,8 @@ class RefusingPortsTest {
         assertThat(method.getDeclaringClass()).isAssignableFrom(RefusingPorts.class);
 
         Object[] args = Stream.of(method.getParameterTypes())
-            .map(type -> type == long.class ? (Object) 0L : null).toArray();
+            .map(type -> type == long.class ? (Object) 0L : type == int.class ? (Object) 0 : null)
+            .toArray();
         Throwable thrown = catchThrowable(() -> method.invoke(refusing, args));
 
         assertThat(thrown).isInstanceOf(InvocationTargetException.class);
@@ -116,6 +119,40 @@ class RefusingPortsTest {
                     assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
                     assertThat(e.error().message()).contains("Server log downloads");
                 });
+        }
+    }
+
+    @Test
+    void serverSettingsRefuseWithTheSixOneRefusalWithoutContact() {
+        // feature 022 T020: no settings reads on 6.1 (spec edge case "INUBIT 6.1")
+        for (Runnable call : List.<Runnable>of(refusing::license,
+            () -> refusing.configuration(Optional.empty(), 100, 50_000),
+            () -> refusing.cliSettings(Set.of(UnavailablePart.THREADS)))) {
+            assertThatThrownBy(call::run).isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error()).isEqualTo(refusing.refusal().error()));
+        }
+    }
+
+    @Test
+    void thePortSetCompatibilityConstructorsFillInARefusingServerSettingsPort() {
+        // feature 022 T020: port sets built with the previous eight, nine or ten ports
+        PortSet eight = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing);
+        PortSet nine = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing);
+        PortSet ten = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing, refusing);
+
+        for (PortSet ports : List.of(eight, nine, ten)) {
+            for (Runnable call : List.<Runnable>of(() -> ports.serverSettings().license(),
+                () -> ports.serverSettings().configuration(Optional.empty(), 100, 50_000),
+                () -> ports.serverSettings().cliSettings(Set.of()))) {
+                assertThatThrownBy(call::run).isInstanceOfSatisfying(ToolErrorException.class,
+                    e -> {
+                        assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+                        assertThat(e.error().message()).contains("Server settings");
+                    });
+            }
         }
     }
 

@@ -122,6 +122,14 @@ public interface GatewayFactory {
     }
 
     /**
+     * The settings port of {@code server} (feature 022, US1); the default asks the gateway, whose
+     * default throws {@code UNSUPPORTED_VERSION}.
+     */
+    default ServerSettingsPort serverSettings(NodeId server) {
+        return forServer(server).serverSettings();
+    }
+
+    /**
      * The StartCLI health port of {@code server} if its effective version is reached through
      * StartCLI only (feature 012, research D-4), else empty. Never detects and never contacts
      * the server. The default, for a factory without such versions, is empty.

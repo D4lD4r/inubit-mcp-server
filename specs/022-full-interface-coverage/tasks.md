@@ -338,7 +338,7 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
     - `adapter/cli/admin/CliSettingsRunnerTest.java` (scripted session; one block missing → that
       part unavailable; the StartCLI refusal for a missing "CLI login access" right gives
       `FORBIDDEN` naming the right, not `AUTH_FAILED` (edge case)).
-- [ ] T020 [US1] Port and wiring:
+- [X] T020 [US1] Port and wiring:
   - `domain/port/ServerSettingsPort.java` (`license()`, `configuration(Optional<String> section)`,
     `cliSettings(Set<Part>)`);
   - `adapter/rest/v81/V81SettingsAdapter.java` (REST parts);
@@ -370,6 +370,9 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
     incompatible with the server version (`checkClient` → INCOMPATIBLE): the CLI parts go to
     `unavailable` with that reason and the REST parts are returned (FR-013), instead of
     `admitParts` refusing the whole call.
+  - From the T020 review: two configuration keys longer than `ItemBounds.MAX_FIELD_CHARS` with a
+    common prefix are cut to the same `Leaf.path`; state this in the `Leaf` Javadoc (the value
+    order stays the document order).
   - Failing tests first: `application/ServerSettingsServiceTest.java`:
     - AS1, AS3, AS4 (role missing for license → the other parts returned), AS5, AS7;
     - one part `excluded` in a test coverage file → the other parts returned;
@@ -482,6 +485,9 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   - the full `Gateway`/`PortSet` wiring set as in T020.
   - adds the capability `USER_DIRECTORY` the way T011 added `SERVER_SETTINGS` (label, matrix "not yet
     verified", `NodeOverview`, `list_nodes` enum), with `CapabilityMatrixTest` and `ListNodesToolTest`;
+  - From the T020 review: `V81PortSet.create` builds the full `PortSet` in one step (or through a
+    small copy method on `PortSet`) instead of copying an 8-port set, before the user-directory
+    port is added.
   - Failing tests first: `V81UserAdapterTest.java` and `WiringAuditTest`.
 - [ ] T034 [US2] `application/UserReadService.java`:
   - views `users`, `user`, `logins`, `messages`, `message`;

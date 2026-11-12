@@ -31,7 +31,8 @@ import tools.jackson.databind.json.JsonMapper;
  *       {@code /ErrorHost}; {@code ~} and {@code /} in a key become {@code ~0} and {@code ~1});
  *       array elements are addressed by index; a section that is a single value has the path
  *       {@code ""}; empty objects and arrays have no leaves. A JSON {@code null} is shown as
- *       {@code null}.
+ *       {@code null}. A path is cut to {@link ItemBounds#MAX_FIELD_CHARS} with the truncation
+ *       marker after masking, so a leaf is masked by its full path.
  *   <li>The whole configuration is masked by {@link JsonLeafMasker} first, so a section name
  *       counts as part of the path. A leaf it masked is {@link Leaf#masked}; a value that already
  *       reads {@link Masked#MASK_TOKEN} is reported as masked too. The vendor example has no
@@ -55,14 +56,19 @@ final class ConfigurationJsonParser {
     /**
      * The section names if {@code section} is empty, otherwise the leaves of that section.
      *
-     * @param maxValues the most leaves returned
+     * @param maxValues the most leaves returned, at least 1
      * @param maxChars  the most chars the returned leaves take together as JSON
+     * @throws IllegalArgumentException if {@code maxValues} is below 1, which the result
+     *     limiter the limits come from never allows
      * @throws ToolErrorException {@code NOT_FOUND} (with the server id) if the configuration has
      *     no section named {@code section} (case-sensitive); {@code UNEXPECTED_RESPONSE} if the
      *     body is not a JSON object with an object below one of the two root keys
      */
     static ConfigurationView parse(NodeId server, byte[] body, Optional<String> section,
         int maxValues, int maxChars) {
+        if (maxValues < 1) {
+            throw new IllegalArgumentException("maxValues must be >= 1: " + maxValues);
+        }
         JsonNode configuration = configuration(server, body);
         if (section.isEmpty()) {
             List<String> names = new ArrayList<>();
@@ -105,10 +111,11 @@ final class ConfigurationJsonParser {
                 flatten(node.get(index), path + "/" + index, leaves);
             }
         } else if (node.isString() && node.asString().equals(Masked.MASK_TOKEN)) {
-            leaves.add(Leaf.masked(path));
+            leaves.add(Leaf.masked(RowValues.cut(path, ItemBounds.MAX_FIELD_CHARS)));
         } else {
             String value = node.isNull() ? "null" : node.asString();
-            leaves.add(Leaf.shown(path, RowValues.cut(value, ItemBounds.MAX_MESSAGE_CHARS)));
+            leaves.add(Leaf.shown(RowValues.cut(path, ItemBounds.MAX_FIELD_CHARS),
+                RowValues.cut(value, ItemBounds.MAX_MESSAGE_CHARS)));
         }
     }
 

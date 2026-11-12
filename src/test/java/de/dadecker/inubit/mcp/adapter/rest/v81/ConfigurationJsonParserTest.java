@@ -238,6 +238,36 @@ class ConfigurationJsonParserTest {
     }
 
     @ParameterizedTest
+    @ValueSource(ints = {0, -1})
+    void aMaximumBelowOneValueIsRefused(int maxValues) {
+        // T020 (T017 review): the limits come from the call's ResultLimiter, which never has
+        // fewer than one item
+        assertThatThrownBy(() -> parse("{\"SeverConfiguration\": {\"S\": {\"a\": 1}}}", "S",
+            maxValues, MAX_CHARS))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("maxValues must be >= 1: " + maxValues);
+    }
+
+    @Test
+    void aLongPathIsCutWithTheTruncationMarker() {
+        // T020 (T017 review): a path is a short text value (ItemBounds.MAX_FIELD_CHARS)
+        String key = "k".repeat(ItemBounds.MAX_FIELD_CHARS + 50);
+        ConfigurationView view = parse("{\"SeverConfiguration\": {\"S\": {\"" + key
+            + "\": 1, \"password\": \"synthetic-secret-0306\", \"" + key
+            + "x\": {\"password\": \"synthetic-secret-0307\"}}}}", "S");
+
+        assertThat(view.values()).extracting(Leaf::path).allSatisfy(path ->
+            assertThat(path.length()).isLessThanOrEqualTo(ItemBounds.MAX_FIELD_CHARS));
+        assertThat(view.values().getFirst().path()).hasSize(ItemBounds.MAX_FIELD_CHARS)
+            .startsWith("/kkk").endsWith(ItemBounds.TRUNCATION_MARKER);
+        assertThat(view.values().getFirst().value()).contains("1");
+        assertThat(view.values().get(1)).isEqualTo(Leaf.masked("/password"));
+        assertThat(view.values().get(2).path()).endsWith(ItemBounds.TRUNCATION_MARKER);
+        assertThat(view.values().get(2).masked()).as("masked by its full path").isTrue();
+        assertThat(view.maskedCount()).isEqualTo(2);
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"not json synthetic-secret-0305", "[1, 2]",
         "{\"OtherRoot\": {\"a\": \"synthetic-secret-0305\"}}",
         "{\"SeverConfiguration\": \"synthetic-secret-0305\"}", ""})
