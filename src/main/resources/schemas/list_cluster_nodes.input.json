@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "required": ["target"],
+  "properties": {
+    "target": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}/[a-z0-9][a-z0-9-]{0,31}$",
+      "description": "Id of exactly one {node} (`<{group}>/<{node}>`)"
+    },
+    "nodeName": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "description": "Name of a node from the list; adds that node's details"
+    }
+  },
+  "additionalProperties": false
+}

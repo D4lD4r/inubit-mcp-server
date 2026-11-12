@@ -315,7 +315,7 @@ the opt-in gets the list and one node's details; a group without it is refused b
   details + warning, no opt-in → `NOT_CONFIGURED` and nothing sent, single node, unknown
   `nodeName`; detection failure → its code, nothing sent; `details error` → list returned with
   `available: false`; a credential in a detail value masked; leak check incl. the log line)
-- [ ] T022 [US1] Tool and schemas (FR-001, FR-003, D-25; after T021):
+- [X] T022 [US1] Tool and schemas (FR-001, FR-003, D-25; after T021):
   `mcp/tools/ListClusterNodesTool.java` (`ToolHints.readOnly("List the INUBIT cluster's nodes",
   true)`, description of contracts), `src/main/resources/schemas/list_cluster_nodes.{input,output}.json`.
   Failing tests first in `mcp/tools/ListClusterNodesToolTest.java` (schema: group id, bad
