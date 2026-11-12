@@ -104,8 +104,10 @@ unsupported API, against FR-007).
     `clusterNodes` answer stays below the 1 MiB stdout cap of 020;
   - `nodeConfig`: per name `config <name> ok <type> <editable> <deprecated> <displayName>
     <category> <description> <value>` (`type` = simple class name of `getType()`, flags
-    `true`/`false`, value = `getStringValue()`), `config <name> absent` (`null` answer) or
-    `config <name> error <chain> <message>`;
+    `true`/`false`, value = `getStringValue()`; the texts cut, whole characters only, at 4,000
+    characters and at 12,000 bytes of their percent-encoded form, so 4,000 ASCII characters are
+    never cut, and 20 frames of four texts ≈ 960 KB stay below the 1 MiB stdout cap of 020),
+    `config <name> absent` (`null` answer) or `config <name> error <chain> <message>`;
   - `ioLog`: the listing is written to `listOut` (UTF-8, one entry per line, the order of the
     answer), then `io list ok <count>` or `io list error <chain> <message>`; with `ref`: the helper
     computes the reference of every listed entry (D-8) and either writes `io match <entry>` and

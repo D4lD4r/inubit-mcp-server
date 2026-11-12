@@ -57,7 +57,7 @@ fake-vendor tests fail on any call outside the table).
 | `members ok <count>` / `members error <chain> <message>` | `clusterNodes` | `count` = all elements of `getNodes()` (the result's `total`) |
 | `detail <key> <value> [cut]` | `clusterNodes` | ≤ 500; key ≤ 200 chars, value ≤ 4,000 chars (longer: cut, token `cut`); the encoded `detail` frames together ≤ 256 KiB — the helper stops before a frame that would exceed the budget |
 | `details ok <count> <truncated>` / `details error <chain> <message>` / `details unknown` | `clusterNodes` | `truncated` = `true` when the 500-entry cap or the 256 KiB budget stopped the entries; `unknown` = `details` is not a listed member (no request sent) |
-| `config <name> ok <type> <editable> <deprecated> <displayName> <category> <description> <value>` | `nodeConfig` | `type` = `getType().getSimpleName()`; flags `true`/`false`; texts ≤ 4,000 chars |
+| `config <name> ok <type> <editable> <deprecated> <displayName> <category> <description> <value>` | `nodeConfig` | `type` = `getType().getSimpleName()`; flags `true`/`false`; texts cut, whole characters only, at 4,000 chars and at 12,000 bytes of their percent-encoded form (4,000 ASCII characters are never cut by the byte bound) |
 | `config <name> absent` / `config <name> error <chain> <message>` | `nodeConfig` | `absent` = `null` answer |
 | `io list ok <count>` / `io list error <chain> <message>` | `ioLog` | the entries are in `listOut`, one per line, UTF-8, server order |
 | `io match <entry>` / `io match none` | `ioLog` with `ref` | the entry whose reference equals `ref` |
@@ -65,8 +65,10 @@ fake-vendor tests fail on any call outside the table).
 
 Order: `start`, `login …`, `node …`, operation frames, `end`. Messages in error frames are cut at
 1,000 characters and have the configured password replaced (as 020). The stdout cap of 1 MiB (020)
-applies; the largest answer (`clusterNodes`: ≤ 200 `member` frames of about 3,070 bytes each, together
-≤ 600 KiB, plus ≤ 256 KiB of `detail` frames) stays below it, and the I/O listing goes to a file.
+applies; the two largest answers stay below it: `clusterNodes` (≤ 200 `member` frames of about
+3,070 bytes each, together ≤ 600 KiB, plus ≤ 256 KiB of `detail` frames, ≈ 856 KiB) and
+`nodeConfig` (≤ 20 `config` frames of four texts of ≤ 12,000 encoded bytes each plus overhead,
+≈ 960 KB); the I/O listing goes to a file.
 
 ## Message reference
 

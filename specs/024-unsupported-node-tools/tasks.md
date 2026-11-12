@@ -200,9 +200,10 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   200 members → 200 `member` frames and `members ok <total>`; member tokens cut at 200 chars and
   600 encoded bytes, non-ASCII members and details keep the whole stdout below 1 MiB; vendor calls exactly login, `getNode`,
   `getNodes`, [`getNode(NodeName)`], logout; `api missing` for a missing `getNodes`; leak check)
-- [ ] T012 `ClientHelper` op `nodeConfig` (D-10; after T011, same file): a constant list of the 20
+- [X] T012 `ClientHelper` op `nodeConfig` (D-10; after T011, same file): a constant list of the 20
   names inside the helper; per requested name `getNodeConfigurationProperty(<own NodeName>, name)`
-  → `config … ok` (type simple name, flags, texts ≤ 4,000), `absent` for `null`, `error` per name;
+  → `config … ok` (type simple name, flags, texts cut at 4,000 chars and 12,000 percent-encoded
+  bytes, so 20 frames stay below 1 MiB), `absent` for `null`, `error` per name;
   API check. Failing tests first in `adapter/cli/helper/ClientHelperTest.java` (each allowlisted
   name passed; `Database`, `ClusterPassword`, `initialRootUserPassword`, `IdentityProvider`,
   `IdentityProviderConfiguration` and any other text → exit 2 and **no vendor call at all**

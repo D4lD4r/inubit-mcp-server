@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.testing.FakeInubitScript.Call;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.Failure;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.Member;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.NullFrom;
+import de.dadecker.inubit.mcp.testing.FakeInubitScript.Property;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -45,7 +46,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 /**
  * The client helper in-process: the queue-entry read of feature 020 (research D-2, D-4) and the
  * server-log read of feature 021 (D-2, D-4, D-5), and the request check of the node-tool
- * operations with the own-node lookup and the cluster node list of feature 024 (D-2, D-3, D-7).
+ * operations with the own-node lookup, the cluster node list and the node configuration of
+ * feature 024 (D-2, D-3, D-7, D-10).
  * It is loaded from its resource directory {@code META-INF/inubit-mcp/client-helper/} of the
  * compiled classes by a {@link URLClassLoader} whose parent is the test class loader (so the
  * fake vendor classes under {@code com.inubit.ibis} are visible), and
@@ -406,16 +408,15 @@ class ClientHelperTest {
     }
 
     /**
-     * The two node-tool operations whose vendor calls this helper version does not make yet
-     * answer a valid request with exit 2 as well, after the API check and before the login.
+     * The node-tool operation whose vendor calls this helper version does not make yet answers a
+     * valid request with exit 2 as well, after the API check and before the login.
      */
-    @ParameterizedTest
-    @ValueSource(strings = {"nodeConfig", "ioLog"})
-    void aValidRequestOfAnOperationNotYetPerformedEndsWithExitTwoBeforeAnyVendorCall(String op)
+    @Test
+    void aValidRequestOfAnOperationNotYetPerformedEndsWithExitTwoBeforeAnyVendorCall()
         throws Exception {
         FakeInubitScript script = new FakeInubitScript().node(NODE);
 
-        Run run = run(script, nodeToolRequest(op, lines -> { }), vendor());
+        Run run = run(script, nodeToolRequest("ioLog", lines -> { }), vendor());
 
         assertThat(run.exit()).isEqualTo(2);
         assertThat(run.out()).isEmpty();
@@ -1751,6 +1752,329 @@ class ClientHelperTest {
                 stub(nodeName, "public String getName() { return null; }")),
             Arguments.of(information + ".getNodeInformationMap()", information,
                 stub(information)));
+    }
+
+    // --- operation nodeConfig (feature 024: FR-030 … FR-032, SC-003, D-10) ------------------
+
+    @Test
+    void soap81NodeConfigReadsEachRequestedNameOfTheOwnNodeInTheRequestedOrder()
+        throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .property("OperationMode", new Property(String.class, "CLUSTER", "Operation mode",
+                "How the node runs", "Cluster", false, false))
+            .property("socketTimeoutInMillisecs", new Property(Integer.class, "60000",
+                "Socket timeout", "Socket timeout in milliseconds", "Network", true, true));
+
+        Run run = run(script, nodeToolRequest("nodeConfig", lines -> lines.put("names",
+            "socketTimeoutInMillisecs%2COperationMode")), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "ok", NODE),
+            List.of("config", "socketTimeoutInMillisecs", "ok", "Integer", "true", "true",
+                "Socket timeout", "Network", "Socket timeout in milliseconds", "60000"),
+            List.of("config", "OperationMode", "ok", "String", "false", "false",
+                "Operation mode", "Cluster", "How the node runs", "CLUSTER"),
+            List.of("end"));
+        assertThat(HelperFrames.parse(NONCE, run.out()).frames()).containsExactly(
+            new HelperFrames.Start("SOAP_81"), new HelperFrames.LoginOk(),
+            new HelperFrames.NodeOk(NODE),
+            new HelperFrames.ConfigOk("socketTimeoutInMillisecs", "Integer", true, true,
+                "Socket timeout", "Network", "Socket timeout in milliseconds", "60000"),
+            new HelperFrames.ConfigOk("OperationMode", "String", false, false,
+                "Operation mode", "Cluster", "How the node runs", "CLUSTER"),
+            new HelperFrames.End());
+        assertThat(script.calls()).as("login, own node, one request per name and logout (FR-007)")
+            .containsExactly(
+                call("IBISSoapClient.<init>", URL_81 + "?isCli", TRUST_STORE,
+                    TestSecrets.TRUST_STORE_PASSWORD, "null", "null", "true"),
+                call("IBISSoapClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+                call("ClusterClient.<init>", "IBISSoapClient", USER, CLIENT_UID, "null"),
+                call("ClusterClient.getNode"),
+                call("ClusterClient.getNodeConfigurationProperty", NODE,
+                    "socketTimeoutInMillisecs"),
+                call("ClusterClient.getNodeConfigurationProperty", NODE, "OperationMode"),
+                call("IBISSoapClient.logoutUser", USER));
+        TestSecrets.assertNoLeak(run.out());
+    }
+
+    @Test
+    void rest90NodeConfigUsesTheFactoryClientAndDoesNotLogOut() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .property("NodeName", new Property(String.class, NODE, "Node name", "", "Cluster",
+                false, false));
+
+        Run run = run(script, nodeToolRequest("nodeConfig", lines -> {
+            lines.put("variant", "REST_90");
+            lines.put("url", encode(URL_90));
+            lines.put("names", "NodeName");
+        }), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).endsWith(
+            List.of("config", "NodeName", "ok", "String", "false", "false", "Node name",
+                "Cluster", "-", NODE),
+            List.of("end"));
+        assertThat(script.calls()).endsWith(
+            call("RestClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+            call("ClusterClient.<init>", "RestClient", USER, CLIENT_UID, "null"),
+            call("ClusterClient.getNode"),
+            call("ClusterClient.getNodeConfigurationProperty", NODE, "NodeName"));
+    }
+
+    /** Each of the 20 names of the helper's own list is sent as it is (D-10). */
+    @ParameterizedTest
+    @MethodSource("nodeConfigNames")
+    void eachAllowlistedNameIsRequestedFromTheOwnNode(String name) throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .property(name, new Property(String.class, "value-0001", "Display", "Description",
+                "Category", true, false));
+
+        Run run = run(script, nodeToolRequest("nodeConfig", lines -> lines.put("names", name)),
+            vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).contains(List.of("config", name, "ok", "String", "true",
+            "false", "Display", "Category", "Description", "value-0001"));
+        assertThat(script.calls()).filteredOn(c -> c.name().startsWith("ClusterClient.get"))
+            .containsExactly(call("ClusterClient.getNode"),
+                call("ClusterClient.getNodeConfigurationProperty", NODE, name));
+    }
+
+    static Stream<String> nodeConfigNames() {
+        return NODE_CONFIG_NAMES.stream();
+    }
+
+    @Test
+    void allTwentyNamesInOneRequestAreEachRequestedOnce() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE);
+
+        Run run = run(script, nodeToolRequest("nodeConfig", lines -> lines.put("names",
+            String.join("%2C", NODE_CONFIG_NAMES))), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(framesStartingWith(run.out(), "config")).hasSize(20);
+        assertThat(script.calls()).filteredOn(c ->
+                c.name().equals("ClusterClient.getNodeConfigurationProperty"))
+            .extracting(c -> c.arguments().get(1)).containsExactlyElementsOf(NODE_CONFIG_NAMES);
+    }
+
+    /**
+     * A secret-holding name or any other text outside the helper's list is a malformed request:
+     * exit 2 and no vendor call at all, not even the client creation (SC-003, D-10).
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Database", "ClusterPassword", "initialRootUserPassword",
+        "IdentityProvider", "IdentityProviderConfiguration", "RuntimeDataBackupStore",
+        "ClusterCacheTaskDataModesConfig", "MaxEntriesInMemoryLimit", "NodeName%2CDatabase",
+        "ClusterPassword%2CNodeName", "nodename", "NODENAME", "Node%20Name", "%20NodeName",
+        "NodeName%00", "Node%C2%ADName", "%2A", "..%2FNodeName", "NodeName%3BDatabase"})
+    void aNameOutsideTheListEndsWithExitTwoAndNoVendorCallAtAll(String names) throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .property("Database", new Property(String.class, "jdbc:fake://db.example.test/ibis",
+                "Database", "", "Database", true, false))
+            .property("ClusterPassword", new Property(String.class, "fake-cluster-secret",
+                "Cluster password", "", "Cluster", true, false))
+            .property("NodeName", new Property(String.class, NODE, "Node name", "", "Cluster",
+                false, false));
+
+        Run run = run(script, nodeToolRequest("nodeConfig", lines -> lines.put("names", names)),
+            vendor());
+
+        assertThat(run.exit()).isEqualTo(2);
+        assertThat(run.out()).as("no value is echoed").isEmpty();
+        assertThat(script.calls()).as("nothing is sent").isEmpty();
+    }
+
+    /**
+     * {@code null} is a property the node does not have (US3-4); a failed request is that
+     * name's error, with the passwords masked, and the remaining names are still read.
+     */
+    @Test
+    void anAbsentAndAFailingNameDoNotStopTheOthers() throws Exception {
+        String echo = "user jdoe with " + TestSecrets.CONFIGURED_PASSWORD + " and store "
+            + TestSecrets.TRUST_STORE_PASSWORD + " refused";
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .propertyFails("ClusterName", new Failure("java.lang.IllegalStateException",
+                "no property"), new Failure("java.io.IOException", echo))
+            .property("ZoneName", new Property(String.class, "zone-a", "Zone", "Zone name",
+                "Cluster", true, false));
+
+        Run run = run(script, nodeToolRequest("nodeConfig", lines -> lines.put("names",
+            "noOfRetries%2CClusterName%2CZoneName")), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "ok", NODE),
+            List.of("config", "noOfRetries", "absent"),
+            List.of("config", "ClusterName", "error",
+                "java.lang.IllegalStateException>java.io.IOException",
+                "no property\nuser jdoe with ****** and store ****** refused"),
+            List.of("config", "ZoneName", "ok", "String", "true", "false", "Zone", "Cluster",
+                "Zone name", "zone-a"),
+            List.of("end"));
+        assertThat(HelperFrames.parse(NONCE, run.out()).frames()).contains(
+            new HelperFrames.ConfigAbsent("noOfRetries"),
+            new HelperFrames.ConfigError("ClusterName",
+                List.of("java.lang.IllegalStateException", "java.io.IOException"),
+                "no property\nuser jdoe with ****** and store ****** refused"));
+        assertThat(script.calls()).extracting(Call::name).containsSubsequence(
+            "ClusterClient.getNodeConfigurationProperty",
+            "ClusterClient.getNodeConfigurationProperty",
+            "ClusterClient.getNodeConfigurationProperty", "IBISSoapClient.logoutUser");
+        TestSecrets.assertNoLeak(run.out());
+        TestSecrets.assertNoLeak(decoded(run.out()));
+    }
+
+    /** The texts are cut at 4,000 characters; no type, no texts are written as {@code -}. */
+    @Test
+    void textsAreCutAtFourThousandCharactersAndMissingOnesAreDashes() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .property("ClusterDebug", new Property(Boolean.class, "v".repeat(4_001),
+                "d".repeat(4_001), "s".repeat(4_000), "c".repeat(4_001), true, false))
+            .property("ClusterName", new Property(null, null, null, null, null, false, true));
+
+        Run run = run(script, nodeToolRequest("nodeConfig", lines -> lines.put("names",
+            "ClusterDebug%2CClusterName")), vendor());
+
+        assertThat(framesStartingWith(run.out(), "config")).containsExactly(
+            List.of("config", "ClusterDebug", "ok", "Boolean", "true", "false", "d".repeat(4_000),
+                "c".repeat(4_000), "s".repeat(4_000), "v".repeat(4_000)),
+            List.of("config", "ClusterName", "ok", "-", "false", "true", "-", "-", "-", "-"));
+    }
+
+    /** The byte bound never cuts 4,000 ASCII characters, even those encoded as 3 bytes each. */
+    @Test
+    void fourThousandAsciiCharactersOfThreeEncodedBytesEachAreNeverCut() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .property("ClusterDebug", new Property(Boolean.class, " ".repeat(4_000),
+                "%".repeat(4_000), " ".repeat(4_000), "%".repeat(4_000), true, false));
+
+        Run run = run(script, nodeToolRequest("nodeConfig", lines -> lines.put("names",
+            "ClusterDebug")), vendor());
+
+        assertThat(framesStartingWith(run.out(), "config")).containsExactly(
+            List.of("config", "ClusterDebug", "ok", "Boolean", "true", "false", "%".repeat(4_000),
+                "%".repeat(4_000), " ".repeat(4_000), " ".repeat(4_000)));
+    }
+
+    /** Twenty properties with the longest non-ASCII texts keep the stdout below its 1 MiB cap. */
+    @Test
+    void theLargestNodeConfigAnswerWithNonAsciiTextsStaysBelowTheOneMibCap() throws Exception {
+        String euros = "€".repeat(4_000);
+        FakeInubitScript script = new FakeInubitScript().node(NODE);
+        for (String name : NODE_CONFIG_NAMES) {
+            script.property(name, new Property(String.class, euros, euros, euros, euros, true,
+                true));
+        }
+
+        Run run = run(script, nodeToolRequest("nodeConfig", lines -> lines.put("names",
+            String.join("%2C", NODE_CONFIG_NAMES))), vendor());
+
+        assertThat(run.out().getBytes(StandardCharsets.UTF_8).length)
+            .isLessThan(ProcessRun.MAX_OUTPUT_BYTES);
+        HelperFrames parsed = HelperFrames.parse(NONCE, run.out());
+        assertThat(parsed.problem()).isEmpty();
+        assertThat(parsed.ended()).isTrue();
+        assertThat(parsed.frames()).filteredOn(HelperFrames.ConfigOk.class::isInstance)
+            .hasSize(20);
+    }
+
+    /**
+     * The {@code NodeName} each request names is the very object {@code getNode()} returned;
+     * the vendor class needs no {@code setNodeConfigurationProperty}, as the helper never
+     * looks it up (FR-032).
+     */
+    @Test
+    void theNodeNameSentIsTheOneTheOwnNodeLookupReturned() throws Exception {
+        String cluster = "com.inubit.ibis.server.cluster.ClusterClient";
+        ClassLoader vendor = replacing(cluster, "package com.inubit.ibis.server.cluster;\n"
+            + "import com.inubit.ibis.server.cache.NodeName;\n"
+            + "import com.inubit.ibis.server.cluster.data.Node;\n"
+            + "import com.inubit.ibis.utils.property.type.IBISProperty;\n"
+            + "public class ClusterClient {\n"
+            + "private final NodeName own = NodeName.nodeName(\"" + NODE + "\");\n"
+            + "public ClusterClient(com.inubit.ibis.utils.I_IBISClientInterface c, String u,"
+            + " String id, String g) { }\n"
+            + "public Node getNode() { return new Node(own); }\n"
+            + "public IBISProperty getNodeConfigurationProperty(NodeName n, String name) {\n"
+            + "  if (n != own) { throw new IllegalArgumentException(\"another NodeName\"); }\n"
+            + "  return new IBISProperty(name, String.class, \"same\", \"\", \"\", \"\", false,"
+            + " false);\n"
+            + "}\n"
+            + "}\n");
+
+        Run run = run(new FakeInubitScript(), nodeToolRequest("nodeConfig", lines -> { }),
+            vendor);
+
+        assertThat(run.exit()).isZero();
+        assertThat(framesStartingWith(run.out(), "config")).containsExactly(
+            List.of("config", "OperationMode", "ok", "String", "false", "false", "-", "-", "-",
+                "same"),
+            List.of("config", "NodeName", "ok", "String", "false", "false", "-", "-", "-",
+                "same"));
+    }
+
+    @Test
+    void aFailedOwnNodeLookupEndsTheNodeConfigReadBeforeAnyProperty() throws Exception {
+        FakeInubitScript script = new FakeInubitScript()
+            .nodeFails(new Failure("java.lang.Exception", "Server not in cluster mode."));
+
+        Run run = run(script, nodeToolRequest("nodeConfig", lines -> { }), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "error", "java.lang.Exception", "Server not in cluster mode."),
+            List.of("end"));
+        assertThat(script.calls()).extracting(Call::name)
+            .doesNotContain("ClusterClient.getNodeConfigurationProperty")
+            .last().isEqualTo("IBISSoapClient.logoutUser");
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("missingNodeConfigMembers")
+    void nodeConfigWithoutAVendorMemberEndsWithApiMissingAndExitFourBeforeAnyCall(
+        String missing, String className, String source) throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE);
+
+        Run run = run(script, nodeToolRequest("nodeConfig", lines -> { }),
+            replacing(className, source));
+
+        assertThat(run.exit()).isEqualTo(4);
+        assertThat(frames(run.out())).containsExactly(List.of("api", "missing", missing));
+        assertThat(script.calls()).isEmpty();
+    }
+
+    static Stream<Arguments> missingNodeConfigMembers() {
+        String cluster = "com.inubit.ibis.server.cluster.ClusterClient";
+        String constructor = "public ClusterClient(com.inubit.ibis.utils.I_IBISClientInterface c,"
+            + " String u, String id, String g) { }";
+        String getNode = "public com.inubit.ibis.server.cluster.data.Node getNode() {"
+            + " return null; }";
+        String property = "com.inubit.ibis.utils.property.type.IBISProperty";
+        List<String> getters = List.of("public Class<?> getType() { return null; }",
+            "public String getStringValue() { return null; }",
+            "public String getDisplayName() { return null; }",
+            "public String getShortDescription() { return null; }",
+            "public String getCategory() { return null; }",
+            "public boolean isEditable() { return false; }",
+            "public boolean isDeprecated() { return false; }");
+        Stream<Arguments> missingGetters = getters.stream().map(getter -> {
+            String name = getter.replaceAll(".* (\\w+)\\(.*", "$1");
+            return Arguments.of(property + "." + name + "()", property, stub(property,
+                getters.stream().filter(other -> !other.equals(getter))
+                    .toArray(String[]::new)));
+        });
+        return Stream.concat(Stream.of(
+            Arguments.of(cluster + ".getNodeConfigurationProperty("
+                + "com.inubit.ibis.server.cache.NodeName,java.lang.String)", cluster,
+                stub(cluster, constructor, getNode))), missingGetters);
     }
 
     // --- the frame writer (D-4) -----------------------------------------------------------

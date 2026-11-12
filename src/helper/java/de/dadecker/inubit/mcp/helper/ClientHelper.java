@@ -26,18 +26,18 @@ import java.util.Set;
 /**
  * Reads through the INUBIT client installation whose class path it runs on: one queue manager
  * entry (feature 020, research D-1, D-2, D-4), the web service log of the node it reaches
- * (feature 021, D-2, D-4, D-5), the name of that node or the cluster's nodes (feature 024, D-2,
- * D-3, D-7). The server starts it in a child JVM; it is compiled for Java 17, uses JDK classes
- * only and is a single class without nested or anonymous classes, because it is shipped as one
- * class-file resource.
+ * (feature 021, D-2, D-4, D-5), the name of that node, the cluster's nodes or the node's
+ * configuration (feature 024, D-2, D-3, D-7, D-10). The server starts it in a child JVM; it is
+ * compiled for Java 17, uses JDK classes only and is a single class without nested or anonymous
+ * classes, because it is shipped as one class-file resource.
  *
  * <p>Protocol: the request arrives on stdin (UTF-8, {@code qe=1} first, one {@code key=value} per
  * line with every value percent-encoded, {@code end} last; the optional key {@code op} names the
  * operation, {@code queueEntry} (also when absent), {@code serverLog} (feature 021 D-4) or
  * {@code ownNode}, {@code clusterNodes}, {@code nodeConfig}, {@code ioLog} (feature 024 D-2),
- * each with its own keys; this version performs {@code ownNode} and {@code clusterNodes} and
- * answers a valid request of the other two with exit 2 after the API check); results are the
- * stdout lines that start with {@code #QE1:<nonce> }, followed by space-separated
+ * each with its own keys; this version performs {@code ownNode}, {@code clusterNodes} and
+ * {@code nodeConfig} and answers a valid {@code ioLog} request with exit 2 after the API check);
+ * results are the stdout lines that start with {@code #QE1:<nonce> }, followed by space-separated
  * percent-encoded tokens, so output of the vendor libraries cannot forge one; an empty token is
  * written as {@code -}. Exit codes: 0 after {@code end}, 1 anything else (also any unexpected
  * {@link Throwable}), 2 malformed request, 3 login failed (also a vendor class that fails to
@@ -53,8 +53,9 @@ import java.util.Set;
  * from {@code getNode()}, then {@code clusterDownload} of the constant {@code webservice.log}
  * from that node (FR-006); the own node through the same {@code getNode()}, the cluster's nodes
  * through {@code getNodes()} and one node's information through {@code getNode(NodeName)}
- * (FR-010, FR-011). 8.1 logs out at the end. Client methods are looked up on
- * {@code I_IBISClientInterface}, because the 9.0 client is a private class.
+ * (FR-010, FR-011), the own node's configuration through
+ * {@code getNodeConfigurationProperty} (FR-030, FR-032). 8.1 logs out at the end. Client methods
+ * are looked up on {@code I_IBISClientInterface}, because the 9.0 client is a private class.
  */
 public final class ClientHelper {
 
@@ -133,6 +134,13 @@ public final class ClientHelper {
     private static final int MAX_DETAIL_VALUE_CHARS = 4_000;
     /** The encoded {@code detail} frames together (whole lines) at most (024 D-2). */
     private static final int DETAILS_BUDGET_BYTES = 256 * 1024;
+    private static final int MAX_CONFIG_TEXT_CHARS = 4_000;
+    /**
+     * The bytes of one percent-encoded {@code config} text at most: never cuts 4,000 ASCII
+     * characters (3 bytes each at most) and keeps 20 {@code config} frames of four texts each
+     * below the 1 MiB stdout cap (020).
+     */
+    private static final int MAX_CONFIG_TEXT_BYTES = 12_000;
 
     private ClientHelper() {
     }
@@ -181,8 +189,8 @@ public final class ClientHelper {
             return EXIT_API_MISSING;
         }
         String op = request.get(OP);
-        if (NODE_CONFIG.equals(op) || IO_LOG.equals(op)) {
-            // a valid request, but this helper version does not perform these yet: nothing sent
+        if (IO_LOG.equals(op)) {
+            // a valid request, but this helper version does not perform it yet: nothing sent
             return EXIT_MALFORMED;
         }
         frame(out, nonce, "start", request.get("variant"));
@@ -254,6 +262,9 @@ public final class ClientHelper {
             if (CLUSTER_NODES.equals(request.get(OP))) {
                 clusterNodesApi(api, vendor, cluster, nodeName, node);
             }
+            if (NODE_CONFIG.equals(request.get(OP))) {
+                nodeConfigApi(api, vendor, cluster, nodeName);
+            }
         }
         return api;
     }
@@ -278,6 +289,21 @@ public final class ClientHelper {
         Class<?> map = Class.forName(MAP_PROPERTY, false, vendor);
         api.put("getPropertyNames", map.getMethod("getPropertyNames"));
         api.put("get", map.getMethod("get", String.class));
+    }
+
+    /**
+     * The members {@code nodeConfig} calls beyond the node lookup (024 D-10); never
+     * {@code setNodeConfigurationProperty} (FR-032).
+     */
+    private static void nodeConfigApi(Map<String, Executable> api, ClassLoader vendor,
+        Class<?> cluster, Class<?> nodeName) throws ReflectiveOperationException {
+        api.put("getNodeConfigurationProperty", cluster.getMethod("getNodeConfigurationProperty",
+            nodeName, String.class));
+        Class<?> property = Class.forName(IBIS_PROPERTY, false, vendor);
+        for (String getter : List.of("getType", "getStringValue", "getDisplayName",
+            "getShortDescription", "getCategory", "isEditable", "isDeprecated")) {
+            api.put(getter, property.getMethod(getter));
+        }
     }
 
     /** The download thread class and the members that report its result. */
@@ -315,9 +341,8 @@ public final class ClientHelper {
     }
 
     /**
-     * Logs in, reads the requested parts, the web service log, the own node or the cluster's
-     * nodes and logs out (8.1);
-     * returns the exit code.
+     * Logs in, reads the requested parts, the web service log, the own node, the cluster's
+     * nodes or the own node's configuration and logs out (8.1); returns the exit code.
      */
     private static int read(Map<String, String> request, Map<String, Executable> api,
         PrintStream out) throws ReflectiveOperationException, InterruptedException {
@@ -345,6 +370,8 @@ public final class ClientHelper {
                 lookUpNode(api, client, request, out, secrets);
             } else if (CLUSTER_NODES.equals(request.get(OP))) {
                 listClusterNodes(api, client, request, out, secrets);
+            } else if (NODE_CONFIG.equals(request.get(OP))) {
+                readNodeConfig(api, client, request, out, secrets);
             } else {
                 if (request.get("parts").startsWith("data")) {
                     download(api, client, request, "data", request.get("fileName"),
@@ -606,6 +633,60 @@ public final class ClientHelper {
             }
         }
         return false;
+    }
+
+    /**
+     * Looks up the answering node and asks it for each requested configuration property, in the
+     * request's order, writing one {@code config} frame per name (024 D-10): {@code ok} with the
+     * type's simple name, the flags and the texts, {@code absent} for a {@code null} answer,
+     * {@code error} for a failed request, after which the other names are still read. Only names
+     * of {@link #NODE_CONFIG_NAMES} get here (checked with the request).
+     */
+    private static void readNodeConfig(Map<String, Executable> api, Object client,
+        Map<String, String> request, PrintStream out, List<String> secrets)
+        throws ReflectiveOperationException {
+        Object[] node = lookUpNode(api, client, request, out, secrets);
+        if (node == null) {
+            return;
+        }
+        String nonce = request.get("nonce");
+        for (String name : request.get("names").split(",")) {
+            String[] tokens;
+            try {
+                tokens = config(api, name,
+                    call(api, "getNodeConfigurationProperty", node[0], node[1], name));
+            } catch (InvocationTargetException | LinkageError e) {
+                Throwable failure = vendorFailure(e);
+                frame(out, nonce, "config", name, "error", chain(failure),
+                    messages(failure, secrets));
+                continue;
+            }
+            frame(out, nonce, tokens);
+        }
+    }
+
+    /**
+     * The tokens of the {@code config} frame of the property {@code name}; every text cut by
+     * {@link #cut} at 4,000 characters and 12,000 encoded bytes, empty for none.
+     */
+    private static String[] config(Map<String, Executable> api, String name, Object property)
+        throws ReflectiveOperationException {
+        if (property == null) {
+            return new String[] {"config", name, "absent"};
+        }
+        Class<?> type = (Class<?>) call(api, "getType", property);
+        String[] tokens = {"config", name, "ok", type == null ? "" : type.getSimpleName(),
+            String.valueOf(call(api, "isEditable", property)),
+            String.valueOf(call(api, "isDeprecated", property)),
+            (String) call(api, "getDisplayName", property),
+            (String) call(api, "getCategory", property),
+            (String) call(api, "getShortDescription", property),
+            (String) call(api, "getStringValue", property)};
+        for (int i = 6; i < tokens.length; i++) {
+            tokens[i] = tokens[i] == null ? ""
+                : cut(tokens[i], MAX_CONFIG_TEXT_CHARS, MAX_CONFIG_TEXT_BYTES);
+        }
+        return tokens;
     }
 
     /**
