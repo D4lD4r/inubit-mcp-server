@@ -2,12 +2,14 @@ package de.dadecker.inubit.mcp.domain.model;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -253,6 +255,27 @@ class LogExcerptTest {
             "2026-11-02 12:00:00,002 WARN  [acme.import.Customer] node1 street Hauptstraße 5"
                 + " shortened",
             "2026-11-02 12:00:00,003 INFO  [acme.import.Customer] node1 Größe 12 µm accepted");
+    }
+
+    /**
+     * FR-010: one byte that is not UTF-8 makes the whole window ISO-8859-1; a non-ASCII password
+     * the log wrote as UTF-8 is still masked by the profile's credentials (the scrubber's forms).
+     */
+    @Test
+    void aNonAsciiPasswordInAWindowDecodedAsLatin1IsMasked() {
+        SecretScrubber scrubber = new SecretScrubber();
+        scrubber.register("Pässwort1");
+        byte[] password = utf8("login with Pässwort1 done\n");
+        byte[] bytes = Arrays.copyOf(password, password.length + 7);
+        System.arraycopy(new byte[] {'s', 't', 'r', 'a', 'y', (byte) 0xFF, '\n'}, 0, bytes,
+            password.length, 7);
+
+        LogExcerpt excerpt = LogExcerpt.build(new LogWindow(bytes, 0, true, bytes.length), TAIL,
+            Optional.empty(), MAX, scrubber::occurrences);
+
+        assertThat(excerpt.charset()).contains(StandardCharsets.ISO_8859_1);
+        assertThat(excerpt.lines()).extracting(ExcerptLine::text)
+            .containsExactly("login with *** done", "strayÿ");
     }
 
     @Test

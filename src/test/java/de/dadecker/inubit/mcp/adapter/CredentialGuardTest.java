@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.adapter;
 import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import de.dadecker.inubit.mcp.adapter.NodeSecrets.Reread;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
@@ -185,6 +186,64 @@ class CredentialGuardTest {
         first.close();
 
         assertThat(second.get(5, TimeUnit.SECONDS)).isTrue();
+    }
+
+    // --- feature 021 (FR-013, research D-15): a wait bounded by the call deadline -------------
+
+    private static void assertTimedOut(Throwable thrown) {
+        assertThat(thrown).isInstanceOfSatisfying(ToolErrorException.class, e -> {
+            assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT);
+            assertThat(e.error().node()).contains(DEV);
+            assertThat(e.error().message()).isEqualTo("cliExportTimeout on dev/node1 passed while"
+                + " waiting for another login attempt with the unconfirmed credentials or their"
+                + " re-read; this call did not log in");
+            assertThat(e.error().nextStep()).contains("raise cliExportTimeout");
+        });
+    }
+
+    @Test
+    void aBoundedWaitForAnotherAttemptEndsInTimeoutNamingTheSetting() throws Exception {
+        CredentialGuard.Permit first = guard.acquire();
+        long start = System.nanoTime();
+
+        Throwable thrown = catchThrowable(
+            () -> guard.acquire(Duration.ofMillis(300), "cliExportTimeout").close());
+
+        Duration waited = Duration.ofNanos(System.nanoTime() - start);
+        assertThat(waited).isGreaterThanOrEqualTo(Duration.ofMillis(300))
+            .isLessThan(Duration.ofSeconds(5));
+        assertTimedOut(thrown);
+        first.close();
+        assertThat(guard.confirmed()).isFalse();
+        try (CredentialGuard.Permit next = guard.acquire(Duration.ZERO, "cliExportTimeout")) {
+            assertThat(next).as("the timed-out wait left the single attempt free").isNotNull();
+        }
+    }
+
+    @Test
+    void aBoundedWaitGetsThePermitOnceTheOtherAttemptEnds() throws Exception {
+        CredentialGuard.Permit first = guard.acquire();
+        CompletableFuture<Boolean> second = CompletableFuture.supplyAsync(() -> {
+            try (CredentialGuard.Permit permit =
+                     guard.acquire(Duration.ofSeconds(10), "cliExportTimeout")) {
+                return permit != null;
+            }
+        });
+        Thread.sleep(100);
+        first.close();
+
+        assertThat(second.get(5, TimeUnit.SECONDS)).isTrue();
+    }
+
+    @Test
+    void aBoundedWaitWithConfirmedCredentialsDoesNotWait() {
+        try (CredentialGuard.Permit permit = guard.acquire()) {
+            permit.accepted();
+        }
+        try (CredentialGuard.Permit first = guard.acquire();
+             CredentialGuard.Permit second = guard.acquire(Duration.ZERO, "cliExportTimeout")) {
+            assertThat(second).isNotNull();
+        }
     }
 
     // --- feature 010 T016: re-read on rejection (R-10, FR-010, data-model.md → CredentialGuard) --
@@ -384,6 +443,25 @@ class CredentialGuardTest {
         try (CredentialGuard.Permit permit = client().acquire()) {
             assertThat(permit).as("the grace attempt is still allowed").isNotNull();
         }
+    }
+
+    @Test
+    void aBoundedWaitForARunningReReadEndsInTimeout() throws Exception {
+        CredentialGuard.Permit first = client().acquire();
+        secrets.gate = new CountDownLatch(1);
+        CompletableFuture<Void> rejection = CompletableFuture.runAsync(first::rejected);
+        assertThat(secrets.entered.await(5, TimeUnit.SECONDS)).isTrue();
+        first.close();
+        long start = System.nanoTime();
+
+        Throwable thrown = catchThrowable(
+            () -> client().acquire(Duration.ofMillis(300), "cliExportTimeout").close());
+
+        assertThat(Duration.ofNanos(System.nanoTime() - start))
+            .isGreaterThanOrEqualTo(Duration.ofMillis(300)).isLessThan(Duration.ofSeconds(5));
+        assertTimedOut(thrown);
+        secrets.gate.countDown();
+        rejection.get(5, TimeUnit.SECONDS);
     }
 
     // --- feature 011 (T016, US5): the same re-read rules for a credential store node ---

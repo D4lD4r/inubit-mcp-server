@@ -110,3 +110,28 @@ the new tool (`download_server_log`, contract `contracts/mcp-tools-delta.md`).
     empty `webservice.log` on the server leaves no file at all is unknown (not observed in T034) —
     watch for it in the live checks T055/T056.
   - T050 (9.0 webservice spike): the throwaway runner must refuse a version mismatch (T034 review).
+
+## T060 – full verification (2026-11-12)
+
+- `mvn -o -B clean verify` (tmpdir outside the checkout): exit 0, before and after the final-review
+  fixes; last run 7961 surefire + 4 failsafe tests, 0 failures, 0 errors, 58 skipped — above the
+  T001 reference of 7248, no test removed (SC-002). `python3 -I -m unittest discover -s tools/tests`:
+  441 tests OK. `python3 -I tools/check-identifiers.py --all` and `NoCustomerIdentifiersTest`
+  (private lists): green.
+- Jar: exactly one `META-INF/inubit-mcp/client-helper/…/ClientHelper.class`, no
+  `queue-entry-helper/` entry. `git diff --stat main...HEAD -- src/test/resources/fixtures/queue-entry`:
+  empty.
+- Tool list (SC-002): `MainTest` pins the 0.9.1 names plus `download_server_log` only.
+- Quickstart offline table: every named test class exists and is green in the last build
+  (`QueueEntryHelperTest` is named only as the old name of the renamed `ClientHelperTest`).
+- Live: T021/T034 (8.1 recordings), T049/T050 (9.0 recordings), T055 (8.1) and T056 (9.0) live
+  checks green; 9.0 webservice verified on a recorded 0-byte answer only (owner decision, T052).
+- Final cross-cutting code review over `git diff main...HEAD` (`reviews/T060-final.md`): findings
+  1–3 fixed with failing tests first and independently reviewed (bounded CredentialGuard wait and
+  StartCLI timeout recomputed after it, FR-013/D-15; Latin-1 reading of every known-credential form
+  masked, FR-010, also closes the same gap of `read_queue_entry`; FAILED audit on an `Error`,
+  FR-015); finding 4 (folder rules checked before placement) accepted as for `export_archives`.
+- Left open (older than this feature, outside its scope): README still says the INUBIT 9.0 support
+  "has not yet been checked against a live INUBIT 9.0 node"; if the final audit record was
+  already written and closing the downloaded log throws, an IllegalStateException replaces the
+  original exception.

@@ -438,13 +438,18 @@ class CliWebServiceLogAdapterTest {
         assertThat(held.await(5, TimeUnit.SECONDS)).as("the other attempt holds the permit")
             .isTrue();
 
-        ToolError error = failure(adapter, V81,
-            System.nanoTime() + Duration.ofMillis(300).toNanos());
+        long start = System.nanoTime();
+        ToolError error = failure(adapter, V81, start + Duration.ofMillis(300).toNanos());
+        Duration took = Duration.ofNanos(System.nanoTime() - start);
         other.join();
 
+        // FR-013, D-15: at the deadline, not when the other attempt ends
+        assertThat(took).isLessThan(Duration.ofMillis(1200));
         assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
-        assertThat(error.message()).isEqualTo("cliExportTimeout (300 ms) on test/node1 passed"
-            + " before the login; the INUBIT client helper was not started");
+        assertThat(error.node()).contains(NodeId.parse("test/node1"));
+        assertThat(error.message()).isEqualTo("cliExportTimeout on test/node1 passed while"
+            + " waiting for another login attempt with the unconfirmed credentials or their"
+            + " re-read; this call did not log in");
         assertThat(error.nextStep()).contains("raise cliExportTimeout");
         assertThat(launcher.launchCount()).isZero();
         assertThat(guard.confirmed()).as("no login result").isFalse();

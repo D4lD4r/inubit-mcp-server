@@ -193,12 +193,13 @@ public final class CliWebServiceLogAdapter {
 
     /**
      * Runs the helper under a guard permit, after the handshake: a refused address neither waits
-     * for nor counts as a login. A deadline that passed while waiting for the permit launches
-     * nothing; the permit is closed without a login result.
+     * for nor counts as a login. The wait for the permit ends at the deadline in {@code TIMEOUT}
+     * naming {@code cliExportTimeout}; a deadline that passed by then launches nothing, the
+     * permit is closed without a login result.
      */
     private Outcome run(HelperInstallation installation, HelperRequest request, Path clientHome,
         MajorMinor release, long deadlineNanos) {
-        try (CredentialGuard.Permit permit = guard.acquire()) {
+        try (CredentialGuard.Permit permit = guard.acquire(remaining(deadlineNanos), BUDGET)) {
             Duration left = remaining(deadlineNanos);
             if (left.isZero()) {
                 throw deadlinePassed();

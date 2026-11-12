@@ -14,7 +14,6 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -24,8 +23,8 @@ import org.slf4j.LoggerFactory;
 /**
  * Downloads {@code trace.log} of one server through StartCLI (feature 021, research D-1, D-7,
  * D-14): {@code trace --download '<private dir>/trace.log'} ({@link CliCommand#traceDownload})
- * through {@link CliRunner#run} with the server's {@link CredentialGuard}, the budget named
- * {@code cliExportTimeout}.
+ * through {@link CliRunner#run} with the server's {@link CredentialGuard}, within the call deadline
+ * of {@code cliExportTimeout}.
  *
  * <ul>
  *   <li>Before anything is created or launched: StartCLI must be available, the temporary root
@@ -75,8 +74,10 @@ public final class CliTraceRunner {
     }
 
     /**
-     * Downloads {@code trace.log} into a new private directory; StartCLI may run at most
-     * {@code remaining}. The caller closes the result, which deletes the directory.
+     * Downloads {@code trace.log} into a new private directory within the call deadline
+     * {@code deadlineNanos} ({@link System#nanoTime()}): the wait for the guard ends at it, and
+     * StartCLI may run for what is left of it when it starts. The caller closes the result, which
+     * deletes the directory.
      *
      * @throws ToolErrorException with the server id: {@code CLI_UNAVAILABLE},
      *     {@code AUTH_FAILED} (no credentials, nothing launched), {@code TIMEOUT} naming
@@ -84,8 +85,7 @@ public final class CliTraceRunner {
      *     {@code FORBIDDEN}, {@code AUTH_FAILED}, {@code TLS_ERROR}, …) or
      *     {@code UNEXPECTED_RESPONSE}; the private directory is deleted then
      */
-    public DownloadedLog download(Duration remaining) {
-        Objects.requireNonNull(remaining, "remaining");
+    public DownloadedLog download(long deadlineNanos) {
         checkPreconditions();
         // the client CliRunner#run would choose now; never StartCLI's output (research D-18)
         EffectiveNodeConfig client = runner.select(server).server();
@@ -118,8 +118,8 @@ public final class CliTraceRunner {
             Path file = directory.resolve(FILE_NAME);
             CliResult result = runner.run(server, credentials.username().orElseThrow().value(),
                 credentials.password().orElseThrow().value(),
-                CliCommand.traceDownload(file, runner.windows()), remaining, "cliExportTimeout",
-                guard);
+                CliCommand.traceDownload(file, runner.windows()), deadlineNanos,
+                "cliExportTimeout", guard);
             if (classifier.classifyTraceDownload(result) instanceof CliOutcome.Failure failure) {
                 ToolError error = failure.error();
                 throw new ToolErrorException(error.node().isPresent() ? error

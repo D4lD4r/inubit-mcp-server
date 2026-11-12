@@ -16,7 +16,7 @@ import java.util.Set;
  * {@code ***} (Constitution II, research R-12).
  *
  * <p>Each secret is registered in all the spellings of {@link SecretForms} (JSON, XML and URL
- * escaped, Base64), so that it is also found inside encoded payloads.
+ * escaped, Base64, UTF-8 read as ISO-8859-1), so that it is also found inside encoded payloads.
  *
  * <p>All occurrences of all secrets are located first, including overlapping ones; every maximal
  * run of characters covered by at least one occurrence becomes a single {@code ***}. This gives

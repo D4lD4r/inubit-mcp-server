@@ -58,7 +58,7 @@ public final class CliServerLogAdapter implements ServerLogPort {
         try (CliConcurrencyLimiter.Permit slot =
                  limiter.acquireForHelper(server, wait, "cliExportTimeout")) {
             return switch (kind) {
-                case TRACE -> traces.download(remaining(deadlineNanos));
+                case TRACE -> traces.download(deadlineNanos);
                 case WEBSERVICE -> webServiceLogs.download(version, deadlineNanos);
             };
         } catch (ToolErrorException e) {

@@ -41,6 +41,8 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.regex.Matcher;
@@ -186,6 +188,27 @@ class CliTraceRunnerTest {
         throw new AssertionError("expected a ToolErrorException");
     }
 
+    /** The call deadline {@code budget} from now ({@link System#nanoTime()}). */
+    private static long deadline(Duration budget) {
+        return System.nanoTime() + budget.toNanos();
+    }
+
+    /** Another login attempt holds the unconfirmed guard for {@code duration}, then ends. */
+    private Thread otherLoginFor(Duration duration) throws InterruptedException {
+        CountDownLatch held = new CountDownLatch(1);
+        Thread other = Thread.ofVirtual().start(() -> {
+            try (CredentialGuard.Permit permit = guard.acquire()) {
+                held.countDown();
+                Thread.sleep(duration);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        assertThat(held.await(5, TimeUnit.SECONDS)).as("the other attempt holds the guard")
+            .isTrue();
+        return other;
+    }
+
     // --- success -------------------------------------------------------------------------------
 
     @Test
@@ -193,7 +216,7 @@ class CliTraceRunnerTest {
         throws IOException {
         FakeProcessLauncher launcher = replaying("ok");
 
-        try (DownloadedLog log = traces(launcher).download(BUDGET)) {
+        try (DownloadedLog log = traces(launcher).download(deadline(BUDGET))) {
             Path file = downloadFile(launcher.last().spec());
             assertThat(execCommand(launcher.last().spec()))
                 .isEqualTo("trace --download '" + Platform.commandPath(file) + "'");
@@ -222,7 +245,7 @@ class CliTraceRunnerTest {
     void thePasswordGoesOnlyToStdin() {
         FakeProcessLauncher launcher = replaying("ok");
 
-        traces(launcher).download(BUDGET).close();
+        traces(launcher).download(deadline(BUDGET)).close();
 
         LaunchSpec spec = launcher.last().spec();
         assertThat(spec.command()).doesNotContain(PASSWORD)
@@ -239,14 +262,14 @@ class CliTraceRunnerTest {
     void theClientChosenForEightOneRunsTheDownload() {
         FakeProcessLauncher launcher = replaying("ok");
 
-        traces(launcher).download(BUDGET).close();
+        traces(launcher).download(deadline(BUDGET)).close();
 
         assertThat(launcher.last().spec().workingDirectory()).isEqualTo(client81);
     }
 
     @Test
     void anEmptyTraceLogIsAPresentLogOfZeroBytes() throws IOException {
-        try (DownloadedLog log = traces(replaying("empty")).download(BUDGET)) {
+        try (DownloadedLog log = traces(replaying("empty")).download(deadline(BUDGET))) {
             assertThat(log.size()).isZero();
             assertThat(log.presence()).isEqualTo(LogPresence.PRESENT);
         }
@@ -262,7 +285,7 @@ class CliTraceRunnerTest {
         "forbidden, FORBIDDEN"})
     void everyFailedTraceCaseHasItsCodeAndLeavesNothing(String fixtureCase, ErrorCode expected)
         throws IOException {
-        ToolError error = errorOf(() -> traces(replaying(fixtureCase)).download(BUDGET));
+        ToolError error = errorOf(() -> traces(replaying(fixtureCase)).download(deadline(BUDGET)));
 
         assertThat(error.code()).isEqualTo(expected);
         assertThat(error.node()).contains(DEV);
@@ -271,7 +294,7 @@ class CliTraceRunnerTest {
 
     @Test
     void aMissingTraceLogNamesTheNode() {
-        ToolError error = errorOf(() -> traces(replaying("missing")).download(BUDGET));
+        ToolError error = errorOf(() -> traces(replaying("missing")).download(deadline(BUDGET)));
 
         assertThat(error.message()).isEqualTo("trace.log does not exist on dev/node1");
         assertThat(error.nextStep())
@@ -290,7 +313,7 @@ class CliTraceRunnerTest {
         FakeProcessLauncher launcher = answering(stdout, "", 0,
             Optional.of(FakeProcessLauncher.resource("server-log/v8_1/trace/ok.log")));
 
-        ToolError error = errorOf(() -> traces(launcher).download(BUDGET));
+        ToolError error = errorOf(() -> traces(launcher).download(deadline(BUDGET)));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.message()).isEqualTo(UNCONFIRMED);
@@ -305,7 +328,7 @@ class CliTraceRunnerTest {
         FakeProcessLauncher launcher = answering(fixture("ok.stdout"), fixture("ok.stderr"), 0,
             Optional.empty());
 
-        ToolError error = errorOf(() -> traces(launcher).download(BUDGET));
+        ToolError error = errorOf(() -> traces(launcher).download(deadline(BUDGET)));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.message()).isEqualTo(UNCONFIRMED);
@@ -318,12 +341,72 @@ class CliTraceRunnerTest {
         FakeProcessLauncher launcher = replaying("ok").hanging();
 
         long start = System.nanoTime();
-        ToolError error = errorOf(() -> traces(launcher).download(Duration.ofMillis(300)));
+        ToolError error = errorOf(
+            () -> traces(launcher).download(deadline(Duration.ofMillis(300))));
 
         assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
         assertThat(error.nextStep()).contains("cliExportTimeout")
             .doesNotContain("raise cliTimeout");
         assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(10));
+        assertThat(launcher.last().destroyed()).isTrue();
+        assertThat(leftovers()).isEmpty();
+    }
+
+    /** FR-013, D-15: the wait for another login attempt is inside the call deadline. */
+    @Test
+    void aDeadlinePassedWhileWaitingForAnotherLoginLaunchesNothing() throws Exception {
+        FakeProcessLauncher launcher = replaying("ok");
+        Thread other = otherLoginFor(Duration.ofSeconds(3));
+
+        long start = System.nanoTime();
+        ToolError error = errorOf(
+            () -> traces(launcher).download(deadline(Duration.ofMillis(300))));
+        Duration took = Duration.ofNanos(System.nanoTime() - start);
+        other.join();
+
+        assertThat(took).as("not until the other attempt ends").isLessThan(Duration.ofMillis(2000));
+        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(error.node()).contains(DEV);
+        assertThat(error.nextStep()).contains("raise cliExportTimeout")
+            .doesNotContain("raise cliTimeout");
+        assertThat(launcher.launchCount()).isZero();
+        assertThat(guard.confirmed()).as("no login result").isFalse();
+        assertThat(leftovers()).isEmpty();
+    }
+
+    @Test
+    void aDeadlinePassedBeforeTheLoginLaunchesNothing() throws IOException {
+        FakeProcessLauncher launcher = replaying("ok");
+
+        ToolError error = errorOf(() -> traces(launcher).download(System.nanoTime() - 1));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(error.node()).contains(DEV);
+        assertThat(error.message()).isEqualTo("cliExportTimeout on dev/node1 passed before the"
+            + " login; StartCLI was not started");
+        assertThat(error.nextStep()).contains("raise cliExportTimeout");
+        assertThat(launcher.launchCount()).isZero();
+        assertThat(guard.confirmed()).as("no login result").isFalse();
+        assertThat(leftovers()).isEmpty();
+    }
+
+    /** FR-013, D-15: StartCLI gets what is left of the deadline after the wait for the guard. */
+    @Test
+    void startCliGetsWhatIsLeftOfTheDeadlineAfterTheWaitForAnotherLogin() throws Exception {
+        FakeProcessLauncher launcher = replaying("ok").hanging();
+        Thread other = otherLoginFor(Duration.ofMillis(1500));
+
+        long start = System.nanoTime();
+        ToolError error = errorOf(
+            () -> traces(launcher).download(deadline(Duration.ofSeconds(2))));
+        Duration took = Duration.ofNanos(System.nanoTime() - start);
+        other.join();
+
+        assertThat(took).as("one deadline of 2 s, not 1.5 s of waiting plus 2 s for StartCLI")
+            .isGreaterThanOrEqualTo(Duration.ofMillis(1900)).isLessThan(Duration.ofMillis(3400));
+        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(error.nextStep()).contains("cliExportTimeout");
+        assertThat(launcher.launchCount()).isEqualTo(1);
         assertThat(launcher.last().destroyed()).isTrue();
         assertThat(leftovers()).isEmpty();
     }
@@ -335,7 +418,7 @@ class CliTraceRunnerTest {
         AtomicReference<ToolError> error = new AtomicReference<>();
 
         Thread call = Thread.ofVirtual().start(() -> error.set(errorOf(
-            () -> traces.download(BUDGET))));
+            () -> traces.download(deadline(BUDGET)))));
         while (launcher.launchCount() == 0) {
             Thread.sleep(10);
         }
@@ -354,7 +437,7 @@ class CliTraceRunnerTest {
         AtomicReference<ToolError> error = new AtomicReference<>();
 
         Thread call = Thread.ofVirtual().start(() -> error.set(errorOf(
-            () -> traces.download(BUDGET))));
+            () -> traces.download(deadline(BUDGET)))));
         while (launcher.launchCount() == 0 || leftovers().isEmpty()) {
             Thread.sleep(10);
         }
@@ -372,7 +455,7 @@ class CliTraceRunnerTest {
             .cliClient("9.0", client90, Optional.of(Path.of("/opt/jdk-21"))).build();
 
         ToolError error = errorOf(() -> traces(onlyNine, credentials(), runner(launcher))
-            .download(BUDGET));
+            .download(deadline(BUDGET)));
 
         assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
         assertThat(error.toString()).contains("defaults.cliClients.\"8.1\"");
@@ -388,7 +471,7 @@ class CliTraceRunnerTest {
         CliTraceRunner traces = new CliTraceRunner(node().build(), credentials(), guard, runner,
             new CliOutputClassifier(new SecretScrubber()), odd);
 
-        ToolError error = errorOf(() -> traces.download(BUDGET));
+        ToolError error = errorOf(() -> traces.download(deadline(BUDGET)));
 
         assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
         assertThat(error.nextStep()).contains("java.io.tmpdir");
@@ -411,7 +494,7 @@ class CliTraceRunnerTest {
             Optional.empty(), Optional.empty());
 
         ToolError error = errorOf(() -> traces(node().build(), none, runner(launcher))
-            .download(BUDGET));
+            .download(deadline(BUDGET)));
 
         // as every StartCLI export of the node (CliExportRunner.checkPreconditions)
         assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
@@ -428,7 +511,7 @@ class CliTraceRunnerTest {
             + " server failed.@End@javax.net.ssl.SSLHandshakeException: PKIX path building"
             + " failed\nCONNECTION ERROR\n", "", 1, Optional.of(new byte[0]));
 
-        ToolError error = errorOf(() -> traces(launcher).download(BUDGET));
+        ToolError error = errorOf(() -> traces(launcher).download(deadline(BUDGET)));
 
         assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
         assertThat(leftovers()).isEmpty();
@@ -446,7 +529,7 @@ class CliTraceRunnerTest {
             new CliResources("acme", PrivateFiles.forHost()), refusing, versions);
 
         ToolError error = errorOf(() -> traces(marked(node().build()), credentials(), runner)
-            .download(BUDGET));
+            .download(deadline(BUDGET)));
 
         assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
         assertThat(launcher.launchCount()).isZero();

@@ -758,6 +758,21 @@ class ServerLogServiceTest {
         assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.FAILED);
     }
 
+    /** FR-015: an Error while the excerpt is built still closes the record; nothing remains. */
+    @Test
+    void anErrorDuringTheExcerptIsAuditedFailedAndPropagates() {
+        secrets.failOccurrences(new StackOverflowError());
+
+        Throwable thrown = catchThrowable(() -> service().download(request(TEST.value(),
+            "trace")));
+
+        assertThat(thrown).isInstanceOf(StackOverflowError.class);
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.FAILED);
+        assertThat(audit.records.get(1).reason()).contains("INTERNAL: StackOverflowError");
+        assertNoFileInTheFolder();
+        assertThat(port.directory).doesNotExist();
+    }
+
     // --- leak check ---------------------------------------------------------------------------
 
     @Test

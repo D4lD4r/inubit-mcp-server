@@ -46,6 +46,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.regex.Matcher;
@@ -56,6 +58,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * T026, T041 (feature 021, FR-013, research D-15, D-19): the server-log port takes a StartCLI slot
@@ -410,6 +414,52 @@ class CliServerLogAdapterTest {
             .doesNotContain("raise cliTimeout");
         assertThat(launcher.launchCount()).isEqualTo(1);
         assertThat(launcher.last().destroyed()).as("process stopped").isTrue();
+        assertBothSlotsFree(server);
+        assertThat(leftovers()).isEmpty();
+    }
+
+    /** FR-013, D-15: the wait for another login attempt is inside the call deadline. */
+    @ParameterizedTest
+    @EnumSource(ServerLogKind.class)
+    void aLoginWaitLongerThanTheDeadlineEndsInTimeoutWithoutLaunch(ServerLogKind kind)
+        throws Exception {
+        EffectiveNodeConfig server = kind == ServerLogKind.TRACE ? node(Duration.ofMillis(300))
+            : webServiceNode(Duration.ofMillis(300));
+        FakeProcessLauncher launcher = kind == ServerLogKind.TRACE ? replayingOk()
+            : CliWebServiceLogAdapterTest.replaying("ok");
+        CountDownLatch held = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(1);
+        Thread other = Thread.ofVirtual().start(() -> {
+            try (CredentialGuard.Permit permit = guard.acquire()) {
+                held.countDown();
+                done.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        assertThat(held.await(5, TimeUnit.SECONDS)).as("another login attempt holds the guard")
+            .isTrue();
+
+        ToolError error;
+        long start = System.nanoTime();
+        try {
+            error = errorOf(() -> adapter(server, launcher).download(kind, V8_1_17,
+                start + server.cliExportTimeout().toNanos()));
+        } finally {
+            done.countDown();
+            other.join();
+        }
+
+        assertThat(Duration.ofNanos(System.nanoTime() - start)).as("within the deadline")
+            .isLessThan(Duration.ofSeconds(3));
+        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(error.node()).contains(DEV);
+        assertThat(error.message()).isEqualTo("The " + kind.wireName() + " log download from"
+            + " dev/node1 did not finish within cliExportTimeout (300 ms)");
+        assertThat(error.nextStep()).contains("raise cliExportTimeout").endsWith(LARGE_LOGS)
+            .doesNotContain("raise cliTimeout");
+        assertThat(launcher.launchCount()).isZero();
+        assertThat(guard.confirmed()).as("no login result").isFalse();
         assertBothSlotsFree(server);
         assertThat(leftovers()).isEmpty();
     }

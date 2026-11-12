@@ -893,7 +893,7 @@ helper's `variant`.
 
 ### Full verification
 
-- [ ] T060 Full verification (after all other tasks): `mvn -B clean verify
+- [X] T060 Full verification (after all other tasks): `mvn -B clean verify
   -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-021-tmp` and `python3 -I -m unittest discover -s
   tools/tests -v` green; `python3 -I tools/check-identifiers.py --all` and
   `NoCustomerIdentifiersTest` with the private lists green; `unzip -l target/inubit-mcp-server-*.jar`

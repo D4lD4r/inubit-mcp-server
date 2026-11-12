@@ -305,7 +305,8 @@ public final class ServerLogService {
 
     /**
      * Steps 6 and 7 after the {@code PENDING} record: every failure closes the record, the gate's
-     * {@code UNSUPPORTED_VERSION} with {@code REFUSED}, everything else with {@code FAILED}.
+     * {@code UNSUPPORTED_VERSION} with {@code REFUSED}, everything else, an {@link Error}
+     * included, with {@code FAILED}.
      */
     private ServerLogResult run(ServerLogAudit record, Checked checked, Progress progress) {
         VersionGate.Admission admission;
@@ -315,8 +316,9 @@ public final class ServerLogService {
         } catch (ToolErrorException e) {
             throw closed(record, e, e.error().code() == ErrorCode.UNSUPPORTED_VERSION
                 ? AuditOutcome.REFUSED : AuditOutcome.FAILED);
-        } catch (RuntimeException e) {
-            throw unexpected(record, e);
+        } catch (RuntimeException | Error e) {
+            unexpected(record, e);
+            throw e;
         }
         try {
             return fetch(record, checked, admission, progress);
@@ -325,8 +327,9 @@ public final class ServerLogService {
             ToolErrorException named = e.error().node().isPresent() ? e
                 : new ToolErrorException(e.error().withNode(checked.node()));
             throw closed(record, named, AuditOutcome.FAILED);
-        } catch (RuntimeException e) {
-            throw unexpected(record, e);
+        } catch (RuntimeException | Error e) {
+            unexpected(record, e);
+            throw e;
         }
     }
 
@@ -493,11 +496,13 @@ public final class ServerLogService {
             error.excerpt()));
     }
 
-    /** Closes the record of an unexpected failure with {@code FAILED} and returns it. */
-    private static RuntimeException unexpected(ServerLogAudit record, RuntimeException e) {
+    /**
+     * Closes the record of an unexpected failure, a {@link RuntimeException} or an {@link Error},
+     * with {@code FAILED} and {@code INTERNAL}; the caller rethrows it.
+     */
+    private static void unexpected(ServerLogAudit record, Throwable e) {
         record.outcome(AuditOutcome.FAILED, ErrorCode.INTERNAL + ": "
             + e.getClass().getSimpleName());
-        return e;
     }
 
     private static Capability capability(ServerLogKind kind) {
