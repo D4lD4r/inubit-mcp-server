@@ -27,7 +27,8 @@ import org.junit.jupiter.api.Timeout;
  * T007 (feature 020, research D-14, FR-016): helper runs take the same per-node slots on every
  * version line; StartCLI runs on 8.1/9.0 still take none.
  * T012 (feature 021, research D-15): log downloads take the helper slots; their slot-wait
- * {@code TIMEOUT} names the setting of their budget.
+ * {@code TIMEOUT} names the setting of their budget. T026: other StartCLI runs on 8.1/9.0 still
+ * take no slot while log downloads hold both.
  */
 @Timeout(30)
 class CliConcurrencyLimiterTest {
@@ -205,6 +206,32 @@ class CliConcurrencyLimiterTest {
             assertThat(next).isNotNull();
         }
         startCli.close();
+    }
+
+    @Test
+    void otherStartCliRunsOnEightOneAndNineZeroTakeNoSlotWhileLogDownloadsHoldBoth() {
+        // feature 021 T026 (D-15): only the log downloads (and helper runs) take the slots
+        for (VersionSetting version : List.of(VersionSetting.V8_1, VersionSetting.V9_0)) {
+            EffectiveNodeConfig server = node(
+                version == VersionSetting.V8_1 ? "prod/node81" : "prod/node90", version);
+            CliConcurrencyLimiter.Permit first =
+                limiter.acquireForHelper(server, BOUND, "cliExportTimeout");
+            CliConcurrencyLimiter.Permit second =
+                limiter.acquireForHelper(server, BOUND, "cliExportTimeout");
+
+            List<CliConcurrencyLimiter.Permit> startCli = new ArrayList<>();
+            for (int i = 0; i < 3; i++) {
+                // a slot-taking StartCLI run would throw TIMEOUT here
+                startCli.add(limiter.acquire(server));
+            }
+            startCli.forEach(CliConcurrencyLimiter.Permit::close);
+            assertThatThrownBy(() -> limiter.acquireForHelper(server, Duration.ZERO,
+                "cliExportTimeout")).as(version.text())
+                .isInstanceOfSatisfying(ToolErrorException.class,
+                    e -> assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT));
+            first.close();
+            second.close();
+        }
     }
 
     @Test

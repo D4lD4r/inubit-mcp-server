@@ -513,7 +513,8 @@ class AdapterGatewayFactoryTest {
     void withoutAConfiguredServerLogAdapterADownloadFailsWithCliUnavailable()
         throws NoSuchMethodException {
         // feature 021 T011 (research D-19): the 8.1 gateway hands out the port set's server-log
-        // port behind the stale-reporting decorator; no 8.1 adapter is configured yet
+        // port behind the stale-reporting decorator; the 8.1 port set without helper host has
+        // no server-log adapter (T026 wires it into the one with)
         assertThat(V81Gateway.class.getDeclaredMethod("serverLogs").getDeclaringClass())
             .isEqualTo(V81Gateway.class);
         try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
@@ -1728,6 +1729,46 @@ class AdapterGatewayFactoryTest {
         }
         assertThat(helperLauncher.launchCount()).isZero();
         assertNothingLeftBelow(tempRoot);
+        assertThat(versions.events()).as("a slot timeout is no stale mark").isEmpty();
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void the81And90PortSetsDownloadServerLogsWithTheSharedStartCliSlots(@TempDir Path root)
+        throws IOException {
+        // feature 021 T026 (research D-15, D-19): the server-log adapter of the 8.1/9.0 port set
+        Path tempRoot = Files.createDirectories(root.resolve("tmp"));
+        EffectiveNodeConfig on81 = cliNode(DEV, VersionSetting.parse("8.1.17").orElseThrow(),
+            root);
+        EffectiveNodeConfig on90 = cliNode(ENT2, VersionSetting.parse("9.0.7").orElseThrow(),
+            root);
+        try (CliResources resources = new CliResources("acme", PrivateFiles.forHost());
+             AdapterGatewayFactory factory = factory(queueEntryPorts(tempRoot, resources),
+                 nodeVersions(on81, on90), on81, on90)) {
+            for (EffectiveNodeConfig node : List.of(on81, on90)) {
+                ServerLogPort port = factory.serverLogs(node.id());
+                assertThat(port).as("still wrapped by the stale trigger")
+                    .isInstanceOf(StaleReportingPorts.ServerLogs.class)
+                    .isSameAs(factory.forServer(node.id()).serverLogs());
+                InubitVersion version = ((VersionSetting.Pinned) node.versionLine()).version();
+
+                // both slots of the node taken elsewhere: the download waits for one (TIMEOUT)
+                try (CliConcurrencyLimiter.Permit first =
+                         helperLimiter.acquireForHelper(node, Duration.ZERO);
+                     CliConcurrencyLimiter.Permit second =
+                         helperLimiter.acquireForHelper(node, Duration.ZERO)) {
+                    assertThatThrownBy(() -> port.download(ServerLogKind.TRACE, version,
+                        System.nanoTime() + Duration.ofMillis(100).toNanos()))
+                        .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                            assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT);
+                            assertThat(e.error().message()).isEqualTo("The trace log download"
+                                + " from " + node.id() + " did not finish within"
+                                + " cliExportTimeout (120 s)");
+                            assertThat(e.error().node()).contains(node.id());
+                        });
+                }
+            }
+        }
         assertThat(versions.events()).as("a slot timeout is no stale mark").isEmpty();
         assertThat(wireMock.getAllServeEvents()).isEmpty();
     }

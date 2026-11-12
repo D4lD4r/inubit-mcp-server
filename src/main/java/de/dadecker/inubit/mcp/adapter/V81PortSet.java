@@ -5,8 +5,10 @@ import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliImportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliTagRunner;
+import de.dadecker.inubit.mcp.adapter.cli.CliTraceRunner;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
+import de.dadecker.inubit.mcp.adapter.cli.log.CliServerLogAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.queue.CliQueueEntryAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ArtifactAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ImportAdapter;
@@ -16,10 +18,12 @@ import de.dadecker.inubit.mcp.adapter.rest.v81.V81LogAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81PartnerManagementAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81ProcessQueryAdapter;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
+import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 
 /**
  * The 8.1 port set: the REST adapters on the server's client and the StartCLI adapters; with a
- * helper host, the queue-entry helper of feature 020 too (research D-17).
+ * helper host, the queue-entry helper of feature 020 (research D-17) and the server-log
+ * download of feature 021 (research D-19) too.
  */
 final class V81PortSet {
 
@@ -29,7 +33,9 @@ final class V81PortSet {
     /**
      * With the queue-entry helper (feature 020, research D-17): it reads with the node's held
      * credentials and credential guard, the factory's StartCLI runner, and the shared
-     * {@code host}, {@code processRun} and StartCLI slot {@code limiter}.
+     * {@code host}, {@code processRun} and StartCLI slot {@code limiter}. The server-log
+     * download (feature 021, research D-15) runs with the same credentials, guard, runner and
+     * {@code limiter}.
      */
     static PortSet create(PortSetRegistry.NodeResources node, HelperInstallation.Host host,
         ProcessRun processRun, CliConcurrencyLimiter limiter) {
@@ -37,9 +43,12 @@ final class V81PortSet {
         QueueEntryContentPort queueEntries = new CliQueueEntryAdapter(node.server(),
             node::credentials, node.guard(), node.cliRunner(), host, processRun, limiter,
             node.scrubber());
+        ServerLogPort serverLogs = new CliServerLogAdapter(node.server(),
+            new CliTraceRunner(node.server(), node.credentials(), node.guard(), node.cliRunner(),
+                classifier(node)), limiter);
         return new PortSet(ports.processes(), ports.logs(), ports.inventory(),
             ports.processControl(), ports.artifacts(), ports.imports(), ports.tags(),
-            ports.partners(), queueEntries, ports.serverLogs());
+            ports.partners(), queueEntries, serverLogs);
     }
 
     /**

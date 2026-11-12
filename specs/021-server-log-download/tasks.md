@@ -409,7 +409,7 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   mode is **not** a StartCLI-level case (no StartCLI maintenance text or mechanism exists; the
   exports do not map it either) — it comes from the detection before launch (T027); private directory gone after success and
   failure; leak check
-- [ ] T026 [US1] `adapter/cli/log/CliServerLogAdapter.java` + `adapter/cli/log/package-info.java`
+- [X] T026 [US1] `adapter/cli/log/CliServerLogAdapter.java` + `adapter/cli/log/package-info.java`
   (FR-013, D-15, D-19; after T011, T012, T025): `implements ServerLogPort`; uses the call deadline
   it gets from the service (`deadlineNanos` = start of the download phase + the node's
   `cliExportTimeout`), shared by the slot wait (`CliConcurrencyLimiter.acquireForHelper(server,
