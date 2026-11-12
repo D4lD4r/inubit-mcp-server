@@ -313,8 +313,9 @@ class WiringAuditTest {
 
     @Test
     void anImportLeavesTheRealHomeUntouched() throws IOException {
-        // feature 023 (research D-6): the backup of an import must not land below the real home;
-        // keyed on the import's audit id, so other processes writing there do not interfere
+        // feature 023 (research D-6, FR-008): the backup of an import lands below the handed-in
+        // home (temp/home), not below the real one; keyed on the import's audit id, so other
+        // processes writing below the real home do not interfere
         startEnvironmentServer();
 
         assertExecuted(importGroup());
@@ -330,6 +331,8 @@ class WiringAuditTest {
             }
         }
         assertThat(leaked).as("files of the import %s below %s", auditId, realHome).isEmpty();
+        assertThat(temp.resolve("home/.inubit-mcp/acme/backups").resolve(auditId + ".json"))
+            .as("backup manifest below the handed-in home").isRegularFile();
     }
 
     @Test

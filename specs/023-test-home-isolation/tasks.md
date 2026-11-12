@@ -68,7 +68,7 @@ to `Wiring`.
   `test/WiringE2eTest.java`, `test/KnowledgeProfilesTest.java`. `mvn -q test-compile` and the touched
   classes green; T002 now green. Red tests for this step: T002 (backup in the real home) and T006
   (the reads); the `Launcher` hand-over is characterized afterwards by T007 (unchanged layout, FR-009).
-- [ ] T005 [US1] Complete the behavioural assertions (FR-008, research D-6): in
+- [X] T005 [US1] Complete the behavioural assertions (FR-008, research D-6): in
   `test/WiringAuditTest.java` extend `anImportLeavesTheRealHomeUntouched()` to assert that
   `<auditId>.json` exists below `<the test's handed-in home>/.inubit-mcp/acme/backups`. In
   `test/ExportArchivesWiringTest.java` add a test, modelled on

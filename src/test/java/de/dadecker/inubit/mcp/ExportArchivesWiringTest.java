@@ -119,6 +119,21 @@ class ExportArchivesWiringTest {
     }
 
     @Test
+    void aCallIntoTheStateFolderOfTheHandedInHomeIsRefusedBeforeStartCli() {
+        // feature 023 (FR-008, research D-6): the forbidden export root follows the handed-in home
+        try (TestWiring wiring = wiring(cli(), false)) {
+            Path stateFolder = wiring.userHome().resolve(".inubit-mcp");
+
+            ToolError error = refusal(wiring, stateFolder.resolve("export").toString(), true);
+
+            assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+            assertThat(error.message()).contains(
+                "is or lies inside one of the server's directories",
+                "~/.inubit-mcp " + stateFolder);
+        }
+    }
+
+    @Test
     void aCallIntoTheDefaultConfigurationDirectoryIsRefusedBeforeStartCli() throws Exception {
         Files.createDirectories(temp.resolve("config-default"));
 
@@ -158,29 +173,39 @@ class ExportArchivesWiringTest {
         assertThat(error.message()).contains("is a network path (a UNC path)");
     }
 
-    /**
-     * Calls {@code export_archives} on {@code dev/node1} through a wiring with the configuration
-     * location {@code temp/config-default} and {@code temp/elsewhere/profile.yaml}; StartCLI must
-     * not run.
-     */
+    /** As {@link #refusal(TestWiring, String, boolean)}, through a wiring of its own. */
     private ToolError refusal(String groupSettings, boolean windows, String targetFolder,
         boolean acknowledged) {
+        try (TestWiring wiring = wiring(groupSettings, windows)) {
+            return refusal(wiring, targetFolder, acknowledged);
+        }
+    }
+
+    /**
+     * A wiring with the configuration location {@code temp/config-default} and
+     * {@code temp/elsewhere/profile.yaml} whose StartCLI must not run.
+     */
+    private TestWiring wiring(String groupSettings, boolean windows) {
         ConfigLocation location = new ConfigLocation(temp.resolve("config-default"),
             temp.resolve("elsewhere").resolve("profile.yaml"));
-        try (TestWiring wiring = TestWiring.withConfigLocation(config(groupSettings),
+        return TestWiring.withConfigLocation(config(groupSettings),
             TestSecrets.store(Map.of()), new SecretScrubber(), path -> false, windows,
             spec -> {
                 throw new AssertionError("StartCLI is not run");
-            }, Map.of(), location)) {
-            ToolHandler tool = wiring.toolHandlers().stream()
-                .filter(handler -> handler.name().equals("export_archives")).findFirst()
-                .orElseThrow();
-            ToolErrorException refused = catchThrowableOfType(ToolErrorException.class,
-                () -> tool.handle(Map.of("target", "dev/node1",
-                    "owner", "OWNERS", "diagramGroup", "GRP-01", "targetFolder", targetFolder,
-                    "acknowledgeClearTextSecrets", acknowledged)));
-            assertThat(refused).as("refusal").isNotNull();
-            return refused.error();
-        }
+            }, Map.of(), location);
+    }
+
+    /** Calls {@code export_archives} on {@code dev/node1} and returns its refusal. */
+    private static ToolError refusal(TestWiring wiring, String targetFolder,
+        boolean acknowledged) {
+        ToolHandler tool = wiring.toolHandlers().stream()
+            .filter(handler -> handler.name().equals("export_archives")).findFirst()
+            .orElseThrow();
+        ToolErrorException refused = catchThrowableOfType(ToolErrorException.class,
+            () -> tool.handle(Map.of("target", "dev/node1",
+                "owner", "OWNERS", "diagramGroup", "GRP-01", "targetFolder", targetFolder,
+                "acknowledgeClearTextSecrets", acknowledged)));
+        assertThat(refused).as("refusal").isNotNull();
+        return refused.error();
     }
 }
