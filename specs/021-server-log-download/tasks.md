@@ -707,7 +707,9 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   `CLI_UNAVAILABLE`; edge case "maintenance mode, credentials not available, TLS failure":
   credentials not resolvable → `SECRET_UNRESOLVED` with **nothing launched** and no TLS check,
   `TlsPeer.handshake` failure (untrusted certificate, pin mismatch) → `TLS_ERROR` with nothing
-  launched, a maintenance answer (020 `HelperFailures` mapping) → `MAINTENANCE_MODE`; private
+  launched; maintenance mode is **not** a helper-level case (020 `HelperFailures` has no
+  maintenance mapping; `MAINTENANCE_MODE` comes from the detection before launch, service level,
+  T027); private
   directory deleted after success and failure; in `adapter/cli/log/CliServerLogAdapterTest.java`:
   webservice takes the slot, TLS check and process share the `cliExportTimeout` deadline, slot-wait
   `TIMEOUT` names `cliExportTimeout`, `TIMEOUT` leaves nothing; in
@@ -745,7 +747,8 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   `missing` → `NOT_FOUND` with the spec text, no file written (US2-4); `forbidden` → `FORBIDDEN`;
   `not_cluster_mode` and `garbage_frames` → `UNEXPECTED_RESPONSE`; `api_missing` →
   `CLI_UNAVAILABLE`; edge case "maintenance mode, credentials not available, TLS failure":
-  `SECRET_UNRESOLVED` and `TLS_ERROR` (nothing launched), `MAINTENANCE_MODE`; after each failure
+  `SECRET_UNRESOLVED` and `TLS_ERROR` (nothing launched), `MAINTENANCE_MODE` from the detection
+  before launch (service level); after each failure
   no file in the folder, private directory deleted and audit `FAILED` with the code
 - [ ] T045 [P] [US2] `docs/setup.md` (FR-004, US2-5, D-25; after T009 and T042, which changes the section 6
   examples of the same file): subsection `### Unsupported functions`
