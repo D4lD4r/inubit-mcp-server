@@ -1,0 +1,2 @@
+reconstructed the 403 texts of feature 020 research D-5 (HTTP 403 / AccessDenied -> FORBIDDEN, as HelperFailures matches them) as a node error of the node lookup (research "Static facts": GetNodeRequest checks the Configuration permission first), in the marker layout of fixtures/server-log/v8_1/trace/forbidden.stdout.
+A refused web service log download was not observed in the spike; the marker text, the message and the exception class are invented. No download follows a node error, so the .log is empty.

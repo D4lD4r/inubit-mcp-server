@@ -1,0 +1,109 @@
+2026-11-12 09:14:03,512 100001 [WebService acme_OrderService] Request
+POST /ibis/ws/acme_OrderService HTTP/1.1
+host: inubit.example.test:8443
+content-type: text/xml; charset=UTF-8
+soapaction: "urn:acme:order:submit"
+content-length: 1186
+user-agent: acme-partner-client/2.4
+x-forwarded-for: 192.0.2.17
+x-request-id: 7f3c2a10-0001
+
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ord="urn:acme:order">
+  <soapenv:Header>
+    <wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
+      <wsse:UsernameToken>
+        <wsse:Username>partner-0001</wsse:Username>
+        <wsse:Password Type="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText">webservice-secret-0002</wsse:Password>
+      </wsse:UsernameToken>
+    </wsse:Security>
+  </soapenv:Header>
+  <soapenv:Body>
+    <ord:submitOrder>
+      <ord:orderId>Order-0001</ord:orderId>
+      <ord:customer>Customer-0001</ord:customer>
+      <ord:item>
+        <ord:sku>ACME-1000</ord:sku>
+        <ord:quantity>2</ord:quantity>
+      </ord:item>
+    </ord:submitOrder>
+  </soapenv:Body>
+</soapenv:Envelope>
+2026-11-12 09:14:03,530 100002 [WebService acme_OrderService] Call
+POST /services/OrderConfirmation HTTP/1.1
+Host: partner.example.test
+Content-Type: text/xml; charset=UTF-8
+SOAPAction: "urn:partner:confirm"
+Authorization: Basic YWNtZTp3ZWJzZXJ2aWNlLXNlY3JldC0wMDAx
+Content-Length: 412
+
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:conf="urn:partner:confirm">
+  <soapenv:Body>
+    <conf:confirmOrder>
+      <conf:orderId>Order-0001</conf:orderId>
+      <conf:status>RECEIVED</conf:status>
+    </conf:confirmOrder>
+  </soapenv:Body>
+</soapenv:Envelope>
+2026-11-12 09:14:03,871 100002 [WebService acme_OrderService] Call response
+HTTP/1.1 200 OK
+Content-Type: text/xml; charset=UTF-8
+Date: Thu, 12 Nov 2026 09:14:03 GMT
+Content-Length: 298
+
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:conf="urn:partner:confirm">
+  <soapenv:Body>
+    <conf:confirmOrderResponse>
+      <conf:accepted>true</conf:accepted>
+    </conf:confirmOrderResponse>
+  </soapenv:Body>
+</soapenv:Envelope>
+2026-11-12 09:14:03,904 100001 [WebService acme_OrderService] Response
+HTTP/1.1 200 OK
+Set-Cookie: JSESSIONID=4C2F0A1B9D7E3F5A6B8C0D2E4F6A8B0C; Path=/ibis; Secure; HttpOnly
+Content-Type: text/xml; charset=UTF-8
+Date: Thu, 12 Nov 2026 09:14:03 GMT
+Content-Length: 341
+
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ord="urn:acme:order">
+  <soapenv:Body>
+    <ord:submitOrderResponse>
+      <ord:orderId>Order-0001</ord:orderId>
+      <ord:result>ACCEPTED</ord:result>
+    </ord:submitOrderResponse>
+  </soapenv:Body>
+</soapenv:Envelope>
+2026-11-12 09:14:05,117 100003 [WebService acme_StockService] Request
+POST /ibis/ws/acme_StockService HTTP/1.1
+host: inubit.example.test:8443
+content-type: text/xml; charset=UTF-8
+soapaction: "urn:acme:stock:query"
+content-length: 402
+x-forwarded-for: 192.0.2.23
+
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:stk="urn:acme:stock">
+  <soapenv:Body>
+    <stk:queryStock>
+      <stk:sku>ACME-1000</stk:sku>
+    </stk:queryStock>
+  </soapenv:Body>
+</soapenv:Envelope>
+2026-11-12 09:14:05,142 100003 [WebService acme_StockService] Response
+HTTP/1.1 200 OK
+Content-Type: text/xml; charset=UTF-8
+Date: Thu, 12 Nov 2026 09:14:05 GMT
+Content-Length: 318
+
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:stk="urn:acme:stock">
+  <soapenv:Body>
+    <stk:queryStockResponse>
+      <stk:sku>ACME-1000</stk:sku>
+      <stk:available>42</stk:available>
+    </stk:queryStockResponse>
+  </soapenv:Body>
+</soapenv:Envelope>

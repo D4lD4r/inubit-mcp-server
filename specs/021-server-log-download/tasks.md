@@ -683,7 +683,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   have changed after an INUBIT update" with a scrubbed excerpt ≤ 200 chars; `part log ok 0` →
   size 0, `PRESENT`. Failing tests first in `adapter/cli/log/WebServiceLogClassifierTest.java`
   (each case; name of 129 chars and with `/` rejected; leak check)
-- [ ] T040 [P] [US2] Reconstructed webservice fixtures (D-21; after T024):
+- [X] T040 [P] [US2] Reconstructed webservice fixtures (D-21; after T024):
   `src/test/resources/fixtures/server-log/v8_1/webservice/{ok,empty,missing,forbidden,not_cluster_mode,api_missing,garbage_frames}.{frames,exit,log,origin}`,
   `.origin` "`reconstructed <source>`" (`missing` from the server text `File webservice.log not
   found on node1`); `ok.log` a fictitious SOAP log (`acme` services, `partner.example.test`, one

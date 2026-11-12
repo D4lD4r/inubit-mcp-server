@@ -2,14 +2,29 @@ package de.dadecker.inubit.mcp.tools;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.adapter.cli.CliResult;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperRequestTest;
+import de.dadecker.inubit.mcp.adapter.cli.log.WebServiceLogClassifier;
+import de.dadecker.inubit.mcp.adapter.cli.log.WebServiceLogClassifier.Downloaded;
+import de.dadecker.inubit.mcp.adapter.cli.log.WebServiceLogClassifier.Failure;
+import de.dadecker.inubit.mcp.adapter.cli.log.WebServiceLogClassifier.Outcome;
+import de.dadecker.inubit.mcp.config.CredentialNames;
+import de.dadecker.inubit.mcp.config.SecretLabels;
+import de.dadecker.inubit.mcp.config.StoreKind;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.LogPresence;
+import de.dadecker.inubit.mcp.domain.model.MajorMinor;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
+import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +38,9 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * T024 (feature 021, research D-21, D-22): the closed world of the server-log fixtures in
@@ -32,8 +50,10 @@ import org.junit.jupiter.api.io.TempDir;
  * to its first dot. Every version case has an {@code .origin} whose first line is
  * {@code recorded <date> <version> neutralized} or {@code reconstructed <source>}. A trace
  * {@code .stdout} that confirms the download names the size of its {@code .log} in MiB, rounded
- * (research "Spike findings"). For every (version, log) the production capability matrix says
+ * (research "Spike findings"); a web service {@code part log ok <bytes>} frame names the size of
+ * its {@code .log} in bytes. For every (version, log) the production capability matrix says
  * {@code SUPPORTED} exactly when {@code <version>/<log>/ok.origin} starts with {@code recorded}.
+ * T040: the 8.1 web service cases are classified as their names say.
  */
 class ServerLogFixtureCatalogueTest {
 
@@ -54,13 +74,39 @@ class ServerLogFixtureCatalogueTest {
         "recorded \\d{4}-\\d{2}-\\d{2} \\d+\\.\\d+(?:\\.\\d+)* neutralized|reconstructed \\S.*");
     private static final Pattern TRACE_DATA =
         Pattern.compile("^Trace data \\((\\d+) MB\\) stored to: .+$");
+    private static final Pattern PART_LOG_OK =
+        Pattern.compile("^#QE1:[0-9a-f]{32} part log ok (\\d+)$");
     private static final long MIB = 1L << 20;
 
     @Test
     void everyFileBelongsToACaseWithAValidOrigin() throws IOException {
         assertThat(violations(ROOT)).isEmpty();
         assertThat(cases(ROOT)).as("cases").contains("v8_1/trace/ok", "v8_1/trace/empty",
-            "v8_1/trace/missing", "v8_1/trace/login_failure", "v8_1/trace/forbidden");
+            "v8_1/trace/missing", "v8_1/trace/login_failure", "v8_1/trace/forbidden",
+            "v8_1/webservice/ok", "v8_1/webservice/empty", "v8_1/webservice/missing",
+            "v8_1/webservice/forbidden", "v8_1/webservice/not_cluster_mode",
+            "v8_1/webservice/api_missing", "v8_1/webservice/garbage_frames");
+    }
+
+    /** T040: {@code ok} and {@code empty} are the log of INUBIT node {@code node1} in .log. */
+    @ParameterizedTest
+    @ValueSource(strings = {"ok", "empty"})
+    void a81WebServiceDownloadCaseIsTheLogOfNode1(String name) throws IOException {
+        Path log = ROOT.resolve("v8_1/webservice/" + name + ".log");
+
+        assertThat(classify81WebService(name))
+            .isEqualTo(new Downloaded("node1", size(log), LogPresence.PRESENT));
+    }
+
+    /** T040: every failing 8.1 web service case fails with the code its name stands for. */
+    @ParameterizedTest
+    @CsvSource({"missing, NOT_FOUND", "forbidden, FORBIDDEN",
+        "not_cluster_mode, UNEXPECTED_RESPONSE", "api_missing, CLI_UNAVAILABLE",
+        "garbage_frames, UNEXPECTED_RESPONSE"})
+    void a81WebServiceFailureCaseFailsWithTheCodeOfItsName(String name, ErrorCode code)
+        throws IOException {
+        assertThat(classify81WebService(name)).isInstanceOfSatisfying(Failure.class,
+            failure -> assertThat(failure.error().code()).isEqualTo(code));
     }
 
     @Test
@@ -139,6 +185,15 @@ class ServerLogFixtureCatalogueTest {
     }
 
     @Test
+    void aWebServiceByteCountThatDoesNotMatchItsLogFails(@TempDir Path temp) throws IOException {
+        Path copy = copy(ROOT, temp.resolve("server-log"));
+        Files.writeString(copy.resolve("v8_1/webservice/empty.log"), "x\n");
+
+        assertThat(violations(copy)).containsExactly(
+            "v8_1/webservice/empty: .frames names 0 bytes, but .log has 2 bytes");
+    }
+
+    @Test
     void theMatrixRuleFailsInBothDirections(@TempDir Path temp) throws IOException {
         Path copy = copy(ROOT, temp.resolve("server-log"));
         Files.writeString(copy.resolve("v8_1/trace/ok.origin"),
@@ -176,6 +231,9 @@ class ServerLogFixtureCatalogueTest {
             }
             if (suffixes.contains(".stdout") && suffixes.contains(".log")) {
                 mbViolation(root, name).ifPresent(violations::add);
+            }
+            if (suffixes.contains(".frames") && suffixes.contains(".log")) {
+                bytesViolation(root, name).ifPresent(violations::add);
             }
         });
         return violations;
@@ -228,6 +286,35 @@ class ServerLogFixtureCatalogueTest {
             }
         }
         return Optional.empty();
+    }
+
+    /** The byte count of a {@code part log ok} frame that is not the {@code .log} size. */
+    private static Optional<String> bytesViolation(Path root, String name) {
+        for (String line : lines(root.resolve(name + ".frames"))) {
+            Matcher matcher = PART_LOG_OK.matcher(line);
+            if (matcher.matches()) {
+                long size = size(root.resolve(name + ".log"));
+                long named = Long.parseLong(matcher.group(1));
+                if (named != size) {
+                    return Optional.of(name + ": .frames names " + named
+                        + " bytes, but .log has " + size + " bytes");
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** The 8.1 web service case {@code name} replayed through the classifier (research D-4). */
+    private static Outcome classify81WebService(String name) throws IOException {
+        Path frames = ROOT.resolve("v8_1/webservice/" + name + ".frames");
+        int exit = Integer.parseInt(firstLine(ROOT.resolve("v8_1/webservice/" + name + ".exit")));
+        CliResult result = new CliResult(exit, Files.readString(frames, StandardCharsets.UTF_8),
+            "", Duration.ofSeconds(1), false, 1 << 20);
+        SecretLabels labels = new SecretLabels.Store(
+            new CredentialNames("INUBIT_ACME", NodeId.parse("test/node1")), StoreKind.KEYCHAIN);
+        return new WebServiceLogClassifier(new SecretScrubber(), labels).classify(
+            HelperRequestTest.serverLogRequest(r -> { }), result,
+            Path.of("/opt/acme/inubit-8.1/client"), new MajorMinor(8, 1));
     }
 
     /**
