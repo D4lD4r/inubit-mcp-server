@@ -556,7 +556,7 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   client home; schema validates); `DownloadServerLogWiringTest.java` (trace end to end through
   the wired server with `FakeProcessLauncher`: file in the folder, result as contract; a
   password of another configured node in the log is masked in the excerpt)
-- [ ] T032 [US1] 8.1 trace contract over the reconstructed cases (FR-017, D-22; after T031):
+- [X] T032 [US1] 8.1 trace contract over the reconstructed cases (FR-017, D-22; after T031):
   `adapter/cli/log/ServerLogV81ContractTest.java` runs `CliServerLogAdapter` + `ServerLogService`
   per `v8_1/trace` case (test matrix declaration): `ok` → result shape, `sizeBytes` = `ok.log`,
   masked excerpt; `empty` → `kind: empty`; `missing` → `NOT_FOUND` text; `login_failure` →
