@@ -18,6 +18,7 @@ everything else is reused or extended.
 | `area` | `A`…`E` \| `PORTAL` \| `START` | |
 | `story` | `US1`…`US7` \| none | none only for `covered`, `excluded` or `undocumented` rows |
 | `states` | `Map<InubitLine, CoverageState>` | exactly `V8_1` and `V9_0` |
+| `waits` | `-` \| `L-n` \| `9.0-pin` | what a `planned` row of a delivered story waits for; `-` on every other row |
 
 Unique key: (`channel`, `entry`).
 
@@ -51,14 +52,18 @@ Parsing fails at start on:
 - a missing state;
 - an unknown state word;
 - a reason over 120 characters;
-- `planned` without `story`.
+- `planned` without `story`;
+- a `waits` value other than `-` on a row that is not `planned` for any version, or an unknown
+  `waits` value;
+- a `planned` row of a story listed in `delivered-stories` with `waits` = `-`.
 
 Unknown tool names and actions are not checked by the loader; `InterfaceCoverageCheckTest`
 checks them against the registered tools (coverage-list check 3).
 
 ### ActionSpec (new, application)
 
-Per tool action: `tool`, `action`, `area` (`Area`), `entries(input)` (the coverage keys a
+Per tool action: `tool`, `action`, `capability` (the tool's `Capability`, for the existing
+capability admission of `VersionGate`), `area` (`Area`), `entries(input)` (the coverage keys a
 concrete call sends, depending on its variant), `parts` (for multi-part reads: per part its
 entries and channel, empty otherwise), `declaredEntries()` (the union of all variants and parts,
 for coverage check 6),

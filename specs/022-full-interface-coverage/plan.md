@@ -216,12 +216,12 @@ src/main/java/de/dadecker/inubit/mcp/
 │                        # V81ObjectAdministrationAdapter, V81LibraryAdministrationAdapter,
 │                        # V81SettingsAdministrationAdapter, V81UserAdministrationAdapter + parsers
 │                        # (LicenseXmlParser, ConfigurationJsonParser, UserListXmlParser,
-│                        # ModuleDetailJsonParser, MetadataParser) (new)
+│                        # ModuleDetailJsonParser, ProcessMetadataParser, IsConnectorCheckParser) (new)
 ├── adapter/cli/         # CliCommand (+commands), CliSessionCommand (version-neutral), CliRunner,
 │                        # CliSessionParser (from V61SessionParser), CliOutputClassifier (new forms)
 ├── adapter/cli/admin/   # new: CliSettingsRunner, CliUserRunner, CliOperationRunner, CliTagAdminRunner,
 │                        # CliRuntimeTransferRunner, CliLibraryRunner, CliObjectRunner,
-│                        # CliUserAdministrationRunner + parsers (Threads, Privileged,
+│                        # CliUserAdministrationRunner + parsers (Threads, Privileged, UserImportFile,
 │                        # DbTolerance, Finger, UserGroups, Who, MsgList, RuntimeExportAnswer, BlockedList)
 ├── adapter/archive/v81/ # PartnerSecretRules delegates to SecretRules
 ├── mcp/tools/           # GetServerSettingsTool, ReadUsersTool, ReadModelDetailsTool, OperateServerTool,

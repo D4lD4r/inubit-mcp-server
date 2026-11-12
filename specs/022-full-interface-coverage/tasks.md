@@ -127,9 +127,11 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
     `offered(Set<CoverageKey>, line)` (true only when every given entry is `Reachable` for that
     line; callers pass the entries of a concrete call or part, D-2);
   - a loader that parses the TSV format of `contracts/coverage-list.md`: comment lines,
-    `delivered-stories`, the header `channel entry kind area story v8_1 v9_0`.
+    `delivered-stories`, the header `channel entry kind area story v8_1 v9_0 waits`.
   - Loading fails on a duplicate (`channel`, `entry`), a missing version state, an unknown state
-    word, a reason over 120 characters, or `planned` without `story`.
+    word, a reason over 120 characters, `planned` without `story`, an unknown `waits` value, a
+    `waits` value other than `-` on a row not `planned`, and a `planned` row of a delivered story
+    with `waits` = `-` (data-model `CoverageEntry`).
   - Failing tests first: `domain/model/InterfaceCoverageTest.java`, one test per failure rule and
     for `offered`.
 - [ ] T007 Initial coverage list (after T006): `src/main/resources/coverage/interface-coverage.tsv`
@@ -149,7 +151,7 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
       `--filterProcessIds`. Each gets its reason.
     - `GET /model/nodeByName/…` on 9.0: `undocumented`.
     - Every other entry: `planned` with its story from the spec Background table.
-  - Header: `delivered-stories:` empty.
+  - Header: `delivered-stories:` empty; every row `waits` = `-`.
   - Also add `domain/model/InterfaceCoverage.production()`, which loads this resource.
   - Failing test first: `InterfaceCoverageResourceTest` asserts that the file loads, has at least
     one row per area A–E, has no `planned` row without a story, and that `lls` is excluded.
@@ -171,7 +173,8 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
   - Generate and commit the page.
 - [ ] T010 `ActionSpec` and the coverage gate (D-2, D-12 step 5; after T006, T008):
   - `application/ActionSpec.java`: `tool`, `action`, `Area` (`OPERATION`, `OBJECTS`, `LIBRARIES`,
-    `SETTINGS`, `USERS`, `RUNTIME_DATA`, `READ`), `entries(input)` (the entries a concrete call
+    `SETTINGS`, `USERS`, `RUNTIME_DATA`, `READ`), `capability` (the tool's `Capability`, passed to
+    the existing capability admission), `entries(input)` (the entries a concrete call
     sends, by variant), `parts` (per part: entries and channel, for multi-part reads),
     `declaredEntries()` (the union), `kind` (`READ`, `CHANGE`, `RUNTIME_READ`), `bulk`, `backup`,
     `restartNotice` (research D-2, "gate per call").
@@ -204,7 +207,7 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
   - Add its name to `application/NodeOverview.java` and to the `CapabilityName` enum in
     `src/main/resources/schemas/list_nodes.output.json`.
   - Each later story adds its own capability the same way, in its port task (T033, T042, T058,
-    T063, T071, T081, T082, T087, T096): `USER_DIRECTORY`, `MODEL_DETAILS`, `SERVER_OPERATION`,
+    T063, T071, T081, T087, T096): `USER_DIRECTORY`, `MODEL_DETAILS`, `SERVER_OPERATION`,
     `TAG_ADMINISTRATION`, `RUNTIME_TRANSFER`, `OBJECT_ADMINISTRATION` (objects and libraries),
     `SETTINGS_ADMINISTRATION`, `USER_ADMINISTRATION`. This way `list_nodes` never names a
     capability whose tool is not delivered.
@@ -356,7 +359,8 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
 - [ ] T025 [US1] Contracts and flip for 8.1 [BLOCKED: T014]:
   - `adapter/rest/v81/SettingsV81ContractTest.java` and
     `adapter/cli/admin/SettingsCliV81ContractTest.java` against the recorded fixtures;
-  - flip the US1 rows for `v8_1` to `reachable:get_server_settings/default`, the `SERVER_SETTINGS`
+  - flip the US1 rows for `v8_1` to `reachable:get_server_settings/default` (a row's `waits` goes
+    back to `-` once no version is `planned`), the `SERVER_SETTINGS`
     matrix entry for 8.1 to `SUPPORTED`;
   - regenerate the docs page.
   - Same commit as the fixtures.
@@ -370,7 +374,8 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
   - `docs/research/inubit-interfaces.md`: §1.3 and §2.2 now point to the coverage page;
   - `docs/interface-coverage.md` regenerated;
   - `CHANGELOG.md` `[Unreleased]`;
-  - `delivered-stories: US1` in the TSV.
+  - `delivered-stories: US1` in the TSV; every US1 row still `planned` gets its `waits` value
+    (`9.0-pin` for the 9.0 rows until T026, `L-n` for rows waiting on a live check).
   - Failing first: `ArtifactToolsReferenceTest` / `DevelopmentToolsReferenceTest` extended for
     the new tool section.
   - Then open the US1 PR (phases 1–3).
@@ -443,7 +448,7 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   - `docs/tools.md` section `read_users`;
   - `docs/research/inubit-interfaces.md`;
   - `CHANGELOG.md`;
-  - `delivered-stories: US1, US2`.
+  - `delivered-stories: US1, US2`, with `waits` set on every US2 row still `planned`.
 
   Then open the US2 PR.
 
@@ -539,7 +544,7 @@ forms write files under the unchanged folder rules (US3 AS1–AS8).
   - `docs/tools.md` sections `read_model_details` and `export_archives` (new forms);
   - `docs/research/inubit-interfaces.md`;
   - `CHANGELOG.md`;
-  - `delivered-stories` + US3.
+  - `delivered-stories` + US3, with `waits` set on every US3 row still `planned`.
 
   Then open the US3 PR.
 
@@ -560,7 +565,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
     `reReadFailed` holds a reason.
   - Failing tests first: `domain/model/ChangeRecordsTest.java`.
 - [ ] T049 [US4] `application/ChangeGuard.java` (D-12):
-  - `admit(tool, nodeId, ActionSpec)` in exactly this order:
+  - `admit(tool, nodeId, ActionSpec, input)` in exactly this order:
     1. group id → `INVALID_INPUT`, unknown → `TARGET_UNKNOWN`;
     2. production without opt-in, or production with `CLIENT` → `PRODUCTION_PROTECTED`;
     3. write off → `WRITE_DISABLED`;
@@ -730,7 +735,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - `docs/setup.md`: write enablement, `CLIENT` mode;
   - `docs/research/inubit-interfaces.md`;
   - `CHANGELOG.md`;
-  - `delivered-stories` + US4.
+  - `delivered-stories` + US4, with `waits` set on every US4 row still `planned`.
 
   Then open the US4 PR.
 
@@ -823,7 +828,7 @@ code, and names the operation id and host; the reads need only the opt-in (US5 A
   - `docs/setup.md` (`administration.runtimeData`);
   - `docs/research/inubit-interfaces.md`;
   - `CHANGELOG.md`;
-  - `delivered-stories` + US5.
+  - `delivered-stories` + US5, with `waits` set on every US5 row still `planned`.
 
   Then open the US5 PR.
 
@@ -1069,7 +1074,7 @@ fails (US6 AS1–AS17).
   - `SECURITY.md` (uploads, secret entries);
   - `docs/research/inubit-interfaces.md`;
   - `CHANGELOG.md`;
-  - `delivered-stories` + US6.
+  - `delivered-stories` + US6, with `waits` set on every US6 row still `planned`.
 
   Then open the US6 PR.
 
@@ -1193,7 +1198,7 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
   - `SECURITY.md`;
   - `docs/research/inubit-interfaces.md`;
   - `CHANGELOG.md`;
-  - `delivered-stories` + US7.
+  - `delivered-stories` + US7, with `waits` set on every US7 row still `planned`.
 
   Then open the US7 PR.
 
@@ -1206,7 +1211,7 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
   - `*V90ContractTest` per story;
   - the `v9_0` rows flipped.
 - [ ] T104 Coverage completion (SC-001, FR-027): `InterfaceCoverageCheckTest` with all seven
-  stories delivered. No `planned` row and no `# waits` comment are left: every row is
+  stories delivered. No `planned` row and no `waits` value other than `-` are left: every row is
   `reachable`, `covered`, `undocumented` or `excluded`. Remove the backlog entry "Further read
   access to INUBIT" from `docs/backlog.md`.
 - [ ] T105 [P] `live/AdministrationLiveTest.java` (`@Tag("live")`, opt-in, refused for production

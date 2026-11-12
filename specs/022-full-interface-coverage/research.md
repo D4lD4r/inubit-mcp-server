@@ -89,8 +89,9 @@ Tests (FR-003):
 - `InterfaceCoverageCheckTest` (`architecture/`): every command and option in `CliCommand.OPTIONS`, every
   `CliSessionCommand`, and every `RestEndpoint` value appears in the list. Every
   `reachable` / `covered` tool exists in `Wiring.toolHandlers()`. Every row has a state for both
-  versions. No row is `planned` once `story` is delivered: the release check reads a
-  `delivered-stories` line in the file.
+  versions. A `planned` row of a story listed in the `delivered-stories` line carries a `waits`
+  value naming what it waits for (`L-n` or `9.0-pin`); no other row carries one. When all stories
+  are delivered, no row is `planned` and no `waits` value is left (plan review round 3).
 - `InterfaceCoverageDocsTest`: the generated docs page matches.
 
 **Rationale**: one source for docs, tests and the runtime gate. A recording commit flips one row,
@@ -320,8 +321,10 @@ the decision above, because StartCLI opens the file again by path.
 
 ## D-12 Guards and protection order (FR-014, FR-015, FR-016)
 
-**Decision**: a new `application/ChangeGuard.admit(tool, nodeId, Area, actionEntries)` reuses the
-order of `WriteGuard`:
+**Decision**: a new `application/ChangeGuard.admit(tool, nodeId, ActionSpec, input)` reuses the
+order of `WriteGuard`. Step 4 takes the area from `ActionSpec`. Step 5 passes the call's entries
+`ActionSpec.entries(input)` and the capability `ActionSpec.capability()` to
+`VersionGate.admitCall`:
 
 1. group id → `INVALID_INPUT`, unknown → `TARGET_UNKNOWN`;
 2. production without opt-in, or production with `CLIENT` → `PRODUCTION_PROTECTED`;
