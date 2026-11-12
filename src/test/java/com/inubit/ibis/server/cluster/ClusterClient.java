@@ -33,12 +33,15 @@ public class ClusterClient {
 
     /**
      * A not started thread that downloads the content the script holds for {@code fileName} to
-     * {@code file}, or keeps its scripted failure.
+     * {@code file}, or keeps its scripted failure; throws the failure scripted by
+     * {@link FakeInubitScript#clusterDownloadFails}.
      */
     public MultipartDownloadThread clusterDownload(File file, NodeName nodeName,
-        String fileName) {
-        FakeInubitScript.active().record("ClusterClient.clusterDownload", file,
+        String fileName) throws Exception {
+        FakeInubitScript script = FakeInubitScript.active();
+        script.record("ClusterClient.clusterDownload", file,
             nodeName == null ? null : nodeName.getName(), fileName);
+        script.clusterDownload();
         return new MultipartDownloadThread(fileName, file);
     }
 }

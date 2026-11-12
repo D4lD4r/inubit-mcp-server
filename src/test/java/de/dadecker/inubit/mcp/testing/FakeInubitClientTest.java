@@ -247,6 +247,24 @@ class FakeInubitClientTest {
     }
 
     @Test
+    void clusterDownloadFailureIsThrownByTheCallItselfAfterRecordingIt() {
+        FakeInubitScript script = new FakeInubitScript().node(NODE).file(LOG, new byte[] {1})
+            .clusterDownloadFails(new Failure(IOException.class.getName(), "Connection reset"));
+        Path log = dir.resolve(LOG);
+        try (FakeInubitScript.Activation ignored = script.activate()) {
+            ClusterClient cluster = new ClusterClient(new IBISSoapClient(
+                "http://inubit.example.test/ibis?isCli", null, null, null, null, false), USER,
+                CurrentUser.getClientUID(), null);
+            assertThatThrownBy(() -> cluster.clusterDownload(log.toFile(),
+                NodeName.nodeName(NODE), LOG)).isExactlyInstanceOf(IOException.class)
+                .hasMessage("Connection reset");
+        }
+        assertThat(script.calls()).endsWith(
+            call("ClusterClient.clusterDownload", log.toString(), NODE, LOG));
+        assertThat(log).doesNotExist();
+    }
+
+    @Test
     void onlyOneScriptIsActiveAndClosingDeactivatesIt() {
         FakeInubitScript script = new FakeInubitScript();
         try (FakeInubitScript.Activation ignored = script.activate()) {

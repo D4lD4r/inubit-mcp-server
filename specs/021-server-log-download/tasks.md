@@ -641,7 +641,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   exactly as without it; `op=serverLog`, `op=other`, `op` twice → exit 2; every 020 test unchanged)
   and `adapter/cli/helper/HelperFramesTest.java` (new frames; every 020
   `fixtures/queue-entry/**.frames` parses as before)
-- [ ] T037 [US2] `ClientHelper` operation `serverLog` (FR-006, D-2, D-4, D-5; after T035, T036;
+- [X] T037 [US2] `ClientHelper` operation `serverLog` (FR-006, D-2, D-4, D-5; after T035, T036;
   proceeds on the static facts; if T034 contradicts them, rework per the findings with the owner
   informed): `src/helper/java/de/dadecker/inubit/mcp/helper/ClientHelper.java` admits
   `op=serverLog` with exactly its keys (keys of the other operation → malformed request, exit 2);

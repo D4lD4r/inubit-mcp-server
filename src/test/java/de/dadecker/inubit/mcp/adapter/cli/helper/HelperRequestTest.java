@@ -325,6 +325,59 @@ public class HelperRequestTest {
             Arguments.of("REST_90", URI.create("https://inubit.example.test:8443")));
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("variants")
+    void theHelperAcceptsTheEncodedServerLogRequestAndReceivesEveryValueUnchanged(String variant,
+        URI url) throws Exception {
+        String password = TestSecrets.CONFIGURED_PASSWORD + " %+&=\n€";
+        String trustStorePassword = TestSecrets.TRUST_STORE_PASSWORD + "/+=";
+        Path logOut = dir.resolve("out dir/webservice ü.log");
+        Files.createDirectories(logOut.getParent());
+        FakeInubitScript script = new FakeInubitScript().node("inubit-node-01")
+            .file("webservice.log", new byte[] {1, 2, 3, 4});
+        HelperRequest request = serverLogRequest(r -> {
+            r.variant = variant;
+            r.url = url;
+            r.trustStore = Optional.of(new HelperRequest.TrustStore(dir.resolve("trust ü.p12"),
+                Secret.of(trustStorePassword)));
+            r.logOut = logOut;
+            r.user = "jdoe ü";
+            r.password = Secret.of(password);
+        });
+
+        Run run = run(script, request.encode());
+
+        assertThat(run.exit()).as(run.out()).isZero();
+        HelperFrames frames = HelperFrames.parse(NONCE, run.out());
+        assertThat(frames.problem()).isEmpty();
+        assertThat(frames.frames()).containsExactly(new HelperFrames.Start(variant),
+            new HelperFrames.LoginOk(), new HelperFrames.NodeOk("inubit-node-01"),
+            new HelperFrames.PartOk(HelperFrames.Part.LOG, 4), new HelperFrames.End());
+        assertThat(logOut).hasBinaryContent(new byte[] {1, 2, 3, 4});
+        List<Call> calls = script.calls();
+        if (variant.equals("SOAP_81")) {
+            assertThat(calls).contains(call("IBISSoapClient.<init>", url + "?isCli",
+                dir.resolve("trust ü.p12").toString(), trustStorePassword, "null", "null",
+                "true"));
+        } else {
+            assertThat(calls).contains(
+                call("ConnectionData.setServerURL", url.toString()),
+                call("ConnectionData.setUserName", "jdoe ü"),
+                call("ConnectionData.setPassword", password),
+                call("ConnectionData.setServerTrustStoreFile",
+                    dir.resolve("trust ü.p12").toString()),
+                call("ConnectionData.setServerTrustStorePassword", trustStorePassword),
+                call("ConnectionData.setSkipHostnameVerification", "false"));
+        }
+        String client = variant.equals("SOAP_81") ? "IBISSoapClient" : "RestClient";
+        assertThat(calls).contains(
+            call(client + ".loginUserCli", "jdoe ü", password),
+            call("ClusterClient.<init>", client, "jdoe ü", "fake-client-uid-0001", "null"),
+            call("ClusterClient.clusterDownload", logOut.toString(), "inubit-node-01",
+                "webservice.log"));
+        TestSecrets.assertNoLeak(run.out());
+    }
+
     @Test
     void theHelperAcceptsAnHttpRequestForVariablesOnly() throws Exception {
         Path variables = dir.resolve("variables.wfsp");

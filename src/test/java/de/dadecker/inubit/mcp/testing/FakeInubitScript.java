@@ -25,8 +25,8 @@ import java.util.Set;
  * What the fake vendor classes under {@code src/test/java/com/inubit/ibis} do (feature 020,
  * research D-19): the login result, the content or failure per downloaded file name, vendor noise
  * printed to stdout at login and an optional lingering non-daemon thread (as the 9.0 client
- * leaves), and (feature 021, D-22) the cluster node name or its failure; it records every call
- * the fakes receive.
+ * leaves), and (feature 021, D-22) the cluster node name or its failure and a failure thrown by
+ * {@code clusterDownload} itself; it records every call the fakes receive.
  *
  * <p>In-process, a test {@linkplain #activate() activates} a script. In a child JVM, whose
  * class path holds the {@code lib/ibis.jar} of a {@link FakeInubitClient}, the fakes load the
@@ -70,6 +70,7 @@ public final class FakeInubitScript implements Serializable {
     private final List<Failure> loginFailure = new ArrayList<>();
     private final List<Failure> nodeFailure = new ArrayList<>();
     private String nodeName;
+    private final List<Failure> clusterDownloadFailure = new ArrayList<>();
     private final Map<String, Download> files = new HashMap<>();
     private final List<String> loginNoise = new ArrayList<>();
     private final Set<String> failingInitializers = new HashSet<>();
@@ -94,6 +95,16 @@ public final class FakeInubitScript implements Serializable {
     public FakeInubitScript nodeFails(Failure... chain) {
         nodeFailure.clear();
         nodeFailure.addAll(chain(chain));
+        return this;
+    }
+
+    /**
+     * {@code ClusterClient.clusterDownload} throws the exception chain {@code chain} itself,
+     * before any download thread exists (the real method declares {@code InubitException}).
+     */
+    public FakeInubitScript clusterDownloadFails(Failure... chain) {
+        clusterDownloadFailure.clear();
+        clusterDownloadFailure.addAll(chain(chain));
         return this;
     }
 
@@ -237,6 +248,13 @@ public final class FakeInubitScript implements Serializable {
             throw new IllegalStateException("FakeInubitScript: no node scripted");
         }
         return nodeName;
+    }
+
+    /** For the fakes: throws the scripted failure of {@code clusterDownload}, if any. */
+    public void clusterDownload() throws Exception {
+        if (!clusterDownloadFailure.isEmpty()) {
+            throw exception(clusterDownloadFailure);
+        }
     }
 
     /**

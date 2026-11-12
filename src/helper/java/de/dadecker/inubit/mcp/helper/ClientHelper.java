@@ -23,25 +23,30 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Feature 020 (research D-1, D-2, D-4): reads one queue manager entry through the INUBIT client
- * installation whose class path it runs on. The server starts it in a child JVM; it is compiled
- * for Java 17, uses JDK classes only and is a single class without nested or anonymous classes,
- * because it is shipped as one class-file resource.
+ * Reads through the INUBIT client installation whose class path it runs on: one queue manager
+ * entry (feature 020, research D-1, D-2, D-4) or the web service log of the node it reaches
+ * (feature 021, D-2, D-4, D-5). The server starts it in a child JVM; it is compiled for Java 17,
+ * uses JDK classes only and is a single class without nested or anonymous classes, because it is
+ * shipped as one class-file resource.
  *
  * <p>Protocol: the request arrives on stdin (UTF-8, {@code qe=1} first, one {@code key=value} per
  * line with every value percent-encoded, {@code end} last; the optional key {@code op} names the
- * operation, absent meaning {@code queueEntry}, the only one so far, feature 021 D-4); results
- * are the stdout lines that start with {@code #QE1:<nonce> }, followed by space-separated
- * percent-encoded tokens, so output of the vendor libraries cannot forge one; an empty token is
- * written as {@code -}. Exit codes: 0 after {@code end}, 1 anything else (also any unexpected
- * {@link Throwable}), 2 malformed request, 3 login failed (also a vendor class that fails to
- * initialize while the client is created), 4 vendor API missing. The request, the passwords and the content are never printed.
+ * operation, {@code queueEntry} (also when absent) or {@code serverLog}, each with its own keys,
+ * feature 021 D-4); results are the stdout lines that start with {@code #QE1:<nonce> }, followed
+ * by space-separated percent-encoded tokens, so output of the vendor libraries cannot forge one;
+ * an empty token is written as {@code -}. Exit codes: 0 after {@code end}, 1 anything else (also
+ * any unexpected {@link Throwable}), 2 malformed request, 3 login failed (also a vendor class
+ * that fails to initialize while the client is created), 4 vendor API missing. The request, the
+ * passwords and the content are never printed.
  *
  * <p>Vendor classes are resolved only through the {@link ClassLoader} given to {@link #run} and
  * used only by reflection: 8.1 ({@code SOAP_81}) through {@code IBISSoapClient}, 9.0
  * ({@code REST_90}) through {@code ConnectionData} and {@code InubitClientFactory}; both log in
- * with {@code loginUserCli} and read each part with a {@code MultipartDownloadThread} (the
- * Workbench's "View file", FR-007); 8.1 logs out at the end. Client methods are looked up on
+ * with {@code loginUserCli}. A queue entry is read part by part with a
+ * {@code MultipartDownloadThread} (the Workbench's "View file", FR-007); the web service log
+ * through a {@code ClusterClient}, as the Workbench's Cluster Manager does: the answering node
+ * from {@code getNode()}, then {@code clusterDownload} of the constant {@code webservice.log}
+ * from that node (FR-006). 8.1 logs out at the end. Client methods are looked up on
  * {@code I_IBISClientInterface}, because the 9.0 client is a private class.
  */
 public final class ClientHelper {
@@ -56,11 +61,16 @@ public final class ClientHelper {
     private static final String FRAME_PREFIX = "#QE1:";
     private static final String OP = "op";
     private static final String QUEUE_ENTRY = "queueEntry";
-    private static final List<String> KEYS = List.of("qe", OP, "nonce", "variant", "url",
-        "trustStore", "trustStorePassword", "hostnameVerification", "objectType", "fileName",
-        "parts", "dataOut", "variablesOut", "user", "password");
+    private static final String SERVER_LOG = "serverLog";
+    private static final List<String> SHARED_KEYS = List.of("qe", OP, "nonce", "variant", "url",
+        "trustStore", "trustStorePassword", "hostnameVerification", "user", "password");
+    private static final List<String> QUEUE_ENTRY_KEYS = List.of("objectType", "fileName",
+        "parts", "dataOut", "variablesOut");
+    private static final List<String> SERVER_LOG_KEYS = List.of("log", "logOut");
     private static final List<String> NOT_EMPTY = List.of("url", "objectType", "fileName",
-        "variablesOut", "user", "password");
+        "variablesOut", "logOut", "user", "password");
+    /** The only server log the helper reads, a constant so no request names a file (D-2). */
+    private static final String WEBSERVICE_LOG = "webservice.log";
     private static final char[] HEX = "0123456789ABCDEF".toCharArray();
     private static final String SOAP_81 = "SOAP_81";
     private static final String CLIENT_INTERFACE = "com.inubit.ibis.utils.I_IBISClientInterface";
@@ -70,6 +80,10 @@ public final class ClientHelper {
     private static final String CLIENT_FACTORY = "com.inubit.ibis.client.rest.InubitClientFactory";
     private static final String DOWNLOAD_THREAD =
         "com.inubit.ibis.configuration.utils.io.MultipartDownloadThread";
+    private static final String CLUSTER_CLIENT = "com.inubit.ibis.server.cluster.ClusterClient";
+    private static final String NODE = "com.inubit.ibis.server.cluster.data.Node";
+    private static final String NODE_NAME = "com.inubit.ibis.server.cache.NodeName";
+    private static final String CURRENT_USER = "com.inubit.ibis.common.CurrentUser";
     private static final int MESSAGE_LIMIT = 1_000;
     private static final String MASK = "******";
     private static final String EMPTY_TOKEN = "-";
@@ -88,7 +102,7 @@ public final class ClientHelper {
     }
 
     /**
-     * Reads the request from {@code in}, reads the requested parts through the vendor classes of
+     * Reads the request from {@code in}, performs its operation through the vendor classes of
      * {@code vendor} and writes the frames to {@code out}; returns the exit code. Nothing is
      * thrown: an unexpected {@link Throwable} gives exit 1 and is not printed, as it may carry
      * request values.
@@ -115,7 +129,7 @@ public final class ClientHelper {
         String nonce = request.get("nonce");
         Map<String, Executable> api;
         try {
-            api = vendorApi(SOAP_81.equals(request.get("variant")), vendor);
+            api = vendorApi(request, vendor);
         } catch (ReflectiveOperationException | LinkageError e) {
             frame(out, nonce, "api", "missing", String.valueOf(e.getMessage()));
             return EXIT_API_MISSING;
@@ -125,15 +139,15 @@ public final class ClientHelper {
     }
 
     /**
-     * The vendor constructors and methods of the variant, keyed by their simple name; a missing
-     * class or member throws, its name being the exception message.
+     * The vendor constructors and methods of the variant and the operation, keyed by their simple
+     * name; a missing class or member throws, its name being the exception message.
      */
-    private static Map<String, Executable> vendorApi(boolean soap, ClassLoader vendor)
-        throws ReflectiveOperationException {
+    private static Map<String, Executable> vendorApi(Map<String, String> request,
+        ClassLoader vendor) throws ReflectiveOperationException {
         Map<String, Executable> api = new HashMap<>();
         Class<?> client = Class.forName(CLIENT_INTERFACE, false, vendor);
         api.put("loginUserCli", client.getMethod("loginUserCli", String.class, String.class));
-        if (soap) {
+        if (SOAP_81.equals(request.get("variant"))) {
             Class<?> soapClient = Class.forName(SOAP_CLIENT, false, vendor);
             api.put("IBISSoapClient", soapClient.getConstructor(String.class, String.class,
                 String.class, String.class, String.class, boolean.class));
@@ -162,10 +176,27 @@ public final class ClientHelper {
         if (!Thread.class.isAssignableFrom(download)) {
             throw new ClassNotFoundException(DOWNLOAD_THREAD + " as a Thread");
         }
-        api.put("MultipartDownloadThread", sixArgumentConstructor(download));
-        api.put("setOutputFile", download.getMethod("setOutputFile", File.class));
         api.put("exceptionOccured", download.getMethod("exceptionOccured"));
         api.put("getException", download.getMethod("getException"));
+        if (QUEUE_ENTRY.equals(request.get(OP))) {
+            api.put("MultipartDownloadThread", sixArgumentConstructor(download));
+            api.put("setOutputFile", download.getMethod("setOutputFile", File.class));
+        } else {
+            // NodeName and Node first: clusterDownload's parameter type is the NodeName found here
+            Class<?> nodeName = Class.forName(NODE_NAME, false, vendor);
+            api.put("getName", nodeName.getMethod("getName"));
+            api.put("getNodeName", Class.forName(NODE, false, vendor).getMethod("getNodeName"));
+            Class<?> currentUser = Class.forName(CURRENT_USER, false, vendor);
+            api.put("getClientUID", currentUser.getMethod("getClientUID"));
+            api.put("getUsedAdditionalUserGroup",
+                currentUser.getMethod("getUsedAdditionalUserGroup"));
+            Class<?> cluster = Class.forName(CLUSTER_CLIENT, false, vendor);
+            api.put("ClusterClient", cluster.getConstructor(client, String.class, String.class,
+                String.class));
+            api.put("getNode", cluster.getMethod("getNode"));
+            api.put("clusterDownload", cluster.getMethod("clusterDownload", File.class, nodeName,
+                String.class));
+        }
         return api;
     }
 
@@ -191,7 +222,10 @@ public final class ClientHelper {
         return found;
     }
 
-    /** Logs in, reads the requested parts and logs out (8.1); returns the exit code. */
+    /**
+     * Logs in, reads the requested parts or the web service log and logs out (8.1); returns the
+     * exit code.
+     */
     private static int read(Map<String, String> request, Map<String, Executable> api,
         PrintStream out) throws ReflectiveOperationException, InterruptedException {
         String nonce = request.get("nonce");
@@ -212,12 +246,16 @@ public final class ClientHelper {
                 return EXIT_LOGIN_FAILED;
             }
             frame(out, nonce, "login", "ok");
-            if (request.get("parts").startsWith("data")) {
-                download(api, client, request, "data", request.get("fileName"),
-                    request.get("dataOut"), out, secrets);
+            if (SERVER_LOG.equals(request.get(OP))) {
+                readServerLog(api, client, request, out, secrets);
+            } else {
+                if (request.get("parts").startsWith("data")) {
+                    download(api, client, request, "data", request.get("fileName"),
+                        request.get("dataOut"), out, secrets);
+                }
+                download(api, client, request, "variables", request.get("fileName") + ".wfsp",
+                    request.get("variablesOut"), out, secrets);
             }
-            download(api, client, request, "variables", request.get("fileName") + ".wfsp",
-                request.get("variablesOut"), out, secrets);
         } finally {
             logout(api, client, user);
         }
@@ -254,24 +292,68 @@ public final class ClientHelper {
         PrintStream out, List<String> secrets)
         throws ReflectiveOperationException, InterruptedException {
         File file = new File(outFile);
-        Throwable failure;
         try {
             Thread thread = (Thread) call(api, "MultipartDownloadThread", null, client,
                 request.get("user"), fileName, request.get("objectType"), null, null);
             call(api, "setOutputFile", thread, file);
-            thread.start();
-            thread.join();
-            if (!Boolean.TRUE.equals(call(api, "exceptionOccured", thread))) {
-                frame(out, request.get("nonce"), "part", part, "ok",
-                    Long.toString(file.length()));
-                return;
-            }
-            failure = (Throwable) call(api, "getException", thread);
+            transfer(api, thread, file, request.get("nonce"), part, out, secrets);
         } catch (InvocationTargetException | LinkageError e) {
-            failure = vendorFailure(e);
+            partError(out, request.get("nonce"), part, vendorFailure(e), secrets);
         }
-        frame(out, request.get("nonce"), "part", part, "error", chain(failure),
-            messages(failure, secrets));
+    }
+
+    /**
+     * Looks up the answering node and downloads its {@code webservice.log} into {@code logOut},
+     * naming that node explicitly (D-5); writes the {@code node} frame and, after
+     * {@code node ok}, the {@code part log} frame.
+     */
+    private static void readServerLog(Map<String, Executable> api, Object client,
+        Map<String, String> request, PrintStream out, List<String> secrets)
+        throws ReflectiveOperationException, InterruptedException {
+        String nonce = request.get("nonce");
+        Object cluster;
+        Object node;
+        String name;
+        try {
+            cluster = call(api, "ClusterClient", null, client, request.get("user"),
+                call(api, "getClientUID", null), call(api, "getUsedAdditionalUserGroup", null));
+            node = call(api, "getNodeName", call(api, "getNode", cluster));
+            name = (String) call(api, "getName", node);
+        } catch (InvocationTargetException | LinkageError e) {
+            Throwable failure = vendorFailure(e);
+            frame(out, nonce, "node", "error", chain(failure), messages(failure, secrets));
+            return;
+        }
+        frame(out, nonce, "node", "ok", name);
+        File file = new File(request.get("logOut"));
+        try {
+            Thread thread = (Thread) call(api, "clusterDownload", cluster, file, node,
+                WEBSERVICE_LOG);
+            transfer(api, thread, file, nonce, "log", out, secrets);
+        } catch (InvocationTargetException | LinkageError e) {
+            partError(out, nonce, "log", vendorFailure(e), secrets);
+        }
+    }
+
+    /**
+     * Runs the download {@code thread} into {@code file} and writes the {@code part} frame of its
+     * result; a vendor call failing here is left to the caller.
+     */
+    private static void transfer(Map<String, Executable> api, Thread thread, File file,
+        String nonce, String part, PrintStream out, List<String> secrets)
+        throws ReflectiveOperationException, InterruptedException {
+        thread.start();
+        thread.join();
+        if (!Boolean.TRUE.equals(call(api, "exceptionOccured", thread))) {
+            frame(out, nonce, "part", part, "ok", Long.toString(file.length()));
+            return;
+        }
+        partError(out, nonce, part, (Throwable) call(api, "getException", thread), secrets);
+    }
+
+    private static void partError(PrintStream out, String nonce, String part, Throwable failure,
+        List<String> secrets) {
+        frame(out, nonce, "part", part, "error", chain(failure), messages(failure, secrets));
     }
 
     /** Calls {@code logoutUser(user)} if the variant has it; its failure changes nothing. */
@@ -361,7 +443,8 @@ public final class ClientHelper {
             }
             int equals = line.indexOf('=');
             String key = equals < 0 ? "" : line.substring(0, equals);
-            if (!KEYS.contains(key) || request.containsKey(key)) {
+            if (!SHARED_KEYS.contains(key) && !QUEUE_ENTRY_KEYS.contains(key)
+                && !SERVER_LOG_KEYS.contains(key) || request.containsKey(key)) {
                 throw new IllegalArgumentException("unknown or repeated key");
             }
             request.put(key, decode(line.substring(equals + 1)));
@@ -372,22 +455,36 @@ public final class ClientHelper {
         return request;
     }
 
+    /** Checks the keys of the operation, each exactly once, and their values. */
     private static void validate(Map<String, String> request) {
-        if (request.size() != KEYS.size()) {
-            throw new IllegalArgumentException("key missing");
+        boolean queueEntry = QUEUE_ENTRY.equals(request.get(OP));
+        if (!queueEntry && !SERVER_LOG.equals(request.get(OP))) {
+            throw new IllegalArgumentException("unknown operation");
+        }
+        List<String> operationKeys = queueEntry ? QUEUE_ENTRY_KEYS : SERVER_LOG_KEYS;
+        if (request.size() != SHARED_KEYS.size() + operationKeys.size()
+            || !request.keySet().containsAll(SHARED_KEYS)
+            || !request.keySet().containsAll(operationKeys)) {
+            throw new IllegalArgumentException("key missing or of the other operation");
         }
         for (String key : NOT_EMPTY) {
-            if (request.get(key).isEmpty()) {
+            if (request.containsKey(key) && request.get(key).isEmpty()) {
                 throw new IllegalArgumentException("empty value");
             }
         }
-        String parts = request.get("parts");
-        if (!QUEUE_ENTRY.equals(request.get(OP))
-            || !request.get("nonce").matches("[0-9a-fA-F]{32}")
+        if (!request.get("nonce").matches("[0-9a-fA-F]{32}")
             || !List.of("SOAP_81", "REST_90").contains(request.get("variant"))
-            || !List.of("true", "false").contains(request.get("hostnameVerification"))
-            || !List.of("data,variables", "variables").contains(parts)
-            || parts.startsWith("data") && request.get("dataOut").isEmpty()) {
+            || !List.of("true", "false").contains(request.get("hostnameVerification"))) {
+            throw new IllegalArgumentException("invalid value");
+        }
+        if (queueEntry) {
+            String parts = request.get("parts");
+            if (!List.of("data,variables", "variables").contains(parts)
+                || parts.startsWith("data") && request.get("dataOut").isEmpty()) {
+                throw new IllegalArgumentException("invalid value");
+            }
+        } else if (!"webservice".equals(request.get("log"))) {
+            // the only kind; the helper maps it to the constant file name (D-2, D-4)
             throw new IllegalArgumentException("invalid value");
         }
     }

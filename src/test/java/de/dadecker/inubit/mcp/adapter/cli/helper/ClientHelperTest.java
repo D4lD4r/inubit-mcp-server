@@ -17,6 +17,7 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -25,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
+import javax.tools.ToolProvider;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -36,8 +38,9 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * The queue-entry helper of feature 020 (research D-2, D-4) in-process: it is loaded from its
- * resource directory {@code META-INF/inubit-mcp/client-helper/} of the compiled classes by a
+ * The client helper in-process: the queue-entry read of feature 020 (research D-2, D-4) and the
+ * server-log read of feature 021 (D-2, D-4, D-5). It is loaded from its resource directory
+ * {@code META-INF/inubit-mcp/client-helper/} of the compiled classes by a
  * {@link URLClassLoader} whose parent is the test class loader (so the fake vendor classes under
  * {@code com.inubit.ibis} are visible), and {@code run(InputStream, PrintStream, ClassLoader)} is
  * called reflectively; {@code main} and its {@code System.exit} are never called here.
@@ -56,6 +59,11 @@ class ClientHelperTest {
     private static final byte[] VARIABLES = "<Properties version=\"4.1\"><Property name=\"apiToken\">"
         .concat(TestSecrets.CREDENTIAL_PAYLOAD_VALUE).concat("</Property></Properties>")
         .getBytes(StandardCharsets.UTF_8);
+    private static final String NODE = "inubit-node-01";
+    private static final String CLIENT_UID = "fake-client-uid-0001";
+    private static final String WEBSERVICE_LOG = "webservice.log";
+    private static final byte[] LOG = ("2026-11-12 10:00:00,000 1 [WebService] request\n"
+        + "<soapenv:Envelope/>\n").getBytes(StandardCharsets.UTF_8);
 
     private static URLClassLoader loader;
     private static Class<?> helper;
@@ -132,12 +140,48 @@ class ClientHelperTest {
                 TestSecrets.CONFIGURED_PASSWORD + "%\u0663\u0663"))),
             Arguments.of("escape decodes to invalid UTF-8", request(lines -> lines.put(
                 "trustStorePassword", TestSecrets.TRUST_STORE_PASSWORD + "%FF"))),
-            // feature 021 (D-4): op is optional; until T037 only queueEntry is an operation
-            Arguments.of("operation serverLog", withOp("op=serverLog")),
+            // feature 021 (D-4): op is optional, queueEntry or serverLog, each with its own keys
+            Arguments.of("operation serverLog with the queue-entry keys",
+                withOp("op=serverLog")),
             Arguments.of("unknown operation", withOp("op=other")),
             Arguments.of("empty operation", withOp("op=")),
             Arguments.of("operation in another case", withOp("op=QueueEntry")),
-            Arguments.of("operation repeated", withOp("op=queueEntry\nop=queueEntry")));
+            Arguments.of("operation repeated", withOp("op=queueEntry\nop=queueEntry")),
+            Arguments.of("queue entry with a server-log key",
+                request(lines -> lines.put("log", "webservice"))),
+            Arguments.of("server log with a fileName key",
+                serverLogRequest(lines -> lines.put("fileName", "webservice.log"))),
+            Arguments.of("server log with an objectType key",
+                serverLogRequest(lines -> lines.put("objectType", "queue_manager"))),
+            Arguments.of("server log with a parts key",
+                serverLogRequest(lines -> lines.put("parts", "variables"))),
+            Arguments.of("server log without op", serverLogRequest(lines -> lines.remove("op"))),
+            Arguments.of("server log keys with op queueEntry",
+                serverLogRequest(lines -> lines.put("op", "queueEntry"))),
+            Arguments.of("server log trace.log",
+                serverLogRequest(lines -> lines.put("log", "trace"))),
+            Arguments.of("server log in another case",
+                serverLogRequest(lines -> lines.put("log", "WEBSERVICE"))),
+            Arguments.of("server log file name instead of kind",
+                serverLogRequest(lines -> lines.put("log", "webservice.log"))),
+            Arguments.of("server log kind empty", serverLogRequest(lines -> lines.put("log", ""))),
+            Arguments.of("server log kind missing",
+                serverLogRequest(lines -> lines.remove("log"))),
+            Arguments.of("server log logOut missing",
+                serverLogRequest(lines -> lines.remove("logOut"))),
+            Arguments.of("server log logOut empty",
+                serverLogRequest(lines -> lines.put("logOut", ""))),
+            Arguments.of("server log empty user",
+                serverLogRequest(lines -> lines.put("user", ""))),
+            Arguments.of("server log with a fileName instead of the password",
+                serverLogRequest(lines -> {
+                    lines.remove("password");
+                    lines.put("fileName", "webservice.log");
+                })),
+            Arguments.of("server log unknown variant",
+                serverLogRequest(lines -> lines.put("variant", "SOAP_61"))),
+            Arguments.of("server log nonce not hex", serverLogRequest(lines -> lines.put("nonce",
+                "0123456789abcdef0123456789abcdeg"))));
     }
 
     @ParameterizedTest(name = "{0}")
@@ -171,7 +215,20 @@ class ClientHelperTest {
             Arguments.of("CRLF line ends", request(lines -> { }).replace("\n", "\r\n")),
             Arguments.of("operation queueEntry", withOp("op=queueEntry")),
             Arguments.of("operation queueEntry as the last key",
-                request(lines -> lines.put("op", "queueEntry"))));
+                request(lines -> lines.put("op", "queueEntry"))),
+            Arguments.of("server log on 8.1", serverLogRequest(lines -> { })),
+            Arguments.of("server log on 9.0 over http without trust store",
+                serverLogRequest(lines -> {
+                    lines.put("variant", "REST_90");
+                    lines.put("url", "http%3A%2F%2Finubit.example.test%3A8000");
+                    lines.put("trustStore", "");
+                    lines.put("trustStorePassword", "");
+                    lines.put("hostnameVerification", "false");
+                })),
+            Arguments.of("server log with op as the last key", serverLogRequest(lines -> {
+                lines.remove("op");
+                lines.put("op", "serverLog");
+            })));
     }
 
     @ParameterizedTest
@@ -591,6 +648,282 @@ class ClientHelperTest {
             List.of("api", "missing", "com.inubit.ibis.utils.I_IBISClientInterface"));
     }
 
+    // --- operation serverLog (feature 021: FR-006, D-2, D-4, D-5) --------------------------
+
+    @Test
+    void soap81ServerLogLooksUpItsNodeAndDownloadsTheWebServiceLogFromThatNodeOnly()
+        throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE).file(WEBSERVICE_LOG, LOG);
+        Path logOut = dir.resolve("webservice.log");
+
+        Run run = run(script, serverLogRequest(lines -> lines.put("logOut",
+            encode(logOut.toString()))), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "ok", NODE),
+            List.of("part", "log", "ok", Integer.toString(LOG.length)),
+            List.of("end"));
+        assertThat(logOut).hasBinaryContent(LOG);
+        assertThat(script.calls()).as("only login, own node, download and logout (FR-006)")
+            .containsExactly(
+                call("IBISSoapClient.<init>", URL_81 + "?isCli", TRUST_STORE,
+                    TestSecrets.TRUST_STORE_PASSWORD, "null", "null", "true"),
+                call("IBISSoapClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+                call("ClusterClient.<init>", "IBISSoapClient", USER, CLIENT_UID, "null"),
+                call("ClusterClient.getNode"),
+                call("ClusterClient.clusterDownload", logOut.toString(), NODE, WEBSERVICE_LOG),
+                call("MultipartDownloadThread.start"),
+                call("MultipartDownloadThread.exceptionOccured"),
+                call("IBISSoapClient.logoutUser", USER));
+        TestSecrets.assertNoLeak(run.out());
+    }
+
+    @Test
+    void rest90ServerLogUsesTheFactoryClientAndDoesNotLogOut() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE).file(WEBSERVICE_LOG, LOG);
+        Path logOut = dir.resolve("webservice.log");
+
+        Run run = run(script, serverLogRequest(lines -> {
+            lines.put("variant", "REST_90");
+            lines.put("url", encode(URL_90));
+            lines.put("logOut", encode(logOut.toString()));
+        }), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "REST_90"),
+            List.of("login", "ok"),
+            List.of("node", "ok", NODE),
+            List.of("part", "log", "ok", Integer.toString(LOG.length)),
+            List.of("end"));
+        assertThat(logOut).hasBinaryContent(LOG);
+        assertThat(script.calls()).endsWith(
+            call("InubitClientFactory.getRestInstance"),
+            call("RestClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+            call("ClusterClient.<init>", "RestClient", USER, CLIENT_UID, "null"),
+            call("ClusterClient.getNode"),
+            call("ClusterClient.clusterDownload", logOut.toString(), NODE, WEBSERVICE_LOG),
+            call("MultipartDownloadThread.start"),
+            call("MultipartDownloadThread.exceptionOccured"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SOAP_81", "REST_90"})
+    void aFailedNodeLookupIsReportedAndEndsWithoutDownload(String variant) throws Exception {
+        FakeInubitScript script = new FakeInubitScript()
+            .nodeFails(new Failure("java.lang.Exception", "Server not in cluster mode."),
+                new Failure("java.lang.IllegalStateException", "HTTP 403"))
+            .file(WEBSERVICE_LOG, LOG);
+        Path logOut = dir.resolve("webservice.log");
+
+        Run run = run(script, serverLogRequest(lines -> {
+            lines.put("variant", variant);
+            lines.put("logOut", encode(logOut.toString()));
+        }), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", variant),
+            List.of("login", "ok"),
+            List.of("node", "error", "java.lang.Exception>java.lang.IllegalStateException",
+                "Server not in cluster mode.\nHTTP 403"),
+            List.of("end"));
+        assertThat(logOut).doesNotExist();
+        assertThat(script.calls()).extracting(Call::name)
+            .noneMatch(name -> name.contains("clusterDownload")
+                || name.startsWith("MultipartDownloadThread"));
+        if (variant.equals("SOAP_81")) {
+            assertThat(script.calls()).last().isEqualTo(call("IBISSoapClient.logoutUser", USER));
+        }
+    }
+
+    @Test
+    void aClusterClientWhoseStaticInitializerFailsIsANodeErrorAndStillLogsOut()
+        throws Exception {
+        FakeInubitScript script = new FakeInubitScript().initializerFails("ClusterClient");
+
+        Run run = run(script, serverLogRequest(lines -> { }),
+            reloading("com.inubit.ibis.server.cluster.ClusterClient"));
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "error",
+                "java.lang.ExceptionInInitializerError>java.lang.IllegalStateException",
+                "\nstatic initializer of ClusterClient failed"),
+            List.of("end"));
+        assertThat(script.calls()).last().isEqualTo(call("IBISSoapClient.logoutUser", USER));
+    }
+
+    @Test
+    void aFailedLogDownloadIsReportedWithItsExceptionChain() throws Exception {
+        String missing = "File webservice.log not found on " + NODE;
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .fileFails(WEBSERVICE_LOG, new Failure("java.io.IOException", "Download failed"),
+                new Failure("java.lang.Exception", missing));
+
+        Run run = run(script, serverLogRequest(lines -> { }), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "ok", NODE),
+            List.of("part", "log", "error", "java.io.IOException>java.lang.Exception",
+                "Download failed\n" + missing),
+            List.of("end"));
+        assertThat(script.calls()).contains(call("MultipartDownloadThread.getException"))
+            .last().isEqualTo(call("IBISSoapClient.logoutUser", USER));
+    }
+
+    @Test
+    void aClusterDownloadThatThrowsItselfIsALogPartError() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE).file(WEBSERVICE_LOG, LOG)
+            .clusterDownloadFails(new Failure("java.io.IOException", "Connection reset"));
+
+        Run run = run(script, serverLogRequest(lines -> { }), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "ok", NODE),
+            List.of("part", "log", "error", "java.io.IOException", "Connection reset"),
+            List.of("end"));
+        assertThat(script.calls()).extracting(Call::name)
+            .noneMatch(name -> name.startsWith("MultipartDownloadThread"));
+        assertThat(script.calls()).last().isEqualTo(call("IBISSoapClient.logoutUser", USER));
+    }
+
+    @Test
+    void aLogDownloadFailingWithoutExceptionIsWrittenWithDashTokens() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .fileFailsWithoutException(WEBSERVICE_LOG);
+
+        Run run = run(script, serverLogRequest(lines -> { }), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).contains(List.of("part", "log", "error", "-", "-"));
+    }
+
+    @Test
+    void aFailedLoginEndsTheServerLogReadBeforeTheNodeLookup() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE).file(WEBSERVICE_LOG, LOG)
+            .loginFails(new Failure("java.lang.SecurityException", "LoginFailure"));
+
+        Run run = run(script, serverLogRequest(lines -> { }), vendor());
+
+        assertThat(run.exit()).isEqualTo(3);
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "error", "java.lang.SecurityException", "LoginFailure"));
+        assertThat(script.calls()).extracting(Call::name)
+            .noneMatch(name -> name.startsWith("ClusterClient"));
+    }
+
+    @Test
+    void passwordsInNodeAndLogDownloadMessagesAreNeverPrinted() throws Exception {
+        String echo = "user jdoe with " + TestSecrets.CONFIGURED_PASSWORD + " and store "
+            + TestSecrets.TRUST_STORE_PASSWORD + " refused";
+        FakeInubitScript nodeScript = new FakeInubitScript()
+            .nodeFails(new Failure("java.io.IOException", echo));
+        FakeInubitScript logScript = new FakeInubitScript().node(NODE)
+            .fileFails(WEBSERVICE_LOG, new Failure("java.io.IOException", echo));
+
+        Run node = run(nodeScript, serverLogRequest(lines -> { }), vendor());
+        Run log = run(logScript, serverLogRequest(lines -> { }), vendor());
+
+        String masked = "user jdoe with ****** and store ****** refused";
+        assertThat(frames(node.out())).contains(
+            List.of("node", "error", "java.io.IOException", masked));
+        assertThat(frames(log.out())).contains(
+            List.of("part", "log", "error", "java.io.IOException", masked));
+        for (Run run : List.of(node, log)) {
+            TestSecrets.assertNoLeak(run.out());
+            TestSecrets.assertNoLeak(decoded(run.out()));
+        }
+    }
+
+    @ParameterizedTest(name = "{0} without {1}")
+    @MethodSource("missingServerLogClasses")
+    void aServerLogWithoutAVendorClassEndsWithApiMissingAndExitFourBeforeAnyCall(String variant,
+        String hiddenClass) throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE).file(WEBSERVICE_LOG, LOG);
+
+        Run run = run(script, serverLogRequest(lines -> lines.put("variant", variant)),
+            hiding(hiddenClass));
+
+        assertThat(run.exit()).isEqualTo(4);
+        assertThat(frames(run.out())).containsExactly(List.of("api", "missing", hiddenClass));
+        assertThat(script.calls()).isEmpty();
+    }
+
+    static Stream<Arguments> missingServerLogClasses() {
+        return Stream.of(
+            Arguments.of("SOAP_81", "com.inubit.ibis.utils.I_IBISClientInterface"),
+            Arguments.of("SOAP_81", "com.inubit.ibis.soap.IBISSoapClient"),
+            Arguments.of("REST_90", "com.inubit.ibis.configuration.utils.ConnectionData"),
+            Arguments.of("REST_90", "com.inubit.ibis.client.rest.InubitClientFactory"),
+            Arguments.of("SOAP_81",
+                "com.inubit.ibis.configuration.utils.io.MultipartDownloadThread"),
+            Arguments.of("SOAP_81", "com.inubit.ibis.server.cluster.ClusterClient"),
+            Arguments.of("REST_90", "com.inubit.ibis.server.cluster.ClusterClient"),
+            Arguments.of("SOAP_81", "com.inubit.ibis.server.cluster.data.Node"),
+            Arguments.of("SOAP_81", "com.inubit.ibis.server.cache.NodeName"),
+            Arguments.of("SOAP_81", "com.inubit.ibis.common.CurrentUser"));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("missingServerLogMembers")
+    void aServerLogWithoutAVendorMemberEndsWithApiMissingAndExitFourBeforeAnyCall(
+        String missing, String className, String source) throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE).file(WEBSERVICE_LOG, LOG);
+
+        Run run = run(script, serverLogRequest(lines -> { }), replacing(className, source));
+
+        assertThat(run.exit()).isEqualTo(4);
+        assertThat(frames(run.out())).containsExactly(List.of("api", "missing", missing));
+        assertThat(script.calls()).isEmpty();
+    }
+
+    static Stream<Arguments> missingServerLogMembers() {
+        String cluster = "com.inubit.ibis.server.cluster.ClusterClient";
+        String constructor = "public ClusterClient(com.inubit.ibis.utils.I_IBISClientInterface c,"
+            + " String u, String id, String g) { }";
+        String getNode = "public com.inubit.ibis.server.cluster.data.Node getNode() {"
+            + " return null; }";
+        String clusterDownload = "public com.inubit.ibis.configuration.utils.io"
+            + ".MultipartDownloadThread clusterDownload(java.io.File f,"
+            + " com.inubit.ibis.server.cache.NodeName n, String s) { return null; }";
+        String currentUser = "com.inubit.ibis.common.CurrentUser";
+        String clientUid = "public static String getClientUID() { return null; }";
+        String group = "public static String getUsedAdditionalUserGroup() { return null; }";
+        return Stream.of(
+            Arguments.of(cluster + ".<init>(com.inubit.ibis.utils.I_IBISClientInterface,"
+                + "java.lang.String,java.lang.String,java.lang.String)", cluster,
+                stub(cluster, "public ClusterClient(Object c, String u, String id, String g) { }",
+                    getNode, clusterDownload)),
+            Arguments.of(cluster + ".getNode()", cluster,
+                stub(cluster, constructor, clusterDownload)),
+            Arguments.of(cluster + ".clusterDownload(java.io.File,"
+                + "com.inubit.ibis.server.cache.NodeName,java.lang.String)", cluster,
+                stub(cluster, constructor, getNode, clusterDownload.replace(
+                    "com.inubit.ibis.server.cache.NodeName n", "String n"))),
+            Arguments.of("com.inubit.ibis.server.cluster.data.Node.getNodeName()",
+                "com.inubit.ibis.server.cluster.data.Node",
+                stub("com.inubit.ibis.server.cluster.data.Node")),
+            Arguments.of("com.inubit.ibis.server.cache.NodeName.getName()",
+                "com.inubit.ibis.server.cache.NodeName",
+                stub("com.inubit.ibis.server.cache.NodeName")),
+            Arguments.of(currentUser + ".getClientUID()", currentUser, stub(currentUser, group)),
+            Arguments.of(currentUser + ".getUsedAdditionalUserGroup()", currentUser,
+                stub(currentUser, clientUid)));
+    }
+
     // --- the frame writer (D-4) -----------------------------------------------------------
 
     @Test
@@ -645,6 +978,30 @@ class ClientHelperTest {
         return request(lines -> { }).replace("qe=1\n", "qe=1\n" + opLines + "\n");
     }
 
+    /**
+     * A well-formed 8.1 {@code serverLog} request (feature 021, D-4), every value
+     * percent-encoded, changed by {@code edit}.
+     */
+    static String serverLogRequest(Consumer<Map<String, String>> edit) {
+        Map<String, String> lines = new LinkedHashMap<>();
+        lines.put("qe", "1");
+        lines.put("op", "serverLog");
+        lines.put("nonce", NONCE);
+        lines.put("variant", "SOAP_81");
+        lines.put("url", "https%3A%2F%2Finubit.example.test%3A8443%2Fibis%2Fservlet%2FIBIS");
+        lines.put("trustStore", "%2Fvar%2Fqe-0001%2Ftrust.p12");
+        lines.put("trustStorePassword", TestSecrets.TRUST_STORE_PASSWORD);
+        lines.put("hostnameVerification", "true");
+        lines.put("log", "webservice");
+        lines.put("logOut", "%2Fvar%2Fqe-0001%2Fout%2Fwebservice.log");
+        lines.put("user", "jdoe");
+        lines.put("password", TestSecrets.CONFIGURED_PASSWORD);
+        edit.accept(lines);
+        StringBuilder text = new StringBuilder();
+        lines.forEach((key, value) -> text.append(key).append('=').append(value).append('\n'));
+        return text.append("end\n").toString();
+    }
+
     /** Runs the helper with {@code script} active. */
     static Run run(FakeInubitScript script, String request, ClassLoader vendor) throws Exception {
         try (FakeInubitScript.Activation ignored = script.activate()) {
@@ -661,7 +1018,44 @@ class ClientHelperTest {
      * A vendor class loader that defines its own copy of {@code className} from the test
      * classes, so that copy's static initializer runs again.
      */
-    static ClassLoader reloading(String className) {
+    static ClassLoader reloading(String className) throws IOException {
+        try (InputStream in = vendor().getResourceAsStream(
+            className.replace('.', '/') + ".class")) {
+            return defining(className, in.readAllBytes());
+        }
+    }
+
+    /**
+     * A vendor class loader that defines {@code className} from the stub {@code source},
+     * compiled here against the test classes, so a vendor class can lack one member.
+     */
+    ClassLoader replacing(String className, String source) throws Exception {
+        String path = className.replace('.', '/');
+        Path file = dir.resolve("stub-src").resolve(path + ".java");
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, source);
+        Path classes = Files.createDirectories(dir.resolve("stub-classes"));
+        String testClasses = Path.of(ClientHelperTest.class.getProtectionDomain().getCodeSource()
+            .getLocation().toURI()).toString();
+        int exit = ToolProvider.getSystemJavaCompiler().run(null, null, null, "-classpath",
+            testClasses, "-d", classes.toString(), file.toString());
+        assertThat(exit).as("the stub compiles").isZero();
+        byte[] bytes = Files.readAllBytes(classes.resolve(path + ".class"));
+        return defining(className, bytes);
+    }
+
+    /** The source of the public class {@code className} with the given members only. */
+    static String stub(String className, String... members) {
+        int dot = className.lastIndexOf('.');
+        return "package " + className.substring(0, dot) + ";\npublic class "
+            + className.substring(dot + 1) + " {\n" + String.join("\n", members) + "\n}\n";
+    }
+
+    /**
+     * A vendor class loader that defines its own {@code className} from the class file
+     * {@code bytes} and delegates every other class to the test class loader.
+     */
+    static ClassLoader defining(String className, byte[] bytes) {
         return new ClassLoader(vendor()) {
             @Override
             protected Class<?> loadClass(String name, boolean resolve)
@@ -671,16 +1065,7 @@ class ClientHelperTest {
                 }
                 synchronized (getClassLoadingLock(name)) {
                     Class<?> loaded = findLoadedClass(name);
-                    if (loaded != null) {
-                        return loaded;
-                    }
-                    try (InputStream in = getParent().getResourceAsStream(
-                        name.replace('.', '/') + ".class")) {
-                        byte[] bytes = in.readAllBytes();
-                        return defineClass(name, bytes, 0, bytes.length);
-                    } catch (IOException e) {
-                        throw new ClassNotFoundException(name, e);
-                    }
+                    return loaded != null ? loaded : defineClass(name, bytes, 0, bytes.length);
                 }
             }
         };

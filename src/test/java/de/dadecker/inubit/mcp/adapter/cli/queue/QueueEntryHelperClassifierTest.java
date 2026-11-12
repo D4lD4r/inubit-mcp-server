@@ -442,6 +442,10 @@ class QueueEntryHelperClassifierTest {
             Arguments.of(0, success(variables), mismatch + "0"),
             Arguments.of(0, success(data, data, variables), mismatch + "0"),
             Arguments.of(0, success(data, variables, variables), mismatch + "0"),
+            // server-log frames (feature 021) parse, but are no answer to a queue-entry read
+            Arguments.of(0, success(P + "node ok inubit-node-01", data, variables),
+                mismatch + "0"),
+            Arguments.of(0, success(data, P + "part log ok 1"), mismatch + "0"),
             Arguments.of(0, start + P + "login ok\n" + P + "login ok\n" + data + "\n" + variables
                 + "\n" + P + "end\n", mismatch + "0"),
             Arguments.of(0, success(data, variables) + P + "end\n",
