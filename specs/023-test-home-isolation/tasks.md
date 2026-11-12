@@ -85,7 +85,7 @@ reads the process home.
 
 **Independent test**: `UserHomeReadGuardTest` red on `main` (5 findings), green after T003/T004.
 
-- [ ] T006 [P] [US2] Red guard test `test/architecture/UserHomeReadGuardTest.java` (research D-5,
+- [X] T006 [P] [US2] Red guard test `test/architecture/UserHomeReadGuardTest.java` (research D-5,
   spec FR-007). Scanner over every `*.java` below `src/main/java`: a single-pass state machine (states: code,
   string literal with `\` escapes, char literal, text block `"""…"""`, line comment, block
   comment incl. Javadoc) that replaces comment characters by spaces and keeps every newline, so line
