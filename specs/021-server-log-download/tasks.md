@@ -824,7 +824,7 @@ helper's `variant`.
   for `v9_0/webservice/ok.*` and 9.0 `WEBSERVICE_LOG_READ` → `SUPPORTED`; updated first:
   `ServerLogV90ContractTest`, `CapabilityMatrixTest`, `ServerLogFixtureCatalogueTest`,
   `ToolAnnouncementTest`
-- [ ] T053 [US3] **[OWNER]** FR-017 fallback (only for a 9.0 log whose recording T049 / T050
+- [X] T053 [US3] **[OWNER]** (not needed: both 9.0 logs were recorded and enabled in T051/T052, 2026-11-12) FR-017 fallback (only for a 9.0 log whose recording T049 / T050
   cannot be made or is declined): record the owner's decision and date in
   `specs/021-server-log-download/quickstart.md` (validation record) and `reviews/implementation.md`;
   that (9.0, log) stays refused `UNSUPPORTED_VERSION` "not yet verified"; T057 and T059 state it in
