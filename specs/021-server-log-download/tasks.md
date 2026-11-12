@@ -729,7 +729,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   (unsupported)` / `Group prod (production): archives: refused (no archives.productionOptIn),
   serverLogRead: off`; order with both opt-ins), `MainTest.java` (`--check-config` "Warnings:"
   and the startup log `Configuration: …` warning)
-- [ ] T043 [US2] Announcement and admission of the web service log (FR-002, D-6, D-17; after T031,
+- [X] T043 [US2] Announcement and admission of the web service log (FR-002, D-6, D-17; after T031,
   T041): `Wiring.java` announcement branch 2: some node with `serverLogRead` &&
   `possiblyCapable(node, WEBSERVICE_LOG_READ)` && `clientSelection.anyCandidate(node)`; `allowed()`
   adds `WEBSERVICE_LOG_READ` with `withClient && serverLogRead`. Failing tests first in

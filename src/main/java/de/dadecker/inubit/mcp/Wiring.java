@@ -850,7 +850,8 @@ final class Wiring implements AutoCloseable {
      * writes on a development stage, deployments in a group that receives them, end-to-end tests
      * where allowed, process control with write access; feature 020 (research D-15): reading
      * Queue Manager entries with the group's {@code unsupported.queueEntryRead} and the client;
-     * feature 021 (research D-17): downloading the trace log with the client.
+     * feature 021 (research D-17): downloading the trace log with the client, the web service log
+     * with the client and the group's {@code unsupported.serverLogRead}.
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
         Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
@@ -877,6 +878,9 @@ final class Wiring implements AutoCloseable {
         if (withClient) {
             allowed.add(Capability.TRACE_LOG_READ);
         }
+        if (withClient && server.serverLogRead()) {
+            allowed.add(Capability.WEBSERVICE_LOG_READ);
+        }
         return allowed;
     }
 
@@ -901,13 +905,16 @@ final class Wiring implements AutoCloseable {
     }
 
     /**
-     * Feature 021 (FR-002, research D-17): true if a node may download the trace log
-     * ({@link #possiblyCapable}) and has a client home some version of it may use
-     * ({@link ClientSelectionPort#anyCandidate}); independent of write access.
+     * Feature 021 (FR-002, research D-17): true if a node has a client home some version of it
+     * may use ({@link ClientSelectionPort#anyCandidate}) and may download the trace log, or, with
+     * the group's {@code unsupported.serverLogRead}, the web service log
+     * ({@link #possiblyCapable}); independent of write access.
      */
     private boolean anyServerLogNode() {
         return servers.stream().anyMatch(server -> clientSelection.anyCandidate(server.id())
-            && possiblyCapable(server, Capability.TRACE_LOG_READ));
+            && (possiblyCapable(server, Capability.TRACE_LOG_READ)
+                || server.serverLogRead()
+                    && possiblyCapable(server, Capability.WEBSERVICE_LOG_READ)));
     }
 
     /** True if some node may run {@code capability} ({@link #possiblyCapable}). */

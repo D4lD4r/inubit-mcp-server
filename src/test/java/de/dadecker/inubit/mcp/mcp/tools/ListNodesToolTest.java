@@ -48,6 +48,7 @@ import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import de.dadecker.inubit.mcp.testing.TraceMatrix;
+import de.dadecker.inubit.mcp.testing.WebServiceMatrix;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
 import java.nio.file.Path;
@@ -1051,6 +1052,69 @@ class ListNodesToolTest {
         assertThat(notUsable(recorded.get("prod/node1"))).isEmpty();
     }
 
+    // --- feature 021 T043: webservice_log_read only for opted-in nodes (FR-002, D-17) ---------
+
+    @Test
+    void webServiceLogReadIsListedOnlyForNodesOfOptedInGroupsWithAClientHome() {
+        // test: opt-in and client home; prod: client home, no opt-in; lab: opt-in, no client home
+        String baseUrl = "https://localhost:" + wireMock.httpsPort();
+        String yaml = """
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            groups:
+              - name: test
+                versionLine: V8_1
+                unsupported:
+                  serverLogRead: true
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+              - name: prod
+                versionLine: V8_1
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+              - name: lab
+                versionLine: V8_1
+                unsupported:
+                  serverLogRead: true
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+            """.formatted(temp.resolve("audit"), temp.resolve("workspace"), CLI_HOME, baseUrl,
+            CLI_HOME, baseUrl, baseUrl);
+        ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
+            .parse(yaml, temp.resolve("config.yaml")).config();
+
+        Map<String, JsonNode> recorded = traceVersions(config,
+            WebServiceMatrix.admittingEightOneWithoutTrace());
+        assertThat(usable(recorded.get("test/node1"))).contains("webservice_log_read");
+        assertThat(notUsable(recorded.get("test/node1"))).doesNotContain("webservice_log_read");
+        for (String node : List.of("prod/node1", "lab/node1")) {
+            assertThat(usable(recorded.get(node))).as(node).doesNotContain("webservice_log_read");
+            assertThat(notUsable(recorded.get(node))).as(node)
+                .doesNotContain("webservice_log_read");
+        }
+
+        // before T046 the production matrix refuses it, still only for the opted-in node
+        Map<String, JsonNode> production = traceVersions(config, CapabilityMatrix.production());
+        assertThat(usable(production.get("test/node1"))).doesNotContain("webservice_log_read");
+        assertThat(reason(production.get("test/node1"), "webservice_log_read"))
+            .endsWith("downloading the web service log is not yet verified for INUBIT 8.1");
+        for (String node : List.of("prod/node1", "lab/node1")) {
+            assertThat(usable(production.get(node))).as(node)
+                .doesNotContain("webservice_log_read");
+            assertThat(notUsable(production.get(node))).as(node)
+                .doesNotContain("webservice_log_read");
+        }
+    }
+
     /**
      * The {@code version} block per node id of {@code config}, listed through the
      * production wiring with {@code matrix}; checks that nothing is contacted or run and that the
@@ -1060,7 +1124,7 @@ class ListNodesToolTest {
         SecretScrubber scrubber = new SecretScrubber();
         AtomicInteger runs = new AtomicInteger();
         Map<String, String> credentials = new HashMap<>();
-        for (String group : List.of("TEST", "PROD")) {
+        for (String group : List.of("TEST", "PROD", "LAB")) {
             credentials.put("INUBIT_ACME_" + group + "_USERNAME", "jdoe");
             credentials.put("INUBIT_ACME_" + group + "_PASSWORD", PASSWORD);
         }
