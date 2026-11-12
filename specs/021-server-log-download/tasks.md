@@ -786,7 +786,7 @@ with its recording (FR-002, FR-017, US3-1…4).
 17/21 paths) and a 6.1 node; `FakeProcessLauncher` records the launched JDK, class path and the
 helper's `variant`.
 
-- [ ] T047 [US3] Version selection end to end (US3-1…US3-4, D-6): new
+- [X] T047 [US3] Version selection end to end (US3-1…US3-4, D-6): new
   `adapter/cli/log/ServerLogVersionProfile.java` (test support like `QueueEntryVersionProfile`)
   and failing tests first in `adapter/cli/log/ServerLogVersionSelectionTest.java`: 8.1 trace →
   the `defaults.cliClients."8.1"` StartCLI client; 9.0 trace → the 9.0 client; 8.1 webservice →
