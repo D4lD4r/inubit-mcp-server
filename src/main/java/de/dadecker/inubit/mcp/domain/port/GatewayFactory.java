@@ -122,6 +122,29 @@ public interface GatewayFactory {
     }
 
     /**
+     * The cluster-node port of {@code server} (feature 024); the default asks the gateway, whose
+     * default throws {@code CLI_UNAVAILABLE}.
+     */
+    default ClusterNodePort clusterNodes(NodeId server) {
+        return forServer(server).clusterNodes();
+    }
+
+    /** The I/O log port of {@code server} (feature 024); as {@link #clusterNodes}. */
+    default IoLogPort ioLog(NodeId server) {
+        return forServer(server).ioLog();
+    }
+
+    /** The node-configuration port of {@code server} (feature 024); as {@link #clusterNodes}. */
+    default NodeConfigPort nodeConfig(NodeId server) {
+        return forServer(server).nodeConfig();
+    }
+
+    /** The log-level port of {@code server} (feature 024); as {@link #clusterNodes}. */
+    default LogLevelPort logLevel(NodeId server) {
+        return forServer(server).logLevel();
+    }
+
+    /**
      * The StartCLI health port of {@code server} if its effective version is reached through
      * StartCLI only (feature 012, research D-4), else empty. Never detects and never contacts
      * the server. The default, for a factory without such versions, is empty.

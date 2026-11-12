@@ -11,13 +11,20 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
 import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
+import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
+import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
+import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -116,6 +123,59 @@ class RefusingPortsTest {
                     assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
                     assertThat(e.error().message()).contains("Server log downloads");
                 });
+        }
+    }
+
+    /** One call of every method of the node-tool ports of feature 024 on {@code ports}. */
+    private static List<ThrowingCallable> nodeToolCalls(PortSet ports) {
+        long deadline = System.nanoTime();
+        Duration timeout = Duration.ofSeconds(30);
+        return List.of(
+            () -> ports.clusterNodes().nodes(Optional.empty(), V61, deadline),
+            () -> ports.ioLog().list("4711", "Workflow-0001", V61, deadline),
+            () -> ports.ioLog().read("4711", "Workflow-0001",
+                IoMessageRef.of("4711@@@Orders(acme)(Module-0003)@@@Input.1"), V61, deadline),
+            () -> ports.nodeConfig().values(List.of(NodeConfigName.CLUSTER_NAME), V61, deadline),
+            () -> ports.logLevel().answeringNode(V61, deadline),
+            () -> ports.logLevel().raise(TemporaryLevel.DEBUG,
+                new LoggerName("com.inubit.ibis.acme.Orders"), V61, timeout),
+            () -> ports.logLevel().resetAll(V61, timeout));
+    }
+
+    @Test
+    void theNodeToolPortsRefuseWithTheSixOneRefusalWithoutContact() {
+        // feature 024 T015 (research D-24): not the CLI_UNAVAILABLE of a port set without adapter
+        PortSet ports = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing, refusing, refusing, refusing, refusing, refusing);
+
+        for (ThrowingCallable call : nodeToolCalls(ports)) {
+            assertThatThrownBy(call)
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                    assertThat(e.error()).isEqualTo(refusing.refusal().error());
+                    assertThat(e.error().message()).contains("dev/node1", "INUBIT 6.1",
+                        "nothing was sent");
+                });
+        }
+    }
+
+    @Test
+    void thePortSetCompatibilityConstructorsFillInUnavailableNodeToolPorts() {
+        // feature 024 T015 (research D-24): port sets built with the previous eight to ten ports
+        PortSet eight = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing);
+        PortSet nine = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing);
+        PortSet ten = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing, refusing);
+
+        for (PortSet ports : List.of(eight, nine, ten)) {
+            for (ThrowingCallable call : nodeToolCalls(ports)) {
+                assertThatThrownBy(call)
+                    .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                        assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                        assertThat(e.error().message()).contains("not available");
+                    });
+            }
         }
     }
 

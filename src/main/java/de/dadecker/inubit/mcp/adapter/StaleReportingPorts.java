@@ -19,13 +19,24 @@ import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
+import de.dadecker.inubit.mcp.domain.model.node.ClusterNodes;
+import de.dadecker.inubit.mcp.domain.model.node.IoLogListing;
+import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
+import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValues;
+import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
+import de.dadecker.inubit.mcp.domain.port.ClusterNodePort;
 import de.dadecker.inubit.mcp.domain.port.DownloadedLog;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
+import de.dadecker.inubit.mcp.domain.port.IoLogPort;
+import de.dadecker.inubit.mcp.domain.port.LogLevelPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
+import de.dadecker.inubit.mcp.domain.port.NodeConfigPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
@@ -37,6 +48,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -70,7 +82,9 @@ final class StaleReportingPorts {
             new Artifacts(ports.artifacts()), new Imports(ports.imports()),
             new Tags(ports.tags()), new Partners(ports.partners()),
             new QueueEntryContent(ports.queueEntryContent()),
-            new ServerLogs(ports.serverLogs()));
+            new ServerLogs(ports.serverLogs()), new ClusterNodeList(ports.clusterNodes()),
+            new IoLog(ports.ioLog()), new NodeConfig(ports.nodeConfig()),
+            new LogLevel(ports.logLevel()));
     }
 
     private <T> T call(Supplier<T> call) {
@@ -363,6 +377,78 @@ final class StaleReportingPorts {
         public DownloadedLog download(ServerLogKind kind, InubitVersion version,
             long deadlineNanos) {
             return call(() -> delegate.download(kind, version, deadlineNanos));
+        }
+    }
+
+    final class ClusterNodeList implements ClusterNodePort {
+        private final ClusterNodePort delegate;
+
+        ClusterNodeList(ClusterNodePort delegate) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public ClusterNodes nodes(Optional<String> details, InubitVersion version,
+            long deadlineNanos) {
+            return call(() -> delegate.nodes(details, version, deadlineNanos));
+        }
+    }
+
+    final class IoLog implements IoLogPort {
+        private final IoLogPort delegate;
+
+        IoLog(IoLogPort delegate) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public IoLogListing list(String processId, String workflow, InubitVersion version,
+            long deadlineNanos) {
+            return call(() -> delegate.list(processId, workflow, version, deadlineNanos));
+        }
+
+        @Override
+        public IoLogRead read(String processId, String workflow, IoMessageRef ref,
+            InubitVersion version, long deadlineNanos) {
+            return call(() -> delegate.read(processId, workflow, ref, version, deadlineNanos));
+        }
+    }
+
+    final class NodeConfig implements NodeConfigPort {
+        private final NodeConfigPort delegate;
+
+        NodeConfig(NodeConfigPort delegate) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public NodeConfigValues values(List<NodeConfigName> names, InubitVersion version,
+            long deadlineNanos) {
+            return call(() -> delegate.values(names, version, deadlineNanos));
+        }
+    }
+
+    final class LogLevel implements LogLevelPort {
+        private final LogLevelPort delegate;
+
+        LogLevel(LogLevelPort delegate) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public String answeringNode(InubitVersion version, long deadlineNanos) {
+            return call(() -> delegate.answeringNode(version, deadlineNanos));
+        }
+
+        @Override
+        public void raise(TemporaryLevel level, LoggerName logger, InubitVersion version,
+            Duration timeout) {
+            run(() -> delegate.raise(level, logger, version, timeout));
+        }
+
+        @Override
+        public void resetAll(InubitVersion version, Duration timeout) {
+            run(() -> delegate.resetAll(version, timeout));
         }
     }
 }

@@ -10,6 +10,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.http.Fault;
@@ -52,12 +53,20 @@ import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
+import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
+import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
+import de.dadecker.inubit.mcp.domain.port.ClusterNodePort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
+import de.dadecker.inubit.mcp.domain.port.IoLogPort;
+import de.dadecker.inubit.mcp.domain.port.LogLevelPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
+import de.dadecker.inubit.mcp.domain.port.NodeConfigPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
@@ -99,6 +108,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -525,6 +535,57 @@ class AdapterGatewayFactoryTest {
             assertThat(codeOf(() -> port.download(ServerLogKind.TRACE,
                 InubitVersion.parse("8.1.17").orElseThrow(), System.nanoTime())))
                 .isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+            assertThat(wireMock.getAllServeEvents()).isEmpty();
+        }
+        assertThat(versions.events()).as("no stale mark").isEmpty();
+    }
+
+    /** One call of every method of the node-tool ports of feature 024 on {@code version}. */
+    private static List<ThrowingCallable> nodeToolCalls(ClusterNodePort clusterNodes,
+        IoLogPort ioLog, NodeConfigPort nodeConfig, LogLevelPort logLevel,
+        InubitVersion version) {
+        long deadline = System.nanoTime();
+        Duration timeout = Duration.ofSeconds(30);
+        return List.of(
+            () -> clusterNodes.nodes(Optional.empty(), version, deadline),
+            () -> ioLog.list("4711", "Workflow-0001", version, deadline),
+            () -> ioLog.read("4711", "Workflow-0001",
+                IoMessageRef.of("4711@@@Orders(acme)(Module-0003)@@@Input.1"), version, deadline),
+            () -> nodeConfig.values(List.of(NodeConfigName.CLUSTER_NAME), version, deadline),
+            () -> logLevel.answeringNode(version, deadline),
+            () -> logLevel.raise(TemporaryLevel.DEBUG,
+                new LoggerName("com.inubit.ibis.acme.Orders"), version, timeout),
+            () -> logLevel.resetAll(version, timeout));
+    }
+
+    @Test
+    void withoutNodeToolAdaptersThe81PortSetFailsWithCliUnavailable()
+        throws NoSuchMethodException {
+        // feature 024 T015 (research D-24): the 8.1 gateway hands out the port set's node-tool
+        // ports behind the stale-reporting decorators; the 8.1 port set has no node-tool
+        // adapter yet, so the PortSet compatibility constructor fills in CLI_UNAVAILABLE
+        for (String accessor : List.of("clusterNodes", "ioLog", "nodeConfig", "logLevel")) {
+            assertThat(V81Gateway.class.getDeclaredMethod(accessor).getDeclaringClass())
+                .as(accessor).isEqualTo(V81Gateway.class);
+        }
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
+            Gateway gateway = factory.forServer(DEV);
+            assertThat(factory.clusterNodes(DEV))
+                .isInstanceOf(StaleReportingPorts.ClusterNodeList.class)
+                .isSameAs(gateway.clusterNodes());
+            assertThat(factory.ioLog(DEV)).isInstanceOf(StaleReportingPorts.IoLog.class)
+                .isSameAs(gateway.ioLog());
+            assertThat(factory.nodeConfig(DEV)).isInstanceOf(StaleReportingPorts.NodeConfig.class)
+                .isSameAs(gateway.nodeConfig());
+            assertThat(factory.logLevel(DEV)).isInstanceOf(StaleReportingPorts.LogLevel.class)
+                .isSameAs(gateway.logLevel());
+
+            for (ThrowingCallable call : nodeToolCalls(factory.clusterNodes(DEV),
+                factory.ioLog(DEV), factory.nodeConfig(DEV), factory.logLevel(DEV),
+                InubitVersion.parse("8.1.17").orElseThrow())) {
+                assertThat(catchThrowable(call)).isInstanceOfSatisfying(ToolErrorException.class,
+                    e -> assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE));
+            }
             assertThat(wireMock.getAllServeEvents()).isEmpty();
         }
         assertThat(versions.events()).as("no stale mark").isEmpty();
@@ -1195,6 +1256,35 @@ class AdapterGatewayFactoryTest {
     }
 
     @Test
+    void theNodeToolPortsComeFromThePortSetOfTheNodesVersion() {
+        // feature 024 T015 (research D-24): factory and gateway hand out the node-tool ports of
+        // the port set selected for the node's version
+        EffectiveNodeConfig node = server(DEV, VersionSetting.parse("7.9.3").orElseThrow());
+        PortSetRegistry.Factory others = fakePortSet("7.9");
+        PortSetRegistry portSets = PortSetRegistry.v81Default().register(V7_9, resources -> {
+            PortSet ports = others.create(resources);
+            return new PortSet(ports.processes(), ports.logs(), ports.inventory(),
+                ports.processControl(), ports.artifacts(), ports.imports(), ports.tags(),
+                ports.partners(), ports.queueEntryContent(), ports.serverLogs(),
+                fake(ClusterNodePort.class, "7.9"), fake(IoLogPort.class, "7.9"),
+                fake(NodeConfigPort.class, "7.9"), fake(LogLevelPort.class, "7.9"));
+        }, V81QueryRules.INSTANCE);
+        InubitVersion version = InubitVersion.parse("7.9.3").orElseThrow();
+        try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(node), node)) {
+            Gateway gateway = factory.forServer(DEV);
+            List<ThrowingCallable> calls = new ArrayList<>(nodeToolCalls(factory.clusterNodes(DEV),
+                factory.ioLog(DEV), factory.nodeConfig(DEV), factory.logLevel(DEV), version));
+            calls.addAll(nodeToolCalls(gateway.clusterNodes(), gateway.ioLog(),
+                gateway.nodeConfig(), gateway.logLevel(), version));
+            for (ThrowingCallable call : calls) {
+                assertThat(catchThrowable(call)).isInstanceOf(UnsupportedOperationException.class)
+                    .hasMessage("7.9");
+            }
+            assertThat(built).containsExactly("7.9 dev/node1");
+        }
+    }
+
+    @Test
     void theSelectedPortSetIsStillWrappedByTheStaleTrigger() {
         EffectiveNodeConfig node = server(DEV, VersionSetting.parse("7.9.3").orElseThrow());
         PortSetRegistry portSets = PortSetRegistry.v81Default().register(V7_9,
@@ -1811,6 +1901,25 @@ class AdapterGatewayFactoryTest {
                 InubitVersion.parse("6.1.0").orElseThrow(), System.nanoTime()))
                 .isInstanceOfSatisfying(ToolErrorException.class, e ->
                     assertThat(e.error()).isEqualTo(new RefusingPorts(DEV).refusal().error()));
+        }
+        assertThat(versions.events()).isEmpty();
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void aSixOneNodeRefusesTheNodeToolsWithoutContact() {
+        // feature 024 T015 (research D-24): the 6.1 port set refuses as RefusingPorts
+        EffectiveNodeConfig node = withoutUsableClient(VersionSetting.V6_1);
+        try (AdapterGatewayFactory factory = factory(WITH_V61, nodeVersions(node), node)) {
+            assertThat(factory.clusterNodes(DEV))
+                .isInstanceOf(StaleReportingPorts.ClusterNodeList.class);
+
+            for (ThrowingCallable call : nodeToolCalls(factory.clusterNodes(DEV),
+                factory.ioLog(DEV), factory.nodeConfig(DEV), factory.logLevel(DEV),
+                InubitVersion.parse("6.1.0").orElseThrow())) {
+                assertThat(catchThrowable(call)).isInstanceOfSatisfying(ToolErrorException.class,
+                    e -> assertThat(e.error()).isEqualTo(new RefusingPorts(DEV).refusal().error()));
+            }
         }
         assertThat(versions.events()).isEmpty();
         assertThat(wireMock.getAllServeEvents()).isEmpty();

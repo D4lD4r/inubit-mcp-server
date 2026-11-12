@@ -3,11 +3,15 @@ package de.dadecker.inubit.mcp.adapter;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
+import de.dadecker.inubit.mcp.domain.port.ClusterNodePort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
+import de.dadecker.inubit.mcp.domain.port.IoLogPort;
+import de.dadecker.inubit.mcp.domain.port.LogLevelPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
+import de.dadecker.inubit.mcp.domain.port.NodeConfigPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
@@ -127,6 +131,26 @@ final class V81Gateway implements Gateway {
     @Override
     public ServerLogPort serverLogs() {
         return ports.get().serverLogs();
+    }
+
+    @Override
+    public ClusterNodePort clusterNodes() {
+        return ports.get().clusterNodes();
+    }
+
+    @Override
+    public IoLogPort ioLog() {
+        return ports.get().ioLog();
+    }
+
+    @Override
+    public NodeConfigPort nodeConfig() {
+        return ports.get().nodeConfig();
+    }
+
+    @Override
+    public LogLevelPort logLevel() {
+        return ports.get().logLevel();
     }
 
     /** The credential guard of this server, for its CLI calls (US3/US4). */

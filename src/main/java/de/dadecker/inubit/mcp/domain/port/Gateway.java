@@ -14,9 +14,9 @@ import java.util.Optional;
  * {@link #monitoring()} (US1), {@link #processes()} and {@link #logs()} (US2),
  * {@link #inventory()} (US3), {@link #processControl()} (US4), feature 003 adds
  * {@link #artifacts()}, feature 004 {@link #imports()} and {@link #tags()}, feature 018
- * {@link #partners()}, feature 020 {@link #queueEntryContent()} and feature 021
- * {@link #serverLogs()}, implemented by the
- * version-specific adapters.
+ * {@link #partners()}, feature 020 {@link #queueEntryContent()}, feature 021
+ * {@link #serverLogs()} and feature 024 {@link #clusterNodes()}, {@link #ioLog()},
+ * {@link #nodeConfig()} and {@link #logLevel()}, implemented by the version-specific adapters.
  * Application services obtain gateways only through {@link GatewayFactory}, so supporting 9.x is an
  * adapter change, not a change of the tool logic.
  */
@@ -133,6 +133,62 @@ public interface Gateway {
         throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
             "Server log downloads are not available for " + node(),
             "This adapter line has no server-log adapter",
+            "Use a node with an INUBIT 8.1 CLI installation (cliHome)").withNode(node()));
+    }
+
+    /**
+     * The cluster members of this server, read over the StartCLI client (feature 024, research
+     * D-24). The default is for gateways without a cluster-node adapter.
+     *
+     * @throws ToolErrorException {@code CLI_UNAVAILABLE} with the server id, unless the
+     *     version-specific gateway provides an adapter
+     */
+    default ClusterNodePort clusterNodes() {
+        throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
+            "Cluster node lists are not available for " + node(),
+            "This adapter line has no cluster-node adapter",
+            "Use a node with an INUBIT 8.1 CLI installation (cliHome)").withNode(node()));
+    }
+
+    /**
+     * The I/O log of process runs on this server, read over the StartCLI client (feature 024,
+     * research D-24). The default is for gateways without an I/O log adapter.
+     *
+     * @throws ToolErrorException {@code CLI_UNAVAILABLE} with the server id, unless the
+     *     version-specific gateway provides an adapter
+     */
+    default IoLogPort ioLog() {
+        throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
+            "I/O log reads are not available for " + node(),
+            "This adapter line has no I/O log adapter",
+            "Use a node with an INUBIT 8.1 CLI installation (cliHome)").withNode(node()));
+    }
+
+    /**
+     * The node configuration values of this server, read over the StartCLI client (feature
+     * 024, research D-24). The default is for gateways without a node-configuration adapter.
+     *
+     * @throws ToolErrorException {@code CLI_UNAVAILABLE} with the server id, unless the
+     *     version-specific gateway provides an adapter
+     */
+    default NodeConfigPort nodeConfig() {
+        throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
+            "Node configuration reads are not available for " + node(),
+            "This adapter line has no node-configuration adapter",
+            "Use a node with an INUBIT 8.1 CLI installation (cliHome)").withNode(node()));
+    }
+
+    /**
+     * The temporary log levels of this server, changed over StartCLI (feature 024, research
+     * D-24). The default is for gateways without a log-level adapter.
+     *
+     * @throws ToolErrorException {@code CLI_UNAVAILABLE} with the server id, unless the
+     *     version-specific gateway provides an adapter
+     */
+    default LogLevelPort logLevel() {
+        throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
+            "Temporary log levels are not available for " + node(),
+            "This adapter line has no log-level adapter",
             "Use a node with an INUBIT 8.1 CLI installation (cliHome)").withNode(node()));
     }
 }

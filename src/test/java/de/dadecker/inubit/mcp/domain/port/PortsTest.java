@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
 /** T006: the ports of feature 003 and the default of {@link Gateway#artifacts()}. */
@@ -160,6 +161,41 @@ class PortsTest {
         assertThatThrownBy(() -> factory.serverLogs(NODE))
             .isInstanceOfSatisfying(ToolErrorException.class, e ->
                 assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE));
+    }
+
+    @Test
+    void aGatewayWithoutNodeToolAdaptersReportsTheCliAsUnavailableForItsNode() {
+        // feature 024 T015 (research D-24): adapter lines without the node-tool adapters
+        Gateway gateway = new PreviousGateway();
+        List<ThrowingCallable> accessors = List.of(
+            gateway::clusterNodes, gateway::ioLog, gateway::nodeConfig, gateway::logLevel);
+        for (ThrowingCallable accessor : accessors) {
+            assertThatThrownBy(accessor)
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                    assertThat(e.error().node()).contains(NODE);
+                    assertThat(e.error().message()).contains("dev/node1");
+                });
+        }
+        GatewayFactory factory = (GatewayFactory) Proxy.newProxyInstance(
+            GatewayFactory.class.getClassLoader(), new Class<?>[] {GatewayFactory.class},
+            (proxy, method, args) -> {
+                if (method.isDefault()) {
+                    return InvocationHandler.invokeDefault(proxy, method, args);
+                }
+                if (method.getName().equals("forServer")) {
+                    return new PreviousGateway();
+                }
+                throw new AssertionError(method + " was not expected");
+            });
+        List<ThrowingCallable> ports = List.of(
+            () -> factory.clusterNodes(NODE), () -> factory.ioLog(NODE),
+            () -> factory.nodeConfig(NODE), () -> factory.logLevel(NODE));
+        for (ThrowingCallable port : ports) {
+            assertThatThrownBy(port)
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE));
+        }
     }
 
     @Test

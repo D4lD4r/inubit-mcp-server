@@ -17,13 +17,24 @@ import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
+import de.dadecker.inubit.mcp.domain.model.node.ClusterNodes;
+import de.dadecker.inubit.mcp.domain.model.node.IoLogListing;
+import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
+import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValues;
+import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
+import de.dadecker.inubit.mcp.domain.port.ClusterNodePort;
 import de.dadecker.inubit.mcp.domain.port.DownloadedLog;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
+import de.dadecker.inubit.mcp.domain.port.IoLogPort;
+import de.dadecker.inubit.mcp.domain.port.LogLevelPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
+import de.dadecker.inubit.mcp.domain.port.NodeConfigPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
@@ -36,10 +47,13 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -47,7 +61,8 @@ import org.junit.jupiter.api.Test;
  * {@code stale(node)} for an {@code UNEXPECTED_RESPONSE} and rethrows the same exception; other
  * failures and results pass through unreported. Feature 017 (research D-24): a write method
  * reports {@code staleAfterWrite(node, permit)} with its own permit instead. Feature 018 (T013,
- * research D-4): the partner management port is wrapped like every other port.
+ * research D-4): the partner management port is wrapped like every other port. Feature 024
+ * (T015, research D-24): so are the node-tool ports.
  */
 class StaleReportingPortsTest {
 
@@ -74,7 +89,13 @@ class StaleReportingPortsTest {
             throwing(ArtifactPort.class, failure),
             throwing(ImportPort.class, failure),
             throwing(TagPort.class, failure),
-            throwing(PartnerManagementPort.class, failure));
+            throwing(PartnerManagementPort.class, failure),
+            throwing(QueueEntryContentPort.class, failure),
+            throwing(ServerLogPort.class, failure),
+            throwing(ClusterNodePort.class, failure),
+            throwing(IoLogPort.class, failure),
+            throwing(NodeConfigPort.class, failure),
+            throwing(LogLevelPort.class, failure));
     }
 
     /** Each port of the wrapped set with its interface, monitoring included. */
@@ -96,6 +117,10 @@ class StaleReportingPortsTest {
             ports.imports()});
         all.add(new Object[] {TagPort.class, ports.tags()});
         all.add(new Object[] {PartnerManagementPort.class, ports.partners()});
+        all.add(new Object[] {ClusterNodePort.class, ports.clusterNodes()});
+        all.add(new Object[] {IoLogPort.class, ports.ioLog()});
+        all.add(new Object[] {NodeConfigPort.class, ports.nodeConfig()});
+        all.add(new Object[] {LogLevelPort.class, ports.logLevel()});
         return all;
     }
 
@@ -104,8 +129,9 @@ class StaleReportingPortsTest {
         Object[] args = new Object[method.getParameterCount()];
         Class<?>[] types = method.getParameterTypes();
         for (int i = 0; i < args.length; i++) {
-            args[i] = types[i] == int.class ? 0 : types[i] == boolean.class ? false
-                : types[i] == WritePermit.class ? PERMIT : null;
+            args[i] = types[i] == int.class ? 0 : types[i] == long.class ? 0L
+                : types[i] == boolean.class ? false : types[i] == WritePermit.class ? PERMIT
+                : null;
         }
         try {
             method.invoke(port, args);
@@ -282,6 +308,68 @@ class StaleReportingPortsTest {
         return new PortSet(others.processes(), others.logs(), others.inventory(),
             others.processControl(), others.artifacts(), others.imports(), others.tags(),
             others.partners(), others.queueEntryContent(), serverLogs);
+    }
+
+    @Test
+    void theNodeToolPortsForwardEveryCallUnchanged() {
+        // feature 024 T015 (research D-24): arguments and results pass through the wrappers
+        InubitVersion version = InubitVersion.parse("8.1.17").orElseThrow();
+        long deadline = System.nanoTime();
+        Duration timeout = Duration.ofSeconds(30);
+        IoMessageRef ref = IoMessageRef.of("4711@@@Orders(acme)(Module-0003)@@@Input.1");
+        LoggerName logger = new LoggerName("com.inubit.ibis.acme.Orders");
+        ClusterNodes nodes = new ClusterNodes("node1", List.of(), 0, false, Optional.empty());
+        IoLogListing listing = new IoLogListing("node1", List.of());
+        IoLogPort.IoLogRead noMatch = new IoLogPort.IoLogRead.NoMatch(listing);
+        NodeConfigValues values = new NodeConfigValues("node1", List.of());
+        List<List<Object>> asked = new ArrayList<>();
+        PortSet others = throwingPorts(failure(ErrorCode.NOT_FOUND));
+        PortSet wrapped = stale.ports(new PortSet(others.processes(), others.logs(),
+            others.inventory(), others.processControl(), others.artifacts(), others.imports(),
+            others.tags(), others.partners(), others.queueEntryContent(), others.serverLogs(),
+            answering(ClusterNodePort.class, asked, method -> nodes),
+            answering(IoLogPort.class, asked, method ->
+                method.equals("list") ? listing : noMatch),
+            answering(NodeConfigPort.class, asked, method -> values),
+            answering(LogLevelPort.class, asked, method -> "node1")));
+
+        assertThat(wrapped.clusterNodes().nodes(Optional.of("node2"), version, deadline))
+            .isSameAs(nodes);
+        assertThat(wrapped.ioLog().list("4711", "Workflow-0001", version, deadline))
+            .isSameAs(listing);
+        assertThat(wrapped.ioLog().read("4711", "Workflow-0001", ref, version, deadline))
+            .isSameAs(noMatch);
+        assertThat(wrapped.nodeConfig().values(List.of(NodeConfigName.CLUSTER_NAME), version,
+            deadline)).isSameAs(values);
+        assertThat(wrapped.logLevel().answeringNode(version, deadline)).isEqualTo("node1");
+        wrapped.logLevel().raise(TemporaryLevel.DEBUG, logger, version, timeout);
+        wrapped.logLevel().resetAll(version, timeout);
+
+        assertThat(asked).containsExactly(
+            List.of("nodes", Optional.of("node2"), version, deadline),
+            List.of("list", "4711", "Workflow-0001", version, deadline),
+            List.of("read", "4711", "Workflow-0001", ref, version, deadline),
+            List.of("values", List.of(NodeConfigName.CLUSTER_NAME), version, deadline),
+            List.of("answeringNode", version, deadline),
+            List.of("raise", TemporaryLevel.DEBUG, logger, version, timeout),
+            List.of("resetAll", version, timeout));
+        assertThat(versions.events()).isEmpty();
+    }
+
+    /**
+     * A {@code type} port recording each call (method name, arguments) and answering it with
+     * {@code answer} of the method name.
+     */
+    private static <T> T answering(Class<T> type, List<List<Object>> asked,
+        Function<String, Object> answer) {
+        return type.cast(Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type},
+            (proxy, method, args) -> {
+                List<Object> call = new ArrayList<>(List.of(method.getName()));
+                call.addAll(Arrays.asList(args));
+                asked.add(call);
+                return method.getReturnType() == void.class ? null
+                    : answer.apply(method.getName());
+            }));
     }
 
     @Test

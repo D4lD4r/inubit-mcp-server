@@ -19,12 +19,23 @@ import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
+import de.dadecker.inubit.mcp.domain.model.node.ClusterNodes;
+import de.dadecker.inubit.mcp.domain.model.node.IoLogListing;
+import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
+import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValues;
+import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
+import de.dadecker.inubit.mcp.domain.port.ClusterNodePort;
 import de.dadecker.inubit.mcp.domain.port.DownloadedLog;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
+import de.dadecker.inubit.mcp.domain.port.IoLogPort;
+import de.dadecker.inubit.mcp.domain.port.LogLevelPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
+import de.dadecker.inubit.mcp.domain.port.NodeConfigPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
@@ -35,6 +46,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -45,7 +57,8 @@ import java.util.Set;
  */
 public final class RefusingPorts implements ProcessQueryPort, LogPort, InventoryPort,
     ProcessControlPort, ArtifactPort, ImportPort, TagPort, PartnerManagementPort,
-    QueueEntryContentPort, ServerLogPort {
+    QueueEntryContentPort, ServerLogPort, ClusterNodePort, IoLogPort, NodeConfigPort,
+    LogLevelPort {
 
     private final NodeId node;
 
@@ -188,6 +201,46 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
 
     @Override
     public DownloadedLog download(ServerLogKind kind, InubitVersion version, long deadlineNanos) {
+        throw refusal();
+    }
+
+    @Override
+    public ClusterNodes nodes(Optional<String> details, InubitVersion version,
+        long deadlineNanos) {
+        throw refusal();
+    }
+
+    @Override
+    public IoLogListing list(String processId, String workflow, InubitVersion version,
+        long deadlineNanos) {
+        throw refusal();
+    }
+
+    @Override
+    public IoLogRead read(String processId, String workflow, IoMessageRef ref,
+        InubitVersion version, long deadlineNanos) {
+        throw refusal();
+    }
+
+    @Override
+    public NodeConfigValues values(List<NodeConfigName> names, InubitVersion version,
+        long deadlineNanos) {
+        throw refusal();
+    }
+
+    @Override
+    public String answeringNode(InubitVersion version, long deadlineNanos) {
+        throw refusal();
+    }
+
+    @Override
+    public void raise(TemporaryLevel level, LoggerName logger, InubitVersion version,
+        Duration timeout) {
+        throw refusal();
+    }
+
+    @Override
+    public void resetAll(InubitVersion version, Duration timeout) {
         throw refusal();
     }
 }

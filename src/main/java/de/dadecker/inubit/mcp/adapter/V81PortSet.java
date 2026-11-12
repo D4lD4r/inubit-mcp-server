@@ -24,7 +24,9 @@ import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 /**
  * The 8.1 port set: the REST adapters on the server's client and the StartCLI adapters; with a
  * helper host, the queue-entry helper of feature 020 (research D-17) and the server-log
- * download of feature 021 (research D-19) too.
+ * download of feature 021 (research D-19) too. The node tools of feature 024 have no adapter in
+ * either set yet: their ports fail with {@code CLI_UNAVAILABLE} ({@link PortSet}'s compatibility
+ * constructor, research D-24).
  */
 final class V81PortSet {
 

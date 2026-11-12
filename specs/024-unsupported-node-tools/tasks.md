@@ -229,7 +229,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
 
 ### Ports and adapter base (plan stage 4; D-21, D-24)
 
-- [ ] T015 Ports and port wiring (D-24; after T006, T007): `domain/port/ClusterNodePort.java`,
+- [X] T015 Ports and port wiring (D-24; after T006, T007): `domain/port/ClusterNodePort.java`,
   `IoLogPort.java` (+ `IoLogRead` = `NoMatch` | `Message`, `AutoCloseable`), `NodeConfigPort.java`,
   `LogLevelPort.java` (`LeaseView` follows in T045, after `Lease`); `domain/port/Gateway.java` / `GatewayFactory.java`
   default methods throwing `CLI_UNAVAILABLE`; `adapter/PortSet.java` (compatibility constructor),
