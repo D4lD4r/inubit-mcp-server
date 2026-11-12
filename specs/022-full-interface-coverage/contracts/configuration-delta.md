@@ -52,12 +52,20 @@ uploads:
 
 ## Named secret entries (no new key)
 
-The existing secret source of the node is used, in its own namespace:
+Secret entries live in the node's **credential store**, in their own namespace. For the name
+`NEW_USER_PW`, the server first tries the node-specific entry
+`<PREFIX>_<GROUP>_<NODE>_ENTRY_NEW_USER_PW`, then the group entry
+`<PREFIX>_<GROUP>_ENTRY_NEW_USER_PW`, as for the login entries.
 
-| Source | Entry for the name `NEW_USER_PW` |
-|---|---|
-| credential store | `<PREFIX>_<GROUP>_ENTRY_NEW_USER_PW` (node-specific `<PREFIX>_<GROUP>_<NODE>_ENTRY_…` is tried first, as for the login entries) |
-| AWS Parameter Store | `<prefix>/<group>/entries/NEW_USER_PW` (node-specific `<prefix>/<group>/<node>/entries/…` first) |
+A name is rejected in two cases:
 
-`docs/setup.md` documents how to create an entry with each source and that tool calls name the
-entry, never the value.
+- it equals or ends in `_USERNAME`, `_PASSWORD`, `_TRUSTSTORE_PASSWORD`, `_E2E_USERNAME` or
+  `_E2E_PASSWORD`;
+- its resolved name equals a login credential name of any configured node.
+
+Nodes whose secrets come from the **AWS Parameter Store** have no secret entries in this feature.
+An action that needs one is refused with `NOT_CONFIGURED`, which names the credential store as the
+requirement (research D-10).
+
+`docs/setup.md` documents how to create an entry and that tool calls name the entry, never the
+value.

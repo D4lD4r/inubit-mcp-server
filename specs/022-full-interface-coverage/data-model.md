@@ -42,7 +42,16 @@ Loaded from `coverage/interface-coverage.tsv`:
 - `offered(tool, action, line)`: true only when every entry the action declares is `Reachable`
   for that line.
 
-Parsing fails at start on a duplicate key, a missing state, or an unknown tool name.
+Parsing fails at start on:
+
+- a duplicate key;
+- a missing state;
+- an unknown state word;
+- a reason over 120 characters;
+- `planned` without `story`.
+
+Unknown tool names and actions are not checked by the loader; `InterfaceCoverageCheckTest`
+checks them against the registered tools (coverage-list check 3).
 
 ### ActionSpec (new, application)
 
@@ -87,12 +96,22 @@ Each `maxBytes` value must be 1 KiB … 4 GiB.
 `path` (real path), `type` (`UploadType`), `size`, `sha256`, and an open `SeekableByteChannel`
 owned by the call. Created only by `UploadFiles.open` (D-11).
 
+`privateCopy()` gives a `PrivateUploadCopy(path, sha256)`. The copy is written from the open
+channel into an owner-only directory, the file is `rw-------`, and its hash is verified. It is
+deleted when the call ends. StartCLI uploads and content checks use only this copy.
+
 ### SecretEntryName (new)
 
-A value type over `^[A-Z][A-Z0-9_]{0,47}$`. It is resolved by `NodeSecrets.entry(name, bound)` to
-a `Secret`, which is registered with `SecretScrubber` and never put into a `toString`, a log or
-an audit record. Reserved names (`USERNAME`, `PASSWORD`, `TRUSTSTORE_PASSWORD`, `E2E_USERNAME`,
-`E2E_PASSWORD`) are rejected.
+A value type over `^[A-Z][A-Z0-9_]{0,47}$`. A name equal to a login kind (`USERNAME`, `PASSWORD`,
+`TRUSTSTORE_PASSWORD`, `E2E_USERNAME`, `E2E_PASSWORD`), or ending in `_` plus one, is rejected.
+
+It is resolved by `NodeSecrets.entry(name, bound)` to a `Secret`, credential store only (D-10):
+
+- a resolved name equal to a login credential name of any configured node is refused;
+- on a node with an AWS source the call is `NOT_CONFIGURED`.
+
+The `Secret` is registered with `SecretScrubber` and never put into a `toString`, a log or an
+audit record.
 
 ## Reads
 
@@ -101,7 +120,10 @@ an audit record. Reserved names (`USERNAME`, `PASSWORD`, `TRUSTSTORE_PASSWORD`, 
 One per server:
 
 - `node`;
-- `license`: `expiryDate`, `licensedThreads`, `licensee` (masked by D-19);
+- `license`: `expiryDate`, `licensedThreads`, `licensee` (masked by D-19). `licensedThreads`
+  comes from `/metrics`, the source `get_health` uses (US1 AS7). Only when `/metrics` is not
+  licensed does it come from `GET /license`. The `sources` entry names which one was used;
+  `expiryDate` and `licensee` always come from `GET /license`;
 - `workflowThreads`;
 - `privilegedWorkflows`: `percentage`, `workflows[]` (≤ 200 names, truncation marker);
 - `dbConnectionTolerance`: `faultThreshold`, `dropRatePercent`, `dropIntervalSeconds`;

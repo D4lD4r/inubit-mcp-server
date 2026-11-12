@@ -140,8 +140,8 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
     folder.
   - **Granularity**: per `contracts/coverage-list.md`.
   - **Rows**:
-    - Entries the server sends today: `reachable:<tool>/<action>` (for the existing tools, the
-      action is the tool's main mode, e.g. `export_archives/workflows`).
+    - Entries the server sends today: `reachable:<tool>/default`. Every existing tool uses the
+      action key `default` (research D-2), including `export_archives` until T044.
     - The rows of D-6: `covered:<tool>`.
     - The portal entries: `excluded:portal function`.
     - The exclusions of the spec Background: `lls`, cache mode, `validateMigrationBackup`,
@@ -154,10 +154,11 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
   - Failing test first: `InterfaceCoverageResourceTest` asserts that the file loads, has at least
     one row per area A–E, has no `planned` row without a story, and that `lls` is excluded.
 - [ ] T008 Coverage checks (FR-003; after T005, T007): `architecture/InterfaceCoverageCheckTest.java`
-  implements checks 1–6 of `contracts/coverage-list.md`.
+  implements checks 1–5 of `contracts/coverage-list.md`. Check 6 is added in T010.
   - Checks 1–3 read `CliCommand.OPTIONS`, the `CliSessionCommand` constants, `RestEndpoint.values()`
     and `TestWiring` tool handlers.
-  - Check 6 runs against the registered `ActionSpec`s (empty until T010).
+  - Check 3 applies the action-key rule: the value of `action`, `view` or `content` in the
+    tool's input schema, or `default` when the schema has none of them.
   - Failing first by adding one temporary unlisted `RestEndpoint` value in the test's own fixture
     enum.
 - [ ] T009 Generated docs page (after T007): `domain/model/CoverageDocs.java` renders
@@ -168,7 +169,7 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
   - Test `mcp/InterfaceCoverageDocsTest.java` compares the file with the rendering. With
     `-Dcoverage.write=true` it rewrites the file. The failure message names that command.
   - Generate and commit the page.
-- [ ] T010 `ActionSpec` and the coverage gate (D-2, D-12 step 5; after T006):
+- [ ] T010 `ActionSpec` and the coverage gate (D-2, D-12 step 5; after T006, T008):
   - `application/ActionSpec.java`: `tool`, `action`, `Area` (`OPERATION`, `OBJECTS`, `LIBRARIES`,
     `SETTINGS`, `USERS`, `RUNTIME_DATA`, `READ`), `entries`, `kind` (`READ`, `CHANGE`,
     `RUNTIME_READ`), `bulk`, `backup`, `restartNotice`.
@@ -179,26 +180,22 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
     exclusion reason).
   - Failing tests first: `application/VersionGateActionTest.java` covering `reachable`,
     `planned`, `excluded`, `undocumented` on 9.0, and 6.1 always refused.
-- [ ] T011 Capabilities (D-1; after T010): in `domain/model/Capability.java`, add
-  - `SERVER_SETTINGS` (READ, REST+CLI);
-  - `USER_DIRECTORY` (READ, REST+CLI);
-  - `MODEL_DETAILS` (READ, REST+CLI);
-  - `SERVER_OPERATION` (WRITE, CLI+REST);
-  - `TAG_ADMINISTRATION` (WRITE, CLI);
-  - `RUNTIME_TRANSFER` (WRITE, CLI);
-  - `OBJECT_ADMINISTRATION` (WRITE, REST+CLI);
-  - `SETTINGS_ADMINISTRATION` (WRITE, REST+CLI);
-  - `USER_ADMINISTRATION` (WRITE, REST+CLI).
-
-  Also:
-  - each gets its `label()`;
-  - `CapabilityMatrix.production()`: 8.1 and 9.0 `UNSUPPORTED` + "not yet verified"; 6.1
-    unsupported;
-  - `application/NodeOverview.java` names;
-  - `src/main/resources/schemas/list_nodes.output.json` `CapabilityName` enum +9.
-
-  Failing tests first: `domain/model/CapabilityMatrixTest.java` and
-  `mcp/tools/ListNodesToolTest.java` (new names in `notUsable` with "not yet verified").
+  - Also add check 6 of `contracts/coverage-list.md` to `architecture/InterfaceCoverageCheckTest.java`:
+    every registered `ActionSpec` declares at least one row, and every declared row exists. It
+    passes with the empty catalogue and gains entries with each story.
+- [ ] T011 Capability for US1 and the pattern for later stories (D-1; after T010):
+  - In `domain/model/Capability.java` add `SERVER_SETTINGS` (READ, REST+CLI) with its `label()`.
+  - In `CapabilityMatrix.production()`: 8.1 and 9.0 `UNSUPPORTED` + "not yet verified"; 6.1
+    unsupported.
+  - Add its name to `application/NodeOverview.java` and to the `CapabilityName` enum in
+    `src/main/resources/schemas/list_nodes.output.json`.
+  - Each later story adds its own capability the same way, in its port task (T033, T042, T058,
+    T063, T071, T081, T082, T087, T096): `USER_DIRECTORY`, `MODEL_DETAILS`, `SERVER_OPERATION`,
+    `TAG_ADMINISTRATION`, `RUNTIME_TRANSFER`, `OBJECT_ADMINISTRATION` (objects and libraries),
+    `SETTINGS_ADMINISTRATION`, `USER_ADMINISTRATION`. This way `list_nodes` never names a
+    capability whose tool is not delivered.
+  - Failing tests first: `domain/model/CapabilityMatrixTest.java` and
+    `mcp/tools/ListNodesToolTest.java` (`server_settings` in `notUsable` with "not yet verified").
 - [ ] T012 Version-neutral StartCLI session (D-7):
   - `adapter/cli/CliSessionCommand.java`: the 6.1 constants are kept; a builder adds commands
     with the quoting and value rules of `CliCommand` (`VALUE`, `REPOSITORY_PATH`); an allowlist
@@ -257,13 +254,14 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
   - New `UnavailablePart` parts: `license`, `threads`, `privilegedWorkflows`,
     `dbConnectionTolerance`, `configuration`, `serverTime`.
   - Failing tests first: `domain/model/ServerSettingsTest.java` (bounds, parts).
-- [ ] T016 [P] [US1] `adapter/rest/v81/LicenseXmlParser.java`:
+- [ ] T016 [US1] `adapter/rest/v81/LicenseXmlParser.java` (after T015):
   - uses `XmlSupport` hardening;
-  - reads the expiry date, licensed threads and licensee;
+  - reads the expiry date, licensed threads and licensee (the licensed threads are used only when
+    `/metrics` is not licensed; data-model `ServerSettings`);
   - the licensee is masked by `SecretRules`, and any element matching `SecretRules` is masked.
   - Failing tests first: `LicenseXmlParserTest.java` with a reconstructed fixture (the real one
     after T014): DTD refused, unknown elements ignored, missing expiry → part unavailable.
-- [ ] T017 [P] [US1] `adapter/rest/v81/ConfigurationJsonParser.java`:
+- [ ] T017 [US1] `adapter/rest/v81/ConfigurationJsonParser.java` (after T015):
   - accepts the root key `SeverConfiguration` and `ServerConfiguration`;
   - the section names are the top-level keys below the root;
   - a section's leaves are flattened to `{path, value | masked}` through `JsonLeafMasker`, with
@@ -271,8 +269,8 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
   - output is bounded by `ResultLimiter` with `truncated`.
   - Failing tests first: `ConfigurationJsonParserTest.java` (both root keys, sections only, one
     section, unknown section → `NOT_FOUND` naming the listing, masking; leak check).
-- [ ] T018 [P] [US1] StartCLI settings parsers in the new package `adapter/cli/admin/`
-  (`package-info.java`):
+- [ ] T018 [US1] StartCLI settings parsers in the new package `adapter/cli/admin/`
+  (`package-info.java`; after T015):
   - `ThreadsParser`;
   - `PrivilegedWorkflowsParser` (percentage and list);
   - `DbToleranceParser` (fault threshold, drop rate %, drop interval s; the vendor example shows
@@ -292,7 +290,8 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
     - `adapter/cli/CliSessionCommandTest` (allowed forms; `threads setNumberOfWorkflowThreads`
       rejected);
     - `adapter/cli/admin/CliSettingsRunnerTest.java` (scripted session; one block missing → that
-      part unavailable).
+      part unavailable; the StartCLI refusal for a missing "CLI login access" right gives
+      `FORBIDDEN` naming the right, not `AUTH_FAILED` (edge case)).
 - [ ] T020 [US1] Port and wiring:
   - `domain/port/ServerSettingsPort.java` (`license()`, `configuration(Optional<String> section)`,
     `cliSettings(Set<Part>)`);
@@ -312,7 +311,9 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
     calls `HealthService` uses, with no StartCLI call for them (AS7, FR-002);
   - each part has its source in `sources`;
   - the action is admitted through `VersionGate.admitAction` with
-    `ActionSpec(get_server_settings, read, READ, entries…)`.
+    `ActionSpec(get_server_settings, default, READ, entries…)`;
+  - `licensedThreads` comes from `/metrics`, and from `GET /license` only when `/metrics` is not
+    licensed; `sources` names which.
   - Failing tests first: `application/ServerSettingsServiceTest.java`:
     - AS1, AS3, AS4 (role missing for license → the other parts returned), AS5, AS7;
     - no `-sv`/`-pctmem`/`getBlockingQueueSize` ever sent (`ScriptedProcessLauncher` records
@@ -337,7 +338,7 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
 - [ ] T025 [US1] Contracts and flip for 8.1 [BLOCKED: T014]:
   - `adapter/rest/v81/SettingsV81ContractTest.java` and
     `adapter/cli/admin/SettingsCliV81ContractTest.java` against the recorded fixtures;
-  - flip the US1 rows for `v8_1` to `reachable:get_server_settings/read`, the `SERVER_SETTINGS`
+  - flip the US1 rows for `v8_1` to `reachable:get_server_settings/default`, the `SERVER_SETTINGS`
     matrix entry for 8.1 to `SUPPORTED`;
   - regenerate the docs page.
   - Same commit as the fixtures.
@@ -376,12 +377,12 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   construction), `UserDetail.java`, `LoginEntry.java`, `MessageSummary.java`, `MessageText.java`
   (`ItemBounds.MAX_ITEM_CHARS`, `truncated`).
   - Failing tests first: `domain/model/UserRecordsTest.java`.
-- [ ] T030 [P] [US2] `adapter/rest/v81/UserListXmlParser.java`: reads only `id` and `type`.
+- [ ] T030 [US2] `adapter/rest/v81/UserListXmlParser.java` (after T029): reads only `id` and `type`.
   `email`, `firstName`, `lastName` and unknown attributes are never read into any object. XML is
   hardened.
   - Failing tests first: `UserListXmlParserTest.java` (fixture with planted e-mails: parsed
     objects and `toString` contain none).
-- [ ] T031 [P] [US2] StartCLI parsers `adapter/cli/admin/UserGroupsParser.java` (`user <name>`),
+- [ ] T031 [US2] StartCLI parsers (after T029) `adapter/cli/admin/UserGroupsParser.java` (`user <name>`),
   `FingerParser.java` (login, e-mail, roles, account state if shown), `WhoParser.java`,
   `MessageListParser.java`, `MessageReadParser.java`.
   - Failing tests first: one test class each, with reconstructed cases (recorded after T028).
@@ -396,6 +397,8 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   - `domain/port/UserDirectoryPort.java`;
   - `adapter/rest/v81/V81UserAdapter.java`, `RestEndpoint` + `GET /user/users`;
   - the full `Gateway`/`PortSet` wiring set as in T020.
+  - adds the capability `USER_DIRECTORY` the way T011 added `SERVER_SETTINGS` (label, matrix "not yet
+    verified", `NodeOverview`, `list_nodes` enum), with `CapabilityMatrixTest` and `ListNodesToolTest`;
   - Failing tests first: `V81UserAdapterTest.java` and `WiringAuditTest`.
 - [ ] T034 [US2] `application/UserReadService.java`:
   - views `users`, `user`, `logins`, `messages`, `message`;
@@ -403,6 +406,8 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   - an unknown login gives `NOT_FOUND` with the next step "list the users" (AS3);
   - personal fields appear only in `user` (FR-011);
   - `ActionSpec`s per view.
+  - `sources` per fact (FR-009): `logins` REST; `groups`, `roles`, `accountState`, `email`,
+    `loggedIn`, `messages` CLI; asserted per view;
   - Failing tests first: `application/UserReadServiceTest.java` (AS1–AS6; a 500-user list gives
     pages; AS5 no e-mail in a listing).
 - [ ] T035 [US2] Tool `mcp/tools/ReadUsersTool.java`:
@@ -464,6 +469,8 @@ forms write files under the unchanged folder rules (US3 AS1–AS8).
   - `RestEndpoint` + `GET /model/nodeByModel/{d}/{id}`, `GET /model/nodeByName/{d}/{m}`,
     `GET /process/metadata/{name}`, `GET /isconnector`;
   - the `Gateway`/`PortSet` set.
+  - adds the capability `MODEL_DETAILS` the way T011 added `SERVER_SETTINGS` (label, matrix "not yet
+    verified", `NodeOverview`, `list_nodes` enum), with `CapabilityMatrixTest` and `ListNodesToolTest`;
   - Failing tests first: adapter tests with WireMock and scripted StartCLI.
 - [ ] T043 [US3] `application/ModelDetailService.java` and tool `mcp/tools/ReadModelDetailsTool.java`:
   - schemas `read_model_details.{input,output}.json`;
@@ -473,6 +480,9 @@ forms write files under the unchanged folder rules (US3 AS1–AS8).
   - announcement on `MODEL_DETAILS`.
   - Failing tests first: `ModelDetailServiceTest.java` (AS2, AS3, AS6 read part, AS8),
     `ReadModelDetailsToolTest.java`, `ToolAnnouncementTest`.
+  - Also `security/ModelDetailsSecretLeakTest.java`: planted secrets in module properties,
+    metadata and the IS Connector message never appear in results, errors, logs or audit. The
+    new `export_archives` forms are added to it in T044.
 - [ ] T044 [US3] `export_archives` `content` forms (D-21):
   - `src/main/resources/schemas/export_archives.input.json`:
     - `content` enum, default `workflows`;
@@ -485,14 +495,19 @@ forms write files under the unchanged folder rules (US3 AS1–AS8).
       `exportOwnerWithoutGroups`, `exportMetadata`, `fetchXslt10Report`);
     - the same `TargetFolderRules`, `ArchiveFolderWriter`, `archives.productionOptIn` and audit;
     - an `.xlsx` entry for the report;
-    - the description names the check-in comment trace (FR-008).
+    - the description names the check-in comment trace (FR-008);
+    - the output carries `source: "CLI"` (FR-009).
+  - In the coverage list, the existing `export_archives` rows change from `default` to
+    `workflows`, and the new rows are named `ownerWithoutGroups`, `metadata` and `xslt10Report`
+    (research D-2, action key).
   - If T039 showed that `fetchXSLT1.0` writes on the INUBIT host, drop `xslt10Report` and set its
     row to `excluded:file written on the INUBIT host`.
   - Failing tests first:
     - `ExportArchivesContentTest.java` (each form, folder rules unchanged, production opt-in);
     - `ExportArchivesToolTest` description;
     - `ArchiveToolReferenceTest`;
-    - every existing `export_archives` test unchanged (SC-009).
+    - every existing `export_archives` test unchanged (SC-009);
+    - `ModelDetailsSecretLeakTest` extended with the three forms (errors, logs, audit).
 - [ ] T045 [US3] Coverage decisions for D:
   - set `ps -f` rows to `covered:find_processes` and `-ne/-nx/-nw/-nq` to `covered:get_health`
     (D-6);
@@ -502,6 +517,7 @@ forms write files under the unchanged folder rules (US3 AS1–AS8).
   `ExportContentV81ContractTest.java`; rows, matrix, docs page; 9.0 when recorded.
 - [ ] T047 [US3] Docs and PR:
   - `docs/tools.md` sections `read_model_details` and `export_archives` (new forms);
+  - `docs/research/inubit-interfaces.md`;
   - `CHANGELOG.md`;
   - `delivered-stories` + US3.
 
@@ -533,7 +549,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
     5. `VersionGate.admitAction` → `UNSUPPORTED_VERSION`;
     6. availability → `CLI_UNAVAILABLE` / `AUTH_FAILED`.
   - The area check reads `EffectiveNodeConfig.administration()`, which does not exist yet: add a
-    stub `enabled(Area)` that is true only for `OPERATION` and `READ` until T066.
+    stub `enabled(Area)` that is true only for `OPERATION` and `READ` until T067.
   - Every refusal is audited `REFUSED`.
   - Failing tests first: `application/ChangeGuardTest.java`, one test per step and per code, plus
     the order (production refusal wins over write off).
@@ -548,7 +564,9 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
     - `redeem(...)`;
     - `confirmOrConflict(redeemedState, rereadState)`: `CONFLICT` with a fresh preview and code in
       the error details.
-  - Add the per-tool node binding to `WriteChallengeRegistry` if only the group form exists.
+  - `WriteChallengeRegistry` gets a new overload `issue(String tool, NodeId, …)` / `redeem(String
+    tool, NodeId, …)` next to `issue(Operation, NodeId, …)` and the group form. No `Operation`
+    values are added (research D-13).
   - `CLIENT` mode is honoured only for `Area.OPERATION`.
   - Failing tests first: `ChangeChallengesTest.java` (wrong tool, node or input →
     `CONFIRMATION_INVALID`; changed state → `CONFLICT`; administration areas ignore `CLIENT`).
@@ -612,21 +630,32 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   `Gateway`/`PortSet` set. The `processdelete error` preview set comes from
   `ProcessQueryPort` (REST `POST /log/queueLog`, states `ERROR`, all pages up to 10,000 ids; more →
   count only, D-14).
+  - adds the capability `SERVER_OPERATION` the way T011 added `SERVER_SETTINGS` (label, matrix "not yet
+    verified", `NodeOverview`, `list_nodes` enum), with `CapabilityMatrixTest` and `ListNodesToolTest`;
   - Failing tests first: adapter tests, `WiringAuditTest`.
-- [ ] T059 [US4] `application/ServerOperationService.java`:
-  - the actions of `contracts/mcp-tools-delta.md`;
+- [ ] T059 [US4] `application/ServerOperationService.java`, switch actions:
+  - `setMaintenance`, `setReadiness`, `setTrace`, `setTraceLevel`, `setDebug`,
+    `triggerMidnightTask`, per `contracts/mcp-tools-delta.md`;
   - the before state read first (`MAINTENANCE_MODE` from REST counts as "on");
   - `effects` sentences per action, with the fixed texts from the contract;
-  - `deleteErrorProcesses`: an empty set gives `NOTHING_TO_DO` (audited); the set is re-read
-    before sending (FR-017);
   - the after state re-read (FR-024);
+  - lock key `node|OPERATION|<action>`;
   - `ChangeGuard`, `ChangeLocks`, `ChangeChallenges`, `ChangeAudit`, `WriteLock.handOff`.
   - Failing tests first: `application/ServerOperationServiceTest.java`:
-    - AS1–AS11 one test each;
+    - AS1–AS3 and AS5–AS11 one test each;
     - `CLIENT` mode on non-production executes on the first call;
-    - a changed error set → `CONFLICT`;
-    - maintenance off while REST answers 503.
-- [ ] T060 [US4] Tool `mcp/tools/OperateServerTool.java`:
+    - maintenance off while REST answers 503;
+    - a second call on the same key → `PRECONDITION_FAILED`.
+- [ ] T060 [US4] `application/ServerOperationService.java`, `deleteErrorProcesses` (after T059):
+  - the preview lists the count, ≤ 50 ids and the workflows concerned (AS4);
+  - an empty set gives `NOTHING_TO_DO` (audited);
+  - the set is re-read right before sending, and a different set gives `CONFLICT` with a new
+    preview (FR-017);
+  - the result names the count INUBIT reports;
+  - lock key `node|OPERATION|deleteErrorProcesses`.
+  - Failing tests first: `application/ServerOperationDeleteErrorsTest.java` (AS4, empty set,
+    changed set, more than 10,000 ids → count only).
+- [ ] T061 [US4] Tool `mcp/tools/OperateServerTool.java`:
   - schemas `operate_server.{input,output}.json`;
   - `ToolHints.destructive(title)`;
   - announced when `anyWriteEnabled`;
@@ -635,7 +664,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
 
 ### manage_tags
 
-- [ ] T061 [US4] `CliCommand` tag forms (D-18):
+- [ ] T062 [US4] `CliCommand` tag forms (D-18):
   - `tag` admits `--tagSetActive`, `--tagRemoveActive`, `--tagDelete`, `--tagRemove`,
     `--tagRepositoryPath`;
   - builder methods `tagSetActive(tag, user)`, `tagRemoveActive(user)`, and
@@ -644,13 +673,15 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - `--tagMove` (existing) unchanged.
   - Failing tests first in `CliCommandTest.java`: removal without scope rejected; both forbidden
     options rejected; existing `tag_artifacts` forms unchanged.
-- [ ] T062 [US4] `adapter/cli/admin/CliTagAdminRunner.java` and `domain/port/TagAdministrationPort.java`:
+- [ ] T063 [US4] `adapter/cli/admin/CliTagAdminRunner.java` and `domain/port/TagAdministrationPort.java`:
   - the active tag of a user is read (from `user <name>` or the form found in T055);
   - the objects and versions carrying a tag in a scope come from the version history read the way
     `tag_artifacts` does (`VersionHistoryParser`), together with the count outside the scope;
   - the `Gateway`/`PortSet` set.
+  - adds the capability `TAG_ADMINISTRATION` the way T011 added `SERVER_SETTINGS` (label, matrix "not yet
+    verified", `NodeOverview`, `list_nodes` enum), with `CapabilityMatrixTest` and `ListNodesToolTest`;
   - Failing tests first: runner and port tests with scripted runs.
-- [ ] T063 [US4] `application/TagAdministrationService.java` and tool `mcp/tools/ManageTagsTool.java`:
+- [ ] T064 [US4] `application/TagAdministrationService.java` and tool `mcp/tools/ManageTagsTool.java`:
   - schemas `manage_tags.{input,output}.json`;
   - a missing scope gives `INVALID_INPUT` before any read (AS13);
   - before a removal the backup is the tag list (T053), and nothing is sent if it fails;
@@ -658,20 +689,23 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - `removeTag`/`deleteTag` are offered only when their rows are `reachable`; the description
     says so;
   - destructive; announced when `anyWriteEnabled`.
+  - lock key `node|OPERATION|tag:<tag>@<scope>` or `node|OPERATION|activeTag:<user>`; a second
+    call on the same key gives `PRECONDITION_FAILED` (test);
   - Failing tests first: `TagAdministrationServiceTest.java` (AS12–AS14, backup failure → nothing
     sent), `ManageTagsToolTest.java`.
-- [ ] T064 [US4] Cross-cutting safety tests for the two tools:
+- [ ] T065 [US4] Cross-cutting safety tests for the two tools:
   - `application/WriteRaceToolsTest.java` +2 (version change → refused, nothing sent);
   - a production refusal test for every action (SC-004);
   - a "write off" refusal test for every action (SC-003);
   - `security/OperationSecretLeakTest.java`.
-- [ ] T065 [US4] Contracts, flips, docs and PR [BLOCKED: T054, T055]:
+- [ ] T066 [US4] Contracts, flips, docs and PR [BLOCKED: T054, T055]:
   - `OperateV81ContractTest.java`, `TagAdminV81ContractTest.java`;
   - rows flipped, or `--tagRemove`/`--tagDelete` set to `excluded:acts on the whole owner` per
     T055;
   - matrix, docs page;
   - `docs/tools.md` sections `operate_server`, `manage_tags`;
   - `docs/setup.md`: write enablement, `CLIENT` mode;
+  - `docs/research/inubit-interfaces.md`;
   - `CHANGELOG.md`;
   - `delivered-stories` + US4.
 
@@ -685,7 +719,7 @@ deletes blocked processes; the archives stay on the INUBIT hosts (US5, FR-016a).
 **Independent test**: with a fake StartCLI, the export needs write enablement, the opt-in and the
 code, and names the operation id and host; the reads need only the opt-in (US5 AS1–AS7).
 
-- [ ] T066 [US5] `administration` configuration (D-9, `contracts/configuration-delta.md`):
+- [ ] T067 [US5] `administration` configuration (D-9, `contracts/configuration-delta.md`):
   - `config/AdministrationConfig.java` with `objects`, `libraries`, `settings`, `users`,
     `runtimeData` (strict booleans, "default false"), on `GroupConfig` only;
   - `Defaults`;
@@ -698,13 +732,13 @@ code, and names the operation id and host; the reads need only the opt-in (US5 A
   - `list_nodes` shows `administration` per node.
   - Failing tests first: `ConfigLoaderTest`, `ConfigValidatorTest`, `EffectiveNodeConfigTest`,
     `ConfigSummaryTest`, `ListNodesToolTest` (a node-level key is an error; `"yes"` is an error).
-- [ ] T067 [P] [US5] `domain/model/ExportCondition.java` and `ExportFilter.java` (D-5):
+- [ ] T068 [P] [US5] `domain/model/ExportCondition.java` and `ExportFilter.java` (D-5):
   - `column` must match `^[A-Za-z][A-Za-z0-9_]{0,63}$`;
   - a value must match `^[^'(),\u0000-\u001F\u007F]{1,200}$`;
   - an `in` list holds 1–50 values; there are 1–10 conditions;
   - `render()` gives `c=v AND c in (a, b)`.
   - Failing tests first: `ExportFilterTest.java` (each rejected character, limits, rendering).
-- [ ] T068 [LIVE-W] [OWNER] [US5] L-9 and L-10 on the 8.1 test server, with approval and test processes
+- [ ] T069 [LIVE-W] [OWNER] [US5] L-9 and L-10 on the 8.1 test server, with approval and test processes
   only:
   - `process export test-<date>.zip --filterExpression '<testcol>=<value>'`, with the answer
     recorded;
@@ -715,15 +749,15 @@ code, and names the operation id and host; the reads need only the opt-in (US5 A
   - whether the match count can be read before the export (L-9).
 
   Neutralize into `fixtures/v8_1/cli/admin-runtime-*`.
-- [ ] T069 [US5] `CliCommand` `process` forms:
+- [ ] T070 [US5] `CliCommand` `process` forms:
   - `export <fileName> [--excludeModel] [--filterExpression '<rendered>']`, with the file name
     pattern `^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.zip$`;
   - `import <path>`, `validateExport <path>`, where `<path>` is the reported absolute path (from
-    an earlier export answer of that server) or the bare name per T068;
+    an earlier export answer of that server) or the bare name per T069;
   - `listBlocked|resume|deleteBlocked <uuid>`.
   - `--filterProcessIds` and `inFile` are never admitted.
   - Failing tests first in `CliCommandTest.java`.
-- [ ] T070 [US5] `adapter/cli/admin/CliRuntimeTransferRunner.java` (bounded by `cliExportTimeout`),
+- [ ] T071 [US5] `adapter/cli/admin/CliRuntimeTransferRunner.java` (bounded by `cliExportTimeout`),
   with parsers:
   - `RuntimeExportAnswerParser` (`The export file is located at: …`, `Operation ID is: …`, the
     host);
@@ -733,20 +767,24 @@ code, and names the operation id and host; the reads need only the opt-in (US5 A
 
   Also `domain/port/RuntimeTransferPort.java` and the `Gateway`/`PortSet` set. A per-server record
   of exported paths (`application/RuntimeExportPaths`, in memory) maps names to reported paths.
+  - adds the capability `RUNTIME_TRANSFER` the way T011 added `SERVER_SETTINGS` (label, matrix "not yet
+    verified", `NodeOverview`, `list_nodes` enum), with `CapabilityMatrixTest` and `ListNodesToolTest`;
   - Failing tests first: parser and runner tests; leak check.
-- [ ] T071 [US5] `application/RuntimeReadGuard.java` and `application/RuntimeTransferService.java`:
+- [ ] T072 [US5] `application/RuntimeReadGuard.java` and `application/RuntimeTransferService.java`:
   - `validate` and `listBlocked` need the `runtimeData` opt-in only, and are audited;
   - `export`, `import`, `resume` and `deleteBlocked` go through `ChangeGuard` with
     `Area.RUNTIME_DATA` and always use a server code;
-  - the export preview carries the filter, the count if T068 found a way to read it, and the
+  - the export preview carries the filter, the count if T069 found a way to read it, and the
     blocking sentence;
   - `resume`/`deleteBlocked` previews list the blocked ids, re-read before sending (FR-017).
+  - lock key `node|RUNTIME_DATA|<operationId>` (export: `node|RUNTIME_DATA|export:<fileName>`);
+    a second call on the same key gives `PRECONDITION_FAILED` (test);
   - Failing tests first: `RuntimeTransferServiceTest.java`:
     - AS1–AS7;
     - production without opt-in;
     - reads without write enablement allowed but without the opt-in refused;
     - a changed blocked set → `CONFLICT`.
-- [ ] T072 [US5] Tool `mcp/tools/TransferRuntimeDataTool.java`:
+- [ ] T073 [US5] Tool `mcp/tools/TransferRuntimeDataTool.java`:
   - schemas `transfer_runtime_data.{input,output}.json`;
   - destructive;
   - announced when some group has `administration.runtimeData`;
@@ -755,11 +793,12 @@ code, and names the operation id and host; the reads need only the opt-in (US5 A
   - Failing tests first: `TransferRuntimeDataToolTest.java`, `ToolAnnouncementTest`,
     `WriteRaceToolsTest` +1, the production/write-off refusal tests,
     `security/RuntimeTransferSecretLeakTest.java`.
-- [ ] T073 [US5] Contracts, flips, docs and PR [BLOCKED: T068]:
+- [ ] T074 [US5] Contracts, flips, docs and PR [BLOCKED: T069]:
   - `RuntimeTransferV81ContractTest.java`;
   - rows, matrix, docs page;
   - `docs/tools.md` section;
   - `docs/setup.md` (`administration.runtimeData`);
+  - `docs/research/inubit-interfaces.md`;
   - `CHANGELOG.md`;
   - `delivered-stories` + US5.
 
@@ -777,7 +816,7 @@ fails (US6 AS1–AS17).
 
 ### Shared inputs from outside the conversation
 
-- [ ] T074 [P] [US6] `config/UploadsConfig.java` (D-9) on `ProfileConfig`:
+- [ ] T075 [P] [US6] `config/UploadsConfig.java` (D-9) on `ProfileConfig`:
   - `folders` ("empty → uploads off; absolute, existing, no symbolic link"), checked at start and
     not inside `~/.inubit-mcp`;
   - `maxBytes` per type with the defaults license 1 MiB, keystore 1 MiB, userImport 10 MiB,
@@ -785,32 +824,49 @@ fails (US6 AS1–AS17).
     1 KiB … 4 GiB; written as `<n>KiB|MiB|GiB` or bytes;
   - `ConfigSummary` line.
   - Failing tests first: `UploadsConfigTest.java`, `ConfigValidatorTest`, `ConfigSummaryTest`.
-- [ ] T075 [US6] `application/UploadFiles.java` and `UploadFile` (D-11):
+- [ ] T076 [US6] `application/UploadFiles.java` and `UploadFile` (D-11):
   - `open(Path, UploadType)` checks, in order:
     1. the path is absolute;
     2. with `NOFOLLOW_LINKS`, a regular file and no symbolic link in any path element;
     3. its real path is inside a configured folder;
     4. its size is ≤ the type's limit;
-  - while checking it computes SHA-256 from the same open channel, then rewinds for sending;
+  - while checking it computes SHA-256 from the same open channel, then rewinds for sending (REST
+    uploads stream from this channel);
+  - `privateCopy()` for StartCLI uploads: copies the checked bytes from the open channel into an
+    owner-only directory (`OwnerOnlyFolders`), file `rw-------`, verifies the copy's SHA-256
+    against the check, returns `PrivateUploadCopy(path, sha256)`, and deletes it when the call
+    ends and on shutdown;
   - folders empty → `NOT_CONFIGURED` naming `uploads.folders`; every other failure →
     `INVALID_INPUT` naming the rule.
   - Failing tests first: `UploadFilesTest.java`:
     - link, linked parent, directory, outside the folder, too large, empty folders;
     - a file swapped after `open` still sends the checked content (POSIX; skipped on Windows
-      with a reason).
-- [ ] T076 [US6] Named secret entries (D-10):
-  - `domain/model/SecretEntryName.java` (`^[A-Z][A-Z0-9_]{0,47}$`; the reserved names
-    `USERNAME`, `PASSWORD`, `TRUSTSTORE_PASSWORD`, `E2E_USERNAME`, `E2E_PASSWORD` are rejected);
+      with a reason);
+    - a file swapped after `open` and before `privateCopy()` gives a copy with the checked
+      content, or a refusal on a hash mismatch, never the swapped content;
+    - the copy is deleted after success, after failure and after an exception.
+- [ ] T077 [US6] Named secret entries (D-10):
+  - `domain/model/SecretEntryName.java`: `^[A-Z][A-Z0-9_]{0,47}$`. A name equal to a login kind
+    (`USERNAME`, `PASSWORD`, `TRUSTSTORE_PASSWORD`, `E2E_USERNAME`, `E2E_PASSWORD`), or ending in
+    `_` plus one, is rejected.
   - `config/CredentialNames.java` adds `<PREFIX>_<GROUP>_<NODE>_ENTRY_<NAME>`, then
-    `<PREFIX>_<GROUP>_ENTRY_<NAME>`;
-  - `config/ParameterNames.java` adds `<prefix>/<group>/<node>/entries/<name>`, then
-    `<prefix>/<group>/entries/<name>`;
-  - `adapter/NodeSecrets.java` `entry(SecretEntryName, Duration bound)` registers the value with
-    `SecretScrubber` first;
-  - missing or unreadable → `NOT_CONFIGURED` naming the entry and the source, never a value.
-  - Failing tests first: `SecretEntryNameTest.java`, `NodeSecretsEntryTest.java` (both sources
-    faked; a login entry cannot be reached by any name); leak check.
-- [ ] T077 [US6] `InubitHttpClient` PUT, DELETE and multipart (D-8):
+    `<PREFIX>_<GROUP>_ENTRY_<NAME>`, and `allLoginCandidates(ProfileConfig)`, the login names of
+    every group and node of the profile.
+  - `adapter/NodeSecrets.java` `entry(SecretEntryName, Duration bound)`, credential store only:
+    - a resolved name contained in `allLoginCandidates` is refused with `INVALID_INPUT`;
+    - on a node with an AWS Parameter Store source, `NOT_CONFIGURED` naming the credential store
+      as the requirement (research D-10; no `ParameterNames` change);
+    - the value is registered with `SecretScrubber` first.
+  - Missing or unreadable → `NOT_CONFIGURED` naming the entry and the source, never a value.
+  - Failing tests first:
+    - `SecretEntryNameTest.java` (reserved names and suffixes, e.g. `NODE1_PASSWORD`);
+    - `NodeSecretsEntryTest.java`:
+      - group `test` + node `entry-node1`, and group `test-entry` + node `node1`: no entry name
+        reaches either login entry;
+      - AWS node refused;
+      - missing entry;
+      - leak check.
+- [ ] T078 [US6] `InubitHttpClient` PUT, DELETE and multipart (D-8):
   - `put(RestEndpoint, params, query, Body)`, `delete(...)`, `post` with JSON or an empty body;
   - `adapter/rest/Multipart.java` streams file parts from `UploadFile`'s channel and adds field
     parts; a secret field (`privateKeyPassword`) is never logged;
@@ -823,7 +879,7 @@ fails (US6 AS1–AS17).
 
 ### Live checks for US6
 
-- [ ] T078 [LIVE-W] [OWNER] [US6] L-11 (write), L-14, L-16 and the recordings of the US6 changes on the
+- [ ] T079 [LIVE-W] [OWNER] [US6] L-11 (write), L-14, L-16 and the recordings of the US6 changes on the
   8.1 test server, each approved, against throw-away fictitious objects:
   - `DELETE /diagrams/{n}` and `…/version/{v}`, `DELETE /modules?moduleName=` and
     `…/{id}/version/{v}`, `DELETE /repository`;
@@ -848,30 +904,34 @@ fails (US6 AS1–AS17).
 
 ### administer_objects
 
-- [ ] T079 [US6] `CliCommand` object and library forms:
+- [ ] T080 [US6] `CliCommand` object and library forms:
   - `rename --renameWorkflow|--renameModule|--renameMetadata|--renameFile|--renameDirectory
     <old> <new>`, with new names per `^[A-Za-z0-9_. -]{1,200}$`;
-  - `import --importMetadata <path>`, where the path is the checked upload's real path;
+  - `import --importMetadata <path>`, where the path is only ever a `PrivateUploadCopy` path
+    (T076), never the caller's path;
   - `library --deleteAll --type driver|plugin`;
-  - `plugin --register|--deregister` with the vendor's arguments as found in T078.
+  - `plugin --register|--deregister` with the vendor's arguments as found in T079.
   - Failing tests first in `CliCommandTest.java`.
-- [ ] T080 [US6] Object administration adapter `adapter/rest/v81/V81ObjectAdministrationAdapter.java`:
+- [ ] T081 [US6] Object administration adapter `adapter/rest/v81/V81ObjectAdministrationAdapter.java`:
   - REST `DELETE /diagrams/{name}`, `/diagrams/{name}/version/{n}`, `DELETE /modules`
     (`moduleName`), `/modules/{id}/version/{n}`, `DELETE /repository` (path query),
     `POST /isconnector`;
   - `adapter/cli/admin/CliObjectRunner.java` for rename and metadata import;
   - `RestEndpoint` values;
   - `domain/port/ObjectAdministrationPort.java` and the `Gateway`/`PortSet` set.
+  - adds the capability `OBJECT_ADMINISTRATION` the way T011 added `SERVER_SETTINGS` (label, matrix "not yet
+    verified", `NodeOverview`, `list_nodes` enum), with `CapabilityMatrixTest` and `ListNodesToolTest`;
   - Failing tests first: adapter and runner tests.
-- [ ] T081 [US6] Library administration adapter `adapter/rest/v81/V81LibraryAdministrationAdapter.java`:
+- [ ] T082 [US6] Library administration adapter `adapter/rest/v81/V81LibraryAdministrationAdapter.java`:
   - `PUT /libraries` (multipart `libraryFile`, `libraryType` Driver|Plugin, `libraryFileName`);
   - `DELETE /libraries/{name}`;
   - `PUT /edirules` (`ruleFile`, `ruleFileName`);
   - `PUT /keys` (`keystoreFile`, `owner`, `alias`, `privateKeyPassword` from the entry,
     `propertyName`);
   - `adapter/cli/admin/CliLibraryRunner.java` gets `deleteAll` and the plug-in commands.
+  - `OBJECT_ADMINISTRATION` (added in T081) covers the libraries area too;
   - Failing tests first: adapter tests; leak check (key password).
-- [ ] T082 [US6] Administration backups (D-15; after T053):
+- [ ] T083 [US6] Administration backups (D-15; after T053):
   - `application/AdministrationBackups.java` takes the backup before every delete, rename or
     replace:
     - workflow and module through `CliExportRunner` with history;
@@ -885,20 +945,43 @@ fails (US6 AS1–AS17).
   - Failing tests first: `AdministrationBackupsTest.java`, `RestoreBackupAdministrationTest.java`
     (development node restores; a non-development node is refused as today; a tag list is
     refused with its path).
-- [ ] T083 [US6] `application/ObjectAdministrationService.java`:
-  - the actions of the contract, each with its `Area` (`OBJECTS` or `LIBRARIES`);
-  - previews: owner, versions, tags, active flag and users of the object from the inventory port
-    (AS2, AS17); a repository directory's file count (AS16); upload name, size and SHA-256 (AS3,
-    AS7); `deleteAllLibraries` lists every file and the confirmation is valid only for that list
-    (AS4); rename old and new name and referencing objects (AS9); an EDI target that exists (AS15);
-    plug-in re-read (AS14);
-  - `restartNeeded` for libraries;
-  - `startIsConnector` and the backup start options are gated by their rows (T078 outcome).
+- [ ] T084 [US6] `application/ObjectAdministrationService.java`, objects area (`Area.OBJECTS`):
+  - actions `deleteWorkflow`, `deleteModule` (with optional `version`), `deleteRepositoryPath`,
+    `rename`, `importMetadata`, `startIsConnector`;
+  - previews:
+    - owner, versions, tags, active flag and users of the object from the inventory port
+      (AS2, AS17);
+    - a repository directory's file count (AS16);
+    - rename: old and new name and the referencing objects (AS9);
+    - metadata import: the metadata it replaces (AS12);
+  - the backup before every delete, rename or import (T083), and nothing is sent if it fails;
+  - `startIsConnector` is offered only when its row is `reachable` (T079, L-14);
+  - the metadata import file goes to StartCLI only as a `PrivateUploadCopy`;
+  - lock key `node|OBJECTS|<kind>:<name>`.
   - Failing tests first: `ObjectAdministrationServiceTest.java`:
-    - AS1–AS4, AS8–AS10, AS12, AS14–AS17;
-    - the area of each action;
-    - backup failure → nothing sent.
-- [ ] T084 [US6] Tool `mcp/tools/AdministerObjectsTool.java`:
+    - AS1, AS2, AS9, AS10, AS12, AS16, AS17;
+    - backup failure → nothing sent;
+    - a second call on the same object → `PRECONDITION_FAILED`.
+- [ ] T085 [US6] `application/ObjectAdministrationService.java`, libraries area
+  (`Area.LIBRARIES`; after T084):
+  - actions `uploadLibrary`, `deleteLibrary`, `deleteAllLibraries`, `registerPlugin`,
+    `deregisterPlugin`, `deployEdiRules`, `deployKeys`;
+  - previews:
+    - upload name, size and SHA-256 (AS3);
+    - `deleteAllLibraries` lists every file, and the confirmation is valid only for that list
+      (AS4, FR-017);
+    - keys: module, owner and alias, with the key password from `secretEntry` (AS8);
+    - an EDI target that exists is backed up first (AS15);
+    - plug-ins re-read after (AS14);
+  - `restartNeeded` for libraries;
+  - lock key `node|LIBRARIES|<name>` or `node|LIBRARIES|*:<type>`.
+  - Failing tests first: `LibraryAdministrationServiceTest.java`:
+    - AS3, AS4, AS8, AS14, AS15;
+    - the area of each action (objects opt-in alone does not admit them);
+    - a changed library list → `CONFLICT`;
+    - a second call on the same key → `PRECONDITION_FAILED`;
+    - leak check (key password).
+- [ ] T086 [US6] Tool `mcp/tools/AdministerObjectsTool.java`:
   - schemas `administer_objects.{input,output}.json`;
   - destructive;
   - announced when some group has `objects` or `libraries`.
@@ -906,46 +989,58 @@ fails (US6 AS1–AS17).
 
 ### change_server_settings
 
-- [ ] T085 [US6] `CliCommand`/session forms for settings changes:
+- [ ] T087 [US6] `CliCommand`/session forms for settings changes:
   - `threads setNumberOfWorkflowThreads <n>`;
   - `privilegedWorkflows setThreadsPercentage <0..99>`;
-  - `dbconnectiontolerance set …` (arguments per T078);
+  - `dbconnectiontolerance set …` (arguments per T079);
   - `RestEndpoint` + `PUT /configurations`, `PUT /license`;
+  - the `--backupFile` / `--backupRepository` forms, only if T079 (L-16) found a usable form;
   - `adapter/rest/v81/V81SettingsAdministrationAdapter.java` and
     `adapter/cli/admin/CliSettingsRunner.java` change methods;
   - `domain/port/SettingsAdministrationPort.java` and the `Gateway`/`PortSet` set.
+  - adds the capability `SETTINGS_ADMINISTRATION` the way T011 added `SERVER_SETTINGS` (label, matrix "not yet
+    verified", `NodeOverview`, `list_nodes` enum), with `CapabilityMatrixTest` and `ListNodesToolTest`;
   - Failing tests first: `CliCommandTest`, adapter tests.
-- [ ] T086 [US6] `application/SettingsAdministrationService.java`:
-  - threads: 1 … licensed threads (from `GET /license`, fallback `/metrics`), otherwise
+- [ ] T088 [US6] `application/SettingsAdministrationService.java`:
+  - threads: 1 … licensed threads (from `/metrics`, fallback `GET /license`), otherwise
     `INVALID_INPUT` naming the licensed number (AS5);
   - privileged share 0 … 99 (AS11);
   - tolerance preview with the shut-down sentence (AS13);
   - `changeConfiguration`: 1–20 changes; a path per the data-model pattern; a masked path needs a
     `secretEntry` and a plain value gives `INVALID_INPUT` (FR-022); preview current/new masked on
-    both sides (AS6); the full document is re-read and sent per T078 (full or partial);
+    both sides (AS6); the full document is re-read and sent per T079 (full or partial);
   - license preview and re-read (AS7);
-  - `restartNeeded`: always for threads and the privileged share, per T078 for the rest;
-  - no backup (FR-018: the preview shows the current value).
+  - `restartNeeded`: always for threads and the privileged share, per T079 for the rest;
+  - no backup (FR-018: the preview shows the current value);
+  - `setBackupStartOption` (`--backupFile`, `--backupRepository`, settings area): offered only
+    when its rows are `reachable` after T079 (L-16), with the arguments and checks found there;
+    otherwise the rows are `excluded` and the action is left out of the schema.
+  - lock key `node|SETTINGS|<action>`; a second call gives `PRECONDITION_FAILED` (test);
   - Failing tests first: `SettingsAdministrationServiceTest.java` (AS5, AS6, AS7, AS11, AS13;
     `CONFLICT` when the value changed since the preview; leak check).
-- [ ] T087 [US6] Tool `mcp/tools/ChangeServerSettingsTool.java`:
+- [ ] T089 [US6] Tool `mcp/tools/ChangeServerSettingsTool.java`:
   - schemas `change_server_settings.{input,output}.json`;
   - destructive;
   - announced when some group has `settings`.
   - Failing tests first: tool test, `ToolAnnouncementTest`.
-- [ ] T088 [US6] Cross-cutting safety for both tools:
+- [ ] T090 [US6] Cross-cutting safety for both tools:
   - `WriteRaceToolsTest` +2;
   - production and write-off refusals per action (SC-003, SC-004);
   - an area-off refusal per action (`NOT_CONFIGURED`);
   - `security/AdministrationSecretLeakTest.java` (configuration, key password, upload content).
-- [ ] T089 [US6] Contracts, flips, docs and PR [BLOCKED: T078]:
+- [ ] T091 [US6] Contracts, flips, docs and PR [BLOCKED: T079]:
   - `ObjectsV81ContractTest.java`, `LibrariesV81ContractTest.java`,
     `SettingsChangeV81ContractTest.java`;
-  - rows (excluded per T078 where the check failed), matrix, docs page;
+  - rows (excluded per T079 where the check failed; `startIsConnector` and `setBackupStartOption`
+    flipped to `reachable:<tool>/<action>` with their contract tests where L-14 or L-16
+    succeeded), matrix, docs page;
   - `docs/tools.md` sections;
-  - `docs/setup.md` (`administration.objects|libraries|settings`, `uploads`, secret entries per
-    source with examples);
+  - `docs/setup.md` (`administration.objects|libraries|settings`, `uploads`, secret entries in
+    the credential store with an example, and that AWS Parameter Store nodes have none);
+  - `docs/backlog.md`: new entry "Secret entries for nodes with an AWS Parameter Store source"
+    (research D-10);
   - `SECURITY.md` (uploads, secret entries);
+  - `docs/research/inubit-interfaces.md`;
   - `CHANGELOG.md`;
   - `delivered-stories` + US6.
 
@@ -960,7 +1055,7 @@ and never touches the server's own access (US7).
 **Independent test**: with fakes, a user is created and deleted with preview and code; no call
 takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
 
-- [ ] T090 [LIVE-W] [OWNER] [US7] L-12, L-13, L-15, L-18 on the 8.1 test server, with approval and
+- [ ] T092 [LIVE-W] [OWNER] [US7] L-12, L-13, L-15, L-18 on the 8.1 test server, with approval and
   fictitious test users only:
   - `create -cu` with and without `--password` in a session (does the session hide it from
     `ps`?), `-cug`, `-cur --basedon`;
@@ -974,65 +1069,98 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
 
   Neutralize into `fixtures/v8_1/{cli,rest}/admin-users-change-*` (session `.stdin` with the
   password replaced).
-- [ ] T091 [US7] Session and command forms (D-7, D-25):
+- [ ] T093 [US7] Session and command forms (D-7, D-25):
   - `CliSessionCommand.SESSION_OPTIONS` admits `create -cu …--password`, `passwd --password`
     (session only; the value comes from a `Secret` and is registered with the scrubber);
   - `CliCommand` admits the forms without a secret: `create -cu` (no password), `-cug`, `-cur`,
     `user --set…|--add…|--remove…`, `delete --deleteUserGroup`,
-    `import --importUserGroup|--overwriteUserRoles|--importLDAPDetails <path>`,
+    `import --importUserGroup|--overwriteUserRoles|--importLDAPDetails <path>` (the path is only
+    ever a `PrivateUploadCopy` path from T076),
     `--syncLDAPUsers`, `msgsend -s '<subject>' '<text>'`, `msgdel <id>`.
   - `CliCommand` rejects `--password` in every form.
   - Failing tests first: `CliCommandTest`, `CliSessionCommandTest`, and
     `security/PasswordNeverOnCommandLineTest.java` (every recorded `LaunchSpec` of the user tests:
     argv and env contain no entry value).
-- [ ] T092 [P] [US7] `application/OwnAccess.java` (D-16):
+- [ ] T094 [P] [US7] `application/OwnAccess.java` (D-16):
   - reads the login user's groups and roles (`CliUserRunner`) at preview and again before
     sending;
   - refuses deleting, regrouping or re-passwording the login user, removing its groups, and
     deleting its primary group or a role it holds;
-  - the CLI-access right rule per T090 (L-15).
+  - the CLI-access right rule per T092 (L-15).
   - Failing tests first: `OwnAccessTest.java` (each refusal; a change between preview and send →
     refused).
-- [ ] T093 [P] [US7] `adapter/cli/admin/UserImportFileParser.java` (format per T090):
+- [ ] T095 [P] [US7] `adapter/cli/admin/UserImportFileParser.java` (format per T092):
   - finds logins, groups and roles in an import file (hardened XML, or the found format);
   - an unparsable file gives `INVALID_INPUT`.
 
   `application/UserImportCheck.java` refuses a file naming the login user, its group or one of
-  its roles, and names which (AS6). `--syncLDAPUsers` is refused unless the login user is shown as
-  internal, and also when this cannot be determined (AS7, FR-019b).
-  - Failing tests first: parser and check tests.
-- [ ] T094 [US7] Adapter and port:
+  its roles, and names which (AS6). It reads only the `PrivateUploadCopy` that is then passed to
+  StartCLI, never the caller's path. `--syncLDAPUsers` is refused unless the login user is shown
+  as internal, and also when this cannot be determined (AS7, FR-019b).
+  - Failing tests first: parser and check tests, plus a swap test: the caller's file is replaced
+    after the check by one naming the login user, and StartCLI still receives the checked copy
+    (`ScriptedProcessLauncher` records the path and the test reads its content).
+- [ ] T096 [US7] Adapter and port:
   - `adapter/rest/v81/V81UserAdministrationAdapter.java`: `DELETE /user/users/{name}` with
     `userReferences` and `userRepoReferences`, both explicit;
   - `adapter/cli/admin/CliUserAdministrationRunner.java` for the CLI forms and the session
     password path;
   - `domain/port/UserAdministrationPort.java` and the `Gateway`/`PortSet` set.
+  - adds the capability `USER_ADMINISTRATION` the way T011 added `SERVER_SETTINGS` (label, matrix "not yet
+    verified", `NodeOverview`, `list_nodes` enum), with `CapabilityMatrixTest` and `ListNodesToolTest`;
   - Failing tests first: adapter tests; leak check.
-- [ ] T095 [US7] `application/UserAdministrationService.java`:
-  - the actions of the contract under `Area.USERS`;
-  - `createUser` takes an optional `secretEntry`; without it, the description names what T090
-    found (AS1);
-  - `setPassword` requires `secretEntry` (AS2, AS3);
-  - `deleteUser` requires both choices and re-reads the list, because INUBIT answers 200 even for
-    an unknown user (AS5);
-  - message text 1–1,000 characters with no control characters, subject 1–200 characters with no
-    control characters or `'` (AS8);
-  - previews of groups and roles (AS9, AS10);
-  - `OwnAccess` and `UserImportCheck` before every send.
-  - Failing tests first: `UserAdministrationServiceTest.java` (AS1–AS10).
-- [ ] T096 [US7] Tool `mcp/tools/AdministerUsersTool.java`:
+- [ ] T097 [US7] `application/UserAdministrationService.java`, users, groups and roles
+  (`Area.USERS`):
+  - actions `createUser` (without password here), `createGroup`, `createRole`, `setGroups`,
+    `addGroups`, `removeGroups`, `deleteUser`, `deleteGroup`;
+  - `createUser` without `secretEntry`: the description names what T092 (L-18) found (AS1);
+  - `deleteUser` requires both reference choices and re-reads the list, because INUBIT answers
+    200 even for an unknown user (AS5);
+  - previews of groups and roles before and after (AS9, AS10);
+  - `OwnAccess` before every send (AS4, FR-019);
+  - lock key `node|USERS|user:<login>` or `node|USERS|group:<name>` / `role:<name>`.
+  - Failing tests first: `UserAdministrationServiceTest.java`:
+    - AS1 (no password), AS4, AS5, AS9, AS10;
+    - a second call on the same key → `PRECONDITION_FAILED`.
+- [ ] T098 [US7] Passwords from named entries (after T097):
+  - `setPassword {login, secretEntry}` and `createUser` with an optional `secretEntry`, through
+    the session password path of T093 and T096;
+  - a missing or unreadable entry, or an AWS node, is refused before any call to INUBIT
+    (AS3, D-10);
+  - the audit names the entry, never the value (AS2);
+  - the login user's password is never changed (AS4).
+  - Failing tests first: `UserPasswordServiceTest.java` (AS1 with entry, AS2, AS3, AS4) and
+    `PasswordNeverOnCommandLineTest` cases for both actions; leak check.
+- [ ] T099 [US7] Imports and directory synchronisation (after T095, T097):
+  - `importGroups`, `overwriteRoles`, `importLdapDetails` from an upload folder (`userImport`
+    limit), checked by `UserImportCheck` on the `PrivateUploadCopy` (AS6, FR-019b);
+  - `syncLdapUsers`, refused unless the login user is shown as internal (AS7);
+  - lock key `node|USERS|import`.
+  - Failing tests first: `UserImportServiceTest.java` (AS6 for each of login, group and role; AS7
+    both ways; undeterminable → refused; swap after check → the checked copy sent).
+- [ ] T100 [US7] Messages (after T097):
+  - `sendMessage {recipients, subject, text}`, where the text is 1–1,000 characters with no
+    control characters, the subject 1–200 characters with no control characters or `'`, and the
+    text is passed as one argument (AS8, FR-020);
+  - `deleteMessage {messageId}`;
+  - the preview names the recipients and the text;
+  - the audit holds at most 200 characters of the text.
+  - Failing tests first: `UserMessageServiceTest.java` (AS8, each limit, quoting of the text as
+    one argument).
+- [ ] T101 [US7] Tool `mcp/tools/AdministerUsersTool.java`:
   - schemas `administer_users.{input,output}.json`, with no password field in either;
   - destructive;
   - announced when some group has `users`.
   - Failing tests first: tool test, `ToolAnnouncementTest`, `WriteRaceToolsTest` +1, the
     refusal tests per action, `security/UserAdminSecretLeakTest.java`.
-- [ ] T097 [US7] Contracts, flips, docs and PR [BLOCKED: T090]:
+- [ ] T102 [US7] Contracts, flips, docs and PR [BLOCKED: T092]:
   - `UserAdminV81ContractTest.java`;
   - rows (`passwd`/`create -cu --password` set to `excluded:secret only on a visible command line`
-    if T090 showed the session cannot hide it), matrix, docs page;
+    if T092 showed the session cannot hide it), matrix, docs page;
   - `docs/tools.md`;
   - `docs/setup.md` (`administration.users`);
   - `SECURITY.md`;
+  - `docs/research/inubit-interfaces.md`;
   - `CHANGELOG.md`;
   - `delivered-stories` + US7.
 
@@ -1040,24 +1168,24 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
 
 ## Phase 10: Polish & cross-cutting concerns
 
-- [ ] T098 9.0 recordings for US2–US7 [LIVE] [OWNER] (after the 9.0 pin is renewed):
-  - run the read checks of T028, T039 and the approved write checks of T054, T055, T068, T078,
-    T090 on the 9.0 test server;
+- [ ] T103 9.0 recordings for US2–US7 [LIVE] [OWNER] (after the 9.0 pin is renewed):
+  - run the read checks of T028, T039 and the approved write checks of T054, T055, T069, T079,
+    T092 on the 9.0 test server;
   - fixtures with `.origin`, catalogue entries;
   - `*V90ContractTest` per story;
   - the `v9_0` rows flipped.
-- [ ] T099 Coverage completion (SC-001, FR-027): `InterfaceCoverageCheckTest` with all seven
+- [ ] T104 Coverage completion (SC-001, FR-027): `InterfaceCoverageCheckTest` with all seven
   stories delivered. No `planned` row and no `# waits` comment are left: every row is
   `reachable`, `covered`, `undocumented` or `excluded`. Remove the backlog entry "Further read
   access to INUBIT" from `docs/backlog.md`.
-- [ ] T100 [P] `live/AdministrationLiveTest.java` (`@Tag("live")`, opt-in, refused for production
+- [ ] T105 [P] `live/AdministrationLiveTest.java` (`@Tag("live")`, opt-in, refused for production
   groups):
   - reads of US1–US3;
   - one reversible change per change tool (trace level set and back) on a test server;
   - `docs/live-tests.md`.
-- [ ] T101 [P] `README.md` tool list and capability overview; `SECURITY.md` summary of the new
+- [ ] T106 [P] `README.md` tool list and capability overview; `SECURITY.md` summary of the new
   protections (areas, uploads, secret entries, own-access rule).
-- [ ] T102 Final validation:
+- [ ] T107 Final validation:
   - all quickstart tests green;
   - the smoke steps 1–7 of `quickstart.md` run on the test servers and noted in its validation
     record;
@@ -1071,13 +1199,13 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
   - US2 needs T012 (session);
   - US3 needs T011;
   - US4 introduces the change infrastructure T048–T053, used by US5, US6 and US7;
-  - US5 introduces the `administration` config (T066), used by US6 and US7;
-  - US6 introduces uploads (T074–T075), secret entries (T076) and the REST write methods (T077),
+  - US5 introduces the `administration` config (T067), used by US6 and US7;
+  - US6 introduces uploads (T075–T076, including the private copy for StartCLI uploads), secret entries (T077) and the REST write methods (T078),
     used by US7 (imports, passwords);
   - US7 needs `CliUserRunner` (T032) from US2.
-- **Live tasks**: T014, T028, T039, T054, T055, T068, T078, T090 and T024/T098 can run as soon as
+- **Live tasks**: T014, T028, T039, T054, T055, T069, T079, T092 and T024/T103 can run as soon as
   the operator approves them, in parallel with the offline tasks. Only the contract and flip tasks
-  (T025, T026, T037, T046, T065, T073, T089, T097, T098) wait for them.
+  (T025, T026, T037, T046, T066, T074, T091, T102, T103) wait for them.
 - **PR merges**: a PR may merge with rows still `planned` while its live check is open (the
   action is then not offered). Phase 10 needs all of them.
 
@@ -1085,15 +1213,16 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
 
 - **Phase 2**: T004→T005 and T006→T007→T008/T009 run in parallel; T012 and T013 are independent
   of both.
-- **US1**: T015, T016, T017, T018 [P] after Phase 2; T014 (live) at any time.
-- **US2**: T029, T030, T031 [P].
+- **US1**: T015 first; then T016, T017 and T018 side by side (different files, all use T015's
+  records); T014 (live) at any time.
+- **US2**: T029 first; then T030 and T031 side by side.
 - **US3**: T040 [P] beside T041.
-- **US4**: T048, T050 [P]; then `operate_server` (T056–T060) and `manage_tags` (T061–T063) in
+- **US4**: T048, T050 [P]; then `operate_server` (T056–T061) and `manage_tags` (T062–T064) in
   parallel after T049–T053.
-- **US5**: T066 and T067 [P].
-- **US6**: T074 [P]; then `administer_objects` (T079–T084) and `change_server_settings`
-  (T085–T087) in parallel after T075–T077.
-- **US7**: T092, T093 [P].
+- **US5**: T067 and T068 [P].
+- **US6**: T075 [P]; then `administer_objects` (T080–T086) and `change_server_settings`
+  (T087–T089) in parallel after T076–T078.
+- **US7**: T094, T095 [P].
 
 Never run two Maven builds at the same time in the same checkout.
 
@@ -1106,6 +1235,6 @@ Never run two Maven builds at the same time in the same checkout.
   shared change infrastructure), US5, US6, US7. Each increment ends with its PR, is merged after
   green CI and can be released on its own.
 - **Live checks** run early and in parallel. An increment does not wait for its 9.0 recordings:
-  9.0 rows flip in T026 and T098 once the pin question is settled.
+  9.0 rows flip in T026 and T103 once the pin question is settled.
 - **Stop points**: after each phase, a code review of the phase diff and an update of
   `reviews/implementation.md`. Push after each finished task.

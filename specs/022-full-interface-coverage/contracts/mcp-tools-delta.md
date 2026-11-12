@@ -61,8 +61,10 @@ each tool's test, as for the existing tools. Types and validation: [data-model.m
   - `login` (for `user`);
   - `messageId` (for `message`);
   - `offset` (0–9999), `limit` (1–25, default 25).
-- **Output**: `{ node, view, page?: Page<UserSummary | LoginEntry | MessageSummary>, user?:
-  UserDetail, message?: MessageText }`.
+- **Output**: `{ node, view, sources, page?: Page<UserSummary | LoginEntry | MessageSummary>,
+  user?: UserDetail, message?: MessageText }`. `sources` maps each fact to its channel (FR-009):
+  - `logins`: REST (`GET /user/users`);
+  - `groups`, `roles`, `accountState`, `email`, `loggedIn`, `messages`: CLI.
 - **Rules**:
   - `users` never contains `email` or other personal fields (FR-011, AS5);
   - an unknown login gives `NOT_FOUND`, with the next step "list the users" (AS3);
@@ -91,7 +93,8 @@ each tool's test, as for the existing tools. Types and validation: [data-model.m
   - `xslt10Report` (no further field).
 - **Unchanged**: `targetFolder`, the folder rules, `archives.productionOptIn` and
   `acknowledgeClearTextSecrets` (required for `workflows` and `ownerWithoutGroups`).
-- **Output**: the existing archive list. For `xslt10Report` it is one `.xlsx` file entry.
+- **Output**: the existing archive list, plus `source: "CLI"` (FR-009; all four forms use
+  StartCLI). For `xslt10Report` it is one `.xlsx` file entry.
 - **Description**: adds the three forms and the check-in comment trace (FR-008).
 
 ## `operate_server` (US4)
@@ -191,7 +194,10 @@ each tool's test, as for the existing tools. Types and validation: [data-model.m
   - `setPrivilegedShare {percent}`;
   - `setDbConnectionTolerance {faultThreshold, dropRatePercent, dropIntervalSeconds}`;
   - `changeConfiguration {changes: [{path, value | secretEntry}]}`;
-  - `uploadLicense {file}`.
+  - `uploadLicense {file}`;
+  - `setBackupStartOption {option: backupFile | backupRepository, …}`: its arguments are defined
+    once L-16 shows the usage. It is offered only when its rows are `reachable`; otherwise the
+    rows are excluded and the action is absent from the schema.
 - **Validation**:
   - the thread count must not exceed the licensed threads (`INVALID_INPUT` with the number,
     AS5);

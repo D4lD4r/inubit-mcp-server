@@ -53,6 +53,17 @@ one state per version (`v8_1`, `v9_0`). A state is one of `reachable:<tool>/<act
 `covered:<tool>`, `planned`, `undocumented`, `excluded:<reason>`. `docs/interface-coverage.md` is
 generated from the file by a test, which fails if they differ.
 
+**Action key** (plan review round 1): the `<action>` part of `reachable:<tool>/<action>` is,
+per tool:
+
+- the value of its `action` input, if it has one;
+- otherwise the value of `view` (`read_users`) or `content` (`export_archives`, from US3 on);
+- otherwise the fixed key `default` (every existing tool, `get_server_settings`, and
+  `export_archives` until US3).
+
+When US3 adds `content`, its rows change from `export_archives/default` to
+`export_archives/workflows`.
+
 Every action of the new tools names its coverage entries. An action is offered for a version only
 when all its entries are `reachable` for that version. Otherwise the action is refused with
 `UNSUPPORTED_VERSION` and the note "not yet verified". `CapabilityMatrix` stays at the level of a
@@ -209,8 +220,9 @@ spread over the adapters.
 - **Per group** (`GroupConfig`, like `archives` and `unsupported`): a new block
   `administration: {objects, libraries, settings, users, runtimeData}`. The values are strict
   booleans, default `false`. `ConfigValidator` gives a warning for every area enabled on a
-  production group, and an error when an area is enabled while `write.enabled` is false on every
-  node of the group (the opt-in would have no effect). Pattern and touched files as for
+  production group. When an area is enabled while `write.enabled` is false on every node of the
+  group, it gives an error, because the opt-in would have no effect. The exception is
+  `runtimeData`, which gives a warning, because its two reads need no write enablement. Pattern and touched files as for
   `unsupported.serverLogRead` (`Defaults`, `ConfigLoader`, `ConfigValidator`, `ConfigSummary`,
   `EffectiveNodeConfig`, `Wiring`, docs).
 - **Per profile** (`ProfileConfig`): `uploads: {folders: [...], maxBytes: {license, keystore,
@@ -228,12 +240,23 @@ existing opt-ins are group-only, and a stage is the unit of risk).
 ## D-10 Named secret entries (FR-022, Principle II)
 
 **Decision**: inputs that need a secret take `secretEntry` (`^[A-Z][A-Z0-9_]{0,47}$`). The server
-resolves it through the node's existing secret source, in its own namespace:
+resolves it through the node's credential store, in its own namespace
+`<PREFIX>_<GROUP>_<NODE>_ENTRY_<NAME>`, then `<PREFIX>_<GROUP>_ENTRY_<NAME>`.
 
-- credential store: `<PREFIX>_<GROUP>_ENTRY_<NAME>`;
-- AWS Parameter Store: `<prefix>/<group>/entries/<name>`.
+Two rules keep the login entries out of reach (plan review round 1):
 
-The login entries (`USERNAME`, `PASSWORD`, `TRUSTSTORE_PASSWORD`, `E2E_*`) can never be named.
+- a name equal to a login kind, or ending in `_` plus a login kind (`USERNAME`, `PASSWORD`,
+  `TRUSTSTORE_PASSWORD`, `E2E_USERNAME`, `E2E_PASSWORD`), is rejected (`INVALID_INPUT`);
+- a resolved name that equals any credential candidate of any configured node
+  (`CredentialNames` for every group and node of the profile) is refused (`INVALID_INPUT`), so a
+  group or node id containing `ENTRY` cannot make an entry name collide with a login entry.
+
+**AWS Parameter Store**: `ParameterNames` holds a full name per kind and has no prefix from which
+an entry path could be built. Secret entries are therefore offered only on nodes whose secrets come
+from the credential store. On a node with an AWS source, every action that needs a `secretEntry`
+is refused with `NOT_CONFIGURED`, naming the credential store as the requirement. An AWS form (an
+optional entries path) is a backlog item, not part of this feature.
+
 The value is registered with `SecretScrubber` before it is used. It is read in `NodeSecrets`
 (new `entry(name, bound)`) and is never stored in a record that is logged or audited. The audit
 record names the entry. A missing or unreadable entry is refused with `NOT_CONFIGURED` before any
@@ -260,9 +283,19 @@ sha256, type)`. Before any call to INUBIT it checks, in this order:
 3. its real path is inside one of `uploads.folders`;
 4. its size is ≤ `maxBytes` of its type.
 
-The file is hashed while it is checked. It is sent as a stream from the checked file
-handle, opened once, so a swap after the check cannot change what is sent. Refusals use
-`INVALID_INPUT` with the rule that failed. The content never enters a result or a log.
+The file is hashed while it is checked. Then:
+
+- **REST uploads** are sent as a stream from the checked file handle, opened once, so a swap after
+  the check cannot change what is sent.
+- **StartCLI uploads** (`import --importMetadata`, `--importUserGroup`, `--overwriteUserRoles`,
+  `--importLDAPDetails`) need a path, and StartCLI opens the file again. Here the checked bytes
+  are copied from the open handle into a private file (owner-only directory through
+  `OwnerOnlyFolders`, file `rw-------`). The copy's SHA-256 is verified against the check, and
+  only that path is passed to StartCLI. Every content check (for example FR-019b in D-16) reads
+  the private copy, never the caller's path. The copy is deleted in `finally` and on shutdown.
+
+Refusals use `INVALID_INPUT` with the rule that failed. The content never enters a result or a
+log.
 
 **Rationale**: the spec edge case lists exactly these refusals. One open handle avoids a gap
 between the check and the read.
@@ -299,7 +332,10 @@ meaning).
 ## D-13 Confirmation (FR-015)
 
 **Decision**: every change uses `WriteChallengeRegistry.issue(tool, NodeId, inputFingerprint,
-previewState, ttl)`. The fingerprint is SHA-256 over the canonical inputs, without
+previewState, ttl)`. This is a new overload keyed by the tool name (`String`) and a node, next to
+the existing `issue(Operation, NodeId, …)` (keyed by `DevelopmentGuard.Operation`) and
+`issue(String tool, GroupId, …)` (deployments). The new tools add no `Operation` values, because
+`Operation` belongs to the development guard. The fingerprint is SHA-256 over the canonical inputs, without
 `confirmationCode` and `reason`. `previewState` is the state the preview showed (D-14). The
 validity is `confirmationTtl`.
 
@@ -490,7 +526,7 @@ among the answers blocked in maintenance mode (L-2). The read before the change 
 | `setDbConnectionTolerance` | `dbconnectiontolerance set …` | fault threshold, drop rate, drop interval; ranges from L-5 |
 | `changeConfiguration` | `PUT /configurations` | `changes[1..20]` of `{path, value \| secretEntry}`; the server reads the full configuration, applies the changes and sends the full document back (L-11 checks whether a partial document is accepted) |
 | `uploadLicense` | `PUT /license` | multipart `licenseFile` |
-| `--backupFile`, `--backupRepository` | — | `planned` until L-16 |
+| `setBackupStartOption` | `--backupFile`, `--backupRepository` | settings area; arguments and checks per L-16; the action is offered only when its rows are `reachable`, and the rows are excluded if L-16 fails |
 
 Every result says whether a restart is needed: threads and the privileged share always need one
 (vendor), other settings per L-11.

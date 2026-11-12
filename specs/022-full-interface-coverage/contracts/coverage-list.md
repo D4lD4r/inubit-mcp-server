@@ -11,14 +11,18 @@ header line. Lines starting with `#` are comments.
 # source: vendor pages "Command Line Interface" and "REST API", INUBIT 8.1 and 9.0, retrieved 2026-11-12
 # delivered-stories: US1
 channel	entry	kind	area	story	v8_1	v9_0
-REST	GET /license	READ	A	US1	reachable:get_server_settings/license	planned
+REST	GET /license	READ	A	US1	reachable:get_server_settings/default	planned
 CLI	license -td	READ	A	-	covered:get_server_settings	covered:get_server_settings
 CLI	lls	READ	A	-	excluded:lists the local directory of the StartCLI client	excluded:lists the local directory of the StartCLI client
 REST	GET /model/nodeByName/{diagram}/{module}	READ	E	US3	planned	undocumented
 REST	GET /process/processes/{group}	READ	PORTAL	-	excluded:portal function	excluded:portal function
 CLI	tag --tagDiagram	WRITE	E	-	excluded:ignored by INUBIT, tags every diagram of the owner	excluded:ignored by INUBIT, tags every diagram of the owner
-CLI	export --exportWorkflowGroup	EXPORT	E	-	reachable:export_archives/workflows	reachable:export_archives/workflows
+CLI	export --exportWorkflowGroup	EXPORT	E	-	reachable:export_archives/default	reachable:export_archives/default
 ```
+
+**Action key** (research D-2): the value of the tool's `action` input; otherwise of `view` or
+`content`; otherwise `default`. `export_archives` uses `default` until US3 adds `content`, and
+its rows then change to `workflows`.
 
 ## Rows
 
@@ -48,8 +52,9 @@ message names the command that rewrites the page (`mvn -q -Dcoverage.write=true 
 
 1. Every `CliCommand.OPTIONS` command/option pair and every `CliSessionCommand` has a row.
 2. Every `RestEndpoint` value has a row.
-3. Every `reachable:` and `covered:` tool is a registered tool, and every `reachable:` action is
-   an action of that tool's input schema.
+3. Every `reachable:` and `covered:` tool is a registered tool. Every `reachable:` action is a
+   value of the tool's `action`, `view` or `content` enum (the first of them its input schema
+   has), or `default` for a tool that has none of the three.
 4. Every row has both version states; `story` is set for every `planned` row.
 5. Every story in `delivered-stories` has no row left `planned` (FR-004: the list shows what is
    open), except rows waiting on a live check, which carry `planned` plus a comment line

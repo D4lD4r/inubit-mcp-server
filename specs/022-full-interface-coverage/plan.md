@@ -36,8 +36,13 @@ reason. It is delivered in seven increments, one per user story:
   - `ChangeLocks`;
   - audit as for `restart_process`.
 - **Inputs from outside the conversation**:
-  - upload files only from `uploads.folders`, checked and streamed from one open handle (D-11);
-  - secrets only by `secretEntry` name, in their own namespace of the node's secret source (D-10).
+  - upload files only from `uploads.folders`, checked and streamed from one open handle (REST),
+    or from a verified private copy (StartCLI), so a swapped file is never sent (D-11);
+  - secrets only by `secretEntry` name, in their own namespace of the node's credential store.
+    Names that end in a login kind or resolve to any login entry are refused; nodes with an AWS
+    source have no secret entries in this feature (D-10).
+- **Capabilities per story**: each story adds its own capability (matrix, label, `list_nodes`
+  name) with its tool, so `list_nodes` never names a capability whose tool is not delivered yet.
 - **Spec corrections from the vendor pages** (spec "Planning"): the run-time data export blocks
   processes and is a change; the archives stay on the INUBIT hosts; the export filter works on
   user-defined columns; `lls` is excluded.
@@ -146,7 +151,7 @@ touched).
 | Tech constraints: TLS, pins | ✅ | ✅ No certificate pin is changed by this feature (FR-019). `PUT /keys` goes to module keystores only. StartCLI TLS handling (feature 017) is unchanged. |
 | Tech constraints: minimal dependencies, single artifact | ✅ | ✅ No new dependency; multipart is built on the JDK HTTP client. |
 
-**Result**: PASS, no deviation. Two items are design weights, not deviations (Complexity
+**Result**: PASS, no deviation. Three items are design weights, not deviations (Complexity
 Tracking).
 
 ### Open questions for the owner (do not block the plan; defaults chosen)
