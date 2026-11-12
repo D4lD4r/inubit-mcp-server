@@ -689,7 +689,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   found on node1`); `ok.log` a fictitious SOAP log (`acme` services, `partner.example.test`, one
   `<wsse:Password>` element, one `Authorization: Basic …` header); `ok.frames` size and node name
   `node1` consistent with `ok.log`; `ServerLogFixtureCatalogueTest` covers them
-- [ ] T041 [US2] `adapter/cli/log/CliWebServiceLogAdapter.java` (FR-006, FR-012, D-2, D-6, D-16;
+- [X] T041 [US2] `adapter/cli/log/CliWebServiceLogAdapter.java` (FR-006, FR-012, D-2, D-6, D-16;
   after T026, T037–T040): `HelperVariant.forVersion` (8.1 → `SOAP_81`, 9.0 → `REST_90`, else
   `UNSUPPORTED_VERSION`); `CliRunner.select(server, version)` + `checkLaunch` (no client home →
   `CLI_UNAVAILABLE` with the 017 text naming `defaults.cliClients."M.m"`; no `lib/ibis.jar` or JDK

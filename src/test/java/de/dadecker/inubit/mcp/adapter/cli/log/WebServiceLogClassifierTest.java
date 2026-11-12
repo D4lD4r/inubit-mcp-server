@@ -48,7 +48,7 @@ class WebServiceLogClassifierTest {
     private static final String UNEXPECTED = "download_server_log got an unexpected answer from"
         + " test/node1; the unsupported INUBIT interface may have changed after an INUBIT update";
     private static final String WORKBENCH =
-        "Download the log in the Workbench (Cluster Manager); report the INUBIT version";
+        "Download the log in the Workbench; report the INUBIT version";
 
     /** Registers nothing: the request's own passwords must be masked by the classifier itself. */
     private final WebServiceLogClassifier classifier =
@@ -103,8 +103,8 @@ class WebServiceLogClassifierTest {
         ToolError error = error(outcome);
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.message()).isEqualTo(UNEXPECTED);
-        assertThat(error.likelyCause()).isEqualTo("The client helper reported an INUBIT node"
-            + " name that is not 1-128 characters of A-Z, a-z, 0-9, '_', '.', ':' and '-'");
+        assertThat(error.likelyCause()).isEqualTo("The INUBIT client helper reported an INUBIT"
+            + " node name that is not 1-128 characters of A-Z, a-z, 0-9, '_', '.', ':' and '-'");
         assertThat(error.nextStep()).isEqualTo(WORKBENCH);
         assertThat(error.node()).contains(NODE);
         assertThat(error.excerpt()).isEmpty();
@@ -265,7 +265,7 @@ class WebServiceLogClassifierTest {
         ToolError error = error(outcome);
         assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
         assertThat(error.message()).isEqualTo(
-            "Login of the client helper to test/node1 was rejected");
+            "Login of the INUBIT client helper to test/node1 was rejected");
         assertThat(outcome.login()).isEqualTo(Login.REJECTED);
     }
 
@@ -290,7 +290,7 @@ class WebServiceLogClassifierTest {
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.message()).isEqualTo(UNEXPECTED);
         assertThat(error.likelyCause()).isEqualTo(
-            "The client helper ended with exit code 1 without its end frame");
+            "The INUBIT client helper ended with exit code 1 without its end frame");
         assertThat(outcome.login()).isEqualTo(Login.ACCEPTED);
     }
 
@@ -300,7 +300,7 @@ class WebServiceLogClassifierTest {
             + "cluster ok node1\n" + P + "end\n");
 
         assertThat(error(outcome).likelyCause())
-            .isEqualTo("The client helper wrote a frame of an unknown type");
+            .isEqualTo("The INUBIT client helper wrote a frame of an unknown type");
     }
 
     static Stream<Arguments> framesNotMatchingTheExitCode() {
@@ -328,7 +328,7 @@ class WebServiceLogClassifierTest {
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.likelyCause()).isEqualTo(
-            "The frames of the client helper do not match its exit code " + exit);
+            "The frames of the INUBIT client helper do not match its exit code " + exit);
     }
 
     // --- leaks --------------------------------------------------------------------------------

@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliTraceRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.application.ExcerptPermit;
 import de.dadecker.inubit.mcp.application.LogFileWriter;
 import de.dadecker.inubit.mcp.application.NodeVersions;
@@ -279,11 +280,17 @@ class ServerLogV81ContractTest {
             .cliExportTimeout(EXPORT_TIMEOUT).build();
         CliRunner runner = TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
             resources, VERSIONS);
-        CliTraceRunner traces = new CliTraceRunner(server, credentials,
-            new CredentialGuard(storeLabels("INUBIT", DEV), new MutableClock(NOW)), runner,
+        CredentialGuard guard =
+            new CredentialGuard(storeLabels("INUBIT", DEV), new MutableClock(NOW));
+        CliTraceRunner traces = new CliTraceRunner(server, credentials, guard, runner,
             new CliOutputClassifier(new SecretScrubber(), server.secretLabels(),
                 runner.windows()));
-        ServerLogPort port = new CliServerLogAdapter(server, traces,
+        CliWebServiceLogAdapter webServiceLogs = new CliWebServiceLogAdapter(server,
+            () -> credentials, guard, runner,
+            TestCliRunners.helperHost(Map.of("PATH", Platform.searchPath()), resources,
+                Path.of(System.getProperty("java.io.tmpdir"))),
+            new ProcessRun(launcher, resources), new SecretScrubber());
+        ServerLogPort port = new CliServerLogAdapter(server, traces, webServiceLogs,
             new CliConcurrencyLimiter(MATRIX));
         AuditPort auditPort = audit::add;
         return new ServerLogService(new TargetResolver(List.of(DEV)), node -> false,

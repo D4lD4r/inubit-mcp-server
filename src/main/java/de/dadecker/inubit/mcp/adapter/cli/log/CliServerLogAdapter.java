@@ -18,8 +18,8 @@ import java.util.Objects;
  * The server-log port of an 8.1/9.0 node (feature 021, research D-15, D-19): one call takes a
  * slot of the node's {@link CliConcurrencyLimiter} and runs the download of its kind, both within
  * the call deadline the service passes (start of the download phase + the node's
- * {@code cliExportTimeout}). The trace log goes through {@link CliTraceRunner}; the web service
- * log is not wired yet.
+ * {@code cliExportTimeout}). The trace log goes through {@link CliTraceRunner}, the web service
+ * log through {@link CliWebServiceLogAdapter}.
  *
  * <p>Every {@code TIMEOUT} names {@code cliExportTimeout} in its next step and adds that large
  * logs need a larger one; once the deadline has passed its message is "The {@code <log>} log
@@ -33,12 +33,14 @@ public final class CliServerLogAdapter implements ServerLogPort {
 
     private final EffectiveNodeConfig server;
     private final CliTraceRunner traces;
+    private final CliWebServiceLogAdapter webServiceLogs;
     private final CliConcurrencyLimiter limiter;
 
     public CliServerLogAdapter(EffectiveNodeConfig server, CliTraceRunner traces,
-        CliConcurrencyLimiter limiter) {
+        CliWebServiceLogAdapter webServiceLogs, CliConcurrencyLimiter limiter) {
         this.server = Objects.requireNonNull(server, "server");
         this.traces = Objects.requireNonNull(traces, "traces");
+        this.webServiceLogs = Objects.requireNonNull(webServiceLogs, "webServiceLogs");
         this.limiter = Objects.requireNonNull(limiter, "limiter");
     }
 
@@ -57,10 +59,7 @@ public final class CliServerLogAdapter implements ServerLogPort {
                  limiter.acquireForHelper(server, wait, "cliExportTimeout")) {
             return switch (kind) {
                 case TRACE -> traces.download(remaining(deadlineNanos));
-                case WEBSERVICE -> throw new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
-                    "web service log channel not wired",
-                    "The web service log download is not part of this build yet",
-                    "Download the log in the Workbench").withNode(server.id()));
+                case WEBSERVICE -> webServiceLogs.download(version, deadlineNanos);
             };
         } catch (ToolErrorException e) {
             if (e.error().code() != ErrorCode.TIMEOUT) {

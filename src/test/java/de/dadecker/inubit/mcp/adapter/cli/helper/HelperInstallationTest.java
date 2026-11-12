@@ -174,6 +174,27 @@ class HelperInstallationTest {
         assertThat(tempRoot).isEmptyDirectory();
     }
 
+    @Test
+    void aServerLogInstallationIsALogDirectoryAndItsTextsNameTheClientHelper() throws Exception {
+        Path home = client("client");
+        Path jdk = jdk();
+
+        try (HelperInstallation installation = HelperInstallation.install(host(),
+            selection(node().cliHome(home).cliJavaHome(jdk)), Optional.of(jdk.toString()),
+            HelperInstallation.Use.SERVER_LOG)) {
+            assertThat(installation.directory().getParent()).isEqualTo(tempRoot);
+            assertThat(installation.directory().getFileName().toString())
+                .matches("inubit-mcp-log-acme-" + ProcessHandle.current().pid() + "-[0-9]+");
+        }
+        ToolError error = refused(() -> HelperInstallation.install(host(),
+            selection(node().cliClient("9.0", client("client-90"), Optional.empty())),
+            Optional.of(jdk.toString()), HelperInstallation.Use.SERVER_LOG));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(error.message()).isEqualTo("The INUBIT client helper cannot be started for"
+            + " int/a (INUBIT 8.1.17): no INUBIT client installation is configured");
+    }
+
     // --- preconditions: CLI_UNAVAILABLE, nothing created (D-3, D-8) -----------------------
 
     @Test

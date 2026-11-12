@@ -9,6 +9,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliTraceRunner;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.log.CliServerLogAdapter;
+import de.dadecker.inubit.mcp.adapter.cli.log.CliWebServiceLogAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.queue.CliQueueEntryAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ArtifactAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ImportAdapter;
@@ -35,7 +36,7 @@ final class V81PortSet {
      * credentials and credential guard, the factory's StartCLI runner, and the shared
      * {@code host}, {@code processRun} and StartCLI slot {@code limiter}. The server-log
      * download (feature 021, research D-15) runs with the same credentials, guard, runner and
-     * {@code limiter}.
+     * {@code limiter}, the web service log with the same {@code host} and {@code processRun}.
      */
     static PortSet create(PortSetRegistry.NodeResources node, HelperInstallation.Host host,
         ProcessRun processRun, CliConcurrencyLimiter limiter) {
@@ -45,7 +46,10 @@ final class V81PortSet {
             node.scrubber());
         ServerLogPort serverLogs = new CliServerLogAdapter(node.server(),
             new CliTraceRunner(node.server(), node.credentials(), node.guard(), node.cliRunner(),
-                classifier(node)), limiter);
+                classifier(node)),
+            new CliWebServiceLogAdapter(node.server(), node::credentials, node.guard(),
+                node.cliRunner(), host, processRun, node.scrubber()),
+            limiter);
         return new PortSet(ports.processes(), ports.logs(), ports.inventory(),
             ports.processControl(), ports.artifacts(), ports.imports(), ports.tags(),
             ports.partners(), queueEntries, serverLogs);

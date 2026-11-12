@@ -59,8 +59,8 @@ public final class WebServiceLogClassifier {
     private static final String NOT_FOUND = "not found on";
 
     private static final HelperFailures.Subject SUBJECT = new HelperFailures.Subject(
-        "client helper", "download_server_log",
-        "Download the log in the Workbench (Cluster Manager); report the INUBIT version",
+        "INUBIT client helper", "download_server_log",
+        "Download the log in the Workbench; report the INUBIT version",
         "refused the web service log download for the configured user",
         "The INUBIT user of this node lacks the right to download server logs",
         "Give the user the right the Workbench's Cluster Manager needs (Configuration)");
@@ -173,8 +173,9 @@ public final class WebServiceLogClassifier {
     private Outcome downloaded(HelperRequest request, String name, Frame log) {
         if (!NODE_NAME.matcher(name).matches()) {
             // the name itself is not repeated: it is not known to be safe to show
-            return new Failure(failures.unexpected("The client helper reported an INUBIT node"
-                + " name that is not 1-128 characters of A-Z, a-z, 0-9, '_', '.', ':' and '-'"),
+            return new Failure(failures.unexpected("The INUBIT client helper reported an INUBIT"
+                + " node name that is not 1-128 characters of A-Z, a-z, 0-9, '_', '.', ':' and"
+                + " '-'"),
                 Login.ACCEPTED);
         }
         if (log instanceof PartOk ok) {

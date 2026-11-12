@@ -18,7 +18,9 @@ import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliTraceRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.log.CliServerLogAdapter;
+import de.dadecker.inubit.mcp.adapter.cli.log.CliWebServiceLogAdapter;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
@@ -54,11 +56,13 @@ import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -74,12 +78,14 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Feature 021 T029 (FR-015, SC-003, research D-18): a {@code download_server_log} call logs
+ * Feature 021 T029, T041 (FR-015, SC-003, research D-18): a {@code download_server_log} call logs
  * exactly one INFO line naming the node, the log, the file name, its size, the scanned window and
- * the outcome; the trace runner adds one DEBUG line naming the client home and the JDK. Neither
- * the log content, an excerpt line, the {@code contains} text, StartCLI's output nor a credential
- * appears in any log line at any level. The service runs over the real {@link CliServerLogAdapter}
- * and {@link CliTraceRunner}, with StartCLI replaying the 8.1 trace fixtures.
+ * the outcome; the trace runner adds one DEBUG line naming the client home and the JDK, the web
+ * service log adapter one naming the helper variant, the client home and the JDK. Neither the log
+ * content, an excerpt line, the {@code contains} text, StartCLI's or the helper's output, the
+ * helper request nor a credential appears in any log line at any level. The service runs over the
+ * real {@link CliServerLogAdapter}, {@link CliTraceRunner} and {@link CliWebServiceLogAdapter},
+ * with StartCLI replaying the 8.1 trace fixtures and the helper answering with frames.
  */
 @Timeout(30)
 class ServerLogLoggingTest {
@@ -94,12 +100,14 @@ class ServerLogLoggingTest {
     private static final Pattern DOWNLOAD = Pattern.compile("--download '([^']+)'");
     private static final CapabilityMatrix MATRIX = new CapabilityMatrix(List.of(
         new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1),
-            Map.of(Capability.TRACE_LOG_READ, SupportState.SUPPORTED))),
+            Map.of(Capability.TRACE_LOG_READ, SupportState.SUPPORTED,
+                Capability.WEBSERVICE_LOG_READ, SupportState.SUPPORTED))),
         Map.of());
     /** The {@code contains} text, which must never be logged (it may be a guessed secret). */
     private static final String CONTAINS = "Needle-Contains-0001";
     private static final String EXCERPT_TEXT = "Excerpt-Line-0001";
     private static final String STARTCLI_TEXT = "StartCLI-Output-0001";
+    private static final String HELPER_TEXT = "Helper-Output-0001";
     /** Secret-looking log content: a configured password and a value under a credential name. */
     private static final String CONTENT = String.join("\n",
         "2026-11-12 09:59:57,001 INFO  [acme.Login] login with " + TestSecrets.CONFIGURED_PASSWORD,
@@ -215,10 +223,42 @@ class ServerLogLoggingTest {
         TestSecrets.assertNoLeak(allLines());
     }
 
+    @Test
+    void aWebServiceCallLogsTheVariantButNeitherRequestNorHelperOutput() throws IOException {
+        Path jdk = Files.createDirectories(root.resolve("jdk-17").resolve("bin")).getParent();
+        Files.createFile(jdk.resolve("bin").resolve(Platform.windows() ? "java.exe" : "java"))
+            .toFile().setExecutable(true);
+        Files.createDirectories(client81.resolve("lib"));
+        Files.createFile(client81.resolve("lib").resolve("ibis.jar"));
+        Files.createDirectories(root.resolve("tmp"));
+        server = TestNodeConfig.node().versionLine(VersionSetting.AUTO)
+            .baseUrl("http://inubit.example.test:8000").allowInsecureHttp(true)
+            .cliClient("8.1", client81, Optional.of(jdk)).build();
+        launcher = helper(CONTENT);
+
+        ServerLogResult result = service().download(request("webservice", Optional.of(CONTAINS)));
+
+        assertThat(infoLines()).containsExactly("download_server_log on dev/node1: log webservice,"
+            + " file dev-node1-webservice-20261112-100000.log, "
+            + CONTENT.getBytes(StandardCharsets.UTF_8).length + " bytes, window 3, outcome OK");
+        assertThat(debugLines()).contains("dev/node1: web service log download, INUBIT client"
+            + " helper SOAP_81, client " + client81 + ", JDK " + jdk);
+        String logged = allLines();
+        assertThat(logged).doesNotContain(EXCERPT_TEXT, "Other-Line-0001", CONTAINS, "acme.Login",
+            HELPER_TEXT, "#QE1", "serverLog", "logOut", "node ok", "part log");
+        TestSecrets.assertNoLeak(logged);
+        assertThat(result.excerpt().orElseThrow().lines()).extracting(ExcerptLine::text)
+            .anySatisfy(text -> assertThat(text).contains(EXCERPT_TEXT));
+    }
+
     // --- helpers ------------------------------------------------------------------------------
 
     private ServerLogRequest request(Optional<String> contains) {
-        return new ServerLogRequest(DEV.value(), "trace", root.resolve("logs").toString(),
+        return request("trace", contains);
+    }
+
+    private ServerLogRequest request(String log, Optional<String> contains) {
+        return new ServerLogRequest(DEV.value(), log, root.resolve("logs").toString(),
             OptionalInt.empty(), contains, OptionalInt.empty(), Optional.empty());
     }
 
@@ -234,7 +274,12 @@ class ServerLogLoggingTest {
             new CredentialGuard(storeLabels("INUBIT", DEV), clock), runner,
             new CliOutputClassifier(new SecretScrubber(), server.secretLabels(),
                 runner.windows()));
-        ServerLogPort port = new CliServerLogAdapter(server, traces,
+        CliWebServiceLogAdapter webServiceLogs = new CliWebServiceLogAdapter(server,
+            () -> credentials, new CredentialGuard(storeLabels("INUBIT", DEV), clock), runner,
+            TestCliRunners.helperHost(Map.of("PATH", Platform.searchPath()), resources,
+                root.resolve("tmp")),
+            new ProcessRun(launcher, resources), new SecretScrubber());
+        ServerLogPort port = new CliServerLogAdapter(server, traces, webServiceLogs,
             new CliConcurrencyLimiter(CapabilityMatrix.production()));
         TargetFolderRules rules = new TargetFolderRules(root.resolve("home"),
             root.resolve("workspace"), root.resolve("audit"), List.of(root.resolve("config")),
@@ -266,6 +311,36 @@ class ServerLogLoggingTest {
                     }
                 }
             });
+    }
+
+    /**
+     * The INUBIT client helper writing {@code log} to the request's {@code logOut} and answering
+     * with the frames of a download from INUBIT node {@code node1}, after a secret-looking line of
+     * its own output.
+     */
+    private static FakeProcessLauncher helper(String log) {
+        return FakeProcessLauncher.of("", "", 0).responding(request -> {
+            Map<String, String> fields = new HashMap<>();
+            for (String line : new String(request, StandardCharsets.US_ASCII).split("\n")) {
+                int equals = line.indexOf('=');
+                if (equals > 0) {
+                    fields.put(line.substring(0, equals),
+                        URLDecoder.decode(line.substring(equals + 1), StandardCharsets.UTF_8));
+                }
+            }
+            try {
+                Files.writeString(Path.of(fields.get("logOut")), log);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+            String prefix = "#QE1:" + fields.get("nonce") + " ";
+            return new FakeProcessLauncher.Answer(HELPER_TEXT + " "
+                + TestSecrets.CONFIGURED_PASSWORD + "\n"
+                + String.join("\n", prefix + "start SOAP_81", prefix + "login ok",
+                    prefix + "node ok node1",
+                    prefix + "part log ok " + log.getBytes(StandardCharsets.UTF_8).length,
+                    prefix + "end", ""), 0);
+        });
     }
 
     private static String fixture(String name) {

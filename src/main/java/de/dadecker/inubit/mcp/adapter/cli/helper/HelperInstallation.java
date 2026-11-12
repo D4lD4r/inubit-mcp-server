@@ -25,8 +25,9 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * The installation of the queue-entry helper for one call (feature 020, research D-2, D-3, D-8):
- * the private directory {@code <tmp>/inubit-mcp-queue-<profile>-<pid>-<random>} with
+ * The installation of the helper for one call (feature 020, research D-2, D-3, D-8): the private
+ * directory {@code <tmp>/inubit-mcp-queue-<profile>-<pid>-<random>} (for a server log
+ * {@code inubit-mcp-log-…}, feature 021 research D-7) with
  * {@code helper/} (the helper class from the MCP server's own jar), {@code vendor/} (the
  * client's {@code java.io.tmpdir}), {@code out/} (the content files) and, written by the caller,
  * {@link HelperTrustStore#FILE_NAME}; and the argument array that starts the helper on the
@@ -65,6 +66,28 @@ public final class HelperInstallation implements AutoCloseable {
         }
     }
 
+    /** What the helper runs for; names it in the texts and chooses the directory's prefix. */
+    public enum Use {
+        /** The queue-entry read of feature 020: {@code inubit-mcp-queue-…}. */
+        QUEUE_ENTRY("the queue-entry helper"),
+        /** The server-log download of feature 021: {@code inubit-mcp-log-…}. */
+        SERVER_LOG("the INUBIT client helper");
+
+        private final String label;
+
+        Use(String label) {
+            this.label = label;
+        }
+
+        private String subject() {
+            return "T" + label.substring(1);
+        }
+
+        private String prefix(CliResources resources) {
+            return this == QUEUE_ENTRY ? resources.queuePrefix() : resources.logPrefix();
+        }
+    }
+
     private final Path directory;
     private final LaunchSpec launchSpec;
     private final CliResources.Registration registration;
@@ -77,7 +100,8 @@ public final class HelperInstallation implements AutoCloseable {
     }
 
     /**
-     * Checks the preconditions, then creates and fills the private directory.
+     * Checks the preconditions, then creates and fills the private directory, for
+     * {@link Use#QUEUE_ENTRY}.
      *
      * @param selection the client chosen for the node and its version
      * @param javaHome  the effective Java home ({@link CliRunner#javaHome})
@@ -88,41 +112,51 @@ public final class HelperInstallation implements AutoCloseable {
      */
     public static HelperInstallation install(Host host, CliRunner.Selection selection,
         Optional<String> javaHome) {
-        return install(host, selection, javaHome, HelperInstallation.class.getClassLoader());
+        return install(host, selection, javaHome, Use.QUEUE_ENTRY);
+    }
+
+    /** As above, for {@code use}. */
+    public static HelperInstallation install(Host host, CliRunner.Selection selection,
+        Optional<String> javaHome, Use use) {
+        return install(host, selection, javaHome, use, HelperInstallation.class.getClassLoader());
     }
 
     static HelperInstallation install(Host host, CliRunner.Selection selection,
         Optional<String> javaHome, ClassLoader loader) {
+        return install(host, selection, javaHome, Use.QUEUE_ENTRY, loader);
+    }
+
+    private static HelperInstallation install(Host host, CliRunner.Selection selection,
+        Optional<String> javaHome, Use use, ClassLoader loader) {
         NodeId node = selection.server().id();
-        Launch launch = check(host, selection, javaHome);
+        Launch launch = check(host, selection, javaHome, use);
         CliResources.Reservation reservation;
         try {
             reservation = host.resources().reserve();
         } catch (ToolErrorException e) {
-            throw shuttingDown(e, node);
+            throw shuttingDown(e, node, use);
         }
         PrivateFileSystem files = host.resources().files();
         Path directory;
         try {
-            directory = files.createTempDirectory(host.tempRoot(),
-                host.resources().queuePrefix());
+            directory = files.createTempDirectory(host.tempRoot(), use.prefix(host.resources()));
         } catch (IOException | UnsupportedOperationException e) {
             reservation.close();
-            throw noPrivateDirectory(host, node, e);
+            throw noPrivateDirectory(host, node, use, e);
         }
         CliResources.Registration registration;
         try {
             registration = reservation.directory(directory);
         } catch (ToolErrorException e) {
-            throw shuttingDown(e, node);
+            throw shuttingDown(e, node, use);
         }
         try {
             fill(files, directory);
-            copyHelper(directory, loader, host, node);
+            copyHelper(directory, loader, host, node, use);
             return new HelperInstallation(directory, launch.spec(host, directory), registration);
         } catch (IOException | UnsupportedOperationException e) {
             registration.close();
-            throw noPrivateDirectory(host, node, e);
+            throw noPrivateDirectory(host, node, use, e);
         } catch (RuntimeException e) {
             registration.close();
             throw e;
@@ -181,9 +215,9 @@ public final class HelperInstallation implements AutoCloseable {
     }
 
     private static Launch check(Host host, CliRunner.Selection selection,
-        Optional<String> javaHome) {
+        Optional<String> javaHome, Use use) {
         EffectiveNodeConfig server = selection.server();
-        String prefix = "The queue-entry helper cannot be started for " + server.id()
+        String prefix = use.subject() + " cannot be started for " + server.id()
             + selection.version().map(version -> " (INUBIT " + version.raw() + ")").orElse("")
             + ": ";
         Optional<MajorMinor> line = selection.choice().entry()
@@ -272,11 +306,12 @@ public final class HelperInstallation implements AutoCloseable {
     }
 
     /** Copies the helper class into {@code helper/}. */
-    private static void copyHelper(Path directory, ClassLoader loader, Host host, NodeId node) {
+    private static void copyHelper(Path directory, ClassLoader loader, Host host, NodeId node,
+        Use use) {
         try (InputStream in = loader.getResourceAsStream(RESOURCE)) {
             if (in == null) {
                 throw new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
-                    "The queue-entry helper is missing from the MCP server's build; it was not"
+                    use.subject() + " is missing from the MCP server's build; it was not"
                         + " started for " + node,
                     "The build is incomplete",
                     "Rebuild or reinstall the MCP server").withNode(node));
@@ -286,7 +321,7 @@ public final class HelperInstallation implements AutoCloseable {
             Files.copy(in, target);
         } catch (IOException e) {
             throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
-                "The queue-entry helper could not be copied into its private temporary"
+                use.subject() + " could not be copied into its private temporary"
                     + " directory for " + node + " (" + e.getClass().getSimpleName() + ")",
                 "Writing to the temporary directory failed; it may be full",
                 "Make sure the temporary directory " + host.tempRoot() + " has free space and is"
@@ -296,17 +331,17 @@ public final class HelperInstallation implements AutoCloseable {
     }
 
     /** {@link CliResources#reserve()} refused: the texts name the helper, not StartCLI (D-3). */
-    private static ToolErrorException shuttingDown(ToolErrorException e, NodeId node) {
+    private static ToolErrorException shuttingDown(ToolErrorException e, NodeId node, Use use) {
         ToolError refused = e.error();
         return new ToolErrorException(ToolError.of(refused.code(),
-            "The MCP server is shutting down; the queue-entry helper was not started for "
-                + node,
+            "The MCP server is shutting down; " + use.label + " was not started for " + node,
             refused.likelyCause(), refused.nextStep()).withNode(node));
     }
 
-    private static ToolErrorException noPrivateDirectory(Host host, NodeId node, Exception e) {
+    private static ToolErrorException noPrivateDirectory(Host host, NodeId node, Use use,
+        Exception e) {
         return new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
-            "No private temporary directory for the queue-entry helper on " + node + " ("
+            "No private temporary directory for " + use.label + " on " + node + " ("
                 + e.getClass().getSimpleName() + ")",
             CliResources.NO_PRIVATE_ACCESS,
             CliResources.privateDirectoryStep(host.tempRoot(), host.windows())).withNode(node));
