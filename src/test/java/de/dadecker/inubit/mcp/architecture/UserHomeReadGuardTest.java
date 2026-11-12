@@ -40,7 +40,8 @@ class UserHomeReadGuardTest {
         "\"user\\.home\"|\\bgetenv\\s*\\(\\s*(?:\\)\\s*\\.\\s*(?:get|getOrDefault)\\s*\\(\\s*)?"
             + "\"(?:HOME|USERPROFILE)\"\\s*[,)]");
     private static final Pattern CONSTANT = Pattern.compile(
-        "\\bstatic\\s+final\\s+String\\s+(\\w+)\\s*=\\s*\"(?:user\\.home|HOME|USERPROFILE)\"\\s*;");
+        "\\b(?:static\\s+final|final\\s+static)\\s+String\\s+(\\w+)\\s*=\\s*"
+            + "\"(?:user\\.home|HOME|USERPROFILE)\"\\s*;");
 
     @Test
     void onlyLauncherContextSystemReadsTheProcessHome() throws IOException {
@@ -120,6 +121,15 @@ class UserHomeReadGuardTest {
     }
 
     @Test
+    void aReadThroughAConstantWithEitherModifierOrderIsReported() {
+        String snippet = """
+            private final static String VARIABLE = "USERPROFILE";
+            Path home = Path.of(System.getenv(VARIABLE));
+            """;
+        assertThat(readLines(snippet)).containsExactly(2);
+    }
+
+    @Test
     void aLookupInTheEnvironmentMapIsReported() {
         assertThat(readLines("String home = System.getenv().getOrDefault(\"HOME\", \"/\");"))
             .containsExactly(1);
@@ -155,8 +165,15 @@ class UserHomeReadGuardTest {
         Scanned scanned = scan(source);
         String code = scanned.code();
         Matcher signature = ALLOWED_PLACE.matcher(code);
-        assertThat(signature.find()).as("static Context system( in Launcher.java").isTrue();
-        int open = code.indexOf('{', signature.end());
+        boolean found;
+        do {
+            found = signature.find();
+        } while (found && scanned.literal().get(signature.start()));
+        assertThat(found).as("static Context system( in Launcher.java").isTrue();
+        int open = signature.end();
+        while (code.charAt(open) != '{' || scanned.literal().get(open)) {
+            open++;
+        }
         int depth = 0;
         for (int i = open; i < code.length(); i++) {
             if (scanned.literal().get(i)) {
