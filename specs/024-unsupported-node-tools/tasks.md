@@ -124,7 +124,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
 
 ### Domain types used by the helper protocol (plan stage 4; D-7, D-8, D-10, D-11, D-24)
 
-- [ ] T006 [P] Node domain types (pure; D-7, D-10, D-11): `domain/model/node/NodeStatus.java`
+- [X] T006 [P] Node domain types (pure; D-7, D-10, D-11): `domain/model/node/NodeStatus.java`
   (`of(Optional<String>)`), `ClusterNode.java`, `NodeDetail.java`, `ClusterNodes.java` (with
   `Details` = `Available` | `Unavailable`), `NodeConfigName.java`,
   `NodeConfigValue.java` (`Present` | `Absent` | `Failed`), `LoggerName.java`,
@@ -133,7 +133,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   bounds), `NodeConfigNameTest.java` (exactly the 20 names, case-sensitive parse),
   `LoggerNameTest.java` (`com.inubit.ibis.acme.Orders` ok; `com.inubit.ibis`, `com.inubit.ibisx.a`,
   `org.acme.A`, `com.inubit.ibis.a$B`, `com.inubit.ibis..a`, > 200 chars, a quote, a space → refused)
-- [ ] T007 [P] I/O logging domain (pure; D-8): `domain/model/node/IoDirection.java`,
+- [X] T007 [P] I/O logging domain (pure; D-8): `domain/model/node/IoDirection.java`,
   `IoMessageRef.java` (`of(String entry)` SHA-256/Base64url 16 bytes; pattern),
   `IoLogEntry.java` (`parse(String processId, String entry)`: module part split at the last `(` of
   a part ending in `)`; unparsable module part kept raw with a flag; foreign process id →
