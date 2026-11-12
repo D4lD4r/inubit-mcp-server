@@ -69,18 +69,21 @@ public final class HelperInstallation implements AutoCloseable {
     /** What the helper runs for; names it in the texts and chooses the directory's prefix. */
     public enum Use {
         /** The queue-entry read of feature 020: {@code inubit-mcp-queue-…}. */
-        QUEUE_ENTRY("the queue-entry helper"),
+        QUEUE_ENTRY("the queue-entry helper", "The queue-entry helper"),
         /** The server-log download of feature 021: {@code inubit-mcp-log-…}. */
-        SERVER_LOG("the INUBIT client helper");
+        SERVER_LOG("the INUBIT client helper", "The INUBIT client helper");
 
         private final String label;
+        private final String subject;
 
-        Use(String label) {
+        Use(String label, String subject) {
             this.label = label;
+            this.subject = subject;
         }
 
-        private String subject() {
-            return "T" + label.substring(1);
+        /** The name at the start of a sentence. */
+        String subject() {
+            return subject;
         }
 
         private String prefix(CliResources resources) {

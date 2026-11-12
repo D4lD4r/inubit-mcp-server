@@ -386,6 +386,46 @@ class MainTest {
     }
 
     @Test
+    void checkConfigShowsTheServerLogReadStateAndWarnsAboutAProductionOptIn() throws IOException {
+        // feature 021 (T042, FR-016, US2-6, research D-17)
+        credentials();
+        entries.put("INUBIT_ACME_PROD_USERNAME", "prod-user");
+        entries.put("INUBIT_ACME_PROD_PASSWORD", "prod-Password-3");
+        Files.createDirectories(home.resolve("workspace"));
+        Path file = config("""
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+              - name: prod
+                production: true
+                unsupported:
+                  serverLogRead: true
+                nodes:
+                  - name: node2
+                    baseUrl: https://node2.example.test:8443
+            """.formatted(home.resolve("audit"), home.resolve("workspace")));
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(err()).isZero();
+        assertThat(out()).contains("\nGroup dev: archives: allowed, serverLogRead: off\n",
+            "\nGroup prod (production): archives: refused (no archives.productionOptIn),"
+                + " serverLogRead: enabled (unsupported)\n",
+            "\nWarnings:\n  - unsupported.serverLogRead is enabled on production group prod: the"
+                + " web service log is read through an undocumented INUBIT interface without"
+                + " vendor support\nResult: OK\n");
+        TestSecrets.assertNoLeak(out());
+        TestSecrets.assertNoLeak(err());
+    }
+
+    @Test
     void checkConfigExitsOneOnAMissingEntryAndNamesItButStartsTheServer() throws IOException {
         // feature 011 (T017, US4-2, quickstart Q15): an error of --check-config, never a value;
         // the server itself starts (the entry is read on first use)
@@ -2184,6 +2224,36 @@ class MainTest {
         lines.forEach(TestSecrets::assertNoLeak);
         assertThat(startupLogOfAnInitializedServer(validConfig()))
             .noneMatch(line -> line.contains("queueEntryRead"));
+    }
+
+    @Test
+    void aServerLogReadOptInOnAProductionGroupIsWarnedAboutInTheStartupLog() throws Exception {
+        // feature 021 (T042, FR-016, US2-6, research D-17)
+        credentials();
+        Path file = config("""
+            profile:
+              name: acme
+            auditDirectory: %s
+            groups:
+              - name: dev
+                production: true
+                unsupported:
+                  serverLogRead: true
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+            """.formatted(home.resolve("audit")));
+
+        List<String> lines = startupLogOfAnInitializedServer(file);
+
+        assertThat(lines).filteredOn(line -> line.contains("serverLogRead")).containsExactly(
+            "Configuration: unsupported.serverLogRead is enabled on production group dev: the web"
+                + " service log is read through an undocumented INUBIT interface without vendor"
+                + " support");
+        lines.forEach(TestSecrets::assertNoLeak);
+        assertThat(startupLogOfAnInitializedServer(validConfig()))
+            .noneMatch(line -> line.contains("serverLogRead"));
     }
 
     // --- feature 020 T030: read_queue_entry only under its opt-in (FR-002, SC-002) ----------

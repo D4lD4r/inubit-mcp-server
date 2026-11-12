@@ -715,7 +715,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   `TIMEOUT` names `cliExportTimeout`, `TIMEOUT` leaves nothing; in
   `application/ServerLogLoggingTest.java` a webservice call: the variant `DEBUG` line, no request
   line, no frame and no helper output at any level; leak check
-- [ ] T042 [US2] Configuration view (FR-016, US2-6, D-17; after T009, which changes the same
+- [X] T042 [US2] Configuration view (FR-016, US2-6, D-17; after T009, which changes the same
   `ConfigSummary.java`, `ConfigSummaryTest.java` and `MainTest.java`; not concurrently with T031 or
   T033, which also change `MainTest.java`):
   `config/ConfigValidator.java` `checkServerLogReadOptIn`: warning on a `production: true` group

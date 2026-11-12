@@ -195,6 +195,18 @@ class HelperInstallationTest {
             + " int/a (INUBIT 8.1.17): no INUBIT client installation is configured");
     }
 
+    @Test
+    void everyUseHasItsOwnSentenceStartText() {
+        // the sentence start is given per constant, not derived from a label starting with "the";
+        // the switch has no default, so a new constant cannot compile without its texts
+        for (HelperInstallation.Use use : HelperInstallation.Use.values()) {
+            assertThat(use.subject()).as(use.name()).isEqualTo(switch (use) {
+                case QUEUE_ENTRY -> "The queue-entry helper";
+                case SERVER_LOG -> "The INUBIT client helper";
+            });
+        }
+    }
+
     // --- preconditions: CLI_UNAVAILABLE, nothing created (D-3, D-8) -----------------------
 
     @Test

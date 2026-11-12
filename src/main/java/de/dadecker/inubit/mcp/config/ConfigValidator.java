@@ -204,6 +204,7 @@ public final class ConfigValidator {
         checkRepositorySwitch(config, findings);
         checkArchivesOptIn(config, findings);
         checkQueueEntryReadOptIn(config, findings);
+        checkServerLogReadOptIn(config, findings);
         checkE2eNodeNames(config, findings);
         checkChain(config, findings);
         boolean cliConfigured = !config.defaults().cliClients().isEmpty()
@@ -1171,6 +1172,21 @@ public final class ConfigValidator {
                 findings.termWarning("unsupported.queueEntryRead is enabled on production {group}"
                     + " %s: Queue Manager entries are read through an undocumented INUBIT"
                     + " interface without vendor support", group.name());
+            }
+        }
+    }
+
+    /**
+     * Feature 021 (FR-016, US2-6, research D-17): {@code unsupported.serverLogRead: true} on a
+     * group with {@code production: true} is a warning.
+     */
+    private static void checkServerLogReadOptIn(ProfileConfig config, Findings findings) {
+        for (GroupConfig group : config.groups()) {
+            if (group.production()
+                && group.unsupported().serverLogRead().equals(Optional.of(true))) {
+                findings.termWarning("unsupported.serverLogRead is enabled on production {group}"
+                    + " %s: the web service log is read through an undocumented INUBIT interface"
+                    + " without vendor support", group.name());
             }
         }
     }

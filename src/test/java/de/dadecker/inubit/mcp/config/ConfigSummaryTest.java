@@ -422,6 +422,81 @@ class ConfigSummaryTest {
                 + " support\n");
     }
 
+    // --- feature 021 T042: unsupported.serverLogRead (FR-016, US2-6, D-17) -----------------------
+
+    private static final String TEST_LOG_OPT_IN = CONFIG.replace(
+        "    cli:\n      home: /opt/client\n",
+        "    unsupported:\n      serverLogRead: true\n    cli:\n      home: /opt/client\n");
+
+    @Test
+    void withoutTheServerLogOptInNoLineMentionsIt() {
+        String unset = CONFIG.replace("    production: true\n",
+            "    production: true\n    unsupported:\n      serverLogRead: false\n");
+
+        assertThat(unset).isNotEqualTo(CONFIG);
+        assertThat(render(CONFIG)).doesNotContain("serverLogRead");
+        assertThat(render(unset)).as("an explicit false is the same as no opt-in")
+            .isEqualTo(render(CONFIG));
+        assertThat(render(TEST_OPT_IN)).as("the queueEntryRead opt-in alone")
+            .doesNotContain("serverLogRead");
+    }
+
+    @Test
+    void theServerLogOptInAppendsTheStateToEveryGroupLineAndChangesNothingElse() {
+        String summary = render(TEST_LOG_OPT_IN);
+
+        assertThat(TEST_LOG_OPT_IN).isNotEqualTo(CONFIG);
+        assertThat(summary).isEqualTo(render(CONFIG)
+            .replace("\nGroup test: archives: allowed\n",
+                "\nGroup test: archives: allowed, serverLogRead: enabled (unsupported)\n")
+            .replace("\nGroup prod (production): archives: refused (no"
+                + " archives.productionOptIn)\n", "\nGroup prod (production): archives:"
+                + " refused (no archives.productionOptIn), serverLogRead: off\n"));
+        assertThat(summary).doesNotContain("is enabled on production");
+        TestSecrets.assertNoLeak(summary);
+    }
+
+    @Test
+    void theServerLogOptInOnAProductionGroupShowsTheStateAndTheWarning() {
+        String summary = render(CONFIG.replace("    production: true\n",
+            "    production: true\n    unsupported:\n      serverLogRead: true\n"));
+
+        assertThat(summary).contains("\nGroup test: archives: allowed, serverLogRead: off\n",
+            "\nGroup prod (production): archives: refused (no archives.productionOptIn),"
+                + " serverLogRead: enabled (unsupported)\n",
+            "Warnings:\n", "\n  - unsupported.serverLogRead is enabled on production group prod:"
+                + " the web service log is read through an undocumented INUBIT interface without"
+                + " vendor support\n", "Result: OK");
+        TestSecrets.assertNoLeak(summary);
+    }
+
+    @Test
+    void withBothOptInsTheServerLogStateFollowsTheQueueEntryReadState() {
+        String summary = render(TEST_OPT_IN.replace("    production: true\n",
+            "    production: true\n    unsupported:\n      serverLogRead: true\n"));
+
+        assertThat(summary).contains("\nGroup test: archives: allowed,"
+                + " queueEntryRead: enabled (unsupported), serverLogRead: off\n",
+            "\nGroup prod (production): archives: refused (no archives.productionOptIn),"
+                + " queueEntryRead: off, serverLogRead: enabled (unsupported)\n");
+    }
+
+    @Test
+    void aServerLogOptInOfAGroupWithoutAResolvableNodeStillShowsTheStateOfTheOtherGroups() {
+        String summary = render(CONFIG + """
+              - name: qa
+                unsupported:
+                  serverLogRead: true
+                nodes:
+                  - name: inubit01
+            """);
+
+        assertThat(summary).contains("\nGroup test: archives: allowed, serverLogRead: off\n",
+            "\nGroup prod (production): archives: refused (no archives.productionOptIn),"
+                + " serverLogRead: off\n");
+        assertThat(summary).doesNotContain("Group qa");
+    }
+
     @Test
     void showsTheCredentialPrefixAndTheAuditDirectoryOfTheProfile() {
         // 002 US2: what keeps this profile apart from others running side by side
