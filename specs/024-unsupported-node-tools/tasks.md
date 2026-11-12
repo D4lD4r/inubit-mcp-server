@@ -164,14 +164,14 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   of the four operations → exit 2 and no vendor call; a key of another operation → exit 2; leak
   check on frames); `git diff --stat src/test/resources/fixtures/queue-entry
   src/test/resources/fixtures/server-log` empty
-- [ ] T009 [P] Frames (D-2): `adapter/cli/helper/HelperFrames.java` `+ Member`, `MembersOk`,
+- [X] T009 [P] Frames (D-2): `adapter/cli/helper/HelperFrames.java` `+ Member`, `MembersOk`,
   `MembersError`, `Detail` (with `cut`), `DetailsOk`, `DetailsError`, `DetailsUnknown`, `ConfigOk`,
   `ConfigAbsent`, `ConfigError`, `IoListOk`, `IoListError`, `IoMatch(Optional<String>)`, part
   `MESSAGE` in `PartOk`/`PartError`; token counts and `-` handling per frame; unknown or malformed
   frame → protocol error. Failing tests first in `adapter/cli/helper/HelperFramesTest.java` (each
   frame parsed; wrong token count, unknown frame, foreign nonce, frames after `end` → protocol
   error; the 1 MiB cap unchanged; 020/021 frames unchanged)
-- [ ] T010 [P] Fake vendor classes (D-27) in the test tree `src/test/java/com/inubit/ibis/…`:
+- [X] T010 [P] Fake vendor classes (D-27) in the test tree `src/test/java/com/inubit/ibis/…`:
   `server/cluster/ClusterClient.java` `+ getNodes()`, `getNode(NodeName)`,
   `getNodeConfigurationProperty(NodeName, String)` and — throwing a test failure when called —
   `setNodeConfigurationProperty`, `changeTemporaryLogLevel`, `resetTemporaryLogLevel`,

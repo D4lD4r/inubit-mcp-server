@@ -218,7 +218,7 @@ public final class QueueEntryHelperClassifier {
             case DATA -> EntryPart.DATA;
             case VARIABLES -> EntryPart.VARIABLES;
             // partFrames lets only the requested queue-entry parts through
-            case LOG -> throw new IllegalStateException("not a queue-entry part");
+            case LOG, MESSAGE -> throw new IllegalStateException("not a queue-entry part");
         };
     }
 }

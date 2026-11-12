@@ -27,5 +27,13 @@ public class InubitClientFactory {
             script.record("RestClient.loginUserCli", user, password);
             script.login();
         }
+
+        @Override
+        public String getObject(String objectName, String user, String objectType)
+            throws Exception {
+            FakeInubitScript script = FakeInubitScript.active();
+            script.record("RestClient.getObject", objectName, user, objectType);
+            return script.object(objectName, objectType);
+        }
     }
 }
