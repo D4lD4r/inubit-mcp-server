@@ -29,7 +29,6 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -128,6 +127,7 @@ public final class QueueEntryService {
     private final Function<NodeId, ProcessQueryPort> processes;
     private final Function<NodeId, QueueEntryContentPort> contents;
     private final UnaryOperator<String> knownSecrets;
+    private final EntryText entryText;
 
     /**
      * @param optedIn      whether the node's group sets {@code unsupported.queueEntryRead: true}
@@ -145,6 +145,7 @@ public final class QueueEntryService {
         this.processes = Objects.requireNonNull(processes, "processes");
         this.contents = Objects.requireNonNull(contents, "contents");
         this.knownSecrets = Objects.requireNonNull(knownSecrets, "knownSecrets");
+        this.entryText = new EntryText(knownSecrets);
     }
 
     /**
@@ -196,17 +197,7 @@ public final class QueueEntryService {
         if (!(part instanceof PartResult.Read<byte[]> read)) {
             return Data.unavailable(reason(part));
         }
-        byte[] bytes = read.value();
-        Classified classified = EntryContentClassifier.classify(bytes);
-        return switch (classified.kind()) {
-            case EMPTY -> Data.empty();
-            case BINARY -> Data.binary(bytes.length, classified.detected());
-            case TEXT -> {
-                String masked = masked(classified.text().orElseThrow());
-                yield Data.text(classified.charset().map(Charset::name).orElseThrow(),
-                    bytes.length, masked.length(), QueueEntryBounds.cut(masked, maxChars));
-            }
-        };
+        return entryText.data(read.value(), maxChars);
     }
 
     private Variables variables(PartResult<List<RawVariable>> part) {
@@ -241,7 +232,7 @@ public final class QueueEntryService {
         Classified classified = EntryContentClassifier.classify(bytes);
         if (classified.kind() == ContentKind.TEXT) {
             return text(shownName, nameTruncated, system, type,
-                masked(classified.text().orElseThrow()), false, budget);
+                entryText.masked(classified.text().orElseThrow()), false, budget);
         }
         return new Variable(shownName, nameTruncated, system, type,
             QueueEntryResult.kindName(classified.kind()), Optional.empty(),
@@ -259,11 +250,6 @@ public final class QueueEntryService {
             Optional.empty(), masked,
             truncated ? Optional.of(value.length()) : Optional.empty(),
             truncated ? Optional.of(true) : Optional.empty());
-    }
-
-    /** The configured credentials replaced, then the secret-named values masked. */
-    private String masked(String text) {
-        return SecretTextMasker.mask(knownSecrets.apply(text));
     }
 
     private String reason(PartResult<?> part) {

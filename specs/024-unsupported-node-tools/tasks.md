@@ -252,7 +252,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   password only on stdin, budget setting named in the slot-wait and process `TIMEOUT`, private
   directory deleted on success, failure, timeout and shutdown; no client home → `CLI_UNAVAILABLE`
   naming `defaults.cliClients."8.1"`; leak check) and `NodeFramesClassifierTest.java`
-- [ ] T017 [P] Content shaping shared with 020 (D-9, D-21): extract `application/EntryText.java`
+- [X] T017 [P] Content shaping shared with 020 (D-9, D-21): extract `application/EntryText.java`
   from `application/QueueEntryService.java` (`data(…)` and the `mask` step: classify →
   `knownSecrets` → `SecretTextMasker.mask` → `QueueEntryBounds.cut`), `QueueEntryService` delegates
   without behaviour change; new `application/nodetools/NodeTextMasking.java` (`mask(String)` and
