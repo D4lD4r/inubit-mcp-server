@@ -130,8 +130,9 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
     `delivered-stories`, the header `channel entry kind area story v8_1 v9_0 waits`.
   - Loading fails on a duplicate (`channel`, `entry`), a missing version state, an unknown state
     word, a reason over 120 characters, `planned` without `story`, an unknown `waits` value, a
-    `waits` value other than `-` on a row not `planned`, and a `planned` row of a delivered story
-    with `waits` = `-` (data-model `CoverageEntry`).
+    `waits` value other than `-` on a row not `planned` or on a row of a story not yet delivered,
+    and a `planned` row of a delivered story with `waits` = `-`; `waits` items are joined by `+`
+    (`L-1+9.0-pin`) (data-model `CoverageEntry`).
   - Failing tests first: `domain/model/InterfaceCoverageTest.java`, one test per failure rule and
     for `offered`.
 - [ ] T007 Initial coverage list (after T006): `src/main/resources/coverage/interface-coverage.tsv`
@@ -374,8 +375,9 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
   - `docs/research/inubit-interfaces.md`: §1.3 and §2.2 now point to the coverage page;
   - `docs/interface-coverage.md` regenerated;
   - `CHANGELOG.md` `[Unreleased]`;
-  - `delivered-stories: US1` in the TSV; every US1 row still `planned` gets its `waits` value
-    (`9.0-pin` for the 9.0 rows until T026, `L-n` for rows waiting on a live check).
+  - `delivered-stories: US1` in the TSV; every US1 row still `planned` gets its `waits` value,
+    one item per reason joined by `+` (`9.0-pin` for 9.0 until T026, `L-n` for a live check,
+    e.g. `L-1+9.0-pin`).
   - Failing first: `ArtifactToolsReferenceTest` / `DevelopmentToolsReferenceTest` extended for
     the new tool section.
   - Then open the US1 PR (phases 1–3).

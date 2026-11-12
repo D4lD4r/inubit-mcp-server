@@ -33,8 +33,9 @@ its rows then change to `workflows`.
     parameters left out (`DELETE /modules` for `?moduleName=`).
 - **Scope**: all documented entries, including those the server already sends (features
   001–021) and the excluded portal entries. Today's entries are `reachable` with their tool.
-- **`waits`**: `-`, `L-1` … `L-18`, or `9.0-pin`; set only on `planned` rows of a delivered story
-  (check 5).
+- **`waits`**: `-`, or one or more of `L-1` … `L-18` and `9.0-pin` joined by `+` (for example
+  `L-1+9.0-pin` when 8.1 waits on L-1 and 9.0 on the pin); set only on `planned` rows of a
+  delivered story (check 5), `-` everywhere else.
 - **States**: as in [data-model.md](../data-model.md) (`CoverageState`). An excluded row's reason
   is one line of at most 120 characters.
 

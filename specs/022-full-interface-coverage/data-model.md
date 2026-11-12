@@ -18,7 +18,7 @@ everything else is reused or extended.
 | `area` | `A`…`E` \| `PORTAL` \| `START` | |
 | `story` | `US1`…`US7` \| none | none only for `covered`, `excluded` or `undocumented` rows |
 | `states` | `Map<InubitLine, CoverageState>` | exactly `V8_1` and `V9_0` |
-| `waits` | `-` \| `L-n` \| `9.0-pin` | what a `planned` row of a delivered story waits for; `-` on every other row |
+| `waits` | `-`, or one or more of `L-n` and `9.0-pin` joined by `+` (e.g. `L-1+9.0-pin`) | what a `planned` row of a delivered story waits for, one item per reason; `-` on every other row |
 
 Unique key: (`channel`, `entry`).
 
@@ -55,7 +55,8 @@ Parsing fails at start on:
 - `planned` without `story`;
 - a `waits` value other than `-` on a row that is not `planned` for any version, or an unknown
   `waits` value;
-- a `planned` row of a story listed in `delivered-stories` with `waits` = `-`.
+- a `planned` row of a story listed in `delivered-stories` with `waits` = `-`;
+- a `waits` value other than `-` on a row whose story is not listed in `delivered-stories`.
 
 Unknown tool names and actions are not checked by the loader; `InterfaceCoverageCheckTest`
 checks them against the registered tools (coverage-list check 3).
