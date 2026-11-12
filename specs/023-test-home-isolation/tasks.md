@@ -35,7 +35,7 @@ to `Wiring`.
 **Independent test**: `WiringAuditTest#anImportLeavesTheRealHomeUntouched` green; quickstart step 3
 (`find ~/.inubit-mcp -newer <marker>` empty after `mvn verify`).
 
-- [ ] T002 [US1] Red test in `test/WiringAuditTest.java` (research D-6): add
+- [X] T002 [US1] Red test in `test/WiringAuditTest.java` (research D-6): add
   `anImportLeavesTheRealHomeUntouched()`. Start the server as the existing non-AWS import test does,
   run `importGroup()`, assert it executed, take the import's audit id from the test's own audit log
   (`audit("import_artifacts")`, field holding the audit id), and assert that no file whose name

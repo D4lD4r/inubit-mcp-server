@@ -311,6 +311,27 @@ class WiringAuditTest {
     }
 
     @Test
+    void anImportLeavesTheRealHomeUntouched() throws IOException {
+        // feature 023 (research D-6): the backup of an import must not land below the real home;
+        // keyed on the import's audit id, so other processes writing there do not interfere
+        startEnvironmentServer();
+
+        assertExecuted(importGroup());
+
+        String auditId = audit("import_artifacts").getLast().path("auditId").asString();
+        assertThat(auditId).as("audit id of the import").isNotEmpty();
+        Path realHome = Path.of(System.getProperty("user.home")).resolve(".inubit-mcp");
+        List<Path> leaked = List.of();
+        if (Files.isDirectory(realHome)) {
+            try (Stream<Path> files = Files.walk(realHome)) {
+                leaked = files.filter(file -> file.getFileName().toString().startsWith(auditId))
+                    .toList();
+            }
+        }
+        assertThat(leaked).as("files of the import %s below %s", auditId, realHome).isEmpty();
+    }
+
+    @Test
     void findPartnersRefusalsBeforeAnyServerIsContactedAreInTheSharedAuditLog()
         throws IOException {
         // feature 018 (T022, FR-020): one record per refused call, its node the target as given
