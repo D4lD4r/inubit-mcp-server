@@ -10,8 +10,8 @@ import java.util.Map;
 
 /**
  * Feature 021 (T043): a capability matrix that admits the web service log download on 8.1, as
- * the production matrix will after the 8.1 web service recording (T046); until then the
- * production matrix refuses it.
+ * the production matrix does since the 8.1 web service recording (T046); offline tests use it so
+ * that they do not depend on the production declaration.
  */
 public final class WebServiceMatrix {
 

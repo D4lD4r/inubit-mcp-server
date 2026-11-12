@@ -100,11 +100,12 @@ import org.junit.jupiter.params.provider.CsvSource;
  * directory is deleted and the call is audited {@code FAILED} with its code.
  *
  * <p>T044 (FR-017, D-22): the 8.1 web service contract over the same service and the real
- * {@link CliWebServiceLogAdapter}, the INUBIT client helper replaying each reconstructed
+ * {@link CliWebServiceLogAdapter}, the INUBIT client helper replaying each
  * {@code server-log/v8_1/webservice} case ({@link CliWebServiceLogAdapterTest#replaying}), for a
- * group with {@code unsupported.serverLogRead}. Test matrix declaration:
- * {@link WebServiceMatrix#admittingEightOneWithoutTrace()}, as the production matrix refuses the
- * web service log until the 8.1 recording (T046).
+ * group with {@code unsupported.serverLogRead}; {@code ok} is the neutralized 8.1.17 recording
+ * (T046), the other cases are reconstructed. Test matrix declaration:
+ * {@link WebServiceMatrix#admittingEightOneWithoutTrace()}, so the contract does not depend on
+ * the production declaration.
  */
 @Timeout(30)
 class ServerLogV81ContractTest {
@@ -309,13 +310,13 @@ class ServerLogV81ContractTest {
         LogExcerpt excerpt = result.excerpt().orElseThrow();
         assertThat(excerpt.kind()).isEqualTo(ContentKind.TEXT);
         // the whole file is within the last 200 lines; every line keeps its number, only the
-        // UsernameToken (with the wsse:Password), Authorization and Set-Cookie values are masked
+        // UsernameTokens (one as recorded, one with a wsse:Password probe), the Authorization
+        // probe and the Set-Cookie values are masked
         List<String> expected = new ArrayList<>(
             new String(okLog, StandardCharsets.UTF_8).lines().toList());
-        assertThat(expected.set(14, "      <wsse:UsernameToken>${secret:data.UsernameToken}"))
+        assertThat(expected.set(15, "      <wsse:UsernameToken>${secret:data.UsernameToken}"))
             .isEqualTo("      <wsse:UsernameToken>");
-        assertThat(expected.set(15, "")).contains("<wsse:Username>partner-0001");
-        assertThat(expected.set(16, "")).contains("<wsse:Password", "webservice-secret-0002");
+        assertThat(expected.set(16, "")).contains("<wsse:Username>partner-0001");
         assertThat(expected.set(17, "</wsse:UsernameToken>"))
             .isEqualTo("      </wsse:UsernameToken>");
         assertThat(expected.set(36, "Authorization: ${secret:authorization}"))
@@ -323,6 +324,14 @@ class ServerLogV81ContractTest {
             .contains("YWNtZTp3ZWJzZXJ2aWNlLXNlY3JldC0wMDAx");
         assertThat(expected.set(64, "Set-Cookie: ${secret:data.Set-Cookie}"))
             .contains("JSESSIONID=4C2F0A1B9D7E3F5A6B8C0D2E4F6A8B0C");
+        assertThat(expected.set(96, "      <wsse:UsernameToken>${secret:data.UsernameToken}"))
+            .isEqualTo("      <wsse:UsernameToken>");
+        assertThat(expected.set(97, "")).contains("<wsse:Username>partner-0002");
+        assertThat(expected.set(98, "")).contains("<wsse:Password", "webservice-secret-0002");
+        assertThat(expected.set(99, "</wsse:UsernameToken>"))
+            .isEqualTo("      </wsse:UsernameToken>");
+        assertThat(expected.set(110, "Set-Cookie: ${secret:data.Set-Cookie}"))
+            .contains("JSESSIONID=9E8D7C6B5A4F3E2D1C0B9A8F7E6D5C4B");
         assertThat(excerpt.lines()).extracting(ExcerptLine::number)
             .containsExactlyElementsOf(LongStream.rangeClosed(1, expected.size()).boxed()
                 .toList());

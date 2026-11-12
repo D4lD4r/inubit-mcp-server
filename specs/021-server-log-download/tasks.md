@@ -761,7 +761,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   ("uses unsupported INUBIT functionality", "No vendor support, no stability guarantee", "any",
   "Diagnosis only", "Clear-text content", "in clear text", "Read-only on INUBIT", "Cluster
   nodes"); the YAML example parses with `ConfigLoader` Also depends on T042 (the summary line format); the example is copied verbatim from the `ConfigSummaryTest` golden text.
-- [ ] T046 [US2] **[OWNER]** **[BLOCKED: T034]** Enable 8.1 webservice in **one commit** (FR-017,
+- [X] T046 [US2] **[OWNER]** **[BLOCKED: T034]** Enable 8.1 webservice in **one commit** (FR-017,
   D-21–D-23): the agent neutralizes the T034 output as in T033 (fictitious SOAP log content of the
   same shape, sizes in the frames adjusted, node name → `node1`, identifier checks green) into
   `src/test/resources/fixtures/server-log/v8_1/webservice/ok.*` (and `missing.*` / `empty.*` where

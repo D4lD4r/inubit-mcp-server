@@ -78,13 +78,10 @@ public final class CapabilityMatrix {
     private static final String NOT_YET_VERIFIED = "not yet verified";
 
     /**
-     * 8.1: everything except the web service log of feature 021 (not yet verified); the trace log
-     * since its recording (T033).
+     * 8.1: everything; the server-log reads of feature 021 since their recordings (trace log T033,
+     * web service log T046).
      */
-    private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1),
-        with(ALL_SUPPORTED, Capability.WEBSERVICE_LOG_READ, SupportState.UNSUPPORTED),
-        Map.of(), false,
-        Map.of(Capability.WEBSERVICE_LOG_READ, NOT_YET_VERIFIED));
+    private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1), ALL_SUPPORTED);
 
     /**
      * 9.0: everything as on 8.1 except partner management, which runs with a warning until recorded
@@ -136,9 +133,9 @@ public final class CapabilityMatrix {
      * management on 9.0.x, which is unverified (feature 018); any other known version and unknown
      * versions: reads unverified, writes unsupported. Feature 020 (research D-6, D-20): reading
      * Queue Manager entries is supported on 8.1 and 9.0, on any other and on unknown versions
-     * unsupported. Feature 021 (research D-6): downloading the trace log is supported on 8.1
-     * (T033); otherwise downloading the trace log and the web service log is unsupported
-     * everywhere, on 8.1 and 9.0 with the note "not yet verified".
+     * unsupported. Feature 021 (research D-6): downloading the trace log and the web service log
+     * is supported on 8.1 (T033, T046); otherwise both are unsupported everywhere, on 9.0 with the
+     * note "not yet verified".
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;

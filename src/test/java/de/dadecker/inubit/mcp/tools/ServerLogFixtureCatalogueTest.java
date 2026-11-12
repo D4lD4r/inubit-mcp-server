@@ -123,6 +123,22 @@ class ServerLogFixtureCatalogueTest {
             Capability.TRACE_LOG_READ)).isEqualTo(SupportState.SUPPORTED);
     }
 
+    /**
+     * T046 (FR-017, D-22): the 8.1 web service {@code ok} case is the neutralized T034 recording;
+     * the other web service cases stay reconstructed, as the spike did not observe them.
+     */
+    @Test
+    void the81WebServiceOkCaseIsRecordedAndTheProductionMatrixSupportsIt() {
+        assertThat(firstLine(ROOT.resolve("v8_1/webservice/ok.origin")))
+            .isEqualTo("recorded 2026-11-12 8.1.17 neutralized");
+        assertThat(firstLine(ROOT.resolve("v8_1/webservice/missing.origin")))
+            .startsWith("reconstructed ");
+        assertThat(firstLine(ROOT.resolve("v8_1/webservice/empty.origin")))
+            .startsWith("reconstructed ");
+        assertThat(CapabilityMatrix.production().stateOfLine(8, OptionalInt.of(1),
+            Capability.WEBSERVICE_LOG_READ)).isEqualTo(SupportState.SUPPORTED);
+    }
+
     @Test
     void aMissingOriginFails(@TempDir Path temp) throws IOException {
         Path copy = copy(ROOT, temp.resolve("server-log"));

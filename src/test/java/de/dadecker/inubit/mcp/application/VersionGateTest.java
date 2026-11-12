@@ -1389,24 +1389,18 @@ class VersionGateTest {
     // --- feature 021, T009: downloading the server logs (FR-002, FR-017, D-6) ----------------
 
     /**
-     * Until its recording a log is refused with the matrix note: the web service log on 8.1 and
-     * 9.0, the trace log on 9.0; T033: the recorded 8.1 trace log is admitted without warning.
+     * Until its recording a log is refused with the matrix note: both logs on 9.0; T033, T046:
+     * the recorded 8.1 trace and web service logs are admitted without warning.
      */
     @Test
     void aServerLogReadIsNotYetVerifiedUntilItsRecording() {
-        Admission trace81 = gate().admit("download_server_log", PINNED,
-            Capability.TRACE_LOG_READ, Kind.READ, CLI);
-        assertThat(trace81.warnings()).isEmpty();
-        assertThat(trace81.version()).contains(version("8.1.17"));
-
-        ToolError webservice81 = refusal(() -> gate().admit("download_server_log", PINNED,
-            Capability.WEBSERVICE_LOG_READ, Kind.READ, CLI));
-        assertThat(webservice81.message()).isEqualTo("download_server_log: INUBIT 8.1.17 on"
-            + " prod/node1: downloading the web service log is not yet verified for INUBIT 8.1;"
-            + " nothing was sent");
-        assertNoLeak(webservice81);
         for (Capability capability : List.of(Capability.TRACE_LOG_READ,
                 Capability.WEBSERVICE_LOG_READ)) {
+            Admission v81 = gate().admit("download_server_log", PINNED, capability, Kind.READ,
+                CLI);
+            assertThat(v81.warnings()).as("%s", capability).isEmpty();
+            assertThat(v81.version()).as("%s", capability).contains(version("8.1.17"));
+
             ToolError v90 = refusal(() -> gate().admit("download_server_log", V9_0,
                 capability, Kind.READ, CLI));
 
@@ -1415,7 +1409,7 @@ class VersionGateTest {
             assertNoLeak(v90);
         }
         assertThat(probe.calls).as("no StartCLI run").isEmpty();
-        assertThat(appender.list).hasSize(3);
+        assertThat(appender.list).hasSize(2);
     }
 
     @Test

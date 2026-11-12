@@ -1102,11 +1102,11 @@ class ListNodesToolTest {
                 .doesNotContain("webservice_log_read");
         }
 
-        // before T046 the production matrix refuses it, still only for the opted-in node
+        // T046: the production matrix supports the recorded 8.1 web service log, still only for
+        // the opted-in node
         Map<String, JsonNode> production = traceVersions(config, CapabilityMatrix.production());
-        assertThat(usable(production.get("test/node1"))).doesNotContain("webservice_log_read");
-        assertThat(reason(production.get("test/node1"), "webservice_log_read"))
-            .endsWith("downloading the web service log is not yet verified for INUBIT 8.1");
+        assertThat(usable(production.get("test/node1"))).contains("webservice_log_read");
+        assertThat(notUsable(production.get("test/node1"))).doesNotContain("webservice_log_read");
         for (String node : List.of("prod/node1", "lab/node1")) {
             assertThat(usable(production.get(node))).as(node)
                 .doesNotContain("webservice_log_read");

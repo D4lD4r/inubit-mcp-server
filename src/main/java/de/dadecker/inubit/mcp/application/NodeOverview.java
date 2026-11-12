@@ -165,7 +165,7 @@ public final class NodeOverview {
      * CLI-only pin a contradiction leaves only monitoring ({@code get_health}), and a refusal
      * names the configured line without "yet", as the gate's message before its next step. A
      * refusal on a version whose matrix entry carries a {@code note} for the capability names it
-     * as the gate does (feature 021: "… is not yet verified for INUBIT 8.1").
+     * as the gate does (feature 021: "… is not yet verified for INUBIT 9.0").
      */
     private static Optional<String> refusal(NodeId node, NodeVersionState state,
         Optional<InubitVersion> version, Capability capability, SupportState support,

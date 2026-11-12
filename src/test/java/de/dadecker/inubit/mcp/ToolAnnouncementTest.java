@@ -344,6 +344,9 @@ class ToolAnnouncementTest {
             .containsExactlyElementsOf(withDownload);
         assertThat(groupTools("AUTO", cliHome(), false, CapabilityMatrix.production()))
             .containsExactlyElementsOf(withDownload);
+        // T046: 8.1 also admits the web service log, which adds no tool for an opted-in node
+        assertThat(groupTools("V8_1", serverLogOptIn("true") + "\n" + cliHome(), false,
+            CapabilityMatrix.production())).containsExactlyElementsOf(withDownload);
         // 9.0 waits for its own recording (T051)
         assertThat(groupTools("V9_0", "", true, CapabilityMatrix.production()))
             .contains("export_artifacts").doesNotContain("download_server_log");

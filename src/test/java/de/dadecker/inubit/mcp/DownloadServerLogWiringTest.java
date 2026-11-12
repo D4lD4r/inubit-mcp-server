@@ -213,7 +213,7 @@ class DownloadServerLogWiringTest {
 
     @Test
     void anOptedInSingleNodeWritesTheWebServiceLogAndNamesItsInubitNode() throws Exception {
-        // US2-1, with a matrix that admits the 8.1 web service log (T046 flips production)
+        // US2-1, with a test matrix that admits the 8.1 web service log, as production does (T046)
         Path folder = Files.createDirectories(temp.resolve("logs"));
         List<String> urls = new CopyOnWriteArrayList<>();
 
