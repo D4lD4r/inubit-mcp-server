@@ -100,7 +100,7 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
 
 ## Phase 2: Foundational — coverage list, REST registry, session, secret rules (blocks every story; ships with the US1 PR)
 
-- [ ] T004 `RestEndpoint` registry (D-8):
+- [X] T004 `RestEndpoint` registry (D-8):
   - Create `adapter/rest/RestEndpoint.java`, an enum of method + path template for every endpoint
     the server sends today:
     - `GET /healthcheck`, `GET /ready`, `GET /system/info`, `GET /metrics`;
