@@ -645,7 +645,7 @@ among the clear-text outputs.
 
 ## Spike findings
 
-### 8.1 trace recording (D-23 step 1, T021, 2026-11-12)
+### 8.1 trace recording (D-23 step 1, T021, 2026-11-11 UTC)
 
 Setting: one non-production INUBIT 8.1 test server of the profile, operator-approved; the
 profile's 8.1 StartCLI client on Java 17; run once through the project's `CliRunner.run` (argument

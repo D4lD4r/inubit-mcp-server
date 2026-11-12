@@ -87,11 +87,12 @@ import org.junit.jupiter.params.provider.CsvSource;
 /**
  * T032 (feature 021, FR-017, research D-22): the 8.1 trace contract. {@link ServerLogService} over
  * the real {@link CliServerLogAdapter} and {@link CliTraceRunner}, StartCLI being a
- * {@link FakeProcessLauncher} that replays each reconstructed {@code server-log/v8_1/trace} case
- * and writes its {@code <case>.log} to the {@code --download} path. Test matrix declaration:
- * {@link TraceMatrix#admittingEightOne()}, as the production matrix refuses the trace download on
- * 8.1 until the recording (T033). After every failure no file is in the target folder (SC-004),
- * the private directory is deleted and the call is audited {@code FAILED} with its code.
+ * {@link FakeProcessLauncher} that replays each {@code server-log/v8_1/trace} case and writes its
+ * {@code <case>.log} to the {@code --download} path; {@code ok} is the neutralized 8.1.17
+ * recording (T033), the other cases are reconstructed. Test matrix declaration:
+ * {@link TraceMatrix#admittingEightOne()}, so the contract does not depend on the production
+ * declaration. After every failure no file is in the target folder (SC-004), the private
+ * directory is deleted and the call is audited {@code FAILED} with its code.
  */
 @Timeout(30)
 class ServerLogV81ContractTest {
@@ -160,10 +161,10 @@ class ServerLogV81ContractTest {
         // the whole file is within the last 200 lines; only the two secret lines are masked
         List<String> expected = new ArrayList<>(
             new String(okLog, StandardCharsets.UTF_8).lines().toList());
-        assertThat(expected.set(6, "Authorization: ${secret:authorization}"))
+        assertThat(expected.set(7, "Authorization: ${secret:authorization}"))
             .as("Basic acme:trace-secret-0001")
             .contains("YWNtZTp0cmFjZS1zZWNyZXQtMDAwMQ==");
-        assertThat(expected.set(14, "  <password>${secret:data.password}</password>"))
+        assertThat(expected.set(15, "  <password>${secret:data.password}</password>"))
             .contains("trace-secret-0002");
         assertThat(excerpt.lines()).extracting(ExcerptLine::number)
             .containsExactlyElementsOf(LongStream.rangeClosed(1, expected.size()).boxed()

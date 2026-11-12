@@ -19,10 +19,12 @@ class CapabilityMatrixTest {
 
     private final CapabilityMatrix production = CapabilityMatrix.production();
 
-    /** Feature 021: the server-log reads wait for their recordings (below). */
+    /**
+     * Feature 021: the web service log waits for its recording (below); the trace log is
+     * supported since its 8.1 recording (T033).
+     */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"TRACE_LOG_READ", "WEBSERVICE_LOG_READ"},
-        mode = Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"WEBSERVICE_LOG_READ"}, mode = Mode.EXCLUDE)
     void everyCapabilityIsSupportedOn81(Capability capability) {
         assertThat(production.state(version("8.1.17"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -414,18 +416,17 @@ class CapabilityMatrixTest {
 
     /**
      * T031 (feature 021, FR-002): a version not yet known (an {@code AUTO} node) may run a
-     * capability only if some range or the unknown versions admit it; before their recordings no
-     * version admits a server log read.
+     * capability only if some range or the unknown versions admit it; before its recording no
+     * version admits the web service log read, since T033 8.1 admits the trace log read.
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, mode = Mode.EXCLUDE,
-        names = {"TRACE_LOG_READ", "WEBSERVICE_LOG_READ"})
+    @EnumSource(value = Capability.class, mode = Mode.EXCLUDE, names = {"WEBSERVICE_LOG_READ"})
     void everyOtherCapabilityIsPossiblySupportedOnTheProductionMatrix(Capability capability) {
         assertThat(production.possiblySupported(capability)).isTrue();
     }
 
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"TRACE_LOG_READ", "WEBSERVICE_LOG_READ"})
+    @EnumSource(value = Capability.class, names = {"WEBSERVICE_LOG_READ"})
     void aServerLogReadIsNotPossiblySupportedBeforeItsRecording(Capability capability) {
         assertThat(production.possiblySupported(capability)).isFalse();
     }
@@ -441,9 +442,32 @@ class CapabilityMatrixTest {
         assertThat(matrix.possiblySupported(Capability.PROCESS_DIAGNOSIS)).isFalse();
     }
 
-    /** Until its recording (T033, T046, T051, T052) each log is refused as "not yet verified". */
+    /** T033 (FR-017, D-22): the recorded 8.1 trace log enabled 8.1; its note is gone. */
+    @Test
+    void theTraceLogReadIsSupportedOn81WithoutNote() {
+        Capability trace = Capability.TRACE_LOG_READ;
+        assertThat(production.state(version("8.1.17"), trace)).isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.stateOfLine(8, OptionalInt.of(1), trace))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.note(version("8.1.17"), trace)).isEmpty();
+        assertThat(production.channels(version("8.1.17"), trace)).containsExactly(Channel.CLI);
+        assertThat(production.lines(trace)).containsExactly("8.1", "9.0");
+    }
+
+    /** The 9.0 trace log waits for its recording (T051) and is refused as "not yet verified". */
+    @Test
+    void theTraceLogReadIsNotYetVerifiedOn90() {
+        Capability trace = Capability.TRACE_LOG_READ;
+        assertThat(production.state(version("9.0.7"), trace)).isEqualTo(SupportState.UNSUPPORTED);
+        assertThat(production.stateOfLine(9, OptionalInt.of(0), trace))
+            .isEqualTo(SupportState.UNSUPPORTED);
+        assertThat(production.note(version("9.0.7"), trace)).contains("not yet verified");
+        assertThat(production.channels(version("9.0.7"), trace)).containsExactly(Channel.CLI);
+    }
+
+    /** Until its recording (T046, T052) the web service log is refused as "not yet verified". */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"TRACE_LOG_READ", "WEBSERVICE_LOG_READ"})
+    @EnumSource(value = Capability.class, names = {"WEBSERVICE_LOG_READ"})
     void aServerLogReadIsNotYetVerifiedOn81And90(Capability capability) {
         for (Optional<InubitVersion> verified : List.of(version("8.1.17"), version("9.0.7"))) {
             assertThat(production.state(verified, capability)).as("%s", verified)

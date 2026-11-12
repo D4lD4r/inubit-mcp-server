@@ -68,6 +68,15 @@ class ServerLogFixtureCatalogueTest {
         assertThat(matrixViolations(ROOT, CapabilityMatrix.production())).isEmpty();
     }
 
+    /** T033 (FR-017, D-22): the 8.1 trace {@code ok} case is the neutralized T021 recording. */
+    @Test
+    void the81TraceOkCaseIsRecordedAndTheProductionMatrixSupportsIt() {
+        assertThat(firstLine(ROOT.resolve("v8_1/trace/ok.origin")))
+            .isEqualTo("recorded 2026-11-11 8.1.17 neutralized");
+        assertThat(CapabilityMatrix.production().stateOfLine(8, OptionalInt.of(1),
+            Capability.TRACE_LOG_READ)).isEqualTo(SupportState.SUPPORTED);
+    }
+
     @Test
     void aMissingOriginFails(@TempDir Path temp) throws IOException {
         Path copy = copy(ROOT, temp.resolve("server-log"));

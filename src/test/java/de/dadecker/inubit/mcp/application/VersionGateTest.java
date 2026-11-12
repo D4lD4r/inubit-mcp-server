@@ -1388,25 +1388,34 @@ class VersionGateTest {
 
     // --- feature 021, T009: downloading the server logs (FR-002, FR-017, D-6) ----------------
 
-    /** Until their recordings both logs are refused on 8.1 and 9.0 with the matrix note. */
+    /**
+     * Until its recording a log is refused with the matrix note: the web service log on 8.1 and
+     * 9.0, the trace log on 9.0; T033: the recorded 8.1 trace log is admitted without warning.
+     */
     @Test
-    void aServerLogReadIsNotYetVerifiedOn81And90() {
+    void aServerLogReadIsNotYetVerifiedUntilItsRecording() {
+        Admission trace81 = gate().admit("download_server_log", PINNED,
+            Capability.TRACE_LOG_READ, Kind.READ, CLI);
+        assertThat(trace81.warnings()).isEmpty();
+        assertThat(trace81.version()).contains(version("8.1.17"));
+
+        ToolError webservice81 = refusal(() -> gate().admit("download_server_log", PINNED,
+            Capability.WEBSERVICE_LOG_READ, Kind.READ, CLI));
+        assertThat(webservice81.message()).isEqualTo("download_server_log: INUBIT 8.1.17 on"
+            + " prod/node1: downloading the web service log is not yet verified for INUBIT 8.1;"
+            + " nothing was sent");
+        assertNoLeak(webservice81);
         for (Capability capability : List.of(Capability.TRACE_LOG_READ,
                 Capability.WEBSERVICE_LOG_READ)) {
-            ToolError v81 = refusal(() -> gate().admit("download_server_log", PINNED,
-                capability, Kind.READ, CLI));
             ToolError v90 = refusal(() -> gate().admit("download_server_log", V9_0,
                 capability, Kind.READ, CLI));
 
-            assertThat(v81.message()).isEqualTo("download_server_log: INUBIT 8.1.17 on"
-                + " prod/node1: " + capability.label() + " is not yet verified for INUBIT 8.1;"
-                + " nothing was sent");
             assertThat(v90.message()).isEqualTo("download_server_log: INUBIT 9.0 on prod/node4: "
                 + capability.label() + " is not yet verified for INUBIT 9.0; nothing was sent");
-            assertNoLeak(v81, v90);
+            assertNoLeak(v90);
         }
         assertThat(probe.calls).as("no StartCLI run").isEmpty();
-        assertThat(appender.list).hasSize(4);
+        assertThat(appender.list).hasSize(3);
     }
 
     @Test

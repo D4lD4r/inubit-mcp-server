@@ -160,10 +160,11 @@ class ToolAnnouncementTest {
 
     @Test
     void withoutAnOptInTheToolListIsUnchangedByFeature020() {
+        // feature 021 T033: an AUTO node with a client home also announces download_server_log
         List<String> withoutFeature020 = List.of("list_nodes", "get_health",
-            "read_knowledge", "record_knowledge", "find_processes", "query_logs", "list_inventory",
-            "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
-            "check_artifacts");
+            "read_knowledge", "record_knowledge", "find_processes", "query_logs",
+            "download_server_log", "list_inventory", "get_inventory_item", "find_partners",
+            "export_artifacts", "export_archives", "check_artifacts");
 
         assertThat(queueEntryTools("AUTO", cliHome(), false))
             .containsExactlyElementsOf(withoutFeature020);
@@ -175,9 +176,9 @@ class ToolAnnouncementTest {
     void anOptedInAutoNodeWithAClientHomeAnnouncesTheQueueEntryRead() {
         assertThat(queueEntryTools("AUTO", optIn("true") + "\n" + cliHome(), false))
             .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
-                "find_processes", "query_logs", "read_queue_entry", "list_inventory",
-                "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
-                "check_artifacts");
+                "find_processes", "query_logs", "read_queue_entry", "download_server_log",
+                "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
+                "export_archives", "check_artifacts");
     }
 
     @Test
@@ -292,12 +293,6 @@ class ToolAnnouncementTest {
 
     // --- feature 021 T031: download_server_log (FR-002, US1-6, SC-002, research D-17) ---------
 
-    /** The tools of release 0.9.1 for one node with a client home and no opt-in. */
-    private static final List<String> TOOLS_0_9_1 = List.of("list_nodes", "get_health",
-        "read_knowledge", "record_knowledge", "find_processes", "query_logs", "list_inventory",
-        "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
-        "check_artifacts");
-
     @Test
     void aClientHomeWithoutAnyUnsupportedSettingAnnouncesTheDownload() {
         // US1-6: no opt-in needed for the trace log
@@ -336,12 +331,17 @@ class ToolAnnouncementTest {
     }
 
     @Test
-    void onTheProductionMatrixTheToolListIsUnchangedBeforeTheTraceRecording() {
-        // before T033 no version admits the trace log, so not even an AUTO node may run it
+    void onTheProductionMatrixThe81TraceRecordingAnnouncesTheDownload() {
+        // T033: 8.1 admits the trace log, so an 8.1 and an AUTO node with a client home run it
+        List<String> withDownload = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
+            "export_archives", "check_artifacts");
         assertThat(groupTools("V8_1", cliHome(), false, CapabilityMatrix.production()))
-            .containsExactlyElementsOf(TOOLS_0_9_1);
+            .containsExactlyElementsOf(withDownload);
         assertThat(groupTools("AUTO", cliHome(), false, CapabilityMatrix.production()))
-            .containsExactlyElementsOf(TOOLS_0_9_1);
+            .containsExactlyElementsOf(withDownload);
+        // 9.0 waits for its own recording (T051)
         assertThat(groupTools("V9_0", "", true, CapabilityMatrix.production()))
             .contains("export_artifacts").doesNotContain("download_server_log");
     }

@@ -987,17 +987,16 @@ class ListNodesToolTest {
             assertMatchesOutputSchema(result);
             JsonNode groups = result.path("structuredContent").path("groups");
             JsonNode test = groups.path(0).path("nodes").path(0).path("version");
-            assertThat(usable(test)).containsExactly("monitoring", "process_diagnosis",
-                "log_diagnosis", "inventory", "partner_management", "workspace_export",
-                "queue_entry_read");
-            assertThat(notUsable(test)).as("feature 021: not yet verified")
-                .containsExactly("trace_log_read");
+            assertThat(usable(test)).as("feature 021 T033: the 8.1 trace log is recorded")
+                .containsExactly("monitoring", "process_diagnosis", "log_diagnosis", "inventory",
+                    "partner_management", "workspace_export", "queue_entry_read",
+                    "trace_log_read");
+            assertThat(notUsable(test)).isEmpty();
             JsonNode prod = groups.path(1).path("nodes").path(0).path("version");
             assertThat(usable(prod)).as("SC-002: as without feature 020").containsExactly(
                 "monitoring", "process_diagnosis", "log_diagnosis", "inventory",
-                "partner_management", "workspace_export");
-            assertThat(notUsable(prod)).as("feature 021: not yet verified")
-                .containsExactly("trace_log_read");
+                "partner_management", "workspace_export", "trace_log_read");
+            assertThat(notUsable(prod)).isEmpty();
             JsonNode lab = groups.path(2).path("nodes").path(0).path("version");
             assertThat(usable(lab)).doesNotContain("queue_entry_read");
             assertThat(notUsable(lab)).doesNotContain("queue_entry_read");
@@ -1038,13 +1037,12 @@ class ListNodesToolTest {
         ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml, temp.resolve("config.yaml")).config();
 
-        Map<String, JsonNode> unrecorded = traceVersions(config, CapabilityMatrix.production());
-        assertThat(usable(unrecorded.get("test/node1"))).doesNotContain("trace_log_read");
-        assertThat(notUsable(unrecorded.get("test/node1"))).containsExactly("trace_log_read");
-        assertThat(reason(unrecorded.get("test/node1"), "trace_log_read")).isEqualTo("INUBIT 8.1 on"
-            + " test/node1: downloading the trace log is not yet verified for INUBIT 8.1");
-        assertThat(usable(unrecorded.get("prod/node1"))).doesNotContain("trace_log_read");
-        assertThat(notUsable(unrecorded.get("prod/node1"))).isEmpty();
+        // T033: the production matrix supports the recorded 8.1 trace log
+        Map<String, JsonNode> production = traceVersions(config, CapabilityMatrix.production());
+        assertThat(usable(production.get("test/node1"))).contains("trace_log_read");
+        assertThat(notUsable(production.get("test/node1"))).isEmpty();
+        assertThat(usable(production.get("prod/node1"))).doesNotContain("trace_log_read");
+        assertThat(notUsable(production.get("prod/node1"))).isEmpty();
 
         Map<String, JsonNode> recorded = traceVersions(config, TraceMatrix.admittingEightOne());
         assertThat(usable(recorded.get("test/node1"))).contains("trace_log_read");

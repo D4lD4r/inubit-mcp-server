@@ -10,7 +10,8 @@ import java.util.Map;
 
 /**
  * Feature 021 (T031): a capability matrix that admits the trace download on 8.1, as the production
- * matrix will after the 8.1 trace recording (T033); until then the production matrix refuses it.
+ * matrix does since the 8.1 trace recording (T033); offline tests use it so that they do not
+ * depend on the production declaration.
  */
 public final class TraceMatrix {
 
