@@ -100,7 +100,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   false" without the value; an unknown key under `unsupported` and a key on a node or in `defaults`
   stay unknown-key errors; keys independent of each other and of `queueEntryRead`/`serverLogRead`)
   and `config/EffectiveNodeConfigTest.java` (group value reaches every node; copies keep it)
-- [ ] T004 [P] Capabilities (FR-005, D-4): `domain/model/Capability.java` `+ CLUSTER_NODES_READ`,
+- [X] T004 [P] Capabilities (FR-005, D-4): `domain/model/Capability.java` `+ CLUSTER_NODES_READ`,
   `IO_LOG_READ`, `NODE_CONFIG_READ` (READ, `{CLI}`), `LOG_LEVEL_WRITE` (WRITE, `{CLI}`) with the
   labels of D-4; `domain/model/CapabilityMatrix.java` 8.1 and 9.0 `UNSUPPORTED` + note "not yet
   verified" for all four (flipped only by T025, T032, T038, T058, T062–T065), unknown map
@@ -116,8 +116,8 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   production warnings per key and the `logLevelWrite`-without-write-access warning (texts of
   contracts/configuration-delta.md "Validation", terminology-aware); `config/ConfigSummary.java`
   group line parts in the order `queueEntryRead`, `serverLogRead`, `nodeStatusRead`, `ioLogRead`,
-  `nodeConfigRead`, `logLevelWrite` (only keys some group sets), `cliOnly` filter for the four
-  capabilities (opted-in groups only). Failing tests first in `config/ConfigValidatorTest.java`
+  `nodeConfigRead`, `logLevelWrite` (only keys some group sets); the `cliOnly` filter for the four
+  capabilities moved to T004 (orchestrator decision, build green per commit). Failing tests first in `config/ConfigValidatorTest.java`
   (each warning on `production: true`; none on a non-production group; the no-write warning) and
   `config/ConfigSummaryTest.java` (no key set → every golden text unchanged (SC-005); one key set →
   every group line gains that part only; 6.1 `cliOnly` lists a capability only for opted-in groups)

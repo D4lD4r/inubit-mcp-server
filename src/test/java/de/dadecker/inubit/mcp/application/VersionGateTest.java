@@ -1043,6 +1043,14 @@ class VersionGateTest {
             + " download the log in the Workbench (Administration, Server Log)");
         expected.put(Capability.WEBSERVICE_LOG_READ, "downloading the web service log; supported:"
             + " 8.1, 9.0; download the log in the Workbench (Administration, Server Log)");
+        expected.put(Capability.CLUSTER_NODES_READ, "reading the cluster's node list; supported:"
+            + " 8.1, 9.0; use the Workbench's Cluster Manager");
+        expected.put(Capability.IO_LOG_READ, "reading module input/output logging; supported: 8.1,"
+            + " 9.0; use the Workbench's input/output logging view");
+        expected.put(Capability.NODE_CONFIG_READ, "reading node configuration values; supported:"
+            + " 8.1, 9.0; use the Workbench's Cluster Manager");
+        expected.put(Capability.LOG_LEVEL_WRITE, "changing temporary log levels; supported: 8.1,"
+            + " 9.0; use StartCLI trace -nl/-r by hand");
 
         for (Capability capability : Capability.values()) {
             ToolError error = refusal(() -> gate().admit(V6_1, capability, capability.kind(),
@@ -1449,6 +1457,77 @@ class VersionGateTest {
                 + " nothing was sent");
             assertNoLeak(v91);
         }
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+    }
+
+    // --- feature 024, T004: the unsupported node tools (FR-005, D-4) ---------------------------
+
+    /** The tool of each node-tool capability, as named in its refusals. */
+    private static final Map<Capability, String> NODE_TOOLS = Map.of(
+        Capability.CLUSTER_NODES_READ, "list_cluster_nodes",
+        Capability.IO_LOG_READ, "read_io_log",
+        Capability.NODE_CONFIG_READ, "get_node_config",
+        Capability.LOG_LEVEL_WRITE, "set_temporary_log_level");
+
+    /** Until its recording each node tool is refused on 8.1 and 9.0 with the matrix note. */
+    @Test
+    void aNodeToolIsNotYetVerifiedOn81And90() {
+        NODE_TOOLS.forEach((capability, tool) -> {
+            ToolError v81 = refusal(() -> gate().admit(tool, PINNED, capability,
+                capability.kind(), CLI));
+            ToolError v90 = refusal(() -> gate().admit(tool, V9_0, capability,
+                capability.kind(), CLI));
+
+            assertThat(v81.message()).isEqualTo(tool + ": INUBIT 8.1.17 on prod/node1: "
+                + capability.label() + " is not yet verified for INUBIT 8.1; nothing was sent");
+            assertThat(v90.message()).isEqualTo(tool + ": INUBIT 9.0 on prod/node4: "
+                + capability.label() + " is not yet verified for INUBIT 9.0; nothing was sent");
+            assertNoLeak(v81, v90);
+        });
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+        assertThat(appender.list).hasSize(2 * NODE_TOOLS.size());
+    }
+
+    @Test
+    void aNodeToolOn61IsRefusedNamingTheSupportedLinesAndItsNextStep() {
+        detection.answer("6.1.3");
+        Map<Capability, String> steps = Map.of(
+            Capability.CLUSTER_NODES_READ, "use the Workbench's Cluster Manager",
+            Capability.IO_LOG_READ, "use the Workbench's input/output logging view",
+            Capability.NODE_CONFIG_READ, "use the Workbench's Cluster Manager",
+            Capability.LOG_LEVEL_WRITE, "use StartCLI trace -nl/-r by hand");
+        NODE_TOOLS.forEach((capability, tool) -> {
+            ToolError v61 = refusal(() -> gate().admit(tool, AUTO, capability,
+                capability.kind(), CLI));
+            ToolError v61Line = refusal(() -> gate().admit(tool, V6_1, capability,
+                capability.kind(), CLI));
+            String step = steps.get(capability);
+
+            assertThat(v61.message()).isEqualTo(tool + ": INUBIT 6.1.3 on dev/node1 does not"
+                + " support " + capability.label() + "; supported: 8.1, 9.0; " + step
+                + "; nothing was sent");
+            assertThat(v61.nextStep())
+                .isEqualTo(Character.toUpperCase(step.charAt(0)) + step.substring(1));
+            assertThat(v61Line.message()).isEqualTo(tool + ": INUBIT 6.1 (versionLine V6_1) on"
+                + " old/node1 does not support " + capability.label() + "; supported: 8.1, 9.0; "
+                + step + "; nothing was sent");
+            assertNoLeak(v61, v61Line);
+        });
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+    }
+
+    @Test
+    void aNodeToolOn91IsRefusedNamingTheVersionAndTheSupportedLines() {
+        detection.answer("9.1.0");
+        NODE_TOOLS.forEach((capability, tool) -> {
+            ToolError v91 = refusal(() -> gate().admit(tool, AUTO, capability,
+                capability.kind(), CLI));
+
+            assertThat(v91.message()).isEqualTo(tool + ": INUBIT 9.1.0 on dev/node1 does not"
+                + " support " + capability.label() + " yet; supported: 8.1, 9.0; nothing was"
+                + " sent");
+            assertNoLeak(v91);
+        });
         assertThat(probe.calls).as("no StartCLI run").isEmpty();
     }
 

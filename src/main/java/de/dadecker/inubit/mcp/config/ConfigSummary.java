@@ -352,7 +352,7 @@ public final class ConfigSummary {
      * capability runs only if the matrix declares it {@code SUPPORTED}. Reading Queue Manager
      * entries is listed only for a group with {@code unsupported.queueEntryRead} (feature 020),
      * downloading the web service log only for one with {@code unsupported.serverLogRead}
-     * (feature 021).
+     * (feature 021), each node tool only for one with its own opt-in (feature 024, research D-5).
      */
     private String cliOnly(EffectiveNodeConfig server) {
         Optional<InubitVersion> pin =
@@ -363,8 +363,7 @@ public final class ConfigSummary {
         List<String> available = new ArrayList<>();
         List<String> refused = new ArrayList<>();
         for (Capability capability : Capability.values()) {
-            if (capability == Capability.QUEUE_ENTRY_READ && !server.queueEntryRead()
-                || capability == Capability.WEBSERVICE_LOG_READ && !server.serverLogRead()) {
+            if (!optedIn(server, capability)) {
                 continue;
             }
             (matrix.state(pin, capability) == SupportState.SUPPORTED ? available : refused)
@@ -373,6 +372,21 @@ public final class ConfigSummary {
         InubitVersion version = pin.orElseThrow();
         return " (INUBIT " + version.major() + "." + version.minor() + ", StartCLI only;"
             + " available: " + names(available) + "; refused: " + names(refused) + ")";
+    }
+
+    /** Whether the group of {@code server} has the opt-in a capability needs, if any. */
+    private static boolean optedIn(EffectiveNodeConfig server, Capability capability) {
+        return switch (capability) {
+            case QUEUE_ENTRY_READ -> server.queueEntryRead();
+            case WEBSERVICE_LOG_READ -> server.serverLogRead();
+            case CLUSTER_NODES_READ -> server.nodeStatusRead();
+            case IO_LOG_READ -> server.ioLogRead();
+            case NODE_CONFIG_READ -> server.nodeConfigRead();
+            case LOG_LEVEL_WRITE -> server.logLevelWrite();
+            case MONITORING, PROCESS_DIAGNOSIS, LOG_DIAGNOSIS, INVENTORY, PARTNER_MANAGEMENT,
+                WORKSPACE_EXPORT, DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL,
+                TRACE_LOG_READ -> true;
+        };
     }
 
     private static String names(List<String> names) {

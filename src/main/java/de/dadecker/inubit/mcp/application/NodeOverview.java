@@ -286,6 +286,10 @@ public final class NodeOverview {
             case QUEUE_ENTRY_READ -> "queue_entry_read";
             case TRACE_LOG_READ -> "trace_log_read";
             case WEBSERVICE_LOG_READ -> "webservice_log_read";
+            case CLUSTER_NODES_READ -> "cluster_nodes_read";
+            case IO_LOG_READ -> "io_log_read";
+            case NODE_CONFIG_READ -> "node_config_read";
+            case LOG_LEVEL_WRITE -> "log_level_write";
         };
     }
 }

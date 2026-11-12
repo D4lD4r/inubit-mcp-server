@@ -17,14 +17,19 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 class CapabilityMatrixTest {
 
+    /** Feature 024: the capabilities of the four unsupported node tools. */
+    private static final Set<Capability> NODE_TOOLS = Set.of(Capability.CLUSTER_NODES_READ,
+        Capability.IO_LOG_READ, Capability.NODE_CONFIG_READ, Capability.LOG_LEVEL_WRITE);
+
     private final CapabilityMatrix production = CapabilityMatrix.production();
 
     /**
      * Feature 021: the server-log reads are supported since their 8.1 recordings (trace T033, web
-     * service T046).
+     * service T046); feature 024: the node tools wait for their recordings (below).
      */
     @ParameterizedTest
-    @EnumSource(Capability.class)
+    @EnumSource(value = Capability.class, names = {"CLUSTER_NODES_READ", "IO_LOG_READ",
+        "NODE_CONFIG_READ", "LOG_LEVEL_WRITE"}, mode = Mode.EXCLUDE)
     void everyCapabilityIsSupportedOn81(Capability capability) {
         assertThat(production.state(version("8.1.17"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -38,11 +43,12 @@ class CapabilityMatrixTest {
      * Feature 017 (T004, research D-9): 9.0 is declared like 8.1, REST and CLI; partner
      * management is the exception of feature 018 (below); feature 020 (T038): reading Queue
      * Manager entries included since its 9.0 recording; feature 021: the server-log reads
-     * included since their 9.0 recordings (T051, T052).
+     * included since their 9.0 recordings (T051, T052); feature 024: the node tools wait for
+     * their recordings (below).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"PARTNER_MANAGEMENT"},
-        mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"PARTNER_MANAGEMENT", "CLUSTER_NODES_READ",
+        "IO_LOG_READ", "NODE_CONFIG_READ", "LOG_LEVEL_WRITE"}, mode = EnumSource.Mode.EXCLUDE)
     void everyCapabilityIsSupportedOn90LikeOn81(Capability capability) {
         assertThat(production.state(version("9.0.7"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -96,7 +102,8 @@ class CapabilityMatrixTest {
     /** Feature 017 (T004, research D-9): {@code V9_X} still selects no 9.0 support. */
     @ParameterizedTest
     @EnumSource(value = Capability.class, names = {"QUEUE_ENTRY_READ", "TRACE_LOG_READ",
-        "WEBSERVICE_LOG_READ"}, mode = Mode.EXCLUDE)
+        "WEBSERVICE_LOG_READ", "CLUSTER_NODES_READ", "IO_LOG_READ", "NODE_CONFIG_READ"},
+        mode = Mode.EXCLUDE)
     void theMajorOnlyNineLineAndNineOneStayUnverified(Capability capability) {
         assertThat(production.stateOfLine(9, OptionalInt.empty(), capability))
             .isEqualTo(notBaseline(capability));
@@ -121,7 +128,8 @@ class CapabilityMatrixTest {
 
     @ParameterizedTest
     @EnumSource(value = Capability.class, names = {"QUEUE_ENTRY_READ", "TRACE_LOG_READ",
-        "WEBSERVICE_LOG_READ"}, mode = Mode.EXCLUDE)
+        "WEBSERVICE_LOG_READ", "CLUSTER_NODES_READ", "IO_LOG_READ", "NODE_CONFIG_READ"},
+        mode = Mode.EXCLUDE)
     void anOtherKnownVersionIsTreatedLikeUnknown(Capability capability) {
         assertThat(production.state(version("10.0"), capability))
             .isEqualTo(notBaseline(capability));
@@ -133,7 +141,8 @@ class CapabilityMatrixTest {
 
     @ParameterizedTest
     @EnumSource(value = Capability.class, names = {"QUEUE_ENTRY_READ", "TRACE_LOG_READ",
-        "WEBSERVICE_LOG_READ"}, mode = Mode.EXCLUDE)
+        "WEBSERVICE_LOG_READ", "CLUSTER_NODES_READ", "IO_LOG_READ", "NODE_CONFIG_READ"},
+        mode = Mode.EXCLUDE)
     void anUnknownVersionGivesReadsUnverifiedAndWritesUnsupported(Capability capability) {
         assertThat(production.state(Optional.empty(), capability))
             .isEqualTo(notBaseline(capability));
@@ -141,7 +150,8 @@ class CapabilityMatrixTest {
 
     @ParameterizedTest
     @EnumSource(value = Capability.class, names = {"QUEUE_ENTRY_READ", "TRACE_LOG_READ",
-        "WEBSERVICE_LOG_READ"}, mode = Mode.EXCLUDE)
+        "WEBSERVICE_LOG_READ", "CLUSTER_NODES_READ", "IO_LOG_READ", "NODE_CONFIG_READ"},
+        mode = Mode.EXCLUDE)
     void aMajorOnlyLineIsLookedUpAsUnknown(Capability capability) {
         assertThat(production.stateOfLine(9, OptionalInt.empty(), capability))
             .isEqualTo(production.state(Optional.empty(), capability))
@@ -157,10 +167,12 @@ class CapabilityMatrixTest {
             .containsExactly(Capability.MONITORING, Capability.PROCESS_DIAGNOSIS,
                 Capability.LOG_DIAGNOSIS, Capability.INVENTORY, Capability.PARTNER_MANAGEMENT,
                 Capability.WORKSPACE_EXPORT, Capability.QUEUE_ENTRY_READ,
-                Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ);
+                Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ,
+                Capability.CLUSTER_NODES_READ, Capability.IO_LOG_READ,
+                Capability.NODE_CONFIG_READ);
         assertThat(Capability.values()).filteredOn(c -> c.kind() == Kind.WRITE)
             .containsExactly(Capability.DEVELOPMENT_WRITE, Capability.DEPLOYMENT,
-                Capability.E2E_TEST, Capability.PROCESS_CONTROL);
+                Capability.E2E_TEST, Capability.PROCESS_CONTROL, Capability.LOG_LEVEL_WRITE);
     }
 
     /** Feature 012 (FR-004): both halves of the former "diagnosis" keep its state. */
@@ -198,6 +210,10 @@ class CapabilityMatrixTest {
             .containsExactlyInAnyOrder(Channel.REST, Channel.CLI);
         assertThat(Capability.TRACE_LOG_READ.channels()).containsExactly(Channel.CLI);
         assertThat(Capability.WEBSERVICE_LOG_READ.channels()).containsExactly(Channel.CLI);
+        assertThat(Capability.CLUSTER_NODES_READ.channels()).containsExactly(Channel.CLI);
+        assertThat(Capability.IO_LOG_READ.channels()).containsExactly(Channel.CLI);
+        assertThat(Capability.NODE_CONFIG_READ.channels()).containsExactly(Channel.CLI);
+        assertThat(Capability.LOG_LEVEL_WRITE.channels()).containsExactly(Channel.CLI);
     }
 
     /** Feature 012 (FR-005, research D-3): 6.1 is CLI-only and nothing runs until recorded. */
@@ -339,8 +355,10 @@ class CapabilityMatrixTest {
         assertThat(production.stateOfLine(9, OptionalInt.of(0), Capability.QUEUE_ENTRY_READ))
             .isEqualTo(SupportState.SUPPORTED);
         for (Capability capability : Capability.values()) {
-            assertThat(production.note(version("9.0.7"), capability)).as("%s", capability)
-                .isEmpty();
+            if (!NODE_TOOLS.contains(capability)) {
+                assertThat(production.note(version("9.0.7"), capability)).as("%s", capability)
+                    .isEmpty();
+            }
         }
         assertThat(production.channels(version("9.0.7"), Capability.QUEUE_ENTRY_READ))
             .isEqualTo(Capability.QUEUE_ENTRY_READ.channels());
@@ -362,7 +380,8 @@ class CapabilityMatrixTest {
     /** The other capabilities keep their unknown-version rule: reads unverified. */
     @ParameterizedTest
     @EnumSource(value = Capability.class, names = {"QUEUE_ENTRY_READ", "TRACE_LOG_READ",
-        "WEBSERVICE_LOG_READ"}, mode = Mode.EXCLUDE)
+        "WEBSERVICE_LOG_READ", "CLUSTER_NODES_READ", "IO_LOG_READ", "NODE_CONFIG_READ"},
+        mode = Mode.EXCLUDE)
     void theUnknownRuleOfTheOtherCapabilitiesIsUnchanged(Capability capability) {
         assertThat(production.state(Optional.empty(), capability))
             .isEqualTo(notBaseline(capability));
@@ -414,10 +433,12 @@ class CapabilityMatrixTest {
     /**
      * T031 (feature 021, FR-002): a version not yet known (an {@code AUTO} node) may run a
      * capability only if some range or the unknown versions admit it; since their 8.1 recordings
-     * (T033, T046) 8.1 admits both server-log reads.
+     * (T033, T046) 8.1 admits both server-log reads; feature 024: the node tools not before
+     * their recordings (below).
      */
     @ParameterizedTest
-    @EnumSource(Capability.class)
+    @EnumSource(value = Capability.class, names = {"CLUSTER_NODES_READ", "IO_LOG_READ",
+        "NODE_CONFIG_READ", "LOG_LEVEL_WRITE"}, mode = Mode.EXCLUDE)
     void everyCapabilityIsPossiblySupportedOnTheProductionMatrix(Capability capability) {
         assertThat(production.possiblySupported(capability)).isTrue();
     }
@@ -476,6 +497,63 @@ class CapabilityMatrixTest {
                 .isEqualTo(SupportState.UNSUPPORTED);
             assertThat(production.note(other, capability)).as("%s", other).isEmpty();
         }
+        assertThat(production.stateOfLine(9, OptionalInt.empty(), capability))
+            .isEqualTo(SupportState.UNSUPPORTED);
+    }
+
+    // --- feature 024 T004: the unsupported node tools (FR-005, D-4) ------------------------------
+
+    @Test
+    void theNodeToolsAreCliCapabilitiesWithTheirKindsAndLabels() {
+        assertThat(Capability.CLUSTER_NODES_READ.kind()).isEqualTo(Kind.READ);
+        assertThat(Capability.CLUSTER_NODES_READ.label())
+            .isEqualTo("reading the cluster's node list");
+        assertThat(Capability.IO_LOG_READ.kind()).isEqualTo(Kind.READ);
+        assertThat(Capability.IO_LOG_READ.label())
+            .isEqualTo("reading module input/output logging");
+        assertThat(Capability.NODE_CONFIG_READ.kind()).isEqualTo(Kind.READ);
+        assertThat(Capability.NODE_CONFIG_READ.label())
+            .isEqualTo("reading node configuration values");
+        assertThat(Capability.LOG_LEVEL_WRITE.kind()).isEqualTo(Kind.WRITE);
+        assertThat(Capability.LOG_LEVEL_WRITE.label()).isEqualTo("changing temporary log levels");
+    }
+
+    /**
+     * Until its recording (T025, T032, T038, T058, T062–T065) each node tool is refused on 8.1
+     * and 9.0 as "not yet verified", and no version may run it.
+     */
+    @ParameterizedTest
+    @EnumSource(value = Capability.class, names = {"CLUSTER_NODES_READ", "IO_LOG_READ",
+        "NODE_CONFIG_READ", "LOG_LEVEL_WRITE"})
+    void aNodeToolIsNotYetVerifiedOn81And90(Capability capability) {
+        for (Optional<InubitVersion> verified : List.of(version("8.1.17"), version("9.0.7"))) {
+            assertThat(production.state(verified, capability)).as("%s", verified)
+                .isEqualTo(SupportState.UNSUPPORTED);
+            assertThat(production.note(verified, capability)).as("%s", verified)
+                .contains("not yet verified");
+            assertThat(production.channels(verified, capability)).as("%s", verified)
+                .containsExactly(Channel.CLI);
+        }
+        assertThat(production.stateOfLine(8, OptionalInt.of(1), capability))
+            .isEqualTo(SupportState.UNSUPPORTED);
+        assertThat(production.stateOfLine(9, OptionalInt.of(0), capability))
+            .isEqualTo(SupportState.UNSUPPORTED);
+        assertThat(production.lines(capability)).containsExactly("8.1", "9.0");
+        assertThat(production.possiblySupported(capability)).isFalse();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Capability.class, names = {"CLUSTER_NODES_READ", "IO_LOG_READ",
+        "NODE_CONFIG_READ", "LOG_LEVEL_WRITE"})
+    void aNodeToolIsUnsupportedOn61On91AndOnUnknownVersionsWithoutNote(Capability capability) {
+        for (Optional<InubitVersion> other : List.of(version("6.1.3"), version("9.1.0"),
+                version("7.0"), version("10.0"), Optional.<InubitVersion>empty())) {
+            assertThat(production.state(other, capability)).as("%s", other)
+                .isEqualTo(SupportState.UNSUPPORTED);
+            assertThat(production.note(other, capability)).as("%s", other).isEmpty();
+        }
+        assertThat(production.stateOfLine(6, OptionalInt.of(1), capability))
+            .isEqualTo(SupportState.UNSUPPORTED);
         assertThat(production.stateOfLine(9, OptionalInt.empty(), capability))
             .isEqualTo(SupportState.UNSUPPORTED);
     }

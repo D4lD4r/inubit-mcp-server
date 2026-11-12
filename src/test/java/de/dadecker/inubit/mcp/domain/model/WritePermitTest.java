@@ -22,7 +22,7 @@ class WritePermitTest {
 
     @ParameterizedTest
     @EnumSource(value = Capability.class, names = {"DEVELOPMENT_WRITE", "DEPLOYMENT",
-        "E2E_TEST", "PROCESS_CONTROL"})
+        "E2E_TEST", "PROCESS_CONTROL", "LOG_LEVEL_WRITE"})
     void acceptsEveryWriteCapability(Capability capability) {
         WritePermit permit = new WritePermit(NODE, capability, V9_0_7);
 
@@ -31,12 +31,13 @@ class WritePermitTest {
         assertThat(permit.admitted()).isEqualTo(V9_0_7);
     }
 
+    /** Feature 024 (T004, D-4): changing temporary log levels is the fifth. */
     @Test
-    void theWriteCapabilitiesAreExactlyTheFourOfKindWrite() {
+    void theWriteCapabilitiesAreExactlyTheFiveOfKindWrite() {
         assertThat(Arrays.stream(Capability.values())
             .filter(capability -> capability.kind() == Capability.Kind.WRITE))
             .containsExactlyInAnyOrder(Capability.DEVELOPMENT_WRITE, Capability.DEPLOYMENT,
-                Capability.E2E_TEST, Capability.PROCESS_CONTROL);
+                Capability.E2E_TEST, Capability.PROCESS_CONTROL, Capability.LOG_LEVEL_WRITE);
     }
 
     @ParameterizedTest

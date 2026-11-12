@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
@@ -17,6 +18,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiFunction;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -94,6 +96,47 @@ class NodeOverviewTest {
             .capabilities().notUsable()).extracting(NodeSummary.NotUsable::reason)
             .containsExactly("INUBIT 9.0 on dev/node1: downloading the web service log is not yet"
                 + " verified for INUBIT 9.0");
+    }
+
+    /**
+     * Feature 024 (T004, D-4): the names in {@code list_nodes}, refused until recorded; listed
+     * only where the configuration allows them, which Wiring ties to the group's opt-in and a
+     * client home (T023, T030, T036, T054).
+     */
+    @Test
+    void theNodeToolsAreListedByTheirNamesOnlyWhereAllowedAndRefusedBeforeTheirRecordings() {
+        Set<Capability> nodeTools = EnumSet.of(Capability.CLUSTER_NODES_READ,
+            Capability.IO_LOG_READ, Capability.NODE_CONFIG_READ, Capability.LOG_LEVEL_WRITE);
+        BiFunction<NodeId, Boolean, Set<Capability>> withClientOnly =
+            (id, withClient) -> withClient ? nodeTools : Set.of();
+        NodeSummary node = TestNodeConfig.node().versionLine(VersionSetting.V8_1).build()
+            .summary(path -> false, false);
+        NodeVersions versions = new NodeVersions(new MutableClock(Instant.EPOCH),
+            id -> VersionSetting.V8_1, id -> Duration.ofMinutes(5));
+
+        NodeSummary.Capabilities withoutClient = new NodeOverview(List.of(node), versions,
+            CapabilityMatrix.production(), withClientOnly, TestClientSelection.none()).nodes()
+            .getFirst().version().orElseThrow().capabilities();
+        NodeSummary.Capabilities withClient = new NodeOverview(List.of(node), versions,
+            CapabilityMatrix.production(), withClientOnly, TestClientSelection.of(id -> true))
+            .nodes().getFirst().version().orElseThrow().capabilities();
+
+        assertThat(withoutClient.usable()).isEmpty();
+        assertThat(withoutClient.notUsable()).as("not allowed, so not listed").isEmpty();
+        assertThat(withClient.usable()).isEmpty();
+        assertThat(withClient.notUsable()).extracting(NodeSummary.NotUsable::capability)
+            .containsExactly("cluster_nodes_read", "io_log_read", "node_config_read",
+                "log_level_write");
+        assertThat(withClient.notUsable()).extracting(NodeSummary.NotUsable::reason)
+            .containsExactly(
+                "INUBIT 8.1 on dev/node1: reading the cluster's node list is not yet verified for"
+                    + " INUBIT 8.1",
+                "INUBIT 8.1 on dev/node1: reading module input/output logging is not yet verified"
+                    + " for INUBIT 8.1",
+                "INUBIT 8.1 on dev/node1: reading node configuration values is not yet verified"
+                    + " for INUBIT 8.1",
+                "INUBIT 8.1 on dev/node1: changing temporary log levels is not yet verified for"
+                    + " INUBIT 8.1");
     }
 
     @Test

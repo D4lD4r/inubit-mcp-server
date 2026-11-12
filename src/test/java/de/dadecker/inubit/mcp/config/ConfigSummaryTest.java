@@ -29,6 +29,7 @@ import java.util.regex.Pattern;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 
 class ConfigSummaryTest {
@@ -799,6 +800,30 @@ class ConfigSummaryTest {
                 + " credentialStore (macOS Keychain), username ←");
         assertThat(summary).contains("Result: OK");
         TestSecrets.assertNoLeak(summary);
+    }
+
+    /** Feature 024 (T004, D-5): each node tool only for a group with its own opt-in. */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "nodeStatusRead | reading the cluster's node list",
+        "ioLogRead      | reading module input/output logging",
+        "nodeConfigRead | reading node configuration values",
+        "logLevelWrite  | changing temporary log levels"})
+    void aV61NodeOfAGroupWithANodeToolOptInAlsoRefusesThatNodeTool(String key, String label) {
+        String optedIn = render(V6_1.replace("    nodes:",
+            "    unsupported:\n      " + key + ": true\n    nodes:"));
+        String without = render(V6_1);
+
+        String refused = "test/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1,"
+            + " StartCLI only; available: none; refused: monitoring, process diagnosis, log"
+            + " diagnosis, inventory, partner management, workspace export, development writes,"
+            + " deployment, end-to-end test, process control, downloading the trace log";
+        assertThat(optedIn).contains(refused + ", " + label + "),");
+        assertThat(without).contains(refused + "),").doesNotContain(label);
+        assertThat(optedIn).as("8.1 lines are unchanged")
+            .contains("test/node3: read-only, cli: available, inubit: V8_1, secrets:"
+                + " credentialStore (macOS Keychain), username ←");
+        TestSecrets.assertNoLeak(optedIn);
     }
 
     @Test

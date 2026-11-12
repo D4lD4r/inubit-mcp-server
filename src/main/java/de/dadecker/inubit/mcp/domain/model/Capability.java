@@ -35,7 +35,18 @@ public enum Capability {
      * {@code download_server_log} with {@code log: webservice}: a helper on the INUBIT client
      * (feature 021).
      */
-    WEBSERVICE_LOG_READ(Kind.READ, Set.of(Channel.CLI));
+    WEBSERVICE_LOG_READ(Kind.READ, Set.of(Channel.CLI)),
+    /** {@code list_cluster_nodes}: a helper on the INUBIT client (feature 024). */
+    CLUSTER_NODES_READ(Kind.READ, Set.of(Channel.CLI)),
+    /** {@code read_io_log}: a helper on the INUBIT client (feature 024). */
+    IO_LOG_READ(Kind.READ, Set.of(Channel.CLI)),
+    /** {@code get_node_config}: a helper on the INUBIT client (feature 024). */
+    NODE_CONFIG_READ(Kind.READ, Set.of(Channel.CLI)),
+    /**
+     * {@code set_temporary_log_level} and {@code reset_temporary_log_level}: StartCLI
+     * {@code trace -nl}/{@code -r} (feature 024).
+     */
+    LOG_LEVEL_WRITE(Kind.WRITE, Set.of(Channel.CLI));
 
     /** Whether the capability only reads from INUBIT or changes it. */
     public enum Kind {
@@ -100,6 +111,10 @@ public enum Capability {
             case QUEUE_ENTRY_READ -> "reading Queue Manager entries";
             case TRACE_LOG_READ -> "downloading the trace log";
             case WEBSERVICE_LOG_READ -> "downloading the web service log";
+            case CLUSTER_NODES_READ -> "reading the cluster's node list";
+            case IO_LOG_READ -> "reading module input/output logging";
+            case NODE_CONFIG_READ -> "reading node configuration values";
+            case LOG_LEVEL_WRITE -> "changing temporary log levels";
         };
     }
 }

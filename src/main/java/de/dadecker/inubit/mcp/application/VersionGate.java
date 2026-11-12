@@ -594,11 +594,12 @@ public final class VersionGate {
     /**
      * Feature 020 (US3-3): a refusal of reading Queue Manager entries names the supported lines,
      * e.g. "; supported: 8.1, 9.0"; so does one of downloading a server log (feature 021, research
-     * D-6); empty for every other capability.
+     * D-6) and one of a node tool (feature 024, research D-4); empty for every other capability.
      */
     private String supportedLines(Capability capability) {
         return switch (capability) {
-            case QUEUE_ENTRY_READ, TRACE_LOG_READ, WEBSERVICE_LOG_READ ->
+            case QUEUE_ENTRY_READ, TRACE_LOG_READ, WEBSERVICE_LOG_READ, CLUSTER_NODES_READ,
+                IO_LOG_READ, NODE_CONFIG_READ, LOG_LEVEL_WRITE ->
                 "; supported: " + String.join(", ", matrix.lines(capability));
             default -> "";
         };
@@ -621,6 +622,9 @@ public final class VersionGate {
             case QUEUE_ENTRY_READ -> "use the Queue Manager in the Workbench";
             case TRACE_LOG_READ, WEBSERVICE_LOG_READ ->
                 "download the log in the Workbench (Administration, Server Log)";
+            case CLUSTER_NODES_READ, NODE_CONFIG_READ -> "use the Workbench's Cluster Manager";
+            case IO_LOG_READ -> "use the Workbench's input/output logging view";
+            case LOG_LEVEL_WRITE -> "use StartCLI trace -nl/-r by hand";
         };
     }
 
