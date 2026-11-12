@@ -73,7 +73,7 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
 
 ## Phase 1: Setup
 
-- [ ] T001 Baseline and record, in this order:
+- [X] T001 Baseline and record, in this order:
   1. Confirm feature 021 is merged into `main` and this branch is rebased onto it.
   2. Run `mvn -o -q clean verify` with the tmpdir above, plus the Python tests: green.
   3. Create `specs/022-full-interface-coverage/reviews/implementation.md`.
