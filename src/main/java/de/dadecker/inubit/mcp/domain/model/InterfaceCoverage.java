@@ -2,8 +2,11 @@ package de.dadecker.inubit.mcp.domain.model;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.Reader;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -22,6 +25,9 @@ import java.util.Set;
  * the line number on the first row that breaks a rule.
  */
 public final class InterfaceCoverage {
+
+    /** The classpath resource {@link #production} reads. */
+    public static final String RESOURCE = "/coverage/interface-coverage.tsv";
 
     private static final String HEADER = "channel\tentry\tkind\tarea\tstory\tv8_1\tv9_0\twaits";
 
@@ -43,7 +49,8 @@ public final class InterfaceCoverage {
      * {@code # delivered-stories: US1, US2} names the delivered stories (none when absent or
      * empty), then the header and one row per entry; blank lines are skipped.
      *
-     * @throws IllegalArgumentException naming the line, on a missing or wrong header, a row that
+     * @throws IllegalArgumentException naming the line, on a delivered story other than
+     *     {@code US1} … {@code US7}, a missing or wrong header, a row that
      *     breaks a rule of data-model.md → InterfaceCoverage, or a duplicate key
      */
     public static InterfaceCoverage load(Reader reader) {
@@ -63,7 +70,7 @@ public final class InterfaceCoverage {
             if (line.startsWith("#")) {
                 String comment = line.substring(1).strip();
                 if (comment.startsWith(DELIVERED_STORIES)) {
-                    delivered = stories(comment.substring(DELIVERED_STORIES.length()));
+                    delivered = stories(number, comment.substring(DELIVERED_STORIES.length()));
                 }
             } else if (line.isBlank()) {
                 continue;
@@ -94,6 +101,20 @@ public final class InterfaceCoverage {
             checkDelivery(row.getKey(), row.getValue(), delivered);
         }
         return new InterfaceCoverage(new ArrayList<>(rows.values()), byKey);
+    }
+
+    /**
+     * The coverage list shipped with the server, the resource {@value #RESOURCE}.
+     *
+     * @throws IllegalStateException if the resource is missing
+     * @throws IllegalArgumentException if it breaks a rule of {@link #load}
+     */
+    public static InterfaceCoverage production() {
+        InputStream in = InterfaceCoverage.class.getResourceAsStream(RESOURCE);
+        if (in == null) {
+            throw new IllegalStateException("Missing resource " + RESOURCE);
+        }
+        return load(new InputStreamReader(in, StandardCharsets.UTF_8));
     }
 
     /** Every row, in file order. */
@@ -189,9 +210,18 @@ public final class InterfaceCoverage {
         }
     }
 
-    private static Set<String> stories(String text) {
+    private static Set<String> stories(int number, String text) {
         String stripped = text.strip();
-        return stripped.isEmpty() ? Set.of() : Set.copyOf(List.of(stripped.split("[,\\s]+")));
+        if (stripped.isEmpty()) {
+            return Set.of();
+        }
+        List<String> stories = List.of(stripped.split("[,\\s]+"));
+        for (String story : stories) {
+            if (!CoverageEntry.STORY.matcher(story).matches()) {
+                throw failure(number, "unknown delivered story " + Names.quote(story));
+            }
+        }
+        return Set.copyOf(stories);
     }
 
     /** The rules of the {@code waits} column that depend on {@code delivered-stories}. */

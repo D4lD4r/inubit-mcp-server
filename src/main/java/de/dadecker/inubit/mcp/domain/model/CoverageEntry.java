@@ -20,7 +20,8 @@ public record CoverageEntry(Channel channel, String entry, Kind kind, Area area,
     public static final List<MajorMinor> LINES =
         List.of(new MajorMinor(8, 1), new MajorMinor(9, 0));
 
-    private static final Pattern STORY = Pattern.compile("US[1-7]");
+    /** {@code US1} … {@code US7}; also checked for the {@code delivered-stories} line. */
+    static final Pattern STORY = Pattern.compile("US[1-7]");
 
     /** {@code L-1} … {@code L-18} (a live check) or {@code 9.0-pin}. */
     private static final Pattern WAITS_ITEM = Pattern.compile("L-([1-9]|1[0-8])|9\\.0-pin");

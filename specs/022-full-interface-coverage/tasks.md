@@ -135,7 +135,7 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
     (`L-1+9.0-pin`) (data-model `CoverageEntry`).
   - Failing tests first: `domain/model/InterfaceCoverageTest.java`, one test per failure rule and
     for `offered`.
-- [ ] T007 Initial coverage list (after T006): `src/main/resources/coverage/interface-coverage.tsv`
+- [X] T007 Initial coverage list (after T006): `src/main/resources/coverage/interface-coverage.tsv`
   with every entry of the vendor pages "Command Line Interface" (with subpages) and "REST API"
   (every endpoint page) for 8.1 and 9.0.
   - **Source**: re-download the pages named in `docs/research/inubit-interfaces.md` §6 with curl
@@ -145,7 +145,9 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
   - **Rows**:
     - Entries the server sends today: `reachable:<tool>/default`. Every existing tool uses the
       action key `default` (research D-2), including `export_archives` until T044.
-    - The rows of D-6: `covered:<tool>`.
+    - The rows of D-6: `covered:<tool>` where the tool exists today; rows whose covering tool
+      belongs to a later story stay `planned` with that story (research D-6, "Covered rows before
+      their tool exists").
     - The portal entries: `excluded:portal function`.
     - The exclusions of the spec Background: `lls`, cache mode, `validateMigrationBackup`,
       `--encryptString`, `processLog`, `--tagDiagram`, `--tagWorkflowGroupExclude`, `inFile`,
@@ -362,6 +364,8 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
   certificate pin is renewed (feature 021 open point); record that state in `implementation.md`
   while waiting.
 - [ ] T025 [US1] Contracts and flip for 8.1 [BLOCKED: T014]:
+  - `license -td` and `license -ts` change from `planned` to `covered:get_server_settings` for
+    `v8_1` (research D-6), never to `reachable`;
   - `adapter/rest/v81/SettingsV81ContractTest.java` and
     `adapter/cli/admin/SettingsCliV81ContractTest.java` against the recorded fixtures;
   - flip the US1 rows for `v8_1` to `reachable:get_server_settings/default` (a row's `waits` goes
@@ -373,6 +377,7 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
     first and record the D-7 fallback in `research.md`.
 - [ ] T026 [US1] 9.0 contracts and flip [BLOCKED: T024]: `SettingsV90ContractTest.java`, rows
   and matrix for `v9_0`, catalogue entries.
+  - the same for the `v9_0` column of `license -td` / `license -ts` (`covered:get_server_settings`);
 - [ ] T027 [US1] Docs and release notes (FR-027):
   - `docs/tools.md`: section `get_server_settings`, the capability list, the error codes used;
   - `docs/setup.md`: the role "System Administrator" for license and configuration;
@@ -540,10 +545,11 @@ forms write files under the unchanged folder rules (US3 AS1–AS8).
     - every existing `export_archives` test unchanged (SC-009);
     - `ModelDetailsSecretLeakTest` extended with the three forms (errors, logs, audit).
 - [ ] T045 [US3] Coverage decisions for D:
-  - set `ps -f` rows to `covered:find_processes` and `-ne/-nx/-nw/-nq` to `covered:get_health`
-    (D-6);
+  - `ps -f` (`covered:find_processes`) and `-ne/-nx/-nw/-nq` (`covered:get_health`) are already
+    set by T007; add assertions for them to `InterfaceCoverageResourceTest`;
   - set `ps -u` per T039 (`covered:find_processes` or `excluded:<reason>`).
-  - Failing first: `InterfaceCoverageResourceTest` asserts these states.
+  - Failing first: the `ps -u` assertion in `InterfaceCoverageResourceTest` (red while the row is
+    `planned`).
 - [ ] T046 [US3] Contracts and flips [BLOCKED: T039]: `ModelDetailsV81ContractTest.java`,
   `ExportContentV81ContractTest.java`; rows, matrix, docs page; 9.0 when recorded.
 - [ ] T047 [US3] Docs and PR:
@@ -1071,6 +1077,9 @@ fails (US6 AS1–AS17).
   - an area-off refusal per action (`NOT_CONFIGURED`);
   - `security/AdministrationSecretLeakTest.java` (configuration, key password, upload content).
 - [ ] T091 [US6] Contracts, flips, docs and PR [BLOCKED: T079]:
+  - the covered rows of research D-6 ("Covered rows before their tool exists") change from
+    `planned` to `covered:administer_objects` / `covered:change_server_settings`, never to
+    `reachable`;
   - `ObjectsV81ContractTest.java`, `LibrariesV81ContractTest.java`,
     `SettingsChangeV81ContractTest.java`;
   - rows (excluded per T079 where the check failed; `startIsConnector` and `setBackupStartOption`
@@ -1200,6 +1209,8 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
   - Failing tests first: tool test, `ToolAnnouncementTest`, `WriteRaceToolsTest` +1, the
     tool's actions added to `ChangeToolsProductionRefusalTest`, `security/UserAdminSecretLeakTest.java`.
 - [ ] T102 [US7] Contracts, flips, docs and PR [BLOCKED: T092]:
+  - `delete --deleteUser` changes from `planned` to `covered:administer_users` (research D-6), never
+    to `reachable`;
   - `UserAdminV81ContractTest.java`;
   - rows (`passwd`/`create -cu --password` set to `excluded:secret only on a visible command line`
     if T092 showed the session cannot hide it), matrix, docs page;

@@ -171,6 +171,42 @@ separators. Structured fields keep free text off the command line.
 
 The other entries have one channel only.
 
+**Covered rows before their tool exists** (T007 review, orchestrator decision 2026-11-12): a row
+may name only a registered tool (coverage check 3). A "covered" row whose covering tool belongs to
+a story not delivered yet therefore stays `planned` with that story, and changes to
+`covered:<tool>` (never `reachable`) in the flip task of that story:
+
+| Rows | Becomes | In |
+|---|---|---|
+| `license -td`, `license -ts` | `covered:get_server_settings` | T025 / T026 (US1) |
+| `delete --deleteWorkflow`, `delete --deleteModule`, `library --upload`, `library --delete`, `POST /edirules` | `covered:administer_objects` | T091 (US6) |
+| `POST /configurations` | `covered:change_server_settings` | T091 (US6) |
+| `delete --deleteUser` | `covered:administer_users` | T102 (US7) |
+
+**Entries outside the spec's lists** (classified while building the list, T007):
+
+- `covered:get_health`: `-c`, `maintenance`, `maintenance -s`, `trace` (shows the state), `ps -c`,
+  `uname`, `uptime`, `free -i|-k|-m|-p`. `get_health` reads the same facts over REST
+  (`maintenanceMode`, `tracingEnabled`, `processCounts`, memory, version).
+- `reachable:get_health/default`: `-v` (`get_health` runs `startcli -v`).
+- `covered:find_processes`: `-q`, `ps -a|-e|-q|-w|-l|-csv`.
+- `covered:deploy_release`: the `deploy --deploy*` options. `covered:query_logs`: `GET /log/{name}`.
+  `covered:import_artifacts`: `PUT /model/import`. `covered:export_archives`:
+  `GET /task/formProxyServlet` (the spec's "reading a repository resource").
+- `reachable:<tool>/default` per option of the commands the server already sends (one tool per
+  entry where several send it): `export --exportWorkflowUser|Type|Group` and `--exportFile` →
+  `export_archives`; `export --exportModule|ModuleGroup|ModuleUser|RepositoryPath` →
+  `export_artifacts`; `export --includeHistory` and `GET /model/export/{name}` →
+  `get_inventory_item`; `export --exportTag` → `deploy_release`; the `import` options the server sends
+  (`--importFile`, `--importWorkflow`, `--importWorkflowActive`, `--importWorkflowInactive`,
+  `--importModule`, `--importUser`, `--importRepositoryPath`, `--returnProtocol`) →
+  `import_artifacts` (the other `import` options are `planned` for US6 and US7); `tag --tagMove|WorkflowGroup|WorkflowType|User` → `tag_artifacts`; `kill` →
+  `kill_process`; `processErrorStart` → `restart_process`; `GET /model/models` →
+  `list_inventory`; `GET /model/modelByName/{name}` → `get_inventory_item`; `GET /system/info` → `get_health`.
+- excluded: `-a` (lists the network interfaces of the StartCLI client host, not of the server);
+  `--debug` (the client-side trace of an interactive session; the server switch is the
+  `debug on|off` row); `backup.sh` and `restore.sh` options (offline scripts, area START).
+
 **Rationale**: the constitution prefers REST. `get_health` already reads these facts, and FR-002
 forbids reading them twice.
 

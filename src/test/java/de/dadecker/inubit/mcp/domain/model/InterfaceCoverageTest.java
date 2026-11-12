@@ -13,8 +13,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
@@ -198,13 +201,29 @@ class InterfaceCoverageTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"SOAP\tGET /license\tREAD\tA\t-\tcovered:t\tcovered:t\t-",
-        "REST\tGET /license\tDELETE\tA\t-\tcovered:t\tcovered:t\t-",
-        "REST\tGET /license\tREAD\tF\t-\tcovered:t\tcovered:t\t-",
-        "REST\tGET /license\tREAD\tA\tUS8\tcovered:t\tcovered:t\t-",
-        "REST\t\tREAD\tA\t-\tcovered:t\tcovered:t\t-"})
-    void failsOnAnUnknownChannelKindAreaStoryOrAnEmptyEntry(String row) {
-        assertFails("line 4", "", row);
+    @MethodSource("rowsWithAnUnknownField")
+    void failsOnAnUnknownChannelKindAreaStoryOrAnEmptyEntry(String reason, String row) {
+        assertFails("line 4", reason, row);
+    }
+
+    static Stream<Arguments> rowsWithAnUnknownField() {
+        return Stream.of(
+            Arguments.of("unknown channel", "FTP\tGET /license\tREAD\tA\t-\tcovered:t\tcovered:t\t-"),
+            Arguments.of("must be CLI or REST",
+                "SOAP\tGET /license\tREAD\tA\t-\tcovered:t\tcovered:t\t-"),
+            Arguments.of("unknown kind", "REST\tGET /license\tDELETE\tA\t-\tcovered:t\tcovered:t\t-"),
+            Arguments.of("unknown area", "REST\tGET /license\tREAD\tF\t-\tcovered:t\tcovered:t\t-"),
+            Arguments.of("story", "REST\tGET /license\tREAD\tA\tUS8\tcovered:t\tcovered:t\t-"),
+            Arguments.of("entry", "REST\t\tREAD\tA\t-\tcovered:t\tcovered:t\t-"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"USl", "US8", "US 1", "us1"})
+    void failsOnAnUnknownDeliveredStory(String story) {
+        assertThatIllegalArgumentException().isThrownBy(() -> InterfaceCoverage.load(
+                new StringReader("# source: test\n# delivered-stories: US1, " + story + "\n"
+                    + HEADER + "\n" + "CLI\tlls\tREAD\tA\t-\tcovered:t\tcovered:t\t-\n")))
+            .withMessageContaining("line 2").withMessageContaining("delivered story");
     }
 
     // --- offered ------------------------------------------------------------------------------
