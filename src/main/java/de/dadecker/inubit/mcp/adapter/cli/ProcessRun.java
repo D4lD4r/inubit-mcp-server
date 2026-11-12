@@ -201,6 +201,13 @@ public final class ProcessRun {
         return run(spec, stdin, timeout, Call.of(processLabel).forNode(node));
     }
 
+    /** As above; a {@code TIMEOUT} tells to raise {@code timeoutSetting}. */
+    public CliResult run(LaunchSpec spec, byte[] stdin, Duration timeout, String processLabel,
+        NodeId node, String timeoutSetting) {
+        return run(spec, stdin, timeout,
+            Call.of(processLabel).forNode(node).withTimeoutSetting(timeoutSetting));
+    }
+
     /** As above, reporting and keeping the output as {@code call} says. */
     CliResult run(LaunchSpec spec, byte[] stdin, Duration timeout, Call call) {
         try {

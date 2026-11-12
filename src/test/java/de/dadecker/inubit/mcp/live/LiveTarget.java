@@ -235,6 +235,14 @@ record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boo
     }
 
     /**
+     * The production wiring of {@code config}, a changed in-memory copy of the real configuration
+     * (feature 021: the server log live test's unreachable port).
+     */
+    TestWiring wiring(ProfileConfig config) {
+        return wiring(config, store(), SsmParameterStore::new);
+    }
+
+    /**
      * The production wiring with {@code workspace} instead of the configured one (feature 003):
      * a live test never writes into the person's real workspace.
      */

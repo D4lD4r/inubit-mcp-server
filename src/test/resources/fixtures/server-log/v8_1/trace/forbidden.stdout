@@ -1,0 +1,15 @@
+JAVA_HOME is set
+Password: 
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+ERROR 10:16:45,456 [main      ] CLI                       ERROR
+com.inubit.ibis.utils.InubitException: @Start@AccessDenied@@@Access denied!@End@The user jdoe has no right to download the trace log.
+	at com.inubit.ibis.cli.executors.RawCommandExecutor.start(RawCommandExecutor.java:74) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.executors.ScriptableCommandExecutor.executeRawCommand(ScriptableCommandExecutor.java:351) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.executors.ScriptableCommandExecutor.processCommand(ScriptableCommandExecutor.java:334) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.executors.ScriptableCommandExecutor.processLine(ScriptableCommandExecutor.java:160) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.CLI.execute(CLI.java:247) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.CLI.main(CLI.java:86) ~[ibis.jar:8.1.17]
+EXECUTION ERROR
+Access denied!
+The user jdoe has no right to download the trace log.
+

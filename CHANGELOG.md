@@ -7,6 +7,61 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Feature 021: download the trace log or the web service log of one node into a local folder, with
+a masked excerpt in the result. The trace log is read through StartCLI's supported trace download,
+the web service log through an **unsupported, undocumented INUBIT interface**, off unless a group
+opts in. Verified on INUBIT 8.1 and 9.0 against recorded, neutralized downloads of a live
+non-production node of each version: the 8.1 trace log, the 8.1 web service log and the 9.0 trace
+log with content; the 9.0 web service log only against a recorded answer of 0 bytes (no non-empty
+9.0 web service log could be recorded), so on 9.0 an empty and a missing web service log cannot be
+told apart from the answer alone.
+
+### Added
+
+- `download_server_log` (feature 021) downloads ONE log of ONE node into a local folder
+  (`targetFolder`) and returns a masked excerpt of it: the newest lines (`tailLines`, default 200,
+  at most 2,000) or, with `contains`, the newest lines containing a text, at most `maxChars`
+  characters (default 20,000, at most 100,000), with their line numbers in the file, taken from its last 50 MiB.
+  - `log: trace` downloads `trace.log` through StartCLI's supported trace download
+    (`trace --download`) on the node's StartCLI client; the trace settings stay as they are.
+  - `log: webservice` downloads `webservice.log` with the internal download the Workbench's
+    Cluster Manager uses, an INUBIT interface without documentation, vendor support or stability
+    guarantee that may stop working after any INUBIT update; **for diagnosis only**. The helper of
+    `read_queue_entry` runs it on the INUBIT client installation of the node's version.
+  - The file is the verbatim log **in clear text** and may hold business data and credentials;
+    only the excerpt is masked: secrets by name as in `read_queue_entry`, and the known
+    credentials of every configured node. While the credentials of some node are not read yet,
+    the excerpt is withheld; the file is still written.
+  - The file is named `<group>-<node>-<log>-<yyyyMMdd-HHmmss>[-n].log` and never replaces an
+    existing file; the folder rules, owner-only permissions and the cloud-sync warning are those
+    of `export_archives`. The tool is annotated as not read-only, so that clients ask before it
+    writes. Nothing on INUBIT is changed.
+  - A call is bounded by the node's `cliExportTimeout`, which large logs may need raised. The
+    server builds one excerpt at a time (≈ 250 MiB of memory at its peak). Calls are audited
+    (`capability: download_server_log`; never log content or the `contains` text).
+- The group setting `unsupported.serverLogRead` (default `false`): only nodes of an opted-in group
+  download the web service log; a node of another group is refused with `NOT_CONFIGURED`. The
+  tool is announced only if a node has an INUBIT client home and either is not pinned to a version
+  that refuses the trace log download, or belongs to an opted-in group and is not pinned to a
+  version that refuses the web service log download. An opt-in on a `production: true` group
+  starts the server with a warning.
+- The capabilities `trace_log_read` (for nodes with an INUBIT client home) and
+  `webservice_log_read` (only for nodes of opted-in groups with an INUBIT client home) in
+  `list_nodes`: both supported on INUBIT 8.1 and 9.0, refused on 6.1, on other lines (9.1,
+  `V9_X`) and on undeclared versions. The `--check-config` summary of a 6.1 node lists
+  `downloading the trace log` among its refused capabilities, and for an opted-in group also
+  `downloading the web service log`.
+- `--check-config` ends every group line with `serverLogRead: enabled (unsupported)` or
+  `serverLogRead: off`, but only when some group of the profile has the opt-in; otherwise its
+  group lines are unchanged.
+
+### Changed
+
+- Internal, no behaviour change: the helper on the INUBIT client, which `read_queue_entry` uses
+  and now also `download_server_log`, is renamed `ClientHelper`; the helper classes both tools
+  share moved to `adapter/cli/helper`.
+- `docs/tools.md` describes twenty-two tools.
+
 ### Fixed
 
 - Tests and live tests no longer write into `~/.inubit-mcp`; the server's state locations are

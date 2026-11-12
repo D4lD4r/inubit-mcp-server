@@ -78,7 +78,11 @@ public final class FakeProcessLauncher implements ProcessLauncher {
 
     /** Reads a fixture file of {@code version} as bytes. */
     public static byte[] fixture(String version, String name) {
-        String path = version + "/cli/" + name;
+        return resource(version + "/cli/" + name);
+    }
+
+    /** Reads {@code fixtures/<path>} as bytes, e.g. {@code server-log/v8_1/trace/ok.stdout}. */
+    public static byte[] resource(String path) {
         try (InputStream in = FakeProcessLauncher.class.getResourceAsStream(
             "/fixtures/" + path)) {
             if (in == null) {

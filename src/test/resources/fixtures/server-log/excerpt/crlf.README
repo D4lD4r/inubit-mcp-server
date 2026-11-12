@@ -1,0 +1,7 @@
+SYNTHETIC – a trace log written with CRLF line ends (6 lines, every line ends with CRLF; keep
+the bytes, see .gitattributes): an Authorization: Basic header line on line 2 and a <password>
+element whose value spans lines 3–5.
+Expected from SecretTextMasker.maskLines: line 2 is "Authorization: ${secret:authorization}",
+line 3 "<password>${secret:data.password}", line 4 empty, line 5 "</password> done", lines 1
+and 6 unchanged; every CRLF kept, no bare LF or CR; no credential-payload-value-0001 left.
+Used by SecretTextMaskerLinesTest (tasks.md T013, research D-11).

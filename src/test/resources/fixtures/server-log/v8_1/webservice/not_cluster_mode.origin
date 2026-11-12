@@ -1,0 +1,2 @@
+reconstructed the server text Server not in cluster mode. (research "Static facts": the ClusterDownload handler throws InubitException("Server not in cluster mode.") without a CacheDataFacade) as the part log error of the download, in the layout of missing.frames.
+The spike server did not answer with this text (research "8.1 webservice spike (T034)"); the wrapping is taken over from the 020 recording. The download fails, so the .log is empty.

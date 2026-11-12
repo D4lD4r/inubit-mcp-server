@@ -14,7 +14,8 @@ import java.util.Optional;
  * {@link #monitoring()} (US1), {@link #processes()} and {@link #logs()} (US2),
  * {@link #inventory()} (US3), {@link #processControl()} (US4), feature 003 adds
  * {@link #artifacts()}, feature 004 {@link #imports()} and {@link #tags()}, feature 018
- * {@link #partners()} and feature 020 {@link #queueEntryContent()}, implemented by the
+ * {@link #partners()}, feature 020 {@link #queueEntryContent()} and feature 021
+ * {@link #serverLogs()}, implemented by the
  * version-specific adapters.
  * Application services obtain gateways only through {@link GatewayFactory}, so supporting 9.x is an
  * adapter change, not a change of the tool logic.
@@ -118,6 +119,20 @@ public interface Gateway {
         throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
             "Queue entry reads are not available for " + node(),
             "This adapter line has no queue-entry adapter",
+            "Use a node with an INUBIT 8.1 CLI installation (cliHome)").withNode(node()));
+    }
+
+    /**
+     * The server logs of this server, downloaded over the StartCLI client (feature 021, research
+     * D-19). The default is for gateways without a server-log adapter.
+     *
+     * @throws ToolErrorException {@code CLI_UNAVAILABLE} with the server id, unless the
+     *     version-specific gateway provides an adapter
+     */
+    default ServerLogPort serverLogs() {
+        throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
+            "Server log downloads are not available for " + node(),
+            "This adapter line has no server-log adapter",
             "Use a node with an INUBIT 8.1 CLI installation (cliHome)").withNode(node()));
     }
 }

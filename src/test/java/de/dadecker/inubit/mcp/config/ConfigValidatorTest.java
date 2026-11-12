@@ -2851,6 +2851,67 @@ class ConfigValidatorTest {
         }
     }
 
+    /** Feature 021 (T042, FR-016, US2-6, research D-17). */
+    @Nested
+    class ServerLogRead {
+
+        private static String profile(boolean production, String unsupported) {
+            return QueueEntryRead.profile(production, unsupported);
+        }
+
+        private static String optIn(boolean value) {
+            return "    unsupported:\n      serverLogRead: " + value + "\n";
+        }
+
+        @Test
+        void theOptInOnAProductionGroupIsAWarning() {
+            ValidationReport report = validate(profile(true, optIn(true)));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("unsupported.serverLogRead is enabled"
+                + " on production group prod: the web service log is read through an"
+                + " undocumented INUBIT interface without vendor support");
+            TestSecrets.assertNoLeak(String.join("\n", report.warnings()));
+        }
+
+        @Test
+        void theWarningUsesTheProfileTerminology() {
+            ValidationReport report = validate(profile(true, optIn(true)).replace(
+                "groups:\n", "terminology:\n  group: { singular: stage, plural: stages }\n"
+                    + "  node: { singular: server, plural: servers }\ngroups:\n"));
+
+            assertThat(report.warnings()).containsExactly("unsupported.serverLogRead is enabled"
+                + " on production stage prod: the web service log is read through an"
+                + " undocumented INUBIT interface without vendor support");
+        }
+
+        @Test
+        void bothOptInsOnAProductionGroupGiveBothWarningsQueueEntryReadFirst() {
+            ValidationReport report = validate(profile(true,
+                "    unsupported:\n      serverLogRead: true\n      queueEntryRead: true\n"));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly(
+                "unsupported.queueEntryRead is enabled on production group prod: Queue Manager"
+                    + " entries are read through an undocumented INUBIT interface without vendor"
+                    + " support",
+                "unsupported.serverLogRead is enabled on production group prod: the web service"
+                    + " log is read through an undocumented INUBIT interface without vendor"
+                    + " support");
+        }
+
+        @Test
+        void theOptInOnANonProductionGroupAndAFalseOrAbsentOptInAreNoFinding() {
+            for (String yaml : List.of(profile(false, optIn(true)), profile(true, optIn(false)),
+                profile(false, optIn(false)), profile(false, ""), profile(true, ""))) {
+                ValidationReport report = validate(yaml);
+
+                assertThat(report.errors()).as(yaml).isEmpty();
+                assertThat(report.warnings()).as(yaml).isEmpty();
+            }
+        }
+    }
+
     /** Feature 014: rules V-1 and V-3 … V-11 of contracts/configuration.md (research R-3). */
     @Nested
     class PinPerServer {

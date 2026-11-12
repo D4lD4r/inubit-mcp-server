@@ -7,15 +7,18 @@ import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.EntryPart;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.LogPresence;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
 import de.dadecker.inubit.mcp.domain.model.RawEntryContent;
 import de.dadecker.inubit.mcp.domain.model.RawEntryContent.PartResult;
+import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
+import de.dadecker.inubit.mcp.domain.port.DownloadedLog;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
@@ -24,6 +27,7 @@ import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
+import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
 import de.dadecker.inubit.mcp.testing.TestPermits;
@@ -31,8 +35,10 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -233,6 +239,49 @@ class StaleReportingPortsTest {
         return new PortSet(others.processes(), others.logs(), others.inventory(),
             others.processControl(), others.artifacts(), others.imports(), others.tags(),
             others.partners(), content);
+    }
+
+    @Test
+    void serverLogsAreForwardedAndAnUnexpectedResponseMarksTheNodeStale() {
+        // feature 021 T011 (research D-19): the server-log port is wrapped like every other port
+        InubitVersion version = InubitVersion.parse("8.1.17").orElseThrow();
+        long deadline = System.nanoTime();
+        DownloadedLog answer = new DownloadedLog(Path.of("trace.log"), 0, Optional.empty(),
+            LogPresence.PRESENT, () -> { });
+        List<Object> asked = new ArrayList<>();
+        ServerLogPort answering = (k, v, d) -> {
+            asked.addAll(List.of(k, v, d));
+            return answer;
+        };
+
+        PortSet wrapped = stale.ports(withServerLogs(answering));
+        assertThat(wrapped.serverLogs()).isInstanceOf(StaleReportingPorts.ServerLogs.class);
+        assertThat(wrapped.serverLogs().download(ServerLogKind.TRACE, version, deadline))
+            .isSameAs(answer);
+        assertThat(asked).containsExactly(ServerLogKind.TRACE, version, deadline);
+        assertThat(versions.events()).isEmpty();
+
+        for (RuntimeException other : List.of(failure(ErrorCode.NOT_FOUND),
+            failure(ErrorCode.TIMEOUT), new IllegalStateException("bug"))) {
+            assertThat(catchThrowable(() -> stale.ports(withServerLogs(throwing(
+                ServerLogPort.class, other))).serverLogs().download(ServerLogKind.WEBSERVICE,
+                    version, deadline))).isSameAs(other);
+        }
+        assertThat(versions.events()).isEmpty();
+
+        ToolErrorException unexpected = failure(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(catchThrowable(() -> stale.ports(withServerLogs(throwing(
+            ServerLogPort.class, unexpected))).serverLogs().download(ServerLogKind.TRACE,
+                version, deadline))).isSameAs(unexpected);
+        assertThat(versions.events()).containsExactly("stale dev/node1");
+    }
+
+    /** A port set of throwing ports whose server-log port is {@code serverLogs}. */
+    private static PortSet withServerLogs(ServerLogPort serverLogs) {
+        PortSet others = throwingPorts(failure(ErrorCode.NOT_FOUND));
+        return new PortSet(others.processes(), others.logs(), others.inventory(),
+            others.processControl(), others.artifacts(), others.imports(), others.tags(),
+            others.partners(), others.queueEntryContent(), serverLogs);
     }
 
     @Test

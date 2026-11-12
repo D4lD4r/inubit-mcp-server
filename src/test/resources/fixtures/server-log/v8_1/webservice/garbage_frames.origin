@@ -1,0 +1,2 @@
+reconstructed the helper protocol (research D-4) as fixtures/queue-entry/v8_1/garbage_frames.frames: an unknown progress frame between node ok and part log ok.
+Not recorded: synthetic frames; garbage_frames.log is the acme_StockService request entry of ok.log, and both byte counts name its size.

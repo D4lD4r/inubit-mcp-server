@@ -33,6 +33,8 @@ import java.util.function.Predicate;
  *     {@code export_archives} needs it, and is independent of {@link #write()}
  * @param queueEntryRead the group's {@code unsupported.queueEntryRead} (feature 020, research
  *     D-15), built-in {@code false}
+ * @param serverLogRead the group's {@code unsupported.serverLogRead} (feature 021, research
+ *     D-17), built-in {@code false}
  * @param cli the StartCLI settings in use: {@link #cliFor} of the pinned version (version-less
  *     for {@code AUTO} and {@code V9_X}), or the choice a launch selected ({@link #withCli})
  * @param cliSources the layers {@link #cliFor} chooses from (feature 017, research D-2)
@@ -57,6 +59,7 @@ public record EffectiveNodeConfig(
     SecretPlan secretPlan,
     boolean archivesProductionOptIn,
     boolean queueEntryRead,
+    boolean serverLogRead,
     CliSources cliSources) {
 
     /** Path of the StartCLI SOAP endpoint relative to the base URL (8.1). */
@@ -91,7 +94,8 @@ public record EffectiveNodeConfig(
     /**
      * A server built without {@link CliSources}: its StartCLI settings count as node settings
      * ({@link CliSources#of}), so every version chooses the same client and only an address that
-     * is not the default one is explicit. It is not opted in to {@link #queueEntryRead}.
+     * is not the default one is explicit. It is not opted in to {@link #queueEntryRead} or
+     * {@link #serverLogRead}.
      */
     public EffectiveNodeConfig(NodeId id, boolean production, URI baseUrl,
         boolean allowInsecureHttp, VersionSetting versionLine, Write write, Tls tls, Cli cli,
@@ -100,7 +104,7 @@ public record EffectiveNodeConfig(
         Development development, SecretPlan secretPlan, boolean archivesProductionOptIn) {
         this(id, production, baseUrl, allowInsecureHttp, versionLine, write, tls, cli, inventory,
             timeout, cliTimeout, cliExportTimeout, hangingThreshold, confirmationTtl,
-            credentialPrefix, development, secretPlan, archivesProductionOptIn, false,
+            credentialPrefix, development, secretPlan, archivesProductionOptIn, false, false,
             baseUrl == null || cli == null ? null : CliSources.of(baseUrl, cli));
     }
 
@@ -251,7 +255,7 @@ public record EffectiveNodeConfig(
         return new EffectiveNodeConfig(id, production, baseUrl, allowInsecureHttp, versionLine,
             write, tls, cli, inventory, newTimeout, cliTimeout, cliExportTimeout, hangingThreshold,
             confirmationTtl, credentialPrefix, development, secretPlan,
-            archivesProductionOptIn, queueEntryRead, cliSources);
+            archivesProductionOptIn, queueEntryRead, serverLogRead, cliSources);
     }
 
     /**
@@ -262,7 +266,7 @@ public record EffectiveNodeConfig(
         return new EffectiveNodeConfig(id, production, baseUrl, allowInsecureHttp, versionLine,
             write, tls, chosen, inventory, timeout, cliTimeout, cliExportTimeout,
             hangingThreshold, confirmationTtl, credentialPrefix, development, secretPlan,
-            archivesProductionOptIn, queueEntryRead, cliSources);
+            archivesProductionOptIn, queueEntryRead, serverLogRead, cliSources);
     }
 
     /**
@@ -283,7 +287,7 @@ public record EffectiveNodeConfig(
         return new EffectiveNodeConfig(id, production, baseUrl, allowInsecureHttp, versionLine,
             write, new Tls(Optional.empty(), false, Optional.empty()), only, inventory, timeout,
             cliTimeout, cliExportTimeout, hangingThreshold, confirmationTtl, credentialPrefix,
-            development, secretPlan, archivesProductionOptIn, queueEntryRead,
+            development, secretPlan, archivesProductionOptIn, queueEntryRead, serverLogRead,
             CliSources.of(baseUrl, only));
     }
 
@@ -500,6 +504,7 @@ public record EffectiveNodeConfig(
             group.archives().productionOptIn()
                 .orElse(Defaults.BUILTIN_ARCHIVES_PRODUCTION_OPT_IN),
             group.unsupported().queueEntryRead().orElse(Defaults.BUILTIN_QUEUE_ENTRY_READ),
+            group.unsupported().serverLogRead().orElse(Defaults.BUILTIN_SERVER_LOG_READ),
             cliSources);
     }
 }

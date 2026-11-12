@@ -26,6 +26,10 @@ import java.util.regex.Pattern;
  *       ({@link #REPOSITORY_PATH}, through {@link Builder#repositoryPath} only). The empty
  *       diagram group list {@code --exportWorkflowGroup ''} (all groups of the owner) is
  *       accepted only together with {@code --exportTag}.
+ *   <li>Feature 021 (FR-005, research D-1): {@code trace} only as the download
+ *       {@code trace --download '<path>'} ({@link #traceDownload}): exactly one
+ *       {@code --download}, given through {@link Builder#path} only, and nothing else, so the
+ *       trace state is never switched or changed.
  *   <li>Process ids are 1–19 decimal digits without leading zero ({@code ^[1-9][0-9]{0,18}$}).
  *   <li>Every other value (workflow, type, group, owner) must match
  *       {@link #VALUE} (no leading {@code -}) and is wrapped in single quotes; a value with
@@ -68,7 +72,9 @@ public final class CliCommand {
         "import", Set.of("--importFile", "--importWorkflow", "--importWorkflowActive",
             "--importWorkflowInactive", "--importModule", "--importUser", "--returnProtocol",
             "--importRepositoryPath"),
-        "tag", Set.of("--tagMove", "--tagWorkflowGroup", "--tagWorkflowType", "--tagUser"));
+        "tag", Set.of("--tagMove", "--tagWorkflowGroup", "--tagWorkflowType", "--tagUser"),
+        // feature 021 (research D-1): never on, off, -l, -nl, -p, -r
+        "trace", Set.of("--download"));
     /** The options without value ({@link Builder#flag}); every other option takes one. */
     private static final Set<String> FLAGS = Set.of("--includeHistory", "--importWorkflow",
         "--importWorkflowActive", "--importWorkflowInactive", "--importModule",
@@ -76,6 +82,8 @@ public final class CliCommand {
     /** The options that take a repository path ({@link Builder#repositoryPath}) only. */
     private static final Set<String> REPOSITORY_OPTIONS =
         Set.of("--exportRepositoryPath", "--importRepositoryPath");
+    /** The options that take a file path ({@link Builder#path}) only (feature 021, D-1). */
+    private static final Set<String> PATH_OPTIONS = Set.of("--download");
     /** Commands that take exactly one process id and nothing else. */
     private static final Set<String> PROCESS_COMMANDS = Set.of("processErrorStart", "kill");
 
@@ -103,6 +111,14 @@ public final class CliCommand {
     /** {@code kill <pid>}: remove a process instance from the Queue Manager. */
     public static CliCommand kill(String processId) {
         return command("kill").processId(processId).build();
+    }
+
+    /**
+     * {@code trace --download '<file>'}: download the server's trace log to {@code file} without
+     * touching the trace state (feature 021, FR-005, research D-1).
+     */
+    public static CliCommand traceDownload(Path file, boolean windows) {
+        return command("trace").path("--download", file, windows).build();
     }
 
     /** The command name, e.g. {@code export}. */
@@ -175,7 +191,7 @@ public final class CliCommand {
 
         /** {@code <option> '<value>'}; the value must match {@link #VALUE}. */
         public Builder quoted(String option, String value) {
-            String checked = valueOption(option);
+            String checked = textOption(option);
             if (value == null || !VALUE.matcher(value).matches()) {
                 throw invalid("The value for " + checked + " cannot be passed to StartCLI"
                         + " safely",
@@ -196,7 +212,7 @@ public final class CliCommand {
          * takes it.
          */
         public Builder emptyQuoted(String option) {
-            String checked = valueOption(option);
+            String checked = textOption(option);
             if (checked.equals("--exportTag")) {
                 throw invalid("The tag for --exportTag must not be empty",
                     "An empty tag cannot select a release");
@@ -272,6 +288,12 @@ public final class CliCommand {
                 throw invalid("The StartCLI command " + name + " needs a process id",
                     "processErrorStart and kill take exactly one process id");
             }
+            if (name.equals("trace")
+                && !(tokens.size() == 3 && tokens.get(1).equals("--download"))) {
+                throw invalid("The StartCLI command trace needs exactly one --download",
+                    "Only the trace download is supported; every other trace form switches or"
+                        + " shows the trace state (research D-1)");
+            }
             if (emptyGroupList && !tagged) {
                 throw invalid("The empty diagram group list is only allowed in a tag export",
                     "StartCLI exports every diagram group of the owner for --exportWorkflowGroup"
@@ -304,6 +326,16 @@ public final class CliCommand {
             if (FLAGS.contains(checked)) {
                 throw invalid("The StartCLI option " + checked + " takes no value",
                     "Pass it with flag()");
+            }
+            return checked;
+        }
+
+        /** A value option that takes a quoted or empty value, not only a file path. */
+        private String textOption(String option) {
+            String checked = valueOption(option);
+            if (PATH_OPTIONS.contains(checked)) {
+                throw invalid("The StartCLI option " + checked + " takes a file path",
+                    "Pass it with path()");
             }
             return checked;
         }

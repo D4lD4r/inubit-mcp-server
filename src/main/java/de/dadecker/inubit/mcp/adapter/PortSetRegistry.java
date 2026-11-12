@@ -3,7 +3,7 @@ package de.dadecker.inubit.mcp.adapter;
 import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
-import de.dadecker.inubit.mcp.adapter.cli.queue.HelperInstallation;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81QueryRules;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;

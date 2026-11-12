@@ -1,0 +1,2 @@
+reconstructed fixtures/server-log/v8_1/webservice/api_missing.* (the helper protocol, research D-4: the API check before start writes api missing <what> and exits 4).
+Copied unchanged: the helper checks the same ClusterClient.clusterDownload(File, NodeName, String) in both variants (research.md "Static facts", identical in 9.0.10); no start frame, so no REST client line and no login; the .log is empty. Not verified against a 9.0 client or server.

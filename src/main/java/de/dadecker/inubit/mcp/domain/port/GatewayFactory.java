@@ -114,6 +114,14 @@ public interface GatewayFactory {
     }
 
     /**
+     * The server-log port of {@code server} (feature 021); the default asks the gateway, whose
+     * default throws {@code CLI_UNAVAILABLE}.
+     */
+    default ServerLogPort serverLogs(NodeId server) {
+        return forServer(server).serverLogs();
+    }
+
+    /**
      * The StartCLI health port of {@code server} if its effective version is reached through
      * StartCLI only (feature 012, research D-4), else empty. Never detects and never contacts
      * the server. The default, for a factory without such versions, is empty.

@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -454,6 +455,167 @@ class CliOutputClassifierTest {
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.message()).contains("exceeded 1 MiB");
+    }
+
+    // --- trace download (feature 021, research D-8, D-14) ------------------------------------
+
+    /**
+     * Reconstructed from the 8.1.17/9.0.10 bytecode (research "Static facts"): the server throws
+     * {@code InubitException("FileWasNotFound", …, <absolute path>)}, StartCLI logs it like every
+     * other {@code InubitException} (see {@code kill_unknown}). No missing-file case was recorded.
+     */
+    private static CliResult traceLogMissing(String serverPath) {
+        return result(1, PREAMBLE
+            + "ERROR 10:00:00,000 [main      ] CLI                       ERROR\n"
+            + "com.inubit.ibis.utils.InubitException: @Start@FileWasNotFound@@@" + serverPath
+            + "@End@\n"
+            + "\tat com.inubit.ibis.cli.cmds.TraceCommand.execute(TraceCommand.java:1)\n"
+            + "EXECUTION ERROR\n" + serverPath + "\n");
+    }
+
+    private static final SecretLabels NODE1 = new SecretLabels.Store(
+        new CredentialNames("INUBIT_ACME", NodeId.parse("test/node1")), StoreKind.KEYCHAIN);
+
+    @Test
+    void aMissingTraceLogIsNotFoundInTheTraceContext() {
+        CliOutputClassifier forNode = new CliOutputClassifier(scrubber, NODE1, false);
+
+        CliOutcome outcome = forNode.classifyTraceDownload(
+            traceLogMissing("/opt/inubit/server/log/trace.log"));
+
+        assertThat(outcome).isInstanceOfSatisfying(CliOutcome.Failure.class, failure -> {
+            assertThat(failure.error().code()).isEqualTo(ErrorCode.NOT_FOUND);
+            assertThat(failure.error().message())
+                .isEqualTo("trace.log does not exist on test/node1");
+            assertThat(failure.error().nextStep())
+                .isEqualTo("Check the trace settings of the server in the Workbench");
+        });
+    }
+
+    @Test
+    void aClassifierWithoutNodeNamesTheServerGenerically() {
+        ToolError error = ((CliOutcome.Failure) classifier.classifyTraceDownload(
+            traceLogMissing("/opt/inubit/server/log/trace.log"))).error();
+
+        assertThat(error.code()).isEqualTo(ErrorCode.NOT_FOUND);
+        assertThat(error.message()).isEqualTo("trace.log does not exist on the INUBIT server");
+    }
+
+    @Test
+    void theSameMarkerOutsideTheTraceContextKeepsItsClassification() {
+        // an export never asked for trace.log: the marker is no known rule there
+        CliResult result = traceLogMissing("/opt/inubit/server/log/trace.log");
+
+        ToolError error = failure(result);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message()).isEqualTo("Unrecognized StartCLI output (exit code 1)");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "login_failed, AUTH_FAILED",
+        "unreachable, UNREACHABLE",
+        "processErrorStart_unknown, NOT_FOUND",
+        "unknown_command, INTERNAL",
+        "ps_filter_space, INVALID_INPUT"})
+    void theTraceContextKeepsEveryOtherRule(String fixtureCase, ErrorCode expected) {
+        CliResult result = fixture(fixtureCase);
+
+        ToolError trace = ((CliOutcome.Failure) classifier.classifyTraceDownload(result)).error();
+
+        assertThat(trace.code()).isEqualTo(expected);
+        assertThat(trace).isEqualTo(failure(result));
+    }
+
+    /** {@code fixtures/server-log/v8_1/trace/<fixtureCase>.*} (T024). */
+    private static CliResult traceFixture(String fixtureCase) {
+        String base = "server-log/v8_1/trace/" + fixtureCase;
+        return new CliResult(
+            Integer.parseInt(text(base + ".exit").strip()), text(base + ".stdout"),
+            text(base + ".stderr"), Duration.ofSeconds(3), false, CliRunner.MAX_OUTPUT_BYTES);
+    }
+
+    private static String text(String path) {
+        return new String(FakeProcessLauncher.resource(path), StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void theRecordedTraceConfirmationIsASuccessInTheTraceContextOnly() {
+        // 8.1.17 (research "Spike findings"): "Trace data (<n> MB) stored to: …" without n-OK
+        CliResult ok = traceFixture("ok");
+
+        assertThat(classifier.classifyTraceDownload(ok)).isInstanceOf(CliOutcome.Success.class);
+        assertThat(failure(ok).code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+    }
+
+    @Test
+    void exitCodeZeroWithoutAMarkerIsNoFailureInTheTraceContext() {
+        // whether StartCLI confirmed the download is CliTraceRunner's check (research D-1)
+        CliResult listing = fixture("ps_all");
+
+        assertThat(classifier.classifyTraceDownload(listing))
+            .isInstanceOf(CliOutcome.Success.class);
+        assertThat(failure(listing).code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+    }
+
+    @Test
+    void anAccessDeniedMarkerIsForbiddenInTheTraceContextOnly() {
+        CliOutputClassifier forNode = new CliOutputClassifier(scrubber, NODE1, false);
+        CliResult refused = traceFixture("forbidden");
+
+        CliOutcome outcome = forNode.classifyTraceDownload(refused);
+
+        assertThat(outcome).isInstanceOfSatisfying(CliOutcome.Failure.class, failure -> {
+            assertThat(failure.error().code()).isEqualTo(ErrorCode.FORBIDDEN);
+            assertThat(failure.error().message())
+                .isEqualTo("The INUBIT account is not allowed to download trace.log from"
+                    + " test/node1");
+            assertThat(failure.error().excerpt()).isEmpty();
+            assertThat(String.join("\n", failure.error().message(),
+                failure.error().likelyCause(), failure.error().nextStep()))
+                .doesNotContain("jdoe");
+        });
+        // an export never asked for trace.log: unchanged outside the trace context
+        assertThat(failure(refused).message())
+            .isEqualTo("Unrecognized StartCLI output (exit code 1)");
+    }
+
+    @Test
+    void cutTraceOutputIsNeverForbidden() {
+        CliResult refused = traceFixture("forbidden");
+        CliResult cut = new CliResult(refused.exitCode(), refused.stdout(), refused.stderr(),
+            Duration.ZERO, true, CliRunner.MAX_OUTPUT_BYTES);
+
+        ToolError error = ((CliOutcome.Failure) classifier.classifyTraceDownload(cut)).error();
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+    }
+
+    @Test
+    void cutTraceOutputIsNeverNotFound() {
+        CliResult missing = traceLogMissing("/opt/inubit/server/log/trace.log");
+        CliResult cut = new CliResult(missing.exitCode(), missing.stdout(), missing.stderr(),
+            Duration.ZERO, true, CliRunner.MAX_OUTPUT_BYTES);
+
+        ToolError error = ((CliOutcome.Failure) classifier.classifyTraceDownload(cut)).error();
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message()).contains("exceeded 1 MiB");
+    }
+
+    @Test
+    void aMissingTraceLogLeaksNeitherSecretsNorTheServerPath() {
+        scrubber.register("hunter2-secret");
+        CliOutputClassifier forNode = new CliOutputClassifier(scrubber, NODE1, false);
+
+        ToolError error = ((CliOutcome.Failure) forNode.classifyTraceDownload(
+            traceLogMissing("/opt/hunter2-secret/log/trace.log"))).error();
+
+        assertThat(error.code()).isEqualTo(ErrorCode.NOT_FOUND);
+        assertThat(error.excerpt()).isEmpty();
+        assertThat(String.join("\n", error.message(), error.likelyCause(), error.nextStep()))
+            .doesNotContain("hunter2-secret", "/opt/");
     }
 
     @Test

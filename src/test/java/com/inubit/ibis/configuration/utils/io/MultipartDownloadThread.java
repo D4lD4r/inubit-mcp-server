@@ -30,6 +30,15 @@ public class MultipartDownloadThread extends Thread {
         this.fileName = fileName;
     }
 
+    /**
+     * For the fake {@code ClusterClient.clusterDownload} only (feature 021), which records the
+     * call itself; the real class has no such constructor.
+     */
+    public MultipartDownloadThread(String fileName, File outputFile) {
+        this.fileName = fileName;
+        this.outputFile = outputFile;
+    }
+
     public void setOutputFile(File outputFile) {
         FakeInubitScript.active().record("MultipartDownloadThread.setOutputFile", outputFile);
         this.outputFile = outputFile;

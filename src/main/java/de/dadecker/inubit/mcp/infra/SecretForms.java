@@ -4,6 +4,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -18,7 +19,12 @@ import java.util.Set;
  *       {@code <}, {@code >}), and numeric character references for quotes
  *       ({@code &#34;}/{@code &#39;} and {@code &#x22;}/{@code &#x27;});
  *   <li>URL-encoded ({@code +} and {@code %20} for spaces), with upper- and lowercase hex;
- *   <li>Base64.
+ *   <li>Base64;
+ *   <li>each of the above with its UTF-8 bytes read as ISO-8859-1 (differs only for non-ASCII
+ *       values): text whose bytes are not all valid UTF-8 is decoded as ISO-8859-1 as a whole
+ *       (the content of {@code read_queue_entry} and the excerpt of {@code download_server_log}),
+ *       so a value the server wrote as UTF-8 appears in this spelling there (feature 021,
+ *       FR-010).
  * </ul>
  */
 final class SecretForms {
@@ -45,6 +51,10 @@ final class SecretForms {
             forms.add(lowercaseHexEscapes(form));
         }
         forms.add(Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8)));
+        for (String form : List.copyOf(forms)) {
+            forms.add(new String(form.getBytes(StandardCharsets.UTF_8),
+                StandardCharsets.ISO_8859_1));
+        }
         return forms;
     }
 

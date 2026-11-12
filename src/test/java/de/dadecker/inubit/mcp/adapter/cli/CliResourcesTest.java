@@ -13,12 +13,14 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.WindowsAcl;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -468,6 +470,52 @@ class CliResourcesTest {
         assertThat(mine).doesNotExist();
         assertThat(theirs).exists();
         assertThat(unreadable).exists();
+    }
+
+    // --- feature 021 (D-7): the private copies of downloaded server logs ---
+
+    @Test
+    void aReservedLogDirectoryIsNamedByProfileAndPidAndOwnerOnlyBelowTheTempDirectory()
+        throws Exception {
+        CliResources resources = new CliResources("acme", FILES);
+        Path tmp = Path.of(System.getProperty("java.io.tmpdir"));
+        Path dir;
+        CliResources.Registration registration;
+        try (CliResources.Reservation reservation = resources.reserve()) {
+            dir = resources.files().createTempDirectory(tmp, resources.logPrefix());
+            registration = reservation.directory(dir);
+        }
+        try {
+            assertThat(dir.getParent()).isEqualTo(tmp);
+            assertThat(dir.getFileName().toString())
+                .matches("inubit-mcp-log-acme-" + ProcessHandle.current().pid() + "-[0-9]+");
+            if (Platform.windows()) {
+                WindowsAcl.assertPrivate(dir, WindowsAcl.DIRECTORY_INHERITANCE);
+            } else {
+                assertThat(Files.getPosixFilePermissions(dir))
+                    .isEqualTo(PosixFilePermissions.fromString("rwx------"));
+            }
+        } finally {
+            registration.close();
+        }
+        assertThat(dir).doesNotExist();
+    }
+
+    @Test
+    void theSweepDeletesAStaleLogDirectoryOfADeadProcessAndKeepsOneOfTheRunningProcess()
+        throws Exception {
+        long dead = deadPid();
+        long self = ProcessHandle.current().pid();
+        Path stale = exportDir(CliResources.LOG_PREFIX + "acme-" + dead + "-12345");
+        Path running = exportDir(CliResources.LOG_PREFIX + "acme-" + self + "-12345");
+        Path otherProfile = exportDir(CliResources.LOG_PREFIX + "globex-" + dead + "-12345");
+
+        int deleted = CliResources.sweepStale(root, "acme", FILES);
+
+        assertThat(deleted).isEqualTo(1);
+        assertThat(stale).doesNotExist();
+        assertThat(running).as("this process is alive").exists();
+        assertThat(otherProfile).as("another profile's").exists();
     }
 
     @Test

@@ -364,19 +364,60 @@ public final class CliRunner {
         CliCommand command, Duration timeout, String timeoutSetting, CredentialGuard guard,
         Optional<WritePermit> permit) {
         permit.ifPresent(write -> write.requireFor(server.id()));
+        Selection selection = beforeTheGuard(server, username, password);
+        StartHook hook = permit.map(write -> handedOff(selection, write))
+            .orElse(StartHook.DIRECT);
+        return guarded(guard.acquire(), () -> runUnguarded(selection, username, password,
+            command, timeout, timeoutSetting, hook));
+    }
+
+    /**
+     * As {@link #run(EffectiveNodeConfig, String, Secret, CliCommand, Duration, String,
+     * CredentialGuard)}, but within the call deadline {@code deadlineNanos}
+     * ({@link System#nanoTime()}; feature 021, FR-013, research D-15): the wait for the guard
+     * ends at the deadline in {@code TIMEOUT} naming {@code timeoutSetting}, and StartCLI may run
+     * for what is left of it after the pin check and the guard; a deadline passed by then starts
+     * nothing.
+     */
+    public CliResult run(EffectiveNodeConfig server, String username, Secret password,
+        CliCommand command, long deadlineNanos, String timeoutSetting, CredentialGuard guard) {
+        Selection selection = beforeTheGuard(server, username, password);
+        return guarded(guard.acquire(remaining(deadlineNanos), timeoutSetting), () -> {
+            Duration left = remaining(deadlineNanos);
+            if (left.isZero()) {
+                throw new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT,
+                    timeoutSetting + " on " + server.id() + " passed before the login; StartCLI"
+                        + " was not started",
+                    "The earlier steps of the call took all of " + timeoutSetting,
+                    "Retry; check get_health; raise " + timeoutSetting + " if INUBIT is just slow")
+                    .withNode(server.id()));
+            }
+            return runUnguarded(selection, username, password, command, left, timeoutSetting,
+                StartHook.DIRECT);
+        });
+    }
+
+    /**
+     * The checks of a guarded run before the guard: the Windows credentials, the client and its
+     * launch, and for a server of a stage with {@code tls.pinPerServer} the pin at the StartCLI
+     * address; a refused address must neither wait for nor count as a login.
+     */
+    private Selection beforeTheGuard(EffectiveNodeConfig server, String username,
+        Secret password) {
         if (windows) {
             refuseWindowsCredentials(server, username, password);
         }
         Selection selection = select(server);
         checkLaunch(selection);
-        // before the guard: a refused address must neither wait for nor count as a login
         if (server.tls().pinPerServer()) {
             pinProbe.check(selection.server());
         }
-        StartHook hook = permit.map(write -> handedOff(selection, write))
-            .orElse(StartHook.DIRECT);
-        return guarded(guard, () -> runUnguarded(selection, username, password, command,
-            timeout, timeoutSetting, hook));
+        return selection;
+    }
+
+    private static Duration remaining(long deadlineNanos) {
+        long left = deadlineNanos - System.nanoTime();
+        return left > 0 ? Duration.ofNanos(left) : Duration.ZERO;
     }
 
     /**
@@ -481,8 +522,9 @@ public final class CliRunner {
         arguments.add(server.cli().url().toString());
         List<CliSessionCommand> lines = new ArrayList<>(commands);
         lines.add(CliSessionCommand.EXIT);
-        return guarded(guard, () -> execute(selection, arguments, Optional.of(password), lines,
-            timeout, "cliTimeout", extraJavaToolOptions, maxOutputBytes, StartHook.DIRECT));
+        return guarded(guard.acquire(), () -> execute(selection, arguments,
+            Optional.of(password), lines, timeout, "cliTimeout", extraJavaToolOptions,
+            maxOutputBytes, StartHook.DIRECT));
     }
 
     /**
@@ -629,11 +671,12 @@ public final class CliRunner {
     }
 
     /**
-     * Runs {@code launch} under the guard: a {@code LoginFailure} rejects and an exit code 0
-     * confirms the credentials.
+     * Runs {@code launch} under the guard permit {@code acquired}, which it closes: a
+     * {@code LoginFailure} rejects and an exit code 0 confirms the credentials.
      */
-    private static CliResult guarded(CredentialGuard guard, Supplier<CliResult> launch) {
-        try (CredentialGuard.Permit permit = guard.acquire()) {
+    private static CliResult guarded(CredentialGuard.Permit acquired,
+        Supplier<CliResult> launch) {
+        try (CredentialGuard.Permit permit = acquired) {
             CliResult result = launch.get();
             if (CliOutputClassifier.isLoginFailure(result)) {
                 permit.rejected();

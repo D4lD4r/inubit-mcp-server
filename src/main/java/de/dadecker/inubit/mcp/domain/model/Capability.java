@@ -28,7 +28,14 @@ public enum Capability {
      * {@code read_queue_entry}: REST lookup plus a helper on the INUBIT client (feature 020),
      * admitted for both in one call.
      */
-    QUEUE_ENTRY_READ(Kind.READ, Set.of(Channel.REST, Channel.CLI));
+    QUEUE_ENTRY_READ(Kind.READ, Set.of(Channel.REST, Channel.CLI)),
+    /** {@code download_server_log} with {@code log: trace}: StartCLI (feature 021). */
+    TRACE_LOG_READ(Kind.READ, Set.of(Channel.CLI)),
+    /**
+     * {@code download_server_log} with {@code log: webservice}: a helper on the INUBIT client
+     * (feature 021).
+     */
+    WEBSERVICE_LOG_READ(Kind.READ, Set.of(Channel.CLI));
 
     /** Whether the capability only reads from INUBIT or changes it. */
     public enum Kind {
@@ -91,6 +98,8 @@ public enum Capability {
             case E2E_TEST -> "end-to-end test";
             case PROCESS_CONTROL -> "process control";
             case QUEUE_ENTRY_READ -> "reading Queue Manager entries";
+            case TRACE_LOG_READ -> "downloading the trace log";
+            case WEBSERVICE_LOG_READ -> "downloading the web service log";
         };
     }
 }

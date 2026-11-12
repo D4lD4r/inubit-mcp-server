@@ -22,7 +22,7 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
-import de.dadecker.inubit.mcp.adapter.cli.queue.HelperInstallation;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
 import de.dadecker.inubit.mcp.adapter.os.JnaDriveTypeApi;
@@ -47,11 +47,13 @@ import de.dadecker.inubit.mcp.application.DevelopmentGuard;
 import de.dadecker.inubit.mcp.application.DiagnosisService;
 import de.dadecker.inubit.mcp.application.DiagramGroupTagger;
 import de.dadecker.inubit.mcp.application.E2eTestService;
+import de.dadecker.inubit.mcp.application.ExcerptPermit;
 import de.dadecker.inubit.mcp.application.FanOut;
 import de.dadecker.inubit.mcp.application.HealthService;
 import de.dadecker.inubit.mcp.application.ImportService;
 import de.dadecker.inubit.mcp.application.InventoryCache;
 import de.dadecker.inubit.mcp.application.InventoryService;
+import de.dadecker.inubit.mcp.application.LogFileWriter;
 import de.dadecker.inubit.mcp.application.NodeDeployer;
 import de.dadecker.inubit.mcp.application.NodeOverview;
 import de.dadecker.inubit.mcp.application.NodeVersions;
@@ -65,6 +67,8 @@ import de.dadecker.inubit.mcp.application.ReleaseDiscovery;
 import de.dadecker.inubit.mcp.application.ReleasePlanner;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.SecretTiming;
+import de.dadecker.inubit.mcp.application.ServerLogAudit;
+import de.dadecker.inubit.mcp.application.ServerLogService;
 import de.dadecker.inubit.mcp.application.TagService;
 import de.dadecker.inubit.mcp.application.TargetFolderRules;
 import de.dadecker.inubit.mcp.application.TargetResolver;
@@ -121,6 +125,7 @@ import de.dadecker.inubit.mcp.mcp.tools.FindProcessesTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetHealthTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetInventoryItemTool;
 import de.dadecker.inubit.mcp.mcp.tools.DeployReleaseTool;
+import de.dadecker.inubit.mcp.mcp.tools.DownloadServerLogTool;
 import de.dadecker.inubit.mcp.mcp.tools.ImportArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.KillProcessTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListInventoryTool;
@@ -160,7 +165,8 @@ import java.util.function.Supplier;
  * {@code export_artifacts}, only if a node may use a StartCLI client home (feature 017: for
  * some version, {@link ClientSelectionPort#anyCandidate}), and {@code check_artifacts};
  * feature 015: {@code export_archives} under the same condition as {@code export_artifacts};
- * feature 020: {@code read_queue_entry} only if {@link #anyQueueEntryReadNode()}).
+ * feature 020: {@code read_queue_entry} only if {@link #anyQueueEntryReadNode()}; feature 021:
+ * {@code download_server_log} only if {@link #anyServerLogNode()}).
  * Feature 012 (research D-12): the read tools other than {@code list_nodes}, {@code get_health}
  * and {@code check_artifacts} are announced only if some node may run their capability
  * ({@link #possiblyCapable}).
@@ -214,6 +220,13 @@ final class Wiring implements AutoCloseable {
     /** Feature 015: offered under the condition of {@code export_artifacts} (research R-16). */
     private final ExportArchivesTool exportArchives;
     private final CheckArtifactsTool checkArtifacts;
+    /** Feature 021: built for every configuration; announced as {@link #anyServerLogNode()}. */
+    private final DownloadServerLogTool downloadServerLog;
+    /**
+     * Feature 019 (research D-7): the credentials of every node of the profile; feature 021
+     * (research D-11): also masked in the excerpt of {@code download_server_log}.
+     */
+    private final ProfileSecrets profileSecrets;
     /** Feature 019: the profile's local knowledge, read with all its credentials known (D-7). */
     private final KnowledgeService knowledge;
     private final boolean knowledgeRecording;
@@ -441,7 +454,7 @@ final class Wiring implements AutoCloseable {
         // credential of the profile known; a tool call waits as long as the slowest store. With
         // recording on, notes are written under the knowledge lock and audited in the shared log
         // (D-10); with it off the service is read-only
-        ProfileSecrets profileSecrets = new ProfileSecrets(secrets, scrubber);
+        this.profileSecrets = new ProfileSecrets(secrets, scrubber);
         this.knowledgeRecording = config.knowledge().recording();
         this.knowledge = new KnowledgeService(
             new KnowledgeDirectory(config.knowledge().directory(), privateFiles, clock.clock()),
@@ -473,6 +486,15 @@ final class Wiring implements AutoCloseable {
             folders, gateways::artifacts, new V81WorkflowArchives(), versionGate,
             new ArchiveFolderWriter(), limiter, new ArchiveExportAudit.Dependencies(audit,
                 clock.clock(), profile.name(), UUID::randomUUID)));
+        // feature 021: the server logs go to a user-chosen folder under the same folder rules,
+        // within the node's cliExportTimeout; the excerpt is masked with the credentials of every
+        // node (research D-11, as for the local knowledge); the shared audit log
+        this.downloadServerLog = new DownloadServerLogTool(new ServerLogService(targets,
+            id -> byId.get(id).serverLogRead(), id -> policies.apply(id).account(), folders,
+            versionGate, gateways, id -> byId.get(id).cliExportTimeout(), profileSecrets,
+            profileSecrets.timeout(), new ExcerptPermit(), new LogFileWriter(),
+            new ServerLogAudit.Dependencies(audit, clock.clock(), profile.name(),
+                UUID::randomUUID), clock.clock(), System::nanoTime)::download);
         ArtifactCheckService checks = new ArtifactCheckService(workspace,
             new WorkspaceInspector(), new SaxonXsltRunner(workspace), group -> servers.stream()
                 .map(EffectiveNodeConfig::id).filter(id -> id.group().equals(group)).findFirst(),
@@ -650,6 +672,9 @@ final class Wiring implements AutoCloseable {
         if (anyQueueEntryReadNode()) {
             handlers.add(readQueueEntry);
         }
+        if (anyServerLogNode()) {
+            handlers.add(downloadServerLog);
+        }
         if (anyPossiblyCapable(Capability.INVENTORY)) {
             handlers.add(new ListInventoryTool(inventory));
             handlers.add(new GetInventoryItemTool(inventory));
@@ -824,7 +849,9 @@ final class Wiring implements AutoCloseable {
      * client of its current version installed ({@code withClient}, feature 017), development
      * writes on a development stage, deployments in a group that receives them, end-to-end tests
      * where allowed, process control with write access; feature 020 (research D-15): reading
-     * Queue Manager entries with the group's {@code unsupported.queueEntryRead} and the client.
+     * Queue Manager entries with the group's {@code unsupported.queueEntryRead} and the client;
+     * feature 021 (research D-17): downloading the trace log with the client, the web service log
+     * with the client and the group's {@code unsupported.serverLogRead}.
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
         Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
@@ -847,6 +874,12 @@ final class Wiring implements AutoCloseable {
         }
         if (withClient && server.queueEntryRead()) {
             allowed.add(Capability.QUEUE_ENTRY_READ);
+        }
+        if (withClient) {
+            allowed.add(Capability.TRACE_LOG_READ);
+        }
+        if (withClient && server.serverLogRead()) {
+            allowed.add(Capability.WEBSERVICE_LOG_READ);
         }
         return allowed;
     }
@@ -871,19 +904,33 @@ final class Wiring implements AutoCloseable {
             && clientSelection.anyCandidate(server.id()));
     }
 
+    /**
+     * Feature 021 (FR-002, research D-17): true if a node has a client home some version of it
+     * may use ({@link ClientSelectionPort#anyCandidate}) and may download the trace log, or, with
+     * the group's {@code unsupported.serverLogRead}, the web service log
+     * ({@link #possiblyCapable}); independent of write access.
+     */
+    private boolean anyServerLogNode() {
+        return servers.stream().anyMatch(server -> clientSelection.anyCandidate(server.id())
+            && (possiblyCapable(server, Capability.TRACE_LOG_READ)
+                || server.serverLogRead()
+                    && possiblyCapable(server, Capability.WEBSERVICE_LOG_READ)));
+    }
+
     /** True if some node may run {@code capability} ({@link #possiblyCapable}). */
     private boolean anyPossiblyCapable(Capability capability) {
         return servers.stream().anyMatch(server -> possiblyCapable(server, capability));
     }
 
     /**
-     * Feature 009 (research D-12, FR-007): false only if {@code server} is pinned to a line or
+     * Feature 009 (research D-12, FR-007): false if {@code server} is pinned to a line or
      * version on which the matrix declares {@code capability} unsupported; an {@code AUTO} node
-     * may turn out to run a capable version.
+     * may turn out to run a capable version, if the matrix admits one (feature 021: no version
+     * downloads a server log before its recording).
      */
     private boolean possiblyCapable(EffectiveNodeConfig server, Capability capability) {
         return switch (server.versionLine()) {
-            case VersionSetting.Auto auto -> true;
+            case VersionSetting.Auto auto -> matrix.possiblySupported(capability);
             case VersionSetting.Line line -> matrix.stateOfLine(line.major(), line.minor(),
                 capability) != SupportState.UNSUPPORTED;
             case VersionSetting.Pinned pinned -> matrix.state(Optional.of(pinned.version()),

@@ -26,6 +26,9 @@ import org.junit.jupiter.api.Timeout;
  * to a CLI-only version; a further run waits up to {@code cliTimeout}, then {@code TIMEOUT}.
  * T007 (feature 020, research D-14, FR-016): helper runs take the same per-node slots on every
  * version line; StartCLI runs on 8.1/9.0 still take none.
+ * T012 (feature 021, research D-15): log downloads take the helper slots; their slot-wait
+ * {@code TIMEOUT} names the setting of their budget. T026: other StartCLI runs on 8.1/9.0 still
+ * take no slot while log downloads hold both.
  */
 @Timeout(30)
 class CliConcurrencyLimiterTest {
@@ -152,6 +155,40 @@ class CliConcurrencyLimiterTest {
     }
 
     @Test
+    void aLogDownloadSlotWaitNamesTheGivenBudgetSettingAndTheOtherTextsStayUnchanged() {
+        // feature 021 (D-15): log downloads run under cliExportTimeout, not cliTimeout
+        EffectiveNodeConfig server = node("prod/node1", VersionSetting.V8_1);
+        Duration wait = Duration.ofMillis(150);
+        CliConcurrencyLimiter.Permit first = limiter.acquireForHelper(server, wait);
+        CliConcurrencyLimiter.Permit second = limiter.acquireForHelper(server, wait);
+
+        assertThatThrownBy(() -> limiter.acquireForHelper(server, wait, "cliExportTimeout"))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT);
+                assertThat(e.error().message())
+                    .isEqualTo("No StartCLI slot on prod/node1 became free within 150 ms");
+                assertThat(e.error().nextStep()).isEqualTo("Retry later; check get_health;"
+                    + " raise cliExportTimeout if the INUBIT server is just slow");
+            });
+        String unchanged =
+            "Retry later; check get_health; raise cliTimeout if the INUBIT server is just slow";
+        assertThatThrownBy(() -> limiter.acquireForHelper(server, wait))
+            .isInstanceOfSatisfying(ToolErrorException.class,
+                e -> assertThat(e.error().nextStep()).isEqualTo(unchanged));
+        first.close();
+        second.close();
+
+        EffectiveNodeConfig legacy = node("legacy/node1", VersionSetting.V6_1);
+        CliConcurrencyLimiter.Permit third = limiter.acquire(legacy);
+        CliConcurrencyLimiter.Permit fourth = limiter.acquire(legacy);
+        assertThatThrownBy(() -> limiter.acquire(legacy))
+            .isInstanceOfSatisfying(ToolErrorException.class,
+                e -> assertThat(e.error().nextStep()).isEqualTo(unchanged));
+        third.close();
+        fourth.close();
+    }
+
+    @Test
     void a61StartCliRunAndHelperRunsShareTheSlots() {
         EffectiveNodeConfig server = node("legacy/node1", VersionSetting.V6_1);
         CliConcurrencyLimiter.Permit startCli = limiter.acquire(server);
@@ -169,6 +206,32 @@ class CliConcurrencyLimiterTest {
             assertThat(next).isNotNull();
         }
         startCli.close();
+    }
+
+    @Test
+    void otherStartCliRunsOnEightOneAndNineZeroTakeNoSlotWhileLogDownloadsHoldBoth() {
+        // feature 021 T026 (D-15): only the log downloads (and helper runs) take the slots
+        for (VersionSetting version : List.of(VersionSetting.V8_1, VersionSetting.V9_0)) {
+            EffectiveNodeConfig server = node(
+                version == VersionSetting.V8_1 ? "prod/node81" : "prod/node90", version);
+            CliConcurrencyLimiter.Permit first =
+                limiter.acquireForHelper(server, BOUND, "cliExportTimeout");
+            CliConcurrencyLimiter.Permit second =
+                limiter.acquireForHelper(server, BOUND, "cliExportTimeout");
+
+            List<CliConcurrencyLimiter.Permit> startCli = new ArrayList<>();
+            for (int i = 0; i < 3; i++) {
+                // a slot-taking StartCLI run would throw TIMEOUT here
+                startCli.add(limiter.acquire(server));
+            }
+            startCli.forEach(CliConcurrencyLimiter.Permit::close);
+            assertThatThrownBy(() -> limiter.acquireForHelper(server, Duration.ZERO,
+                "cliExportTimeout")).as(version.text())
+                .isInstanceOfSatisfying(ToolErrorException.class,
+                    e -> assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT));
+            first.close();
+            second.close();
+        }
     }
 
     @Test

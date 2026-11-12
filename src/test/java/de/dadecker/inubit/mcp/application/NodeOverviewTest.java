@@ -67,6 +67,35 @@ class NodeOverviewTest {
         assertThat(capabilities.notUsable()).isEmpty();
     }
 
+    /**
+     * Feature 021 (T009, D-6): the names in {@code list_nodes}, refused until recorded; T031: the
+     * reason names the matrix note as the gate's refusal does; T033, T046, T051, T052: the 8.1
+     * and 9.0 trace and web service logs are recorded and usable, so the note is shown with a
+     * test declaration that still carries it.
+     */
+    @Test
+    void theServerLogReadsAreListedByTheirNamesAndRefusedBeforeTheirRecordings() {
+        NodeSummary.Capabilities capabilities = capabilities(CapabilityMatrix.production(),
+            EnumSet.of(Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ));
+
+        assertThat(capabilities.usable()).containsExactly("trace_log_read", "webservice_log_read");
+        assertThat(capabilities.notUsable()).isEmpty();
+        NodeSummary.Capabilities v90 = version(VersionSetting.V9_0,
+            EnumSet.of(Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ)).capabilities();
+        assertThat(v90.usable()).containsExactly("trace_log_read", "webservice_log_read");
+        assertThat(v90.notUsable()).isEmpty();
+
+        CapabilityMatrix beforeTheRecording = new CapabilityMatrix(List.of(
+            new CapabilityMatrix.Entry(new VersionRange(9, 0, 9, 0),
+                Map.of(Capability.TRACE_LOG_READ, SupportState.SUPPORTED), Map.of(), false,
+                Map.of(Capability.WEBSERVICE_LOG_READ, "not yet verified"))), Map.of());
+        assertThat(version(beforeTheRecording, VersionSetting.V9_0,
+                EnumSet.of(Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ))
+            .capabilities().notUsable()).extracting(NodeSummary.NotUsable::reason)
+            .containsExactly("INUBIT 9.0 on dev/node1: downloading the web service log is not yet"
+                + " verified for INUBIT 9.0");
+    }
+
     @Test
     void partnerManagementIsListedByItsNameWithTheStateOfTheVersionLine() {
         Set<Capability> partners = EnumSet.of(Capability.PARTNER_MANAGEMENT);

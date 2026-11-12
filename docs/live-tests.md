@@ -76,6 +76,7 @@ Only non-production groups (e.g. development or test stages) may be used.
 | `live/ArtifactExportLiveTest` (feature 003, T038) | runs only with `INUBIT_LIVE_DIAGRAM_GROUP` (one diagram group of the node's `inventory.owner`): `export_artifacts` of that group twice into a **temporary** workspace (never the configured one) — the second export is `unchanged`; no `AES-` value and no `type="Password"` value other than a `${secret:…}` placeholder in the workspace; `check_artifacts` on the exported workflows reports no ERROR | StartCLI `export --exportWorkflowType 'technical' --exportWorkflowGroup '<group>'` twice into a private temporary directory that is deleted afterwards (read-only exports); the module list only if a module is missing in the workspace |
 | `live/HealthLiveTest` (T063) | `get_health` for `INUBIT_LIVE_NODE` through the real MCP server with the production wiring (`Wiring`, via the test helper `TestWiring`): `reachable`, `ready`, `version` starting with `8.1`, answer within 5 s (SC-002) | `GET /healthcheck`, `/ready`, `/system/info`, `/metrics?format=json` (read-only) |
 | `live/QueueEntryLiveTest` (feature 020, T033) | runs only with `INUBIT_LIVE_QUEUE_ENTRY` (an existing ERROR entry) on a node whose group sets `unsupported.queueEntryRead: true`: `read_queue_entry` through the real MCP server with the production wiring; the entry's queue row has the same state, `startTime`, `fileSize` and `fileName` before and after (SC-004); data and variables are available; neither the captured log nor the result contains an original masked value or a known secret, and the log contains none of the returned values (SC-003). See [Queue entry read](#queue-entry-read-feature-020) | `POST /ibis/rest/log/queueLog?format=json` before and after (read-only queries); the version detection (`/system/info`); one run of the queue-entry helper, which logs in with the INUBIT client of the node's version (8.1: SOAP servlet, 9.0: REST) and downloads the entry's data and variables into a private temporary directory that is deleted afterwards (read-only); with `INUBIT_LIVE_RECORD_DIR` a second helper run for a fictitious file name |
+| `live/ServerLogLiveTest` (feature 021, T054) | runs only with `INUBIT_LIVE_LOG_FOLDER` (a private folder outside every repository): `download_server_log` with `log: trace` and, if the node's group sets `unsupported.serverLogRead: true`, with `log: webservice`, through the real MCP server with the production wiring; each result matches the output schema and its file lies in the folder with the reported size and `rw-------`; a trace download through a copy of the configuration with a closed loopback port fails and leaves no file in the folder; the captured log contains no excerpt line. See [Server log download](#server-log-download-feature-021) | the version detection (`/system/info`); StartCLI `trace --download '<private dir>/trace.log'` (downloads the trace log without switching the trace state); with the opt-in one run of the INUBIT client helper that downloads `webservice.log`; both into a private temporary directory that is deleted after the file was placed in the folder (read-only); the forced failure contacts only `127.0.0.1` |
 
 Each test prints one summary line without secrets or business data to stderr, e.g.
 `[live] test/node1: version 8.1.17, status OK, maintenanceMode false, load 51.7% memory, unavailable [], 699 ms`
@@ -306,6 +307,63 @@ To produce the fixture recording of research D-18 (quickstart "Live check" step 
   `AUTH_FAILED` back-off; nothing is changed. Its helper output is recorded as
   `not_found_file.*`, and the summary line ends with the outcome per part, e.g.
   `; not-found case data NotFound, variables NotFound; recorded`.
+
+## Server log download (feature 021)
+
+`live/ServerLogLiveTest` downloads the server logs of one node with `download_server_log` and
+checks the files it writes (research D-24, quickstart "Live check"). It is **read-only**: the
+trace log is downloaded without switching the trace state. Run it once per INUBIT version (8.1
+and 9.0 test servers), only after the concrete run was approved:
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
+  INUBIT_LIVE_LOG_FOLDER=~/inubit-logs/021-live \
+  mvn verify -Plive -Dtest=ServerLogLiveTest
+```
+
+- `INUBIT_LIVE_LOG_FOLDER` is the target folder of the downloads, a private folder outside every
+  repository; the tool creates it owner-only if it is missing. It is resolved and refused like
+  `INUBIT_LIVE_RECORD_DIR` (see [Recording the helper output](#recording-the-helper-output-inubit_live_record_dir)):
+  a relative path, one with `..` segments, one inside this repository and one inside any git
+  working tree fail naming the variable. Without it (or without `INUBIT_LIVE_NODE`) the test is
+  skipped. The downloaded files stay in the folder for the checks by hand; they hold clear-text
+  server logs, so delete them afterwards.
+- The trace log is always downloaded. The web service log is downloaded too if the group of
+  `INUBIT_LIVE_NODE` sets `unsupported.serverLogRead: true` ([setup.md](setup.md)). Production
+  groups are refused as for every live test. The node needs the StartCLI client settings (setup.md
+  section 3) and its credentials. A log the node's INUBIT version does not support fails the test
+  with the tool's error.
+- Per log, the result must match the output schema of `download_server_log`, name the node and
+  the log (for `webservice` also the INUBIT node), and its `file` must be a regular file directly
+  in the folder with `sizeBytes` bytes and the permissions `rw-------` (on Windows an access list
+  for the current user and SYSTEM only).
+- **Forced failure**: one more trace download runs through an in-memory copy of the configuration
+  in which the node's `baseUrl` and explicit StartCLI address point at a closed port on
+  `127.0.0.1`. It must fail, and the folder must hold the same entries before and after it. Nothing
+  but `127.0.0.1` is contacted; the real configuration file is never changed.
+  With `versionLine: AUTO` the call usually fails already at the version detection, before any
+  temporary or target file exists; with a pinned `versionLine` it fails at the StartCLI download.
+- The server log (logger `de.dadecker.inubit` at `DEBUG`) is captured during the test; it must
+  contain none of the stripped excerpt lines with at least 10 characters (shorter lines such as
+  brackets also occur in unrelated log text). The failure message counts, never quotes.
+- It prints one line per log, e.g.
+  `[live] download_server_log test/node1 trace: 52341 bytes, window 200` and
+  `[live] download_server_log test/node1 webservice: 1874 bytes, window 23, INUBIT node node1`;
+  without a text excerpt `window none (<kind>)`.
+- To be checked by hand afterwards (quickstart "Live check" step 3): the Workbench shows the same
+  trace state as before (SC-005).
+
+### Recording the StartCLI and helper output (`INUBIT_LIVE_RECORD_DIR`)
+
+For the fixture recordings of research D-21, add `INUBIT_LIVE_RECORD_DIR=<private directory
+outside every repository>`, resolved and refused as for the queue entry recording. Each run
+creates a new owner-only directory `server-log-…` below it and writes, owner-only, per log the
+raw output of the process that downloaded it, before the result is checked:
+`trace/<case>.stdout`, `.stderr` and `.exit` (StartCLI) and `webservice/<case>.frames` (the
+helper's stdout) and `.exit`. `<case>` is `ok`, `empty` (a 0-byte log) or `error` (the call
+failed). The stdin of either process, which carries the password, is never recorded. The files
+hold **raw server output**: neutralize them as in research D-21 before anything is copied into
+the repository, and delete them afterwards.
 
 ## Credential store live check (feature 011)
 

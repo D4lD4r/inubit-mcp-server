@@ -25,7 +25,8 @@ import java.util.Set;
  * What the fake vendor classes under {@code src/test/java/com/inubit/ibis} do (feature 020,
  * research D-19): the login result, the content or failure per downloaded file name, vendor noise
  * printed to stdout at login and an optional lingering non-daemon thread (as the 9.0 client
- * leaves); it records every call the fakes receive.
+ * leaves), and (feature 021, D-22) the cluster node name or its failure and a failure thrown by
+ * {@code clusterDownload} itself; it records every call the fakes receive.
  *
  * <p>In-process, a test {@linkplain #activate() activates} a script. In a child JVM, whose
  * class path holds the {@code lib/ibis.jar} of a {@link FakeInubitClient}, the fakes load the
@@ -53,7 +54,8 @@ public final class FakeInubitScript implements Serializable {
 
     /**
      * One call a fake received: {@code Class.method} ({@code <init>} for a constructor) and its
-     * arguments as text (a client argument as its simple class name, a file as its path).
+     * arguments as text (a client argument as its simple class name, a file as its path, a node
+     * name as its name).
      */
     public record Call(String name, List<String> arguments) implements Serializable {
 
@@ -65,7 +67,21 @@ public final class FakeInubitScript implements Serializable {
     private record Download(byte[] content, List<Failure> failure) implements Serializable {
     }
 
+    /** The call of the node lookup that {@link #nodeLookupReturnsNull} makes return null. */
+    public enum NullFrom {
+        /** {@code ClusterClient.getNode()}. */
+        GET_NODE,
+        /** {@code Node.getNodeName()}. */
+        GET_NODE_NAME,
+        /** {@code NodeName.getName()}. */
+        GET_NAME
+    }
+
     private final List<Failure> loginFailure = new ArrayList<>();
+    private final List<Failure> nodeFailure = new ArrayList<>();
+    private String nodeName;
+    private NullFrom nodeLookupNull;
+    private final List<Failure> clusterDownloadFailure = new ArrayList<>();
     private final Map<String, Download> files = new HashMap<>();
     private final List<String> loginNoise = new ArrayList<>();
     private final Set<String> failingInitializers = new HashSet<>();
@@ -77,6 +93,35 @@ public final class FakeInubitScript implements Serializable {
     public FakeInubitScript loginFails(Failure... chain) {
         loginFailure.clear();
         loginFailure.addAll(chain(chain));
+        return this;
+    }
+
+    /** {@code ClusterClient.getNode} returns a node named {@code name}. */
+    public FakeInubitScript node(String name) {
+        nodeName = name;
+        return this;
+    }
+
+    /** The node lookup's call {@code call} returns {@code null} instead of a node or name. */
+    public FakeInubitScript nodeLookupReturnsNull(NullFrom call) {
+        nodeLookupNull = call;
+        return this;
+    }
+
+    /** {@code ClusterClient.getNode} fails with the exception chain {@code chain}. */
+    public FakeInubitScript nodeFails(Failure... chain) {
+        nodeFailure.clear();
+        nodeFailure.addAll(chain(chain));
+        return this;
+    }
+
+    /**
+     * {@code ClusterClient.clusterDownload} throws the exception chain {@code chain} itself,
+     * before any download thread exists (the real method declares {@code InubitException}).
+     */
+    public FakeInubitScript clusterDownloadFails(Failure... chain) {
+        clusterDownloadFailure.clear();
+        clusterDownloadFailure.addAll(chain(chain));
         return this;
     }
 
@@ -208,6 +253,29 @@ public final class FakeInubitScript implements Serializable {
         }
         if (!loginFailure.isEmpty()) {
             throw exception(loginFailure);
+        }
+    }
+
+    /** For the fakes: the scripted node name, or its scripted failure. */
+    public String node() throws Exception {
+        if (!nodeFailure.isEmpty()) {
+            throw exception(nodeFailure);
+        }
+        if (nodeName == null) {
+            throw new IllegalStateException("FakeInubitScript: no node scripted");
+        }
+        return nodeName;
+    }
+
+    /** For the fakes: the node lookup call scripted to return {@code null}, or {@code null}. */
+    public NullFrom nodeLookupNull() {
+        return nodeLookupNull;
+    }
+
+    /** For the fakes: throws the scripted failure of {@code clusterDownload}, if any. */
+    public void clusterDownload() throws Exception {
+        if (!clusterDownloadFailure.isEmpty()) {
+            throw exception(clusterDownloadFailure);
         }
     }
 

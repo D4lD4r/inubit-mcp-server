@@ -1039,6 +1039,10 @@ class VersionGateTest {
         expected.put(Capability.PROCESS_CONTROL, "process control; use the Workbench");
         expected.put(Capability.QUEUE_ENTRY_READ, "reading Queue Manager entries; supported: 8.1,"
             + " 9.0; use the Queue Manager in the Workbench");
+        expected.put(Capability.TRACE_LOG_READ, "downloading the trace log; supported: 8.1, 9.0;"
+            + " download the log in the Workbench (Administration, Server Log)");
+        expected.put(Capability.WEBSERVICE_LOG_READ, "downloading the web service log; supported:"
+            + " 8.1, 9.0; download the log in the Workbench (Administration, Server Log)");
 
         for (Capability capability : Capability.values()) {
             ToolError error = refusal(() -> gate().admit(V6_1, capability, capability.kind(),
@@ -1380,6 +1384,72 @@ class VersionGateTest {
         assertThat(probe.calls).as("no StartCLI run").isEmpty();
         assertThat(appender.list).hasSize(3);
         assertNoLeak(v91, v61, v9x);
+    }
+
+    // --- feature 021, T009: downloading the server logs (FR-002, FR-017, D-6) ----------------
+
+    /**
+     * T033, T046, T051, T052: the recorded 8.1 and 9.0 trace and web service logs are admitted
+     * without warning; before its recording a log was refused with the matrix note "not yet
+     * verified", whose refusal text the feature 020 test above covers.
+     */
+    @Test
+    void aServerLogReadIsAdmittedOn81And90SinceItsRecording() {
+        for (Capability capability : List.of(Capability.TRACE_LOG_READ,
+                Capability.WEBSERVICE_LOG_READ)) {
+            Admission v81 = gate().admit("download_server_log", PINNED, capability, Kind.READ,
+                CLI);
+            assertThat(v81.warnings()).as("%s", capability).isEmpty();
+            assertThat(v81.version()).as("%s", capability).contains(version("8.1.17"));
+
+            Admission v90 = gate().admit("download_server_log", V9_0, capability, Kind.READ,
+                CLI);
+            assertThat(v90.warnings()).as("%s", capability).isEmpty();
+            assertThat(v90.version()).as("%s", capability).map(InubitVersion::raw)
+                .contains("9.0");
+        }
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+        assertThat(appender.list).isEmpty();
+    }
+
+    @Test
+    void aServerLogReadOn61IsRefusedNamingTheVersionTheSupportedLinesAndTheWorkbench() {
+        detection.answer("6.1.3");
+        for (Capability capability : List.of(Capability.TRACE_LOG_READ,
+                Capability.WEBSERVICE_LOG_READ)) {
+            ToolError v61 = refusal(() -> gate().admit("download_server_log", AUTO,
+                capability, Kind.READ, CLI));
+            ToolError v61Line = refusal(() -> gate().admit("download_server_log", V6_1,
+                capability, Kind.READ, CLI));
+
+            assertThat(v61.message()).isEqualTo("download_server_log: INUBIT 6.1.3 on dev/node1"
+                + " does not support " + capability.label() + "; supported: 8.1, 9.0; download"
+                + " the log in the Workbench (Administration, Server Log); nothing was sent");
+            assertThat(v61.nextStep())
+                .isEqualTo("Download the log in the Workbench (Administration, Server Log)");
+            assertThat(v61Line.message()).isEqualTo("download_server_log: INUBIT 6.1 (versionLine"
+                + " V6_1) on old/node1 does not support " + capability.label() + "; supported:"
+                + " 8.1, 9.0; download the log in the Workbench (Administration, Server Log);"
+                + " nothing was sent");
+            assertNoLeak(v61, v61Line);
+        }
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+    }
+
+    @Test
+    void aServerLogReadOn91IsRefusedNamingTheVersionAndTheSupportedLines() {
+        detection.answer("9.1.0");
+        for (Capability capability : List.of(Capability.TRACE_LOG_READ,
+                Capability.WEBSERVICE_LOG_READ)) {
+            ToolError v91 = refusal(() -> gate().admit("download_server_log", AUTO,
+                capability, Kind.READ, CLI));
+
+            assertThat(v91.message()).isEqualTo("download_server_log: INUBIT 9.1.0 on dev/node1"
+                + " does not support " + capability.label() + " yet; supported: 8.1, 9.0;"
+                + " nothing was sent");
+            assertNoLeak(v91);
+        }
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
     }
 
     // --- feature 020, T004: an undetectable version fails read_queue_entry (US3-4, D-6) -------

@@ -1,0 +1,6 @@
+log4j:WARN No appenders could be found for logger (com.inubit.ibis.soap.IBISSoapClient).
+log4j:WARN Please initialize the log4j system properly.
+#QE1:0123456789abcdef0123456789abcdef start SOAP_81
+#QE1:0123456789abcdef0123456789abcdef login ok
+#QE1:0123456789abcdef0123456789abcdef node error com.inubit.ibis.utils.InubitException %40Start%40AccessDenied%40%40%40Access%20denied%21%40End%40The%20user%20jdoe%20has%20no%20right%20to%20download%20server%20logs.
+#QE1:0123456789abcdef0123456789abcdef end

@@ -229,8 +229,10 @@ class CapabilityExtensionTest {
             UUID::randomUUID, "acme");
         NodeOverview overview = new NodeOverview(servers.stream()
             .map(server -> server.summary(path -> false, false)).toList(), versions, MATRIX,
-            // feature 020: reading Queue Manager entries needs a group opt-in none of these has
-            (id, withClient) -> EnumSet.complementOf(EnumSet.of(Capability.QUEUE_ENTRY_READ)),
+            // feature 020: reading Queue Manager entries needs a group opt-in none of these has;
+            // feature 021: Wiring does not allow the server-log reads yet
+            (id, withClient) -> EnumSet.complementOf(EnumSet.of(Capability.QUEUE_ENTRY_READ,
+                Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ)),
             TestClientSelection.of(id -> true));
         client = McpTestClient.start(List.of(
             new ListNodesTool(McpTestClient.TEST_PROFILE, overview::nodes),

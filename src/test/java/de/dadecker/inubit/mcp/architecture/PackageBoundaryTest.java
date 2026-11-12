@@ -77,9 +77,9 @@ import org.junit.jupiter.api.Test;
  * host's private files in (no cycle with {@code adapter.os}, which reads the configuration).
  * <p>Feature 015 (T015, research R-10): the drive-type probe {@code JnaDriveTypeApi}
  * ({@code GetDriveTypeW}) joins the JNA users in {@code adapter.os}; the rule is unchanged.
- * <p>Feature 020 (T014, research D-2): the queue-entry helper, compiled into the resource
- * directory {@code META-INF/inubit-mcp/queue-entry-helper/}, references only {@code java.*} types
- * (and itself); the INUBIT vendor classes appear in it only as strings.
+ * <p>Feature 020 (T014, research D-2), renamed in feature 021 (D-3): the client helper, compiled
+ * into the resource directory {@code META-INF/inubit-mcp/client-helper/}, references only
+ * {@code java.*} types (and itself); the INUBIT vendor classes appear in it only as strings.
  */
 class PackageBoundaryTest {
 
@@ -100,9 +100,9 @@ class PackageBoundaryTest {
     private static final String AWS_SDK = "software/amazon/";
     private static final String OS_ADAPTER = "adapter/os";
     private static final String JNA = "com/sun/jna/";
-    /** The queue-entry helper of feature 020 (T014), as a type and as a class-file key. */
-    private static final String HELPER = BASE + "helper/QueueEntryHelper";
-    private static final String HELPER_RESOURCE = "META-INF/inubit-mcp/queue-entry-helper/"
+    /** The client helper (020 T014, 021 D-3), as a type and as a class-file key. */
+    private static final String HELPER = BASE + "helper/ClientHelper";
+    private static final String HELPER_RESOURCE = "META-INF/inubit-mcp/client-helper/"
         + HELPER;
 
     /** Class (internal name) → its type names and member references. */
@@ -243,12 +243,34 @@ class PackageBoundaryTest {
     }
 
     @Test
-    void theQueueEntryHelperReferencesOnlyTheJdk() {
+    void theClientHelperReferencesOnlyTheJdk() {
         assertThat(classes.containsKey(HELPER_RESOURCE)).as("compiled helper %s", HELPER_RESOURCE)
             .isTrue();
         assertThat(violations(HELPER_RESOURCE::equals,
             type -> !type.startsWith("java/") && !type.equals(HELPER)))
-            .as("queue-entry helper → anything but java.*").isEmpty();
+            .as("client helper → anything but java.*").isEmpty();
+    }
+
+    /**
+     * Feature 021 (D-3): the adapter code shared by both helper operations lives in
+     * {@code adapter.cli.helper}; the queue-entry read ({@code adapter.cli.queue}) and the log
+     * download ({@code adapter.cli.log}) reach it but not each other, and it reaches neither.
+     */
+    @Test
+    void theHelperOperationsShareOnlyTheHelperPackage() {
+        String queue = BASE + "adapter/cli/queue/";
+        String log = BASE + "adapter/cli/log/";
+        String helper = BASE + "adapter/cli/helper/";
+        assertThat(Path.of("src", "main", "java", helper, "package-info.java"))
+            .as("package-info of adapter.cli.helper").isRegularFile();
+        assertThat(types(queue + "CliQueueEntryAdapter")).as("scan sees the shared package")
+            .contains(helper + "HelperInstallation");
+        assertThat(violations(inPackage("adapter/cli/queue"), forbidden(log)))
+            .as("adapter.cli.queue → adapter.cli.log").isEmpty();
+        assertThat(violations(inPackage("adapter/cli/log"), forbidden(queue)))
+            .as("adapter.cli.log → adapter.cli.queue").isEmpty();
+        assertThat(violations(inPackage("adapter/cli/helper"), forbidden(queue, log)))
+            .as("adapter.cli.helper → adapter.cli.queue / adapter.cli.log").isEmpty();
     }
 
     /**

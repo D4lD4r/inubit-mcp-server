@@ -56,6 +56,10 @@ public final class CliOutputClassifier {
      */
     private static final Pattern MESSAGE = Pattern.compile(
         "^(?:Completed = \\S+ MB / \\S+ MB\\s*)*(\\d+)-(OK|NOK):\\s?(.*)$");
+    /** The server's marker for a log file it does not have (feature 021, research D-8). */
+    private static final String FILE_WAS_NOT_FOUND = "FileWasNotFound";
+    /** The server's marker for a refused request (feature 021, research D-14). */
+    private static final String ACCESS_DENIED = "AccessDenied";
     private static final Pattern MISSING_MODULE = Pattern.compile("^The module .+ not found$");
 
     private static final String PASSWORD_PROMPT = "Password:";
@@ -181,6 +185,44 @@ public final class CliOutputClassifier {
             .or(() -> missingRepositoryPath(all))
             .or(() -> byText(all, nine))
             .orElseGet(() -> unexpected(result, output)));
+    }
+
+    /**
+     * Classifies a {@code trace --download} run (feature 021, research D-1, D-8, D-14): the
+     * server's marker {@code FileWasNotFound} is a missing {@code trace.log}
+     * ({@code NOT_FOUND}), its marker {@code AccessDenied} a refused download
+     * ({@code FORBIDDEN}). StartCLI confirms the download without an {@code n-OK} prefix
+     * (research "Spike findings"), so exit code 0 without any marker and without an
+     * {@code n-NOK} message is a success here; whether the confirmation is there is the caller's
+     * check ({@link CliTraceRunner}). Anything else, and cut output, is classified as by
+     * {@link #classify(CliResult)}. Only the trace download asks the server for a file, so these
+     * rules do not apply to other commands.
+     */
+    public CliOutcome classifyTraceDownload(CliResult result) {
+        if (result.truncated()) {
+            return classify(result);
+        }
+        CliOutput output = parse(result);
+        String node = labels.map(names -> names.node().value()).orElse("the INUBIT server");
+        for (Marker marker : output.markers()) {
+            if (marker.code().equals(FILE_WAS_NOT_FOUND)) {
+                return new CliOutcome.Failure(error(ErrorCode.NOT_FOUND,
+                    "trace.log does not exist on " + node,
+                    "The server has no trace log file; tracing may never have written one",
+                    "Check the trace settings of the server in the Workbench"));
+            }
+            if (marker.code().equals(ACCESS_DENIED)) {
+                return new CliOutcome.Failure(error(ErrorCode.FORBIDDEN,
+                    "The INUBIT account is not allowed to download trace.log from " + node,
+                    "The account lacks the INUBIT right to download the trace log",
+                    "Ask the INUBIT administrators for the right, or use another account"));
+            }
+        }
+        if (result.exitCode() == 0 && output.markers().isEmpty()
+            && output.nokMessages().isEmpty()) {
+            return new CliOutcome.Success(output);
+        }
+        return classify(result);
     }
 
     /** {@code bytes} as whole MiB where it is one, else in bytes. */

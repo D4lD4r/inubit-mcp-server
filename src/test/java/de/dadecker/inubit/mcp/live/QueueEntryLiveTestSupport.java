@@ -3,7 +3,7 @@ package de.dadecker.inubit.mcp.live;
 import static org.assertj.core.api.Assertions.fail;
 
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
-import de.dadecker.inubit.mcp.adapter.cli.queue.HelperInstallation;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.queue.WfspParser;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRow;
@@ -100,15 +100,26 @@ final class QueueEntryLiveTestSupport {
         if (value == null || value.isBlank()) {
             return Optional.empty();
         }
+        return Optional.of(privateDirectory(RECORD_DIR_VARIABLE, value, repository,
+            "the recording holds raw entry content"));
+    }
+
+    /**
+     * {@code value} of {@code variable} as a real path, refused as {@link #recordDirectory}
+     * describes; {@code holds} ends the refusal and says what the directory receives (also used
+     * by {@link ServerLogLiveTestSupport}, feature 021).
+     */
+    static Path privateDirectory(String variable, String value, Path repository, String holds)
+        throws IOException {
         Path directory = Path.of(value);
         if (!directory.isAbsolute()) {
-            fail(RECORD_DIR_VARIABLE + " must be an absolute path to a private directory outside"
+            fail(variable + " must be an absolute path to a private directory outside"
                 + " the repository");
         }
         for (Path name : directory) {
             if (name.toString().equals("..")) {
-                fail(RECORD_DIR_VARIABLE + " must not contain .. segments: they would hide where"
-                    + " the recording lands");
+                fail(variable + " must not contain .. segments: they would hide where"
+                    + " the files land");
             }
         }
         Path existing = directory;
@@ -117,14 +128,12 @@ final class QueueEntryLiveTestSupport {
         }
         Path real = existing.toRealPath().resolve(existing.relativize(directory)).normalize();
         if (real.startsWith(repository.toRealPath())) {
-            fail(RECORD_DIR_VARIABLE + " must be outside the repository: the recording holds raw"
-                + " entry content");
+            fail(variable + " must be outside the repository: " + holds);
         }
         if (GitFreeTempDir.insideGitTree(real)) {
-            fail(RECORD_DIR_VARIABLE + " must not be inside a git working tree: the recording"
-                + " holds raw entry content");
+            fail(variable + " must not be inside a git working tree: " + holds);
         }
-        return Optional.of(real);
+        return real;
     }
 
     /**
@@ -132,9 +141,15 @@ final class QueueEntryLiveTestSupport {
      * POSIX permissions or Windows access lists nothing is created.
      */
     static Path runDirectory(PrivateFileSystem files, Path directory) throws IOException {
+        return runDirectory(files, directory, "queue-entry-");
+    }
+
+    /** As {@link #runDirectory(PrivateFileSystem, Path)} with the run directory {@code prefix}. */
+    static Path runDirectory(PrivateFileSystem files, Path directory, String prefix)
+        throws IOException {
         try {
             files.createDirectories(directory);
-            return files.createTempDirectory(directory, "queue-entry-");
+            return files.createTempDirectory(directory, prefix);
         } catch (UnsupportedOperationException e) {
             throw new AssertionError(RECORD_DIR_VARIABLE + " needs owner-only files (POSIX"
                 + " permissions or a Windows access list), which this file system does not offer;"

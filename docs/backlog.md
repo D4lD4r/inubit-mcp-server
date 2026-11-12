@@ -67,3 +67,42 @@ the production stage?" cannot be answered.
 the workspace with the masking of feature 018 (at least as strict as the workspace redaction), so
 that the workspace history records partner changes over time. Decided in the clarification of
 feature 018 (2026-11-09): not part of 018, a later feature.
+
+## Further read access to INUBIT (interface comparison of 2026-11-12)
+
+**Problem.** A comparison of the vendor documentation (StartCLI and REST, 8.1 and 9.0) with the
+commands and endpoints the server uses showed read access that is documented but not offered by
+any tool. Questions such as "when does the license expire?", "how many workflow threads are
+configured?" or "which drivers are installed?" cannot be answered today.
+
+**Idea.** Each row is a candidate of its own; rows can be combined into one feature where they
+share a tool. The order is the expected benefit for operations.
+
+| # | Candidate | StartCLI | REST | Notes |
+|---|---|---|---|---|
+| 1 | License: expiry date, licensed threads | `license -td`, `license -ts` | `GET /license` | REST needs the role System Administrator; fits `get_health` |
+| 2 | Workflow threads | `threads showNumberOfWorkflowThreads`, `privilegedWorkflows showThreadsPercentage`, `privilegedWorkflows showWorkflowList` | – | CLI only; fits `get_health` |
+| 3 | Users and logins | `finger <login>`, `user <name>`, `-who`, `-nwho` | `GET /user/users?type=…` | personal data: decide what is returned |
+| 4 | Installed drivers and plug-ins | `library --list -t driver\|plugin` | – | CLI only |
+| 5 | Running processes on 8.1 and 9.0 | `ps -f 'workflow=… AND tag=…'`, `-ne`, `-nx`, `-nw`, `-nq` | – | today `ps` is used on 6.1 only; 8.1 and 9.0 read the queue log |
+| 6 | Server configuration | `dbconnectiontolerance show` | `GET /configurations` | large JSON that can hold secrets: only with masking and bounds |
+| 7 | Blocked run-time data | `process listBlocked <operationId>`, `process validateExport <file>` | – | needs the operation id of an earlier run-time data export |
+| 8 | XSLT 1.0 usage | `fetchXSLT1.0 -ef <file>` | – | writes a file on the computer of the server, like `trace --download` |
+| 9 | Module details without an export | – | `GET /model/nodeByModel/{model}/{nodeId}`, `GET /model/nodeByName/{diagram}/{module}` | `nodeByName` is gone from the 9.0 documentation; `get_inventory_item` may cover this already |
+| 10 | Process metadata | `export --exportMetadata` | `GET /process/metadata/{name}` | metadata export was left out on purpose in feature 004 (research D-8) |
+| 11 | Check an IS Connector | – | `GET /isconnector?workflowName&moduleName&type=validateWorkflow` | read only; `POST /isconnector` starts a workflow and is not meant here |
+
+**Constraints.**
+- Read only: no row may send a command form that changes the server. Each new StartCLI command
+  enters the allowlist in `CliCommand` with exactly the read options named here.
+- None of the commands is checked against a real system yet. Output formats and exit codes must be
+  recorded on a non-production server before a parser is written (as for the earlier features).
+- Results are bounded and masked like the existing read tools; rows 3 and 6 need their own
+  decision on what may be returned.
+- 6.1 has no REST API: a candidate that exists only in REST is announced from 8.1 on.
+
+**Not planned.** Tasks, Webapps, Reports and the process documentation endpoints (`/task/…`,
+`/webapp/…`, `/report/…`, `/process/processes/…`) are portal functions and need frontend users.
+Write access found in the same comparison (`maintenance on|off`, `processdelete error`,
+`tag --tagSetActive|--tagDelete`, user, library and configuration changes) is not part of this
+entry.

@@ -9,11 +9,13 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
+import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -46,8 +48,9 @@ class RefusingPortsTest {
     void everyPortMethodRefusesWithUnsupportedVersion(Method method) {
         assertThat(method.getDeclaringClass()).isAssignableFrom(RefusingPorts.class);
 
-        Throwable thrown = catchThrowable(() ->
-            method.invoke(refusing, new Object[method.getParameterCount()]));
+        Object[] args = Stream.of(method.getParameterTypes())
+            .map(type -> type == long.class ? (Object) 0L : null).toArray();
+        Throwable thrown = catchThrowable(() -> method.invoke(refusing, args));
 
         assertThat(thrown).isInstanceOf(InvocationTargetException.class);
         assertThat(thrown.getCause()).isInstanceOfSatisfying(ToolErrorException.class, e -> {
@@ -85,6 +88,35 @@ class RefusingPortsTest {
             Set.of(EntryPart.VARIABLES)))
             .isInstanceOfSatisfying(ToolErrorException.class, e ->
                 assertThat(e.error()).isEqualTo(new RefusingPorts(other).refusal().error()));
+    }
+
+    @Test
+    void serverLogsRefuseWithTheSixOneRefusalWithoutContact() {
+        // feature 021 T011 (research D-19): not the CLI_UNAVAILABLE of a port set without adapter
+        assertThatThrownBy(() -> refusing.download(ServerLogKind.TRACE, V61, System.nanoTime()))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error()).isEqualTo(refusing.refusal().error());
+                assertThat(e.error().message()).contains("dev/node1", "INUBIT 6.1",
+                    "nothing was sent");
+            });
+    }
+
+    @Test
+    void thePortSetCompatibilityConstructorsFillInAnUnavailableServerLogPort() {
+        // feature 021 T011 (research D-19): port sets built with the previous eight or nine ports
+        PortSet eight = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing);
+        PortSet nine = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing);
+
+        for (PortSet ports : List.of(eight, nine)) {
+            assertThatThrownBy(() -> ports.serverLogs().download(ServerLogKind.WEBSERVICE, V61,
+                System.nanoTime()))
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                    assertThat(e.error().message()).contains("Server log downloads");
+                });
+        }
     }
 
     @Test

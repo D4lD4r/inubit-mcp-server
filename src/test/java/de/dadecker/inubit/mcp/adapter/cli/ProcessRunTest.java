@@ -28,7 +28,7 @@ class ProcessRunTest {
     private static final String HELPER = "the queue-entry helper";
     private static final NodeId NODE = NodeId.of("test", "node1");
     private static final LaunchSpec SPEC = new LaunchSpec(
-        List.of("/opt/acme/jdk/bin/java", "de.dadecker.inubit.mcp.helper.QueueEntryHelper"),
+        List.of("/opt/acme/jdk/bin/java", "de.dadecker.inubit.mcp.helper.ClientHelper"),
         Map.of("JAVA_HOME", "/opt/acme/jdk"), Path.of("/opt/acme/client"));
 
     private final CliResources resources = new CliResources("acme", PrivateFiles.forHost());

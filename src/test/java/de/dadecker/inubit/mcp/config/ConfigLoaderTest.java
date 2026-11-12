@@ -1487,7 +1487,7 @@ class ConfigLoaderTest {
         @Test
         void theOptInIsReadPerGroup() {
             assertThat(unsupportedOf(onGroup("\n      queueEntryRead: true\n")))
-                .isEqualTo(new UnsupportedConfig(Optional.of(true)));
+                .isEqualTo(new UnsupportedConfig(Optional.of(true), Optional.empty()));
             assertThat(unsupportedOf(onGroup("\n      queueEntryRead: false\n")).queueEntryRead())
                 .contains(false);
             assertThat(unsupportedOf(MINIMAL)).isEqualTo(UnsupportedConfig.EMPTY);
@@ -1551,6 +1551,94 @@ class ConfigLoaderTest {
                 + "    queueEntryRead: true\n"))
                 .isInstanceOf(ConfigException.class)
                 .hasMessageContaining("Unknown key 'unsupported' at defaults");
+        }
+
+        /** Feature 021 (T008, FR-003, research D-17): {@code unsupported.serverLogRead}. */
+        @Test
+        void theServerLogOptInIsReadPerGroup() {
+            assertThat(unsupportedOf(onGroup("\n      serverLogRead: true\n")))
+                .isEqualTo(new UnsupportedConfig(Optional.empty(), Optional.of(true)));
+            assertThat(unsupportedOf(onGroup("\n      serverLogRead: false\n")).serverLogRead())
+                .contains(false);
+            assertThat(UnsupportedConfig.EMPTY.serverLogRead()).isEmpty();
+            assertThat(unsupportedOf(onGroup("\n      serverLogRead:\n")))
+                .as("an empty value is the default").isEqualTo(UnsupportedConfig.EMPTY);
+            assertThat(unsupportedOf(onGroup("\n      serverLogRead: null\n")))
+                .as("null is the default").isEqualTo(UnsupportedConfig.EMPTY);
+            assertThat(parse(onGroup("\n      serverLogRead: null\n")).config().effectiveNodes()
+                .get(0).serverLogRead()).as("the default is off").isFalse();
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"\"true\"", "1", "0", "yes", "[true]", "{ on: true }"})
+        void aNonBooleanServerLogValueIsRejectedWithoutTheValue(String value) {
+            assertThatThrownBy(() -> parse(onGroup("\n      serverLogRead: " + value + "\n")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessage("Invalid value at groups[0].unsupported.serverLogRead in "
+                    + home.resolve("u.yaml") + ": expected true or false");
+        }
+
+        @Test
+        void theServerLogErrorTextsLeakNoSecret() {
+            for (String value : List.of(
+                "\"" + TestSecrets.CREDENTIAL_PAYLOAD_VALUE + "\"",
+                "[" + TestSecrets.CONFIGURED_PASSWORD + "]",
+                "{ password: " + TestSecrets.CONFIGURED_PASSWORD + ", trustStorePassword: "
+                    + TestSecrets.TRUST_STORE_PASSWORD + " }")) {
+                assertThatThrownBy(() -> parse(onGroup("\n      serverLogRead: " + value + "\n")))
+                    .isInstanceOf(ConfigException.class)
+                    .satisfies(e -> TestSecrets.assertNoLeak(e.getMessage()));
+            }
+            assertThatThrownBy(() -> parse(onGroup("\n      traceRead: "
+                + TestSecrets.CREDENTIAL_PAYLOAD_VALUE + "\n")))
+                .isInstanceOf(ConfigException.class)
+                .satisfies(e -> TestSecrets.assertNoLeak(e.getMessage()));
+            assertThatThrownBy(() -> parse(MINIMAL + "        unsupported:\n"
+                + "          serverLogRead: " + TestSecrets.CREDENTIAL_PAYLOAD_VALUE + "\n"))
+                .isInstanceOf(ConfigException.class)
+                .satisfies(e -> TestSecrets.assertNoLeak(e.getMessage()));
+            assertThatThrownBy(() -> parse(MINIMAL + "defaults:\n  unsupported:\n"
+                + "    serverLogRead: " + TestSecrets.CREDENTIAL_PAYLOAD_VALUE + "\n"))
+                .isInstanceOf(ConfigException.class)
+                .satisfies(e -> TestSecrets.assertNoLeak(e.getMessage()));
+        }
+
+        @Test
+        void traceReadBelowUnsupportedIsAnUnknownKey() {
+            assertThatThrownBy(() -> parse(onGroup("\n      traceRead: true\n")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessage("Unknown key 'traceRead' at groups[0].unsupported in "
+                    + home.resolve("u.yaml"));
+        }
+
+        @Test
+        void theServerLogOptInOnANodeOrInTheDefaultsIsAnUnknownKey() {
+            assertThatThrownBy(() -> parse(MINIMAL + "        unsupported:\n"
+                + "          serverLogRead: true\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessage("Unknown key 'unsupported' at groups[0].nodes[0] in "
+                    + home.resolve("u.yaml"));
+            assertThatThrownBy(() -> parse(MINIMAL + "defaults:\n  unsupported:\n"
+                + "    serverLogRead: true\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'unsupported' at defaults");
+        }
+
+        @Test
+        void theTwoOptInsAreIndependent() {
+            LoadedConfig queueOnly = parse(onGroup(
+                "\n      queueEntryRead: true\n      serverLogRead: false\n"));
+            assertThat(queueOnly.config().groups().get(0).unsupported())
+                .isEqualTo(new UnsupportedConfig(Optional.of(true), Optional.of(false)));
+            assertThat(queueOnly.config().effectiveNodes().get(0).queueEntryRead()).isTrue();
+            assertThat(queueOnly.config().effectiveNodes().get(0).serverLogRead()).isFalse();
+
+            LoadedConfig serverLogOnly = parse(onGroup(
+                "\n      queueEntryRead: false\n      serverLogRead: true\n"));
+            assertThat(serverLogOnly.config().groups().get(0).unsupported())
+                .isEqualTo(new UnsupportedConfig(Optional.of(false), Optional.of(true)));
+            assertThat(serverLogOnly.config().effectiveNodes().get(0).queueEntryRead()).isFalse();
+            assertThat(serverLogOnly.config().effectiveNodes().get(0).serverLogRead()).isTrue();
         }
     }
 

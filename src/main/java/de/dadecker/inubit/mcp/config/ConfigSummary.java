@@ -49,7 +49,9 @@ import java.util.function.Predicate;
  * {@code archives: refused (no archives.productionOptIn)} or
  * {@code archives: allowed (archives.productionOptIn)}. Feature 020 (FR-017): once some group
  * has {@code unsupported.queueEntryRead: true}, every group line ends with
- * {@code , queueEntryRead: off} or {@code , queueEntryRead: enabled (unsupported)}.
+ * {@code , queueEntryRead: off} or {@code , queueEntryRead: enabled (unsupported)}; feature 021
+ * (FR-016) likewise appends {@code , serverLogRead: …} once some group has
+ * {@code unsupported.serverLogRead: true}.
  * Groups and nodes are named with the profile's display names (FR-007). Values and URLs are never
  * printed.
  */
@@ -159,6 +161,9 @@ public final class ConfigSummary {
         // one without a resolvable node
         boolean queueEntryRead = config.groups().stream().anyMatch(g -> g.unsupported()
             .queueEntryRead().orElse(Defaults.BUILTIN_QUEUE_ENTRY_READ));
+        // feature 021 (FR-016, D-17): the same for serverLogRead, after the queueEntryRead state
+        boolean serverLogRead = config.groups().stream().anyMatch(g -> g.unsupported()
+            .serverLogRead().orElse(Defaults.BUILTIN_SERVER_LOG_READ));
         GroupId group = null;
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
             if (!server.id().group().equals(group)) {
@@ -166,7 +171,8 @@ public final class ConfigSummary {
                 out.append(terms.render("{Group} ")).append(group)
                     .append(server.production() ? " (production)" : "").append(": archives: ")
                     .append(archives(server))
-                    .append(queueEntryRead ? queueEntryRead(server) : "").append('\n');
+                    .append(queueEntryRead ? queueEntryRead(server) : "")
+                    .append(serverLogRead ? serverLogRead(server) : "").append('\n');
             }
             out.append("  ").append(terms.render("{Node} ")).append(server.id()).append(": ")
                 .append(writeFlag(server))
@@ -344,7 +350,9 @@ public final class ConfigSummary {
      * | none; refused: <names> | none)} for a setting pinned to a CLI-only version, else empty.
      * Judged on the pin as the version gate and {@code list_nodes} do: on a CLI-only version a
      * capability runs only if the matrix declares it {@code SUPPORTED}. Reading Queue Manager
-     * entries is listed only for a group with {@code unsupported.queueEntryRead} (feature 020).
+     * entries is listed only for a group with {@code unsupported.queueEntryRead} (feature 020),
+     * downloading the web service log only for one with {@code unsupported.serverLogRead}
+     * (feature 021).
      */
     private String cliOnly(EffectiveNodeConfig server) {
         Optional<InubitVersion> pin =
@@ -355,7 +363,8 @@ public final class ConfigSummary {
         List<String> available = new ArrayList<>();
         List<String> refused = new ArrayList<>();
         for (Capability capability : Capability.values()) {
-            if (capability == Capability.QUEUE_ENTRY_READ && !server.queueEntryRead()) {
+            if (capability == Capability.QUEUE_ENTRY_READ && !server.queueEntryRead()
+                || capability == Capability.WEBSERVICE_LOG_READ && !server.serverLogRead()) {
                 continue;
             }
             (matrix.state(pin, capability) == SupportState.SUPPORTED ? available : refused)
@@ -417,6 +426,12 @@ public final class ConfigSummary {
     private static String queueEntryRead(EffectiveNodeConfig server) {
         return server.queueEntryRead() ? ", queueEntryRead: enabled (unsupported)"
             : ", queueEntryRead: off";
+    }
+
+    /** Feature 021 (FR-016): a group setting, so any node of the group tells. */
+    private static String serverLogRead(EffectiveNodeConfig server) {
+        return server.serverLogRead() ? ", serverLogRead: enabled (unsupported)"
+            : ", serverLogRead: off";
     }
 
     private static String writeFlag(EffectiveNodeConfig server) {

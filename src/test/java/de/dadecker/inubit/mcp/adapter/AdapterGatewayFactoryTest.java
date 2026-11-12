@@ -21,7 +21,7 @@ import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
-import de.dadecker.inubit.mcp.adapter.cli.queue.HelperInstallation;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
@@ -48,6 +48,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeAccess;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
+import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
@@ -61,6 +62,7 @@ import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
+import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -505,6 +507,27 @@ class AdapterGatewayFactoryTest {
                 .isInstanceOf(StaleReportingPorts.Partners.class);
             assertThat(wireMock.getAllServeEvents()).isEmpty();
         }
+    }
+
+    @Test
+    void withoutAConfiguredServerLogAdapterADownloadFailsWithCliUnavailable()
+        throws NoSuchMethodException {
+        // feature 021 T011 (research D-19): the 8.1 gateway hands out the port set's server-log
+        // port behind the stale-reporting decorator; the 8.1 port set without helper host has
+        // no server-log adapter (T026 wires it into the one with)
+        assertThat(V81Gateway.class.getDeclaredMethod("serverLogs").getDeclaringClass())
+            .isEqualTo(V81Gateway.class);
+        try (AdapterGatewayFactory factory = factory(server(DEV, VersionSetting.V8_1))) {
+            ServerLogPort port = factory.serverLogs(DEV);
+            assertThat(port).isInstanceOf(StaleReportingPorts.ServerLogs.class)
+                .isSameAs(factory.forServer(DEV).serverLogs());
+
+            assertThat(codeOf(() -> port.download(ServerLogKind.TRACE,
+                InubitVersion.parse("8.1.17").orElseThrow(), System.nanoTime())))
+                .isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+            assertThat(wireMock.getAllServeEvents()).isEmpty();
+        }
+        assertThat(versions.events()).as("no stale mark").isEmpty();
     }
 
     @Test
@@ -1711,7 +1734,47 @@ class AdapterGatewayFactoryTest {
     }
 
     @Test
-    void theQueueEntryHelperWaitsOutTheCredentialPauseOfTheNodesRestClient(@TempDir Path root)
+    void the81And90PortSetsDownloadServerLogsWithTheSharedStartCliSlots(@TempDir Path root)
+        throws IOException {
+        // feature 021 T026 (research D-15, D-19): the server-log adapter of the 8.1/9.0 port set
+        Path tempRoot = Files.createDirectories(root.resolve("tmp"));
+        EffectiveNodeConfig on81 = cliNode(DEV, VersionSetting.parse("8.1.17").orElseThrow(),
+            root);
+        EffectiveNodeConfig on90 = cliNode(ENT2, VersionSetting.parse("9.0.7").orElseThrow(),
+            root);
+        try (CliResources resources = new CliResources("acme", PrivateFiles.forHost());
+             AdapterGatewayFactory factory = factory(queueEntryPorts(tempRoot, resources),
+                 nodeVersions(on81, on90), on81, on90)) {
+            for (EffectiveNodeConfig node : List.of(on81, on90)) {
+                ServerLogPort port = factory.serverLogs(node.id());
+                assertThat(port).as("still wrapped by the stale trigger")
+                    .isInstanceOf(StaleReportingPorts.ServerLogs.class)
+                    .isSameAs(factory.forServer(node.id()).serverLogs());
+                InubitVersion version = ((VersionSetting.Pinned) node.versionLine()).version();
+
+                // both slots of the node taken elsewhere: the download waits for one (TIMEOUT)
+                try (CliConcurrencyLimiter.Permit first =
+                         helperLimiter.acquireForHelper(node, Duration.ZERO);
+                     CliConcurrencyLimiter.Permit second =
+                         helperLimiter.acquireForHelper(node, Duration.ZERO)) {
+                    assertThatThrownBy(() -> port.download(ServerLogKind.TRACE, version,
+                        System.nanoTime() + Duration.ofMillis(100).toNanos()))
+                        .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                            assertThat(e.error().code()).isEqualTo(ErrorCode.TIMEOUT);
+                            assertThat(e.error().message()).isEqualTo("The trace log download"
+                                + " from " + node.id() + " did not finish within"
+                                + " cliExportTimeout (120 s)");
+                            assertThat(e.error().node()).contains(node.id());
+                        });
+                }
+            }
+        }
+        assertThat(versions.events()).as("a slot timeout is no stale mark").isEmpty();
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void theClientHelperWaitsOutTheCredentialPauseOfTheNodesRestClient(@TempDir Path root)
         throws IOException {
         Path tempRoot = Files.createDirectories(root.resolve("tmp"));
         systemInfo(401, "<html>HTTP Status 401</html>");
@@ -1734,6 +1797,23 @@ class AdapterGatewayFactoryTest {
         assertThat(helperLauncher.launchCount()).isZero();
         assertNothingLeftBelow(tempRoot);
         assertThat(authenticatedCalls()).as("the one failed login only").isEqualTo(1);
+    }
+
+    @Test
+    void aSixOneNodeRefusesServerLogsWithoutContact() {
+        // feature 021 T011 (research D-19): the 6.1 port set refuses as RefusingPorts
+        EffectiveNodeConfig node = withoutUsableClient(VersionSetting.V6_1);
+        try (AdapterGatewayFactory factory = factory(WITH_V61, nodeVersions(node), node)) {
+            ServerLogPort port = factory.serverLogs(DEV);
+            assertThat(port).isInstanceOf(StaleReportingPorts.ServerLogs.class);
+
+            assertThatThrownBy(() -> port.download(ServerLogKind.TRACE,
+                InubitVersion.parse("6.1.0").orElseThrow(), System.nanoTime()))
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error()).isEqualTo(new RefusingPorts(DEV).refusal().error()));
+        }
+        assertThat(versions.events()).isEmpty();
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
     }
 
     @Test

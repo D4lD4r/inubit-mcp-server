@@ -1,0 +1,6 @@
+#QE1:0123456789abcdef0123456789abcdef start REST_90
+2026-11-11T07:19:26.553627Z main ERROR Unable to load io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider, fallback to system defaults. This may result in incorrect DNS resolutions on MacOS. Check whether you have a dependency on 'io.netty:netty-resolver-dns-native-macos'. Use DEBUG level to see the full stack: java.lang.UnsatisfiedLinkError: failed to load the required native library
+#QE1:0123456789abcdef0123456789abcdef login ok
+#QE1:0123456789abcdef0123456789abcdef node ok node1
+#QE1:0123456789abcdef0123456789abcdef part log ok 4797
+#QE1:0123456789abcdef0123456789abcdef end

@@ -1,0 +1,2 @@
+reconstructed the helper protocol (research D-4: the API check before start writes api missing <what> and exits 4).
+<what> is the NoSuchMethodException text of the missing ClusterClient.clusterDownload(File, NodeName, String); no login, so the .log is empty.

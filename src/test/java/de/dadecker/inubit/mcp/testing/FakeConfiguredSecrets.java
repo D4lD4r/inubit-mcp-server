@@ -18,6 +18,7 @@ public final class FakeConfiguredSecrets implements ConfiguredSecrets {
     private volatile Readiness readiness;
     private volatile List<String> values;
     private final List<Duration> prepared = new CopyOnWriteArrayList<>();
+    private volatile Error occurrencesFailure;
 
     private FakeConfiguredSecrets(Readiness readiness, List<String> values) {
         this.readiness = readiness;
@@ -52,6 +53,11 @@ public final class FakeConfiguredSecrets implements ConfiguredSecrets {
         readiness = new Readiness.Ready();
     }
 
+    /** From now on {@link #occurrences} throws {@code error}. */
+    public void failOccurrences(Error error) {
+        occurrencesFailure = error;
+    }
+
     /** The bounds of every {@link #prepare} call, in order. */
     public List<Duration> prepared() {
         return List.copyOf(prepared);
@@ -65,6 +71,9 @@ public final class FakeConfiguredSecrets implements ConfiguredSecrets {
 
     @Override
     public List<SecretSpan> occurrences(String text) {
+        if (occurrencesFailure != null) {
+            throw occurrencesFailure;
+        }
         List<SecretSpan> spans = new ArrayList<>();
         for (String value : values) {
             for (int at = text.indexOf(value); at >= 0; at = text.indexOf(value, at + 1)) {

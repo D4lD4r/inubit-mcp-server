@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
@@ -128,22 +129,46 @@ public final class CredentialGuard {
      *     {@code TIMEOUT} if interrupted while waiting for another attempt or a re-read
      */
     public Permit acquire() {
-        return root.acquire(bound);
+        return root.acquire(bound, Optional.empty());
     }
 
-    private Permit acquire(NodeCredentials used) {
-        long attemptRound = admit(used);
+    /**
+     * As {@link #acquire()}, but waits at most {@code timeout} for another attempt or a re-read
+     * (feature 021, FR-013, research D-15: every wait of a call is inside its deadline).
+     *
+     * @throws ToolErrorException as {@link #acquire()}, and {@code TIMEOUT} naming
+     *     {@code timeoutSetting} once {@code timeout} has passed while waiting
+     */
+    public Permit acquire(Duration timeout, String timeoutSetting) {
+        return root.acquire(bound, Optional.of(
+            new Limit(System.nanoTime() + timeout.toNanos(), timeoutSetting)));
+    }
+
+    /** The end of a bounded wait ({@link System#nanoTime()}) and the setting it comes from. */
+    private record Limit(long deadlineNanos, String setting) {
+
+        long leftNanos() {
+            return deadlineNanos - System.nanoTime();
+        }
+    }
+
+    private Permit acquire(NodeCredentials used, Optional<Limit> limit) {
+        long attemptRound = admit(used, limit);
         if (confirmed) {
             return new Permit(false, attemptRound);
         }
         try {
-            probe.acquire();
+            if (limit.isEmpty()) {
+                probe.acquire();
+            } else if (!probe.tryAcquire(limit.get().leftNanos(), TimeUnit.NANOSECONDS)) {
+                throw timedOut(limit.get());
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw cancelled("another login attempt");
         }
         try {
-            attemptRound = admit(used);
+            attemptRound = admit(used, limit);
         } catch (ToolErrorException e) {
             probe.release();
             throw e;
@@ -156,16 +181,22 @@ public final class CredentialGuard {
     }
 
     /**
-     * Waits for a running re-read, then refuses an attempt with replaced credentials or within
-     * the pause.
+     * Waits for a running re-read (at most until {@code limit}), then refuses an attempt with
+     * replaced credentials or within the pause.
      *
      * @return the round the attempt belongs to
      */
-    private long admit(NodeCredentials used) {
+    private long admit(NodeCredentials used, Optional<Limit> limit) {
         lock.lock();
         try {
             while (rereading) {
-                rereadDone.await();
+                if (limit.isEmpty()) {
+                    rereadDone.await();
+                } else if (limit.get().leftNanos() <= 0) {
+                    throw timedOut(limit.get());
+                } else {
+                    rereadDone.awaitNanos(limit.get().leftNanos());
+                }
             }
             refuseIfReplaced(used);
             refuseIfPaused();
@@ -183,6 +214,16 @@ public final class CredentialGuard {
             "The call to " + server + " was cancelled while waiting for " + waitingFor,
             "The overall deadline of the request expired",
             "Retry").withNode(server));
+    }
+
+    private ToolErrorException timedOut(Limit limit) {
+        return new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT,
+            limit.setting() + " on " + server + " passed while waiting for another login attempt"
+                + " with the unconfirmed credentials or their re-read; this call did not log in",
+            "Another login attempt with the unconfirmed credentials, or their re-read, took the"
+                + " rest of " + limit.setting(),
+            "Retry; check get_health; raise " + limit.setting() + " if INUBIT is just slow")
+            .withNode(server));
     }
 
     /**

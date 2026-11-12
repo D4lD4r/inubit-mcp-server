@@ -19,6 +19,10 @@ class CapabilityMatrixTest {
 
     private final CapabilityMatrix production = CapabilityMatrix.production();
 
+    /**
+     * Feature 021: the server-log reads are supported since their 8.1 recordings (trace T033, web
+     * service T046).
+     */
     @ParameterizedTest
     @EnumSource(Capability.class)
     void everyCapabilityIsSupportedOn81(Capability capability) {
@@ -33,10 +37,11 @@ class CapabilityMatrixTest {
     /**
      * Feature 017 (T004, research D-9): 9.0 is declared like 8.1, REST and CLI; partner
      * management is the exception of feature 018 (below); feature 020 (T038): reading Queue
-     * Manager entries included since its 9.0 recording.
+     * Manager entries included since its 9.0 recording; feature 021: the server-log reads
+     * included since their 9.0 recordings (T051, T052).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = "PARTNER_MANAGEMENT",
+    @EnumSource(value = Capability.class, names = {"PARTNER_MANAGEMENT"},
         mode = EnumSource.Mode.EXCLUDE)
     void everyCapabilityIsSupportedOn90LikeOn81(Capability capability) {
         assertThat(production.state(version("9.0.7"), capability))
@@ -90,7 +95,8 @@ class CapabilityMatrixTest {
 
     /** Feature 017 (T004, research D-9): {@code V9_X} still selects no 9.0 support. */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = "QUEUE_ENTRY_READ", mode = Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"QUEUE_ENTRY_READ", "TRACE_LOG_READ",
+        "WEBSERVICE_LOG_READ"}, mode = Mode.EXCLUDE)
     void theMajorOnlyNineLineAndNineOneStayUnverified(Capability capability) {
         assertThat(production.stateOfLine(9, OptionalInt.empty(), capability))
             .isEqualTo(notBaseline(capability));
@@ -114,7 +120,8 @@ class CapabilityMatrixTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = "QUEUE_ENTRY_READ", mode = Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"QUEUE_ENTRY_READ", "TRACE_LOG_READ",
+        "WEBSERVICE_LOG_READ"}, mode = Mode.EXCLUDE)
     void anOtherKnownVersionIsTreatedLikeUnknown(Capability capability) {
         assertThat(production.state(version("10.0"), capability))
             .isEqualTo(notBaseline(capability));
@@ -125,14 +132,16 @@ class CapabilityMatrixTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = "QUEUE_ENTRY_READ", mode = Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"QUEUE_ENTRY_READ", "TRACE_LOG_READ",
+        "WEBSERVICE_LOG_READ"}, mode = Mode.EXCLUDE)
     void anUnknownVersionGivesReadsUnverifiedAndWritesUnsupported(Capability capability) {
         assertThat(production.state(Optional.empty(), capability))
             .isEqualTo(notBaseline(capability));
     }
 
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = "QUEUE_ENTRY_READ", mode = Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"QUEUE_ENTRY_READ", "TRACE_LOG_READ",
+        "WEBSERVICE_LOG_READ"}, mode = Mode.EXCLUDE)
     void aMajorOnlyLineIsLookedUpAsUnknown(Capability capability) {
         assertThat(production.stateOfLine(9, OptionalInt.empty(), capability))
             .isEqualTo(production.state(Optional.empty(), capability))
@@ -147,7 +156,8 @@ class CapabilityMatrixTest {
         assertThat(Capability.values()).filteredOn(c -> c.kind() == Kind.READ)
             .containsExactly(Capability.MONITORING, Capability.PROCESS_DIAGNOSIS,
                 Capability.LOG_DIAGNOSIS, Capability.INVENTORY, Capability.PARTNER_MANAGEMENT,
-                Capability.WORKSPACE_EXPORT, Capability.QUEUE_ENTRY_READ);
+                Capability.WORKSPACE_EXPORT, Capability.QUEUE_ENTRY_READ,
+                Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ);
         assertThat(Capability.values()).filteredOn(c -> c.kind() == Kind.WRITE)
             .containsExactly(Capability.DEVELOPMENT_WRITE, Capability.DEPLOYMENT,
                 Capability.E2E_TEST, Capability.PROCESS_CONTROL);
@@ -186,6 +196,8 @@ class CapabilityMatrixTest {
             .containsExactlyInAnyOrder(Channel.REST, Channel.CLI);
         assertThat(Capability.QUEUE_ENTRY_READ.channels())
             .containsExactlyInAnyOrder(Channel.REST, Channel.CLI);
+        assertThat(Capability.TRACE_LOG_READ.channels()).containsExactly(Channel.CLI);
+        assertThat(Capability.WEBSERVICE_LOG_READ.channels()).containsExactly(Channel.CLI);
     }
 
     /** Feature 012 (FR-005, research D-3): 6.1 is CLI-only and nothing runs until recorded. */
@@ -349,7 +361,8 @@ class CapabilityMatrixTest {
 
     /** The other capabilities keep their unknown-version rule: reads unverified. */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = "QUEUE_ENTRY_READ", mode = Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"QUEUE_ENTRY_READ", "TRACE_LOG_READ",
+        "WEBSERVICE_LOG_READ"}, mode = Mode.EXCLUDE)
     void theUnknownRuleOfTheOtherCapabilitiesIsUnchanged(Capability capability) {
         assertThat(production.state(Optional.empty(), capability))
             .isEqualTo(notBaseline(capability));
@@ -385,6 +398,86 @@ class CapabilityMatrixTest {
             .as("the entry without notes declares none")
             .isEqualTo(new CapabilityMatrix.Entry(new VersionRange(7, 9, 7, 9), Map.of(),
                 Map.of(), false, Map.of()));
+    }
+
+    // --- feature 021 T009: downloading the server logs (FR-002, FR-017, D-6) --------------------
+
+    @Test
+    void theServerLogReadsAreCliReadsWithTheirLabels() {
+        assertThat(Capability.TRACE_LOG_READ.kind()).isEqualTo(Kind.READ);
+        assertThat(Capability.TRACE_LOG_READ.label()).isEqualTo("downloading the trace log");
+        assertThat(Capability.WEBSERVICE_LOG_READ.kind()).isEqualTo(Kind.READ);
+        assertThat(Capability.WEBSERVICE_LOG_READ.label())
+            .isEqualTo("downloading the web service log");
+    }
+
+    /**
+     * T031 (feature 021, FR-002): a version not yet known (an {@code AUTO} node) may run a
+     * capability only if some range or the unknown versions admit it; since their 8.1 recordings
+     * (T033, T046) 8.1 admits both server-log reads.
+     */
+    @ParameterizedTest
+    @EnumSource(Capability.class)
+    void everyCapabilityIsPossiblySupportedOnTheProductionMatrix(Capability capability) {
+        assertThat(production.possiblySupported(capability)).isTrue();
+    }
+
+    @Test
+    void theUnknownVersionsAloneMakeACapabilityPossiblySupported() {
+        CapabilityMatrix matrix = new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
+            new VersionRange(8, 1, 8, 1), Map.of(Capability.INVENTORY, SupportState.SUPPORTED))),
+            Map.of(Capability.MONITORING, SupportState.UNVERIFIED));
+
+        assertThat(matrix.possiblySupported(Capability.MONITORING)).isTrue();
+        assertThat(matrix.possiblySupported(Capability.INVENTORY)).isTrue();
+        assertThat(matrix.possiblySupported(Capability.PROCESS_DIAGNOSIS)).isFalse();
+    }
+
+    /**
+     * T033, T046 (FR-017, D-22): the recorded 8.1 trace and web service logs enabled 8.1; their
+     * notes are gone.
+     */
+    @ParameterizedTest
+    @EnumSource(value = Capability.class, names = {"TRACE_LOG_READ", "WEBSERVICE_LOG_READ"})
+    void aServerLogReadIsSupportedOn81WithoutNote(Capability capability) {
+        assertThat(production.state(version("8.1.17"), capability))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.stateOfLine(8, OptionalInt.of(1), capability))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.note(version("8.1.17"), capability)).isEmpty();
+        assertThat(production.channels(version("8.1.17"), capability))
+            .containsExactly(Channel.CLI);
+        assertThat(production.lines(capability)).containsExactly("8.1", "9.0");
+    }
+
+    /**
+     * T051, T052 (FR-017, D-22): the recorded 9.0 trace log and the recorded empty 9.0 web service
+     * log enabled 9.0; their notes are gone.
+     */
+    @ParameterizedTest
+    @EnumSource(value = Capability.class, names = {"TRACE_LOG_READ", "WEBSERVICE_LOG_READ"})
+    void aServerLogReadIsSupportedOn90WithoutNote(Capability capability) {
+        assertThat(production.state(version("9.0.7"), capability))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.stateOfLine(9, OptionalInt.of(0), capability))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.note(version("9.0.7"), capability)).isEmpty();
+        assertThat(production.channels(version("9.0.7"), capability))
+            .containsExactly(Channel.CLI);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Capability.class, names = {"TRACE_LOG_READ", "WEBSERVICE_LOG_READ"})
+    void aServerLogReadIsUnsupportedOn61On91AndOnUnknownVersionsWithoutNote(
+        Capability capability) {
+        for (Optional<InubitVersion> other : List.of(version("6.1.3"), version("9.1.0"),
+                version("7.0"), version("10.0"), Optional.<InubitVersion>empty())) {
+            assertThat(production.state(other, capability)).as("%s", other)
+                .isEqualTo(SupportState.UNSUPPORTED);
+            assertThat(production.note(other, capability)).as("%s", other).isEmpty();
+        }
+        assertThat(production.stateOfLine(9, OptionalInt.empty(), capability))
+            .isEqualTo(SupportState.UNSUPPORTED);
     }
 
     private static SupportState notBaseline(Capability capability) {

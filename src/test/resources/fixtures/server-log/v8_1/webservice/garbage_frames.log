@@ -1,0 +1,16 @@
+2026-11-12 09:14:05,117 100003 [WebService acme_StockService] Request
+POST /ibis/ws/acme_StockService HTTP/1.1
+host: inubit.example.test:8443
+content-type: text/xml; charset=UTF-8
+soapaction: "urn:acme:stock:query"
+content-length: 402
+x-forwarded-for: 192.0.2.23
+
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:stk="urn:acme:stock">
+  <soapenv:Body>
+    <stk:queryStock>
+      <stk:sku>ACME-1000</stk:sku>
+    </stk:queryStock>
+  </soapenv:Body>
+</soapenv:Envelope>

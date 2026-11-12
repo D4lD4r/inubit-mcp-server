@@ -386,6 +386,46 @@ class MainTest {
     }
 
     @Test
+    void checkConfigShowsTheServerLogReadStateAndWarnsAboutAProductionOptIn() throws IOException {
+        // feature 021 (T042, FR-016, US2-6, research D-17)
+        credentials();
+        entries.put("INUBIT_ACME_PROD_USERNAME", "prod-user");
+        entries.put("INUBIT_ACME_PROD_PASSWORD", "prod-Password-3");
+        Files.createDirectories(home.resolve("workspace"));
+        Path file = config("""
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+              - name: prod
+                production: true
+                unsupported:
+                  serverLogRead: true
+                nodes:
+                  - name: node2
+                    baseUrl: https://node2.example.test:8443
+            """.formatted(home.resolve("audit"), home.resolve("workspace")));
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(err()).isZero();
+        assertThat(out()).contains("\nGroup dev: archives: allowed, serverLogRead: off\n",
+            "\nGroup prod (production): archives: refused (no archives.productionOptIn),"
+                + " serverLogRead: enabled (unsupported)\n",
+            "\nWarnings:\n  - unsupported.serverLogRead is enabled on production group prod: the"
+                + " web service log is read through an undocumented INUBIT interface without"
+                + " vendor support\nResult: OK\n");
+        TestSecrets.assertNoLeak(out());
+        TestSecrets.assertNoLeak(err());
+    }
+
+    @Test
     void checkConfigExitsOneOnAMissingEntryAndNamesItButStartsTheServer() throws IOException {
         // feature 011 (T017, US4-2, quickstart Q15): an error of --check-config, never a value;
         // the server itself starts (the entry is read on first use)
@@ -797,7 +837,7 @@ class MainTest {
         assertThat(exit).as(out() + err()).isZero();
         String refused = "available: none; refused: monitoring, process diagnosis, log"
             + " diagnosis, inventory, partner management, workspace export, development writes,"
-            + " deployment, end-to-end test, process control)";
+            + " deployment, end-to-end test, process control, downloading the trace log)";
         assertThat(out())
             .contains("dev/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI"
                 + " only; " + refused + ", client: 6.1.0 (4.0.1–6.1.0; options: no trust-store"
@@ -815,9 +855,10 @@ class MainTest {
     }
 
     @Test
-    void checkConfigListsReadingQueueManagerEntriesAsRefusedOnlyForAnOptedInV61Group()
+    void checkConfigListsTheUnsupportedReadsAsRefusedOnlyForAnOptedInV61Group()
         throws IOException {
-        // feature 020 (T003, D-6): the 6.1 text of a group without the opt-in is unchanged
+        // feature 020 (T003, D-6) and feature 021 (T009, D-6): reading Queue Manager entries and
+        // downloading the web service log only for a group with the respective opt-in
         credentials();
         entries.put("INUBIT_ACME_TEST_USERNAME", USERNAME);
         entries.put("INUBIT_ACME_TEST_PASSWORD", PASSWORD);
@@ -834,6 +875,8 @@ class MainTest {
                     baseUrl: https://inubit.example.test:8443
               - name: test
                 versionLine: V6_1
+                unsupported:
+                  serverLogRead: true
                 nodes:
                   - name: node1
                     baseUrl: https://node2.example.test:8443
@@ -847,11 +890,11 @@ class MainTest {
             + " deployment, end-to-end test, process control";
         assertThat(out())
             .contains("dev/node1: read-only, cli: unavailable, inubit: V6_1 (INUBIT 6.1, StartCLI"
-                + " only; " + refused + ", reading Queue Manager entries), secrets:"
-                + " credentialStore (macOS Keychain), username ←")
+                + " only; " + refused + ", reading Queue Manager entries, downloading the trace"
+                + " log), secrets: credentialStore (macOS Keychain), username ←")
             .contains("test/node1: read-only, cli: unavailable, inubit: V6_1 (INUBIT 6.1,"
-                + " StartCLI only; " + refused + "), secrets: credentialStore (macOS Keychain),"
-                + " username ←")
+                + " StartCLI only; " + refused + ", downloading the trace log, downloading the web"
+                + " service log), secrets: credentialStore (macOS Keychain), username ←")
             .contains("Result: OK")
             .doesNotContain("jsonrpc");
         TestSecrets.assertNoLeak(out());
@@ -2183,6 +2226,36 @@ class MainTest {
             .noneMatch(line -> line.contains("queueEntryRead"));
     }
 
+    @Test
+    void aServerLogReadOptInOnAProductionGroupIsWarnedAboutInTheStartupLog() throws Exception {
+        // feature 021 (T042, FR-016, US2-6, research D-17)
+        credentials();
+        Path file = config("""
+            profile:
+              name: acme
+            auditDirectory: %s
+            groups:
+              - name: dev
+                production: true
+                unsupported:
+                  serverLogRead: true
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit.example.test:8443
+                    versionLine: V8_1
+            """.formatted(home.resolve("audit")));
+
+        List<String> lines = startupLogOfAnInitializedServer(file);
+
+        assertThat(lines).filteredOn(line -> line.contains("serverLogRead")).containsExactly(
+            "Configuration: unsupported.serverLogRead is enabled on production group dev: the web"
+                + " service log is read through an undocumented INUBIT interface without vendor"
+                + " support");
+        lines.forEach(TestSecrets::assertNoLeak);
+        assertThat(startupLogOfAnInitializedServer(validConfig()))
+            .noneMatch(line -> line.contains("serverLogRead"));
+    }
+
     // --- feature 020 T030: read_queue_entry only under its opt-in (FR-002, SC-002) ----------
 
     /** The {@code tools/list} names of a server started with {@code file}, in their order. */
@@ -2203,11 +2276,12 @@ class MainTest {
 
     @Test
     void withoutAnOptInTheToolListIsUnchangedByFeature020() throws Exception {
+        // feature 021 T033: the 8.1 node with a client home also announces download_server_log
         credentials();
         List<String> withoutFeature020 = List.of("list_nodes", "get_health",
-            "read_knowledge", "record_knowledge", "find_processes", "query_logs", "list_inventory",
-            "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
-            "check_artifacts");
+            "read_knowledge", "record_knowledge", "find_processes", "query_logs",
+            "download_server_log", "list_inventory", "get_inventory_item", "find_partners",
+            "export_artifacts", "export_archives", "check_artifacts");
 
         assertThat(announcedTools(configWithClientHome("")))
             .containsExactlyElementsOf(withoutFeature020);
@@ -2223,9 +2297,29 @@ class MainTest {
         assertThat(announcedTools(configWithClientHome(
             "    unsupported:\n      queueEntryRead: true\n")))
             .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
-                "find_processes", "query_logs", "read_queue_entry", "list_inventory",
-                "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
-                "check_artifacts");
+                "find_processes", "query_logs", "read_queue_entry", "download_server_log",
+                "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
+                "export_archives", "check_artifacts");
+    }
+
+    // --- feature 021 T031: download_server_log only once a version admits it (FR-002, SC-002) -
+
+    @Test
+    void sinceThe81TraceRecordingAnEightOneAndAnAutoNodeAnnounceTheDownload() throws Exception {
+        // T033: the production matrix supports the trace log on 8.1, so an 8.1 node and an AUTO
+        // node with a client home announce download_server_log; without a client home none does
+        credentials();
+        List<String> withDownload = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
+            "export_archives", "check_artifacts");
+
+        assertThat(announcedTools(configWithClientHome("")))
+            .containsExactlyElementsOf(withDownload);
+        String auto = Files.readString(configWithClientHome(""))
+            .replace("versionLine: V8_1", "versionLine: AUTO");
+        assertThat(announcedTools(config(auto))).containsExactlyElementsOf(withDownload);
+        assertThat(announcedTools(validConfig())).doesNotContain("download_server_log");
     }
 
     @Test

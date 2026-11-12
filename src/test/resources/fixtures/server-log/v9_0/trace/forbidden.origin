@@ -1,0 +1,2 @@
+reconstructed fixtures/server-log/v8_1/trace/forbidden.* (the 403 texts of feature 020 research D-5, HTTP 403 / AccessDenied -> FORBIDDEN); only ibis.jar:8.1.17 in the stack frames becomes ibis.jar:9.0.10, as in fixtures/v9_0/cli/login_failed.stdout (StartCLI texts unchanged in 9.0, docs/research/inubit-interfaces.md §2 and §4).
+The marker text and the message are invented, as in the 8.1 case. Not verified against a 9.0 client or server.

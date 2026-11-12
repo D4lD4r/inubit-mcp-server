@@ -765,6 +765,7 @@ workflows' secrets out of INUBIT.
 | Setting | Level | Default | Meaning |
 |---|---|---|---|
 | `unsupported.queueEntryRead` | group | `false` | offers `read_queue_entry` for the nodes of this group, which reads Queue Manager entries through an **unsupported, undocumented** INUBIT interface (see the text below); independent of `write.*`, `archives.*` and `production` |
+| `unsupported.serverLogRead` | group | `false` | allows `download_server_log` with `log: webservice` for the nodes of this group, which reads `webservice.log` through an **unsupported, undocumented** INUBIT interface (see the text below); independent of `unsupported.queueEntryRead`, `write.*`, `archives.*` and `production` |
 
 ```yaml
 groups:
@@ -816,10 +817,60 @@ profile setting for the text limit (the caller's `maxChars`).
 - The value must be a YAML boolean, only `true` or `false`; an empty value is the default
   `false`; anything else (also `1`, `0` or the text `"true"`) is a startup error that does not
   echo the value.
-- `unsupported` on a node or in `defaults`, and any other key under `unsupported`, is a startup
-  error (unknown key): the opt-in is a decision per group.
+- `unsupported` on a node or in `defaults`, and any key under `unsupported` other than
+  `queueEntryRead` and `serverLogRead`, is a startup error (unknown key): the opt-in is a
+  decision per group.
 - `--check-config` ([section 6](#6-check-the-configuration)) shows the state on every group line
   once a group of the profile opts in.
+
+```yaml
+groups:
+  - name: test
+    unsupported:
+      serverLogRead: true    # unsupported INUBIT functionality, diagnosis only
+    nodes:
+      - name: node1
+        baseUrl: https://inubit-test-01.example.test:8443
+```
+
+**`unsupported.serverLogRead` uses unsupported INUBIT functionality.** INUBIT documents no
+interface that returns the web service log. When this setting is `true`,
+`download_server_log` ([reference](tools.md#download_server_log)) with `log: webservice`
+downloads `webservice.log` of the addressed node through the internal, undocumented interface
+that the Workbench's Cluster Manager uses for a node's log files, driven by the local INUBIT
+client installation. The trace log (`log: trace`) does not need this setting: it uses StartCLI's
+supported `trace -d` download.
+
+- **No vendor support, no stability guarantee.** The vendor gives no support and no stability
+  guarantee for this interface. It may stop working, or behave differently, after **any**
+  INUBIT update, including patch releases. The server reports unexpected answers as
+  `UNEXPECTED_RESPONSE`, but it cannot rule out that a changed interface behaves differently
+  without being noticed.
+- **Diagnosis only.** Use the log only to find out what a web service connector sent or
+  received.
+- **Clear-text content.** The web service log contains the messages of the web service
+  connectors **in clear text** (business data, and credentials where a message carries them).
+  The file is written unmasked into the folder you name; only the excerpt in the tool result is
+  masked as described in the tool reference. The same applies to the trace log, which may
+  contain business data and credentials as well.
+- **Read-only on INUBIT.** The tool sends only the login, the lookup of the answering node, the
+  download of the file named `webservice.log` and the logout. The server keeps a temporary copy
+  of the file in its cache store while the download runs, as it does for the Workbench. The file
+  name is fixed in the tool; no input reaches it.
+- **Cluster nodes.** The log comes from the node the configured address reaches; address
+  cluster nodes directly, not through a load balancer. The result names the INUBIT node.
+- Every call is written to the audit log (without log content and without the search text);
+  the server log names only the server, the log, the file, the size and the outcome.
+- Enable it per group and deliberately; on a group with `production: true` the server starts
+  with a warning.
+
+Both logs need an INUBIT client installation for the node's version, configured as for StartCLI
+(`cli.home`, `defaults.cliClients."8.1"` / `"9.0"`, `defaults.cliHome`; see
+[StartCLI client per INUBIT version](#startcli-client-per-inubit-version-defaultscliclients)),
+and the node's usual credentials and TLS settings. A download is bounded by the node's
+`cliExportTimeout` (built-in 120 s); raise it for large logs. There is no setting for the target
+folder (the caller's `targetFolder`) or the excerpt limits (`tailLines`, `maxChars`). The value
+rules of `queueEntryRead` above apply to `serverLogRead` as well.
 
 ### Audit log
 
@@ -2283,6 +2334,20 @@ An opt-in on a group with `production: true` is also a warning: `unsupported.que
 enabled on production group prod: Queue Manager entries are read through an undocumented INUBIT
 interface without vendor support` (the word for the group follows the profile's terminology).
 
+Once a group of the profile has `unsupported.serverLogRead: true`, every group line likewise ends
+with `serverLogRead: enabled (unsupported)` or `serverLogRead: off`, after the archive state and
+after the `queueEntryRead` state if that one is shown. The group lines with the opt-in on `test`
+(default terminology, no `queueEntryRead` opt-in):
+
+```text
+Group test: archives: allowed, serverLogRead: enabled (unsupported)
+Group prod (production): archives: refused (no archives.productionOptIn), serverLogRead: off
+```
+
+An opt-in on a group with `production: true` is a warning as well: `unsupported.serverLogRead is
+enabled on production group prod: the web service log is read through an undocumented INUBIT
+interface without vendor support`.
+
 The version part of a node line ([INUBIT version](#inubit-version-versionline)):
 
 - For a node whose StartCLI client depends on its version (feature 017: `defaults.cliClients` is
@@ -2318,7 +2383,7 @@ Group dev: archives: allowed
 Group next: archives: allowed
   Node next/node1: read-only, cli: unavailable, client: none, address: base URL, inubit: V9_X, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_NEXT_USERNAME ok, password ← INUBIT_ACME_NEXT_PASSWORD ok
 Group legacy: archives: allowed
-  Node legacy/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process diagnosis, log diagnosis, inventory, partner management, workspace export, development writes, deployment, end-to-end test, process control), client: 6.1.0 (4.0.1–6.1.0; options: no trust-store option, no host-name option), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_LEGACY_USERNAME ok, password ← INUBIT_ACME_LEGACY_PASSWORD ok
+  Node legacy/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process diagnosis, log diagnosis, inventory, partner management, workspace export, development writes, deployment, end-to-end test, process control, downloading the trace log), client: 6.1.0 (4.0.1–6.1.0; options: no trust-store option, no host-name option), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_LEGACY_USERNAME ok, password ← INUBIT_ACME_LEGACY_PASSWORD ok
 client /opt/inubit-8.1/client (Java 17): CLI 8.1.17 (4.0.1–8.1.17)
 client /opt/inubit-6.1/client (Java 8): CLI 6.1.0 (4.0.1–6.1.0)
 Warnings:

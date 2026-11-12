@@ -138,6 +138,31 @@ class PortsTest {
     }
 
     @Test
+    void aGatewayWithoutServerLogAdapterReportsTheCliAsUnavailableForItsNode() {
+        // feature 021 T011 (research D-19): adapter lines without a server-log adapter
+        assertThatThrownBy(() -> new PreviousGateway().serverLogs())
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                assertThat(e.error().node()).contains(NODE);
+                assertThat(e.error().message()).contains("dev/node1");
+            });
+        GatewayFactory factory = (GatewayFactory) Proxy.newProxyInstance(
+            GatewayFactory.class.getClassLoader(), new Class<?>[] {GatewayFactory.class},
+            (proxy, method, args) -> {
+                if (method.isDefault()) {
+                    return InvocationHandler.invokeDefault(proxy, method, args);
+                }
+                if (method.getName().equals("forServer")) {
+                    return new PreviousGateway();
+                }
+                throw new AssertionError(method + " was not expected");
+            });
+        assertThatThrownBy(() -> factory.serverLogs(NODE))
+            .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE));
+    }
+
+    @Test
     void anXsltRequestCopiesItsParameters() {
         Map<String, String> params = new HashMap<>(Map.of("lang", "de"));
         XsltRequest request = new XsltRequest(Path.of("a.xsl"), Path.of("in.xml"), params,

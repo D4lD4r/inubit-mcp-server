@@ -1,0 +1,2 @@
+reconstructed the 403 texts of feature 020 research D-5 (HTTP 403 / AccessDenied -> FORBIDDEN, as HelperFailures matches them) in the error layout of fixtures/v8_1/cli/tag_repository_user_refused.stdout; trace -d leaves an empty file.
+The marker text and the message are invented; a refused trace download was not recorded.

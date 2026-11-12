@@ -108,7 +108,8 @@ public final class NodeOverview {
             }
             SupportState support = support(state, judged, capability);
             allSupported &= support == SupportState.SUPPORTED;
-            Optional<String> refusal = refusal(id, state, judged, capability, support, cliOnly);
+            Optional<String> refusal = refusal(id, state, judged, capability, support, cliOnly,
+                matrix.note(judged, capability));
             if (refusal.isPresent()) {
                 notUsable.add(new NodeSummary.NotUsable(name(capability), refusal.get()));
                 continue;
@@ -162,11 +163,13 @@ public final class NodeOverview {
     /**
      * Why the gate refuses {@code capability} for its version alone; empty if it admits it. On a
      * CLI-only pin a contradiction leaves only monitoring ({@code get_health}), and a refusal
-     * names the configured line without "yet", as the gate's message before its next step.
+     * names the configured line without "yet", as the gate's message before its next step. A
+     * refusal on a version whose matrix entry carries a {@code note} for the capability names it
+     * as the gate does (feature 021: "… is not yet verified for INUBIT 9.0").
      */
     private static Optional<String> refusal(NodeId node, NodeVersionState state,
         Optional<InubitVersion> version, Capability capability, SupportState support,
-        boolean cliOnly) {
+        boolean cliOnly, Optional<String> note) {
         if (state.pinContradiction() && (capability.kind() == Capability.Kind.WRITE
             || cliOnly && capability != Capability.MONITORING)) {
             return Optional.of(contradiction(node, state));
@@ -175,6 +178,11 @@ public final class NodeOverview {
             || support == SupportState.UNVERIFIED && capability.kind() == Capability.Kind.READ
             && !cliOnly) {
             return Optional.empty();
+        }
+        if (note.isPresent()) {
+            return Optional.of(VersionGate.name(state, version).orElseThrow() + " on " + node
+                + ": " + capability.label() + " is " + note.get() + " for INUBIT "
+                + VersionGate.majorMinor(state, version));
         }
         return Optional.of(VersionGate.name(state, version)
             .map(name -> cliOnly
@@ -276,6 +284,8 @@ public final class NodeOverview {
             case E2E_TEST -> "e2e_test";
             case PROCESS_CONTROL -> "process_control";
             case QUEUE_ENTRY_READ -> "queue_entry_read";
+            case TRACE_LOG_READ -> "trace_log_read";
+            case WEBSERVICE_LOG_READ -> "webservice_log_read";
         };
     }
 }

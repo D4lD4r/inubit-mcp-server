@@ -422,6 +422,81 @@ class ConfigSummaryTest {
                 + " support\n");
     }
 
+    // --- feature 021 T042: unsupported.serverLogRead (FR-016, US2-6, D-17) -----------------------
+
+    private static final String TEST_LOG_OPT_IN = CONFIG.replace(
+        "    cli:\n      home: /opt/client\n",
+        "    unsupported:\n      serverLogRead: true\n    cli:\n      home: /opt/client\n");
+
+    @Test
+    void withoutTheServerLogOptInNoLineMentionsIt() {
+        String unset = CONFIG.replace("    production: true\n",
+            "    production: true\n    unsupported:\n      serverLogRead: false\n");
+
+        assertThat(unset).isNotEqualTo(CONFIG);
+        assertThat(render(CONFIG)).doesNotContain("serverLogRead");
+        assertThat(render(unset)).as("an explicit false is the same as no opt-in")
+            .isEqualTo(render(CONFIG));
+        assertThat(render(TEST_OPT_IN)).as("the queueEntryRead opt-in alone")
+            .doesNotContain("serverLogRead");
+    }
+
+    @Test
+    void theServerLogOptInAppendsTheStateToEveryGroupLineAndChangesNothingElse() {
+        String summary = render(TEST_LOG_OPT_IN);
+
+        assertThat(TEST_LOG_OPT_IN).isNotEqualTo(CONFIG);
+        assertThat(summary).isEqualTo(render(CONFIG)
+            .replace("\nGroup test: archives: allowed\n",
+                "\nGroup test: archives: allowed, serverLogRead: enabled (unsupported)\n")
+            .replace("\nGroup prod (production): archives: refused (no"
+                + " archives.productionOptIn)\n", "\nGroup prod (production): archives:"
+                + " refused (no archives.productionOptIn), serverLogRead: off\n"));
+        assertThat(summary).doesNotContain("is enabled on production");
+        TestSecrets.assertNoLeak(summary);
+    }
+
+    @Test
+    void theServerLogOptInOnAProductionGroupShowsTheStateAndTheWarning() {
+        String summary = render(CONFIG.replace("    production: true\n",
+            "    production: true\n    unsupported:\n      serverLogRead: true\n"));
+
+        assertThat(summary).contains("\nGroup test: archives: allowed, serverLogRead: off\n",
+            "\nGroup prod (production): archives: refused (no archives.productionOptIn),"
+                + " serverLogRead: enabled (unsupported)\n",
+            "Warnings:\n", "\n  - unsupported.serverLogRead is enabled on production group prod:"
+                + " the web service log is read through an undocumented INUBIT interface without"
+                + " vendor support\n", "Result: OK");
+        TestSecrets.assertNoLeak(summary);
+    }
+
+    @Test
+    void withBothOptInsTheServerLogStateFollowsTheQueueEntryReadState() {
+        String summary = render(TEST_OPT_IN.replace("    production: true\n",
+            "    production: true\n    unsupported:\n      serverLogRead: true\n"));
+
+        assertThat(summary).contains("\nGroup test: archives: allowed,"
+                + " queueEntryRead: enabled (unsupported), serverLogRead: off\n",
+            "\nGroup prod (production): archives: refused (no archives.productionOptIn),"
+                + " queueEntryRead: off, serverLogRead: enabled (unsupported)\n");
+    }
+
+    @Test
+    void aServerLogOptInOfAGroupWithoutAResolvableNodeStillShowsTheStateOfTheOtherGroups() {
+        String summary = render(CONFIG + """
+              - name: qa
+                unsupported:
+                  serverLogRead: true
+                nodes:
+                  - name: inubit01
+            """);
+
+        assertThat(summary).contains("\nGroup test: archives: allowed, serverLogRead: off\n",
+            "\nGroup prod (production): archives: refused (no archives.productionOptIn),"
+                + " serverLogRead: off\n");
+        assertThat(summary).doesNotContain("Group qa");
+    }
+
     @Test
     void showsTheCredentialPrefixAndTheAuditDirectoryOfTheProfile() {
         // 002 US2: what keeps this profile apart from others running side by side
@@ -673,8 +748,9 @@ class ConfigSummaryTest {
 
         String access = " (INUBIT 6.1, StartCLI only; available: none; refused: monitoring,"
             + " process diagnosis, log diagnosis, inventory, partner management, workspace"
-            + " export, development writes, deployment, end-to-end test, process control),"
-            + " secrets: credentialStore (macOS Keychain), username ←";
+            + " export, development writes, deployment, end-to-end test, process control,"
+            + " downloading the trace log), secrets: credentialStore (macOS Keychain), username"
+            + " ←";
         assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
             + access);
         assertThat(summary).as("a concrete 6.1 pin is judged like the line")
@@ -682,6 +758,7 @@ class ConfigSummaryTest {
         assertThat(summary).as("8.1 lines are unchanged")
             .contains("test/node3: read-only, cli: available, inubit: V8_1, secrets:"
                 + " credentialStore (macOS Keychain), username ←");
+        assertThat(summary).as("without serverLogRead").doesNotContain("web service log");
         assertThat(summary).contains("Result: OK");
     }
 
@@ -696,7 +773,26 @@ class ConfigSummaryTest {
             + " (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process"
             + " diagnosis, log diagnosis, inventory, partner management, workspace export,"
             + " development writes, deployment, end-to-end test, process control, reading Queue"
-            + " Manager entries),"
+            + " Manager entries, downloading the trace log),"
+            + " secrets: credentialStore (macOS Keychain), username ←");
+        assertThat(summary).as("8.1 lines are unchanged")
+            .contains("test/node3: read-only, cli: available, inubit: V8_1, secrets:"
+                + " credentialStore (macOS Keychain), username ←");
+        assertThat(summary).contains("Result: OK");
+        TestSecrets.assertNoLeak(summary);
+    }
+
+    @Test
+    void aV61NodeOfAGroupWithTheServerLogOptInAlsoRefusesDownloadingTheWebServiceLog() {
+        // feature 021 (T009, D-6): as reading Queue Manager entries, only for an opted-in group
+        String summary = render(V6_1.replace("    nodes:",
+            "    unsupported:\n      serverLogRead: true\n    nodes:"));
+
+        assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
+            + " (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process"
+            + " diagnosis, log diagnosis, inventory, partner management, workspace export,"
+            + " development writes, deployment, end-to-end test, process control, downloading the"
+            + " trace log, downloading the web service log),"
             + " secrets: credentialStore (macOS Keychain), username ←");
         assertThat(summary).as("8.1 lines are unchanged")
             .contains("test/node3: read-only, cli: available, inubit: V8_1, secrets:"
@@ -719,8 +815,8 @@ class ConfigSummaryTest {
         assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
             + " (INUBIT 6.1, StartCLI only; available: monitoring, process diagnosis; refused:"
             + " log diagnosis, inventory, partner management, workspace export, development"
-            + " writes, deployment, end-to-end test, process control), secrets: credentialStore"
-            + " (macOS Keychain), username ←");
+            + " writes, deployment, end-to-end test, process control, downloading the trace log),"
+            + " secrets: credentialStore (macOS Keychain), username ←");
     }
 
     @Test
@@ -748,12 +844,12 @@ class ConfigSummaryTest {
             NodeId.parse("test/node3"), client("8.1.17", "4.0.1", "8.1.17")),
             Map.of(NodeId.parse("test/node1"), none, NodeId.parse("test/node2"), both));
 
-        assertThat(summary).contains("process control), client: 6.1.0 (4.0.1–6.1.0; options: no"
-            + " trust-store option, no host-name option), server version: determined at runtime,"
-            + " secrets: credentialStore (macOS Keychain), username ←");
+        assertThat(summary).contains("downloading the trace log), client: 6.1.0 (4.0.1–6.1.0;"
+            + " options: no trust-store option, no host-name option), server version: determined"
+            + " at runtime, secrets: credentialStore (macOS Keychain), username ←");
         assertThat(summary).as("a client without declared range")
-            .contains("process control), client: 6.1.0 (options: trust-store option, host-name"
-                + " option), client vs pin: ");
+            .contains("downloading the trace log), client: 6.1.0 (options: trust-store option,"
+                + " host-name option), client vs pin: ");
         assertThat(summary).as("8.1 lines are unchanged: no client options")
             .contains("test/node3: read-only, cli: available, inubit: V8_1, client: 8.1.17"
                 + " (4.0.1–8.1.17), server version: determined at runtime, secrets:"
@@ -767,7 +863,8 @@ class ConfigSummaryTest {
             new CliClientOptions(false, false, false, Optional.empty())));
 
         assertThat(summary)
-            .contains("process control), secrets: credentialStore (macOS Keychain), username ←")
+            .contains("downloading the trace log), secrets: credentialStore (macOS Keychain),"
+                + " username ←")
             .doesNotContain("options:");
     }
 

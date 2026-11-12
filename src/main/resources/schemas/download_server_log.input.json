@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "required": ["target", "log", "targetFolder"],
+  "properties": {
+    "target": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}/[a-z0-9][a-z0-9-]{0,31}$",
+      "description": "Id of exactly one {node} (`<{group}>/<{node}>`); {group} ids are rejected"
+    },
+    "log": {
+      "type": "string",
+      "enum": ["trace", "webservice"],
+      "description": "trace: trace.log (StartCLI trace download); webservice: webservice.log (unsupported, needs unsupported.serverLogRead)"
+    },
+    "targetFolder": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "Absolute path of a local folder for the log file; created owner-only if missing; same folder rules as export_archives"
+    },
+    "tailLines": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2000,
+      "default": 200,
+      "description": "Number of newest lines (or newest matching lines with contains) in the excerpt"
+    },
+    "contains": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]{1,200}$",
+      "description": "Plain text (not a pattern), matched case-insensitively against the masked lines"
+    },
+    "maxChars": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100000,
+      "default": 20000,
+      "description": "Maximum characters of the excerpt lines; older lines are dropped first"
+    }
+  },
+  "additionalProperties": false
+}

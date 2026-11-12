@@ -1,6 +1,8 @@
 package de.dadecker.inubit.mcp;
 
 import de.dadecker.inubit.mcp.testing.TestSecrets;
+import de.dadecker.inubit.mcp.testing.TraceMatrix;
+import de.dadecker.inubit.mcp.testing.WebServiceMatrix;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
@@ -28,7 +30,10 @@ import org.junit.jupiter.api.io.TempDir;
  * Feature 019 (research D-15): {@code read_knowledge} always, right after {@code get_health},
  * and {@code record_knowledge} after it with {@code knowledge.recording} on (the default).
  * Feature 020 (T030, FR-002, SC-002): {@code read_queue_entry} only for an opted-in node that may
- * run the capability and has a client home.
+ * run the capability and has a client home. Feature 021 (T031, FR-002, D-17):
+ * {@code download_server_log} for a node with a client home that may download the trace log;
+ * T043: or for a node of a group with {@code unsupported.serverLogRead} with a client home that
+ * may download the web service log.
  */
 class ToolAnnouncementTest {
 
@@ -121,6 +126,12 @@ class ToolAnnouncementTest {
      */
     private List<String> queueEntryTools(String versionLine, String groupLines,
         boolean nineEntry) {
+        return groupTools(versionLine, groupLines, nineEntry, CapabilityMatrix.production());
+    }
+
+    /** As {@link #queueEntryTools}, with {@code matrix}. */
+    private List<String> groupTools(String versionLine, String groupLines, boolean nineEntry,
+        CapabilityMatrix matrix) {
         String defaults = nineEntry ? """
             defaults:
               cliClients:
@@ -139,7 +150,7 @@ class ToolAnnouncementTest {
                   - name: node1
                     baseUrl: https://localhost:1
             """.formatted(temp.resolve("workspace"), defaults, versionLine, groupLines);
-        return toolNames(yaml, CapabilityMatrix.production());
+        return toolNames(yaml, matrix);
     }
 
     private String cliHome() {
@@ -152,10 +163,11 @@ class ToolAnnouncementTest {
 
     @Test
     void withoutAnOptInTheToolListIsUnchangedByFeature020() {
+        // feature 021 T033: an AUTO node with a client home also announces download_server_log
         List<String> withoutFeature020 = List.of("list_nodes", "get_health",
-            "read_knowledge", "record_knowledge", "find_processes", "query_logs", "list_inventory",
-            "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
-            "check_artifacts");
+            "read_knowledge", "record_knowledge", "find_processes", "query_logs",
+            "download_server_log", "list_inventory", "get_inventory_item", "find_partners",
+            "export_artifacts", "export_archives", "check_artifacts");
 
         assertThat(queueEntryTools("AUTO", cliHome(), false))
             .containsExactlyElementsOf(withoutFeature020);
@@ -167,9 +179,9 @@ class ToolAnnouncementTest {
     void anOptedInAutoNodeWithAClientHomeAnnouncesTheQueueEntryRead() {
         assertThat(queueEntryTools("AUTO", optIn("true") + "\n" + cliHome(), false))
             .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
-                "find_processes", "query_logs", "read_queue_entry", "list_inventory",
-                "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
-                "check_artifacts");
+                "find_processes", "query_logs", "read_queue_entry", "download_server_log",
+                "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
+                "export_archives", "check_artifacts");
     }
 
     @Test
@@ -280,5 +292,136 @@ class ToolAnnouncementTest {
         List<String> names = toolNames("AUTO", "AUTO", CapabilityMatrix.production());
 
         assertThat(names).containsAll(ALWAYS).containsAll(READS);
+    }
+
+    // --- feature 021 T031: download_server_log (FR-002, US1-6, SC-002, research D-17) ---------
+
+    @Test
+    void aClientHomeWithoutAnyUnsupportedSettingAnnouncesTheDownload() {
+        // US1-6: no opt-in needed for the trace log
+        assertThat(groupTools("V8_1", cliHome(), false, TraceMatrix.admittingEightOne()))
+            .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
+                "find_processes", "query_logs", "download_server_log", "list_inventory",
+                "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+                "check_artifacts");
+        assertThat(groupTools("AUTO", cliHome(), false, TraceMatrix.admittingEightOne()))
+            .as("an AUTO node may run 8.1").contains("download_server_log");
+    }
+
+    @Test
+    void theDownloadIsOfferedInReadOnlyModeAlsoOnAProductionGroupWithoutAnyOptIn() {
+        // FR-002: independent of write.*, archives.* and the production write opt-ins
+        for (String groupLines : List.of(cliHome(), "    production: true\n" + cliHome(),
+            "    write:\n      enabled: false\n" + cliHome())) {
+            assertThat(groupTools("V8_1", groupLines, false, TraceMatrix.admittingEightOne()))
+                .as(groupLines).contains("download_server_log")
+                .doesNotContain("restart_process", "kill_process", "import_artifacts");
+        }
+    }
+
+    @Test
+    void withoutAClientHomeAnywhereTheDownloadIsNotAnnounced() {
+        assertThat(groupTools("V8_1", "", false, TraceMatrix.admittingEightOne()))
+            .doesNotContain("download_server_log", "export_artifacts");
+    }
+
+    @Test
+    void nodesPinnedToSixOneOnlyDoNotAnnounceTheDownload() {
+        assertThat(toolNames("V6_1", "V6_1", TraceMatrix.admittingEightOne()))
+            .doesNotContain("download_server_log");
+        assertThat(toolNames("V6_1", "V8_1", TraceMatrix.admittingEightOne()))
+            .contains("download_server_log");
+    }
+
+    @Test
+    void onTheProductionMatrixThe81And90RecordingsAnnounceTheDownload() {
+        // T033: 8.1 admits the trace log, so an 8.1 and an AUTO node with a client home run it
+        List<String> withDownload = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
+            "export_archives", "check_artifacts");
+        assertThat(groupTools("V8_1", cliHome(), false, CapabilityMatrix.production()))
+            .containsExactlyElementsOf(withDownload);
+        assertThat(groupTools("AUTO", cliHome(), false, CapabilityMatrix.production()))
+            .containsExactlyElementsOf(withDownload);
+        // T046: 8.1 also admits the web service log, which adds no tool for an opted-in node
+        assertThat(groupTools("V8_1", serverLogOptIn("true") + "\n" + cliHome(), false,
+            CapabilityMatrix.production())).containsExactlyElementsOf(withDownload);
+        // T051: 9.0 admits the trace log, so a node pinned to 9.0 with a 9.0 client runs it
+        assertThat(groupTools("V9_0", "", true, CapabilityMatrix.production()))
+            .containsExactlyElementsOf(withDownload);
+        // T052: 9.0 also admits the web service log, which adds no tool for an opted-in node
+        assertThat(groupTools("V9_0", serverLogOptIn("true"), true,
+            CapabilityMatrix.production())).containsExactlyElementsOf(withDownload);
+    }
+
+    // --- feature 021 T043: the web service branch of download_server_log (FR-002, D-17) ----
+    // the test matrix admits no trace log, so only the web service branch can announce the tool
+
+    private static String serverLogOptIn(String value) {
+        return "    unsupported:\n      serverLogRead: " + value;
+    }
+
+    /**
+     * The tools announced for group {@code old} ({@code optedInLine}, {@code serverLogRead: true},
+     * a client home only if {@code optedInClient}) next to group {@code lab} (8.1, client home,
+     * no opt-in), with {@link WebServiceMatrix#admittingEightOneWithoutTrace()}.
+     */
+    private List<String> webServiceTools(String optedInLine, boolean optedInClient) {
+        String client = optedInClient ? """
+                cli:
+                  home: %s
+            """.formatted(temp.resolve("cli-old")) : "";
+        String yaml = """
+            profile:
+              name: acme
+            workspace: %s
+            groups:
+              - name: old
+                versionLine: %s
+                unsupported:
+                  serverLogRead: true
+            %s    nodes:
+                  - name: node1
+                    baseUrl: https://localhost:1
+              - name: lab
+                versionLine: V8_1
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: https://localhost:2
+            """.formatted(temp.resolve("workspace"), optedInLine, client,
+            temp.resolve("cli-lab"));
+        return toolNames(yaml, WebServiceMatrix.admittingEightOneWithoutTrace());
+    }
+
+    @Test
+    void anOptedInNodeWithAClientHomeAnnouncesTheDownloadForTheWebServiceLog() {
+        CapabilityMatrix matrix = WebServiceMatrix.admittingEightOneWithoutTrace();
+        assertThat(groupTools("V8_1", serverLogOptIn("true") + "\n" + cliHome(), false, matrix))
+            .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
+                "find_processes", "query_logs", "download_server_log", "list_inventory",
+                "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+                "check_artifacts");
+        assertThat(groupTools("AUTO", serverLogOptIn("true") + "\n" + cliHome(), false, matrix))
+            .as("an AUTO node may run 8.1").contains("download_server_log");
+        assertThat(webServiceTools("V8_1", true)).contains("download_server_log");
+    }
+
+    @Test
+    void withoutTheOptInTheWebServiceLogDoesNotAnnounceTheDownload() {
+        CapabilityMatrix matrix = WebServiceMatrix.admittingEightOneWithoutTrace();
+        assertThat(groupTools("V8_1", cliHome(), false, matrix))
+            .contains("export_artifacts").doesNotContain("download_server_log");
+        assertThat(groupTools("V8_1", serverLogOptIn("false") + "\n" + cliHome(), false, matrix))
+            .contains("export_artifacts").doesNotContain("download_server_log");
+    }
+
+    @Test
+    void anOptInOnlyOnAGroupPinnedToSixOneOrWithoutAClientHomeDoesNotAnnounceIt() {
+        // lab has a client home on 8.1 but no opt-in
+        assertThat(webServiceTools("V6_1", true)).doesNotContain("download_server_log");
+        assertThat(webServiceTools("V8_1", false)).doesNotContain("download_server_log");
     }
 }

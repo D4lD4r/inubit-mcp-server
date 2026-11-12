@@ -1,0 +1,2 @@
+reconstructed fixtures/v8_1/cli/login_failed.{stdout,stderr,exit} (recorded 8.1.17 StartCLI login failure, @Start@LoginFailure, exit 1); only the time of the log record differs.
+StartCLI fails at the login before trace opens the file; the empty .log only gives the fake launcher something to write.

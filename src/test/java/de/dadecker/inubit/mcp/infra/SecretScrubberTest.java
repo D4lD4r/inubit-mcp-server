@@ -196,6 +196,24 @@ class SecretScrubberTest {
             .isEqualTo("{\"p\":\"***\"}");
     }
 
+    /** Feature 021 (FR-010): text decoded as ISO-8859-1 although its bytes were UTF-8. */
+    @Test
+    void theUtf8BytesReadAsLatin1FormOfNonAsciiCharactersIsScrubbed() {
+        scrubber.register("Pässwort1");
+
+        assertThat(scrubber.scrub("login PÃ¤sswort1 ok")).isEqualTo("login *** ok");
+    }
+
+    /** The same for the escaped spellings of a non-ASCII value with JSON and XML specials. */
+    @Test
+    void theUtf8BytesReadAsLatin1FormOfTheEscapedSpellingsIsScrubbed() {
+        scrubber.register("Pä\"ss<1");
+
+        assertThat(scrubber.scrub("{\"p\":\"PÃ¤\\\"ss<1\"}")).isEqualTo("{\"p\":\"***\"}");
+        assertThat(scrubber.scrub("<p v=\"PÃ¤&quot;ss&lt;1\"/>")).isEqualTo("<p v=\"***\"/>");
+        assertThat(scrubber.scrub("<p>PÃ¤\"ss&lt;1</p>")).isEqualTo("<p>***</p>");
+    }
+
     @Test
     void base64FormIsScrubbed() {
         scrubber.register(SPECIAL);
