@@ -54,6 +54,23 @@ Owner's answers after review round 1:
   user, its group or its role; a directory synchronisation is allowed only when the login user is
   an internal user of INUBIT (FR-019b).
 
+### Spec review round 2, 2026-11-12
+
+Facts from the project's own spike (`docs/research/spike-development-deployment.md`) applied to
+the owner's tag decision; decisions taken by the creator (owner may override):
+
+- `--tagSetActive` sets the *active tag of a user*, not the active version of a workflow; the
+  tag scenarios say so. `--tagDiagram` is ignored by INUBIT, `--tagWorkflowGroupExclude` is an
+  owner-wide form, and tag removal (`--tagDelete`, `--tagRemove`) was seen working only
+  owner-wide: the first two are excluded; removal is offered only if a check on a test system
+  shows that INUBIT limits it to the named diagram group or repository path (FR-019a).
+- All tag operations belong to User Story 4 and one tool, protected as the owner decided (write
+  enablement and production opt-in), without an administration opt-in.
+- Every write entry names its protection in the Background table; the administration opt-ins
+  have a fixed list of entries (FR-016).
+- Rename, metadata import and keystore deployment take a backup first (FR-018); EDI rule files
+  are repository files and are backed up as such.
+
 **Input**: User description: "I would like to add all missing methods of StartCLI and REST, both
 reading and writing, to the MCP."
 
@@ -70,23 +87,25 @@ The missing functions for operation and administration fall into five areas. The
 scope of this feature; commands are named as the vendor documents them, and each row belongs to
 exactly one user story.
 
-| Area | Kind | Entries | Story |
-|---|---|---|---|
-| A. Server state and settings | read | `license -td\|-ts`, `GET /license`, `threads showNumberOfWorkflowThreads`, `privilegedWorkflows showThreadsPercentage\|showWorkflowList`, `dbconnectiontolerance show`, `getBlockingQueueSize`, `GET /configurations`, `date`, `lls`, `-sv`, `-pctmem`, `-maintenanceState` | US1 |
-| A. Server state and settings | write | `maintenance on\|off [-eq true\|false]`, `POST /ready/{on\|off}`, `trace on\|off`, `trace -l <level>`, `debug on\|off`, `triggerMidnightTask` | US4 |
-| A. Server state and settings | write | `threads setNumberOfWorkflowThreads`, setting the share of threads for privileged workflows, `dbconnectiontolerance set\|drop`, `PUT\|POST /configurations`, `PUT /license` | US6 |
-| B. Users and groups | read | `finger <login>`, `user <name>`, `-who`, `-nwho`, `GET /user/users`, `msglist`, `msgread` | US2 |
-| B. Users and groups | write | `create -cu\|-cug\|-cur`, `user --setGroup\|--setAdditionalGroups\|--addAdditionalGroups\|--removeAdditionalGroups`, `passwd`, `delete --deleteUser\|--deleteUserGroup`, `DELETE /user/users/{name}`, `import --importUserGroup\|--overwriteUserRoles\|--importLDAPDetails\|--syncLDAPUsers`, `msgsend`, `msgdel` | US7 |
-| C. Libraries, plug-ins, EDI rules, keys | read | `library --list` | US3 |
-| C. Libraries, plug-ins, EDI rules, keys | write | `library --upload\|--delete\|--deleteAll`, `plugin --register\|--deregister`, `PUT /libraries`, `DELETE /libraries/{name}`, `PUT\|POST /edirules`, `PUT /keys` | US6 |
-| D. Processes and run-time data | read | `ps -f '<filter>'`, `ps -u`, `-ne`, `-nx`, `-nw`, `-nq` on 8.1 and 9.0 | US3 |
-| D. Processes and run-time data | read | `process listBlocked`, `process validateExport` | US5 |
-| D. Processes and run-time data | write | `processdelete error` | US4 |
-| D. Processes and run-time data | write | `process export\|import\|resume\|deleteBlocked` | US5 |
-| E. Diagrams, modules, repository, tags | read | `GET /model/nodeByModel/…`, `GET /model/nodeByName/…` (8.1 only), `export --exportMetadata\|--exportMetadataNames`, `export --exportWorkflowGroupExclude`, `GET /process/metadata/{name}`, `GET /isconnector?…type=validateWorkflow`, `fetchXSLT1.0` | US3 |
-| E. Diagrams, modules, repository, tags | write | `tag --tagSetActive\|--tagRemoveActive`, each with an explicit diagram group or repository path | US4 |
-| E. Diagrams, modules, repository, tags | write | `delete --deleteWorkflow\|--deleteModule`, `DELETE /diagrams/…`, `DELETE /modules/…`, `DELETE /repository`, `rename …`, `tag --tagDelete\|--tagRemove\|--tagDiagram\|--tagRepositoryPath\|--tagWorkflowGroupExclude`, `import --importMetadata`, `POST /isconnector` | US6 |
-| Start options | write | `--backupFile`, `--backupRepository` (documented by name only) | US6 |
+| Area | Kind | Entries | Story | Protection |
+|---|---|---|---|---|
+| A. Server state and settings | read | `license -td\|-ts`, `GET /license`, `threads showNumberOfWorkflowThreads`, `privilegedWorkflows showThreadsPercentage\|showWorkflowList`, `dbconnectiontolerance show`, `getBlockingQueueSize`, `GET /configurations`, `date`, `lls`, `-sv`, `-pctmem`, `-maintenanceState` | US1 | none (read) |
+| A. Server state and settings | write | `maintenance on\|off [-eq true\|false]`, `POST /ready/{on\|off}`, `trace on\|off`, `trace -l <level>`, `debug on\|off`, `triggerMidnightTask` | US4 | write enablement |
+| A. Server state and settings | write | `threads setNumberOfWorkflowThreads`, setting the share of threads for privileged workflows, `dbconnectiontolerance set`, `PUT\|POST /configurations`, `PUT /license` | US6 | write enablement + settings opt-in |
+| B. Users and groups | read | `finger <login>`, `user <name>`, `-who`, `-nwho`, `GET /user/users`, `msglist`, `msgread` | US2 | none (read) |
+| B. Users and groups | write | `create -cu\|-cug\|-cur`, `user --setGroup\|--setAdditionalGroups\|--addAdditionalGroups\|--removeAdditionalGroups`, `passwd`, `delete --deleteUser\|--deleteUserGroup`, `DELETE /user/users/{name}`, `import --importUserGroup\|--overwriteUserRoles\|--importLDAPDetails\|--syncLDAPUsers`, `msgsend`, `msgdel` | US7 | write enablement + users opt-in |
+| C. Libraries, plug-ins, EDI rules, keys | read | `library --list` | US3 | none (read) |
+| C. Libraries, plug-ins, EDI rules, keys | write | `library --upload\|--delete\|--deleteAll`, `plugin --register\|--deregister`, `PUT /libraries`, `DELETE /libraries/{name}`, `PUT\|POST /edirules`, `PUT /keys` | US6 | write enablement + libraries opt-in |
+| D. Processes and run-time data | read | `ps -f '<filter>'`, `ps -u`, `-ne`, `-nx`, `-nw`, `-nq` on 8.1 and 9.0 | US3 | none (read) |
+| D. Processes and run-time data | read | `process listBlocked`, `process validateExport` | US5 | run-time data opt-in (FR-016a) |
+| D. Processes and run-time data | write | `processdelete error` | US4 | write enablement |
+| D. Processes and run-time data | export | `process export` | US5 | run-time data opt-in + export rules (FR-016a) |
+| D. Processes and run-time data | write | `process import\|resume\|deleteBlocked` | US5 | write enablement + run-time data opt-in |
+| E. Diagrams, modules, repository, tags | read | `GET /model/nodeByModel/…`, `GET /model/nodeByName/…` (8.1 only), `export --exportMetadata\|--exportMetadataNames`, `export --exportWorkflowGroupExclude`, `GET /process/metadata/{name}`, `GET /isconnector?…type=validateWorkflow`, `fetchXSLT1.0` | US3 | none (read); files under the export rules (FR-012) |
+| E. Diagrams, modules, repository, tags | write | `tag --tagSetActive\|--tagRemoveActive`, `tag --tagDelete\|--tagRemove` with `--tagWorkflowGroup`/`--tagWorkflowType` or `--tagRepositoryPath` (removal only if FR-019a's check allows it) | US4 | write enablement |
+| E. Diagrams, modules, repository, tags | write | `delete --deleteWorkflow\|--deleteModule`, `DELETE /diagrams/…`, `DELETE /modules/…`, `DELETE /repository`, `rename --renameWorkflow\|--renameModule\|--renameMetadata\|--renameFile\|--renameDirectory`, `import --importMetadata`, `POST /isconnector` | US6 | write enablement + objects opt-in |
+| Start options | write | `--backupFile`, `--backupRepository` (documented by name only) | US6 | write enablement + settings opt-in |
+
 
 Four groups of documented functions get no new access:
 
@@ -100,6 +119,10 @@ Four groups of documented functions get no new access:
   a secret on the command line and prints the result), the offline scripts `backup.sh` and
   `restore.sh` (they need a stopped process engine on the INUBIT host).
 - **Broken on the vendor side**: the log `processLog` fails on 8.1.17.
+- **Tag forms that act on the whole owner** (owner's decision, see Clarifications):
+  `--tagDiagram` (ignored by INUBIT, so the command tags every diagram of the owner; seen in the
+  project's spike), `--tagWorkflowGroupExclude` (all groups but some), and any `tag` call without
+  a diagram group or repository path.
 - **Portal functions** (owner's decision, see Clarifications): the process documentation
   (`/process/processes/…`, `/process/search`, on 9.0 also `/process/tree`, `…/history`,
   `/process/tags/{tag}`), the reports (`/report/…`) and all endpoints under `/task/…` and
@@ -150,7 +173,8 @@ one server: the result contains each fact as a named field with its source. Test
    contains one entry per server of that stage.
 6. **Given** a server with a configured StartCLI client, **When** the settings are requested,
    **Then** the result also contains the server time, the version string, the memory share in
-   use, the maintenance state and the names and sizes of the log files StartCLI lists.
+   use and the names and sizes of the log files StartCLI lists; `-maintenanceState` is covered by
+   the maintenance mode `get_health` reads (AS7).
 7. **Given** `get_health` already returns the licensed threads, the maximum blocking queue size
    and the maintenance mode over REST, **When** the settings are requested, **Then** these facts
    come from the same REST source and are not read a second time over StartCLI.
@@ -223,7 +247,8 @@ an existing tool can answer is reached through that tool. Testable offline.
    the metadata with secret values masked; an export of the metadata of several workflows is
    written as a new file into a folder the caller names (FR-012).
 7. **Given** an owner with five diagram groups, **When** diagrams are exported while two groups
-   are left out, **Then** the archive holds only the other three groups.
+   are left out, **Then** the archive holds only the other three groups and is written under the
+   rules of `export_archives`, including `archives.productionOptIn` (FR-012).
 8. **Given** a workflow with an IS Connector module, **When** the connector is checked, **Then**
    the result says whether INUBIT considers the workflow valid for remote calls, with INUBIT's
    message.
@@ -234,15 +259,19 @@ an existing tool can answer is reached through that tool. Testable offline.
 
 An operator prepares and finishes a maintenance window through the agent: switch the maintenance
 mode and the readiness state, delete the processes that are in error state, set or remove the
-active tag version, change the trace level or switch tracing and debug output on for a diagnosis
-and back off, trigger the midnight task.
+active tag of a user and remove a tag from a diagram group or repository path, change the trace
+level or switch tracing and debug output on for a diagnosis and back off, trigger the midnight
+task.
 
 As the vendor documents them: in **maintenance mode** the process engine executes no processes
 (queued processes only if `-eq true` is set) and the REST API answers every request with "service
 unavailable"; the **readiness state** is what the readiness probe reports to a load balancer
 (READY or NOT READY) without stopping the engine, and it is always NOT READY while maintenance
 mode is on. Both are offered; `-eq` is offered as an optional part of switching maintenance mode
-on.
+on. The **active tag** of a user (`--tagSetActive`) names the tag whose versions INUBIT uses for
+that user; it does not activate or deactivate a workflow. The **midnight task** is the daily task
+INUBIT otherwise starts at its configured start time; the vendor documents its settings together
+with the system log configuration, and triggering it runs it at once.
 
 **Why this priority**: these are the changes operators make routinely. They are reversible or
 limited in effect, and they use the write protection that already exists.
@@ -275,14 +304,20 @@ audit record. Testable offline.
    means.
 8. **Given** debug output is off, **When** it is switched on, **Then** the result names the state
    before and after, and the description says that it stays on until it is switched off.
-9. **Given** the midnight task is triggered, **When** it is confirmed, **Then** the result names
-   INUBIT's answer and the time it was sent.
-10. **Given** a test stage with write enablement, **When** the active tag version of a diagram
-    group is set, **Then** the call names the diagram group and the tag, the preview names the
-    workflows whose active version changes (from which version to which), and the result re-reads
-    them (FR-019a).
-11. **Given** a call to set or remove the active tag version without a diagram group or repository
-    path, **When** it is made, **Then** it is refused with `INVALID_INPUT` before anything is read.
+9. **Given** the midnight task is to be triggered, **When** the preview is shown, **Then** it says
+   that the daily task runs at once instead of at its configured start time, and names that start
+   time if INUBIT reports it; the result names INUBIT's answer and the time it was sent.
+10. **Given** a test stage with write enablement, **When** the active tag of a user is set,
+    **Then** the call names the user and the tag, the preview names the user's current active
+    tag and the new one, and the result re-reads it (FR-019a).
+11. **Given** a call to remove a tag without a diagram group or repository path, **When** it is
+    made, **Then** it is refused with `INVALID_INPUT` before anything is read.
+12. **Given** the check on a test system showed that INUBIT limits tag removal to the named
+    diagram group, **When** a tag is removed from one group, **Then** the preview names every
+    object and version in that group that carries the tag, the backup holds that list (FR-018),
+    and the same tag in other groups stays (the result re-reads both). If the check showed that
+    removal acts on the whole owner, tag removal is not offered and its entries are excluded with
+    that reason.
 
 ---
 
@@ -364,16 +399,35 @@ before the deletion. Testable offline.
 8. **Given** a keystore file in an allowed upload folder and a named entry of a secret source for
    its private key password, **When** it is deployed to a module, **Then** the preview names the
    module, its owner and the alias; the password is passed as FR-022 requires.
-9. **Given** a tag to delete, **When** the preview is shown, **Then** it names every object and
-   version that carries the tag, and the backup holds that list (FR-018); the deletion is limited
-   to the diagram group or repository path the call names, and objects outside it keep the tag
-   (FR-019a).
+9. **Given** a workflow to be renamed, **When** the preview is shown, **Then** it names the old
+   and the new name (checked against INUBIT's documented characters: letters, digits, `-`, `_`,
+   `.` and space) and the objects that reference it as far as the server can read them; the
+   execution first stores a backup of the object (FR-018). The tool description says whether
+   INUBIT updates references, as a check on a test system showed. The same holds for a module,
+   metadata, a repository file or a repository directory.
 10. **Given** a workflow with an IS Connector and an input file in an allowed upload folder,
     **When** the workflow is started through the connector, **Then** the result names INUBIT's
     answer; if a check on a test system shows the call cannot be built from the documentation,
     the entry is excluded with that reason (FR-002).
 11. **Given** the share of threads for privileged workflows is to be set to 120 %, **When** the
     call is made, **Then** it is refused before any change.
+12. **Given** a metadata import file in an allowed upload folder, **When** it is previewed,
+    **Then** the preview lists the metadata it replaces; the execution first stores an export of
+    that metadata (FR-018).
+13. **Given** the database connection tolerance (fault threshold, drop rate, drop interval),
+    **When** a new value is previewed, **Then** the preview shows current and new values and says
+    that INUBIT shuts the node down when the fault threshold is exceeded within the drop
+    interval.
+14. **Given** an uploaded plug-in library, **When** it is registered (with the names and classes
+    the vendor documents) or deregistered, **Then** the preview names the plug-in and the result
+    re-reads the library list.
+15. **Given** an EDI rule file in an allowed upload folder, **When** it is deployed, **Then** the
+    preview names the repository path INUBIT writes it to and whether a file with that name
+    already exists there; an existing file is backed up first (FR-018).
+16. **Given** a repository file or directory to delete, **When** the preview is shown, **Then** it
+    names the path and, for a directory, the number of files in it; a backup is stored first.
+17. **Given** a module to delete, **When** the preview is shown, **Then** it names the workflows
+    that use the module as far as the server can read them; a backup is stored first.
 
 ---
 
@@ -404,8 +458,8 @@ offline.
 4. **Given** the login user of the MCP server itself, **When** it is to be deleted, moved to
    another group or given a new password, **Then** the call is refused.
 5. **Given** a user who owns workflows, **When** the user is to be deleted, **Then** the call
-   says whether INUBIT also removes the user's references in diagrams and modules and in the
-   repository (INUBIT's two documented choices); the preview names the number of owned workflows
+   names for each of INUBIT's two documented choices (remove the user's references in diagrams
+   and modules; remove them in the repository) yes or no, with no default; the preview names the number of owned workflows
    and repository entries and which of them will be cleaned up. INUBIT answers success even for
    an unknown user, so the result comes from re-reading the user list (FR-024).
 6. **Given** a user, group or role import file that contains the server's login user, its group
@@ -415,7 +469,14 @@ offline.
    synchronisation is requested, **Then** it is refused; **Given** the login user is an internal
    INUBIT user, **Then** the synchronisation is previewed and executed as other changes.
 8. **Given** a message text, **When** it is sent to the logged-in users, **Then** the preview names
-   the recipients and the text; deleting a message names it by id.
+   the recipients and the text; deleting a message names it by id. A text longer than 1,000
+   characters or with control characters is refused (FR-020).
+9. **Given** a new user group with a parent group, or a new role based on an existing role,
+   **When** it is created, **Then** the preview names the parent group or base role and the
+   result re-reads the group or role list.
+10. **Given** a user with additional groups, **When** an additional group is added or removed,
+    **Then** the preview names the groups before and after; removing the login user's own groups
+    is refused (FR-019).
 
 ### Edge Cases
 
@@ -502,9 +563,9 @@ offline.
 - **FR-011**: User listings MUST return login name, group, additional groups, roles and the
   account state INUBIT reports only. E-mail addresses and other personal fields are returned only when the caller asks for one
   named user.
-- **FR-012**: A read that produces a file (XSLT 1.0 report, metadata export) MUST write it as a
-  new file into a folder the caller names, under the folder rules of `export_archives`, and return
-  path and size.
+- **FR-012**: A read that produces a file (XSLT 1.0 report, metadata export, diagram export with
+  excluded groups) MUST write it as a new file into a folder the caller names, under the folder
+  rules of `export_archives` including `archives.productionOptIn`, and return path and size.
 - **FR-013**: When a read item is not available (missing role, missing license, command unknown
   in that version), the other items of the same call MUST still be returned and the missing one
   reported with its reason.
@@ -521,24 +582,34 @@ offline.
   Story 4 follow the stage's `write.confirmation` setting as `restart_process` does (`CLIENT` is
   not allowed on production); the administrative areas of FR-016 always use the server-side
   preview, whatever that setting says.
-- **FR-016**: The administrative areas (objects and repository, libraries and keys, server
-  settings and license, users and groups, run-time data) MUST each need their own opt-in per
-  stage, off by default, in addition to the write enablement. The operational changes of User
-  Story 4 need the write enablement only.
+- **FR-016**: The administrative areas MUST each need their own opt-in per stage, off by default,
+  in addition to the write enablement. The column "Protection" of the Background table assigns
+  every write entry: **objects** (delete, rename, metadata import, repository delete, IS Connector
+  start), **libraries** (libraries, plug-ins, EDI rules, module keys), **settings** (threads,
+  privileged share, database connection tolerance, configuration, license, backup start
+  options), **users** (users, groups, roles, imports, messages), **run-time data** (run-time data
+  import, resume, delete). The operational changes of User Story 4, the tag operations included,
+  need the write enablement only.
 - **FR-016a**: The run-time data export (User Story 5) does not change the source server. It
   needs the run-time data opt-in of the source stage and, on a production stage,
   `archives.productionOptIn`, and follows the folder rules of `export_archives`; it does not need
-  the write enablement. It is audited like a change. If a check on a test system shows that the
-  export changes the source, it is governed by FR-014 instead.
-- **FR-017**: A bulk change (`processdelete error`, deleting all libraries of a type, deleting the
-  blocked processes of an operation) MUST show in its preview what and how many objects it will
-  affect. The execution re-reads the set right before sending; if it differs from the preview,
+  the write enablement. It targets exactly one server, needs no confirmation (like
+  `export_archives`) and is audited like a change. Validating an archive (`process
+  validateExport`) runs on one server the caller names and needs that stage's run-time data
+  opt-in; the archive comes from an upload folder (FR-021). If a check on a test system shows that
+  the export or the validation changes the server, it is governed by FR-014 instead.
+- **FR-017**: A bulk change (`processdelete error`, deleting all libraries of a type, resuming or
+  deleting the blocked processes of an operation) MUST show in its preview what and how many
+  objects it will affect. The execution re-reads the set right before sending; if it differs from
+  the preview (a different set of ids, or a different count where INUBIT reports no ids),
   the call is refused with a new preview. The result names the number INUBIT reports as
   affected, which may include objects that entered the set after the re-read.
-- **FR-018**: Before an object is deleted or replaced that INUBIT can export (workflow, module,
-  repository file), the server MUST store an export in the existing backup location, with the
-  existing retention (30 days, the newest of its scope kept), and name it in the result. If the
-  backup fails, nothing is deleted. Before a tag is removed or deleted, the backup holds the list
+- **FR-018**: Before an object that INUBIT can export (workflow, module, metadata, repository file
+  or directory) is deleted, renamed or replaced, the server MUST store an export in the existing
+  backup location; replacing includes a metadata import, an EDI rule file deployed over an
+  existing repository file, and a keystore deployed to a module (the module is backed up). The
+  backup keeps the existing retention (30 days, the newest of its scope kept), and the result
+  names it. If the backup fails, nothing is changed. Before a tag is removed or deleted, the backup holds the list
   of objects and versions that carried it. `restore_backup` restores these backups only where its
   own rules allow it (development nodes); this feature does not widen `restore_backup`, and on
   other stages the backup is imported by hand. Objects INUBIT cannot export (libraries, license,
@@ -549,23 +620,28 @@ offline.
   or right that grants it CLI access. `PUT /keys` deploys keys to a module keystore and does not
   touch the server's own TLS certificate; this feature changes no certificate pin (feature 006
   stays the only way to rotate a pin).
-- **FR-019a**: Tag operations on stages other than development (setting or removing the active
-  version, removing or deleting a tag) MUST be offered by a tool of their own, governed by FR-014
-  (write enablement, production opt-in), not by the development-stage rules of `tag_artifacts`.
-  Every call MUST name an explicit diagram group (with diagram type) or repository path; a call
-  without one is refused before anything is read, and the owner-wide forms of the `tag` command
-  are excluded with the reason that they change tags of every group of the owner. `tag_artifacts`
-  is not changed.
+- **FR-019a**: All tag operations of this feature (setting or removing the active tag of a user,
+  removing or deleting a tag) MUST be offered by one tool of their own for User Story 4, governed
+  by FR-014 (write enablement, production opt-in), not by the development-stage rules of
+  `tag_artifacts`, which is not changed. A tag removal or deletion MUST name an explicit diagram
+  group (with diagram type) or repository path; a call without one is refused before anything is
+  read. Tag removal is offered only if a check on a test system shows that INUBIT limits it to the
+  named diagram group or repository path; otherwise its entries are excluded with that reason.
+  `--tagDiagram` and `--tagWorkflowGroupExclude` are excluded (Background).
 - **FR-019b**: A file-based import of users, groups or roles MUST be refused when the file
-  contains the server's login user, its group or its role; the server reads the file before
-  sending it. A directory synchronisation MUST be refused when the login user is managed by the
-  directory service; it is allowed when the login user is an internal INUBIT user.
+  contains the server's login user, its group or any of its roles; the server reads the file
+  before sending it. (`--overwriteUserRoles` replaces the rights of the roles that are in the
+  file, as the vendor documents it, so a role missing from the file is not changed.) A directory
+  synchronisation MUST be refused when the user record INUBIT reports for the login user marks it
+  as managed by the directory service, and also when this cannot be determined; it is allowed
+  when the login user is an internal INUBIT user.
 - **FR-020**: Values MUST be validated before any call to INUBIT: numbers against the limits
   INUBIT reports (threads against the license), names against the patterns of the existing tools,
   enumerations against fixed lists. Filters (the `ps` filter, the run-time data export filter) are
   given as structured fields; the server builds the filter expression from validated values only
-  and never accepts a raw expression. No free text of the caller reaches a command line
-  unchecked.
+  and never accepts a raw expression. A message text (`msgsend`) is at most 1,000 characters
+  without control characters and is passed as one argument. No free text of the caller reaches a
+  command line unchecked.
 - **FR-021**: Files to upload (license, library or plug-in, EDI rules, keystore, run-time data
   archive, process id list, IS Connector input) MUST be read from a local path the caller names.
   The path must be a regular file, not a symbolic link, inside one of the upload folders listed
@@ -579,7 +655,8 @@ offline.
   configured secret source; the server reads the value and passes it to INUBIT in a way that no
   other process can see. A missing or unreadable entry is refused before any call to INUBIT. If
   INUBIT accepts the secret of a command only on a visible command line, that command is excluded
-  with this reason.
+  with this reason. A configuration value that FR-010 masks can be changed only through a named
+  secret-source entry; a plain value for it is refused.
 - **FR-023**: Every state-changing call, executed or refused, MUST leave one audit record with
   time, stage and server, tool, action, cleaned parameters, the reason the caller gave and the
   outcome.
