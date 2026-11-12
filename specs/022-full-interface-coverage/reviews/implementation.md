@@ -119,3 +119,20 @@ were replayed; the old head is kept locally as `backup/022-pre-onto`. Conflicts,
 Full build afterwards (`mvn -o clean verify -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-022-tmp`):
 BUILD SUCCESS. The T001 references (test count, `ToolAnnouncementTest` lists) are taken again
 before the US1 PR opens, as noted in section 1.
+
+## T023 – observation on shared error excerpts (2026-11-12)
+
+While writing `ServerSettingsSecretLeakTest`, the implementer found that two older, shared
+`ToolError` excerpts mask only *registered* secrets, not secret-named values such as
+`password=…`:
+
+- `InubitHttpClient`'s excerpt for an unexpected status (e.g. HTTP 500) holds the error body as
+  received;
+- `CliOutputClassifier.unexpected`'s excerpt for a failed session does not apply
+  `SecretTextMasker`.
+
+`get_server_settings` never passes these excerpts on (`UnavailablePart.of` keeps code, message,
+cause and next step only; the test asserts no `excerpt` field), and the feature's own parsers mask
+both kinds (`UnknownOutput`). Other tools that return a `ToolError` with its excerpt may show such
+a value. This is outside 022's scope; it is a candidate for a separate fix (both excerpts through
+`SecretTextMasker`, as `HelperFailures` and `UnknownOutput` do).

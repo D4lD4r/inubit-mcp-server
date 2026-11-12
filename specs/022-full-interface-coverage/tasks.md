@@ -393,7 +393,7 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
       errors);
     - `GetServerSettingsOutputSchemaTest.java`;
     - `ToolAnnouncementTest` (new ordered lists).
-- [ ] T023 [US1] `security/ServerSettingsSecretLeakTest.java`: planted secrets in license XML,
+- [X] T023 [US1] `security/ServerSettingsSecretLeakTest.java`: planted secrets in license XML,
   configuration leaves, StartCLI output and errors never appear in results, errors, logs (logback
   test appender) or audit; leak check.
 - [ ] T024 [LIVE] [OWNER] [US1] The same recordings as T014 on the 9.0 test server, into
