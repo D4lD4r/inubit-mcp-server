@@ -28,6 +28,7 @@ How to check 024 offline (automated) and live (by the operator, against the non-
 | helper vendor calls exactly as the contract per operation; forbidden methods (`setNodeConfigurationProperty`, `changeTemporaryLogLevel`, `resetTemporaryLogLevel`, GC, cache) never called (FR-007, FR-032) | `ClientHelperTest` (fake call recorder), `FakeVendorClassesTest` |
 | allowlist in schema, service and helper equal; secret-holding names never sent (FR-030, SC-003) | `NodeConfigAllowlistTest`, `NodeConfigServiceTest`, `GetNodeConfigToolTest` |
 | child JVM round trip per new operation | `ClientHelperProcessTest`, `ClientHelperPackagingTest` |
+| node details bounded in the helper: ≤ 500 entries and ≤ 256 KiB of `detail` frames → `details ok <n> true`; ≤ 200 `member` frames with the total count; stdout below 1 MiB (D-2) | `ClientHelperTest`, `CliClusterNodeAdapterTest` (`details_truncated`) |
 | message reference identical in server and helper (vector file); no caller text in a download name (FR-021) | `IoMessageRefTest`, `ClientHelperTest`, `CliIoLogAdapterTest` |
 | US1: list incl. `UNKNOWN` nodes, single node, details masked + warning, unknown `nodeName` → `INVALID_INPUT`, no opt-in → `NOT_CONFIGURED` nothing sent (US1-1…6) | `ClusterNodeServiceTest`, `ListClusterNodesWiringTest`, `NodeToolsV81ContractTest` |
 | US2: listing order, module filter, 500 cap + total, empty-listing hint; read masked and cut, Latin-1, binary, empty, > 10 MiB; unlisted ref → `INVALID_INPUT` without download; `maxChars` bounds (US2-1…7) | `IoLogServiceTest`, `CliIoLogAdapterTest`, `ReadIoLogWiringTest`, `NodeToolsV81ContractTest` |
@@ -35,12 +36,17 @@ How to check 024 offline (automated) and live (by the operator, against the non-
 | `trace` forms: only `--download`, `--nodelevel`+`--package`, `--reset`; `on`, `off`, `--level`, mixes refused before launch (FR-007) | `CliCommandTest` |
 | StartCLI classification of the log-level runs | `CliOutputClassifierTest`, `CliLogLevelAdapterTest` |
 | US4 set: write guard + opt-in + gate before anything; `RESET_FAILED` refusal; other node refusal; confirmation `SERVER`/`CLIENT`; write-ahead lease; expiry from the executed change; merge; failed run → immediate reset; record failure → immediate reset (US4-1, -5, -6, -7, -11, edge cases) | `LogLevelServiceSetTest`, `WriteGuardTest`, `WriteChallengeRegistryTest` |
-| US4 reset / forget: with and without lease; forget only `RESET_FAILED`, nothing sent; combinations (US4-4, -8, -9) | `LogLevelServiceResetTest`, `ResetTemporaryLogLevelToolTest` |
+| US4 reset / forget: with and without lease; other node answers → refused (US4-6); write disabled / production / no opt-in → refused, nothing sent (US4-7); forget only `RESET_FAILED`, guarded by `admitWithoutContact` (no gate, no lookup), nothing sent; combinations (US4-4, -6, -7, -8, -9) | `LogLevelServiceResetTest`, `WriteGuardTest`, `ResetTemporaryLogLevelToolTest` |
 | lease store: owner-only, atomic, locked across instances, unreadable never overwritten, retention 7 days (FR-043, FR-045) | `LeaseStoreTest`, `LeaseTest` |
 | owner identity and takeover (pid + start time) | `ProcessLivenessTest`, `LeaseSchedulerTest` |
-| scheduler: reset ≤ 1 tick after expiry; retries; takeover; other node → `RESET_FAILED`; **write tools off → cleanup still runs**; unconfigured server → `FORGOTTEN` after 7 days; audit per attempt (US4-2, -3, -10, SC-004) | `LeaseSchedulerTest` (fake clock, fake liveness) |
+| one lock implementation: `OwnerOnlyFileLock` generalized from `KnowledgeLock` (texts unchanged); cross-process node lock per server, node lock before store lock (D-12) | `OwnerOnlyFileLockTest`, `KnowledgeLockTest`, `NodeLogLevelLocksTest` |
+| lease generation: a cleanup ends a lease only if unchanged since its decision; a set during the reset decision → nothing sent, lease stays `ACTIVE` with the merged loggers and expiry; a set holding the node lock → cleanup skipped (D-12, D-16) | `LogLevelServiceCleanupTest`, `LeaseTest` |
+| two instances of one profile on one store directory: no lease lost or duplicated, exactly one reset per expiry, live owner's leases untouched | `LeaseTwoInstanceTest`, `LeaseStoreTest` |
+| cleanup audit fail closed: `PENDING` not writable → no reset sent, state kept with `AUDIT_NOT_WRITABLE`, ERROR logged, retried next tick (D-22, Constitution VII) | `LogLevelServiceCleanupTest`, `LeaseSchedulerTest`, `LeaseShutdownWiringTest` |
+| cleanup of one lease: **write tools off → still runs**; preconditions; other node → `RESET_FAILED`; reset failure → `RESET_FAILED` (FR-043) | `LogLevelServiceCleanupTest` |
+| scheduler: reset ≤ 1 tick after expiry; retries; takeover (orphaned expired → at once, orphaned unexpired → taken over, reset at expiry; creator decision); unconfigured server → `FORGOTTEN` after 7 days; audit per attempt (US4-2, -3, -10, SC-004) | `LeaseSchedulerTest` (fake clock, fake liveness) |
 | shutdown: lease resets before `stopCliWork`, parallel, bounded by `cliTimeout`; hook path once; startup lines (US4-3) | `LeaseShutdownWiringTest`, `MainTest` |
-| `get_health` shows open/failed leases, also with write off; unreadable store → warning (FR-045) | `HealthServiceTest`, `GetHealthToolTest` |
+| `get_health` shows open/failed leases, also with write off, through the wired `LeaseStore`; unreadable store → warning (FR-045) | `HealthServiceTest`, `GetHealthToolTest`, `LogLevelWiringTest` |
 | `--check-config` lists non-ended leases, unconfigured servers with the forget date; never resets (FR-045) | `ConfigSummaryTest`, `MainTest` |
 | version selection across the five tools; 6.1/9.1/undeclared/undetectable refused, nothing sent (US5) | `NodeToolsVersionSelectionTest` |
 | masking of details, values and messages; no value or content in logs or audit (SC-002) | `NodeTextMaskingTest`, `EntryTextTest`, service tests (leak checks), `LogLevelAuditTest` |
@@ -54,12 +60,12 @@ How to check 024 offline (automated) and live (by the operator, against the non-
 Run as early as possible (research D-28), each only after the concrete action was proposed and
 approved in the chat; raw output stays owner-only outside every repository.
 
-1. **Read spike** per version (T018 for 8.1, T058 for 9.0; read-only): a throw-away program
+1. **Read spike** per version (T018 for 8.1, T060 for 9.0; read-only): a throw-away program
    performs exactly the vendor calls of contracts/helper-protocol-delta.md for `ownNode`,
    `clusterNodes` (with `details` of the answering node), `nodeConfig` (the 20 allowlisted names
    only) and `ioLog` (listing and one message of a run the owner names). Optional: the node list
    and one value with a user without the `Configuration` right.
-2. **Log-level write spike** per version (T039 for 8.1, T059 for 9.0; changes the test server for
+2. **Log-level write spike** per version (T039 for 8.1, T061 for 9.0; changes the test server for
    seconds): only after the owner approved exactly this action — `trace --nodelevel INFO --package
    'com.inubit.ibis.cli'`, then `trace --reset` right after; get_health `systemInfo` before and
    after (persistent trace state unchanged).
@@ -83,4 +89,4 @@ approved in the chat; raw output stays owner-only outside every repository.
 
 | Date | Version | Tool | Result | Notes |
 |---|---|---|---|---|
-| — | — | — | — | (filled by T066 / T067) |
+| — | — | — | — | (filled by T068 / T069) |

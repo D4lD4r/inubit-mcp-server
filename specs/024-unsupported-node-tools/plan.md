@@ -46,8 +46,9 @@ only (unchanged rule of 020/021).
 client installation (proprietary) is used at runtime by StartCLI and, through reflection, by the
 helper.
 
-**Storage**: the lease store `~/.inubit-mcp/<profile>/log-levels/leases.json` + `.lock`
-(owner-only, atomic replace, file lock; D-12); per helper call a private temporary directory (I/O
+**Storage**: the lease store `~/.inubit-mcp/<profile>/log-levels/leases.json` + `.lock` and
+per-node lock files `log-levels/nodes/<group>.<node>.lock` (owner-only, atomic replace, leases with
+a generation, cross-process file locks through the lock generalized from `KnowledgeLock`; D-12); per helper call a private temporary directory (I/O
 listing and message; deleted at the end of the call and on shutdown); audit records in the existing
 audit log (log-level tools only, D-22).
 
@@ -111,7 +112,7 @@ JVMs, each ≤ `cliTimeout`); the scheduler tick every 30 s does no INUBIT work 
 | IV. Use-Case-Oriented Tools | ⚠️ five tools | ✅ each has a spec use case (US1–US4); the I/O listing and read are one tool, the node details are the node list with a name (spec Clarifications); typed schemas and documented outputs (contracts/mcp-tools-delta.md); tools are offered only with their opt-in, so the default tool list is unchanged (SC-005). |
 | V. Adapter Isolation & Version Compatibility | ⚠️ internal interfaces; no recordings yet | ✅ <ul><li>StartCLI (documented) for the log level; the helper only where no documented channel exists (D-1).</li><li>Version choice in `CapabilityMatrix` and `HelperVariant`, never in tool logic (D-4).</li><li>8.1 and 9.0 supported per capability only with recorded, neutralized contract fixtures; recording and matrix flip in one commit, owner reviews the fixture diff; missing recordings → "not yet verified" (D-26 … D-28) — no deviation.</li><li>Argument arrays, explicit timeouts, exit-code + frame/output evaluation, tested parsers.</li></ul> |
 | VI. Bounded, Structured Output | ✅ | ✅ ≤ 200 nodes, ≤ 500 detail pairs, ≤ 500 I/O entries (total always), message text ≤ `maxChars` (≤ 100,000), values ≤ 2,000 chars, explicit truncation flags; actionable errors (contracts). |
-| VII. Observability & Auditability | ⚠️ automatic resets happen without a tool call | ✅ every set, reset, forget and automatic reset (expiry, retry, takeover, shutdown, forget after 7 days) is audited with tool, server, node, lease and outcome; one INFO line per read call without values (D-22). |
+| VII. Observability & Auditability | ⚠️ automatic resets happen without a tool call | ✅ every set, reset, forget and automatic reset (expiry, retry, takeover, shutdown, forget after 7 days) is audited with tool, server, node, lease and outcome; **fail closed for automatic resets too**: if the `PENDING` record cannot be written, no reset is sent, the lease keeps its state with reason `AUDIT_NOT_WRITABLE`, an ERROR is logged and the next tick retries — so every reset that reaches INUBIT is audited (D-16, D-22); one INFO line per read call without values. |
 | Tech constraints: TLS for CLI connections; server verifies pins itself | ✅ existing | ✅ StartCLI's TLS handling and pin probe unchanged; helper per 020 D-7 (verified leaf only). |
 | Tech constraints: language "Java 21 or newer" | ⚠️ the helper runs in the 8.1 client's JDK 17 | ⚠️ existing justified deviation of 020/021, unchanged in kind → Complexity Tracking. |
 | Tech constraints: dependencies minimal, single artifact | ✅ | ✅ no new dependency or plugin. |
@@ -119,15 +120,23 @@ JVMs, each ≤ `cliTimeout`); the scheduler tick every 30 s does no INUBIT work 
 **Result**: PASS with two justified deviations (the owner-approved cleanup resets while write
 access is off; the carried-over helper bytecode Java 17), both in Complexity Tracking.
 
+### Decisions taken in plan review round 1
+
+- **Orphaned unexpired leases at start** (US4-3 vs FR-043): creator decision (owner may override),
+  recorded in research D-16 and by T001 in `reviews/implementation.md` — taken over at once (owner
+  := the new instance) and reset at their expiry; an expired or failed one is reset at once. US4-3
+  is read as "the next start takes the lease over and resets the node no later than its expiry".
+- **Audit when the cleanup `PENDING` record fails**: fail closed (orchestrator decision) — no reset
+  is sent, the lease keeps its state with reason `AUDIT_NOT_WRITABLE`, ERROR logged, retried next
+  tick (D-16, D-22).
+- **Two-instance race**: leases carry a generation (compare-and-set) and a cross-process per-node
+  lock covers the own-node lookup and the StartCLI runs of set, reset and cleanup (D-12, D-14,
+  D-16).
+
 ### Open questions for the owner (do not block the plan; defaults chosen)
 
-1. **Orphaned unexpired leases at start** (US4-3 vs FR-043): default — taken over at once (owner :=
-   the new instance) and reset at their expiry; an expired one is reset at once (D-16, D-17).
-   Alternative: reset every orphaned lease at start regardless of its expiry.
-2. **Audit when the cleanup `PENDING` record fails**: default — the reset still runs (restoring is
-   safer) and an ERROR is logged (D-22). Alternative: fail closed as for every other state change.
-3. **Log-level write spike action** (D-28): proposed logger `com.inubit.ibis.cli` at `INFO`,
-   reset right after; the owner approves the concrete action per version before T039/T059.
+1. **Log-level write spike action** (D-28): proposed logger `com.inubit.ibis.cli` at `INFO`,
+   reset right after; the owner approves the concrete action per version before T039/T061.
 
 ## Project Structure
 
@@ -160,14 +169,18 @@ src/main/java/de/dadecker/inubit/mcp/
 ├── domain/model/node/   # new: ClusterNode, NodeStatus, NodeDetail, ClusterNodes, IoDirection,
 │                        # IoLogEntry, IoMessageRef, IoLogListing, IoLogBounds, NodeConfigName,
 │                        # NodeConfigValue, LoggerName, TemporaryLevel, Lease, LeaseState,
-│                        # LeaseOwner, LeaseAttempt, LeaseReason, NodeToolResults
+│                        # LeaseOwner, LeaseAttempt, LeaseReason, LeaseSummary, ClusterNodesResult,
+│                        # IoLogResult, NodeConfigResult, LogLevelResult
 ├── domain/port/         # ClusterNodePort, IoLogPort, NodeConfigPort, LogLevelPort, LeaseView (new);
 │                        # Gateway, GatewayFactory (+defaults)
-├── application/         # WriteGuard (+overload), WriteChallengeRegistry (+node/tool overloads),
-│                        # HealthService (leases), VersionGate (lines, steps), NodeOverview (names)
+├── application/         # WriteGuard (+overload, +admitWithoutContact), WriteChallengeRegistry
+│                        # (+node/tool overloads), HealthService (leases), VersionGate (lines, steps),
+│                        # NodeOverview (names), OwnerOnlyFileLock (new, generalized from KnowledgeLock),
+│                        # EntryText (extracted from QueueEntryService)
+├── application/knowledge/ # KnowledgeLock delegates to OwnerOnlyFileLock (texts unchanged)
 ├── application/nodetools/ # new: ClusterNodeService, IoLogService, NodeConfigService, LogLevelService,
-│                        # LeaseStore, LeaseLock, LeaseScheduler, ProcessLiveness, LogLevelAudit,
-│                        # NodeTextMasking, NodeLogLevelLocks
+│                        # LeaseStore, LeaseScheduler, ProcessLiveness, LogLevelAudit,
+│                        # NodeTextMasking, NodeLogLevelLocks (cross-process, per node)
 ├── adapter/             # PortSet, V81PortSet, V81Gateway, AdapterGatewayFactory, StaleReportingPorts,
 │                        # RefusingPorts (+4 ports)
 ├── adapter/cli/         # CliCommand (trace --nodelevel/--package, --reset), CliOutputClassifier
@@ -206,8 +219,9 @@ docs/setup.md, docs/tools.md, docs/live-tests.md, README.md, SECURITY.md, CHANGE
 6. **US2 I/O logging**: entry parser and reference, adapter, listing and read in the service, tool,
    contract test; 8.1 flip.
 7. **US3 configuration values**: allowlist, adapter, service, tool, contract test; 8.1 flip.
-8. **US4 log level**: `CliCommand`/classifier, `CliLogLevelAdapter`, lease domain, `LeaseStore`
-   and lock, liveness, write-guard and challenge overloads, `LogLevelService` (set, reset, forget),
+8. **US4 log level**: `CliCommand`/classifier, `CliLogLevelAdapter`, lease domain (generation),
+   `OwnerOnlyFileLock` extraction, `LeaseStore` and node locks, liveness, write-guard and challenge
+   overloads, audit, `LogLevelService` (set, reset, forget, cleanup of one lease),
    `LeaseScheduler`, shutdown/startup integration, tools, `get_health`, `--check-config`, contract
    test; 8.1 flip after the write recording.
 9. **US5 versions**: version selection across tools; 9.0 recordings and flips per capability, or
@@ -237,5 +251,6 @@ docs/setup.md, docs/tools.md, docs/live-tests.md, README.md, SECURITY.md, CHANGE
 | **Constitution I deviation**: cleanup resets (`trace --reset`) of recorded leases run while write tools are off (read-only mode, `logLevelWrite` or the production opt-in removed), and the reset clears every temporary level on that node, also other users' | owner decision 2026-11-12 (spec Clarifications): otherwise a raised level stays active without limit after the operator switches write access off | refusing cleanup without write access leaves a changed production-like state behind with no timer (INUBIT has none); resetting single loggers is not possible (`trace -r` is per node). Bounded: only for recorded leases, only `trace --reset`, own-node check first, audited, visible in `get_health` and `--check-config` |
 | Helper compiled with `release 17` (technology constraint "Java 21 or newer"), carried over from 020/021 | 8.1's client runs on JDK 17; vendor classes must not enter the server JVM | in-JVM class loading mixes vendor state with ours and cannot be killed per call (020 D-1/D-2) |
 | Durable lease store with a file lock, owner identity and a background scheduler | FR-043: leases survive restarts and are shared by instances of one profile; resets must happen without a tool call | an in-memory timer loses the lease on a crash; the audit log is not a queryable store; per-lease files cannot be updated atomically together (D-12, D-13) |
+| Lease generation (compare-and-set) plus a cross-process per-node lock | two instances of one profile: a reset decided by one must never end a lease another just merged, and two changes on one server must not interleave | an in-process lock does not serialize instances; ending leases by id alone loses a concurrent set (D-12, D-14, D-16); the lock reuses the generalized `KnowledgeLock`, no second implementation |
 | Write-ahead lease before the StartCLI runs | a crash between the change and the record must still leave a lease | recording only after success can lose the raise silently (D-14) |
 | Message reference = hash of the listed entry, matched in the helper | FR-021: no caller text in a download name, one JVM per read | sending the entry text back from the server needs a second JVM and puts caller-influenced text into the request (D-8) |

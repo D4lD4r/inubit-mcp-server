@@ -70,6 +70,7 @@ Lists every INUBIT node the cluster of one {node} knows, as the Workbench's Clus
   "node": "test/node1",
   "inubitNode": "node1",
   "total": 2,
+  "truncated": false,
   "nodes": [
     { "name": "node1", "status": "ACTIVE", "version": "8.1.17", "zone": "zone-a",
       "nodeId": "a1b2c3", "uptime": "PT76H5M12S", "uptimeSeconds": 273912 },
@@ -97,7 +98,7 @@ Lists every INUBIT node the cluster of one {node} knows, as the Workbench's Clus
 | `nodes[].status` | `ACTIVE`, `MAINTENANCE`, `OFFLINE`, `UNKNOWN`; `rawStatus` only for an unknown non-empty status text |
 | `nodes[].version`, `zone`, `nodeId`, `uptime`, `uptimeSeconds` | absent for a node that does not answer |
 | `nodes` | at most 200, server order; `total` always; `truncated: true` when cut |
-| `details` | only with `nodeName`; `available: false` + `reason` when INUBIT could not deliver them (the list is still returned); `pairs` ≤ 500 (`truncated`), value ≤ 2,000 chars masked, `cut: true` when cut |
+| `details` | only with `nodeName`; `available: false` + `reason` when INUBIT could not deliver them (the list is still returned); `pairs` ≤ 500, value ≤ 2,000 chars masked, `cut: true` when cut; `details.truncated: true` when the 500-pair cap or the helper's 256 KiB budget for detail frames stopped the pairs (hint `Only part of the node details was returned`) |
 
 ### Errors
 
@@ -269,7 +270,7 @@ service's check behind the schema; nothing sent; SC-003).
 ### Description
 
 ```text
-Raises the log level of one to five INUBIT loggers (names below com.inubit.ibis) on the INUBIT node one {node} reaches, for a limited time (default 10 minutes, at most 60), through StartCLI's documented trace -nl command; then download the trace log with download_server_log. The MCP server records a lease and resets the node when it expires, when the MCP server shuts down, or at its next start, also when write access is switched off meanwhile. The reset (StartCLI trace -r) restores every temporary log level on that node, also those other users set; levels can also be lost earlier (INUBIT restart, log configuration reload). Only the exactly named logger changes. Confirmation as restart_process. Needs write access and unsupported.logLevelWrite (the lookup of the answering node uses an undocumented internal INUBIT interface without vendor support or stability guarantee). Address cluster nodes directly, not through a load balancer.
+Raises the log level of one to five INUBIT loggers (names below com.inubit.ibis) on the INUBIT node one {node} reaches, for a limited time (default 10 minutes, at most 60), through StartCLI's documented trace -nl command; then download the trace log with download_server_log. The MCP server records a lease and resets the node when it expires, when the MCP server shuts down, or at its next start, also when write access is switched off meanwhile. The reset (StartCLI trace -r) restores every temporary log level on that node, also those other users set; levels can also be lost earlier (INUBIT restart, log configuration reload). Only the exactly named logger changes. Confirmation as restart_process. UNSUPPORTED: uses unsupported, undocumented INUBIT functionality (the lookup of the answering node goes through an internal INUBIT interface) without vendor support or stability guarantee, for diagnosis only; it may stop working after any INUBIT update. Needs write access and unsupported.logLevelWrite. Address cluster nodes directly, not through a load balancer.
 ```
 
 ### Input schema (`schemas/set_temporary_log_level.input.json`)
@@ -341,7 +342,7 @@ at once (the message says so and that a merged lease ended), `leaseId` of the en
 ### Description
 
 ```text
-Resets every temporary log level on the INUBIT node one {node} reaches through StartCLI's documented trace -r command, also levels other users set, and ends the MCP server's lease for it; works also without a lease (to clean up an earlier change). With leaseId and forget: true it instead ends a lease whose automatic reset failed, without contacting INUBIT; the level may then stay raised until that node restarts. Confirmation as restart_process. Needs write access and unsupported.logLevelWrite (the lookup of the answering node uses an undocumented internal INUBIT interface without vendor support or stability guarantee).
+Resets every temporary log level on the INUBIT node one {node} reaches through StartCLI's documented trace -r command (every temporary log level on that node, also those other users set), and ends the MCP server's lease for it; works also without a lease (to clean up an earlier change). With leaseId and forget: true it instead ends a lease whose automatic reset failed, without contacting INUBIT; the level may then stay raised until that node restarts. Confirmation as restart_process. UNSUPPORTED: uses unsupported, undocumented INUBIT functionality (the lookup of the answering node goes through an internal INUBIT interface) without vendor support or stability guarantee, for diagnosis only; it may stop working after any INUBIT update. Needs write access and unsupported.logLevelWrite.
 ```
 
 ### Input schema (`schemas/reset_temporary_log_level.input.json`)
@@ -392,8 +393,8 @@ only a lease whose reset failed can be forgotten`); a lease whose server is no l
 
 ## `get_health` (changed, additive)
 
-`HealthReport` `+ temporaryLogLevels` (absent when the node has no open lease), shown whether
-write tools are on or off:
+`HealthReport` `+ temporaryLogLevels`, a list of `LeaseSummary` (`$defs/LeaseSummary`; absent when
+the node has no open lease), shown whether write tools are on or off:
 
 ```json
 "temporaryLogLevels": [

@@ -24,7 +24,7 @@ Types for [spec.md](spec.md); decisions in [research.md](research.md). "New" = n
 | `NodeStatus` | new | `ACTIVE`, `MAINTENANCE`, `OFFLINE`, `UNKNOWN` | `of(Optional<String> raw)`; unknown text → `UNKNOWN` + raw |
 | `ClusterNode` | new | `String name`, `NodeStatus status`, `Optional<String> rawStatus`, `Optional<String> version`, `Optional<String> zone`, `Optional<String> nodeId`, `Optional<Duration> uptime` | name rule `[A-Za-z0-9_.:-]{1,128}`; rawStatus ≤ 64 `[A-Za-z0-9_.-]`; texts ≤ 200 |
 | `NodeDetail` | new | `String key`, `String value`, `boolean cut` | key ≤ 200; value masked, ≤ 2,000 |
-| `ClusterNodes` | new | `String answeringNode`, `List<ClusterNode> nodes`, `int total`, `Optional<Details> details` where `Details` = `Available(String node, List<NodeDetail> pairs, boolean truncated)` \| `Unavailable(String node, String reason)` | ≤ 200 nodes, ≤ 500 pairs |
+| `ClusterNodes` | new | `String answeringNode`, `List<ClusterNode> nodes`, `int total`, `boolean truncated`, `Optional<Details> details` where `Details` = `Available(String node, List<NodeDetail> pairs, boolean truncated)` \| `Unavailable(String node, String reason)` | ≤ 200 nodes (`truncated` when more), ≤ 500 pairs or the helper's 256 KiB budget (`Details.truncated`) |
 | `IoDirection` | new | `INPUT("Input")`, `OUTPUT("Output")` | — |
 | `IoLogEntry` | new | `String entry` (raw), `String moduleName`, `Optional<String> moduleId`, `IoDirection direction`, `int index`, `IoMessageRef ref` | `parse(String processId, String entry)` (D-8); `ref = IoMessageRef.of(entry)` |
 | `IoMessageRef` | new | `String value` | `^[A-Za-z0-9_-]{22}$`; `of(entry)` = Base64url(SHA-256(UTF-8 entry))[0..16 bytes] |
@@ -36,10 +36,11 @@ Types for [spec.md](spec.md); decisions in [research.md](research.md). "New" = n
 | `TemporaryLevel` | new | `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR` | — |
 | `LeaseState` | new | `ACTIVE`, `RESET`, `RESET_FAILED`, `FORGOTTEN` | `open()` = `ACTIVE` \| `RESET_FAILED` |
 | `LeaseOwner` | new | `long pid`, `Optional<Instant> startedAt` | from `ProcessHandle.current()` |
-| `LeaseReason` | new | `OTHER_NODE_ANSWERS`, `NODE_UNREACHABLE`, `PRECONDITION`, `CLI_FAILED`, `SERVER_NOT_CONFIGURED` | fixed texts |
+| `LeaseReason` | new | `OTHER_NODE_ANSWERS`, `NODE_UNREACHABLE`, `PRECONDITION`, `CLI_FAILED`, `AUDIT_NOT_WRITABLE`, `SERVER_NOT_CONFIGURED` | fixed texts; `AUDIT_NOT_WRITABLE` = the cleanup's `PENDING` record failed, nothing sent (D-22) |
 | `LeaseAttempt` | new | `Instant at`, `AuditOutcome outcome`, `Optional<ErrorCode> code`, `Optional<LeaseReason> reason` | — |
-| `Lease` | new | `UUID leaseId`, `NodeId server`, `String inubitNode`, `SortedMap<LoggerName, TemporaryLevel> loggers`, `Instant setAt`, `Instant expiresAt`, `LeaseOwner owner`, `LeaseState state`, `UUID auditId`, `Optional<LeaseAttempt> lastAttempt`, `Optional<Instant> endedAt` | 1–5 per set, union on merge (≤ 50 per lease); `merge(set)`, `reset(at)`, `failed(attempt)`, `forgotten(at)`, `takenOverBy(owner)`; pure |
-| `LeaseSummary` | new | the `get_health`/summary view of an open lease | no owner pid in results |
+| `Lease` | new | `UUID leaseId`, `long generation`, `NodeId server`, `String inubitNode`, `SortedMap<LoggerName, TemporaryLevel> loggers`, `Instant setAt`, `Instant expiresAt`, `LeaseOwner owner`, `LeaseState state`, `UUID auditId`, `Optional<LeaseAttempt> lastAttempt`, `Optional<Instant> endedAt` | 1–5 per set, union on merge (≤ 50 per lease); `merge(set)`, `reset(at)`, `failed(attempt)`, `forgotten(at)`, `takenOverBy(owner)`; pure; every transition returns generation + 1; `sameGeneration(Lease)` for the compare-and-set of D-16 |
+| `LeaseSummary` | new | `UUID leaseId`, `String inubitNode`, `List<(LoggerName, TemporaryLevel)> loggers`, `Instant setAt`, `Instant expiresAt`, `LeaseState state`, `Optional<LeaseAttempt> lastAttempt` | the view of an open lease in `get_health` (`$defs/LeaseSummary`) and the summary; no owner pid, no generation |
+| `ClusterNodesResult`, `IoLogResult`, `NodeConfigResult`, `LogLevelResult` (`Challenge` \| `Outcome`) | new | the tool results of section "Results" (`domain/model/node`) | JSON shapes in contracts/mcp-tools-delta.md |
 | `ClusterNodePort` | new | `ClusterNodes nodes(Optional<String> details, InubitVersion version, long deadlineNanos)` | whole-call failures as `ToolErrorException` |
 | `IoLogPort` | new | `IoLogListing list(String processId, String workflow, InubitVersion v, long deadline)`; `IoLogRead read(String processId, String workflow, IoMessageRef ref, InubitVersion v, long deadline)` | `IoLogRead` = `NoMatch(IoLogListing)` \| `Message(IoLogListing, IoLogEntry, Path file, long size)`; `AutoCloseable` (deletes the private directory) |
 | `NodeConfigPort` | new | `NodeConfigValues values(List<NodeConfigName> names, InubitVersion v, long deadline)` → answering node + values in request order | — |
@@ -56,14 +57,14 @@ Types for [spec.md](spec.md); decisions in [research.md](research.md). "New" = n
 | `EntryText` | new (extracted from `QueueEntryService.data`) | classify → known credentials → mask → cut; `QueueEntryService` delegates (behaviour unchanged) |
 | `NodeConfigService` | new | validate names (allowlist) → server → opt-in → gate (`NODE_CONFIG_READ`) → deadline `cliTimeout` → port → masking (defence in depth) → result |
 | `NodeTextMasking` | new | `mask(String)` = `SecretTextMasker.mask(knownSecrets.apply(text))`; bounded cut | D-21 |
-| `LogLevelService` | new | `set(SetLevelRequest)`, `reset(ResetLevelRequest)` (node / forget) per D-14/D-15; `cleanup(Lease, Trigger)` used by the scheduler (no write guard, FR-043 preconditions) | — |
-| `LeaseStore` | new | `read()`, `update(Function<List<Lease>, List<Lease>>, Duration wait)` under `LeaseLock`; JSON format 1; owner-only atomic replace; unreadable → never overwritten | D-12; implements `LeaseView` |
-| `LeaseLock` | new | in-process lock + `FileChannel.tryLock` on `.lock` | `KnowledgeLock` pattern |
+| `LogLevelService` | new | `set(SetLevelRequest)`, `reset(ResetLevelRequest)` (node / forget) per D-14/D-15; `cleanup(Lease decided, Trigger)` for one lease (node lock, generation re-check, FR-043 preconditions without write guard, fail-closed `PENDING`, own-node lookup, `trace --reset`, compare-and-set) per D-16 | — |
+| `LeaseStore` | new | `read()`, `update(Function<List<Lease>, List<Lease>>, Duration wait)` under the store lock (`OwnerOnlyFileLock` on `log-levels/.lock`); JSON format 1 with `generation`; owner-only atomic replace; unreadable → never overwritten | D-12; implements `LeaseView` |
+| `OwnerOnlyFileLock` (`application`) | new (generalized from `KnowledgeLock`) | `Held acquire(Path lockFile, Duration wait, Supplier<ToolErrorException> busy)`: in-process lock per path, then `FileChannel.tryLock` polled every 50 ms; lock file owner-only, never through a link, never deleted | `KnowledgeLock` delegates, texts unchanged (D-12) |
 | `ProcessLiveness` | new | `boolean alive(LeaseOwner)`; `LeaseOwner self()` | seam for tests (D-13) |
-| `NodeLogLevelLocks` | new | per-node `ReentrantLock` shared by tools and scheduler | — |
-| `LeaseScheduler` | new | tick every 30 s (first at start): decide under the lock, reset outside it, record outcomes; `shutdown(Duration max)` idempotent | D-16, D-17 |
+| `NodeLogLevelLocks` | new | `Held acquire(NodeId server, Duration wait)`: cross-process lock on `log-levels/nodes/<group>.<node>.lock` through `OwnerOnlyFileLock`; held by set, reset and cleanup around the own-node lookup and the StartCLI runs | node lock before store lock, always (D-12) |
+| `LeaseScheduler` | new | tick every 30 s (first at start): decisions under the store lock (cleanup, takeover with generation + 1, forget after 7 days, retention), then `LogLevelService.cleanup` per node outside it; `shutdown(Duration max)` idempotent | D-16, D-17 |
 | `LogLevelAudit` | new | records of D-22 (tool calls and automatic resets) | — |
-| `WriteGuard` | changed | `+ admit(String node, String tool, Capability, Set<Channel>, Predicate<NodeId> optIn, String optInKey)`; the `ProcessAction` overload delegates with byte-identical texts | D-18 |
+| `WriteGuard` | changed | `+ admit(String node, String tool, Capability, Set<Channel>, Predicate<NodeId> optIn, String optInKey)`; `+ admitWithoutContact(String node, String tool, Predicate<NodeId> optIn, String optInKey)` (configuration checks up to the opt-in, no gate, no client check; for forget); the `ProcessAction` overload delegates with byte-identical texts | D-18 |
 | `WriteChallengeRegistry` | changed | `+ issue(String tool, NodeId node, String fingerprint, String previewState, Duration ttl)`, `+ redeem(String code, String tool, NodeId node, String fingerprint)` | D-19 |
 | `HealthService` | changed | per report `temporaryLogLevels` from `LeaseView` (failure → warning) | D-23 |
 | `VersionGate` | changed | `supportedLines`, `cliOnlyStep` for the four capabilities | D-4 |
@@ -121,6 +122,12 @@ Types for [spec.md](spec.md); decisions in [research.md](research.md). "New" = n
       │   removed 7 days after endedAt (RESET, FORGOTTEN)
       │
       └── owner not alive: takeover (owner := this instance), then as above
+
+Every transition increments the lease's generation. A cleanup ends a lease only if the generation
+it decided on is unchanged (compare-and-set under the store lock) and holds the node lock from the
+own-node lookup to the final update; a set holds the same node lock from the write-ahead record to
+its final update. A cleanup whose `PENDING` audit record cannot be written sends nothing and keeps
+the state with reason `AUDIT_NOT_WRITABLE` (retried next tick).
 ```
 
 A set for a server with a `RESET_FAILED` lease is refused before any change. An `ACTIVE` lease
@@ -131,7 +138,7 @@ after its expiry and is a startup warning until then.
 
 ```text
 ClusterNodesResult   node, inubitNode, nodes[≤200]{name,status,rawStatus?,version?,zone?,nodeId?,uptime?,uptimeSeconds?},
-                     total, details?{node, available, pairs[≤500]{key,value,cut?}|reason, truncated}, hints, warnings
+                     total, truncated, details?{node, available, pairs[≤500]{key,value,cut?}|reason, truncated}, hints, warnings
 IoLogResult          node, inubitNode, workflow, processId, total, matching, entries[≤500]{ref,moduleName,moduleId?,direction,index},
                      truncated, message?{ref, moduleName, moduleId?, direction, index, sizeBytes, kind(text|binary|empty|tooLarge),
                      charset?, detected?, textChars?, text?, cut?}, hints, warnings

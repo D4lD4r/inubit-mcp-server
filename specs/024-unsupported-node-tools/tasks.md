@@ -36,8 +36,8 @@ tools/check-identifiers.py --all` must exit 0.
 
 **Version state during implementation (FR-005, D-4, D-27)**: `CapabilityMatrix.production()`
 declares the four capabilities on 8.1 **and** 9.0 as `UNSUPPORTED` with the note "not yet verified"
-(T005) until the commit that adds the recorded fixture of that (version, capability) flips it
-(T025, T032, T038, T056, T060–T063). Offline tests that need an admitted node use a test
+(T004) until the commit that adds the recorded fixture of that (version, capability) flips it
+(T025, T032, T038, T058, T062–T065). Offline tests that need an admitted node use a test
 declaration of the matrix (the non-production `CapabilityMatrix` constructor, as 020's
 `adapter/cli/queue/QueueEntryVersionProfile.java`), never the production declaration.
 
@@ -48,7 +48,7 @@ declaration of the matrix (the non-production `CapabilityMatrix` constructor, as
   the operator, or by the agent **only after the operator approved that concrete action in the
   chat** (server, program or command, private output folder). Read spikes are covered by the
   owner's standing permission for read-only checks on the non-production test servers but are
-  still proposed concretely first; the log-level write spikes (T039, T059) need the owner's
+  still proposed concretely first; the log-level write spikes (T039, T061) need the owner's
   approval of **exactly that action** (server, logger, level, the two StartCLI runs). Raw outputs
   stay owner-only in a private directory outside every repository; only neutralized fixtures with
   **fictitious names and content** enter the repository.
@@ -70,9 +70,12 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   `specs/024-unsupported-node-tools/reviews/implementation.md` and note there the test count
   (surefire + failsafe) and the exact tool lists of `MainTest` / `ToolAnnouncementTest` as the
   SC-005 reference; the owner decisions in force (cleanup resets also with write tools off —
-  Constitution I deviation, plan Complexity Tracking; plan open questions 1–3 at their defaults
-  unless the owner overrides); the state of feature 022 (merged or not → which guard T046 uses and
-  whether T072 runs here); and ask the operator **now** for the read spikes T018 and T058 (they run
+  Constitution I deviation, plan Complexity Tracking; plan open question 1 at its default
+  unless the owner overrides; the decisions of plan review round 1 (lease generation +
+  cross-process node lock; fail-closed audit for cleanup resets; the **creator decision** of research
+  D-16 that orphaned unexpired leases are taken over at once and reset at their expiry, the reading
+  of US4-3 — owner may override)); the state of feature 022 (merged or not → which guard T047 uses and
+  whether T074 runs here); and ask the operator **now** for the read spikes T018 and T060 (they run
   in parallel to the offline work)
 - [ ] T002 [P] Fixture root (D-26): `src/test/resources/fixtures/node-tools/README.md` describing the
   layout `{v8_1,v9_0}/{cluster-nodes,io-log,node-config,log-level}/<case>.<ext>` (helper cases:
@@ -82,7 +85,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   neutralization steps of D-26 and the vector file `io-message-ref.vectors` (format: `<entry>\t<ref>`
   per line); no case files yet
 
-## Phase 2: Foundational — configuration, capabilities, helper protocol, adapter base (plan stages 1, 3, 4; blocks every story)
+## Phase 2: Foundational — configuration, capabilities, domain types, helper protocol, adapter base (plan stages 1, 3, 4; blocks every story)
 
 ### Configuration and capabilities (plan stage 1)
 
@@ -97,7 +100,19 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   false" without the value; an unknown key under `unsupported` and a key on a node or in `defaults`
   stay unknown-key errors; keys independent of each other and of `queueEntryRead`/`serverLogRead`)
   and `config/EffectiveNodeConfigTest.java` (group value reaches every node; copies keep it)
-- [ ] T004 Validation and summary (FR-003, D-5; after T003 and T005): `config/ConfigValidator.java`
+- [ ] T004 [P] Capabilities (FR-005, D-4): `domain/model/Capability.java` `+ CLUSTER_NODES_READ`,
+  `IO_LOG_READ`, `NODE_CONFIG_READ` (READ, `{CLI}`), `LOG_LEVEL_WRITE` (WRITE, `{CLI}`) with the
+  labels of D-4; `domain/model/CapabilityMatrix.java` 8.1 and 9.0 `UNSUPPORTED` + note "not yet
+  verified" for all four (flipped only by T025, T032, T038, T058, T062–T065), unknown map
+  `UNSUPPORTED`; `application/VersionGate.java` `supportedLines` and `cliOnlyStep` (D-4 texts);
+  `application/NodeOverview.java` names `cluster_nodes_read`, `io_log_read`, `node_config_read`,
+  `log_level_write`; `src/main/resources/schemas/list_nodes.output.json` enum `+` the four names.
+  Failing tests first in `domain/model/CapabilityMatrixTest.java` (states per version incl. 6.1,
+  9.1, unknown; notes), `application/VersionGateTest.java` (refusal texts "… is not yet verified
+  for INUBIT 8.1", 6.1 → `UNSUPPORTED_VERSION` naming the supported lines),
+  `application/NodeOverviewTest.java` (names; a capability listed only for opted-in groups with a
+  client home — the `allowed` rule is wired in T023/T030/T036/T054)
+- [ ] T005 Validation and summary (FR-003, D-5; after T003 and T004): `config/ConfigValidator.java`
   production warnings per key and the `logLevelWrite`-without-write-access warning (texts of
   contracts/configuration-delta.md "Validation", terminology-aware); `config/ConfigSummary.java`
   group line parts in the order `queueEntryRead`, `serverLogRead`, `nodeStatusRead`, `ioLogRead`,
@@ -106,32 +121,39 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   (each warning on `production: true`; none on a non-production group; the no-write warning) and
   `config/ConfigSummaryTest.java` (no key set → every golden text unchanged (SC-005); one key set →
   every group line gains that part only; 6.1 `cliOnly` lists a capability only for opted-in groups)
-- [ ] T005 [P] Capabilities (FR-005, D-4): `domain/model/Capability.java` `+ CLUSTER_NODES_READ`,
-  `IO_LOG_READ`, `NODE_CONFIG_READ` (READ, `{CLI}`), `LOG_LEVEL_WRITE` (WRITE, `{CLI}`) with the
-  labels of D-4; `domain/model/CapabilityMatrix.java` 8.1 and 9.0 `UNSUPPORTED` + note "not yet
-  verified" for all four (flipped only by T025, T032, T038, T056, T060–T063), unknown map
-  `UNSUPPORTED`; `application/VersionGate.java` `supportedLines` and `cliOnlyStep` (D-4 texts);
-  `application/NodeOverview.java` names `cluster_nodes_read`, `io_log_read`, `node_config_read`,
-  `log_level_write`; `src/main/resources/schemas/list_nodes.output.json` enum `+` the four names.
-  Failing tests first in `domain/model/CapabilityMatrixTest.java` (states per version incl. 6.1,
-  9.1, unknown; notes), `application/VersionGateTest.java` (refusal texts "… is not yet verified
-  for INUBIT 8.1", 6.1 → `UNSUPPORTED_VERSION` naming the supported lines),
-  `application/NodeOverviewTest.java` (names; a capability listed only for opted-in groups with a
-  client home — the `allowed` rule is wired in T023/T030/T036/T052)
+
+### Domain types used by the helper protocol (plan stage 4; D-7, D-8, D-10, D-11, D-24)
+
+- [ ] T006 [P] Node domain types (pure; D-7, D-10, D-11): `domain/model/node/NodeStatus.java`
+  (`of(Optional<String>)`), `ClusterNode.java`, `NodeDetail.java`, `ClusterNodes.java` (with
+  `Details` = `Available` | `Unavailable`), `NodeConfigName.java`,
+  `NodeConfigValue.java` (`Present` | `Absent` | `Failed`), `LoggerName.java`,
+  `TemporaryLevel.java`, `package-info.java`. Failing tests first in
+  `domain/model/node/NodeStatusTest.java`, `ClusterNodeTest.java` (name rule, raw status rule,
+  bounds), `NodeConfigNameTest.java` (exactly the 20 names, case-sensitive parse),
+  `LoggerNameTest.java` (`com.inubit.ibis.acme.Orders` ok; `com.inubit.ibis`, `com.inubit.ibisx.a`,
+  `org.acme.A`, `com.inubit.ibis.a$B`, `com.inubit.ibis..a`, > 200 chars, a quote, a space → refused)
+- [ ] T007 [P] I/O logging domain (pure; D-8): `domain/model/node/IoDirection.java`,
+  `IoMessageRef.java` (`of(String entry)` SHA-256/Base64url 16 bytes; pattern),
+  `IoLogEntry.java` (`parse(String processId, String entry)`: module part split at the last `(` of
+  a part ending in `)`; unparsable module part kept raw with a flag; foreign process id →
+  exception), `IoLogListing.java` (`filter(Optional<String> module)` on `moduleName` or `moduleId`
+  equality), `IoLogBounds.java`. Failing tests first in `domain/model/node/IoMessageRefTest.java`
+  (every line of `io-message-ref.vectors` — the same file the helper test uses),
+  `IoLogEntryTest.java` (`Orders(acme)(Module-0003)`, names with spaces and non-ASCII, missing id,
+  `Input.0`/`Output.x` refused, foreign process id), `IoLogListingTest.java`
 
 ### Helper protocol (plan stage 3; D-2, contracts/helper-protocol-delta.md)
 
-- [ ] T006 Request side and `ownNode` (D-2, D-3): `adapter/cli/helper/HelperRequest.java` sealed
+- [ ] T008 Request side and `ownNode` (D-2, D-3; after T006, T007): `adapter/cli/helper/HelperRequest.java` sealed
   `Operation` `+ OwnNode`, `ClusterNodes(Optional<String> details)`, `NodeConfig(List<NodeConfigName>
-  names)` (the enum comes from T013 — create `domain/model/node/NodeConfigName.java` here if T013
-  is not done, with the 20 names of FR-030), `IoLog(String processId, String workflow,
-  Optional<IoMessageRef> ref, Path listOut, Optional<Path> messageOut)` (`IoMessageRef` minimal
-  record with the pattern, completed in T014); `encode()` writes `op=<name>` as the second line
+  names)` (the enum of T006), `IoLog(String processId, String workflow,
+  Optional<IoMessageRef> ref, Path listOut, Optional<Path> messageOut)` (`IoMessageRef` of T007); `encode()` writes `op=<name>` as the second line
   for every operation except `QueueEntryRead`; `toString` without user and passwords.
   `src/helper/java/de/dadecker/inubit/mcp/helper/ClientHelper.java`: accepts the four `op` values
   with their keys and rules (contracts table; malformed → exit 2 before the login) and implements
   `ownNode` (login, `ClusterClient`, `getNode()` → `node ok`/`node error`, logout on 8.1); the
-  other three valid operations answer exit 2 until T009–T011. Failing tests first in
+  other three valid operations answer exit 2 until T011–T013. Failing tests first in
   `adapter/cli/helper/HelperRequestTest.java` (exact encoding of each new operation; **the 020
   `queueEntry` and 021 `serverLog` encodings byte-identical** to their existing expected texts;
   round trips through the real helper class for `queueEntry`, `serverLog`, `ownNode`) and
@@ -140,14 +162,14 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   of the four operations → exit 2 and no vendor call; a key of another operation → exit 2; leak
   check on frames); `git diff --stat src/test/resources/fixtures/queue-entry
   src/test/resources/fixtures/server-log` empty
-- [ ] T007 [P] Frames (D-2): `adapter/cli/helper/HelperFrames.java` `+ Member`, `MembersOk`,
+- [ ] T009 [P] Frames (D-2): `adapter/cli/helper/HelperFrames.java` `+ Member`, `MembersOk`,
   `MembersError`, `Detail` (with `cut`), `DetailsOk`, `DetailsError`, `DetailsUnknown`, `ConfigOk`,
   `ConfigAbsent`, `ConfigError`, `IoListOk`, `IoListError`, `IoMatch(Optional<String>)`, part
   `MESSAGE` in `PartOk`/`PartError`; token counts and `-` handling per frame; unknown or malformed
   frame → protocol error. Failing tests first in `adapter/cli/helper/HelperFramesTest.java` (each
   frame parsed; wrong token count, unknown frame, foreign nonce, frames after `end` → protocol
   error; the 1 MiB cap unchanged; 020/021 frames unchanged)
-- [ ] T008 [P] Fake vendor classes (D-27) in the test tree `src/test/java/com/inubit/ibis/…`:
+- [ ] T010 [P] Fake vendor classes (D-27) in the test tree `src/test/java/com/inubit/ibis/…`:
   `server/cluster/ClusterClient.java` `+ getNodes()`, `getNode(NodeName)`,
   `getNodeConfigurationProperty(NodeName, String)` and — throwing a test failure when called —
   `setNodeConfigurationProperty`, `changeTemporaryLogLevel`, `resetTemporaryLogLevel`,
@@ -159,16 +181,21 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   shared with the 021 fakes; fictitious data only. Failing test first:
   `adapter/cli/helper/FakeVendorClassesTest.java` (recorder lists calls in order; forbidden
   methods fail the test)
-- [ ] T009 `ClientHelper` op `clusterNodes` (D-2, D-7; after T006, T008): `getNodes()` → `member`
-  frames (`-` for `null`, status `name()`), `members ok <n>` / `members error`; `details`: not a
+- [ ] T011 `ClientHelper` op `clusterNodes` (D-2, D-7; after T008, T010): `getNodes()` → `member`
+  frames for the first 200 (`-` for `null`, status `name()`, tokens cut at 200 chars), `members ok
+  <total>` / `members error`; `details`: not a
   member → `details unknown` without a request; member → `getNode(NodeName.nodeName(name))`,
   node information map flattened (`<outer>.<inner>`), ≤ 500 `detail` frames, key ≤ 200 and value ≤
-  4,000 chars with `cut`; `details ok`/`details error`; API check of the operation. Failing tests
+  4,000 chars with `cut`, encoded `detail` frames together ≤ 256 KiB; `details ok <n> <truncated>` /
+  `details error`; API check of the operation. Failing tests
   first in `adapter/cli/helper/ClientHelperTest.java` (frame sequence for two members, one without
   answer; unknown status text passed raw; details of a member; `details unknown` sends no
-  `getNode(NodeName)`; nested map flattened; cut marker; vendor calls exactly login, `getNode`,
+  `getNode(NodeName)`; nested map flattened; cut marker; **total budget**: node information whose
+  `detail` frames exceed 256 KiB → the helper stops before the frame that would exceed it and
+  writes `details ok <n> true` (also at 500 entries), the whole stdout stays below 1 MiB; more than
+  200 members → 200 `member` frames and `members ok <total>`; member tokens cut at 200 chars; vendor calls exactly login, `getNode`,
   `getNodes`, [`getNode(NodeName)`], logout; `api missing` for a missing `getNodes`; leak check)
-- [ ] T010 `ClientHelper` op `nodeConfig` (D-10; after T009, same file): a constant list of the 20
+- [ ] T012 `ClientHelper` op `nodeConfig` (D-10; after T011, same file): a constant list of the 20
   names inside the helper; per requested name `getNodeConfigurationProperty(<own NodeName>, name)`
   → `config … ok` (type simple name, flags, texts ≤ 4,000), `absent` for `null`, `error` per name;
   API check. Failing tests first in `adapter/cli/helper/ClientHelperTest.java` (each allowlisted
@@ -178,7 +205,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   the others; `setNodeConfigurationProperty` never called; leak check) and new
   `adapter/cli/helper/NodeConfigAllowlistTest.java` (the helper's list — read reflectively — equals
   `NodeConfigName.values()` and contains none of the secret-holding names of D-10)
-- [ ] T011 `ClientHelper` op `ioLog` (D-2, D-8, D-9; after T010, same file): `getObject("<processId>@@@<workflow>",
+- [ ] T013 `ClientHelper` op `ioLog` (D-2, D-8, D-9; after T012, same file): `getObject("<processId>@@@<workflow>",
   user, "inputOutputMessageDetails")`, split at `###` (empty answer → zero entries), entries written
   to `listOut` (UTF-8, one per line) → `io list ok <n>` / `io list error`; with `ref`: SHA-256 →
   Base64url (16 bytes) per entry, `io match <entry>` + `MultipartDownloadThread(client, user,
@@ -190,32 +217,14 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   download name built only from the workflow and the listed entry; `io match none` → no download
   thread created; 0-byte download → `part message ok 0`; vendor calls exactly as the contract;
   leak check)
-- [ ] T012 Child-JVM round trips (after T011): `adapter/cli/helper/ClientHelperProcessTest.java`
+- [ ] T014 Child-JVM round trips (after T013): `adapter/cli/helper/ClientHelperProcessTest.java`
   `+` one real child-JVM run per new operation against the fake vendor classes on the class path
   (frames parsed by `HelperFrames`, exit 0, files written); `ClientHelperPackagingTest` still finds
   exactly one class file (major 61)
 
-### Domain, ports and adapter base (plan stage 4; D-21, D-24)
+### Ports and adapter base (plan stage 4; D-21, D-24)
 
-- [ ] T013 [P] Node domain types (pure; D-7, D-10, D-11): `domain/model/node/NodeStatus.java`
-  (`of(Optional<String>)`), `ClusterNode.java`, `NodeDetail.java`, `ClusterNodes.java` (with
-  `Details` = `Available` | `Unavailable`), `NodeConfigName.java` (complete if created in T006),
-  `NodeConfigValue.java` (`Present` | `Absent` | `Failed`), `LoggerName.java`,
-  `TemporaryLevel.java`, `package-info.java`. Failing tests first in
-  `domain/model/node/NodeStatusTest.java`, `ClusterNodeTest.java` (name rule, raw status rule,
-  bounds), `NodeConfigNameTest.java` (exactly the 20 names, case-sensitive parse),
-  `LoggerNameTest.java` (`com.inubit.ibis.acme.Orders` ok; `com.inubit.ibis`, `com.inubit.ibisx.a`,
-  `org.acme.A`, `com.inubit.ibis.a$B`, `com.inubit.ibis..a`, > 200 chars, a quote, a space → refused)
-- [ ] T014 [P] I/O logging domain (pure; D-8): `domain/model/node/IoDirection.java`,
-  `IoMessageRef.java` (`of(String entry)` SHA-256/Base64url 16 bytes; pattern),
-  `IoLogEntry.java` (`parse(String processId, String entry)`: module part split at the last `(` of
-  a part ending in `)`; unparsable module part kept raw with a flag; foreign process id →
-  exception), `IoLogListing.java` (`filter(Optional<String> module)` on `moduleName` or `moduleId`
-  equality), `IoLogBounds.java`. Failing tests first in `domain/model/node/IoMessageRefTest.java`
-  (every line of `io-message-ref.vectors` — the same file the helper test uses),
-  `IoLogEntryTest.java` (`Orders(acme)(Module-0003)`, names with spaces and non-ASCII, missing id,
-  `Input.0`/`Output.x` refused, foreign process id), `IoLogListingTest.java`
-- [ ] T015 Ports and port wiring (D-24; after T013, T014): `domain/port/ClusterNodePort.java`,
+- [ ] T015 Ports and port wiring (D-24; after T006, T007): `domain/port/ClusterNodePort.java`,
   `IoLogPort.java` (+ `IoLogRead` = `NoMatch` | `Message`, `AutoCloseable`), `NodeConfigPort.java`,
   `LogLevelPort.java`, `LeaseView.java`; `domain/port/Gateway.java` / `GatewayFactory.java`
   default methods throwing `CLI_UNAVAILABLE`; `adapter/PortSet.java` (compatibility constructor),
@@ -224,7 +233,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   `adapter/AdapterGatewayFactoryTest.java` and `adapter/RefusingPortsTest.java` (new ports reach the
   version's adapter; 6.1 refuses with the gate text; defaults throw `CLI_UNAVAILABLE`);
   `architecture/PackageBoundaryTest.java` green with the new packages
-- [ ] T016 Helper runner and shared classification (D-3, D-20, D-24; after T006, T007, T015):
+- [ ] T016 Helper runner and shared classification (D-3, D-20, D-24; after T008, T009, T015):
   `adapter/cli/node/NodeHelperRunner.java` (variant via `HelperVariant.forVersion`,
   `CliRunner.select` + `checkLaunch`, TLS check + one-time trust store, private directory through
   `CliResources` with prefix `inubit-mcp-node-`, slot `CliConcurrencyLimiter.acquireForHelper(server,
@@ -272,7 +281,7 @@ the opt-in gets the list and one node's details; a group without it is refused b
   Manager id or the log's process id, the 0-byte case if seen, the permission-check confirmation;
   no names, no values) are appended to `specs/024-unsupported-node-tools/research.md` "Spike
   findings"; deviations from D-2/D-7/D-8/D-10 are listed for the owner before the affected flip
-- [ ] T019 [US1] Reconstructed cluster-nodes fixtures and catalogue (D-26, D-27; after T009):
+- [ ] T019 [US1] Reconstructed cluster-nodes fixtures and catalogue (D-26, D-27; after T011):
   `src/test/resources/fixtures/node-tools/v8_1/cluster-nodes/{ok,single,details,details_unknown,details_error,unknown_status,api_missing,garbage}.{frames,exit,origin}`
   (all `reconstructed <source>`, fictitious `node1`/`node2`, `zone-a`, `/opt/inubit/…`,
   `10.0.0.11:7800`); new `tools/NodeToolsFixtureCatalogueTest.java`: every case has a valid
@@ -341,14 +350,14 @@ groups with `unsupported.ioLogRead` (FR-020 … FR-023).
 **Independent test**: with a fake INUBIT client, a run with logged messages is listed and one
 message is read masked and bounded; an unlisted reference is refused before any download.
 
-- [ ] T026 [US2] Reconstructed io-log fixtures (D-26; after T011, T019):
+- [ ] T026 [US2] Reconstructed io-log fixtures (D-26; after T013, T019):
   `src/test/resources/fixtures/node-tools/v8_1/io-log/{listing,empty_listing,read_text,read_latin1,read_binary,read_empty,no_match,foreign_process,list_error}.{frames,exit,list,message,origin}`
   (fictitious workflow `Orders-Inbound`, process `4711`, modules `Order Connector(Module-0003)`,
   `Audit Logger(Module-0007)`; `read_text.message` with a `<password>` element and an
   `Authorization: Basic …` line; `read_binary.message` a GZIP header; `read_latin1.message`
   ISO-8859-1 bytes); `NodeToolsFixtureCatalogueTest` extended
 - [ ] T027 [US2] `adapter/cli/node/CliIoLogAdapter.java` + io rules in `NodeFramesClassifier`
-  (D-8, D-9, D-20; after T014, T016, T026): `implements IoLogPort`; request `op=ioLog` with
+  (D-8, D-9, D-20; after T007, T016, T026): `implements IoLogPort`; request `op=ioLog` with
   `listOut`/`messageOut` in the private directory; listing file read bounded (≤ 16 MiB, else
   `UNEXPECTED_RESPONSE`) and parsed with `IoLogEntry.parse`; `io match none` → `NoMatch`; `part
   message ok <n>` → `Message` with the file (size must equal `<n>`); `io list error`, `part message
@@ -401,13 +410,13 @@ ever sent (FR-030 … FR-032, SC-003).
 **Independent test**: with a fake INUBIT client, each listed name returns its value; a name outside
 the list is refused before any request; the fake records that only listed names were sent.
 
-- [ ] T033 [US3] Reconstructed node-config fixtures (D-26; after T010, T019):
+- [ ] T033 [US3] Reconstructed node-config fixtures (D-26; after T012, T026 — same catalogue test):
   `src/test/resources/fixtures/node-tools/v8_1/node-config/{all,absent,one_error,api_missing}.{frames,exit,origin}`
   (fictitious values: `CLUSTER`, `acme-cluster`, `zone-a`, `node1`, `java:/comp/env/jdbc/IBISDB`, …;
   `absent` for `noOfRetries`/`retryInterval` as on 8.1; one value containing a credential-looking
   text to prove the defence-in-depth masking); `NodeToolsFixtureCatalogueTest` extended
 - [ ] T034 [US3] `adapter/cli/node/CliNodeConfigAdapter.java` + config rules in
-  `NodeFramesClassifier` (D-10; after T016, T033): `implements NodeConfigPort`; request `names` only
+  `NodeFramesClassifier` (D-10; after T027 — same `NodeFramesClassifier` — and T033): `implements NodeConfigPort`; request `names` only
   from `NodeConfigName`; frames → `NodeConfigValue` in request order; a frame for a name not
   requested → `UNEXPECTED_RESPONSE`. Failing tests first in
   `adapter/cli/node/CliNodeConfigAdapterTest.java` (every v8_1 case; the request's `names` equals
@@ -444,7 +453,8 @@ the list is refused before any request; the fake records that only listed names 
 are reset at expiry, shutdown and start, also with write tools off (FR-040 … FR-045, SC-004).
 **Independent test**: with a fake StartCLI, a fake INUBIT client, a fake clock and a fake
 liveness, a set raises the levels and records a lease; expiry, shutdown or the next start resets
-the node; refusals happen before any change.
+the node; refusals happen before any change; two fake instances on one store never end a lease
+the other just changed.
 
 - [ ] T039 [US4] **[LIVE] [OWNER]** 8.1 log-level write spike (D-28 step 2; may start after T001): the
   agent proposes the **concrete action** — the non-production 8.1 test server, the logger
@@ -469,9 +479,9 @@ the node; refusals happen before any change.
   `adapter/cli/CliOutputClassifier.java` `+ classifyTraceLevel(CliResult)` (success form
   reconstructed as `1-OK:` until T039 pins it; `Missing log level.` → `UNEXPECTED_RESPONSE`;
   otherwise `classify`); `src/test/resources/fixtures/node-tools/v8_1/log-level/{set_ok,reset_ok,missing_level,login_failure,forbidden}.{stdout,stderr,exit,origin}`
-  (reconstructed); `NodeToolsFixtureCatalogueTest` extended. Failing tests first in
-  `adapter/cli/CliOutputClassifierTest.java` (each case; the export and trace-download contexts
-  unchanged; leak check)
+  (reconstructed); `NodeToolsFixtureCatalogueTest` extended (after T033, same test file). Failing
+  tests first in `adapter/cli/CliOutputClassifierTest.java` (each case; the export and
+  trace-download contexts unchanged; leak check)
 - [ ] T042 [US4] `adapter/cli/node/CliLogLevelAdapter.java` (D-1, D-3, D-11; after T016, T040,
   T041): `implements LogLevelPort`: `answeringNode` via `NodeHelperRunner` (`op=ownNode`), `raise`
   and `resetAll` via `CliRunner.run(…, CliCommand.traceNodeLevel/traceReset, timeout, "cliTimeout",
@@ -480,131 +490,184 @@ the node; refusals happen before any change.
   `--execCommand` texts; password only on stdin; one run per call; each v8_1/log-level case → its
   code; `ownNode` frames → name; leak check)
 - [ ] T043 [P] [US4] Lease domain (pure; D-12 … D-14, data-model "Lease lifecycle"):
-  `domain/model/node/LeaseState.java`, `LeaseOwner.java`, `LeaseReason.java`, `LeaseAttempt.java`,
-  `Lease.java` (`merge`, `executed`, `reset`, `failed`, `forgotten`, `takenOverBy`, validation of
-  every field), `LeaseSummary.java`. Failing tests first in `domain/model/node/LeaseTest.java`
-  (merge: union, last level per logger, later expiry, owner := setter; expiry from the executed
-  time; transitions allowed only per the lifecycle; invalid server id, node name, logger, UUID
-  refused)
-- [ ] T044 [US4] `application/nodetools/LeaseStore.java` + `LeaseLock.java` (D-12; after T043):
-  JSON format 1 at `<home>/.inubit-mcp/<profile>/log-levels/leases.json`, lock `.lock` (in-process
-  lock, then `FileChannel.tryLock` polled every 50 ms), owner-only through `PrivateFileSystem`,
-  temporary file + atomic move, links refused, unreadable/invalid file → `Unreadable` and never
-  overwritten, retention removal (ended + 7 days), `implements LeaseView`; created only on the
-  first write. Failing tests first in `application/nodetools/LeaseStoreTest.java` (round trip;
-  `rw-------`/`rwx------`; concurrent `update` from two threads and from two `LeaseStore` instances
-  serialized; a corrupt file → `Unreadable`, file unchanged after an update attempt; a symlink
-  refused; retention; no credential field possible; read without a file → empty, no file created)
-- [ ] T045 [P] [US4] `application/nodetools/ProcessLiveness.java` (+ `SystemProcessLiveness`) and
-  `NodeLogLevelLocks.java` (D-13): `self()` from `ProcessHandle.current()`; `alive(owner)` per D-13
-  (pid alive and start instants equal within 1 s when both known). Failing tests first in
+  `domain/model/node/LeaseState.java`, `LeaseOwner.java`, `LeaseReason.java` (incl.
+  `AUDIT_NOT_WRITABLE`), `LeaseAttempt.java`, `Lease.java` (`generation`; `merge`, `executed`,
+  `reset`, `failed`, `forgotten`, `takenOverBy`, each returning generation + 1;
+  `sameGeneration`; validation of every field), `LeaseSummary.java` (no owner, no generation).
+  Failing tests first in `domain/model/node/LeaseTest.java` (merge: union, last level per logger,
+  later expiry, owner := setter; expiry from the executed time; every transition increments the
+  generation; transitions allowed only per the lifecycle; invalid server id, node name, logger,
+  UUID refused) and `LeaseSummaryTest.java`
+- [ ] T044 [P] [US4] Generalize the lock of feature 019 (D-12): new `application/OwnerOnlyFileLock.java`
+  (`Held acquire(Path lockFile, Duration wait, Supplier<ToolErrorException> busy)`: in-process
+  `ReentrantLock` per lock-file path, then `FileChannel.tryLock` polled every 50 ms until the wait
+  covering both steps runs out; lock file created owner-only through `PrivateFileSystem`, never
+  opened through a link, never deleted), moved out of `application/knowledge/KnowledgeLock.java`,
+  which now delegates with byte-identical texts; no second lock implementation. Failing tests first
+  in new `application/OwnerOnlyFileLockTest.java` (two threads; two independent instances on the
+  same path serialize; a held lock times out with the caller's error; a symlink at the lock path
+  refused; owner-only mode); `application/knowledge/KnowledgeLockTest.java` unchanged and green
+- [ ] T045 [US4] `application/nodetools/LeaseStore.java` and `NodeLogLevelLocks.java` (D-12; after
+  T043, T044): store JSON format 1 (with `generation`) at
+  `<home>/.inubit-mcp/<profile>/log-levels/leases.json`, store lock `OwnerOnlyFileLock` on
+  `log-levels/.lock`, owner-only through `PrivateFileSystem`, temporary file + atomic move, links
+  refused, unreadable/invalid file → `Unreadable` and never overwritten, retention removal (ended +
+  7 days), `implements LeaseView`, created only on the first write; `NodeLogLevelLocks` =
+  `OwnerOnlyFileLock` on `log-levels/nodes/<group>.<node>.lock` (cross-process, per server; busy →
+  `PRECONDITION_FAILED` "another log-level change for test/node1 is running"). Failing tests first
+  in `application/nodetools/LeaseStoreTest.java` (round trip incl. generation; `rw-------`/`rwx------`;
+  concurrent `update` from two threads and from **two `LeaseStore` instances on the same directory**
+  serialized, no update lost; a corrupt file → `Unreadable`, file unchanged after an update attempt;
+  a symlink refused; retention; read without a file → empty, no file created) and
+  `NodeLogLevelLocksTest.java` (two instances on one directory exclude each other per node, not
+  across nodes; wait bound; the node lock is always taken before the store lock — a test holding
+  the store lock never waits for a node lock)
+- [ ] T046 [P] [US4] `application/nodetools/ProcessLiveness.java` (+ `SystemProcessLiveness`) (D-13):
+  `self()` from `ProcessHandle.current()`; `alive(owner)` per D-13 (pid alive and start instants
+  equal within 1 s when both known). Failing tests first in
   `application/nodetools/ProcessLivenessTest.java` (self alive; a finished child process not alive;
-  same pid with another start time not alive; unknown start time → pid decides) and
-  `NodeLogLevelLocksTest.java` (per node, wait bound)
-- [ ] T046 [US4] Write guard and challenge overloads (FR-040, D-18, D-19): if T001 recorded 022 as
-  merged, use its `ChangeGuard` instead of the overload and note it; else
+  same pid with another start time not alive; unknown start time → pid decides)
+- [ ] T047 [P] [US4] Write guard and challenge overloads (FR-040, FR-044, D-15, D-18, D-19): if T001
+  recorded 022 as merged, use its `ChangeGuard` instead of the overloads and note it; else
   `application/WriteGuard.java` `+ admit(String node, String tool, Capability capability,
   Set<Channel> channels, Predicate<NodeId> optIn, String optInKey)` (order: target, production
   lock, `CLIENT` on production, `write.enabled`, opt-in → `NOT_CONFIGURED`, gate, client check;
-  texts name the tool), the `ProcessAction` overload delegating with byte-identical texts;
+  texts name the tool) and `+ admitWithoutContact(String node, String tool, Predicate<NodeId>
+  optIn, String optInKey)` (the same configuration checks up to the opt-in; **no version gate, no
+  client check**; for forget); the `ProcessAction` overload delegating with byte-identical texts;
   `application/WriteChallengeRegistry.java` `+ issue(String tool, NodeId node, …)` and `+
   redeem(String code, String tool, NodeId node, String fingerprint)`. Failing tests first in
   `application/WriteGuardTest.java` (every existing restart/kill expectation unchanged; the new
-  overload's order and texts; `NOT_CONFIGURED` only after the write checks; nothing sent) and
-  `application/WriteChallengeRegistryTest.java` (a node/tool code does not confirm another tool,
-  node, fingerprint or an `Operation` code; single use; expiry)
-- [ ] T047 [P] [US4] `application/nodetools/LogLevelAudit.java` (D-22, Constitution VII): tool
+  overload's order and texts; `NOT_CONFIGURED` only after the write checks; `admitWithoutContact`
+  refuses production without opt-in, `write.enabled: false` and a missing opt-in, and admits a
+  node pinned to 6.1 or without client home without calling the gate or the gateway (fake gate and
+  gateways record zero calls); nothing sent) and `application/WriteChallengeRegistryTest.java` (a
+  node/tool code does not confirm another tool, node, fingerprint or an `Operation` code; single
+  use; expiry)
+- [ ] T048 [P] [US4] `application/nodetools/LogLevelAudit.java` (D-22, Constitution VII): tool
   records (`PREVIEW`/`EXECUTE`, `CHALLENGE_ISSUED`, `PENDING`, `EXECUTED`, `FAILED`, `REFUSED`;
   inputs in fixed order; code as SHA-256 prefix; details) and automatic-reset records (`trigger`,
-  `leaseId`, outcome, reason; `PENDING` best effort). Failing tests first in
-  `application/nodetools/LogLevelAuditTest.java` (field order; no logger values beyond names and
-  levels; leak check)
-- [ ] T048 [US4] `application/nodetools/LogLevelService.set` (FR-040 … FR-043, FR-045, D-14, D-19;
-  after T042, T044–T047): the 12 steps of D-14 (input checks, write guard + opt-in + gate,
-  per-node lock, `RESET_FAILED` refusal, own-node lookup + other-node refusal, confirmation,
-  `PENDING`, write-ahead lease, StartCLI runs per logger, lease update with expiry from the
-  executed change, immediate reset on a failed run or a failed update, `EXECUTED` + result). Failing
-  tests first in `application/nodetools/LogLevelServiceSetTest.java` (fake port, fake clock, fake
-  store: US4-1 incl. expiry counted from the change and the result texts; US4-5 every input refusal
-  → nothing sent; US4-6 other node → refused naming both, nothing changed; US4-7 write disabled /
-  production / no opt-in → existing refusal or `NOT_CONFIGURED`, nothing sent; US4-11
-  `RESET_FAILED` → refused; `SERVER` confirmation: challenge, redeem, changed answering node
-  between preview and execution → `PRECONDITION_FAILED`; `CLIENT` → first call; merge of two sets
-  (edge case); a failed 2nd run → reset at once, lease `RESET`, `FAILED`; store update failure
-  after the change → reset at once, `INTERNAL`; `PENDING` unwritable → `INTERNAL`, nothing sent;
-  write-ahead failure → nothing sent; leak check)
-- [ ] T049 [US4] `LogLevelService.reset` and forget (FR-044, D-15; after T048): `node` form (guard,
-  lock, own-node lookup, other-node refusal, confirmation, `PENDING`, `trace --reset`, lease
-  `RESET`, result with `leaseOpen`), `leaseId` + `forget` form (no request; guards against the
-  lease server's group; state must be `RESET_FAILED`; unconfigured server refused; `FORGOTTEN`;
-  warning), every other input combination → `INVALID_INPUT`. Failing tests first in
-  `application/nodetools/LogLevelServiceResetTest.java` (US4-4, US4-8, US4-9; forget of an `ACTIVE`
-  lease, unknown id, unconfigured server → `INVALID_INPUT`; forget sends nothing (zero launches);
-  reset failure keeps the lease and records `lastAttempt`; leak check)
-- [ ] T050 [US4] `LogLevelService.cleanup` + `application/nodetools/LeaseScheduler.java` (FR-043 …
-  FR-045, SC-004, D-16; after T049): tick every 30 s (first at start) with decisions under the
-  store lock and resets outside it (per node in parallel, under `NodeLogLevelLocks`, one
-  `cliTimeout` deadline for own-node lookup + reset); cleanup preconditions without write guard;
-  takeover of leases whose owner is not alive; retries of `RESET_FAILED`; `FORGOTTEN` 7 days after
-  expiry for unconfigured servers; retention; audit per attempt; `shutdown(Duration)` idempotent.
-  Failing tests first in `application/nodetools/LeaseSchedulerTest.java` (fake clock, fake
-  liveness, fake port: US4-2 reset within one tick after expiry and lease `RESET` + audit; US4-3
-  orphaned expired lease reset at start, orphaned unexpired lease taken over and reset at expiry;
-  reset failure → `RESET_FAILED`, retried next tick; other node answers → `RESET_FAILED` with
-  `OTHER_NODE_ANSWERS`, nothing sent to StartCLI; **write tools off** (`write.enabled: false`,
-  opt-in removed, production opt-in removed) → cleanup still runs (owner decision); missing client
-  or credentials → `RESET_FAILED` `PRECONDITION`; US4-10 unconfigured server → `FORGOTTEN` after 7
-  days, audited; a busy store lock skips the tick; a live other owner's lease untouched; leak
-  check)
-- [ ] T051 [US4] Shutdown and startup integration (FR-043, FR-045, D-17; after T050): `Wiring.java`
-  creates `LeaseStore`, `LeaseScheduler` (started after construction), `resetLeasesOnShutdown()`
-  (idempotent), the shutdown hook runs it **before** `cliResources.close()`; `Launcher.java` calls
-  it after stdin closed **before** `wiring.stopCliWork()` and logs the startup lease lines (INFO
-  count, WARN per `RESET_FAILED` lease and per lease of an unconfigured server). Failing tests first
-  in new `LeaseShutdownWiringTest.java` (stdin closed → resets of own `ACTIVE` leases happen before
-  CLI work is stopped; parallel; bounded by the largest `cliTimeout`; a hanging reset leaves the
-  lease `ACTIVE`; the hook path does the same once), `MainTest.java` (startup log lines with a
-  seeded store; without a store file no lease line and no file created)
-- [ ] T052 [US4] Tools, schemas and wiring (FR-001, FR-040, D-6, D-25; after T049):
-  `mcp/tools/SetTemporaryLogLevelTool.java`, `ResetTemporaryLogLevelTool.java`
-  (`ToolHints.destructive(…)`, descriptions of contracts),
+  `leaseId`, `PENDING` then outcome and reason; a failed `PENDING` write is reported to the caller,
+  never swallowed). Failing tests first in `application/nodetools/LogLevelAuditTest.java` (field
+  order; no logger values beyond names and levels; `PENDING` write failure surfaces as an
+  exception; leak check)
+- [ ] T049 [US4] `application/nodetools/LogLevelService.set` (FR-040 … FR-043, FR-045, D-14, D-19;
+  after T042, T045–T048): the 12 steps of D-14 (input checks, write guard + opt-in + gate, **node
+  lock** from step 3 to step 12, `RESET_FAILED` refusal, own-node lookup + other-node refusal,
+  confirmation, `PENDING`, write-ahead lease (generation + 1), StartCLI runs per logger, lease
+  update with expiry from the executed change, immediate reset on a failed run or a failed update,
+  `EXECUTED` + result). Failing tests first in
+  `application/nodetools/LogLevelServiceSetTest.java` (fake port, fake clock, fake store: US4-1
+  incl. expiry counted from the change and the result texts; US4-5 every input refusal → nothing
+  sent; US4-6 other node → refused naming both, nothing changed; US4-7 write disabled / production /
+  no opt-in → existing refusal or `NOT_CONFIGURED`, nothing sent; US4-11 `RESET_FAILED` → refused;
+  `SERVER` confirmation: challenge (node lock released), redeem, changed answering node or lease
+  generation between preview and execution → `PRECONDITION_FAILED`; `CLIENT` → first call; merge
+  of two sets (edge case); node lock held by another instance → `PRECONDITION_FAILED`, nothing
+  sent; a failed 2nd run → reset at once, lease `RESET`, `FAILED`; store update failure after the
+  change → reset at once, `INTERNAL`; `PENDING` unwritable → `INTERNAL`, nothing sent; write-ahead
+  failure → nothing sent; leak check)
+- [ ] T050 [US4] `LogLevelService.reset` and forget (FR-044, D-15; after T049): `node` form (write
+  guard, node lock, own-node lookup, other-node refusal, confirmation, `PENDING`, `trace --reset`,
+  lease `RESET`, result with `leaseOpen`), `leaseId` + `forget` form through
+  `WriteGuard.admitWithoutContact` (no request; state must be `RESET_FAILED`; unconfigured server
+  refused; `FORGOTTEN`; warning), every other input combination → `INVALID_INPUT`. Failing tests
+  first in `application/nodetools/LogLevelServiceResetTest.java` (US4-4, US4-8, US4-9; **US4-6**
+  another node answers than the open (or failed) lease names → refused naming both, no `trace
+  --reset`; **US4-7** for reset and for forget: `write.enabled: false`, production without
+  `write.productionOptIn`, no `logLevelWrite` → existing refusal or `NOT_CONFIGURED`, nothing
+  sent; forget of an `ACTIVE` lease, unknown id, unconfigured server → `INVALID_INPUT`; forget sends
+  nothing (zero launches, zero gate calls); reset failure keeps the lease and records `lastAttempt`;
+  leak check)
+- [ ] T051 [US4] `LogLevelService.cleanup` for one lease (FR-043, D-16 "Cleanup of one lease",
+  D-22; after T050): node lock (busy → skipped), generation re-check under the store lock (changed
+  or no longer open → nothing sent), cleanup preconditions **without** write guard, fail-closed
+  `PENDING` audit, own-node lookup, `trace --reset` within one `cliTimeout` deadline,
+  compare-and-set to `RESET` / `RESET_FAILED` with reason, final audit. Failing tests first in
+  `application/nodetools/LogLevelServiceCleanupTest.java` (fake port, store, audit, clock: expired
+  lease → reset, `RESET`, audit `PENDING` + `EXECUTED`; **write tools off** (`write.enabled:
+  false`, opt-in removed, production opt-in removed) → cleanup still runs (owner decision); missing
+  client or credentials → `RESET_FAILED` `PRECONDITION`, nothing sent; other node answers →
+  `RESET_FAILED` `OTHER_NODE_ANSWERS`, no StartCLI run; reset failure → `RESET_FAILED`
+  `NODE_UNREACHABLE`; **audit `PENDING` not writable → nothing sent, state unchanged with reason
+  `AUDIT_NOT_WRITABLE`, ERROR logged**; **set during the reset decision**: a set merges into the
+  lease after the cleanup was decided (generation g → g + 1) → the cleanup sends nothing and the
+  lease stays `ACTIVE` with the new expiry and loggers; a set holding the node lock → the cleanup
+  is skipped without contacting INUBIT; leak check)
+- [ ] T052 [US4] `application/nodetools/LeaseScheduler.java` (FR-043 … FR-045, SC-004, D-16; after
+  T046, T051): tick every 30 s (first at start); decisions under the store lock (cleanup, takeover
+  with generation + 1 and audit, `FORGOTTEN` 7 days after expiry for unconfigured servers with
+  audit, retention), cleanups outside it per node in parallel; busy store lock → tick skipped;
+  `shutdown(Duration)` idempotent. Failing tests first in
+  `application/nodetools/LeaseSchedulerTest.java` (fake clock, fake liveness, fake port: US4-2
+  reset within one tick after expiry; US4-3 and the creator decision: orphaned expired lease reset
+  at start, orphaned unexpired lease taken over at once and reset at its expiry; `RESET_FAILED`
+  retried next tick; `AUDIT_NOT_WRITABLE` retried next tick; US4-10 unconfigured server →
+  `FORGOTTEN` after 7 days, audited, startup warning until then; a live other owner's lease
+  untouched; ended leases removed after 7 days) and new
+  `application/nodetools/LeaseTwoInstanceTest.java` (**two fake instances**, each with its own
+  `LeaseStore`, `NodeLogLevelLocks`, `LogLevelService`, scheduler and `ProcessLiveness` identity, on
+  the same directory: instance A sets, instance B's tick sees A alive and leaves the lease; A
+  merges a set while B decides a takeover after A "died" → B's cleanup sends nothing for the
+  changed generation and ends the lease only on its next tick at the new expiry; both ticks at once
+  → exactly one `trace --reset` per expiry; no lease lost or duplicated)
+- [ ] T053 [US4] Shutdown and startup integration (FR-043, FR-045, D-17; after T052): `Wiring.java`
+  creates `LeaseStore`, `NodeLogLevelLocks`, `LeaseScheduler` (started after construction),
+  `resetLeasesOnShutdown()` (idempotent; `cleanup` with trigger `shutdown` for own open leases,
+  parallel, bounded by the largest `cliTimeout`), the shutdown hook runs it **before**
+  `cliResources.close()`; `Launcher.java` calls it after stdin closed **before**
+  `wiring.stopCliWork()` and logs the startup lease lines (INFO count, WARN per `RESET_FAILED` lease
+  and per lease of an unconfigured server). Failing tests first in new
+  `LeaseShutdownWiringTest.java` (stdin closed → resets of own `ACTIVE` leases happen before CLI
+  work is stopped; parallel; bounded by the largest `cliTimeout`; a hanging reset leaves the lease
+  `ACTIVE`; audit not writable at shutdown → nothing sent, lease kept; the hook path does the same
+  once), `MainTest.java` (startup log lines with a seeded store; without a store file no lease line
+  and no file created)
+- [ ] T054 [US4] Tools, schemas and wiring (FR-001, FR-003, FR-040, D-6, D-25; after T053, same
+  `Wiring.java` and `MainTest.java`): `mcp/tools/SetTemporaryLogLevelTool.java`,
+  `ResetTemporaryLogLevelTool.java` (`ToolHints.destructive(…)`, descriptions of contracts),
   `src/main/resources/schemas/set_temporary_log_level.{input,output}.json`,
   `reset_temporary_log_level.{input,output}.json` (`oneOf` of the two reset forms),
   `Wiring.java` announcement (effective write access + `logLevelWrite` + capable + client) and
   `allowed()` (`LOG_LEVEL_WRITE`). Failing tests first in
   `mcp/tools/SetTemporaryLogLevelToolTest.java`, `ResetTemporaryLogLevelToolTest.java` (schemas:
   logger pattern, 6 loggers, duplicate, level, duration 0/61, reset combinations; output examples
-  validate; description phrases "every temporary level on that node, also other users'"),
+  validate; description phrases: the FR-003 sentence "unsupported, undocumented INUBIT
+  functionality", "without vendor support or stability guarantee", "for diagnosis only", and
+  "every temporary log level on that node, also those other users set"),
   `ToolAnnouncementTest.java` (not offered without write access or without the opt-in; offered with
   both), new `LogLevelWiringTest.java` (write disabled → `WRITE_DISABLED`, nothing sent),
   `MainTest.java` (after T036)
-- [ ] T053 [P] [US4] `get_health` leases (FR-045, D-23; after T044): `domain/model/HealthReport.java`
-  `+ temporaryLogLevels`, `application/HealthService.java` reads `LeaseView` (wait ≤ 2 s; failure →
-  report warning), `src/main/resources/schemas/get_health.output.json` `+ $defs/Lease`. Failing
-  tests first in `application/HealthServiceTest.java` (open and failed leases shown per node,
-  ended ones not; shown with write tools off; unreadable store → warning, no error; absent field
-  without leases) and `mcp/tools/GetHealthToolTest.java` (output validates; golden output without
-  leases unchanged)
-- [ ] T054 [P] [US4] `--check-config` and summary leases (FR-045, D-23; after T044):
-  `config/ConfigSummary.java` section `Temporary log levels:` (contracts/configuration-delta.md;
-  read-only; unconfigured servers with the forget date; unreadable store warning), `Launcher.java`
-  `--check-config` passes the store read-only. Failing tests first in
-  `config/ConfigSummaryTest.java` (no store → no section, golden texts unchanged; seeded store →
-  lines; unconfigured server; unreadable store) and `MainTest.java` `--check-config` (no reset, no
-  takeover, store file unchanged)
-- [ ] T055 [US4] Contract test (after T052): `NodeToolsV81ContractTest` `+` every `v8_1/log-level`
+- [ ] T055 [US4] `get_health` leases (FR-045, D-23; after T054, same `Wiring.java`):
+  `domain/model/HealthReport.java` `+ temporaryLogLevels` (`LeaseSummary`), `application/HealthService.java`
+  reads `LeaseView` (wait ≤ 2 s; failure → report warning), `Wiring.java` passes the `LeaseStore`
+  (as `LeaseView`) into `HealthService`, `src/main/resources/schemas/get_health.output.json`
+  `+ $defs/LeaseSummary`. Failing tests first in `application/HealthServiceTest.java` (open and
+  failed leases shown per node, ended ones not; shown with write tools off; unreadable store →
+  warning, no error; absent field without leases), `mcp/tools/GetHealthToolTest.java` (output
+  validates; golden output without leases unchanged) and a wired test in `LogLevelWiringTest.java`
+  (a seeded store's lease appears in `get_health` through the real `Wiring`, also with
+  `write.enabled: false`)
+- [ ] T056 [US4] `--check-config` and summary leases (FR-045, D-23; after T055, same `Launcher.java`
+  and `MainTest.java`): `config/ConfigSummary.java` section `Temporary log levels:`
+  (contracts/configuration-delta.md; read-only; unconfigured servers with the forget date;
+  unreadable store warning), `Launcher.java` `--check-config` passes the store read-only. Failing
+  tests first in `config/ConfigSummaryTest.java` (no store → no section, golden texts unchanged;
+  seeded store → lines; unconfigured server; unreadable store) and `MainTest.java` `--check-config`
+  (no reset, no takeover, store file unchanged)
+- [ ] T057 [US4] Contract test (after T056): `NodeToolsV81ContractTest` `+` every `v8_1/log-level`
   case through `CliLogLevelAdapter` + `LogLevelService` (test matrix): `set_ok` → lease and result;
   `reset_ok`; `missing_level` → `UNEXPECTED_RESPONSE` and an immediate reset; `login_failure` →
   `AUTH_FAILED`; `forbidden` → `FORBIDDEN`
-- [ ] T056 [US4] **[OWNER]** **[BLOCKED: T039, T025]** Enable 8.1 `log_level_write` in **one
+- [ ] T058 [US4] **[OWNER]** **[BLOCKED: T039, T025]** Enable 8.1 `log_level_write` in **one
   commit**: neutralize the T039 StartCLI outputs (paths, host names, logger → `com.inubit.ibis.acme`)
   into `v8_1/log-level/set_ok.*` and `reset_ok.*` (`recorded …`); if the confirmation form or the
   long option names differ from T040/T041, fix them test-first before the flip; the own-node lookup
   is covered by the recorded `ownNode`/`clusterNodes` frames of T025; **owner reviews the fixture
   diff**; 8.1 `LOG_LEVEL_WRITE` → `SUPPORTED`, same test updates as T025
 
-**Checkpoint**: build green; US4 end to end offline incl. scheduler, shutdown and startup; code
-review of Phase 6.
+**Checkpoint**: build green; US4 end to end offline incl. cleanup, scheduler, two instances,
+shutdown and startup; code review of Phase 6.
 
 ## Phase 7: User Story 5 – Right implementation per INUBIT version (P3)
 
@@ -613,29 +676,29 @@ versions above 9.0, undetectable versions and "not yet verified" versions (FR-00
 **Independent test**: one profile with 8.1, 9.0 and 6.1 nodes; each tool uses the matching client
 on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
 
-- [ ] T057 [US5] Version selection across the five tools (US5-1 … US5-3; after T052):
+- [ ] T059 [US5] Version selection across the five tools (US5-1 … US5-3; after T054):
   new `application/nodetools/NodeToolsVersionSelectionTest.java` (test matrix: 8.1 → 8.1 client and
   `SOAP_81`, 9.0 → 9.0 client and `REST_90` for the helper and the 9.0 StartCLI for the log level;
   6.1, 9.1, undeclared → `UNSUPPORTED_VERSION` naming the supported lines, nothing sent; an
   undetectable version → the detection's code, nothing sent; production matrix → "not yet verified"
   for every unflipped (version, capability)); fixes in adapters or services test-first
-- [ ] T058 [US5] **[LIVE] [OWNER]** 9.0 read spike (as T018 against the non-production 9.0 test
+- [ ] T060 [US5] **[LIVE] [OWNER]** 9.0 read spike (as T018 against the non-production 9.0 test
   server with the 9.0 client on Java 21; the throw-away runner compares the version get_health
   reported just before with 9.0 and refuses a mismatch); findings appended to "Spike findings"
-- [ ] T059 [US5] **[LIVE] [OWNER]** 9.0 log-level write spike (as T039 for 9.0; the owner approves
+- [ ] T061 [US5] **[LIVE] [OWNER]** 9.0 log-level write spike (as T039 for 9.0; the owner approves
   exactly that action)
-- [ ] T060 [US5] **[OWNER]** **[BLOCKED: T058]** Enable 9.0 `cluster_nodes_read` in **one commit**:
+- [ ] T062 [US5] **[OWNER]** **[BLOCKED: T060]** Enable 9.0 `cluster_nodes_read` in **one commit**:
   neutralize as T025 into `v9_0/cluster-nodes/ok.*`; new `adapter/cli/node/NodeToolsV90ContractTest.java`
   (all v9_0 cluster-nodes cases incl. reconstructed ones and the REST client's stdout noise outside
   frames); **owner reviews the fixture diff**; 9.0 `CLUSTER_NODES_READ` → `SUPPORTED`; catalogue,
   matrix, announcement and `MainTest` updated first
-- [ ] T061 [US5] **[OWNER]** **[BLOCKED: T058, T060]** Enable 9.0 `io_log_read` in **one commit** (as
+- [ ] T063 [US5] **[OWNER]** **[BLOCKED: T060, T062]** Enable 9.0 `io_log_read` in **one commit** (as
   T032 for `v9_0/io-log`; `NodeToolsV90ContractTest` extended)
-- [ ] T062 [US5] **[OWNER]** **[BLOCKED: T058, T060]** Enable 9.0 `node_config_read` in **one
+- [ ] T064 [US5] **[OWNER]** **[BLOCKED: T060, T062]** Enable 9.0 `node_config_read` in **one
   commit** (as T038 for `v9_0/node-config`; `noOfRetries`/`retryInterval` present on 9.0)
-- [ ] T063 [US5] **[OWNER]** **[BLOCKED: T059, T060]** Enable 9.0 `log_level_write` in **one commit**
-  (as T056 for `v9_0/log-level`)
-- [ ] T064 [US5] **[OWNER]** FR-005 fallback (only for a 9.0 capability whose recording could not be
+- [ ] T065 [US5] **[OWNER]** **[BLOCKED: T061, T062]** Enable 9.0 `log_level_write` in **one commit**
+  (as T058 for `v9_0/log-level`)
+- [ ] T066 [US5] **[OWNER]** FR-005 fallback (only for a 9.0 capability whose recording could not be
   made): it stays `UNSUPPORTED` "not yet verified"; `NodeToolsVersionSelectionTest` and the docs
   state it; the owner confirms; noted in `reviews/implementation.md`
 
@@ -645,7 +708,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
 
 ### Live check (gates the feature; SC-001, SC-002, SC-004; D-29)
 
-- [ ] T065 Live test code (offline part; after T052): `live/NodeToolsLiveTest.java` (`@Tag("live")`,
+- [ ] T067 Live test code (offline part; after T054): `live/NodeToolsLiveTest.java` (`@Tag("live")`,
   `-Plive`, production refused by `live/LiveTarget.java`; `INUBIT_LIVE_NODE`, optional
   `INUBIT_LIVE_IO_PROCESS=<workflow>/<processId>`, `INUBIT_LIVE_LOG_LEVEL=approved` for the write
   part; skipped without them; read tools through the wired server: node list < 10 s with the
@@ -656,24 +719,24 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   (feature 024)" plus a row in the tests table. Failing tests first in
   `live/NodeToolsLiveTestSupportTest.java` (env parsing; the write part never runs without the
   flag; production refused)
-- [ ] T066 **[LIVE] [OWNER]** 8.1 live check (quickstart "Live check" steps 1–4; after T025, T032,
-  T038, T056, T065): after the operator approved the concrete run (non-production 8.1 test node of
+- [ ] T068 **[LIVE] [OWNER]** 8.1 live check (quickstart "Live check" steps 1–4; after T025, T032,
+  T038, T058, T067): after the operator approved the concrete run (non-production 8.1 test node of
   an opted-in test group with write access in a private copy of the profile; the write part only
   with the owner's approval of that run), `mvn -Plive -Dtest=NodeToolsLiveTest verify`; by hand:
   the persistent trace state unchanged (get_health `systemInfo`), the MCP server log contains no
   value or message text; result rows in the quickstart validation record (fictitious ids only)
-- [ ] T067 **[LIVE] [OWNER]** 9.0 live check (as T066 for every 9.0 capability enabled; after
-  T060–T063 or T064, T065)
+- [ ] T069 **[LIVE] [OWNER]** 9.0 live check (as T068 for every 9.0 capability enabled; after
+  T062–T065 or T066, T067)
 
 ### Documentation (D-31)
 
-- [ ] T068 [P] `docs/setup.md` (FR-003, FR-042, FR-043; after T004): `### Unsupported functions` rows
+- [ ] T070 [P] `docs/setup.md` (FR-003, FR-042, FR-043; after T005): `### Unsupported functions` rows
   and example for the four keys and the verbatim text of contracts/configuration-delta.md
   (incl. the cleanup-reset exception and the "address one node directly" precondition); the
   validation texts; section 6 summary examples with the new group parts and the `Temporary log
   levels:` section. Failing test first: new `config/NodeToolsDocsTest.java` (the bold sentences and
   the production-warning texts present)
-- [ ] T069 [P] `docs/tools.md` (FR-003, D-25, D-31; after T052 and the flips or T064): sections
+- [ ] T071 [P] `docs/tools.md` (FR-003, D-25, D-31; after T054 and the flips or T066): sections
   `## list_cluster_nodes`, `## read_io_log`, `## get_node_config`, `## set_temporary_log_level`,
   `## reset_temporary_log_level` (each starting with the tool description and a link to setup
   "Unsupported functions"; inputs with limits; outputs and variants; bounds; masking and its
@@ -683,17 +746,17 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   announcement rules; `list_nodes` names. `NodeToolsDocsTest` extended first (short forms in the
   tool descriptions and docs; the documented 8.1/9.0 states match `CapabilityMatrix.production()`;
   the 20 configuration names listed equal `NodeConfigName`)
-- [ ] T070 `README.md` tool table rows for the five tools and announcement rows; `SECURITY.md`: I/O
+- [ ] T072 `README.md` tool table rows for the five tools and announcement rows; `SECURITY.md`: I/O
   messages (business and personal data; masking limits), the lease store (owner-only; names and
   times only), the cleanup resets while write access is off (owner-approved exception), the
   answering-node lookup through an unsupported interface; `NodeToolsDocsTest` asserts the README
-  rows (after T069, same test file)
-- [ ] T071 [P] `CHANGELOG.md` `[Unreleased]`: Added — the five tools (unsupported, opt-in per group,
+  rows (after T071, same test file)
+- [ ] T073 [P] `CHANGELOG.md` `[Unreleased]`: Added — the five tools (unsupported, opt-in per group,
   diagnosis only; the log-level tools as write tools with automatic reset), the four
   `unsupported.*` keys, `get_health` `temporaryLogLevels`, `list_nodes` names, the summary parts
   and the `Temporary log levels:` section; the 8.1 / 9.0 state per capability; Changed (internal) —
   `EntryText` extracted from `read_queue_entry`, `WriteGuard`/`WriteChallengeRegistry` overloads
-- [ ] T072 Feature 022 integration (D-18; only if 022 is merged before this feature, else noted in
+- [ ] T074 Feature 022 integration (D-18; only if 022 is merged before this feature, else noted in
   `reviews/implementation.md` as 022's task): rebase; `src/main/resources/coverage/interface-coverage.tsv`
   rows `trace -nl` (reachable, `set_temporary_log_level`), `trace -r` (reachable,
   `reset_temporary_log_level`), `cachemode nodelist` (not used: answering node via the helper);
@@ -702,7 +765,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
 
 ### Full verification
 
-- [ ] T073 Full verification (after all other tasks): `mvn -B clean verify
+- [ ] T075 Full verification (after all other tasks): `mvn -B clean verify
   -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-024-tmp` and `python3 -I -m unittest discover -s
   tools/tests -v` green; `python3 -I tools/check-identifiers.py --all` (exit 0) and
   `NoCustomerIdentifiersTest` with the private lists green; `unzip -l target/inubit-mcp-server-*.jar`
@@ -715,43 +778,48 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
 ## Dependencies
 
 - **Phase 1**: T001 first; T002 any time after T001.
-- **Phase 2 blocks every story.** T003 ∥ T005 → T004 (needs both). T006 → T009 → T010 → T011 →
-  T012 (same helper file); T007 ∥ T008 ∥ T006 (T009 needs T008). T013 ∥ T014 (T006 may create
-  `NodeConfigName` and a minimal `IoMessageRef` first) → T015 → T016 (also needs T006, T007).
-  T017 any time after T001.
-- **US1** (after Phase 2): T019 (needs T009) → T020 → T021 → T022 → T023 → T024; T025 **blocked by
+- **Phase 2 blocks every story.** T003 ∥ T004 → T005 (needs both). T006 ∥ T007 → T008 (the
+  request types use `NodeConfigName` and `IoMessageRef`); T008 → T011 → T012 → T013 → T014 (same
+  helper file); T009 ∥ T010 ∥ T008 (T011 needs T010). T015 needs T006, T007; T016 needs T008, T009,
+  T015. T017 any time after T001.
+- **US1** (after Phase 2): T019 (needs T011) → T020 → T021 → T022 → T023 → T024; T025 **blocked by
   T018** and needs T024.
-- **US2** (after Phase 2; T030 after T023 for `MainTest`): T026 (needs T011, T019) → T027 → T028 →
-  T029 → T030 → T031; T032 **blocked by T018**, needs T031.
-- **US3** (after Phase 2; T036 after T030): T033 (needs T010, T019) → T034 → T035 → T036 → T037;
-  T038 **blocked by T018**, needs T037.
-- **US4** (after Phase 2; T052 after T036): T040 ∥ T041 ∥ T043 ∥ T045 ∥ T047; T042 needs T016,
-  T040, T041; T044 needs T043; T046 any time after T005; T048 needs T042, T044–T047; T049 → T050 →
-  T051; T052 needs T049; T053 and T054 need T044 (parallel to T048–T052); T055 needs T052; T056
-  **blocked by T039** and needs T055 and T025.
-- **US5** (after US1–US4 code): T057 needs T052; T060 **blocked by T058**, needs T057 and T025;
-  T061/T062 need T060 and T032/T038; T063 **blocked by T059**, needs T060 and T056; T064 only
+- **US2** (after Phase 2 and US1's T019/T023): T026 (needs T013, T019; same catalogue test) →
+  T027 (same `NodeFramesClassifier` as T020) → T028 → T029 → T030 (after T023: `MainTest.java`,
+  `Wiring.java`) → T031; T032 **blocked by T018**, needs T031.
+- **US3** (after US2's T026/T027/T030): T033 (needs T012; after T026, same catalogue test) → T034
+  (after T027, same `NodeFramesClassifier`) → T035 → T036 (after T030) → T037; T038 **blocked by
+  T018**, needs T037.
+- **US4** (after Phase 2): T040 ∥ T043 ∥ T044 ∥ T046 ∥ T047 ∥ T048; T041 after T033 (catalogue test);
+  T042 needs T016, T040, T041; T045 needs T043, T044; T049 needs T042, T045–T048; then strictly
+  T049 → T050 → T051 → T052 → T053 → T054 → T055 → T056 → T057 (T053–T056 share `Wiring.java`,
+  `Launcher.java` and `MainTest.java`; T054 also after T036); T058 **blocked by T039** and needs
+  T057 and T025.
+- **US5** (after US1–US4 code): T059 needs T054; T062 **blocked by T060**, needs T059 and T025;
+  T063/T064 need T062 and T032/T038; T065 **blocked by T061**, needs T062 and T058; T066 only
   instead of a 9.0 flip.
-- **Recordings** T018, T039, T058, T059 need only T001 and the operator's approval (T039/T059: of
+- **Recordings** T018, T039, T060, T061 need only T001 and the operator's approval (T039/T061: of
   the concrete write action); they run in parallel to the offline work. Until the flips the
   corresponding (version, capability) stays "not yet verified" in the production matrix.
-- **Phase 8**: T065 needs T052; T066 needs T025, T032, T038, T056, T065; T067 needs (T060–T063 or
-  T064), T065; T068 needs T004; T069 needs T052 and the flips or T064; T070 needs T069; T071 needs
-  the flips or T064; T072 only if 022 merged first; T073 needs all others.
+- **Phase 8**: T067 needs T054; T068 needs T025, T032, T038, T058, T067; T069 needs (T062–T065 or
+  T066), T067; T070 needs T005; T071 needs T054 and the flips or T066; T072 needs T071; T073 needs
+  the flips or T066; T074 only if 022 merged first; T075 needs all others.
 - Story completion order: US1 (MVP) → US2 → US3 → US4 → US5. The feature is complete only when
-  T025, T032, T038, T056 and T066 are done and, per 9.0 capability, either its flip (T060–T063) or
-  T064 (FR-005, SC-001, SC-004).
+  T025, T032, T038, T058 and T068 are done and, per 9.0 capability, either its flip (T062–T065) or
+  T066 (FR-005, SC-001, SC-004).
 
 ## Parallel opportunities
 
-- **Phase 2**: T003 ∥ T005 ∥ T007 ∥ T008 ∥ T013 ∥ T014 ∥ T017 alongside the helper chain T006 → T012.
-- **US1**: the spike T018 alongside everything; T019 alongside T020's test writing.
-- **US2/US3**: T026 ∥ T033 (different fixture folders); adapters T027 ∥ T034; services T028 ∥ T035;
-  tools/wiring sequential (`MainTest.java`, `Wiring.java`).
-- **US4**: T040 ∥ T041 ∥ T043 ∥ T045 ∥ T047 ∥ T046; T053 ∥ T054 alongside T048–T051; the spike T039
-  alongside everything after the owner's approval.
-- **US5**: T058 ∥ T059 (operator) alongside US1–US4 work.
-- **Polish**: T068 ∥ T069 ∥ T071, then T070.
+- **Phase 2**: T003 ∥ T004 ∥ T006 ∥ T007 ∥ T009 ∥ T010 ∥ T017; then the helper chain T008 → T014
+  alongside T015 → T016.
+- **US1**: the spike T018 alongside everything; T019's fixtures alongside T020's test writing.
+- **US2/US3**: only the services T028 ∥ T035 and the spikes run in parallel; fixtures, classifier
+  rules, tools and wiring are sequential (shared `NodeToolsFixtureCatalogueTest`,
+  `NodeFramesClassifier`, `Wiring.java`, `MainTest.java`).
+- **US4**: T040 ∥ T043 ∥ T044 ∥ T046 ∥ T047 ∥ T048; the spike T039 alongside everything after the
+  owner's approval; T049–T057 sequential.
+- **US5**: T060 ∥ T061 (operator) alongside US1–US4 work.
+- **Polish**: T070 ∥ T071 ∥ T073, then T072.
 - Builds always sequential (one `mvn` at a time, shared tmpdir).
 
 ## Implementation strategy
@@ -763,7 +831,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
 - **Increment 4 = US4** (log level with leases): enabled for 8.1 after the approved write spike.
 - **Increment 5 = US5**: 9.0 per capability, or the FR-005 fallback.
 - **Finish**: live checks, docs, full verification.
-- Ask the operator for the read spikes (T018, T058) right after T001 and propose the write spikes
-  (T039, T059) as soon as the concrete action can be named, so no recording blocks the offline
+- Ask the operator for the read spikes (T018, T060) right after T001 and propose the write spikes
+  (T039, T061) as soon as the concrete action can be named, so no recording blocks the offline
   work; each phase ends green and reviewed; owner and live gates are reported when reached, not
   batched at the end.

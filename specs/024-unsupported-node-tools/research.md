@@ -87,13 +87,17 @@ unsupported API, against FR-007).
   - `node ok <name>` / `node error <chain> <message>` (from 021; now the first frame after
     `login ok` of every new operation; after `node error` the helper writes `end` without further
     calls);
-  - `clusterNodes`: per element of `getNodes()` one `member <name> <status> <version> <zone>
-    <nodeId> <uptimeMs>` (`-` for `null`; `status` is the enum constant's `name()`, any text), then
-    `members ok <count>` or `members error <chain> <message>`; with `details`: if the name is
+  - `clusterNodes`: per element of `getNodes()`, for the first 200 only, one `member <name>
+    <status> <version> <zone> <nodeId> <uptimeMs>` (`-` for `null`; `status` is the enum
+    constant's `name()`, any text; every token cut at 200 characters), then `members ok <count>`
+    (`count` = all elements) or `members error <chain> <message>`; with `details`: if the name is
     not among the members → `details unknown` (no request); else per flattened node-information
     entry `detail <key> <value>` (at most 500 entries, key ≤ 200 and value ≤ 4,000 characters,
-    longer ones cut by the helper with the token `cut` appended) and `details ok <count>`, or
-    `details error <chain> <message>`;
+    longer ones cut by the helper with the token `cut` appended; **total budget 256 KiB** of
+    encoded `detail` frames — when the next frame would exceed it, the helper stops) and
+    `details ok <count> <truncated>` (`truncated` = `true` when the entry cap or the budget
+    stopped it), or `details error <chain> <message>`. With 200 `member` frames of ≤ 1 KiB each
+    and the budget, a `clusterNodes` answer stays far below the 1 MiB stdout cap of 020;
   - `nodeConfig`: per name `config <name> ok <type> <editable> <deprecated> <displayName>
     <category> <description> <value>` (`type` = simple class name of `getType()`, flags
     `true`/`false`, value = `getStringValue()`), `config <name> absent` (`null` answer) or
@@ -225,13 +229,14 @@ recorded before the write would enable both).
   `UNEXPECTED_RESPONSE`). `version`, `zone`, `nodeId` ≤ 200 chars each; `uptime` from `uptimeMs` as
   `uptimeSeconds` (integer) and `uptime` (ISO-8601 duration, seconds precision); absent for a node
   without answer.
-- Order as returned; at most 200 nodes listed, `total` always (cap documented; clusters are far
-  smaller).
+- Order as returned; at most 200 nodes listed, `total` always and a top-level `truncated`
+  (`true` when more than 200 nodes were returned; cap documented, clusters are far smaller).
 - `nodeName`: the schema allows 1–128 chars of `[A-Za-z0-9_.:-]`; the helper checks it against
   `getNodes()` and answers `details unknown` → `INVALID_INPUT` naming the listed nodes (at most 20,
   "and n more"). The name never reaches INUBIT unless it is a listed member.
 - Details: `[{key, value}]` in the received order; values masked (D-21), key ≤ 200 and value
-  ≤ 2,000 characters after masking (cut marker `…[cut]`), at most 500 pairs (`detailsTruncated`);
+  ≤ 2,000 characters after masking (cut marker `…[cut]`), at most 500 pairs; `details.truncated`
+  is `true` when the helper's entry cap or 256 KiB budget stopped the pairs (D-2);
   warning "The node details contain internal addresses and file paths of the INUBIT
   installation". `details error` → the list is returned with `details: {"available": false,
   "reason": "<scrubbed, ≤ 200 chars>"}` (edge case).
@@ -320,11 +325,12 @@ and shutdown (`CliResources` reservation, as 020).
   (the `CommandResult("OK")` output; reconstructed as `1-OK:` until the write spike T039 records it, as 021's T023
   did). `Missing log level.`, any `Exception`/error marker → `UNEXPECTED_RESPONSE` naming StartCLI.
 
-## D-12 Lease store (FR-043, FR-045)
+## D-12 Lease store and locks (FR-043, FR-045)
 
 **Decision**: `application/nodetools/LeaseStore`, one file per profile:
 `~/.inubit-mcp/<profile>/log-levels/leases.json` (the profile's data directory, as
-`DeploymentLedger`/`BackupStore`), lock file `~/.inubit-mcp/<profile>/log-levels/.lock`.
+`DeploymentLedger`/`BackupStore`), store lock file `~/.inubit-mcp/<profile>/log-levels/.lock`,
+per-node lock files `~/.inubit-mcp/<profile>/log-levels/nodes/<group>.<node>.lock`.
 
 ```json
 {
@@ -332,6 +338,7 @@ and shutdown (`CliResources` reservation, as 020).
   "leases": [
     {
       "leaseId": "3f2b8a1e-0c4d-4e7a-9b1f-2a6c5d8e9f01",
+      "generation": 3,
       "server": "test/node1",
       "inubitNode": "node1",
       "loggers": { "com.inubit.ibis.acme.Orders": "DEBUG" },
@@ -349,24 +356,42 @@ and shutdown (`CliResources` reservation, as 020).
 
 - Names, levels, ids and times only; never credentials or log content (`Lease` validates each
   field: server id pattern, node-name rule of D-3, `LoggerName`, UUIDs).
-- Owner-only through `PrivateFileSystem` (directory `rwx------`, file `rw-------`; Windows ACL);
+- **Generation**: every update of a lease (merge, executed, takeover, attempt, end) increments
+  `generation` (starts at 1). A reset decided on generation `g` may end the lease only if it still
+  has generation `g` (compare-and-set under the store lock, D-16); otherwise the outcome is not
+  written and the lease is left for the next tick.
+- Owner-only through `PrivateFileSystem` (directory `rwx------`, files `rw-------`; Windows ACL);
   written to a private temporary file in the same directory and moved atomically (as
   `DeploymentLedger`); a symbolic link at either path is refused.
-- Locking: in-process `ReentrantLock` per store path, then `FileChannel.tryLock` on `.lock`, polled
-  every 50 ms up to the caller's wait (the `KnowledgeLock` pattern, feature 019 D-12). Every
-  read-modify-write holds it; StartCLI and helper runs never run under it.
+- **Locks — one implementation**: the lock of feature 019 (`application/knowledge/KnowledgeLock`:
+  in-process `ReentrantLock` per lock-file path, then `FileChannel.tryLock` polled every 50 ms up
+  to the caller's wait, lock file created owner-only, never followed through a link, never deleted)
+  is generalized into `application/OwnerOnlyFileLock` (lock-file path, wait, the caller's busy
+  error); `KnowledgeLock` delegates to it with byte-identical texts (`KnowledgeLockTest`
+  unchanged). Two uses:
+  - the **store lock** (`.lock`): held for every read-modify-write of `leases.json`, never while
+    a helper or StartCLI process runs (short);
+  - the **node lock** (`nodes/<group>.<node>.lock`, `NodeLogLevelLocks`): a cross-process lock per
+    server, held by a set, a reset and a cleanup reset **around the own-node lookup and the
+    StartCLI run(s)** including the write-ahead lease and the final lease update; so across all
+    instances of the profile at most one change runs per server at a time. Order is always node
+    lock, then store lock (no deadlock).
 - An unreadable or invalid file is **never overwritten**: sets refuse `PRECONDITION_FAILED`
   ("the lease store … cannot be read; fix or move it"), resets with `node` still run (they need no
   record) and report that no lease could be updated, the scheduler logs a WARN once per hour,
   `get_health` and `--check-config` show a warning.
 - Retention: `RESET` and `FORGOTTEN` leases are removed 7 days after `endedAt` (FR-045).
-- No configuration setting; the file is created only by the first set.
+- No configuration setting; the files are created only by the first set (the node lock file of a
+  reset or cleanup only when that runs).
 
 **Rationale**: durable across restarts and instances, readable by `--check-config`, same safety
-rules as the existing owner-only state files.
+rules as the existing owner-only state files; the generation plus the node lock close the
+two-instance race (a reset decided by one instance while another merges a set).
 
 **Alternatives rejected**: one file per lease (no atomic multi-lease update for takeovers); the
-audit log as the store (append-only, not queryable under a lock); memory only (FR-043: durable).
+audit log as the store (append-only, not queryable under a lock); memory only (FR-043: durable);
+an in-process node lock only (does not serialize two instances); a second lock implementation next
+to `KnowledgeLock` (duplicate subtle code).
 
 ## D-13 Owner identity and takeover
 
@@ -388,79 +413,107 @@ directory shared between machines is not supported).
 2. Write guard (D-18): single server, production lock, `write.enabled`, then
    `unsupported.logLevelWrite` (`NOT_CONFIGURED`), version gate (`LOG_LEVEL_WRITE`), client
    available, credentials (`AUTH_FAILED`/`SECRET_UNRESOLVED`).
-3. Per-node log-level lock (in process; wait ≤ `cliTimeout`, else `PRECONDITION_FAILED` "another
-   log-level change for test/node1 is running").
+3. **Node lock** (cross-process, D-12; wait ≤ `cliTimeout`, else `PRECONDITION_FAILED` "another
+   log-level change for test/node1 is running"), held until step 12.
 4. Lease store: a `RESET_FAILED` lease of this server → `PRECONDITION_FAILED` naming lease id,
    reason and time (US4-11); unreadable store → `PRECONDITION_FAILED`.
 5. Own-node lookup (helper `ownNode`, ≤ `cliTimeout`) → `inubitNode`. An `ACTIVE` lease of this
    server naming another node → `PRECONDITION_FAILED` naming both (US4-6).
 6. Confirmation (D-19): `SERVER` without code → challenge (nothing changed; audited
-   `CHALLENGE_ISSUED`); with code → redeem; a changed `inubitNode` or open-lease fingerprint since
-   the preview → `PRECONDITION_FAILED` naming previewed and current state. `CLIENT` → step 7 at
-   once.
+   `CHALLENGE_ISSUED`; node lock released); with code → redeem; a changed `inubitNode` or
+   open-lease fingerprint (id, state, generation) since the preview → `PRECONDITION_FAILED` naming
+   previewed and current state. `CLIENT` → step 7 at once.
 7. Audit `PENDING` (`EXECUTE`), forced to disk; failure → `INTERNAL`, nothing sent (R-14).
 8. **Write-ahead lease** under the store lock: merge into the server's `ACTIVE` lease (union of
-   loggers, the new level per named logger, `expiresAt = max(old, now + duration)`, owner = self)
-   or a new lease (`ACTIVE`, `expiresAt = now + duration`). Failure → `INTERNAL`, nothing sent,
-   audit `FAILED`.
+   loggers, the new level per named logger, `expiresAt = max(old, now + duration)`, owner = self,
+   generation + 1) or a new lease (`ACTIVE`, generation 1, `expiresAt = now + duration`). Failure
+   → `INTERNAL`, nothing sent, audit `FAILED`.
 9. StartCLI `trace --nodelevel <L> --package '<logger>'` per logger, sequential.
-10. All succeeded → lease update: `setAt` = end of the last run, `expiresAt = max(previous expiry
-    of a merged lease, setAt + duration)` (counted from the executed change, US4-1). If this
-    update fails → `trace --reset` at once, lease marked `RESET` (or `RESET_FAILED` if the reset
-    fails — the next tick retries), result `INTERNAL` "the levels were raised but the lease could
-    not be recorded; the node was reset" (edge case).
+10. All succeeded → lease update (generation + 1): `setAt` = end of the last run, `expiresAt =
+    max(previous expiry of a merged lease, setAt + duration)` (counted from the executed change,
+    US4-1). If this update fails → `trace --reset` at once, lease marked `RESET` (or
+    `RESET_FAILED` if the reset fails — the next tick retries), result `INTERNAL` "the levels were
+    raised but the lease could not be recorded; the node was reset" (edge case).
 11. A run failed → `trace --reset` at once (the reset is per node: it also ends a merged lease;
     the result says so); lease `RESET` or `RESET_FAILED`; audit `FAILED` with the code.
-12. Audit `EXECUTED` (details `leaseId`, `inubitNode`, `loggers`, `expiresAt`), result (D-20,
-    contracts).
+12. Audit `EXECUTED` (details `leaseId`, `inubitNode`, `loggers`, `expiresAt`), node lock
+    released, result (D-20, contracts).
 
 **Rationale**: the write-ahead record makes a crash between the change and the record a recorded
 lease (expiry at most a few seconds early, which only shortens the raise); the expiry after the
-change satisfies US4-1.
+change satisfies US4-1; the node lock keeps a cleanup reset of another instance from running
+between steps 8 and 10, and the generation keeps a reset decided before step 8 from ending the
+merged lease (D-16).
 
 ## D-15 Reset and forget flows (FR-044)
 
 **Decision**:
-- **`node`**: guard as D-14 step 2; lock; own-node lookup; an `ACTIVE` or `RESET_FAILED` lease of
-  the server naming another node → `PRECONDITION_FAILED` naming both; confirmation (preview: the
-  open lease or "no lease is open for test/node1"); `PENDING`; `trace --reset`; success → the
-  lease (if any) `RESET` with `endedAt`, audit `EXECUTED`; result names `inubitNode` and whether a
-  lease was open (US4-4, US4-8); failure → lease unchanged except `lastAttempt`, audit `FAILED`.
+- **`node`**: write guard as D-14 step 2 (US4-7); node lock; own-node lookup; an `ACTIVE` or
+  `RESET_FAILED` lease of the server naming another node → `PRECONDITION_FAILED` naming both
+  (US4-6); confirmation (preview: the open lease or "no lease is open for test/node1");
+  `PENDING`; `trace --reset`; success → the lease (if any) `RESET` with `endedAt` (generation + 1),
+  audit `EXECUTED`; result names `inubitNode` and whether a lease was open (US4-4, US4-8); failure
+  → lease unchanged except `lastAttempt`, audit `FAILED`.
 - **`leaseId` + `forget: true`**: unknown id → `INVALID_INPUT`; lease server no longer configured
-  → `INVALID_INPUT` "… ends automatically 7 days after its expiry (on <date>)"; guards of FR-040
-  against that server's group (production lock, `write.enabled`, `logLevelWrite`, confirmation
-  mode; no version gate and no own-node lookup: nothing is sent); state ≠ `RESET_FAILED` →
-  `INVALID_INPUT` naming the state; confirmation; audit; lease `FORGOTTEN`; result warning "the
-  level may still be raised on node1 until its restart" (US4-9).
+  → `INVALID_INPUT` "… ends automatically 7 days after its expiry (on <date>)"; the FR-040 guards
+  against that server's group through a separate guard method
+  `WriteGuard.admitWithoutContact(node, tool, optIn, optInKey)` (target, production lock, `CLIENT`
+  on production, `write.enabled`, `logLevelWrite`; **no version gate, no client check, no own-node
+  lookup**: nothing is sent); state ≠ `RESET_FAILED` → `INVALID_INPUT` naming the state;
+  confirmation; audit; lease `FORGOTTEN` (generation + 1); result warning "the level may still be
+  raised on node1 until its restart" (US4-9).
 - Any other input combination (`node` with `leaseId`, `forget` without `leaseId`, `leaseId`
   without `forget: true`) → `INVALID_INPUT` (the schema's `oneOf` and the service).
 
-## D-16 Lease scheduler: expiry, takeover, retries, cleanup (FR-043 … FR-045, SC-004)
+## D-16 Cleanup and lease scheduler: expiry, takeover, retries (FR-043 … FR-045, SC-004)
 
-**Decision**: `application/nodetools/LeaseScheduler`, one daemon thread
+**Decision**: two parts.
+
+**Cleanup of one lease** (`LogLevelService.cleanup(Lease decided, Trigger trigger)`), used by the
+scheduler and the shutdown:
+1. Node lock (cross-process, D-12; wait ≤ 2 s, busy → skip, next tick).
+2. Under the store lock: re-read the lease; if its generation differs from the decided one, or it
+   is no longer open → stop without sending anything (a set or another instance changed it; the
+   next tick decides again).
+3. **Cleanup preconditions** (FR-043: node configured, client installation for its version,
+   credentials, version supported by `LOG_LEVEL_WRITE` and detectable — **not** `write.enabled`,
+   the production opt-in or `logLevelWrite`); not met → `RESET_FAILED` `PRECONDITION`.
+4. Audit `PENDING` (`reset_temporary_log_level`, `trigger`); **fail closed**: if it cannot be
+   written, nothing is sent, the lease keeps its state with `lastAttempt` reason
+   `AUDIT_NOT_WRITABLE`, an ERROR is logged, and the next tick retries (D-22).
+5. Own-node lookup → another node than the lease names → `RESET_FAILED` `OTHER_NODE_ANSWERS`,
+   audit `REFUSED`, nothing sent to StartCLI; same node → `trace --reset`. One deadline of
+   `cliTimeout` for both processes.
+6. Under the store lock: compare-and-set on the generation read in step 2 (unchanged, because the
+   node lock is held) → `RESET` with `endedAt`, or `RESET_FAILED` with `lastAttempt` (`code` and
+   reason `NODE_UNREACHABLE`, `CLI_FAILED`, …); final audit record.
+
+**Scheduler** (`application/nodetools/LeaseScheduler`), one daemon thread
 (`inubit-mcp-log-level-leases`), `scheduleWithFixedDelay(tick, 0, 30 s)`; the first tick runs at
-startup without blocking the MCP initialization. A tick:
+startup without blocking the MCP initialization. A tick, under the store lock (wait ≤ 2 s; busy →
+skip): per lease decide `cleanup` (own `ACTIVE` expired; own `RESET_FAILED`), `takeover` (owner
+not alive, state `ACTIVE` or `RESET_FAILED`: owner := self, generation + 1, audited `trigger:
+takeover`; then `cleanup` if expired or failed, otherwise at its expiry by this instance),
+`forget` (server not configured and `expiresAt + 7 days` passed → `FORGOTTEN`, audited), `remove`
+(ended and `endedAt + 7 days` passed); write these decisions; then run the cleanups outside the
+store lock, per node in parallel (bounded pool, one per node).
 
-1. Under the store lock (wait ≤ 2 s; busy → skip this tick): read the leases and decide, per lease,
-   `reset` (own `ACTIVE` expired; own `RESET_FAILED`), `takeover` (owner not alive, state `ACTIVE`
-   or `RESET_FAILED`: owner := self, audited; then `reset` if expired or failed, otherwise reset at
-   its expiry by this instance), `forget` (server not configured and `expiresAt + 7 days` passed →
-   `FORGOTTEN`, audited), `remove` (ended and `endedAt + 7 days` passed). Write the decisions.
-2. Outside the lock, per node in parallel (bounded pool, one per node), each under the per-node
-   log-level lock: **cleanup preconditions** (FR-043: node configured, client installation for its
-   version, credentials, version supported by `LOG_LEVEL_WRITE` and detectable — **not**
-   `write.enabled`, the production opt-in or `logLevelWrite`) → own-node lookup → same node as the
-   lease → `trace --reset`; one deadline of `cliTimeout` per node for both processes.
-3. Under the lock again: outcome per lease — `RESET` (`endedAt`) or `RESET_FAILED` with
-   `lastAttempt` (`code` and reason `OTHER_NODE_ANSWERS`, `NODE_UNREACHABLE`, `PRECONDITION`,
-   `CLI_FAILED`); an audit record per attempt (D-22).
+**Creator decision (owner may override; spec US4-3 read this way)**: an orphaned lease (owner no
+longer running) is taken over at once at startup and on every tick; if it is expired or failed it is
+reset at once, otherwise this instance resets it at its expiry. US4-3 ("a lease left from an earlier
+run … the server starts, then it resets that node") is read as "the next start takes the lease over
+and resets the node no later than its expiry", which is FR-043's takeover rule; resetting earlier
+than the expiry would cut short a raise the operator asked for. T001 records this in
+`reviews/implementation.md`.
 
-A failed precondition is `RESET_FAILED` with the reason and a WARN at startup (edge case). Leases of
-servers that are no longer configured are not reset (no connection data) and end as `FORGOTTEN`
-after 7 days (FR-044); until then they are a startup WARN and listed by `--check-config`.
+Leases of servers that are no longer configured are not reset (no connection data) and end as
+`FORGOTTEN` after 7 days (FR-044); until then they are a startup WARN and listed by
+`--check-config`.
 
 **Rationale**: a 30-second tick keeps every reset within one minute after expiry (SC-004);
-decisions under the lock and network work outside it keep the lock short for other instances.
+decisions under the store lock and network work outside it keep that lock short; the node lock and
+the generation make a decision of one instance safe against a set of another (two-instance edge
+case).
 
 ## D-17 Shutdown and startup (FR-043, US4-3)
 
@@ -469,13 +522,13 @@ decisions under the lock and network work outside it keep the lock short for oth
   (which kills StartCLI work and refuses later CLI calls).
 - The JVM shutdown hook (SIGTERM) runs the same method first, then `cliResources.close()`; the
   method is idempotent (first caller wins).
-- It stops the scheduler, then resets every `ACTIVE` or `RESET_FAILED` lease owned by this
-  instance, all nodes in parallel, each with the full sequence of D-16 step 2, and waits at most
-  `max(cliTimeout of those nodes)` in total; leases not reset by then stay as they are (the next
-  start or another instance takes them over).
-- Startup: the scheduler's first tick (D-16) is the startup cleanup; `Launcher` logs one INFO
-  "n temporary log level lease(s) open" and a WARN per `RESET_FAILED` lease and per lease of an
-  unconfigured server (FR-045).
+- It stops the scheduler, then runs `cleanup` (D-16, trigger `shutdown`, the same fail-closed audit
+  rule) for every `ACTIVE` or `RESET_FAILED` lease owned by this instance, all nodes in parallel,
+  and waits at most `max(cliTimeout of those nodes)` in total; leases not reset by then stay as
+  they are (the next start or another instance takes them over).
+- Startup: the scheduler's first tick (D-16, including the creator decision on orphaned leases) is
+  the startup cleanup; `Launcher` logs one INFO "n temporary log level lease(s) open" and a WARN per
+  `RESET_FAILED` lease and per lease of an unconfigured server (FR-045).
 
 ## D-18 Write guard for the log-level tools (FR-040), and feature 022
 
@@ -483,8 +536,11 @@ decisions under the lock and network work outside it keep the lock short for oth
 capability, Set<Channel> channels, Predicate<NodeId> optIn, String optInKey)` with the same order
 as for restart/kill (target, production lock, `CLIENT` on production, `write.enabled`), then the
 opt-in (`NOT_CONFIGURED` naming `unsupported.logLevelWrite`), the version gate and the client
-check; texts name the tool instead of "restart and kill". The `ProcessAction` overload delegates
-and keeps its texts byte-identical (`WriteGuardTest` unchanged).
+check; texts name the tool instead of "restart and kill". A second method
+`admitWithoutContact(String node, String tool, Predicate<NodeId> optIn, String optInKey)` runs the
+same configuration checks up to the opt-in only (no gate, no client check) for the forget path,
+which sends nothing (D-15). The `ProcessAction` overload delegates and keeps its texts
+byte-identical (`WriteGuardTest` unchanged).
 **Feature 022**: if 022 is merged before this step, its `ChangeGuard` is used in place of the
 overload and `src/main/resources/coverage/interface-coverage.tsv` gets the rows `trace -nl`
 (reachable, `set_temporary_log_level`), `trace -r` (reachable, `reset_temporary_log_level`) and
@@ -547,16 +603,19 @@ text appears in a log line or audit record.
   levels), `durationMinutes`, `forget`, `confirmationCode` (SHA-256 prefix); details `leaseId`,
   `inubitNode`, `expiresAt`, `leaseOpen`.
 - Automatic resets: capability `reset_temporary_log_level`, inputs `trigger`
-  (`expiry`|`retry`|`takeover`|`startup`|`shutdown`|`forget-after-7-days`), `leaseId`; outcome
-  `EXECUTED`/`FAILED`/`REFUSED` (other node) with the reason. Deviation from R-14 for cleanup only:
-  if the `PENDING` record cannot be written, the reset still runs (restoring the normal level is
-  the safer action) and an ERROR is logged; the final record is attempted.
+  (`expiry`|`retry`|`takeover`|`startup`|`shutdown`|`forget-after-7-days`), `leaseId`; `PENDING`
+  before anything is sent, then `EXECUTED`/`FAILED`/`REFUSED` (other node) with the reason.
+  **Fail closed, as every other state change (R-14)**: if the `PENDING` record cannot be written,
+  no reset is sent, the lease stays `ACTIVE`/`RESET_FAILED` with `lastAttempt` reason
+  `AUDIT_NOT_WRITABLE`, an ERROR is logged, and the next tick retries. So every reset that reaches
+  INUBIT has an audit record (FR-043).
 - Account: `WritePolicy.account()` of the server.
 
 ## D-23 Lease visibility: `get_health`, startup log, `--check-config` (FR-045)
 
 **Decision**:
-- `HealthReport` gets an optional `temporaryLogLevels` list (additive; schema `$defs/Lease`):
+- `HealthReport` gets an optional `temporaryLogLevels` list of `LeaseSummary` (additive; schema
+  `$defs/LeaseSummary`):
   per `ACTIVE` or `RESET_FAILED` lease of the node: `leaseId`, `inubitNode`, `loggers`
   (`[{name, level}]`), `setAt`, `expiresAt`, `state`, `lastAttempt` (`at`, `outcome`, `code`,
   `reason`). Read through a `LeaseView` port (read-only snapshot, lock wait ≤ 2 s; failure → a
@@ -574,7 +633,8 @@ text appears in a log line or audit record.
 - `domain/model/node/` (new package): `ClusterNode`, `NodeStatus`, `NodeDetail`, `ClusterNodes`,
   `IoDirection`, `IoLogEntry`, `IoMessageRef`, `IoLogListing`, `IoLogBounds`, `NodeConfigName`,
   `NodeConfigValue`, `LoggerName`, `TemporaryLevel`, `Lease`, `LeaseState`, `LeaseOwner`,
-  `LeaseAttempt`, `LeaseReason`, `NodeToolResults` (result records).
+  `LeaseAttempt`, `LeaseReason`, `LeaseSummary`, and the result records `ClusterNodesResult`,
+  `IoLogResult`, `NodeConfigResult`, `LogLevelResult` (`Challenge` | `Outcome`).
 - `domain/port/`: `ClusterNodePort` (`nodes(Optional<String> details, version, deadlineNanos)`),
   `IoLogPort` (`list(processId, workflow, version, deadline)`, `read(…, IoMessageRef ref, …)` →
   `IoLogRead` with a private file, `AutoCloseable`), `NodeConfigPort` (`values(names, version,
@@ -589,8 +649,9 @@ text appears in a log line or audit record.
   `CliIoLogAdapter`, `CliNodeConfigAdapter`, `CliLogLevelAdapter` (own node via the runner,
   StartCLI via `CliRunner`).
 - `application/nodetools/` (new): `ClusterNodeService`, `IoLogService`, `NodeConfigService`,
-  `LogLevelService`, `LeaseStore`, `LeaseLock`, `LeaseScheduler`, `ProcessLiveness`,
-  `LogLevelAudit`, `NodeTextMasking`, `NodeLogLevelLocks`.
+  `LogLevelService`, `LeaseStore`, `LeaseScheduler`, `ProcessLiveness`, `LogLevelAudit`,
+  `NodeTextMasking`, `NodeLogLevelLocks`; `application/OwnerOnlyFileLock` (generalized from
+  `KnowledgeLock`, D-12).
 - `mcp/tools/`: `ListClusterNodesTool`, `ReadIoLogTool`, `GetNodeConfigTool`,
   `SetTemporaryLogLevelTool`, `ResetTemporaryLogLevelTool`; schemas `<tool>.{input,output}.json`.
 - `PackageBoundaryTest`: `application` only via ports; `Process*` only in `adapter/cli`; the
@@ -602,8 +663,12 @@ text appears in a log line or audit record.
 `ToolHints.destructive(<title>)` (as `restart_process`). Descriptions in
 contracts/mcp-tools-delta.md; `NodeToolsDocsTest` asserts their key phrases ("unsupported",
 "undocumented", "without vendor support", "diagnosis only"; for `read_io_log` "business and
-personal data" and "no right beyond the login"; for the log level "every temporary level on that
-node, also other users'") and the FR-003 sentences in `docs/setup.md` and `docs/tools.md`.
+personal data" and "no right beyond the login"; for the two log-level tools also "every temporary
+log level on that node, also those other users set") and the FR-003 sentences in `docs/setup.md` and
+`docs/tools.md`. The set and reset descriptions carry the same FR-003 sentence as the reads
+("UNSUPPORTED: uses unsupported, undocumented INUBIT functionality without vendor support or
+stability guarantee, for diagnosis only"), because the answering-node lookup goes through the
+internal interface and the tools exist for diagnosis.
 
 ## D-26 Fixtures: neutralized recordings, fictitious content (Constitution III/V)
 
@@ -613,10 +678,11 @@ with `README.md` and per case `<case>.origin` (`recorded <date> <version> neutra
 - Helper cases: `<case>.frames`, `<case>.exit`, for `io-log` also `<case>.list` and
   `<case>.message`. StartCLI cases (log level): `<case>.stdout`, `<case>.stderr`, `<case>.exit`.
 - Cases: cluster-nodes `ok` (two members, one without answer), `single`, `details`,
-  `details_unknown`, `details_error`, `unknown_status`, `api_missing`, `garbage`; io-log `listing`,
-  `empty_listing`, `read_text`, `read_latin1`, `read_binary`, `read_empty`, `no_match`,
-  `foreign_process`; node-config `all`, `absent`, `one_error`; log-level `set_ok`, `reset_ok`,
-  `missing_level`, `login_failure`, `forbidden`.
+  `details_truncated`, `details_unknown`, `details_error`, `unknown_status`, `api_missing`,
+  `garbage`; io-log `listing`, `empty_listing`, `read_text`, `read_latin1`, `read_binary`,
+  `read_empty`, `no_match`, `foreign_process`, `list_error`; node-config `all`, `absent`,
+  `one_error`, `api_missing`; log-level `set_ok`, `reset_ok`, `missing_level`, `login_failure`,
+  `forbidden`.
 - **Neutralization**: every recorded name, address, path, process, module, logger and value is
   replaced by fictitious ones (`acme`, `globex`, `node1`, `node2`, `*.example.test`,
   `/opt/inubit/...`), message content replaced by fictitious content of the same shape and size;
