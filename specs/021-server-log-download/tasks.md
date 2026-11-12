@@ -403,9 +403,11 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   `classify` unchanged) with a test in `CliOutputClassifierTest`); success text missing or no file → `UNEXPECTED_RESPONSE`; no client home →
   `CLI_UNAVAILABLE` naming `defaults.cliClients."8.1"`; edge case "maintenance mode, credentials
   not available, TLS failure" with the existing StartCLI texts and mechanisms: credentials not
-  resolvable → `SECRET_UNRESOLVED` (the node's usual credential error) with **nothing launched**,
-  StartCLI maintenance answer → `MAINTENANCE_MODE`, TLS failure (pin probe / StartCLI TLS text) →
-  `TLS_ERROR`, each with the private directory deleted; private directory gone after success and
+  resolvable → the node's usual credential error as `CliExportRunner.checkPreconditions` raises it
+  (`AUTH_FAILED` naming the credential variables) with **nothing launched**, TLS failure (pin
+  probe / StartCLI TLS text) → `TLS_ERROR`, each with the private directory deleted; maintenance
+  mode is **not** a StartCLI-level case (no StartCLI maintenance text or mechanism exists; the
+  exports do not map it either) — it comes from the detection before launch (T027); private directory gone after success and
   failure; leak check
 - [ ] T026 [US1] `adapter/cli/log/CliServerLogAdapter.java` + `adapter/cli/log/package-info.java`
   (FR-013, D-15, D-19; after T011, T012, T025): `implements ServerLogPort`; uses the call deadline

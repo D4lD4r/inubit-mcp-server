@@ -414,7 +414,7 @@ the StartCLI slots bound calls per node only.
 | version gate (6.1, other line, undeclared, "not yet verified") | `UNSUPPORTED_VERSION` |
 | detection failure (`admitWithDetection`) | the detection's own code |
 | no client home, no `ibis.jar`/JDK, launch failure, temp root not passable, vendor API missing | `CLI_UNAVAILABLE` |
-| trace: classifier as for every StartCLI run (`LoginFailure` → `AUTH_FAILED`, TLS, network, `MAINTENANCE_MODE`, 403 texts → `FORBIDDEN`); new rule `FileWasNotFound` → `NOT_FOUND`; success without the `Trace data (` message or without the file → `UNEXPECTED_RESPONSE` | as named |
+| trace: classifier as for every StartCLI run (`LoginFailure` → `AUTH_FAILED`, TLS, network, `AccessDenied` → `FORBIDDEN`; maintenance comes from the detection before launch, StartCLI has no mapped maintenance text); new rule `FileWasNotFound` → `NOT_FOUND`; success without the `Trace data (` message or without the file → `UNEXPECTED_RESPONSE` | as named |
 | webservice: `HelperFailures` (020 D-5) for launch, timeout, login, TLS, network, 403, API missing, protocol problems; `node error` with an access-denied text or HTTP 403 → `FORBIDDEN` "… needs the right the Workbench's Cluster Manager needs (`Configuration`)"; `part log error` with `not found on` → `NOT_FOUND`; `Server not in cluster mode.` or any other `node`/`part` error → `UNEXPECTED_RESPONSE` "the unsupported INUBIT interface may have changed" (scrubbed excerpt ≤ 200 chars) | as named |
 | `cliExportTimeout` exceeded (slot wait, TLS check, process, excerpt permit wait) | `TIMEOUT` naming `cliExportTimeout` (no file, process tree killed) |
 | known credentials of some node not read within the bound | no error: file written, excerpt `withheld` with a hint (D-11) |
