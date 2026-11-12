@@ -126,6 +126,7 @@ import de.dadecker.inubit.mcp.mcp.tools.ExportArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.FindPartnersTool;
 import de.dadecker.inubit.mcp.mcp.tools.FindProcessesTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetHealthTool;
+import de.dadecker.inubit.mcp.mcp.tools.GetServerSettingsTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetInventoryItemTool;
 import de.dadecker.inubit.mcp.mcp.tools.DeployReleaseTool;
 import de.dadecker.inubit.mcp.mcp.tools.DownloadServerLogTool;
@@ -227,6 +228,8 @@ final class Wiring implements AutoCloseable {
     private final CheckArtifactsTool checkArtifacts;
     /** Feature 021: built for every configuration; announced as {@link #anyServerLogNode()}. */
     private final DownloadServerLogTool downloadServerLog;
+    /** Feature 022 (US1): announced where some node may read the server settings. */
+    private final GetServerSettingsTool getServerSettings;
     /**
      * Feature 019 (research D-7): the credentials of every node of the profile; feature 021
      * (research D-11): also masked in the excerpt of {@code download_server_log}.
@@ -431,6 +434,10 @@ final class Wiring implements AutoCloseable {
         this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,
             id -> byId.get(id).cliTimeout(), hangingThresholds::get, clock.clock(),
             ResultJson::size, versionGate, secretTiming);
+        // feature 022 (US1): the settings reads, gated per part by the coverage list (D-2)
+        this.getServerSettings = new GetServerSettingsTool(new ServerSettingsService(gateways,
+            targets, fanOut, limiter, timeouts::get, id -> byId.get(id).cliTimeout(),
+            versionGate, secretTiming)::read, updateStatus::current);
         // feature 020 (FR-011): the configured credentials are replaced before the masking
         this.readQueueEntry = new ReadQueueEntryTool(new QueueEntryService(targets,
             id -> byId.get(id).queueEntryRead(), versionGate, gateways::processes,
@@ -681,6 +688,10 @@ final class Wiring implements AutoCloseable {
         }
         if (anyServerLogNode()) {
             handlers.add(downloadServerLog);
+        }
+        // feature 022 (contracts/mcp-tools-delta.md "Announcement"): also without a client
+        if (anyPossiblyCapable(Capability.SERVER_SETTINGS)) {
+            handlers.add(getServerSettings);
         }
         if (anyPossiblyCapable(Capability.INVENTORY)) {
             handlers.add(new ListInventoryTool(inventory));

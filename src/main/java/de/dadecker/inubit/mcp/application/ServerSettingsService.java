@@ -45,7 +45,9 @@ import java.util.stream.Collectors;
  *       {@code unavailable}; the server fails only when no part is admitted (FR-013).
  *   <li>Version, memory share, maximum blocking queue size and maintenance mode come from the
  *       {@link MonitoringPort} calls {@code get_health} makes ({@code /system/info},
- *       {@code /metrics}, the healthcheck), never from StartCLI (AS7, FR-002, research D-6). A
+ *       {@code /metrics}, the healthcheck), never from StartCLI (AS7, FR-002, research D-6).
+ *       These three reads run on every call, whatever parts are asked for, so every result
+ *       carries version, memory share, blocking queue size and maintenance mode (T021 review). A
  *       failed call is reported under get_health's part name ({@code version}, {@code load},
  *       {@code status}).
  *   <li>The licensed threads come from {@code /metrics}, and from {@code GET /license} only when

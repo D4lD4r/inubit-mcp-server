@@ -379,7 +379,7 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
     - node without a StartCLI client â†’ the REST parts returned, the CLI parts `unavailable`;
     - no `-sv`/`-pctmem`/`getBlockingQueueSize` ever sent (`ScriptedProcessLauncher` records
       argv and stdin).
-- [ ] T022 [US1] Tool `mcp/tools/GetServerSettingsTool.java`:
+- [X] T022 [US1] Tool `mcp/tools/GetServerSettingsTool.java`:
   - schemas `src/main/resources/schemas/get_server_settings.{input,output}.json` per
     `contracts/mcp-tools-delta.md`;
   - `ToolHints.readOnly(title, true)`;

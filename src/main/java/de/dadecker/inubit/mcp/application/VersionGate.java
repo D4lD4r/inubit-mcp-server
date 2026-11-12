@@ -499,8 +499,9 @@ public final class VersionGate {
      * Every other part is reported as an {@link UnavailablePart} with {@code UNSUPPORTED_VERSION}
      * ("not yet verified", "not documented for this version" or the exclusion reason) or
      * {@code CLI_UNAVAILABLE}. When the call has REST and StartCLI parts and only the StartCLI
-     * channel is refused (the node's StartCLI client does not support its version), the StartCLI
-     * parts are reported with that refusal and the REST parts are admitted (T021, FR-013).
+     * channel adds a refusal (for example the node's StartCLI client does not support its
+     * version), the StartCLI parts are reported with that refusal and the REST parts are admitted
+     * (T021, FR-013).
      *
      * @param parts a non-empty subset of {@link ActionSpec#parts()}
      * @throws ToolErrorException as {@link #admitCall} for the capability admission and an
@@ -517,8 +518,8 @@ public final class VersionGate {
             Set<Channel> channels =
                 parts.stream().map(Part::channel).collect(Collectors.toUnmodifiableSet());
             ActionAdmission judged;
-            // T021 (T010 review): a refusal that only the StartCLI channel adds (a client whose
-            // range excludes the version) refuses only the StartCLI parts (FR-013)
+            // T021 (T010 review): a refusal that only the StartCLI channel adds, for example a
+            // client whose range excludes the version, refuses only the StartCLI parts (FR-013)
             Optional<ToolError> cliRefusal = Optional.empty();
             try {
                 judged = admitAction(node, spec, channels);
