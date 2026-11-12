@@ -303,7 +303,7 @@ the opt-in gets the list and one node's details; a group without it is refused b
   Failing tests first in `adapter/cli/node/CliClusterNodeAdapterTest.java` (every v8_1 case via
   `FakeProcessLauncher`; request on stdin has `op=clusterNodes` and `details` only when asked;
   `cliTimeout` named as budget; leak check)
-- [ ] T021 [US1] `application/nodetools/ClusterNodeService.java` (FR-010, FR-011, D-7, contracts
+- [X] T021 [US1] `application/nodetools/ClusterNodeService.java` (FR-010, FR-011, D-7, contracts
   decision flow; after T017, T020): validate (`target`, `nodeName` rule) → `resolveSingleServer` →
   opt-in `nodeStatusRead` (`NOT_CONFIGURED`, text of contracts) → `admitWithDetection(…,
   CLUSTER_NODES_READ, READ, {CLI})` → deadline now + `cliTimeout` → `GatewayFactory.prepareCredentials`
