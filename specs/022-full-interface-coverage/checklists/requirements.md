@@ -40,5 +40,8 @@
 - The spec names the vendor's StartCLI commands and REST endpoints and existing tool names. This
   is the subject of the feature (the interface to cover) and the convention of the earlier specs
   of this project; it names no language, framework or code structure.
+- Planning (2026-11-12): vendor facts changed US5 (the export blocks processes and is a change; the
+  archives stay on the INUBIT hosts; filter on user-defined columns), FR-016a, FR-021 and the
+  `lls` entry; recorded in the Clarifications section "Planning". All items still pass.
 - None of the commands is verified against a real system; FR-002 and FR-025 make that a condition
   of delivery.

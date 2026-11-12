@@ -71,6 +71,24 @@ the owner's tag decision; decisions taken by the creator (owner may override):
 - Rename, metadata import and keystore deployment take a backup first (FR-018); EDI rule files
   are repository files and are backed up as such.
 
+### Planning, 2026-11-12
+
+Facts from the vendor pages, found while planning; decisions taken by the creator (owner may
+override), details in `research.md` (D-3, D-4, D-5):
+
+- `process export` blocks the exported processes on the source until they are resumed or deleted
+  ("Processes, whose run time data are marked for exporting are blocked"). Under FR-016a's own
+  rule the export is therefore a change under FR-014 with the run-time data opt-in.
+- The run-time data archive is written on the INUBIT host (its `ibis_data/backup` folder), and
+  `process import` and `process validateExport` read an archive by a path on the INUBIT host. The
+  server cannot move a file between INUBIT hosts; the archive is named by its file name in the
+  backup folder of the server, and the operator moves it. Upload folders do not apply to it.
+- The export filter works on the user-defined Queue Manager columns (`<column>=<value>`,
+  `<column> in (…)`, joined by `AND`), not on workflow and tag; `inFile` and
+  `--filterProcessIds` read a file on the INUBIT host and are not offered.
+- `lls` lists the local directory of the StartCLI client, which is the MCP server's own machine,
+  not the server's log files; it is excluded.
+
 **Input**: User description: "I would like to add all missing methods of StartCLI and REST, both
 reading and writing, to the MCP."
 
@@ -89,7 +107,7 @@ exactly one user story.
 
 | Area | Kind | Entries | Story | Protection |
 |---|---|---|---|---|
-| A. Server state and settings | read | `license -td\|-ts`, `GET /license`, `threads showNumberOfWorkflowThreads`, `privilegedWorkflows showThreadsPercentage\|showWorkflowList`, `dbconnectiontolerance show`, `getBlockingQueueSize`, `GET /configurations`, `date`, `lls`, `-sv`, `-pctmem`, `-maintenanceState` | US1 | none (read) |
+| A. Server state and settings | read | `license -td\|-ts`, `GET /license`, `threads showNumberOfWorkflowThreads`, `privilegedWorkflows showThreadsPercentage\|showWorkflowList`, `dbconnectiontolerance show`, `getBlockingQueueSize`, `GET /configurations`, `date`, `-sv`, `-pctmem`, `-maintenanceState` | US1 | none (read) |
 | A. Server state and settings | write | `maintenance on\|off [-eq true\|false]`, `POST /ready/{on\|off}`, `trace on\|off`, `trace -l <level>`, `debug on\|off`, `triggerMidnightTask` | US4 | write enablement |
 | A. Server state and settings | write | `threads setNumberOfWorkflowThreads`, setting the share of threads for privileged workflows, `dbconnectiontolerance set`, `PUT\|POST /configurations`, `PUT /license` | US6 | write enablement + settings opt-in |
 | B. Users and groups | read | `finger <login>`, `user <name>`, `-who`, `-nwho`, `GET /user/users`, `msglist`, `msgread` | US2 | none (read) |
@@ -99,8 +117,7 @@ exactly one user story.
 | D. Processes and run-time data | read | `ps -f '<filter>'`, `ps -u`, `-ne`, `-nx`, `-nw`, `-nq` on 8.1 and 9.0 | US3 | none (read) |
 | D. Processes and run-time data | read | `process listBlocked`, `process validateExport` | US5 | run-time data opt-in (FR-016a) |
 | D. Processes and run-time data | write | `processdelete error` | US4 | write enablement |
-| D. Processes and run-time data | export | `process export` | US5 | run-time data opt-in + export rules (FR-016a) |
-| D. Processes and run-time data | write | `process import\|resume\|deleteBlocked` | US5 | write enablement + run-time data opt-in |
+| D. Processes and run-time data | write | `process export [--excludeModel] [--filterExpression]`, `process import\|resume\|deleteBlocked` | US5 | write enablement + run-time data opt-in |
 | E. Diagrams, modules, repository, tags | read | `GET /model/nodeByModel/…`, `GET /model/nodeByName/…` (8.1 only), `export --exportMetadata\|--exportMetadataNames`, `export --exportWorkflowGroupExclude`, `GET /process/metadata/{name}`, `GET /isconnector?…type=validateWorkflow`, `fetchXSLT1.0` | US3 | none (read); files under the export rules (FR-012) |
 | E. Diagrams, modules, repository, tags | write | `tag --tagSetActive\|--tagRemoveActive`, `tag --tagDelete\|--tagRemove` with `--tagWorkflowGroup`/`--tagWorkflowType` or `--tagRepositoryPath` (removal only if FR-019a's check allows it) | US4 | write enablement |
 | E. Diagrams, modules, repository, tags | write | `delete --deleteWorkflow\|--deleteModule`, `DELETE /diagrams/…`, `DELETE /modules/…`, `DELETE /repository`, `rename --renameWorkflow\|--renameModule\|--renameMetadata\|--renameFile\|--renameDirectory`, `import --importMetadata`, `POST /isconnector` | US6 | write enablement + objects opt-in |
@@ -119,7 +136,9 @@ Four groups of documented functions get no new access:
 - **Not usable from a server process**: the cache mode (the vendor reserves it for its support
   and calls it dangerous), `validateMigrationBackup` (interactive only), `--encryptString` (takes
   a secret on the command line and prints the result), the offline scripts `backup.sh` and
-  `restore.sh` (they need a stopped process engine on the INUBIT host).
+  `restore.sh` (they need a stopped process engine on the INUBIT host), `lls` (lists the local
+  directory of the StartCLI client, not of the server), the export filter forms `inFile` and
+  `--filterProcessIds` (they read a file on the INUBIT host).
 - **Broken on the vendor side**: the log `processLog` fails on 8.1.17.
 - **Tag forms that act on the whole owner** (owner's decision, see Clarifications):
   `--tagDiagram` (ignored by INUBIT, so the command tags every diagram of the owner; seen in the
@@ -149,7 +168,7 @@ the Workbench: when the license expires and how many threads it allows, how many
 are configured and how many are reserved for privileged workflows, which workflows are
 privileged, the tolerance for database connection errors, the size of the blocking queue, and the
 server configuration; and the small facts StartCLI shows about the server (server time, version
-string, memory share, maintenance state, the list of log files).
+string, memory share, maintenance state).
 
 **Why this priority**: read only, no risk, and these are the facts asked for most often in support
 cases. It needs no write enablement.
@@ -174,9 +193,8 @@ one server: the result contains each fact as a named field with its source. Test
 5. **Given** a stage id as target, **When** the settings are requested, **Then** the result
    contains one entry per server of that stage.
 6. **Given** a server with a configured StartCLI client, **When** the settings are requested,
-   **Then** the result also contains the server time, the version string, the memory share in
-   use and the names and sizes of the log files StartCLI lists; `-maintenanceState` is covered by
-   the maintenance mode `get_health` reads (AS7).
+   **Then** the result also contains the server time, the version string and the memory share in
+   use; `-maintenanceState` is covered by the maintenance mode `get_health` reads (AS7).
 7. **Given** `get_health` already returns the licensed threads, the maximum blocking queue size
    and the maintenance mode over REST, **When** the settings are requested, **Then** these facts
    come from the same REST source and are not read a second time over StartCLI.
@@ -342,23 +360,31 @@ blocked, and resumes or deletes them.
 **Why this priority**: rare (migrations), with large files and a multi-step flow, but there is no
 other way than the CLI.
 
-**Independent Test**: With a fake StartCLI, an export writes an archive into a named folder, an
-import reads one from a named file and returns the operation id; resume and delete need that id
-and the confirmation. Testable offline.
+The archive stays on the INUBIT hosts: the export writes it into the backup folder of the source
+server, and the import and the validation read it from the backup folder of the server they run
+on. Moving the file between the hosts is the operator's step; the server names the file and the
+host.
+
+**Independent Test**: With a fake StartCLI, an export names the archive file and returns the
+operation id and the host; an import names an archive file of the target's backup folder and
+returns the operation id; every change needs the confirmation. Testable offline.
 
 **Acceptance Scenarios**:
 
-1. **Given** a source server with the run-time data opt-in and a target folder, **When** the
-   run-time data is exported with a filter given as structured fields (workflow, tag, process ids
-   from a file in an allowed folder), **Then** the archive is written as a new file under the
-   folder rules of `export_archives` and the result names path, size and the operation id.
-2. **Given** a production source without `archives.productionOptIn`, **When** the export is
-   requested, **Then** it is refused as `export_archives` refuses it.
-3. **Given** an archive file, **When** it is validated, **Then** the result says whether INUBIT
-   accepts it and names the problems INUBIT reports, without importing it.
-4. **Given** an archive file and a target server with write enablement and the run-time data
-   opt-in, **When** the import is confirmed, **Then** the result names the operation id and the
-   number of blocked processes.
+1. **Given** a source server with write enablement and the run-time data opt-in, **When** the
+   run-time data is exported with a file name and a filter given as structured conditions on the
+   user-defined Queue Manager columns (equals one value or is one of several values, all
+   conditions joined), **Then** the preview says that the matching processes are blocked on the
+   source until they are resumed or deleted; after the confirmation the result names the
+   archive's path on the INUBIT host, the host and the operation id.
+2. **Given** a production source without the production opt-in, **When** the export is requested,
+   **Then** it is refused as every change is (FR-014).
+3. **Given** an archive file name in the backup folder of a server, **When** it is validated,
+   **Then** the result says whether INUBIT accepts it and names the problems INUBIT reports,
+   without importing it.
+4. **Given** an archive file name in the backup folder of a target server with write enablement
+   and the run-time data opt-in, **When** the import is confirmed, **Then** the result names the
+   operation id and the number of blocked processes.
 5. **Given** a stage with the run-time data opt-in and the operation id of an earlier run-time
    data import on that server, **When** the
    blocked processes are listed, **Then** the result is a bounded page of those processes.
@@ -609,14 +635,15 @@ offline.
   options), **users** (users, groups, roles, imports, messages), **run-time data** (run-time data
   import, resume, delete). The operational changes of User Story 4, the tag operations included,
   need the write enablement only.
-- **FR-016a**: The run-time data export (User Story 5) does not change the source server. It
-  needs the run-time data opt-in of the source stage and, on a production stage,
-  `archives.productionOptIn`, and follows the folder rules of `export_archives`; it does not need
-  the write enablement. It targets exactly one server, needs no confirmation (like
-  `export_archives`) and is audited like a change. Validating an archive (`process
-  validateExport`) and listing blocked processes (`process listBlocked`) run on one server the
-  caller names and need that stage's run-time data opt-in; the archive comes from an upload folder (FR-021). If a check on a test system shows that
-  the export or the validation changes the server, it is governed by FR-014 instead.
+- **FR-016a**: The run-time data export (User Story 5) blocks the exported processes on the source
+  (vendor documentation), so it is a change under FR-014 and FR-015 with the run-time data opt-in,
+  like the import. The archive is named by a file name only (no path): the export writes it into
+  the backup folder of the source server, and the import and the validation read it from the
+  backup folder of the server they run on. Validating an archive (`process validateExport`) and
+  listing blocked processes (`process listBlocked`) are reads; they run on one server the caller
+  names, need that stage's run-time data opt-in but not the write enablement, and are audited. If
+  a check on a test system shows that the validation changes the server, it is governed by FR-014
+  instead.
 - **FR-017**: A bulk change (`processdelete error`, deleting all libraries of a type, resuming or
   deleting the blocked processes of an operation) MUST show in its preview what and how many
   objects it will affect. The execution re-reads the set right before sending; if it differs from
@@ -661,13 +688,15 @@ offline.
   and never accepts a raw expression. A message text (`msgsend`) is at most 1,000 characters
   without control characters and is passed as one argument. No free text of the caller reaches a
   command line unchecked.
-- **FR-021**: Files to upload (license, library or plug-in, EDI rules, keystore, run-time data
-  archive, process id list, IS Connector input) MUST be read from a local path the caller names.
+- **FR-021**: Files to upload (license, library or plug-in, EDI rules, keystore, metadata import
+  file, user, group or role import file, IS Connector input) MUST be read from a local path the
+  caller names.
   The path must be a regular file, not a symbolic link, inside one of the upload folders listed
   in a new profile setting; the list is empty by default, so uploads are off until it is set.
-  Each file type has a size limit with a default (license, keystore and process id list 1 MiB,
-  EDI rules and IS Connector input 50 MiB, library or plug-in 200 MiB, run-time data archive
-  2 GiB) that the profile can lower or raise. File content never passes through the conversation.
+  Each file type has a size limit with a default (license and keystore 1 MiB; user, group or role
+  import file 10 MiB; EDI rules, metadata import file and IS Connector input 50 MiB; library or
+  plug-in 200 MiB) that the profile can lower or raise. The run-time data archive is not
+  uploaded (FR-016a). File content never passes through the conversation.
 - **FR-022**: The tools of this feature MUST NOT accept a password, key password or other secret
   as a parameter and MUST NOT return one. A command that needs a secret (setting a password,
   creating a user with a password, uploading a keystore) takes the name of an entry of a
