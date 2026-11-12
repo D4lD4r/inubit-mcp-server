@@ -3,6 +3,8 @@ package de.dadecker.inubit.mcp.adapter.cli.helper;
 import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.CLIENT_UID;
 import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.call;
 import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.encode;
+import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.ioMessageRequest;
+import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.nodeToolRequest;
 import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.outputs;
 import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.request;
 import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.serverLogRequest;
@@ -21,9 +23,12 @@ import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
 import de.dadecker.inubit.mcp.testing.FakeInubitClient;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.Failure;
+import de.dadecker.inubit.mcp.testing.FakeInubitScript.Member;
+import de.dadecker.inubit.mcp.testing.FakeInubitScript.Property;
 import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
@@ -38,6 +43,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -48,7 +54,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * The packaged helper of feature 020 (research D-3, D-4) in a real child JVM, reading a queue
- * entry or (feature 021, D-4, D-5) the web service log:
+ * entry, (feature 021, D-4, D-5) the web service log or (feature 024, D-2) answering a
+ * node-tool operation:
  * {@link HelperInstallation} installs it in its private directory with a
  * {@link FakeInubitClient} as the client home, and its argument array (with the
  * {@code --add-opens} list) runs through {@link SystemProcessLauncher} and {@link ProcessRun}.
@@ -72,6 +79,14 @@ class ClientHelperProcessTest {
     private static final String NOISE = "INFO  [main] IBISClient - connecting to "
         + "inubit.example.test";
     private static final String NODE = "inubit-node-01";
+    private static final String NODE_2 = "inubit-node-02";
+    /** The trust store of {@link ClientHelperTest#nodeToolRequest}, which the fakes never open. */
+    private static final String TRUST_STORE = "/var/qe-0001/trust.p12";
+    /** The process id and workflow of {@link ClientHelperTest#ioMessageRequest}. */
+    private static final String IO_RUN = "P-0001_a";
+    private static final String WORKFLOW = "Workflow-0001";
+    /** The object type of the I/O logging listing (research "Static facts"). */
+    private static final String IO_LISTING = "inputOutputMessageDetails";
     private static final String WEBSERVICE_LOG = "webservice.log";
     private static final byte[] LOG = ("2026-11-12 10:00:00,000 1 [WebService] request\n"
         + "2026-11-12 10:00:01,000 1 [WebService] response\n").getBytes(StandardCharsets.UTF_8);
@@ -235,7 +250,7 @@ class ClientHelperProcessTest {
         assertThat(noise(result.stdout())).containsExactly(NOISE);
         assertThat(logOut).hasBinaryContent(LOG);
         assertThat(client.calls()).as("the child JVM's vendor calls (FR-006)").containsExactly(
-            call("IBISSoapClient.<init>", URL_81 + "?isCli", "/var/qe-0001/trust.p12",
+            call("IBISSoapClient.<init>", URL_81 + "?isCli", TRUST_STORE,
                 TestSecrets.TRUST_STORE_PASSWORD, "null", "null", "true"),
             call("IBISSoapClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
             call("ClusterClient.<init>", "IBISSoapClient", USER, CLIENT_UID, "null"),
@@ -247,6 +262,163 @@ class ClientHelperProcessTest {
         assertThat(String.join(" ", spec.command())).as("request values travel on stdin only")
             .doesNotContain(logOut.toString(), URL_81, TestSecrets.CONFIGURED_PASSWORD,
                 TestSecrets.TRUST_STORE_PASSWORD);
+        TestSecrets.assertNoLeak(result.stdout());
+        TestSecrets.assertNoLeak(result.stderr());
+    }
+
+    // --- operations of feature 024 (D-2): one child-JVM run each ---------------------------
+
+    @Test
+    void soap81OwnNodeAnswersTheNodeOfTheSession() throws Exception {
+        FakeInubitClient client = FakeInubitClient.install(tmp.resolve("client"),
+            new FakeInubitScript().printsOnLogin(NOISE).node(NODE));
+        LaunchSpec spec = launchSpec(client);
+
+        CliResult result = runHelper(spec, nodeToolRequest("ownNode", lines -> { }));
+
+        assertThat(result.exitCode()).isZero();
+        assertThat(parsed(result.stdout())).containsExactly(
+            new HelperFrames.Start("SOAP_81"), new HelperFrames.LoginOk(),
+            new HelperFrames.NodeOk(NODE), new HelperFrames.End());
+        assertThat(noise(result.stdout())).containsExactly(NOISE);
+        assertThat(client.calls()).as("the child JVM's vendor calls (FR-007)").containsExactly(
+            call("IBISSoapClient.<init>", URL_81 + "?isCli", TRUST_STORE,
+                TestSecrets.TRUST_STORE_PASSWORD, "null", "null", "true"),
+            call("IBISSoapClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+            call("ClusterClient.<init>", "IBISSoapClient", USER, CLIENT_UID, "null"),
+            call("ClusterClient.getNode"),
+            call("IBISSoapClient.logoutUser", USER));
+        assertRequestValuesStayOffTheArgv(spec);
+        TestSecrets.assertNoLeak(result.stdout());
+        TestSecrets.assertNoLeak(result.stderr());
+    }
+
+    @Test
+    void soap81ClusterNodesListsTheMembersAndTheFlattenedDetailsOfOne() throws Exception {
+        Map<String, Object> jdk = new LinkedHashMap<>();
+        jdk.put("Vendor", "Eclipse Adoptium");
+        Map<String, Object> information = new LinkedHashMap<>();
+        information.put("ServerVersion", "9.0.10");
+        information.put("JDK", jdk);
+        information.put("LogDirectory", null);
+        FakeInubitClient client = FakeInubitClient.install(tmp.resolve("client"),
+            new FakeInubitScript().node(NODE)
+                .members(new Member(NODE, "ACTIVE", "9.0.10", "zone-a", "node-id-0001",
+                    3_600_000L), Member.unanswered(NODE_2))
+                .nodeInformation(NODE_2, information));
+        LaunchSpec spec = launchSpec(client);
+
+        CliResult result = runHelper(spec, nodeToolRequest("clusterNodes",
+            lines -> lines.put("details", NODE_2)));
+
+        assertThat(result.exitCode()).isZero();
+        assertThat(parsed(result.stdout())).containsExactly(
+            new HelperFrames.Start("SOAP_81"), new HelperFrames.LoginOk(),
+            new HelperFrames.NodeOk(NODE),
+            new HelperFrames.Member(NODE, "ACTIVE", "9.0.10", "zone-a", "node-id-0001",
+                Optional.of(3_600_000L)),
+            new HelperFrames.Member(NODE_2, "", "", "", "", Optional.empty()),
+            new HelperFrames.MembersOk(2),
+            new HelperFrames.Detail("ServerVersion", "9.0.10", false),
+            new HelperFrames.Detail("JDK.Vendor", "Eclipse Adoptium", false),
+            new HelperFrames.Detail("LogDirectory", "", false),
+            new HelperFrames.DetailsOk(3, false),
+            new HelperFrames.End());
+        assertThat(client.calls()).as("the child JVM's vendor calls (FR-007)").containsExactly(
+            call("IBISSoapClient.<init>", URL_81 + "?isCli", TRUST_STORE,
+                TestSecrets.TRUST_STORE_PASSWORD, "null", "null", "true"),
+            call("IBISSoapClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+            call("ClusterClient.<init>", "IBISSoapClient", USER, CLIENT_UID, "null"),
+            call("ClusterClient.getNode"),
+            call("ClusterClient.getNodes"),
+            call("ClusterClient.getNode", NODE_2),
+            call("IBISSoapClient.logoutUser", USER));
+        assertRequestValuesStayOffTheArgv(spec, NODE_2);
+        TestSecrets.assertNoLeak(result.stdout());
+        TestSecrets.assertNoLeak(result.stderr());
+    }
+
+    @Test
+    void soap81NodeConfigAnswersEachRequestedNameOfTheOwnNode() throws Exception {
+        FakeInubitClient client = FakeInubitClient.install(tmp.resolve("client"),
+            new FakeInubitScript().node(NODE)
+                .property("socketTimeoutInMillisecs", new Property(Integer.class, "60000",
+                    "Socket timeout", "Socket timeout in milliseconds", "Network", true, false)));
+        LaunchSpec spec = launchSpec(client);
+
+        CliResult result = runHelper(spec, nodeToolRequest("nodeConfig",
+            lines -> lines.put("names", "socketTimeoutInMillisecs%2CZoneName")));
+
+        assertThat(result.exitCode()).isZero();
+        assertThat(parsed(result.stdout())).containsExactly(
+            new HelperFrames.Start("SOAP_81"), new HelperFrames.LoginOk(),
+            new HelperFrames.NodeOk(NODE),
+            new HelperFrames.ConfigOk("socketTimeoutInMillisecs", "Integer", true, false,
+                "Socket timeout", "Network", "Socket timeout in milliseconds", "60000"),
+            new HelperFrames.ConfigAbsent("ZoneName"),
+            new HelperFrames.End());
+        assertThat(client.calls()).as("the child JVM's vendor calls (FR-007)").containsExactly(
+            call("IBISSoapClient.<init>", URL_81 + "?isCli", TRUST_STORE,
+                TestSecrets.TRUST_STORE_PASSWORD, "null", "null", "true"),
+            call("IBISSoapClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+            call("ClusterClient.<init>", "IBISSoapClient", USER, CLIENT_UID, "null"),
+            call("ClusterClient.getNode"),
+            call("ClusterClient.getNodeConfigurationProperty", NODE, "socketTimeoutInMillisecs"),
+            call("ClusterClient.getNodeConfigurationProperty", NODE, "ZoneName"),
+            call("IBISSoapClient.logoutUser", USER));
+        assertRequestValuesStayOffTheArgv(spec, "socketTimeoutInMillisecs");
+        TestSecrets.assertNoLeak(result.stdout());
+        TestSecrets.assertNoLeak(result.stderr());
+    }
+
+    /**
+     * The listing and the message travel through files; the reference is computed in this JVM
+     * ({@link IoMessageRef}) and matched in the child, over a non-ASCII entry.
+     */
+    @Test
+    void soap81IoLogWritesTheListingAndDownloadsTheReferencedMessage() throws Exception {
+        String matched = IO_RUN + "@@@Bestellprüfung Größe(Module-0002)@@@Input.1";
+        List<String> entries = List.of(IO_RUN + "@@@Orders(Module-0001)@@@Input.1", matched,
+            IO_RUN + "@@@Orders(Module-0001)@@@Output.1");
+        byte[] message = "<order id=\"Order-0001\">Größe</order>\n"
+            .getBytes(StandardCharsets.UTF_8);
+        FakeInubitClient client = FakeInubitClient.install(tmp.resolve("client"),
+            new FakeInubitScript().node(NODE)
+                .object(IO_RUN + "@@@" + WORKFLOW, IO_LISTING, String.join("###", entries))
+                .file(WORKFLOW + "###" + matched, message));
+        LaunchSpec spec = launchSpec(client);
+        Path listOut = out("io.list");
+        Path messageOut = out("message.bin");
+
+        CliResult result = runHelper(spec,
+            ioMessageRequest(listOut, messageOut, IoMessageRef.of(matched).value()));
+
+        assertThat(result.exitCode()).isZero();
+        assertThat(parsed(result.stdout())).containsExactly(
+            new HelperFrames.Start("SOAP_81"), new HelperFrames.LoginOk(),
+            new HelperFrames.NodeOk(NODE),
+            new HelperFrames.IoListOk(entries.size()),
+            new HelperFrames.IoMatch(Optional.of(matched)),
+            new HelperFrames.PartOk(HelperFrames.Part.MESSAGE, message.length),
+            new HelperFrames.End());
+        assertThat(listOut).content(StandardCharsets.UTF_8)
+            .isEqualTo(String.join("\n", entries) + "\n");
+        assertThat(messageOut).hasBinaryContent(message);
+        assertThat(client.calls()).as("the child JVM's vendor calls (FR-007)").containsExactly(
+            call("IBISSoapClient.<init>", URL_81 + "?isCli", TRUST_STORE,
+                TestSecrets.TRUST_STORE_PASSWORD, "null", "null", "true"),
+            call("IBISSoapClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+            call("ClusterClient.<init>", "IBISSoapClient", USER, CLIENT_UID, "null"),
+            call("ClusterClient.getNode"),
+            call("IBISSoapClient.getObject", IO_RUN + "@@@" + WORKFLOW, USER, IO_LISTING),
+            call("MultipartDownloadThread.<init>", "IBISSoapClient", USER,
+                WORKFLOW + "###" + matched, "InputOutputLogging", "null", "null"),
+            call("MultipartDownloadThread.setOutputFile", messageOut.toString()),
+            call("MultipartDownloadThread.start"),
+            call("MultipartDownloadThread.exceptionOccured"),
+            call("IBISSoapClient.logoutUser", USER));
+        assertRequestValuesStayOffTheArgv(spec, IO_RUN, WORKFLOW, listOut.toString(),
+            messageOut.toString());
         TestSecrets.assertNoLeak(result.stdout());
         TestSecrets.assertNoLeak(result.stderr());
     }
@@ -302,6 +474,28 @@ class ClientHelperProcessTest {
                 .doesNotContain(requestValue);
         }
         assertThat(spec.workingDirectory()).isEqualTo(client.home());
+    }
+
+    /**
+     * The request values of a {@link ClientHelperTest#nodeToolRequest} and {@code more} are not
+     * in the argument array: they travel on stdin only.
+     */
+    private static void assertRequestValuesStayOffTheArgv(LaunchSpec spec, String... more) {
+        List<String> values = new ArrayList<>(List.of(USER, URL_81, TRUST_STORE,
+            TestSecrets.CONFIGURED_PASSWORD, TestSecrets.TRUST_STORE_PASSWORD));
+        values.addAll(List.of(more));
+        String argv = String.join(" ", spec.command());
+        for (String value : values) {
+            assertThat(argv).as("request values travel on stdin only").doesNotContain(value);
+        }
+    }
+
+    /** This run's frames as {@link HelperFrames} parses them: complete, with {@code end}. */
+    private static List<HelperFrames.Frame> parsed(String stdout) {
+        HelperFrames frames = HelperFrames.parse(NONCE, stdout);
+        assertThat(frames.problem()).as("protocol problem").isEmpty();
+        assertThat(frames.ended()).as("ended with the end frame").isTrue();
+        return frames.frames();
     }
 
     /** The decoded tokens of this run's frames, in order; other lines are skipped. */

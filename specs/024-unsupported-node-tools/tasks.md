@@ -222,7 +222,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   download name built only from the workflow and the listed entry; `io match none` → no download
   thread created; 0-byte download → `part message ok 0`; vendor calls exactly as the contract;
   leak check)
-- [ ] T014 Child-JVM round trips (after T013): `adapter/cli/helper/ClientHelperProcessTest.java`
+- [X] T014 Child-JVM round trips (after T013): `adapter/cli/helper/ClientHelperProcessTest.java`
   `+` one real child-JVM run per new operation against the fake vendor classes on the class path
   (frames parsed by `HelperFrames`, exit 0, files written); `ClientHelperPackagingTest` still finds
   exactly one class file (major 61)
