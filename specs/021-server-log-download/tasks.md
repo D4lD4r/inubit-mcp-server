@@ -848,7 +848,7 @@ helper's `variant`.
   "Server log download (feature 021)" plus a row in the tests table. Failing tests first in
   `live/ServerLogLiveTestSupportTest.java` (env parsing, folder inside a repository refused,
   record-dir permissions)
-- [ ] T055 **[LIVE] [OWNER]** 8.1 live check (quickstart "Live check" steps 1–3; after T033, T046,
+- [X] T055 **[LIVE] [OWNER]** 8.1 live check (quickstart "Live check" steps 1–3; after T033, T046,
   T054): after the operator approved the concrete run (non-production 8.1 test node of an
   opted-in test group, private folder), `mvn -Plive -Dtest=ServerLogLiveTest verify`; by hand:
   files `rw-------`, sizes equal the results, the Workbench shows the same trace state as before

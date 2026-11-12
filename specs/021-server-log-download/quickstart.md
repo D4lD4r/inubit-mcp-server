@@ -81,7 +81,7 @@ concrete action in the chat.
    <n> bytes, window <lines>` and, with the opt-in, the same for `webservice` with the INUBIT node
    name.
 3. Check by hand: the files exist with `rw-------`; their sizes match the results; the Workbench
-   shows the same trace state as before (SC-005); the server log of the MCP server contains no
+   (or `get_health` with `includeSystemInfo`) shows the same trace state as before (SC-005); the server log of the MCP server contains no
    excerpt line.
 4. Repeat with a 9.0 node. Record the outcome below.
 
@@ -89,7 +89,7 @@ concrete action in the chat.
 
 | Date | Version | Log | Result | Notes |
 |---|---|---|---|---|
-| | 8.1.x | trace | | |
-| | 8.1.x | webservice | | |
+| 2026-11-12 | 8.1.17 | trace | pass | T055 on the non-production 8.1 test node (`test/node1` here); about 79 MiB, window 340,215 lines; file `rw-------`, size equal to the result; trace state unchanged before and after (get_health systemInfo: tracing enabled, level info; SC-005); captured server log without excerpt lines; forced failure left the folder unchanged |
+| 2026-11-12 | 8.1.17 | webservice | pass | T055, same node and run, opt-in set in a private copy of the profile (the installed release 0.9.1 rejects the new key); about 21.4 MiB, window 382,917 lines, INUBIT node named in the result; file `rw-------`, size equal to the result; captured server log without excerpt lines |
 | | 9.0.x | trace | | |
 | | 9.0.x | webservice | | |
