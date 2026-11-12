@@ -473,7 +473,7 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   `SECRET_UNRESOLVED`), port not called, audit `FAILED` (US3-3, edge case "maintenance mode,
   credentials not available, TLS failure"); unwritable `PENDING` → `INTERNAL`, port not called; audit sequence per path; leak
   check (the `contains` text never in a message, audit record or `toString`)
-- [ ] T028 [US1] `ServerLogService` part 2 — excerpt, placement, result (FR-007…FR-010, FR-015,
+- [X] T028 [US1] `ServerLogService` part 2 — excerpt, placement, result (FR-007…FR-010, FR-015,
   D-7 steps 3–5, D-8, D-11, D-13, D-15, D-18; after T015–T019, T027): after the download:
   `ConfiguredSecrets.prepare(min(prepareBound, remaining))` (`domain/port/ConfiguredSecrets`, the
   `ProfileSecrets` instance feature 019's `KnowledgeService` uses; `prepareBound` =

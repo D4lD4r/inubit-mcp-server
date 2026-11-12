@@ -89,3 +89,6 @@ the new tool (`download_server_log`, contract `contracts/mcp-tools-delta.md`).
   an `n-OK` line, so T024's recorded fixture must keep the real shape and T025 must recognise
   success from the exit code + the `Trace data … stored to:` line + the written file, not from
   `n-OK`. T023's success test uses `1-OK: Trace data …`, which is a reconstruction.
+- T028 minor for T030: merge `LogExcerpt.hints()` into the top-level `hints` of the tool output
+  (contract "Output" has no `excerpt.hints`) and assert at least one variant text, e.g. "No line
+  of the scanned window contains the search text".

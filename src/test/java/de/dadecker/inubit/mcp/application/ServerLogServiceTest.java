@@ -8,12 +8,16 @@ import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ContentKind;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.ExcerptLine;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.LogExcerpt;
 import de.dadecker.inubit.mcp.domain.model.LogPresence;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
+import de.dadecker.inubit.mcp.domain.model.ServerLogResult;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -29,16 +33,21 @@ import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
+import de.dadecker.inubit.mcp.testing.FakeConfiguredSecrets;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.GitFreeTempDir;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileAttribute;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -46,6 +55,7 @@ import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -55,13 +65,15 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * Feature 021 T027 (contracts/mcp-tools-delta.md "Decision flow" steps 1–7, FR-001, FR-002,
- * FR-011, FR-013, research D-7 step 1, D-14, D-15, D-18): {@link ServerLogService} up to the
- * download — the input checks, the target, the opt-in, the folder rules, the audit, the version
- * gate with detection, the call deadline and the server's login credentials. Fakes of the
- * {@link ServerLogPort} (recording calls and the deadline), the {@link GatewayFactory} (recording
- * the {@code prepareCredentials} bound) and the audit; the real {@link VersionGate} over a
- * scripted detection. Nothing is downloaded.
+ * Feature 021 T027 and T028 (contracts/mcp-tools-delta.md "Decision flow", "Output", FR-001,
+ * FR-002, FR-007…FR-011, FR-013, FR-015, research D-7, D-8, D-11, D-13 … D-15, D-18):
+ * {@link ServerLogService} — the input checks, the target, the opt-in, the folder rules, the
+ * audit, the version gate with detection, the call deadline and the server's login credentials,
+ * then the masking credentials, the excerpt permit, the excerpt, the placement and the result.
+ * Fakes of the {@link ServerLogPort} (recording calls and the deadline, writing the log into a
+ * private directory), the {@link GatewayFactory} (recording the {@code prepareCredentials} bound),
+ * the {@link FakeConfiguredSecrets} and the audit; the real {@link VersionGate} over a scripted
+ * detection, the real {@link ExcerptPermit} and {@link LogFileWriter}.
  */
 class ServerLogServiceTest {
 
@@ -72,6 +84,10 @@ class ServerLogServiceTest {
     private static final Instant NOW = Instant.parse("2026-11-12T10:00:00Z");
     private static final UUID ID = UUID.fromString("00000000-0000-4000-8000-000000000027");
     private static final Duration EXPORT_TIMEOUT = Duration.ofSeconds(120);
+    /** {@code ProfileSecrets.timeout()} as {@code Wiring} passes it. */
+    private static final Duration PREPARE_BOUND = Duration.ofSeconds(30);
+    /** The file name of a download that finished at {@link #NOW}. */
+    private static final String NAME = "test-node1-trace-20261112-100000.log";
     private static final long START = 5_000_000_000L;
     private static final InubitVersion V8_1_17 = InubitVersion.parse("8.1.17").orElseThrow();
     /** A {@code contains} text that must never appear in a message, record or log line. */
@@ -105,6 +121,11 @@ class ServerLogServiceTest {
     /** The seam's time; each reading advances it by {@code tick}. */
     private final AtomicLong nanoTime = new AtomicLong(START);
     private long tick;
+    /** The service's clock of {@code downloadedAt}; the fake download advances it. */
+    private final MutableClock clock = new MutableClock(NOW);
+    private FakeConfiguredSecrets secrets = FakeConfiguredSecrets.nothingConfigured();
+    private final ExcerptPermit permit = new ExcerptPermit();
+    private LogFileWriter writer = new LogFileWriter();
     private final List<ToolError> errors = new ArrayList<>();
 
     @BeforeEach
@@ -439,6 +460,304 @@ class ServerLogServiceTest {
         assertThat(outcomes()).startsWith(AuditOutcome.PENDING).hasSize(2);
     }
 
+    @Test
+    void aPortErrorWithoutNodeGetsTheServer() {
+        port.failure = new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
+            "no client", "c", "s"));
+
+        ToolError error = errorOf(() -> service().download(request(TEST.value(), "trace")));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(error.node()).contains(TEST);
+    }
+
+    // --- excerpt, placement, result (steps 8 and 9) -------------------------------------------
+
+    /** US1-1. */
+    @Test
+    void theResultNamesTheServerTheLogTheAbsoluteFileItsSizeTheTimeAndTheLast200Lines()
+        throws IOException {
+        port.content = lines(250).getBytes(StandardCharsets.UTF_8);
+
+        ServerLogResult result = service().download(request(TEST.value(), "trace"));
+
+        Path file = folder.resolve(NAME);
+        assertThat(result.node()).isEqualTo(TEST);
+        assertThat(result.log()).isEqualTo(ServerLogKind.TRACE);
+        assertThat(result.inubitNode()).isEmpty();
+        assertThat(result.file()).isEqualTo(file).isAbsolute();
+        assertThat(result.sizeBytes()).isEqualTo(port.content.length).isEqualTo(Files.size(file));
+        assertThat(result.downloadedAt()).isEqualTo(NOW);
+        LogExcerpt excerpt = result.excerpt().orElseThrow();
+        assertThat(excerpt.kind()).isEqualTo(ContentKind.TEXT);
+        assertThat(excerpt.lines()).hasSize(200);
+        assertThat(excerpt.lines().get(0).number()).isEqualTo(51);
+        assertThat(excerpt.lines().get(0).text()).isEqualTo("line 51");
+        assertThat(excerpt.lines().get(199).number()).isEqualTo(250);
+        assertThat(result.hints()).isEmpty();
+        assertThat(result.warnings()).containsExactly("The log file contains clear-text content");
+        assertThat(port.closed).isEqualTo(1);
+        assertThat(port.directory).doesNotExist();
+    }
+
+    @Test
+    void theWebServiceLogNamesTheInubitNodeAndCarriesTheUnsupportedWarning() {
+        ServerLogResult result = service().download(request(TEST.value(), "webservice"));
+
+        assertThat(result.log()).isEqualTo(ServerLogKind.WEBSERVICE);
+        assertThat(result.inubitNode()).contains("node1");
+        assertThat(result.file().getFileName())
+            .hasToString("test-node1-webservice-20261112-100000.log");
+        assertThat(result.warnings()).containsExactly(
+            "Read through an unsupported, undocumented INUBIT interface; diagnosis only",
+            "The log file contains clear-text content");
+    }
+
+    @Test
+    void theFinalRecordIsExecutedWithFileSizeAndInubitNode() {
+        ServerLogResult result = service().download(request(TEST.value(), "webservice"));
+
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.EXECUTED);
+        assertThat(audit.records.get(1).details()).containsExactly(
+            Map.entry("file", result.file().toString()),
+            Map.entry("sizeBytes", result.sizeBytes()),
+            Map.entry("inubitNode", "node1"));
+    }
+
+    @Test
+    void anUnwritableFinalRecordOfASuccessIsAWarning() {
+        audit.failAfter = 1;
+
+        ServerLogResult result = service().download(request(TEST.value(), "trace"));
+
+        assertThat(result.warnings()).last().asString()
+            .startsWith("The final audit record could not be written (only the pending record "
+                + ID + " exists)");
+        assertThat(result.file()).exists();
+    }
+
+    @Test
+    void theTimeIsTheSecondAtWhichTheDownloadFinishedInUtc() {
+        port.elapsed = Duration.ofMillis(1_750);
+
+        ServerLogResult result = service().download(request(TEST.value(), "trace"));
+
+        assertThat(result.downloadedAt()).isEqualTo(Instant.parse("2026-11-12T10:00:01Z"));
+        assertThat(result.file().getFileName()).hasToString("test-node1-trace-20261112-100001.log");
+    }
+
+    static List<Object[]> contents() {
+        byte[] binary = new byte[512];
+        for (int i = 0; i < binary.length; i++) {
+            binary[i] = (byte) i;
+        }
+        return List.of(
+            new Object[] {"UTF-8", "Größe: 5 €\nzweite Zeile\n".getBytes(StandardCharsets.UTF_8)},
+            new Object[] {"Latin-1", "Größe: 5\nzweite Zeile\n"
+                .getBytes(StandardCharsets.ISO_8859_1)},
+            new Object[] {"binary", binary});
+    }
+
+    /** FR-008. */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("contents")
+    void theFileHoldsTheDownloadedBytesVerbatim(String name, byte[] content) throws IOException {
+        port.content = content;
+
+        ServerLogResult result = service().download(request(TEST.value(), "trace"));
+
+        assertThat(Files.readAllBytes(result.file())).isEqualTo(content);
+        assertThat(result.sizeBytes()).isEqualTo(content.length);
+    }
+
+    /** US1-5. */
+    @Test
+    void anExistingFileIsNotReplacedTheCallTakesTheNextName() throws IOException {
+        Files.createDirectories(folder);
+        Files.writeString(folder.resolve(NAME), "earlier");
+
+        ServerLogResult result = service().download(request(TEST.value(), "trace"));
+
+        assertThat(result.file())
+            .isEqualTo(folder.resolve("test-node1-trace-20261112-100000-2.log"));
+        assertThat(folder.resolve(NAME)).hasContent("earlier");
+    }
+
+    static List<Object[]> emptyLogs() {
+        return List.of(
+            new Object[] {"trace", LogPresence.PRESENT, "The log is empty"},
+            new Object[] {"webservice", LogPresence.PRESENT,
+                "The log is empty; web service logging may be disabled"},
+            new Object[] {"trace", LogPresence.UNKNOWN,
+                "The log is empty or does not exist on the server"},
+            new Object[] {"webservice", LogPresence.UNKNOWN, "The log is empty or does not exist"
+                + " on the server; web service logging may be disabled"});
+    }
+
+    /** D-8, US2-4. */
+    @ParameterizedTest(name = "{0} {1}")
+    @MethodSource("emptyLogs")
+    void anEmptyLogIsWrittenWithAnEmptyExcerptAndItsHint(String log, LogPresence presence,
+        String hint) {
+        port.content = new byte[0];
+        port.presence = presence;
+
+        ServerLogResult result = service().download(request(TEST.value(), log));
+
+        assertThat(result.file()).exists().isEmptyFile();
+        assertThat(result.sizeBytes()).isZero();
+        assertThat(result.excerpt()).hasValueSatisfying(excerpt -> {
+            assertThat(excerpt.kind()).isEqualTo(ContentKind.EMPTY);
+            assertThat(excerpt.lines()).isEmpty();
+        });
+        assertThat(result.hints()).containsExactly(hint);
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.EXECUTED);
+    }
+
+    @Test
+    void containsWithoutMatchWritesTheFileWithAnEmptyExcerptAndItsHint() {
+        ServerLogResult result = service().download(new ServerLogRequest(TEST.value(), "trace",
+            folder.toString(), OptionalInt.empty(), Optional.of(NEEDLE), OptionalInt.empty(),
+            Optional.empty()));
+
+        assertThat(result.file()).exists();
+        LogExcerpt excerpt = result.excerpt().orElseThrow();
+        assertThat(excerpt.selection()).isEqualTo(LogExcerpt.Selection.CONTAINS);
+        assertThat(excerpt.matchingLines()).hasValue(0);
+        assertThat(excerpt.lines()).isEmpty();
+        assertThat(excerpt.hints())
+            .containsExactly("No line of the scanned window contains the search text");
+        assertThat(result.toString()).doesNotContain(NEEDLE);
+    }
+
+    @Test
+    void tailLinesAndMaxCharsReachTheExcerpt() {
+        port.content = lines(10).getBytes(StandardCharsets.UTF_8);
+
+        ServerLogResult result = service().download(new ServerLogRequest(TEST.value(), "trace",
+            folder.toString(), OptionalInt.of(3), Optional.empty(), OptionalInt.of(14),
+            Optional.empty()));
+
+        LogExcerpt excerpt = result.excerpt().orElseThrow();
+        assertThat(excerpt.lines()).extracting(ExcerptLine::text)
+            .containsExactly("line 9", "line 10");
+        assertThat(excerpt.truncated()).isPresent();
+    }
+
+    /** US1-3: a known password of another node is masked in the excerpt, not in the file. */
+    @Test
+    void aKnownPasswordOfAnotherNodeIsMaskedInTheExcerptButKeptInTheFile() throws IOException {
+        secrets = FakeConfiguredSecrets.held("Pr0d-Node2-Passw0rd");
+        port.content = "connect prod/node2 with Pr0d-Node2-Passw0rd done\n"
+            .getBytes(StandardCharsets.UTF_8);
+
+        ServerLogResult result = service().download(request(TEST.value(), "trace"));
+
+        String line = result.excerpt().orElseThrow().lines().get(0).text();
+        assertThat(line).doesNotContain("Pr0d-Node2-Passw0rd")
+            .startsWith("connect prod/node2 with ").endsWith(" done");
+        assertThat(Files.readString(result.file())).contains("Pr0d-Node2-Passw0rd");
+    }
+
+    /** US1-10, FR-010: fail closed for the excerpt only; no permit is taken. */
+    @Test
+    void credentialsNotYetReadWithholdTheExcerptButWriteTheFile() {
+        secrets = FakeConfiguredSecrets.waiting("prod/node2", "credential store");
+        port.content = "secret-looking line\n".getBytes(StandardCharsets.UTF_8);
+        // a permit attempt would wait for the busy permit and end in TIMEOUT
+        port.elapsed = EXPORT_TIMEOUT.minusMillis(100);
+
+        ServerLogResult result;
+        try (ExcerptPermit.Held busy = permit.tryAcquire(Duration.ZERO).orElseThrow()) {
+            result = service().download(request(TEST.value(), "trace"));
+        }
+
+        assertThat(result.excerpt()).isEmpty();
+        assertThat(result.hints()).containsExactly("The excerpt is withheld: the credentials of"
+            + " prod/node2 (credential store: waiting) have not been read yet, so they could not"
+            + " be masked; every excerpt is withheld until this source can be read; the file is"
+            + " written");
+        assertThat(result.toString()).doesNotContain("secret-looking line");
+        assertThat(result.file()).exists();
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.EXECUTED);
+    }
+
+    @Test
+    void theMaskingCredentialsAreBoundByThePrepareBoundWhileTheDeadlineLeavesMore() {
+        service().download(request(TEST.value(), "trace"));
+
+        assertThat(secrets.prepared()).containsExactly(PREPARE_BOUND);
+    }
+
+    @Test
+    void theMaskingCredentialsAreBoundByTheRemainingDeadlineWhenLessIsLeft() {
+        port.elapsed = EXPORT_TIMEOUT.minusSeconds(20);
+
+        service().download(request(TEST.value(), "trace"));
+
+        assertThat(secrets.prepared()).containsExactly(Duration.ofSeconds(20));
+    }
+
+    @Test
+    void aDeadlinePassedDuringTheDownloadStillTakesAFreePermitAndPlacesTheFile() {
+        port.elapsed = EXPORT_TIMEOUT.plusSeconds(1);
+
+        ServerLogResult result = service().download(request(TEST.value(), "trace"));
+
+        assertThat(secrets.prepared()).containsExactly(Duration.ZERO);
+        assertThat(result.excerpt()).isPresent();
+        assertThat(result.file()).exists();
+    }
+
+    /** D-13, FR-013. */
+    @Test
+    void aPermitHeldLongerThanTheRemainingDeadlineIsTimeoutAndLeavesNoFile() {
+        port.elapsed = EXPORT_TIMEOUT.minusMillis(100);
+
+        ToolError error;
+        try (ExcerptPermit.Held busy = permit.tryAcquire(Duration.ZERO).orElseThrow()) {
+            error = errorOf(() -> service().download(request(TEST.value(), "trace")));
+        }
+
+        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(error.message()).isEqualTo("The trace log download from test/node1 did not"
+            + " finish within cliExportTimeout (120 s)");
+        assertThat(error.nextStep()).contains("cliExportTimeout");
+        assertThat(error.node()).contains(TEST);
+        assertNoFileInTheFolder();
+        assertThat(port.directory).doesNotExist();
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.FAILED);
+    }
+
+    @Test
+    void aPlacementFailureLeavesNoFileAndIsAuditedFailed() {
+        writer = new LogFileWriter(new FailingForce());
+
+        ToolError error = errorOf(() -> service().download(request(TEST.value(), "trace")));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INTERNAL);
+        assertThat(error.message()).startsWith("The log file could not be written to " + folder);
+        assertThat(error.node()).contains(TEST);
+        assertNoFileInTheFolder();
+        assertThat(port.directory).doesNotExist();
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.FAILED);
+        assertThat(audit.records.get(1).details()).doesNotContainKey("file");
+    }
+
+    @Test
+    void aDownloadThatCannotBeReadLeavesNoFileAndIsAuditedFailed() {
+        port.reportedSize = port.content.length + 10L;
+
+        ToolError error = errorOf(() -> service().download(request(TEST.value(), "trace")));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INTERNAL);
+        assertThat(error.message()).startsWith("The downloaded trace log of test/node1 could not"
+            + " be read");
+        assertNoFileInTheFolder();
+        assertThat(port.directory).doesNotExist();
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.FAILED);
+    }
+
     // --- leak check ---------------------------------------------------------------------------
 
     @Test
@@ -467,8 +786,9 @@ class ServerLogServiceTest {
         return new ServerLogService(new TargetResolver(List.of(TEST, PROD, NEW, AUTO)), optedIn,
             node -> Optional.of("jdoe"), rules,
             FakeVersionDetection.gateWithoutClients(versions, detection, MATRIX), gateways,
-            node -> EXPORT_TIMEOUT, new ServerLogAudit.Dependencies(audit, new MutableClock(NOW),
-                "default", () -> ID), () -> nanoTime.getAndAdd(tick));
+            node -> EXPORT_TIMEOUT, secrets, PREPARE_BOUND, permit, writer,
+            new ServerLogAudit.Dependencies(audit, new MutableClock(NOW), "default", () -> ID),
+            clock, () -> nanoTime.getAndAdd(tick));
     }
 
     private TargetFolderRules rules() {
@@ -485,10 +805,7 @@ class ServerLogServiceTest {
             Optional.empty(), OptionalInt.empty(), Optional.empty());
     }
 
-    /**
-     * Runs a call through the download; what follows the download (excerpt, placement, result)
-     * is not part of these tests.
-     */
+    /** Runs a call whatever its outcome; a tool error is kept for the leak check. */
     private void attempt(ServerLogRequest request) {
         Throwable thrown = catchThrowable(() -> service().download(request));
         if (thrown instanceof ToolErrorException e) {
@@ -501,6 +818,22 @@ class ServerLogServiceTest {
         assertThat(thrown).isNotNull();
         errors.add(thrown.error());
         return thrown.error();
+    }
+
+    /** {@code line 1\n} … {@code line <n>\n}. */
+    private static String lines(int n) {
+        StringBuilder text = new StringBuilder();
+        for (int i = 1; i <= n; i++) {
+            text.append("line ").append(i).append('\n');
+        }
+        return text.toString();
+    }
+
+    /** No file of the call in the target folder; a folder the call created may stay. */
+    private void assertNoFileInTheFolder() {
+        if (Files.exists(folder)) {
+            assertThat(folder).isEmptyDirectory();
+        }
     }
 
     private void assertNothingSentOrCreated() {
@@ -517,11 +850,22 @@ class ServerLogServiceTest {
     private record Call(ServerLogKind kind, InubitVersion version, long deadlineNanos) {
     }
 
-    /** Records each download and returns a log whose private directory counts its closes. */
+    /**
+     * Records each download; writes {@code content} into a new private directory, lets
+     * {@code elapsed} pass on the deadline seam and on the clock, and returns the log, whose close
+     * deletes the directory and is counted. The web service log reports the INUBIT node
+     * {@code node1}.
+     */
     private final class FakePort implements ServerLogPort {
 
         final List<Call> calls = new ArrayList<>();
         ToolErrorException failure;
+        byte[] content = "first line\nsecond line\n".getBytes(StandardCharsets.UTF_8);
+        LogPresence presence = LogPresence.PRESENT;
+        /** The size reported for the download; negative: the content's. */
+        long reportedSize = -1;
+        Duration elapsed = Duration.ZERO;
+        Path directory;
         int closed;
 
         @Override
@@ -531,8 +875,73 @@ class ServerLogServiceTest {
             if (failure != null) {
                 throw failure;
             }
-            return new DownloadedLog(root.resolve("private").resolve(kind.fileName()), 0,
-                Optional.empty(), LogPresence.PRESENT, () -> closed++);
+            try {
+                directory = Files.createTempDirectory(root, "private");
+                Path file = Files.write(directory.resolve(kind.fileName()), content);
+                nanoTime.addAndGet(elapsed.toNanos());
+                clock.advance(elapsed);
+                return new DownloadedLog(file, reportedSize < 0 ? content.length : reportedSize,
+                    kind == ServerLogKind.WEBSERVICE ? Optional.of("node1") : Optional.empty(),
+                    presence, () -> {
+                        closed++;
+                        deleteTree(directory);
+                    });
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+    }
+
+    private static void deleteTree(Path directory) {
+        try (Stream<Path> files = Files.walk(directory)) {
+            for (Path file : files.sorted(Comparator.reverseOrder()).toList()) {
+                Files.delete(file);
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /** The system's file operations, except that forcing a file to the device fails. */
+    private static final class FailingForce implements LogFileWriter.FileOps {
+
+        private final LogFileWriter.FileOps system = LogFileWriter.FileOps.system();
+
+        @Override
+        public FileChannel createNew(Path file, FileAttribute<?>... attributes)
+            throws IOException {
+            return system.createNew(file, attributes);
+        }
+
+        @Override
+        public long copy(Path source, FileChannel target) throws IOException {
+            return system.copy(source, target);
+        }
+
+        @Override
+        public void force(FileChannel channel) throws IOException {
+            throw new IOException("No space left on device");
+        }
+
+        @Override
+        public void link(Path link, Path existing) throws IOException {
+            system.link(link, existing);
+        }
+
+        @Override
+        public void move(Path source, Path target) throws IOException {
+            system.move(source, target);
+        }
+
+        @Override
+        public void delete(Path file) throws IOException {
+            system.delete(file);
+        }
+
+        @Override
+        public void createDirectory(Path directory, FileAttribute<?>... attributes)
+            throws IOException {
+            system.createDirectory(directory, attributes);
         }
     }
 

@@ -7,15 +7,27 @@ import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.LogExcerpt;
+import de.dadecker.inubit.mcp.domain.model.LogPresence;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ServerLogBounds;
 import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ServerLogResult;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.port.ConfiguredSecrets;
+import de.dadecker.inubit.mcp.domain.port.ConfiguredSecrets.Readiness;
 import de.dadecker.inubit.mcp.domain.port.DownloadedLog;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
+import java.io.IOException;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -24,6 +36,7 @@ import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * {@code download_server_log} (feature 021): downloads one server log of one node into a private
@@ -47,6 +60,14 @@ import java.util.regex.Pattern;
  *       {@code cliExportTimeout}, a failed fetch passes through), then {@link
  *       de.dadecker.inubit.mcp.domain.port.ServerLogPort#download} gets the deadline. Every
  *       failure from here on closes the record with {@code FAILED}.</li>
+ *   <li>The credentials of every node, for masking, within {@code min(prepareBound, remaining)}
+ *       (research D-11): not all known → the excerpt is withheld with a hint and no permit is
+ *       taken; otherwise the {@link ExcerptPermit} within the remaining deadline (not free →
+ *       {@code TIMEOUT}) and {@link LogExcerpt#build} over the scanned window.</li>
+ *   <li>{@link LogFileWriter#place} as {@code <group>-<node>-<log>-<yyyyMMdd-HHmmss>.log} at the
+ *       UTC second the download finished, the final {@code EXECUTED} record, the result. The
+ *       private directory is deleted on every path; on a failure no file of the call stays in
+ *       the folder.</li>
  * </ol>
  */
 public final class ServerLogService {
@@ -56,6 +77,12 @@ public final class ServerLogService {
         "the log file", "log files with clear-text content",
         "the log file (with clear-text content) will be synchronized to the cloud");
 
+    private static final String CLEAR_TEXT_WARNING = "The log file contains clear-text content";
+    private static final String UNSUPPORTED_WARNING =
+        "Read through an unsupported, undocumented INUBIT interface; diagnosis only";
+    /** The time in the file name: when the download finished, UTC (D-7 step 5). */
+    private static final DateTimeFormatter FILE_TIME =
+        DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC);
     private static final int MAX_FOLDER_CHARS = 4_096;
     private static final Pattern CONTROL = Pattern.compile("\\p{Cc}");
     private static final String SCHEMA_STEP = "Correct the parameter as the tool's input schema"
@@ -68,7 +95,12 @@ public final class ServerLogService {
     private final VersionGate gate;
     private final GatewayFactory gateways;
     private final Function<NodeId, Duration> exportTimeouts;
+    private final ConfiguredSecrets secrets;
+    private final Duration prepareBound;
+    private final ExcerptPermit permit;
+    private final LogFileWriter writer;
     private final ServerLogAudit.Dependencies audit;
+    private final Clock clock;
     private final LongSupplier nanoTime;
 
     /**
@@ -79,13 +111,21 @@ public final class ServerLogService {
      *                       {@code WEBSERVICE_LOG_READ} over StartCLI)
      * @param gateways       the server's credentials and its server-log port
      * @param exportTimeouts the {@code cliExportTimeout} of a node, the call's budget
+     * @param secrets        the credentials of every node of the profile, masked in the excerpt
+     *                       (the instance feature 019's {@code KnowledgeService} uses)
+     * @param prepareBound   the longest wait for {@code secrets} ({@code ProfileSecrets.timeout()})
+     * @param permit         the process's one excerpt permit
+     * @param writer         places the log in the target folder
      * @param audit          what every call's audit shares
+     * @param clock          the time the download finished ({@code downloadedAt}, the file name)
      * @param nanoTime       the clock of the call deadline ({@link System#nanoTime()})
      */
     public ServerLogService(TargetResolver targets, Predicate<NodeId> optedIn,
         Function<NodeId, Optional<String>> accounts, TargetFolderRules folders, VersionGate gate,
         GatewayFactory gateways, Function<NodeId, Duration> exportTimeouts,
-        ServerLogAudit.Dependencies audit, LongSupplier nanoTime) {
+        ConfiguredSecrets secrets, Duration prepareBound, ExcerptPermit permit,
+        LogFileWriter writer, ServerLogAudit.Dependencies audit, Clock clock,
+        LongSupplier nanoTime) {
         this.targets = Objects.requireNonNull(targets, "targets");
         this.optedIn = Objects.requireNonNull(optedIn, "optedIn");
         this.accounts = Objects.requireNonNull(accounts, "accounts");
@@ -93,7 +133,12 @@ public final class ServerLogService {
         this.gate = Objects.requireNonNull(gate, "gate");
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.exportTimeouts = Objects.requireNonNull(exportTimeouts, "exportTimeouts");
+        this.secrets = Objects.requireNonNull(secrets, "secrets");
+        this.prepareBound = Objects.requireNonNull(prepareBound, "prepareBound");
+        this.permit = Objects.requireNonNull(permit, "permit");
+        this.writer = Objects.requireNonNull(writer, "writer");
         this.audit = Objects.requireNonNull(audit, "audit");
+        this.clock = Objects.requireNonNull(clock, "clock");
         this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
     }
 
@@ -102,9 +147,10 @@ public final class ServerLogService {
      *
      * @throws ToolErrorException a refusal of steps 1–4, {@code INTERNAL} for an unwritable audit
      *     record that must precede the download, the gate's refusal or the detection's error,
-     *     {@code TIMEOUT} for credentials not read within the call deadline, and the errors of the
-     *     credential fetch and of the download; when the final audit record could not be written,
-     *     the message names the {@code auditId}
+     *     {@code TIMEOUT} for credentials not read or an excerpt permit not free within the call
+     *     deadline, the errors of the credential fetch, of the download and of the placement, and
+     *     {@code INTERNAL} for an unreadable private copy; when the final audit record could not be
+     *     written, the message names the {@code auditId}
      */
     public ServerLogResult download(ServerLogRequest request) {
         ServerLogAudit record = new ServerLogAudit(audit, request.target(), request.log(),
@@ -120,8 +166,9 @@ public final class ServerLogService {
         return run(record, checked);
     }
 
-    /** The outcome of steps 1–4. */
-    private record Checked(NodeId node, ServerLogKind kind, TargetFolderRules.CheckedFolder folder) {
+    /** The outcome of steps 1–4, with the excerpt's inputs (defaults applied). */
+    private record Checked(NodeId node, ServerLogKind kind, TargetFolderRules.CheckedFolder folder,
+        int tailLines, Optional<String> contains, int maxChars) {
     }
 
     /** Steps 1–4, first failure wins. */
@@ -132,11 +179,15 @@ public final class ServerLogService {
         if (kind == ServerLogKind.WEBSERVICE && !optedIn.test(node)) {
             throw notConfigured(node);
         }
+        TargetFolderRules.CheckedFolder folder;
         try {
-            return new Checked(node, kind, folders.check(request.targetFolder(), FOLDER_SUBJECT));
+            folder = folders.check(request.targetFolder(), FOLDER_SUBJECT);
         } catch (ToolErrorException e) {
             throw new ToolErrorException(e.error().withNode(node));
         }
+        return new Checked(node, kind, folder,
+            request.tailLines().orElse(ServerLogBounds.DEFAULT_TAIL_LINES), request.contains(),
+            request.maxChars().orElse(ServerLogBounds.DEFAULT_MAX_CHARS));
     }
 
     /** The input schema's limits again; returns the log kind. */
@@ -219,7 +270,10 @@ public final class ServerLogService {
         try {
             return fetch(record, checked, admission);
         } catch (ToolErrorException e) {
-            throw closed(record, e, AuditOutcome.FAILED);
+            // an adapter error without a node (e.g. the PortSet's CLI_UNAVAILABLE) names the server
+            ToolErrorException named = e.error().node().isPresent() ? e
+                : new ToolErrorException(e.error().withNode(checked.node()));
+            throw closed(record, named, AuditOutcome.FAILED);
         } catch (RuntimeException e) {
             throw unexpected(record, e);
         }
@@ -236,10 +290,9 @@ public final class ServerLogService {
         long deadlineNanos = nanoTime.getAsLong() + budget.toNanos();
         if (gateways.prepareCredentials(node, remaining(deadlineNanos))
             == CredentialState.PENDING) {
-            throw new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT, "The "
-                    + checked.kind().wireName() + " log download from " + node + " did not finish"
-                    + " within cliExportTimeout (" + Durations.human(budget) + "): the login"
-                    + " credentials of " + node + " were not read in time",
+            throw new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT,
+                notFinished(checked, budget) + ": the login credentials of " + node
+                    + " were not read in time",
                 "The first read of the login credentials from their store took longer than"
                     + " cliExportTimeout; it continues, so a later call finds them",
                 "Retry in a moment; raise cliExportTimeout if the credential store is just slow;"
@@ -247,21 +300,121 @@ public final class ServerLogService {
         }
         try (DownloadedLog downloaded = gateways.serverLogs(node).download(checked.kind(),
             version, deadlineNanos)) {
+            Instant downloadedAt = clock.instant().truncatedTo(ChronoUnit.SECONDS);
             record.downloaded(downloaded.size(), downloaded.inubitNode());
-            return excerptAndPlace(checked, admission, downloaded);
+            return excerptAndPlace(record, checked, admission, downloaded, downloadedAt, budget,
+                deadlineNanos);
         }
     }
 
     /**
-     * The excerpt, the placement in the target folder and the result follow in T028; until then
-     * a download ends in {@code INTERNAL} (the tool is not announced before T031).
+     * Steps 8 and 9: the credentials of every node for masking (not all known → the excerpt is
+     * withheld and no permit is taken), the excerpt, the placement under the name of
+     * {@code downloadedAt}, the final record and the result.
      */
-    private static ServerLogResult excerptAndPlace(Checked checked,
-        VersionGate.Admission admission, DownloadedLog downloaded) {
-        throw new ToolErrorException(ToolError.of(ErrorCode.INTERNAL, ServerLogAudit.CAPABILITY
-                + ": the excerpt and placement are not wired yet",
-            "An internal error of the INUBIT MCP server", "Download the log in the Workbench")
-            .withNode(checked.node()));
+    private ServerLogResult excerptAndPlace(ServerLogAudit record, Checked checked,
+        VersionGate.Admission admission, DownloadedLog downloaded, Instant downloadedAt,
+        Duration budget, long deadlineNanos) {
+        List<String> hints = new ArrayList<>();
+        if (downloaded.size() == 0) {
+            hints.add(emptyHint(checked.kind(), downloaded.presence()));
+        }
+        Duration left = remaining(deadlineNanos);
+        Optional<LogExcerpt> excerpt;
+        if (secrets.prepare(left.compareTo(prepareBound) < 0 ? left : prepareBound)
+            instanceof Readiness.NotReady notReady) {
+            excerpt = Optional.empty();
+            hints.add(withheldHint(notReady));
+        } else {
+            excerpt = Optional.of(excerpt(checked, downloaded, budget, deadlineNanos));
+        }
+        LogFileWriter.Placed placed = place(checked, downloaded, downloadedAt);
+        record.file(placed.file());
+        List<String> warnings = new ArrayList<>();
+        if (checked.kind() == ServerLogKind.WEBSERVICE) {
+            warnings.add(UNSUPPORTED_WARNING);
+        }
+        warnings.add(CLEAR_TEXT_WARNING);
+        warnings.addAll(checked.folder().warnings());
+        warnings.addAll(admission.warnings());
+        record.outcome(AuditOutcome.EXECUTED,
+            excerpt.isPresent() ? "written" : "written; excerpt withheld").ifPresent(warnings::add);
+        return new ServerLogResult(checked.node(), checked.kind(), downloaded.inubitNode(),
+            placed.file(), placed.size(), downloadedAt, excerpt, hints, warnings);
+    }
+
+    /**
+     * Builds the excerpt under the process's excerpt permit, waiting for it at most until the
+     * call deadline; once held, the build runs to its end (FR-013).
+     */
+    private LogExcerpt excerpt(Checked checked, DownloadedLog downloaded, Duration budget,
+        long deadlineNanos) {
+        Optional<ExcerptPermit.Held> held = permit.tryAcquire(remaining(deadlineNanos));
+        if (held.isEmpty()) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT,
+                notFinished(checked, budget),
+                "Another download_server_log call was building its excerpt (one at a time per MCP"
+                    + " server) until the call's cliExportTimeout ran out",
+                "Retry in a moment, or raise cliExportTimeout; large logs need a larger"
+                    + " cliExportTimeout").withNode(checked.node()));
+        }
+        try (ExcerptPermit.Held taken = held.get()) {
+            // D-13: the window is handed over, not kept here, so its bytes can be collected
+            // while the decoded window is masked
+            return LogExcerpt.build(LogWindowReader.read(downloaded.file(), downloaded.size()),
+                checked.tailLines(), checked.contains(), checked.maxChars(),
+                secrets::occurrences);
+        } catch (IOException e) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.INTERNAL, "The downloaded "
+                    + checked.kind().wireName() + " log of " + checked.node() + " could not be"
+                    + " read (" + e.getClass().getSimpleName() + "); nothing was written",
+                "The private temporary directory of the download was changed or its file system"
+                    + " reported an error",
+                "Retry; check the free space and permissions of the temporary directory"
+                    + " (java.io.tmpdir)").withNode(checked.node()));
+        }
+    }
+
+    /** Places the private copy in the target folder as {@code <group>-<node>-<log>-<time>}. */
+    private LogFileWriter.Placed place(Checked checked, DownloadedLog downloaded,
+        Instant downloadedAt) {
+        NodeId node = checked.node();
+        String baseName = node.group().value() + "-" + node.name() + "-"
+            + checked.kind().wireName() + "-" + FILE_TIME.format(downloadedAt);
+        try {
+            return writer.place(checked.folder(), baseName, downloaded.file());
+        } catch (IOException e) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.INTERNAL, "The log file could not"
+                    + " be written to " + checked.folder().path() + " ("
+                    + e.getClass().getSimpleName() + "); no file of this call remains there",
+                "The target folder is not writable or its file system reported an error",
+                "Check the folder's free space and permissions, or choose another target folder")
+                .withNode(node));
+        }
+    }
+
+    /** The hint of a 0-byte log (D-8, US2-4). */
+    private static String emptyHint(ServerLogKind kind, LogPresence presence) {
+        String hint = presence == LogPresence.UNKNOWN
+            ? "The log is empty or does not exist on the server" : "The log is empty";
+        return kind == ServerLogKind.WEBSERVICE
+            ? hint + "; web service logging may be disabled" : hint;
+    }
+
+    /** The hint of a withheld excerpt: nodes, stores and states, never a value (FR-010). */
+    private static String withheldHint(Readiness.NotReady notReady) {
+        String pending = notReady.pending().stream()
+            .map(p -> p.node() + " (" + p.store() + ": " + p.state() + ")")
+            .collect(Collectors.joining(", "));
+        return "The excerpt is withheld: the credentials of " + pending + " have not been read"
+            + " yet, so they could not be masked; every excerpt is withheld until this source can"
+            + " be read; the file is written";
+    }
+
+    /** "The <log> log download from <node> did not finish within cliExportTimeout (<n> s)". */
+    private static String notFinished(Checked checked, Duration budget) {
+        return "The " + checked.kind().wireName() + " log download from " + checked.node()
+            + " did not finish within cliExportTimeout (" + Durations.human(budget) + ")";
     }
 
     /** What is left of the call deadline, never negative. */
