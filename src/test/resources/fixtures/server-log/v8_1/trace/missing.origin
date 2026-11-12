@@ -1,0 +1,2 @@
+reconstructed research.md "Static facts" (server: a missing trace.log throws InubitException "FileWasNotFound" with the absolute path; trace -d opens the client file before the download, so an empty file remains) and D-8; error layout as fixtures/v8_1/cli/tag_repository_user_refused.stdout.
+The text after the marker ("File not found!") and the server path are invented.

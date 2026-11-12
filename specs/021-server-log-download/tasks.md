@@ -370,7 +370,7 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   settings of the server in the Workbench" — in the trace context only. Failing tests first in
   `adapter/cli/CliOutputClassifierTest.java` (marker in the trace context → `NOT_FOUND`; the same
   marker in an export context → classification unchanged; existing rules unchanged; leak check) Mechanism: a trace-specific entry point `CliOutputClassifier.classifyTraceDownload(CliResult)` applies the `FileWasNotFound` → `NOT_FOUND` rule and otherwise delegates to `classify(CliResult)`; `CliTraceRunner` (T025) calls only `classifyTraceDownload`; the test asserts that `classify(CliResult)` (export context) still maps the same output as before.
-- [ ] T024 [US1] Reconstructed trace fixtures and catalogue (D-21, D-22):
+- [X] T024 [US1] Reconstructed trace fixtures and catalogue (D-21, D-22):
   `src/test/resources/fixtures/server-log/v8_1/trace/{ok,empty,missing,login_failure,forbidden}.{stdout,stderr,exit,log,origin}`,
   all `.origin` "`reconstructed <source>`" (sources: research "Static facts" for `ok`/`empty`/
   `missing` (`FileWasNotFound`), the recorded StartCLI login-failure texts of the existing

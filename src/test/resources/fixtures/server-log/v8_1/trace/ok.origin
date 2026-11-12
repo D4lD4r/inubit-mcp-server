@@ -1,0 +1,2 @@
+reconstructed research.md "Static facts" (trace -d: CommandResult "Trace data (<n> MB) stored to: <absolute path>") and "Spike findings" (8.1 trace recording: 4 stdout lines without an n-OK prefix, preamble as in fixtures/v8_1/cli/login_failed.stdout, <n> = size in MiB rounded, one JVM line on stderr, exit 0).
+The .log is a fictitious trace log (acme classes, node1, *.example.test, fictitious secrets); <n> = 0 matches its size. Not the recorded output; the 8.1 recording of T021 replaces this case in T033.

@@ -1,0 +1,25 @@
+2026-11-02 08:00:00,101 INFO  [acme.flow.Engine] node1 tracing started, level info
+2026-11-02 08:00:01,215 INFO  [acme.flow.Engine] node1 workflow Order-0001 started (process 100001)
+2026-11-02 08:00:01,238 DEBUG [acme.flow.Module] node1 Order-0001 module Map-Order entered
+2026-11-02 08:00:01,240 DEBUG [acme.flow.Module] node1 Order-0001 module Map-Order left after 2 ms
+2026-11-02 08:00:01,262 DEBUG [acme.http.Client] node1 Order-0001 POST https://orders.example.test/api/orders
+2026-11-02 08:00:01,263 DEBUG [acme.http.Client] node1 Order-0001 request headers:
+Authorization: Basic YWNtZTp0cmFjZS1zZWNyZXQtMDAwMQ==
+Content-Type: application/xml
+2026-11-02 08:00:01,480 DEBUG [acme.http.Client] node1 Order-0001 HTTP 201 from orders.example.test in 217 ms
+2026-11-02 08:00:01,502 INFO  [acme.flow.Engine] node1 workflow Order-0001 finished (process 100001)
+2026-11-02 08:00:05,010 INFO  [acme.flow.Engine] node1 workflow Invoice-0002 started (process 100002)
+2026-11-02 08:00:05,034 DEBUG [acme.soap.Client] node1 Invoice-0002 envelope to https://billing.example.test/soap:
+<login>
+  <user>acme</user>
+  <password>trace-secret-0002</password>
+</login>
+2026-11-02 08:00:05,301 WARN  [acme.soap.Client] node1 Invoice-0002 slow answer from billing.example.test (267 ms)
+2026-11-02 08:00:05,330 DEBUG [acme.flow.Module] node1 Invoice-0002 module Check-Invoice entered
+2026-11-02 08:00:05,331 ERROR [acme.flow.Module] node1 Invoice-0002 module Check-Invoice failed: amount missing
+2026-11-02 08:00:05,332 INFO  [acme.flow.Engine] node1 workflow Invoice-0002 ended with error (process 100002)
+2026-11-02 08:00:10,000 INFO  [acme.cache.Sync] node1 cluster cache in sync with node2.example.test
+2026-11-02 08:00:15,442 INFO  [acme.flow.Engine] node1 workflow Order-0003 started (process 100003)
+2026-11-02 08:00:15,470 DEBUG [acme.flow.Module] node1 Order-0003 module Map-Order entered
+2026-11-02 08:00:15,471 DEBUG [acme.flow.Module] node1 Order-0003 module Map-Order left after 1 ms
+2026-11-02 08:00:15,689 INFO  [acme.flow.Engine] node1 workflow Order-0003 finished (process 100003)
