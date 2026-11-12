@@ -114,7 +114,7 @@ reads the process home.
 
 **Independent test**: quickstart step 4 green.
 
-- [ ] T007 [US3] `test/WiringHomeLocationsTest.java` (package `de.dadecker.inubit.mcp`): build
+- [X] T007 [US3] `test/WiringHomeLocationsTest.java` (package `de.dadecker.inubit.mcp`): build
   `Wiring` for a `@TempDir` home H and profile `acme` with a minimal valid configuration loaded via
   `new ConfigLoader(Map.of(), H, false)` without explicit directories, and assert
   `homeLocations()` = backups `H/.inubit-mcp/acme/backups`, deployments
