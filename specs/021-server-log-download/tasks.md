@@ -805,11 +805,11 @@ helper's `variant`.
   the production matrix refuses a 9.0 node "not yet verified" with no launch; with a test
   declaration the 9.0 StartCLI and `REST_90` paths run over the reconstructed cases;
   `ServerLogFixtureCatalogueTest` covers `v9_0/`
-- [ ] T049 [US3] **[LIVE] [OWNER]** 9.0 trace recording (D-23 step 1; as T021 for a
+- [X] T049 [US3] **[LIVE] [OWNER]** 9.0 trace recording (D-23 step 1; as T021 for a
   non-production 9.0 test server with the 9.0 client; may start any time after T001): proposal,
   explicit approval of exactly that action, read-only run, outputs only in the private directory,
   trace state equal before and after (SC-005), neutral findings in research.md "Spike findings"
-- [ ] T050 [US3] **[LIVE] [OWNER]** 9.0 webservice spike (D-23 step 2; as T034 with the 9.0
+- [X] T050 [US3] **[LIVE] [OWNER]** 9.0 webservice spike (D-23 step 2; as T034 with the 9.0
   `REST_90` client: `getNode()` over the REST client, `CurrentUser.getClientUID()`, node name,
   missing / 0-byte cases where they occur, `Server not in cluster mode.` on a single node): proposal,
   explicit approval, read-only, never production, outputs only in the private directory, neutral

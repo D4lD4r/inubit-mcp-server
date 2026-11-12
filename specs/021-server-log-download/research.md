@@ -711,3 +711,70 @@ private directory outside the repository.
   `UsernameToken` element of SOAP headers, masked whole because `token` is a secret term).
 - **Missing file / 0-byte file / failure texts**: not observed (the server has a non-empty
   `webservice.log`; no step failed), so the classifier cases stay reconstructed (D-21).
+
+### 9.0 trace recording (D-23 step 1, T049, 2026-11-12 UTC)
+
+Setting: the profile's only non-production INUBIT 9.0 test server, run without a cluster: the
+owner states that the profile has no cluster servers, and get_health systemInfo of 10:08:12 and
+10:08:53 UTC reports version 9.0.10 and `ActiveNodesCount=1`; the server's operation mode setting
+itself (SINGLE/CLUSTER) was not read. Approval: the owner's standing permission for tests on the
+non-production groups ent and int, plus the owner's approval to adopt the server's new certificate
+(`inubit-cert-check`), not an approval of this specific action. The version is the one get_health
+reported just before the run; the runner selected the profile's 9.0 StartCLI client (Java 21) for
+it. Run once through the project's `CliRunner.run` with the `traceDownload` token list, as T021.
+No other `trace` form was run. Raw output and the file stay owner-only in a private directory
+outside the repository.
+
+- **Exit code** `0`; wall-clock about 2.6 s including the JVM start.
+- **stdout**, 8 lines: `JAVA_HOME is set`, `SECURITY WARNING: Hostname verification is disabled. …`
+  (three times in all, only because the profile disables it), one log4j line of the REST client
+  `ERROR hh:mm:ss,SSS [main      ] DnsServerAddressStreamProviders Unable to load
+  io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider, …` (a macOS native-library
+  notice, not a failure of the download), the `Password: ` prompt, then `Trace data (<n> MB)
+  stored to: <path>` and an empty last line. The success line matches D-1's pattern.
+- **`<n>` has decimals on 9.0**: `0.026` for a file of 27,336 bytes, i.e. MiB (2^20 bytes) with
+  three decimals; 8.1 printed an integer. D-1's `\S+` accepts both; nothing parses the number.
+- **stderr**, 1 line: the runner's `Picked up JAVA_TOOL_OPTIONS: …`; nothing from StartCLI.
+- **File**: a regular file at the requested path, plain ASCII text, 27,336 bytes (258 lines;
+  the server's trace level is `warn`).
+- **Trace state (SC-005)**: get_health systemInfo before (10:08:12 UTC) and after (10:08:53 UTC):
+  `tracingEnabled=true`, `TracingLevel=warn` — unchanged.
+- For T051: the contract test must pin that the log4j `ERROR …` line of the REST client does not
+  turn the run into a failure.
+
+### 9.0 webservice spike (D-23 step 2, T050, 2026-11-12 UTC)
+
+Setting: the same 9.0.10 server, evidence for running without a cluster and approvals as T049;
+the profile's 9.0 client on Java 21 with the classpath, `--add-opens` and system properties of the
+020 helper launch; the throwaway runner compared the version get_health had reported just before
+(9.0.10) with the expected one and would have refused a mismatch (T034 review). D-2 steps 1–4 with
+the `REST_90` variant once; the only file name sent was the constant `webservice.log`.
+
+- **Step 1** `ConnectionData` (base URL, user, password, `setServerAuth(true)`, one-time trust store,
+  hostname verification off as the profile sets it) → `InubitClientFactory.getRestInstance` →
+  `loginUserCli`: ok. Before it the REST client printed the same macOS netty notice as in T049, but
+  in log4j's status-logger form `<ISO-8601 timestamp> main ERROR Unable to load
+  io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider, fallback to system defaults. …`
+  (stdout, outside any frame; the 020 9.0 queue-entry recording has the same kind of line).
+- **Step 2** `CurrentUser.getClientUID()` non-empty (60 characters), `getUsedAdditionalUserGroup()`
+  `null`, as on 8.1.
+- **Step 3** `getNode()` ok on this server without a cluster (one active node, see T049
+  Setting): no `Server not in cluster mode.`, a non-empty node name (15 characters).
+- **Step 4** `clusterDownload(<private dir>/webservice.log, node, "webservice.log")`, `start()`,
+  `join()`: `exceptionOccured()` false; the file exists at the requested path with **0 bytes**,
+  about 0.15 s.
+- **Step 5** none on 9.0 (the 020 helper has no logout for `REST_90`). Exit code `0`.
+- **The 0-byte case occurred**: either the server's `webservice.log` is empty or the 9.0 server
+  answers a missing file like an empty one. The answer alone cannot tell them apart, and only the
+  constant name may be sent, so no second probe was made. The 9.0.10 bytecode ("Static facts")
+  throws `File <fileName> not found on <node>` for a missing file, so an empty file is the more
+  likely reading. This also answers the T041 question: an empty log leaves a 0-byte file at
+  `logOut`, which the adapter accepts.
+- **Missing file / failure texts**: not observed.
+- For T052: the only 9.0 recording is this 0-byte answer, so there is no recorded non-empty
+  content to neutralize into `v9_0/webservice/ok.*` as T046 did. What was recorded is the
+  vendor-API outcome of steps 1–4 (login ok, getNode ok, the download without exception, a 0-byte
+  file); the spike did not run the helper, so the helper frame sequence that follows from it
+  (`login ok`, `node ok`, `part log ok 0`, `end`) is inferred, not recorded. D-8's choice to
+  report `PRESENT` for 0 bytes rests on the bytecode, not on a recording. The owner chooses between
+  enabling 9.0 webservice on the recorded empty case plus the static facts, and the T053 fallback.
