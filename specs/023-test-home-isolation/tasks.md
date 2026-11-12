@@ -168,7 +168,7 @@ reads the process home.
   audit records under `~/.inubit-mcp/<profile>/` (around lines 110, 170, 205, 218; leave line 525,
   which is about the real server in "Manual write checks") by the live state directory of T008:
   printed at the start of the run as `[live] state directory: <path>`, deleted at JVM exit.
-- [ ] T010 Validation (quickstart steps 1–4): with no other inubit-mcp process active,
+- [X] T010 Validation (quickstart steps 1–4): with no other inubit-mcp process active,
   `touch <marker> && mvn verify && find ~/.inubit-mcp -newer <marker>`; record command, result and
   the empty `find` output in `specs/023-test-home-isolation/validation.md`; if `find` lists a file,
   identify the writer, fix it in the responsible task and repeat.
