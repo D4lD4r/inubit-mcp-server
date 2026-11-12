@@ -6,6 +6,23 @@
 
 **Status**: Draft
 
+## Clarifications
+
+### Session 2026-11-12
+
+- The owner decided: "all" means the functions for operation and administration. The portal
+  functions (Tasks, Webapps, Reports, process documentation) are not part of the feature; they
+  are entered in the coverage list as excluded.
+- The owner decided: this is one feature that delivers all areas, story by story in the order of
+  the priorities.
+- The owner decided: a new password or key password comes from a named entry of a configured
+  secret source. A tool takes the name of the entry, never the value.
+- Decisions taken by the creator (owner may override): every user story is mergeable and
+  releasable on its own, through its own pull request from the feature branch, so that reading is
+  available before the changes are finished; the administrative areas each need their own opt-in
+  per stage in addition to the write enablement (FR-016); a command that can take its secret only
+  on a command line visible to other processes is excluded (FR-022).
+
 **Input**: User description: "I would like to add all missing methods of StartCLI and REST, both
 reading and writing, to the MCP."
 
@@ -18,8 +35,8 @@ and 6 StartCLI commands. Everything else that INUBIT documents is not reachable 
 An operator who needs one of these functions still has to open the Workbench or a shell with
 StartCLI.
 
-The missing functions fall into six areas. The table is the scope of this feature; commands are
-named as the vendor documents them.
+The missing functions for operation and administration fall into five areas. The table is the
+scope of this feature; commands are named as the vendor documents them.
 
 | Area | Missing read access | Missing write access |
 |---|---|---|
@@ -28,9 +45,8 @@ named as the vendor documents them.
 | C. Libraries, plug-ins, EDI rules, keys | `library --list` | `library --upload\|--delete\|--deleteAll`, `plugin --register\|--deregister`, `PUT /libraries`, `DELETE /libraries/{name}`, `PUT\|POST /edirules`, `PUT /keys` |
 | D. Processes and run-time data | `ps -f '<filter>'`, `ps -u`, `-ne`, `-nx`, `-nw`, `-nq` on 8.1 and 9.0, `process listBlocked`, `process validateExport` | `processdelete error`, `process export\|import\|resume\|deleteBlocked` |
 | E. Diagrams, modules, repository, tags | `GET /model/nodeByModel/…`, `GET /model/nodeByName/…` (8.1 only), `export --exportMetadata\|--exportMetadataNames`, `export --exportWorkflowGroupExclude`, `GET /process/metadata/{name}`, `GET /isconnector?…type=validateWorkflow`, `fetchXSLT1.0`, reading a repository resource | `delete --deleteWorkflow\|--deleteModule`, `DELETE /diagrams/…`, `DELETE /modules/…`, `DELETE /repository`, `rename …`, `tag --tagSetActive\|--tagRemoveActive\|--tagDelete\|--tagRemove\|--tagDiagram\|--tagRepositoryPath\|--tagWorkflowGroupExclude`, `import --importMetadata`, `POST /isconnector` |
-| F. Portal | `GET /process/processes/…`, `GET /process/search`, on 9.0 also `/process/tree`, `…/history`, `/process/tags/{tag}`; `GET /report/reportdata…`, `GET /report/reports…`; the `GET` endpoints under `/task/…` and `/webapp/…` | `PUT /report`; the `POST`, `PUT` and `DELETE` endpoints under `/task/…` and `/webapp/…` |
 
-Three groups of documented functions need no new access:
+Four groups of documented functions get no new access:
 
 - **Already covered by a tool with the same effect**: `GET /log/{name}` (the `POST` form is used),
   the `deploy` command and `PUT /model/import` (`deploy_release`, `import_artifacts`), `uname`,
@@ -40,6 +56,12 @@ Three groups of documented functions need no new access:
   a secret on the command line and prints the result), the offline scripts `backup.sh` and
   `restore.sh` (they need a stopped process engine on the INUBIT host).
 - **Broken on the vendor side**: the log `processLog` fails on 8.1.17.
+- **Portal functions** (owner's decision, see Clarifications): the process documentation
+  (`/process/processes/…`, `/process/search`, on 9.0 also `/process/tree`, `…/history`,
+  `/process/tags/{tag}`), the reports (`/report/…`) and all endpoints under `/task/…` and
+  `/webapp/…`. They serve business users of the portal and need portal users instead of the
+  administration login. `GET /process/metadata/{name}` stays in area E because it describes a
+  workflow for operation.
 
 None of the missing commands has been run against a real system for this feature. Their output
 formats, exit codes and required roles are known from the documentation only.
@@ -254,46 +276,22 @@ offline.
 
 1. **Given** the opt-in for user administration, **When** a user is created, **Then** the preview
    names login, group and roles, and the result confirms the creation without any password.
-2. **Given** a password is to be set for a user, **When** the call is made, **Then** the value
-   never appears in the call, the result, the audit record or the process list
-   [NEEDS CLARIFICATION: where does the new password come from - a named entry of a configured
-   secret source, a value generated by the server and stored in the credential store, or are the
-   commands that take a secret left out?].
-3. **Given** the login user of the MCP server itself, **When** it is to be deleted, moved to
+2. **Given** a secret source that holds an entry for the new password, **When** the password of
+   a user is set with the name of that entry, **Then** the server reads the value from the secret
+   source and passes it to INUBIT; the value never appears in the call, the result, the audit
+   record or the process list, and the audit record names the entry.
+3. **Given** the named entry does not exist or cannot be read, **When** the password is to be
+   set, **Then** the call is refused before any call to INUBIT and the error names the entry and
+   the secret source, not a value.
+4. **Given** the login user of the MCP server itself, **When** it is to be deleted, moved to
    another group or given a new password, **Then** the call is refused.
-4. **Given** a user who owns workflows, **When** the user is to be deleted, **Then** the preview
+5. **Given** a user who owns workflows, **When** the user is to be deleted, **Then** the preview
    names the number of owned workflows and repository entries and what happens to them.
-
----
-
-### User Story 8 - Use the portal functions (Priority: P5)
-
-A person uses the task list, web applications, reports and the process documentation of the
-INUBIT portal through the agent.
-
-**Why this priority**: these functions serve business users of the portal, not the operation of
-the platform. They need portal users instead of the administration login.
-
-[NEEDS CLARIFICATION: are the portal functions (Tasks, Webapps, Reports, process documentation;
-about 40 endpoints) part of this feature, or does "all" mean the functions for operation and
-administration?]
-
-**Independent Test**: With recorded responses, the tasks of a portal user are listed and one
-report is read. Testable offline.
-
-**Acceptance Scenarios**:
-
-1. **Given** a configured portal user, **When** the tasks are listed, **Then** the result is a
-   bounded page of that user's tasks.
-2. **Given** no portal user is configured for a stage, **When** a portal function is requested,
-   **Then** the tools of this story are not offered for that stage.
-
----
 
 ### Edge Cases
 
-- A command exists in 8.1 but not in 9.0 or the other way round (`/model/nodeByName`,
-  `/process/tree`): the capability is offered only for the versions that have it, and a call for
+- A command exists in 8.1 but not in 9.0 or the other way round (`/model/nodeByName` is gone
+  from the 9.0 documentation): the capability is offered only for the versions that have it, and a call for
   another version is refused with the existing version error.
 - INUBIT 6.1: no new write access. New read access on 6.1 is not part of this feature.
 - The login user lacks the role "System Administrator" or the right "CLI login access": the
@@ -328,16 +326,18 @@ report is read. Testable offline.
 - **FR-001**: The project MUST keep a coverage list of every StartCLI command and option group and
   every REST endpoint that the vendor documents for INUBIT 8.1 and 9.0. Each entry has exactly one
   state: reachable through a named tool, covered by a named tool with the same effect, or excluded
-  with a stated reason.
+  with a stated reason. While the feature is being delivered, an entry of a later user story has
+  the state "planned" with the number of that story.
 - **FR-002**: After this feature, every entry of areas A to E of the Background table MUST be
   reachable through a tool, unless it is moved to the exclusion list with a reason that a check
   against a real system gave (for example: the command does not exist in that version, needs an
   interactive terminal, or cannot be made safe).
 - **FR-003**: A test MUST fail when a command or endpoint the server can send is missing from the
   coverage list, and when an entry names a tool that does not exist.
-- **FR-004**: [NEEDS CLARIFICATION: is this one feature that delivers all areas in the order of
-  the user stories, or is it delivered as several features (for example reading first, operation
-  second, administration third), each with its own plan, review and release?]
+- **FR-004**: The feature MUST be delivered story by story in the order of the priorities (User
+  Story 1 first). Each user story MUST be usable, mergeable and releasable without the later
+  ones; the coverage list shows at every point which entries are reachable and which are still
+  open.
 
 **Tool design**
 
@@ -398,8 +398,12 @@ report is read. Testable offline.
   be read from a local path the caller names, within the allowed folders, with a size limit. File
   content never passes through the conversation.
 - **FR-022**: The tools of this feature MUST NOT accept a password, key password or other secret
-  as a parameter and MUST NOT return one. Commands that need a secret take it by the way settled in the
-  clarification of User Story 7.
+  as a parameter and MUST NOT return one. A command that needs a secret (setting a password,
+  creating a user with a password, uploading a keystore) takes the name of an entry of a
+  configured secret source; the server reads the value and passes it to INUBIT in a way that no
+  other process can see. A missing or unreadable entry is refused before any call to INUBIT. If
+  INUBIT accepts the secret of a command only on a visible command line, that command is excluded
+  with this reason.
 - **FR-023**: Every state-changing call, executed or refused, MUST leave one audit record with
   time, stage and server, tool, action, cleaned parameters, the reason the caller gave and the
   outcome.
@@ -436,7 +440,8 @@ report is read. Testable offline.
 ### Measurable Outcomes
 
 - **SC-001**: 100 % of the StartCLI commands and REST endpoints documented for INUBIT 8.1 and 9.0
-  appear in the coverage list with exactly one state; no entry is without a state.
+  appear in the coverage list with exactly one state; when the feature is complete, no entry is
+  without a state or still "planned".
 - **SC-002**: An operator gets each fact of User Stories 1 and 2 (license expiry, configured
   threads, users of a server, logins) with one request to the agent and without opening the
   Workbench or a shell.
@@ -448,7 +453,7 @@ report is read. Testable offline.
   read, 0 of these values appear in a result, an error text, a log line or an audit record.
 - **SC-006**: Every new result stays within the size limits of the existing tools; no call
   returns an unbounded list or text.
-- **SC-007**: The number of tools grows by at most 12 (one read and one write tool per area).
+- **SC-007**: The number of tools grows by at most 10 (one read and one write tool per area).
 - **SC-008**: Every executed or refused change can be found afterwards by its audit record with
   who, where, what and why.
 - **SC-009**: The tools that exist before this feature behave as before; their tests pass
@@ -461,7 +466,6 @@ report is read. Testable offline.
   stay with the `unsupported` opt-ins of features 020 and 021.
 - The existing write protection is reused as it is: write enablement per stage, production
   opt-in, two-step confirmation, audit records.
-- The administration opt-ins of FR-016 are a decision of the creator; the owner may override it.
 - StartCLI commands need a configured INUBIT client for the server's version, as today. A stage
   without a client gets only the REST-based capabilities.
 - Reading the license and changing settings over REST needs the role "System Administrator" for
@@ -470,13 +474,14 @@ report is read. Testable offline.
 - `processLog` stays excluded until a version exists on which the endpoint works.
 - The start options `--backupFile` and `--backupRepository` are documented only by name. They are
   classified (reachable or excluded) after a check on a non-production system.
+- Secret sources are those of features 010 and 011; this feature adds no new kind of source.
 - Feature 021 is merged before the implementation of this feature starts; the trace download of
   021 and the trace switches of this feature stay separate capabilities.
-- The portal functions (User Story 8) need frontend users, which the profile does not hold today.
 
 ## Out of Scope
 
 - A tool per command or per endpoint (Principle IV of the constitution).
+- The portal functions: Tasks, Webapps, Reports and the process documentation.
 - Starting or stopping the process engine, and the offline scripts `backup.sh` and `restore.sh`.
 - The cache mode of StartCLI and `validateMigrationBackup`.
 - Granting roles or rights to the login user so that a capability works.

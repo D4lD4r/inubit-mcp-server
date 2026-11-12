@@ -13,13 +13,13 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
 - [x] All acceptance scenarios are defined
 - [x] Edge cases are identified
-- [ ] Scope is clearly bounded
+- [x] Scope is clearly bounded
 - [x] Dependencies and assumptions identified
 
 ## Feature Readiness
@@ -32,10 +32,11 @@
 ## Notes
 
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`
-- Validation run 1 (2026-11-12): three [NEEDS CLARIFICATION] markers remain, all waiting for the
-  owner: the source of new passwords (User Story 7, scenario 2), whether the portal functions
-  belong to the feature (User Story 8), and whether the feature is delivered as one or as several
-  features (FR-004). "Scope is clearly bounded" stays open until the last two are answered.
+- Validation run 1 (2026-11-12): three [NEEDS CLARIFICATION] markers remained (source of new
+  passwords, portal functions, one or several features).
+- Validation run 2 (2026-11-12): the owner answered all three (portal functions excluded, one
+  feature delivered story by story, secrets from a named entry of a secret source); the answers
+  are recorded in the Clarifications section of the spec. All items pass.
 - The spec names the vendor's StartCLI commands and REST endpoints and existing tool names. This
   is the subject of the feature (the interface to cover) and the convention of the earlier specs
   of this project; it names no language, framework or code structure.
