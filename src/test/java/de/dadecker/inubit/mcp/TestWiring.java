@@ -177,6 +177,11 @@ public final class TestWiring implements AutoCloseable {
         return wiring.toolHandlers();
     }
 
+    /** Feature 022 (coverage check 6): the registered tool actions. */
+    public de.dadecker.inubit.mcp.application.ActionCatalog actionCatalog() {
+        return wiring.actionCatalog();
+    }
+
     /** The configuration location of the wiring. */
     ConfigLocation configLocation() {
         return wiring.configLocation();

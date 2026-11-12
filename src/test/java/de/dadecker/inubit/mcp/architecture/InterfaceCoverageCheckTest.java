@@ -3,17 +3,21 @@ package de.dadecker.inubit.mcp.architecture;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.TestWiring;
+import de.dadecker.inubit.mcp.application.ActionSpec;
+import de.dadecker.inubit.mcp.application.Part;
 import de.dadecker.inubit.mcp.adapter.cli.CliCommand;
 import de.dadecker.inubit.mcp.adapter.cli.CliSessionCommand;
 import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.CoverageEntry;
 import de.dadecker.inubit.mcp.domain.model.CoverageKey;
 import de.dadecker.inubit.mcp.domain.model.CoverageState;
 import de.dadecker.inubit.mcp.domain.model.InterfaceCoverage;
 import de.dadecker.inubit.mcp.domain.model.MajorMinor;
+import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
@@ -25,6 +29,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -39,10 +44,11 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Feature 022 (T008, FR-003, research D-2): checks 1–5 of contracts/coverage-list.md, "Checks".
- * Each check is a function of its inputs; the production tests feed it the real sources
+ * Feature 022 (T008, T010, FR-003, research D-2): checks 1–6 of contracts/coverage-list.md,
+ * "Checks". Each check is a function of its inputs; the production tests feed it the real sources
  * ({@code CliCommand.OPTIONS}, the {@code CliSessionCommand} constants, {@code RestEndpoint},
- * the tools of {@link TestWiring}, the input schemas and {@link InterfaceCoverage#production()}),
+ * the tools and the action catalogue of {@link TestWiring}, the input schemas and
+ * {@link InterfaceCoverage#production()}),
  * the fixture tests show that each check reports what it should.
  *
  * <p><b>Row keys of check 1</b> (CLI rows are written as the vendor writes them):
@@ -71,8 +77,7 @@ class InterfaceCoverageCheckTest {
     private static final List<String> ACTION_PROPERTIES = List.of("action", "view", "content");
     private static final String DEFAULT_ACTION = "default";
 
-    private static final Set<String> ALL_STORIES =
-        Set.of("US1", "US2", "US3", "US4", "US5", "US6", "US7");
+    private static final Set<String> ALL_STORIES = Set.copyOf(CoverageEntry.STORIES);
 
     private static final MajorMinor V8_1 = CoverageEntry.LINES.get(0);
     private static final MajorMinor V9_0 = CoverageEntry.LINES.get(1);
@@ -84,11 +89,12 @@ class InterfaceCoverageCheckTest {
 
     private static InterfaceCoverage coverage;
     private static Set<String> tools;
+    private static List<ActionSpec> actions;
 
     @BeforeAll
     static void readSources() {
         coverage = InterfaceCoverage.production();
-        tools = registeredTools();
+        readWiring();
     }
 
     // --- the checks on the production sources ------------------------------------------------
@@ -131,6 +137,12 @@ class InterfaceCoverageCheckTest {
     @Test
     void check5WaitsOnlyOnPlannedRowsOfDeliveredStories() {
         assertThat(waitsViolations(coverage.entries(), coverage.deliveredStories())).isEmpty();
+    }
+
+    /** Passes with the empty catalogue; each story adds the specs of its actions. */
+    @Test
+    void check6EveryActionDeclaresARowAndEveryDeclaredRowExists() {
+        assertThat(actionViolations(actions, coverage)).isEmpty();
     }
 
     /** The production key sets are not empty by mistake; the special rows of check 1 are there. */
@@ -253,6 +265,23 @@ class InterfaceCoverageCheckTest {
         assertThat(waitsViolations(List.of(planned("GET /b", "US1", List.of("L-1"))),
             ALL_STORIES)).containsExactly(
                 "REST GET /b: still planned although every story is delivered (SC-001)");
+    }
+
+    @Test
+    void check6ReportsAnActionWithoutRowsAndADeclaredRowThatDoesNotExist() {
+        InterfaceCoverage fixture = fixtureCoverage("", cliRow("kill"));
+        CoverageKey listed = cli("kill");
+        CoverageKey unlisted = cli("kill --unlisted");
+        Part part = new Part(UnavailablePart.THREADS, Channel.CLI, Set.of(cli("threads -x")));
+
+        assertThat(actionViolations(List.of(
+            action("listed", Set.of(listed), Set.of()),
+            action("none", Set.of(), Set.of()),
+            action("variant", Set.of(listed, unlisted), Set.of()),
+            action("part", Set.of(), Set.of(part))), fixture)).containsExactly(
+                "fixture_tool/none: declares no row",
+                "fixture_tool/variant: declares CLI kill --unlisted, which has no row",
+                "fixture_tool/part: declares CLI threads -x, which has no row");
     }
 
     // --- the checks ---------------------------------------------------------------------------
@@ -394,6 +423,28 @@ class InterfaceCoverageCheckTest {
         return violations;
     }
 
+    /**
+     * Check 6: every action declares at least one row ({@link ActionSpec#declaredEntries()}),
+     * and every declared row exists.
+     */
+    static List<String> actionViolations(Collection<ActionSpec> specs, InterfaceCoverage list) {
+        Set<CoverageKey> listed = list.entries().stream().map(CoverageEntry::key)
+            .collect(Collectors.toSet());
+        List<String> violations = new ArrayList<>();
+        for (ActionSpec spec : specs) {
+            String where = spec.tool() + "/" + spec.action() + ": ";
+            if (spec.declaredEntries().isEmpty()) {
+                violations.add(where + "declares no row");
+            }
+            spec.declaredEntries().stream().filter(key -> !listed.contains(key))
+                .sorted(Comparator.comparing(CoverageKey::channel)
+                    .thenComparing(CoverageKey::entry))
+                .forEach(key -> violations.add(where + "declares " + key.channel() + " "
+                    + key.entry() + ", which has no row"));
+        }
+        return violations;
+    }
+
     // --- the production sources ---------------------------------------------------------------
 
     /** {@code CliCommand.OPTIONS}: the allowlist is private to the adapter, so it is read here. */
@@ -425,11 +476,11 @@ class InterfaceCoverageCheckTest {
     }
 
     /**
-     * The tools {@link TestWiring} registers for a profile that offers every tool: knowledge
-     * recording, a development group with write access, end-to-end tests, a StartCLI client and
-     * the queue entry read, and a production group that receives deployments.
+     * The tools and the action catalogue of {@link TestWiring} for a profile that offers every
+     * tool: knowledge recording, a development group with write access, end-to-end tests, a
+     * StartCLI client and the queue entry read, and a production group that receives deployments.
      */
-    private static Set<String> registeredTools() {
+    private static void readWiring() {
         String yaml = """
             profile:
               name: acme
@@ -472,8 +523,9 @@ class InterfaceCoverageCheckTest {
         try (TestWiring wiring = TestWiring.of(config, TestSecrets.store(Map.of(
                 "INUBIT_ACME_DEV_USERNAME", "jdoe", "INUBIT_ACME_DEV_PASSWORD", "coverage-pw")),
             new SecretScrubber(), path -> true, false)) {
-            return wiring.toolHandlers().stream().map(ToolHandler::name)
+            tools = wiring.toolHandlers().stream().map(ToolHandler::name)
                 .collect(Collectors.toSet());
+            actions = wiring.actionCatalog().specs();
         }
     }
 
@@ -499,6 +551,14 @@ class InterfaceCoverageCheckTest {
         return new CoverageEntry(Channel.REST, entry, CoverageEntry.Kind.READ,
             CoverageEntry.Area.A, Optional.of(story),
             Map.of(V8_1, new CoverageState.Planned(), V9_0, new CoverageState.Planned()), waits);
+    }
+
+    /** An action of {@code fixture_tool} that sends {@code callEntries} and reads {@code parts}. */
+    private static ActionSpec action(String action, Set<CoverageKey> callEntries,
+        Set<Part> parts) {
+        return new ActionSpec("fixture_tool", action, Capability.INVENTORY, ActionSpec.Area.READ,
+            ActionSpec.Kind.READ, callEntries, input -> callEntries, parts, false,
+            Optional.empty(), ActionSpec.RestartNotice.NONE);
     }
 
     private static CoverageKey cli(String entry) {

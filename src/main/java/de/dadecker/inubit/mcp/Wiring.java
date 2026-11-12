@@ -34,6 +34,7 @@ import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
 import de.dadecker.inubit.mcp.adapter.soap.SoapE2eClient;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
 import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
+import de.dadecker.inubit.mcp.application.ActionCatalog;
 import de.dadecker.inubit.mcp.application.ArchiveExportAudit;
 import de.dadecker.inubit.mcp.application.ArchiveExportService;
 import de.dadecker.inubit.mcp.application.ArchiveFolderWriter;
@@ -95,6 +96,7 @@ import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
+import de.dadecker.inubit.mcp.domain.model.InterfaceCoverage;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
@@ -216,6 +218,8 @@ final class Wiring implements AutoCloseable {
     /** Feature 020: built for every configuration; announced only under its opt-in. */
     private final ReadQueueEntryTool readQueueEntry;
     private final ClientSelectionPort clientSelection;
+    /** Feature 022 (research D-2): the tool actions of the coverage gate; stories add theirs. */
+    private final ActionCatalog actions = new ActionCatalog(List.of());
     private final ExportArtifactsTool exportArtifacts;
     /** Feature 015: offered under the condition of {@code export_artifacts} (research R-16). */
     private final ExportArchivesTool exportArchives;
@@ -401,9 +405,11 @@ final class Wiring implements AutoCloseable {
         ClientSelectionPort clientSelection =
             new CliClientSelector(cliRunner, byId::get, exists, windows);
         this.clientSelection = clientSelection;
+        // feature 022 (research D-2): the coverage list of the gate, loaded (and checked) at start
         VersionGate versionGate = new VersionGate(versions, gateways, matrix, clientVersions,
             clientSelection, id -> byId.get(id).cliTimeout(), terms,
-            servers.stream().anyMatch(server -> !server.cliSources().clients().isEmpty()));
+            servers.stream().anyMatch(server -> !server.cliSources().clients().isEmpty()),
+            InterfaceCoverage.production());
         Map<NodeId, Duration> timeouts = new HashMap<>();
         servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
         // feature 011 (research R-8): get_health names the credential store a read waits for
@@ -758,6 +764,11 @@ final class Wiring implements AutoCloseable {
 
     GatewayFactory gateways() {
         return gateways;
+    }
+
+    /** Feature 022 (coverage check 6): the registered tool actions. */
+    ActionCatalog actionCatalog() {
+        return actions;
     }
 
     /** The configuration location the server runs with (feature 015, research R-9). */

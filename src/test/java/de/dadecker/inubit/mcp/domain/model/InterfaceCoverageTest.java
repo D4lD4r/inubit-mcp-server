@@ -283,6 +283,44 @@ class InterfaceCoverageTest {
         assertThat(coverage.offered(Set.of(), V8_1)).isFalse();
     }
 
+    // --- refusal (T010) -----------------------------------------------------------------------
+
+    @Test
+    void refusalIsTheFirstEntryByChannelAndEntryThatIsNotReachableWithItsState() {
+        InterfaceCoverage coverage = loadText(EXAMPLE);
+        CoverageKey reachable = new CoverageKey(Channel.CLI, "export --exportWorkflowGroup");
+        CoverageKey lls = new CoverageKey(Channel.CLI, "lls");
+        CoverageKey license = new CoverageKey(Channel.REST, "GET /license");
+
+        // REST before CLI (the order of Channel), then by entry
+        assertThat(coverage.refusal(Set.of(license, reachable, lls), V9_0)).contains(
+            new InterfaceCoverage.Unreachable(license, Optional.of(new Planned())));
+        assertThat(coverage.refusal(Set.of(reachable, lls), V9_0)).contains(
+            new InterfaceCoverage.Unreachable(lls, Optional.of(
+                new Excluded("lists the local directory of the StartCLI client"))));
+        assertThat(coverage.refusal(Set.of(license, reachable), V8_1)).isEmpty();
+    }
+
+    @Test
+    void refusalOfAnUnlistedEntryOrLineHasNoState() {
+        InterfaceCoverage coverage = loadText(EXAMPLE);
+        CoverageKey reachable = new CoverageKey(Channel.CLI, "export --exportWorkflowGroup");
+        CoverageKey unlisted = new CoverageKey(Channel.CLI, "nope");
+
+        assertThat(coverage.refusal(Set.of(reachable, unlisted), V8_1)).contains(
+            new InterfaceCoverage.Unreachable(unlisted, Optional.empty()));
+        assertThat(coverage.refusal(Set.of(reachable), new MajorMinor(6, 1))).contains(
+            new InterfaceCoverage.Unreachable(reachable, Optional.empty()));
+    }
+
+    @Test
+    void theEmptyListHasNoEntriesAndOffersNothing() {
+        InterfaceCoverage empty = InterfaceCoverage.empty();
+
+        assertThat(empty.entries()).isEmpty();
+        assertThat(empty.offered(Set.of(new CoverageKey(Channel.CLI, "lls")), V8_1)).isFalse();
+    }
+
     // --- helpers ------------------------------------------------------------------------------
 
     /** Loads {@code rows} under a comment, {@code delivered-stories: US1} and the header. */

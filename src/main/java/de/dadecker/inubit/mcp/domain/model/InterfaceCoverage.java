@@ -5,9 +5,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.io.StringReader;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,8 +20,8 @@ import java.util.Set;
 
 /**
  * The coverage list of the StartCLI and REST interfaces (feature 022, FR-001, FR-003, research
- * D-2, data-model.md → InterfaceCoverage): one {@link CoverageEntry} per documented entry with its
- * state per version line, and the gate check {@link #offered}.
+ * D-2, data-model.md → InterfaceCoverage): one {@link CoverageEntry} per documented entry with
+ * its state per version line, and the gate checks {@link #offered} and {@link #refusal}.
  *
  * <p>{@link #load} reads the tab-separated format of contracts/coverage-list.md and fails with
  * the line number on the first row that breaks a rule.
@@ -35,6 +37,20 @@ public final class InterfaceCoverage {
     private static final String DELIVERED_STORIES = "delivered-stories:";
     private static final String SOURCE = "source:";
     private static final String NONE = "-";
+
+    /**
+     * An entry of a call or part that is not {@link CoverageState.Reachable} on a line, for the
+     * text of a refusal (research D-2, "Gate per call").
+     *
+     * @param state the entry's state on that line; empty when the list has no state for it (an
+     *     unlisted entry, or a line other than 8.1 and 9.0)
+     */
+    public record Unreachable(CoverageKey key, Optional<CoverageState> state) {
+        public Unreachable {
+            Objects.requireNonNull(key, "key");
+            Objects.requireNonNull(state, "state");
+        }
+    }
 
     private final List<CoverageEntry> entries;
     private final Map<CoverageKey, CoverageEntry> byKey;
@@ -127,6 +143,14 @@ public final class InterfaceCoverage {
         return load(new InputStreamReader(in, StandardCharsets.UTF_8));
     }
 
+    /**
+     * A list without rows, which offers nothing: the list of a gate that is given none (tests
+     * that are not about the coverage gate).
+     */
+    public static InterfaceCoverage empty() {
+        return load(new StringReader(HEADER));
+    }
+
     /** Every row, in file order. */
     public List<CoverageEntry> entries() {
         return entries;
@@ -161,6 +185,21 @@ public final class InterfaceCoverage {
         return !entries.isEmpty() && entries.stream().allMatch(key ->
             state(key.channel(), key.entry(), line)
                 .filter(CoverageState.Reachable.class::isInstance).isPresent());
+    }
+
+    /**
+     * Why {@code entries} are not {@link #offered} on {@code line}: the first entry, by channel
+     * (in the order of {@link Channel}) and then by entry text, that is not
+     * {@link CoverageState.Reachable} there, with its state; empty when every entry is reachable,
+     * also for an empty set.
+     */
+    public Optional<Unreachable> refusal(Set<CoverageKey> entries, MajorMinor line) {
+        Objects.requireNonNull(line, "line");
+        return entries.stream()
+            .sorted(Comparator.comparing(CoverageKey::channel).thenComparing(CoverageKey::entry))
+            .map(key -> new Unreachable(key, state(key.channel(), key.entry(), line)))
+            .filter(gap -> !(gap.state().orElse(null) instanceof CoverageState.Reachable))
+            .findFirst();
     }
 
     private static CoverageEntry row(String line) {
@@ -237,7 +276,7 @@ public final class InterfaceCoverage {
         }
         List<String> stories = List.of(stripped.split("[,\\s]+"));
         for (String story : stories) {
-            if (!CoverageEntry.STORY.matcher(story).matches()) {
+            if (!CoverageEntry.STORIES.contains(story)) {
                 throw failure(number, "unknown delivered story " + Names.quote(story));
             }
         }

@@ -178,7 +178,7 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
   - Test `mcp/InterfaceCoverageDocsTest.java` compares the file with the rendering. With
     `-Dcoverage.write=true` it rewrites the file. The failure message names that command.
   - Generate and commit the page.
-- [ ] T010 `ActionSpec` and the coverage gate (D-2, D-12 step 5; after T006, T008):
+- [X] T010 `ActionSpec` and the coverage gate (D-2, D-12 step 5; after T006, T008):
   - `application/ActionSpec.java`: `tool`, `action`, `Area` (`OPERATION`, `OBJECTS`, `LIBRARIES`,
     `SETTINGS`, `USERS`, `RUNTIME_DATA`, `READ`), `capability` (the tool's `Capability`, passed to
     the existing capability admission), `entries(input)` (the entries a concrete call
@@ -220,6 +220,9 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
     `TAG_ADMINISTRATION`, `RUNTIME_TRANSFER`, `OBJECT_ADMINISTRATION` (objects and libraries),
     `SETTINGS_ADMINISTRATION`, `USER_ADMINISTRATION`. This way `list_nodes` never names a
     capability whose tool is not delivered.
+  - From the T010 review (cleanup): `TestWiring` imports `ActionCatalog` instead of the fully
+    qualified name; the `admitCall` refusal for a node without a known version names the action
+    key as given (not capitalized), with a test for the AUTO-undetected case.
   - Failing tests first: `domain/model/CapabilityMatrixTest.java` and
     `mcp/tools/ListNodesToolTest.java` (`server_settings` in `notUsable` with "not yet verified").
 - [ ] T012 Version-neutral StartCLI session (D-7):
@@ -279,6 +282,9 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
   `PrivilegedWorkflows.java` (≤ 200 names, `truncated`).
   - New `UnavailablePart` parts: `license`, `threads`, `privilegedWorkflows`,
     `dbConnectionTolerance`, `configuration`, `serverTime`.
+  - The new part names (`license`, `threads`, `privilegedWorkflows`, `dbConnectionTolerance`,
+    `configuration`, `serverTime`) are added to `UnavailablePart.PARTS`, which `Part` requires
+    (T010 review).
   - Failing tests first: `domain/model/ServerSettingsTest.java` (bounds, parts).
 - [ ] T016 [US1] `adapter/rest/v81/LicenseXmlParser.java` (after T015):
   - uses `XmlSupport` hardening;
@@ -342,6 +348,10 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
     only when no part is admitted;
   - `licensedThreads` comes from `/metrics`, and from `GET /license` only when `/metrics` is not
     licensed; `sources` names which.
+  - From the T010 review: decide and test what happens when the node's StartCLI client is
+    incompatible with the server version (`checkClient` → INCOMPATIBLE): the CLI parts go to
+    `unavailable` with that reason and the REST parts are returned (FR-013), instead of
+    `admitParts` refusing the whole call.
   - Failing tests first: `application/ServerSettingsServiceTest.java`:
     - AS1, AS3, AS4 (role missing for license → the other parts returned), AS5, AS7;
     - one part `excluded` in a test coverage file → the other parts returned;
