@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.config;
 
+import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -18,6 +19,7 @@ import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -1487,7 +1489,8 @@ class ConfigLoaderTest {
         @Test
         void theOptInIsReadPerGroup() {
             assertThat(unsupportedOf(onGroup("\n      queueEntryRead: true\n")))
-                .isEqualTo(new UnsupportedConfig(Optional.of(true), Optional.empty()));
+                .isEqualTo(new UnsupportedConfig(Optional.of(true), Optional.empty(),
+                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
             assertThat(unsupportedOf(onGroup("\n      queueEntryRead: false\n")).queueEntryRead())
                 .contains(false);
             assertThat(unsupportedOf(MINIMAL)).isEqualTo(UnsupportedConfig.EMPTY);
@@ -1557,7 +1560,8 @@ class ConfigLoaderTest {
         @Test
         void theServerLogOptInIsReadPerGroup() {
             assertThat(unsupportedOf(onGroup("\n      serverLogRead: true\n")))
-                .isEqualTo(new UnsupportedConfig(Optional.empty(), Optional.of(true)));
+                .isEqualTo(new UnsupportedConfig(Optional.empty(), Optional.of(true),
+                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
             assertThat(unsupportedOf(onGroup("\n      serverLogRead: false\n")).serverLogRead())
                 .contains(false);
             assertThat(UnsupportedConfig.EMPTY.serverLogRead()).isEmpty();
@@ -1629,16 +1633,122 @@ class ConfigLoaderTest {
             LoadedConfig queueOnly = parse(onGroup(
                 "\n      queueEntryRead: true\n      serverLogRead: false\n"));
             assertThat(queueOnly.config().groups().get(0).unsupported())
-                .isEqualTo(new UnsupportedConfig(Optional.of(true), Optional.of(false)));
+                .isEqualTo(new UnsupportedConfig(Optional.of(true), Optional.of(false),
+                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
             assertThat(queueOnly.config().effectiveNodes().get(0).queueEntryRead()).isTrue();
             assertThat(queueOnly.config().effectiveNodes().get(0).serverLogRead()).isFalse();
 
             LoadedConfig serverLogOnly = parse(onGroup(
                 "\n      queueEntryRead: false\n      serverLogRead: true\n"));
             assertThat(serverLogOnly.config().groups().get(0).unsupported())
-                .isEqualTo(new UnsupportedConfig(Optional.of(false), Optional.of(true)));
+                .isEqualTo(new UnsupportedConfig(Optional.of(false), Optional.of(true),
+                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
             assertThat(serverLogOnly.config().effectiveNodes().get(0).queueEntryRead()).isFalse();
             assertThat(serverLogOnly.config().effectiveNodes().get(0).serverLogRead()).isTrue();
+        }
+
+        /**
+         * Feature 024 (T003, FR-002, research D-5): {@code unsupported.nodeStatusRead},
+         * {@code ioLogRead}, {@code nodeConfigRead} and {@code logLevelWrite}.
+         */
+        @ParameterizedTest
+        @ValueSource(strings = {"nodeStatusRead", "ioLogRead", "nodeConfigRead", "logLevelWrite"})
+        void aNodeToolOptInIsReadPerGroup(String key) {
+            assertThat(unsupportedOf(onGroup("\n      " + key + ": true\n")))
+                .isEqualTo(NodeToolOptIns.only(key, true));
+            assertThat(unsupportedOf(onGroup("\n      " + key + ": false\n")))
+                .isEqualTo(NodeToolOptIns.only(key, false));
+            assertThat(unsupportedOf(onGroup("\n      " + key + ":\n")))
+                .as("an empty value is the default").isEqualTo(UnsupportedConfig.EMPTY);
+            assertThat(unsupportedOf(onGroup("\n      " + key + ": null\n")))
+                .as("null is the default").isEqualTo(UnsupportedConfig.EMPTY);
+            assertThat(NodeToolOptIns.of(parse(onGroup("\n      " + key + ": null\n")).config()
+                .effectiveNodes().get(0), key)).as("the default is off").isFalse();
+            assertThat(NodeToolOptIns.of(parse(MINIMAL).config().effectiveNodes().get(0), key))
+                .as("no block is off").isFalse();
+            assertThat(NodeToolOptIns.of(parse(onGroup("\n      " + key + ": true\n")).config()
+                .effectiveNodes().get(0), key)).isTrue();
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"nodeStatusRead", "ioLogRead", "nodeConfigRead", "logLevelWrite"})
+        void aNonBooleanNodeToolValueIsRejectedWithoutTheValue(String key) {
+            for (String value : List.of("\"true\"", "1", "0", "yes", "[true]", "{ on: true }")) {
+                assertThatThrownBy(() -> parse(onGroup("\n      " + key + ": " + value + "\n")))
+                    .as(value)
+                    .isInstanceOf(ConfigException.class)
+                    .hasMessage("Invalid value at groups[0].unsupported." + key + " in "
+                        + home.resolve("u.yaml") + ": expected true or false");
+            }
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"nodeStatusRead", "ioLogRead", "nodeConfigRead", "logLevelWrite"})
+        void theNodeToolErrorTextsLeakNoSecret(String key) {
+            for (String value : List.of(
+                "\"" + TestSecrets.CREDENTIAL_PAYLOAD_VALUE + "\"",
+                "[" + TestSecrets.CONFIGURED_PASSWORD + "]",
+                "{ password: " + TestSecrets.CONFIGURED_PASSWORD + ", trustStorePassword: "
+                    + TestSecrets.TRUST_STORE_PASSWORD + " }")) {
+                assertThatThrownBy(() -> parse(onGroup("\n      " + key + ": " + value + "\n")))
+                    .isInstanceOf(ConfigException.class)
+                    .satisfies(e -> TestSecrets.assertNoLeak(e.getMessage()));
+            }
+            assertThatThrownBy(() -> parse(MINIMAL + "        unsupported:\n"
+                + "          " + key + ": " + TestSecrets.CREDENTIAL_PAYLOAD_VALUE + "\n"))
+                .isInstanceOf(ConfigException.class)
+                .satisfies(e -> TestSecrets.assertNoLeak(e.getMessage()));
+            assertThatThrownBy(() -> parse(MINIMAL + "defaults:\n  unsupported:\n"
+                + "    " + key + ": " + TestSecrets.CREDENTIAL_PAYLOAD_VALUE + "\n"))
+                .isInstanceOf(ConfigException.class)
+                .satisfies(e -> TestSecrets.assertNoLeak(e.getMessage()));
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"nodeStatusRead", "ioLogRead", "nodeConfigRead", "logLevelWrite"})
+        void aNodeToolOptInOnANodeOrInTheDefaultsIsAnUnknownKey(String key) {
+            assertThatThrownBy(() -> parse(MINIMAL + "        unsupported:\n"
+                + "          " + key + ": true\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessage("Unknown key 'unsupported' at groups[0].nodes[0] in "
+                    + home.resolve("u.yaml"));
+            assertThatThrownBy(() -> parse(MINIMAL + "defaults:\n  unsupported:\n"
+                + "    " + key + ": true\n"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("Unknown key 'unsupported' at defaults");
+        }
+
+        @Test
+        void aKeyResemblingANodeToolOptInIsAnUnknownKey() {
+            assertThatThrownBy(() -> parse(onGroup("\n      logLevelRead: true\n")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessage("Unknown key 'logLevelRead' at groups[0].unsupported in "
+                    + home.resolve("u.yaml"));
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"nodeStatusRead", "ioLogRead", "nodeConfigRead", "logLevelWrite"})
+        void aNodeToolOptInIsIndependentOfTheOthers(String key) {
+            List<String> others = new ArrayList<>(NodeToolOptIns.KEYS);
+            others.remove(key);
+
+            EffectiveNodeConfig alone = parse(onGroup("\n      " + key + ": true\n"
+                + "      queueEntryRead: false\n      serverLogRead: false\n"
+                + others.stream().map(k -> "      " + k + ": false\n").collect(joining())))
+                .config().effectiveNodes().get(0);
+            assertThat(NodeToolOptIns.of(alone, key)).isTrue();
+            assertThat(alone.queueEntryRead()).isFalse();
+            assertThat(alone.serverLogRead()).isFalse();
+            others.forEach(k -> assertThat(NodeToolOptIns.of(alone, k)).as(k).isFalse());
+
+            EffectiveNodeConfig allButThis = parse(onGroup("\n      " + key + ": false\n"
+                + "      queueEntryRead: true\n      serverLogRead: true\n"
+                + others.stream().map(k -> "      " + k + ": true\n").collect(joining())))
+                .config().effectiveNodes().get(0);
+            assertThat(NodeToolOptIns.of(allButThis, key)).isFalse();
+            assertThat(allButThis.queueEntryRead()).isTrue();
+            assertThat(allButThis.serverLogRead()).isTrue();
+            others.forEach(k -> assertThat(NodeToolOptIns.of(allButThis, k)).as(k).isTrue());
         }
     }
 

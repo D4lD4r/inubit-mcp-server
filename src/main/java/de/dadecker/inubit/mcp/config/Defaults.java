@@ -48,6 +48,14 @@ public record Defaults(
     public static final boolean BUILTIN_QUEUE_ENTRY_READ = false;
     /** Feature 021 (research D-17): {@code unsupported.serverLogRead}, group-level only. */
     public static final boolean BUILTIN_SERVER_LOG_READ = false;
+    /** Feature 024 (research D-5): {@code unsupported.nodeStatusRead}, group-level only. */
+    public static final boolean BUILTIN_NODE_STATUS_READ = false;
+    /** Feature 024 (research D-5): {@code unsupported.ioLogRead}, group-level only. */
+    public static final boolean BUILTIN_IO_LOG_READ = false;
+    /** Feature 024 (research D-5): {@code unsupported.nodeConfigRead}, group-level only. */
+    public static final boolean BUILTIN_NODE_CONFIG_READ = false;
+    /** Feature 024 (research D-5): {@code unsupported.logLevelWrite}, group-level only. */
+    public static final boolean BUILTIN_LOG_LEVEL_WRITE = false;
     public static final ConfirmationMode BUILTIN_CONFIRMATION = ConfirmationMode.SERVER;
     public static final VersionSetting BUILTIN_VERSION_LINE = VersionSetting.AUTO;
     public static final boolean BUILTIN_DEVELOPMENT_ENABLED = false;

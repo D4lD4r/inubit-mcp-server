@@ -89,7 +89,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
 
 ### Configuration and capabilities (plan stage 1)
 
-- [ ] T003 [P] Four opt-ins (FR-002, D-5): `config/UnsupportedConfig.java` `+ nodeStatusRead,
+- [X] T003 [P] Four opt-ins (FR-002, D-5): `config/UnsupportedConfig.java` `+ nodeStatusRead,
   ioLogRead, nodeConfigRead, logLevelWrite`; `config/Defaults.java` `BUILTIN_NODE_STATUS_READ`,
   `BUILTIN_IO_LOG_READ`, `BUILTIN_NODE_CONFIG_READ`, `BUILTIN_LOG_LEVEL_WRITE` = `false`;
   `config/ConfigLoader.java` `requireStrictUnsupportedOptIn` for the four keys;
