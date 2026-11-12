@@ -211,7 +211,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   the others; `setNodeConfigurationProperty` never called; leak check) and new
   `adapter/cli/helper/NodeConfigAllowlistTest.java` (the helper's list — read reflectively — equals
   `NodeConfigName.values()` and contains none of the secret-holding names of D-10)
-- [ ] T013 `ClientHelper` op `ioLog` (D-2, D-8, D-9; after T012, same file): `getObject("<processId>@@@<workflow>",
+- [X] T013 `ClientHelper` op `ioLog` (D-2, D-8, D-9; after T012, same file): `getObject("<processId>@@@<workflow>",
   user, "inputOutputMessageDetails")`, split at `###` (empty answer → zero entries), entries written
   to `listOut` (UTF-8, one per line) → `io list ok <n>` / `io list error`; with `ref`: SHA-256 →
   Base64url (16 bytes) per entry, `io match <entry>` + `MultipartDownloadThread(client, user,

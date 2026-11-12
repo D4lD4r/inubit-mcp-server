@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.adapter.cli.helper;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
+import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.Call;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.Failure;
@@ -46,8 +47,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 /**
  * The client helper in-process: the queue-entry read of feature 020 (research D-2, D-4) and the
  * server-log read of feature 021 (D-2, D-4, D-5), and the request check of the node-tool
- * operations with the own-node lookup, the cluster node list and the node configuration of
- * feature 024 (D-2, D-3, D-7, D-10).
+ * operations with the own-node lookup, the cluster node list, the node configuration and the
+ * I/O logging of feature 024 (D-2, D-3, D-7, D-8, D-9, D-10).
  * It is loaded from its resource directory {@code META-INF/inubit-mcp/client-helper/} of the
  * compiled classes by a {@link URLClassLoader} whose parent is the test class loader (so the
  * fake vendor classes under {@code com.inubit.ibis} are visible), and
@@ -83,6 +84,14 @@ class ClientHelperTest {
         "RepositoryDataSourceLocation", "ClusterBindAddress", "noOfRetries", "retryInterval");
     /** A message reference (22 characters of the Base64url alphabet). */
     private static final String REF = "AbCdEfGhIjKlMnOpQr_-01";
+    /** The object type of the I/O logging listing (research "Static facts"). */
+    private static final String IO_LISTING = "inputOutputMessageDetails";
+    /** A listed I/O logging entry of the run {@code P-0001_a} and its message reference. */
+    private static final String IO_ENTRY = "P-0001_a@@@Orders(Module-0001)@@@Input.1";
+    private static final String IO_REF = IoMessageRef.of(IO_ENTRY).value();
+    /** The reference vectors shared with {@code IoMessageRefTest} (T007). */
+    private static final Path IO_VECTORS =
+        Path.of("src/test/resources/fixtures/node-tools/io-message-ref.vectors");
 
     private static URLClassLoader loader;
     private static Class<?> helper;
@@ -405,22 +414,6 @@ class ClientHelperTest {
                 lines -> lines.put("logOut", "%2Fvar%2Fqe-0001%2Fout%2Fwebservice.log"))),
             Arguments.of("io log with a details key",
                 nodeToolRequest("ioLog", lines -> lines.put("details", ""))));
-    }
-
-    /**
-     * The node-tool operation whose vendor calls this helper version does not make yet answers a
-     * valid request with exit 2 as well, after the API check and before the login.
-     */
-    @Test
-    void aValidRequestOfAnOperationNotYetPerformedEndsWithExitTwoBeforeAnyVendorCall()
-        throws Exception {
-        FakeInubitScript script = new FakeInubitScript().node(NODE);
-
-        Run run = run(script, nodeToolRequest("ioLog", lines -> { }), vendor());
-
-        assertThat(run.exit()).isEqualTo(2);
-        assertThat(run.out()).isEmpty();
-        assertThat(script.calls()).isEmpty();
     }
 
     @ParameterizedTest
@@ -2077,6 +2070,454 @@ class ClientHelperTest {
                 stub(cluster, constructor, getNode))), missingGetters);
     }
 
+    // --- operation ioLog (feature 024: FR-020 … FR-023, D-2, D-8, D-9) ---------------------
+
+    @Test
+    void soap81IoLogListsTheEntriesOfTheRunIntoTheListFileInTheAnswersOrder() throws Exception {
+        List<String> entries = List.of("P-0001_a@@@Orders(Module-0001)@@@Input.1",
+            "P-0001_a@@@Orders(Module-0001)@@@Output.1",
+            "P-0001_a@@@Bestellprüfung Größe(Module-0002)@@@Input.1");
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("P-0001_a@@@Workflow-0001", IO_LISTING, String.join("###", entries));
+        Path listOut = dir.resolve("io.list");
+
+        Run run = run(script, nodeToolRequest("ioLog", lines -> lines.put("listOut",
+            encode(listOut.toString()))), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "ok", NODE),
+            List.of("io", "list", "ok", "3"),
+            List.of("end"));
+        assertThat(HelperFrames.parse(NONCE, run.out()).frames()).containsExactly(
+            new HelperFrames.Start("SOAP_81"), new HelperFrames.LoginOk(),
+            new HelperFrames.NodeOk(NODE), new HelperFrames.IoListOk(3), new HelperFrames.End());
+        assertThat(Files.readString(listOut, StandardCharsets.UTF_8))
+            .isEqualTo(String.join("\n", entries) + "\n");
+        assertThat(script.calls()).as("login, own node, the listing and logout (FR-007)")
+            .containsExactly(
+                call("IBISSoapClient.<init>", URL_81 + "?isCli", TRUST_STORE,
+                    TestSecrets.TRUST_STORE_PASSWORD, "null", "null", "true"),
+                call("IBISSoapClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+                call("ClusterClient.<init>", "IBISSoapClient", USER, CLIENT_UID, "null"),
+                call("ClusterClient.getNode"),
+                call("IBISSoapClient.getObject", "P-0001_a@@@Workflow-0001", USER, IO_LISTING),
+                call("IBISSoapClient.logoutUser", USER));
+        TestSecrets.assertNoLeak(run.out());
+    }
+
+    @Test
+    void rest90IoLogUsesTheFactoryClientAndDoesNotLogOut() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("P-0001_a@@@Workflow-0001", IO_LISTING, IO_ENTRY);
+        Path listOut = dir.resolve("io.list");
+
+        Run run = run(script, nodeToolRequest("ioLog", lines -> {
+            lines.put("variant", "REST_90");
+            lines.put("url", encode(URL_90));
+            lines.put("listOut", encode(listOut.toString()));
+        }), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).endsWith(List.of("io", "list", "ok", "1"), List.of("end"));
+        assertThat(script.calls()).endsWith(
+            call("RestClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+            call("ClusterClient.<init>", "RestClient", USER, CLIENT_UID, "null"),
+            call("ClusterClient.getNode"),
+            call("RestClient.getObject", "P-0001_a@@@Workflow-0001", USER, IO_LISTING));
+    }
+
+    /**
+     * The object name is the process id and the workflow as requested, joined by {@code @@@};
+     * single separator characters of the workflow name stay as they are.
+     */
+    @Test
+    void theListingIsRequestedForTheProcessIdAndTheWorkflowOfTheRequest() throws Exception {
+        String workflow = "Order@Shop##Inbound ü";
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("A1b2_C3-d4@@@" + workflow, IO_LISTING, "");
+
+        Run run = run(script, nodeToolRequest("ioLog", lines -> {
+            lines.put("processId", "A1b2_C3-d4");
+            lines.put("workflow", encode(workflow));
+            lines.put("listOut", encode(dir.resolve("io.list").toString()));
+        }), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(script.calls()).contains(
+            call("IBISSoapClient.getObject", "A1b2_C3-d4@@@" + workflow, USER, IO_LISTING));
+    }
+
+    /** An empty answer (no logged message, or an unknown workflow) lists zero entries. */
+    @Test
+    void anEmptyAnswerListsZeroEntriesIntoAnEmptyListFile() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("P-0001_a@@@Workflow-0001", IO_LISTING, "");
+        Path listOut = dir.resolve("io.list");
+
+        Run run = run(script, nodeToolRequest("ioLog", lines -> lines.put("listOut",
+            encode(listOut.toString()))), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).endsWith(List.of("io", "list", "ok", "0"), List.of("end"));
+        assertThat(listOut).isEmptyFile();
+    }
+
+    /** Empty pieces between separators are no entries; the order of the others is kept. */
+    @Test
+    void emptyPiecesOfTheAnswerAreNoEntries() throws Exception {
+        String other = "P-0001_a@@@Orders(Module-0001)@@@Output.1";
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("P-0001_a@@@Workflow-0001", IO_LISTING,
+                "###" + IO_ENTRY + "######" + other + "###");
+        Path listOut = dir.resolve("io.list");
+
+        Run run = run(script, nodeToolRequest("ioLog", lines -> lines.put("listOut",
+            encode(listOut.toString()))), vendor());
+
+        assertThat(frames(run.out())).contains(List.of("io", "list", "ok", "2"));
+        assertThat(Files.readAllLines(listOut, StandardCharsets.UTF_8))
+            .containsExactly(IO_ENTRY, other);
+    }
+
+    @Test
+    void aFailedListingIsAnIoListErrorWithMaskedMessagesAndNoDownload() throws Exception {
+        String echo = "user jdoe with " + TestSecrets.CONFIGURED_PASSWORD + " and store "
+            + TestSecrets.TRUST_STORE_PASSWORD + " refused";
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .objectFails("P-0001_a@@@Workflow-0001", IO_LISTING,
+                new Failure("java.lang.IllegalStateException", "no listing"),
+                new Failure("java.io.IOException", echo));
+        Path listOut = dir.resolve("io.list");
+        Path messageOut = dir.resolve("message.bin");
+
+        Run run = run(script, ioMessageRequest(listOut, messageOut, IO_REF), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "ok", NODE),
+            List.of("io", "list", "error", "java.lang.IllegalStateException>java.io.IOException",
+                "no listing\nuser jdoe with ****** and store ****** refused"),
+            List.of("end"));
+        assertThat(listOut).doesNotExist();
+        assertThat(messageOut).doesNotExist();
+        assertThat(script.calls()).extracting(Call::name)
+            .noneMatch(name -> name.startsWith("MultipartDownloadThread"))
+            .last().isEqualTo("IBISSoapClient.logoutUser");
+        TestSecrets.assertNoLeak(run.out());
+        TestSecrets.assertNoLeak(decoded(run.out()));
+    }
+
+    /**
+     * A {@code null} listing is a failed one, as a {@code null} node or member list: an
+     * {@code io list error} without exception chain, no list file, no match and no download.
+     */
+    @Test
+    void aNullListingIsAnIoListErrorWithoutChainAndNoDownload() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("P-0001_a@@@Workflow-0001", IO_LISTING, null);
+        Path listOut = dir.resolve("io.list");
+        Path messageOut = dir.resolve("message.bin");
+
+        Run run = run(script, ioMessageRequest(listOut, messageOut, IO_REF), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "ok", NODE),
+            List.of("io", "list", "error", "-", "the client returned no I/O listing"),
+            List.of("end"));
+        assertThat(HelperFrames.parse(NONCE, run.out()).frames()).contains(
+            new HelperFrames.IoListError(List.of(), "the client returned no I/O listing"));
+        assertThat(listOut).doesNotExist();
+        assertThat(messageOut).doesNotExist();
+        assertThat(script.calls()).extracting(Call::name)
+            .noneMatch(name -> name.startsWith("MultipartDownloadThread"))
+            .last().isEqualTo("IBISSoapClient.logoutUser");
+    }
+
+    /** A list file the helper cannot write is an {@code io list error}, nothing is matched. */
+    @Test
+    void aListFileThatCannotBeWrittenIsAnIoListError() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("P-0001_a@@@Workflow-0001", IO_LISTING, IO_ENTRY)
+            .file("Workflow-0001###" + IO_ENTRY, DATA);
+        Path listOut = dir.resolve("missing-directory").resolve("io.list");
+        Path messageOut = dir.resolve("message.bin");
+
+        Run run = run(script, ioMessageRequest(listOut, messageOut, IO_REF), vendor());
+
+        assertThat(run.exit()).isZero();
+        List<List<String>> frames = frames(run.out());
+        assertThat(frames.get(3)).startsWith("io", "list", "error").hasSize(5);
+        assertThat(frames.get(3).get(3)).contains("java.nio.file.NoSuchFileException");
+        assertThat(frames).hasSize(5).last().isEqualTo(List.of("end"));
+        assertThat(messageOut).doesNotExist();
+        assertThat(script.calls()).extracting(Call::name)
+            .noneMatch(name -> name.startsWith("MultipartDownloadThread"));
+    }
+
+    @Test
+    void aFailedOwnNodeLookupEndsTheIoLogReadBeforeTheListing() throws Exception {
+        FakeInubitScript script = new FakeInubitScript()
+            .nodeFails(new Failure("java.lang.Exception", "Server not in cluster mode."));
+
+        Run run = run(script, nodeToolRequest("ioLog", lines -> lines.put("listOut",
+            encode(dir.resolve("io.list").toString()))), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "error", "java.lang.Exception", "Server not in cluster mode."),
+            List.of("end"));
+        assertThat(script.calls()).extracting(Call::name)
+            .doesNotContain("IBISSoapClient.getObject")
+            .last().isEqualTo("IBISSoapClient.logoutUser");
+    }
+
+    /**
+     * Each vector of the shared file (contracts/helper-protocol-delta.md "Message reference")
+     * selects exactly its entry among all of them: the helper computes the same reference as
+     * {@code IoMessageRef.of}, and the download name is the workflow and that listed entry.
+     */
+    @ParameterizedTest
+    @MethodSource("ioMessageRefVectors")
+    void eachVectorsReferenceDownloadsExactlyItsListedEntry(String entry, String ref)
+        throws Exception {
+        List<String> all = ioMessageRefVectors().map(vector -> (String) vector.get()[0]).toList();
+        byte[] message = ("<message of " + entry + "/>").getBytes(StandardCharsets.UTF_8);
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("P-0001_a@@@Workflow-0001", IO_LISTING, String.join("###", all))
+            .file("Workflow-0001###" + entry, message);
+        Path listOut = dir.resolve("io.list");
+        Path messageOut = dir.resolve("message.bin");
+
+        Run run = run(script, ioMessageRequest(listOut, messageOut, ref), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "ok", NODE),
+            List.of("io", "list", "ok", Integer.toString(all.size())),
+            List.of("io", "match", entry),
+            List.of("part", "message", "ok", Integer.toString(message.length)),
+            List.of("end"));
+        assertThat(HelperFrames.parse(NONCE, run.out()).frames()).contains(
+            new HelperFrames.IoMatch(Optional.of(entry)),
+            new HelperFrames.PartOk(HelperFrames.Part.MESSAGE, message.length));
+        assertThat(messageOut).hasBinaryContent(message);
+        assertThat(Files.readAllLines(listOut, StandardCharsets.UTF_8))
+            .containsExactlyElementsOf(all);
+        assertThat(script.calls()).as("the listing, then one download of the matched entry")
+            .containsExactly(
+                call("IBISSoapClient.<init>", URL_81 + "?isCli", TRUST_STORE,
+                    TestSecrets.TRUST_STORE_PASSWORD, "null", "null", "true"),
+                call("IBISSoapClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+                call("ClusterClient.<init>", "IBISSoapClient", USER, CLIENT_UID, "null"),
+                call("ClusterClient.getNode"),
+                call("IBISSoapClient.getObject", "P-0001_a@@@Workflow-0001", USER, IO_LISTING),
+                call("MultipartDownloadThread.<init>", "IBISSoapClient", USER,
+                    "Workflow-0001###" + entry, "InputOutputLogging", "null", "null"),
+                call("MultipartDownloadThread.setOutputFile", messageOut.toString()),
+                call("MultipartDownloadThread.start"),
+                call("MultipartDownloadThread.exceptionOccured"),
+                call("IBISSoapClient.logoutUser", USER));
+        TestSecrets.assertNoLeak(run.out());
+    }
+
+    /** The lines of {@code fixtures/node-tools/io-message-ref.vectors} (T007), unchanged. */
+    static Stream<Arguments> ioMessageRefVectors() throws IOException {
+        return Files.readAllLines(IO_VECTORS, StandardCharsets.UTF_8).stream()
+            .map(line -> line.split("\t", -1))
+            .map(parts -> Arguments.of(parts[0], parts[1]));
+    }
+
+    /**
+     * A reference that no listed entry has gives {@code io match none}: no download thread is
+     * created and the request's reference never becomes a name.
+     */
+    @Test
+    void aReferenceOfNoListedEntryIsIoMatchNoneWithoutADownloadThread() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("P-0001_a@@@Workflow-0001", IO_LISTING, IO_ENTRY)
+            .file("Workflow-0001###" + IO_ENTRY, DATA);
+        Path messageOut = dir.resolve("message.bin");
+
+        Run run = run(script, ioMessageRequest(dir.resolve("io.list"), messageOut, REF),
+            vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).endsWith(
+            List.of("io", "list", "ok", "1"),
+            List.of("io", "match", "none"),
+            List.of("end"));
+        assertThat(HelperFrames.parse(NONCE, run.out()).frames())
+            .contains(new HelperFrames.IoMatch(Optional.empty()));
+        assertThat(messageOut).doesNotExist();
+        assertThat(script.calls()).extracting(Call::name)
+            .noneMatch(name -> name.startsWith("MultipartDownloadThread"));
+        assertThat(script.calls()).flatExtracting(Call::arguments)
+            .noneMatch(argument -> argument.contains(REF));
+    }
+
+    @Test
+    void anEmptyListingWithAReferenceIsIoMatchNone() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("P-0001_a@@@Workflow-0001", IO_LISTING, "");
+
+        Run run = run(script, ioMessageRequest(dir.resolve("io.list"),
+            dir.resolve("message.bin"), IO_REF), vendor());
+
+        assertThat(frames(run.out())).endsWith(
+            List.of("io", "list", "ok", "0"),
+            List.of("io", "match", "none"),
+            List.of("end"));
+        assertThat(script.calls()).extracting(Call::name)
+            .noneMatch(name -> name.startsWith("MultipartDownloadThread"));
+    }
+
+    /** A message of 0 bytes is downloaded like any other (FR-023: the server reports it). */
+    @Test
+    void anEmptyMessageIsPartMessageOkZero() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("P-0001_a@@@Workflow-0001", IO_LISTING, IO_ENTRY)
+            .file("Workflow-0001###" + IO_ENTRY, new byte[0]);
+        Path messageOut = dir.resolve("message.bin");
+
+        Run run = run(script, ioMessageRequest(dir.resolve("io.list"), messageOut, IO_REF),
+            vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).endsWith(
+            List.of("io", "match", IO_ENTRY),
+            List.of("part", "message", "ok", "0"),
+            List.of("end"));
+        assertThat(messageOut).isEmptyFile();
+    }
+
+    @Test
+    void aFailedDownloadIsAPartMessageErrorWithMaskedMessages() throws Exception {
+        String echo = "user jdoe with " + TestSecrets.CONFIGURED_PASSWORD + " refused";
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("P-0001_a@@@Workflow-0001", IO_LISTING, IO_ENTRY)
+            .fileFails("Workflow-0001###" + IO_ENTRY,
+                new Failure("java.lang.Exception", "Unable to download"),
+                new Failure("java.io.IOException", echo));
+
+        Run run = run(script, ioMessageRequest(dir.resolve("io.list"),
+            dir.resolve("message.bin"), IO_REF), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).endsWith(
+            List.of("io", "match", IO_ENTRY),
+            List.of("part", "message", "error",
+                "java.lang.Exception>java.io.IOException",
+                "Unable to download\nuser jdoe with ****** refused"),
+            List.of("end"));
+        assertThat(script.calls()).extracting(Call::name).containsSubsequence(
+            "MultipartDownloadThread.exceptionOccured", "MultipartDownloadThread.getException",
+            "IBISSoapClient.logoutUser");
+        TestSecrets.assertNoLeak(run.out());
+        TestSecrets.assertNoLeak(decoded(run.out()));
+    }
+
+    @Test
+    void aDownloadFailingWithoutAnExceptionIsAPartMessageErrorWithoutChain() throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("P-0001_a@@@Workflow-0001", IO_LISTING, IO_ENTRY)
+            .fileFailsWithoutException("Workflow-0001###" + IO_ENTRY);
+
+        Run run = run(script, ioMessageRequest(dir.resolve("io.list"),
+            dir.resolve("message.bin"), IO_REF), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).endsWith(
+            List.of("part", "message", "error", "-", "-"),
+            List.of("end"));
+    }
+
+    /**
+     * The download thread gets the session's additional user group as its last argument, as
+     * the Workbench's I/O view does (research "Static facts").
+     */
+    @Test
+    void theDownloadCarriesTheAdditionalUserGroupOfTheSession() throws Exception {
+        String currentUser = "com.inubit.ibis.common.CurrentUser";
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("P-0001_a@@@Workflow-0001", IO_LISTING, IO_ENTRY)
+            .file("Workflow-0001###" + IO_ENTRY, DATA);
+
+        Run run = run(script, ioMessageRequest(dir.resolve("io.list"),
+            dir.resolve("message.bin"), IO_REF), replacing(currentUser, stub(currentUser,
+                "public static String getClientUID() { return \"" + CLIENT_UID + "\"; }",
+                "public static String getUsedAdditionalUserGroup() { return \"group-0001\"; }")));
+
+        assertThat(run.exit()).isZero();
+        assertThat(script.calls()).contains(
+            call("MultipartDownloadThread.<init>", "IBISSoapClient", USER,
+                "Workflow-0001###" + IO_ENTRY, "InputOutputLogging", "null", "group-0001"));
+    }
+
+    /** The listing goes to the file, so a long run's listing leaves the stdout small. */
+    @Test
+    void aLongListingStaysOutOfTheStdout() throws Exception {
+        List<String> entries = new ArrayList<>();
+        for (int i = 1; i <= 20_000; i++) {
+            entries.add("P-0001_a@@@Bestellprüfung " + "€".repeat(40) + "(Module-0001)@@@Input."
+                + i);
+        }
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("P-0001_a@@@Workflow-0001", IO_LISTING, String.join("###", entries));
+        Path listOut = dir.resolve("io.list");
+
+        Run run = run(script, nodeToolRequest("ioLog", lines -> lines.put("listOut",
+            encode(listOut.toString()))), vendor());
+
+        assertThat(run.out().getBytes(StandardCharsets.UTF_8).length).isLessThan(1_024);
+        assertThat(frames(run.out())).contains(List.of("io", "list", "ok", "20000"));
+        assertThat(Files.size(listOut)).isGreaterThan(ProcessRun.MAX_OUTPUT_BYTES);
+        assertThat(Files.readAllLines(listOut, StandardCharsets.UTF_8))
+            .containsExactlyElementsOf(entries);
+    }
+
+    @Test
+    void ioLogWithoutGetObjectEndsWithApiMissingAndExitFourBeforeAnyCall() throws Exception {
+        String client = "com.inubit.ibis.utils.I_IBISClientInterface";
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("P-0001_a@@@Workflow-0001", IO_LISTING, IO_ENTRY);
+
+        Run run = run(script, nodeToolRequest("ioLog", lines -> { }), replacing(client,
+            "package com.inubit.ibis.utils;\n"
+                + "public interface I_IBISClientInterface {\n"
+                + "void loginUserCli(String user, String password) throws Exception;\n}\n"));
+
+        assertThat(run.exit()).isEqualTo(4);
+        assertThat(frames(run.out())).containsExactly(List.of("api", "missing",
+            client + ".getObject(java.lang.String,java.lang.String,java.lang.String)"));
+        assertThat(script.calls()).isEmpty();
+    }
+
+    @Test
+    void ioLogWithoutTheDownloadThreadEndsWithApiMissingAndExitFourBeforeAnyCall()
+        throws Exception {
+        String download = "com.inubit.ibis.configuration.utils.io.MultipartDownloadThread";
+        FakeInubitScript script = new FakeInubitScript().node(NODE)
+            .object("P-0001_a@@@Workflow-0001", IO_LISTING, IO_ENTRY);
+
+        Run run = run(script, nodeToolRequest("ioLog", lines -> { }), hiding(download));
+
+        assertThat(run.exit()).isEqualTo(4);
+        assertThat(frames(run.out())).containsExactly(List.of("api", "missing", download));
+        assertThat(script.calls()).isEmpty();
+    }
+
     // --- the frame writer (D-4) -----------------------------------------------------------
 
     @Test
@@ -2187,6 +2628,15 @@ class ClientHelperTest {
         StringBuilder text = new StringBuilder();
         lines.forEach((key, value) -> text.append(key).append('=').append(value).append('\n'));
         return text.append("end\n").toString();
+    }
+
+    /** A well-formed {@code ioLog} request for the message {@code ref} of the default run. */
+    static String ioMessageRequest(Path listOut, Path messageOut, String ref) {
+        return nodeToolRequest("ioLog", lines -> {
+            lines.put("ref", ref);
+            lines.put("listOut", encode(listOut.toString()));
+            lines.put("messageOut", encode(messageOut.toString()));
+        });
     }
 
     /** Runs the helper with {@code script} active. */

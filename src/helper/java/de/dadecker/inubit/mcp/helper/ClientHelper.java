@@ -14,7 +14,13 @@ import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -26,8 +32,9 @@ import java.util.Set;
 /**
  * Reads through the INUBIT client installation whose class path it runs on: one queue manager
  * entry (feature 020, research D-1, D-2, D-4), the web service log of the node it reaches
- * (feature 021, D-2, D-4, D-5), the name of that node, the cluster's nodes or the node's
- * configuration (feature 024, D-2, D-3, D-7, D-10). The server starts it in a child JVM; it is
+ * (feature 021, D-2, D-4, D-5), the name of that node, the cluster's nodes, the node's
+ * configuration or the I/O logging of a process run (feature 024, D-2, D-3, D-7 … D-10). The
+ * server starts it in a child JVM; it is
  * compiled for Java 17, uses JDK classes only and is a single class without nested or anonymous
  * classes, because it is shipped as one class-file resource.
  *
@@ -35,8 +42,7 @@ import java.util.Set;
  * line with every value percent-encoded, {@code end} last; the optional key {@code op} names the
  * operation, {@code queueEntry} (also when absent), {@code serverLog} (feature 021 D-4) or
  * {@code ownNode}, {@code clusterNodes}, {@code nodeConfig}, {@code ioLog} (feature 024 D-2),
- * each with its own keys; this version performs {@code ownNode}, {@code clusterNodes} and
- * {@code nodeConfig} and answers a valid {@code ioLog} request with exit 2 after the API check);
+ * each with its own keys);
  * results are the stdout lines that start with {@code #QE1:<nonce> }, followed by space-separated
  * percent-encoded tokens, so output of the vendor libraries cannot forge one; an empty token is
  * written as {@code -}. Exit codes: 0 after {@code end}, 1 anything else (also any unexpected
@@ -54,7 +60,9 @@ import java.util.Set;
  * from that node (FR-006); the own node through the same {@code getNode()}, the cluster's nodes
  * through {@code getNodes()} and one node's information through {@code getNode(NodeName)}
  * (FR-010, FR-011), the own node's configuration through
- * {@code getNodeConfigurationProperty} (FR-030, FR-032). 8.1 logs out at the end. Client methods
+ * {@code getNodeConfigurationProperty} (FR-030, FR-032), a run's I/O logging through the client's
+ * {@code getObject} and one {@code MultipartDownloadThread} of a listed entry (FR-020, FR-021).
+ * 8.1 logs out at the end. Client methods
  * are looked up on {@code I_IBISClientInterface}, because the 9.0 client is a private class.
  */
 public final class ClientHelper {
@@ -98,6 +106,14 @@ public final class ClientHelper {
         "iterationCount", "DataSourceLocation", "LogsDBDataSourceLocation",
         "RepositoryDataSourceLocation", "ClusterBindAddress", "noOfRetries", "retryInterval");
     private static final int MAX_WORKFLOW_CHARS = 200;
+    /** The object type of a run's I/O logging listing (research "Static facts"). */
+    private static final String IO_LISTING = "inputOutputMessageDetails";
+    /** The download type of one logged I/O message (research "Static facts"). */
+    private static final String IO_DOWNLOAD = "InputOutputLogging";
+    /** The separator of the listing's entries and of the download name's two parts. */
+    private static final String IO_SEPARATOR = "###";
+    /** The bytes of SHA-256 a message reference keeps (024 D-8). */
+    private static final int REF_BYTES = 16;
     /** The only server log the helper reads, a constant so no request names a file (D-2). */
     private static final String WEBSERVICE_LOG = "webservice.log";
     private static final char[] HEX = "0123456789ABCDEF".toCharArray();
@@ -188,11 +204,6 @@ public final class ClientHelper {
             frame(out, nonce, "api", "missing", String.valueOf(e.getMessage()));
             return EXIT_API_MISSING;
         }
-        String op = request.get(OP);
-        if (IO_LOG.equals(op)) {
-            // a valid request, but this helper version does not perform it yet: nothing sent
-            return EXIT_MALFORMED;
-        }
         frame(out, nonce, "start", request.get("variant"));
         return read(request, api, out);
     }
@@ -240,6 +251,11 @@ public final class ClientHelper {
             if (serverLog) {
                 // first, as in feature 021, so the same member is named when several are missing
                 downloadThread(api, vendor);
+            }
+            if (IO_LOG.equals(request.get(OP))) {
+                // first as well: getObject is a member of the client interface, checked before
+                // the cluster classes that refer to that interface
+                ioLogApi(api, vendor, client);
             }
             // every other operation starts with the node lookup (021 D-5, 024 D-3); NodeName and
             // Node first: clusterDownload's parameter type is the NodeName found here
@@ -306,6 +322,19 @@ public final class ClientHelper {
         }
     }
 
+    /**
+     * The members {@code ioLog} calls beyond the node lookup (024 D-2, D-9): the client's
+     * {@code getObject} and the 020 download thread.
+     */
+    private static void ioLogApi(Map<String, Executable> api, ClassLoader vendor,
+        Class<?> client) throws ReflectiveOperationException {
+        api.put("getObject", client.getMethod("getObject", String.class, String.class,
+            String.class));
+        Class<?> download = downloadThread(api, vendor);
+        api.put("MultipartDownloadThread", sixArgumentConstructor(download));
+        api.put("setOutputFile", download.getMethod("setOutputFile", File.class));
+    }
+
     /** The download thread class and the members that report its result. */
     private static Class<?> downloadThread(Map<String, Executable> api, ClassLoader vendor)
         throws ReflectiveOperationException {
@@ -342,7 +371,8 @@ public final class ClientHelper {
 
     /**
      * Logs in, reads the requested parts, the web service log, the own node, the cluster's
-     * nodes or the own node's configuration and logs out (8.1); returns the exit code.
+     * nodes, the own node's configuration or a run's I/O logging and logs out (8.1); returns the
+     * exit code.
      */
     private static int read(Map<String, String> request, Map<String, Executable> api,
         PrintStream out) throws ReflectiveOperationException, InterruptedException {
@@ -372,6 +402,8 @@ public final class ClientHelper {
                 listClusterNodes(api, client, request, out, secrets);
             } else if (NODE_CONFIG.equals(request.get(OP))) {
                 readNodeConfig(api, client, request, out, secrets);
+            } else if (IO_LOG.equals(request.get(OP))) {
+                readIoLog(api, client, request, out, secrets);
             } else {
                 if (request.get("parts").startsWith("data")) {
                     download(api, client, request, "data", request.get("fileName"),
@@ -663,6 +695,96 @@ public final class ClientHelper {
             }
             frame(out, nonce, tokens);
         }
+    }
+
+    /**
+     * Looks up the answering node, lists the I/O logging entries of the run
+     * ({@code getObject("<processId>@@@<workflow>", user, "inputOutputMessageDetails")}, entries
+     * separated by {@code ###}, empty pieces being no entry) into {@code listOut}, one per line in
+     * the answer's order, and writes {@code io list} (024 D-2, D-8); a {@code null} answer is an
+     * {@code io list error} without chain and nothing more. With a message reference, the
+     * first listed entry whose {@linkplain #reference reference} it is gets {@code io match} and
+     * is downloaded into {@code messageOut}, named {@code <workflow>###<entry>} from the request's
+     * workflow and that listed entry only, never from the reference (FR-021, D-9); no such entry
+     * gives {@code io match none} and no download.
+     */
+    private static void readIoLog(Map<String, Executable> api, Object client,
+        Map<String, String> request, PrintStream out, List<String> secrets)
+        throws ReflectiveOperationException, InterruptedException {
+        if (lookUpNode(api, client, request, out, secrets) == null) {
+            return;
+        }
+        String nonce = request.get("nonce");
+        String user = request.get("user");
+        String workflow = request.get("workflow");
+        List<String> entries = new ArrayList<>();
+        try {
+            String answer = (String) call(api, "getObject", client,
+                request.get("processId") + "@@@" + workflow, user, IO_LISTING);
+            if (answer == null) {
+                // a listing request without a listing is a failed one; nothing was thrown, so
+                // the frame carries no exception chain (as the node lookup)
+                frame(out, nonce, "io", "list", "error", "", "the client returned no I/O listing");
+                return;
+            }
+            StringBuilder listing = new StringBuilder();
+            for (String entry : answer.split(IO_SEPARATOR)) {
+                if (!entry.isEmpty()) {
+                    entries.add(entry);
+                    listing.append(entry).append('\n');
+                }
+            }
+            Files.writeString(Path.of(request.get("listOut")), listing, StandardCharsets.UTF_8);
+        } catch (InvocationTargetException | LinkageError | IOException e) {
+            Throwable failure = vendorFailure(e);
+            frame(out, nonce, "io", "list", "error", chain(failure), messages(failure, secrets));
+            return;
+        }
+        frame(out, nonce, "io", "list", "ok", Integer.toString(entries.size()));
+        String ref = request.get("ref");
+        if (ref.isEmpty()) {
+            return;
+        }
+        String match = null;
+        for (String entry : entries) {
+            if (reference(entry).equals(ref)) {
+                match = entry;
+                break;
+            }
+        }
+        if (match == null) {
+            frame(out, nonce, "io", "match", "none");
+            return;
+        }
+        frame(out, nonce, "io", "match", match);
+        File file = new File(request.get("messageOut"));
+        try {
+            Thread thread = (Thread) call(api, "MultipartDownloadThread", null, client, user,
+                workflow + IO_SEPARATOR + match, IO_DOWNLOAD, null,
+                call(api, "getUsedAdditionalUserGroup", null));
+            call(api, "setOutputFile", thread, file);
+            transfer(api, thread, file, nonce, "message", out, secrets);
+        } catch (InvocationTargetException | LinkageError e) {
+            partError(out, nonce, "message", vendorFailure(e), secrets);
+        }
+    }
+
+    /**
+     * The message reference of a listed {@code entry} (contracts/helper-protocol-delta.md
+     * "Message reference", as {@code IoMessageRef.of}): Base64url without padding of the first
+     * 16 bytes of SHA-256 over its UTF-8 bytes.
+     */
+    private static String reference(String entry) {
+        MessageDigest sha256;
+        try {
+            sha256 = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            // every Java platform has SHA-256
+            throw new IllegalStateException(e);
+        }
+        byte[] digest = sha256.digest(entry.getBytes(StandardCharsets.UTF_8));
+        return Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(Arrays.copyOf(digest, REF_BYTES));
     }
 
     /**
