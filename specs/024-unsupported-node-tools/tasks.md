@@ -64,7 +64,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
 
 ## Phase 1: Setup
 
-- [ ] T001 Baseline (D-30): if `021-server-log-download` is merged into `main`, rebase this branch on
+- [X] T001 Baseline (D-30): if `021-server-log-download` is merged into `main`, rebase this branch on
   `main` first (else stay on the 021 base and note it); `mvn -o -q clean verify` with the tmpdir
   above and the Python tests are green; create
   `specs/024-unsupported-node-tools/reviews/implementation.md` and note there the test count
