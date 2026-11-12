@@ -601,7 +601,9 @@ the test tree (`com/inubit/ibis/server/cluster/ClusterClient`, `…/data/Node`,
 `…/cache/NodeName`, `com/inubit/ibis/common/CurrentUser`, plus the 020 fakes), recording every
 vendor call (FR-006: login, `getNode`, `clusterDownload`, logout only; file name always
 `webservice.log`), and once in a real child JVM. `ServerLogFixtureCatalogueTest` asserts:
-matrix `SUPPORTED` for (version, log) ⇔ a `recorded` `ok.origin` of that version and log.
+matrix `SUPPORTED` for (version, log) ⇔ a `recorded` `.origin` of some case of that version and
+log (`ok` for 8.1 and 9.0 trace and 8.1 webservice; `empty` for 9.0 webservice, owner decision
+2026-11-12, T052).
 
 ## D-23 Live spike and recordings (early tasks; operator approval; never production)
 
@@ -780,3 +782,5 @@ the `REST_90` variant once; the only file name sent was the constant `webservice
   (`login ok`, `node ok`, `part log ok 0`, `end`) is inferred, not recorded. D-8's choice to
   report `PRESENT` for 0 bytes rests on the bytecode, not on a recording. The owner chooses between
   enabling 9.0 webservice on the recorded empty case plus the static facts, and the T053 fallback.
+- Owner decision (2026-11-12): enable 9.0 webservice on the recorded empty case plus the static
+  facts (T052); `v9_0/webservice/empty.*` is the recorded case, `ok.*` stays reconstructed.

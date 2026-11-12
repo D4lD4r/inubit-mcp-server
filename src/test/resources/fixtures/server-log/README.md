@@ -51,7 +51,9 @@ The first line of every `.origin` is one of:
 
 - `recorded <date> <version> neutralized` — taken from a real non-production node (research
   D-23) and neutralized as described below before it entered the repository; the owner reviewed
-  the diff before it was committed.
+  the diff before it was committed. A recorded case may carry inferred parts, which its
+  `.origin` names (e.g. `v9_0/webservice/empty.origin`: the outcome was recorded, the helper
+  frames are inferred from it).
 - `reconstructed <source>` — written by hand from the named source (e.g. the static facts in
   research.md, the recorded StartCLI texts of another fixture, the helper protocol); never seen
   on a real node in this form.

@@ -334,7 +334,7 @@ class ToolAnnouncementTest {
     }
 
     @Test
-    void onTheProductionMatrixThe81And90TraceRecordingsAnnounceTheDownload() {
+    void onTheProductionMatrixThe81And90RecordingsAnnounceTheDownload() {
         // T033: 8.1 admits the trace log, so an 8.1 and an AUTO node with a client home run it
         List<String> withDownload = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
@@ -350,6 +350,9 @@ class ToolAnnouncementTest {
         // T051: 9.0 admits the trace log, so a node pinned to 9.0 with a 9.0 client runs it
         assertThat(groupTools("V9_0", "", true, CapabilityMatrix.production()))
             .containsExactlyElementsOf(withDownload);
+        // T052: 9.0 also admits the web service log, which adds no tool for an opted-in node
+        assertThat(groupTools("V9_0", serverLogOptIn("true"), true,
+            CapabilityMatrix.production())).containsExactlyElementsOf(withDownload);
     }
 
     // --- feature 021 T043: the web service branch of download_server_log (FR-002, D-17) ----

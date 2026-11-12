@@ -1389,33 +1389,27 @@ class VersionGateTest {
     // --- feature 021, T009: downloading the server logs (FR-002, FR-017, D-6) ----------------
 
     /**
-     * Until its recording a log is refused with the matrix note: the web service log on 9.0;
-     * T033, T046, T051: the recorded 8.1 trace and web service logs and the recorded 9.0 trace log
-     * are admitted without warning.
+     * T033, T046, T051, T052: the recorded 8.1 and 9.0 trace and web service logs are admitted
+     * without warning; before its recording a log was refused with the matrix note "not yet
+     * verified", whose refusal text the feature 020 test above covers.
      */
     @Test
-    void aServerLogReadIsNotYetVerifiedUntilItsRecording() {
+    void aServerLogReadIsAdmittedOn81And90SinceItsRecording() {
         for (Capability capability : List.of(Capability.TRACE_LOG_READ,
                 Capability.WEBSERVICE_LOG_READ)) {
             Admission v81 = gate().admit("download_server_log", PINNED, capability, Kind.READ,
                 CLI);
             assertThat(v81.warnings()).as("%s", capability).isEmpty();
             assertThat(v81.version()).as("%s", capability).contains(version("8.1.17"));
+
+            Admission v90 = gate().admit("download_server_log", V9_0, capability, Kind.READ,
+                CLI);
+            assertThat(v90.warnings()).as("%s", capability).isEmpty();
+            assertThat(v90.version()).as("%s", capability).map(InubitVersion::raw)
+                .contains("9.0");
         }
-        Admission v90Trace = gate().admit("download_server_log", V9_0,
-            Capability.TRACE_LOG_READ, Kind.READ, CLI);
-        assertThat(v90Trace.warnings()).isEmpty();
-        assertThat(v90Trace.version()).map(InubitVersion::raw).contains("9.0");
-
-        ToolError v90 = refusal(() -> gate().admit("download_server_log", V9_0,
-            Capability.WEBSERVICE_LOG_READ, Kind.READ, CLI));
-
-        assertThat(v90.message()).isEqualTo("download_server_log: INUBIT 9.0 on prod/node4:"
-            + " downloading the web service log is not yet verified for INUBIT 9.0; nothing was"
-            + " sent");
-        assertNoLeak(v90);
         assertThat(probe.calls).as("no StartCLI run").isEmpty();
-        assertThat(appender.list).hasSize(1);
+        assertThat(appender.list).isEmpty();
     }
 
     @Test

@@ -37,12 +37,11 @@ class CapabilityMatrixTest {
     /**
      * Feature 017 (T004, research D-9): 9.0 is declared like 8.1, REST and CLI; partner
      * management is the exception of feature 018 (below); feature 020 (T038): reading Queue
-     * Manager entries included since its 9.0 recording; feature 021: downloading the trace log
-     * included since its 9.0 recording (T051), the web service log waits for its recording
-     * (below).
+     * Manager entries included since its 9.0 recording; feature 021: the server-log reads
+     * included since their 9.0 recordings (T051, T052).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"PARTNER_MANAGEMENT", "WEBSERVICE_LOG_READ"},
+    @EnumSource(value = Capability.class, names = {"PARTNER_MANAGEMENT"},
         mode = EnumSource.Mode.EXCLUDE)
     void everyCapabilityIsSupportedOn90LikeOn81(Capability capability) {
         assertThat(production.state(version("9.0.7"), capability))
@@ -340,10 +339,8 @@ class CapabilityMatrixTest {
         assertThat(production.stateOfLine(9, OptionalInt.of(0), Capability.QUEUE_ENTRY_READ))
             .isEqualTo(SupportState.SUPPORTED);
         for (Capability capability : Capability.values()) {
-            if (capability != Capability.WEBSERVICE_LOG_READ) {
-                assertThat(production.note(version("9.0.7"), capability)).as("%s", capability)
-                    .isEmpty();
-            }
+            assertThat(production.note(version("9.0.7"), capability)).as("%s", capability)
+                .isEmpty();
         }
         assertThat(production.channels(version("9.0.7"), Capability.QUEUE_ENTRY_READ))
             .isEqualTo(Capability.QUEUE_ENTRY_READ.channels());
@@ -453,27 +450,19 @@ class CapabilityMatrixTest {
         assertThat(production.lines(capability)).containsExactly("8.1", "9.0");
     }
 
-    /** T051 (FR-017, D-22): the recorded 9.0 trace log enabled 9.0; its note is gone. */
-    @Test
-    void theTraceLogReadIsSupportedOn90WithoutNote() {
-        Capability trace = Capability.TRACE_LOG_READ;
-        assertThat(production.state(version("9.0.7"), trace)).isEqualTo(SupportState.SUPPORTED);
-        assertThat(production.stateOfLine(9, OptionalInt.of(0), trace))
+    /**
+     * T051, T052 (FR-017, D-22): the recorded 9.0 trace log and the recorded empty 9.0 web service
+     * log enabled 9.0; their notes are gone.
+     */
+    @ParameterizedTest
+    @EnumSource(value = Capability.class, names = {"TRACE_LOG_READ", "WEBSERVICE_LOG_READ"})
+    void aServerLogReadIsSupportedOn90WithoutNote(Capability capability) {
+        assertThat(production.state(version("9.0.7"), capability))
             .isEqualTo(SupportState.SUPPORTED);
-        assertThat(production.note(version("9.0.7"), trace)).isEmpty();
-        assertThat(production.channels(version("9.0.7"), trace)).containsExactly(Channel.CLI);
-    }
-
-    /** On 9.0 the web service log waits for its recording (T052), refused as "not yet verified". */
-    @Test
-    void theWebServiceLogReadIsNotYetVerifiedOn90() {
-        Capability webService = Capability.WEBSERVICE_LOG_READ;
-        assertThat(production.state(version("9.0.7"), webService))
-            .isEqualTo(SupportState.UNSUPPORTED);
-        assertThat(production.stateOfLine(9, OptionalInt.of(0), webService))
-            .isEqualTo(SupportState.UNSUPPORTED);
-        assertThat(production.note(version("9.0.7"), webService)).contains("not yet verified");
-        assertThat(production.channels(version("9.0.7"), webService))
+        assertThat(production.stateOfLine(9, OptionalInt.of(0), capability))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.note(version("9.0.7"), capability)).isEmpty();
+        assertThat(production.channels(version("9.0.7"), capability))
             .containsExactly(Channel.CLI);
     }
 

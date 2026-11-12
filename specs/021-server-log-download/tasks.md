@@ -820,7 +820,7 @@ helper's `variant`.
   `TRACE_LOG_READ` → `SUPPORTED` in the same commit; updated first: `ServerLogV90ContractTest`
   (recorded `ok`, US3-1, SC-001), `CapabilityMatrixTest`, `ServerLogFixtureCatalogueTest`,
   `ToolAnnouncementTest` (`V9_0` pin now announces), `ServerLogVersionSelectionTest`
-- [ ] T052 [US3] **[OWNER]** **[BLOCKED: T050]** Enable 9.0 webservice in **one commit**: as T046
+- [X] T052 [US3] **[OWNER]** **[BLOCKED: T050]** Enable 9.0 webservice in **one commit**: as T046
   for `v9_0/webservice/ok.*` and 9.0 `WEBSERVICE_LOG_READ` → `SUPPORTED`; updated first:
   `ServerLogV90ContractTest`, `CapabilityMatrixTest`, `ServerLogFixtureCatalogueTest`,
   `ToolAnnouncementTest`

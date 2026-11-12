@@ -82,9 +82,8 @@ import org.junit.jupiter.params.provider.ValueSource;
  * the web service log the helper variant and the address. 6.1, 9.1 and an undetectable version
  * are refused before any launch, as is a 9.0 node without a 9.0 client; an 8.1 client chosen for
  * a 9.0 node fails when the helper misses its 9.0 API. Test matrix declaration {@link #MATRIX}
- * admits both logs on 8.1 and 9.0; {@link CapabilityMatrix#production()} admits the 9.0 trace log
- * since its recording (T051) and refuses the 9.0 web service log until its recording (T052
- * updates that test). No server is contacted.
+ * admits both logs on 8.1 and 9.0; {@link CapabilityMatrix#production()} admits both 9.0 logs
+ * since their recordings (T051, T052). No server is contacted.
  */
 @Timeout(60)
 class ServerLogVersionSelectionTest {
@@ -207,14 +206,18 @@ class ServerLogVersionSelectionTest {
         assertCleanedUp();
     }
 
-    /** US3-2: {@code REST_90} on the 9.0 client and JDK, at the base URL. */
+    /**
+     * US3-2: {@code REST_90} on the 9.0 client and JDK, at the base URL, with the shipped matrix
+     * since the 9.0 web service recording (T052).
+     */
     @ParameterizedTest
     @MethodSource("autoAndPinned90")
     void nineZeroWebServiceUsesRestWithThe90ClientItsJdkAndTheBaseUrl(VersionSetting line) {
         pin(N90, line);
         FakeProcessLauncher launcher = launch(N90, ServerLogVersionProfile.helper());
 
-        ServerLogResult result = service(MATRIX).download(call(N90, "webservice"));
+        ServerLogResult result = service(CapabilityMatrix.production())
+            .download(call(N90, "webservice"));
 
         assertThat(result.node()).isEqualTo(N90);
         assertThat(launcher.launchCount()).isOne();
@@ -316,22 +319,6 @@ class ServerLogVersionSelectionTest {
         assertThat(request(launcher.last().stdinBytes())).containsEntry("variant", "REST_90");
         assertThat(launcher.last().spec().workingDirectory()).isEqualTo(profile.client81());
         assertCleanedUp();
-    }
-
-    // --- the shipped declaration -----------------------------------------------------------------
-
-    /** FR-017: until its recording (T052) the 9.0 web service log is refused. */
-    @Test
-    void theProductionMatrixRefusesTheNineZeroWebServiceLogAsNotYetVerifiedWithoutLaunch() {
-        ToolError error = errorOf(() -> service(CapabilityMatrix.production())
-            .download(call(N90, "webservice")));
-
-        assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
-        assertThat(error.message()).isEqualTo("download_server_log: INUBIT 9.0.10 on test/n90:"
-            + " downloading the web service log is not yet verified for INUBIT 9.0; nothing was"
-            + " sent");
-        assertThat(detection.requests()).containsExactly(N90);
-        assertNothingLaunched();
     }
 
     // --- helpers ----------------------------------------------------------------------------

@@ -53,12 +53,14 @@ import org.junit.jupiter.params.provider.CsvSource;
  * {@code .stdout} that confirms the download names the size of its {@code .log} in MiB, rounded to
  * the decimals it prints (8.1 none, 9.0 three; research "Spike findings"); a web service
  * {@code part log ok <bytes>} frame names the size of its {@code .log} in bytes. For every
- * (version, log) the production capability matrix says
- * {@code SUPPORTED} exactly when {@code <version>/<log>/ok.origin} starts with {@code recorded}.
+ * (version, log) the production capability matrix says {@code SUPPORTED} exactly when some
+ * {@code <version>/<log>/<case>.origin} starts with {@code recorded}: the {@code ok} case for the
+ * 8.1 logs and the 9.0 trace log, the {@code empty} case for the 9.0 web service log, whose only
+ * recording is a 0-byte answer (T052, owner decision 2026-11-12).
  * T040: the 8.1 web service cases are classified as their names say. T048: the reconstructed 9.0
- * cases, classified as the 8.1 ones in the {@code REST_90} variant; while its {@code ok} case is
- * not recorded, the production matrix does not support a 9.0 log (FR-017). T051: the 9.0 trace
- * {@code ok} case is recorded.
+ * cases, classified as the 8.1 ones in the {@code REST_90} variant; while none of its cases is
+ * recorded, the production matrix does not support a 9.0 log (FR-017). T051: the 9.0 trace
+ * {@code ok} case is recorded; T052: the 9.0 web service {@code empty} case is recorded.
  */
 class ServerLogFixtureCatalogueTest {
 
@@ -122,19 +124,21 @@ class ServerLogFixtureCatalogueTest {
     }
 
     /**
-     * T048 (FR-017, D-22): until the 9.0 web service recording (T052) every 9.0 web service case
-     * is reconstructed and the production matrix does not support the 9.0 web service log.
+     * T052 (FR-017, D-22): the 9.0 web service {@code empty} case is the neutralized T050
+     * recording, a 0-byte answer; {@code ok} and the other 9.0 web service cases stay
+     * reconstructed, as the spike recorded no non-empty log and no failure.
      */
     @Test
-    void every90WebServiceCaseIsReconstructedAndTheProductionMatrixDoesNotSupportIt()
-        throws IOException {
-        List<String> cases = cases(ROOT).stream()
-            .filter(name -> name.startsWith("v9_0/webservice/")).toList();
-
-        assertThat(cases).isNotEmpty().allSatisfy(name ->
-            assertThat(firstLine(ROOT.resolve(name + ".origin"))).startsWith("reconstructed "));
+    void the90WebServiceEmptyCaseIsRecordedAndTheProductionMatrixSupportsIt() throws IOException {
+        assertThat(firstLine(ROOT.resolve("v9_0/webservice/empty.origin")))
+            .isEqualTo("recorded 2026-11-12 9.0.10 neutralized");
+        assertThat(cases(ROOT).stream().filter(name -> name.startsWith("v9_0/webservice/"))
+            .filter(name -> !name.equals("v9_0/webservice/empty")).toList())
+            .contains("v9_0/webservice/ok")
+            .allSatisfy(name -> assertThat(firstLine(ROOT.resolve(name + ".origin")))
+                .startsWith("reconstructed "));
         assertThat(CapabilityMatrix.production().stateOfLine(9, OptionalInt.of(0),
-            Capability.WEBSERVICE_LOG_READ)).isEqualTo(SupportState.UNSUPPORTED);
+            Capability.WEBSERVICE_LOG_READ)).isEqualTo(SupportState.SUPPORTED);
     }
 
     /**
@@ -154,7 +158,7 @@ class ServerLogFixtureCatalogueTest {
     }
 
     @Test
-    void theMatrixSupportsALogExactlyWhenItsOkCaseIsRecorded() {
+    void theMatrixSupportsALogExactlyWhenOneOfItsCasesIsRecorded() {
         assertThat(matrixViolations(ROOT, CapabilityMatrix.production())).isEmpty();
     }
 
@@ -272,11 +276,18 @@ class ServerLogFixtureCatalogueTest {
         Files.writeString(copy.resolve("v8_1/trace/ok.origin"), "reconstructed x\n");
         assertThat(matrixViolation(copy, "v8_1", "trace", SupportState.UNSUPPORTED)).isEmpty();
         assertThat(matrixViolation(copy, "v8_1", "trace", SupportState.SUPPORTED))
-            .contains("8.1 is SUPPORTED for TRACE_LOG_READ, but v8_1/trace/ok.origin does not"
-                + " start with 'recorded'");
+            .contains("8.1 is SUPPORTED for TRACE_LOG_READ, but no v8_1/trace/<case>.origin"
+                + " starts with 'recorded'");
+
+        // T052: a recorded case other than ok counts as well
+        assertThat(matrixViolation(copy, "v9_0", "webservice", SupportState.UNSUPPORTED))
+            .contains("9.0 is UNSUPPORTED for WEBSERVICE_LOG_READ, but"
+                + " v9_0/webservice/empty.origin starts with 'recorded'; enable it in the"
+                + " capability matrix in the same change");
+        Files.writeString(copy.resolve("v9_0/webservice/empty.origin"), "reconstructed x\n");
         assertThat(matrixViolation(copy, "v9_0", "webservice", SupportState.SUPPORTED))
-            .contains("9.0 is SUPPORTED for WEBSERVICE_LOG_READ, but"
-                + " v9_0/webservice/ok.origin does not start with 'recorded'");
+            .contains("9.0 is SUPPORTED for WEBSERVICE_LOG_READ, but no"
+                + " v9_0/webservice/<case>.origin starts with 'recorded'");
     }
 
     /** The cases below {@code root} as {@code <version>/<log>/<case>}, sorted. */
@@ -304,7 +315,7 @@ class ServerLogFixtureCatalogueTest {
         return violations;
     }
 
-    /** Every (version, log) whose matrix state and {@code ok.origin} do not fit (D-22). */
+    /** Every (version, log) whose matrix state and recorded cases do not fit (D-22, T052). */
     static List<String> matrixViolations(Path root, CapabilityMatrix matrix) {
         List<String> violations = new ArrayList<>();
         for (String version : new TreeSet<>(VERSIONS.keySet())) {
@@ -321,19 +332,34 @@ class ServerLogFixtureCatalogueTest {
     /** The violation of one (version, log) in {@code state}; empty if they fit. */
     static Optional<String> matrixViolation(Path root, String version, String log,
         SupportState state) {
-        Path origin = root.resolve(version + "/" + log + "/ok.origin");
-        boolean recorded = Files.isRegularFile(origin) && firstLine(origin).startsWith("recorded ");
+        Optional<String> recorded = recordedOrigin(root, version + "/" + log);
         int[] line = VERSIONS.get(version);
         String subject = line[0] + "." + line[1] + " is " + state + " for " + LOGS.get(log);
-        String file = version + "/" + log + "/ok.origin";
-        if (state == SupportState.SUPPORTED && !recorded) {
-            return Optional.of(subject + ", but " + file + " does not start with 'recorded'");
+        if (state == SupportState.SUPPORTED && recorded.isEmpty()) {
+            return Optional.of(subject + ", but no " + version + "/" + log
+                + "/<case>.origin starts with 'recorded'");
         }
-        if (state != SupportState.SUPPORTED && recorded) {
-            return Optional.of(subject + ", but " + file + " starts with 'recorded'; enable it"
-                + " in the capability matrix in the same change");
+        if (state != SupportState.SUPPORTED && recorded.isPresent()) {
+            return Optional.of(subject + ", but " + recorded.get() + " starts with 'recorded';"
+                + " enable it in the capability matrix in the same change");
         }
         return Optional.empty();
+    }
+
+    /** The first {@code .origin} below {@code root/directory} that starts with {@code recorded}. */
+    private static Optional<String> recordedOrigin(Path root, String directory) {
+        Path dir = root.resolve(directory);
+        if (!Files.isDirectory(dir)) {
+            return Optional.empty();
+        }
+        try (Stream<Path> files = Files.list(dir)) {
+            return files.map(file -> file.getFileName().toString())
+                .filter(name -> name.endsWith(".origin")).sorted()
+                .filter(name -> firstLine(dir.resolve(name)).startsWith("recorded "))
+                .map(name -> directory + "/" + name).findFirst();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /**

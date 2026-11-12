@@ -72,12 +72,6 @@ public final class CapabilityMatrix {
         true);
 
     /**
-     * Feature 021 (FR-017, research D-6): each server log is refused on 8.1 and 9.0 until the
-     * commit that adds its recording declares it {@code SUPPORTED} and drops its note.
-     */
-    private static final String NOT_YET_VERIFIED = "not yet verified";
-
-    /**
      * 8.1: everything; the server-log reads of feature 021 since their recordings (trace log T033,
      * web service log T046).
      */
@@ -87,14 +81,11 @@ public final class CapabilityMatrix {
      * 9.0: everything as on 8.1 except partner management, which runs with a warning until recorded
      * 9.0 responses are under contract test (feature 018, FR-016, research D-7); reading Queue
      * Manager entries included since its recorded 9.0 error entry (feature 020, FR-019, research
-     * D-20); downloading the trace log of feature 021 since its recording (T051), the web service
-     * log not yet verified.
+     * D-20); the server-log reads of feature 021 since their recordings (trace log T051, web
+     * service log T052).
      */
     private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0),
-        with(with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED),
-            Capability.WEBSERVICE_LOG_READ, SupportState.UNSUPPORTED),
-        Map.of(), false,
-        Map.of(Capability.WEBSERVICE_LOG_READ, NOT_YET_VERIFIED));
+        with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED));
 
     /**
      * Unknown versions: reading Queue Manager entries and the server logs is refused, not run with
@@ -132,9 +123,9 @@ public final class CapabilityMatrix {
      * management on 9.0.x, which is unverified (feature 018); any other known version and unknown
      * versions: reads unverified, writes unsupported. Feature 020 (research D-6, D-20): reading
      * Queue Manager entries is supported on 8.1 and 9.0, on any other and on unknown versions
-     * unsupported. Feature 021 (research D-6): downloading the trace log is supported on 8.1 and
-     * 9.0 (T033, T051), downloading the web service log on 8.1 (T046); otherwise both are
-     * unsupported everywhere, the web service log on 9.0 with the note "not yet verified".
+     * unsupported. Feature 021 (research D-6): downloading the trace log and the web service log
+     * is supported on 8.1 (T033, T046) and 9.0 (T051, T052), on any other and on unknown versions
+     * unsupported.
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;

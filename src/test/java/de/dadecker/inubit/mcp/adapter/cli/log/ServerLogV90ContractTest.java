@@ -73,14 +73,14 @@ import org.junit.jupiter.params.provider.CsvSource;
 /**
  * T048 (feature 021, FR-017, research D-22): the INUBIT 9.0 contract of
  * {@code download_server_log}. The trace {@code ok} case is the neutralized 9.0.10 recording
- * (T049, T051), which {@link CapabilityMatrix#production()} runs on a 9.0 node (US3-1, SC-001);
- * every other {@code server-log/v9_0} case is reconstructed from the 8.1 case of the same name.
- * While {@code v9_0/webservice/ok.origin} is not recorded, the production matrix refuses the web
- * service log on a 9.0 node as "not yet verified" before any launch (T052 replaces that test with
- * the recorded {@code ok}).
+ * (T049, T051), the web service {@code empty} case the neutralized 9.0.10 0-byte answer (T050,
+ * T052); {@link CapabilityMatrix#production()} runs both on a 9.0 node (US3-1, SC-001), and the
+ * reconstructed web service {@code ok} case as well. Every other {@code server-log/v9_0} case is
+ * reconstructed from the 8.1 case of the same name.
  *
- * <p>With the production matrix (trace {@code ok}) or the test declaration {@link #MATRIX} (every
- * other case) the real {@link ServerLogService} and a real {@link CliServerLogAdapter}
+ * <p>With the production matrix (trace {@code ok}, web service {@code ok} and {@code empty}) or
+ * the test declaration {@link #MATRIX} (every other case) the real {@link ServerLogService} and a
+ * real {@link CliServerLogAdapter}
  * ({@link ServerLogVersionProfile}: the 9.0 client installation with its JDK 21) run the 9.0
  * paths: StartCLI replays a
  * {@code v9_0/trace} case and writes its {@code .log} to the {@code --download} path; the INUBIT
@@ -130,26 +130,6 @@ class ServerLogV90ContractTest {
     @AfterEach
     void tearDown() {
         profile.close();
-    }
-
-    // --- FR-017 fallback: the shipped declaration ------------------------------------------------
-
-    @Test
-    void whileTheWebServiceOkCaseIsNotRecordedTheProductionMatrixRefusesNineZeroWithoutLaunch() {
-        assertThat(firstLine(FIXTURES.resolve("webservice/ok.origin")))
-            .startsWith("reconstructed ");
-        FakeProcessLauncher launcher = ServerLogVersionProfile.helper(VERSION, "ok");
-
-        ToolError error = errorOf(service(launcher, CapabilityMatrix.production()), "webservice");
-
-        assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
-        assertThat(error.message()).isEqualTo("download_server_log: INUBIT 9.0.10 on test/n90:"
-            + " downloading the web service log is not yet verified for INUBIT 9.0; nothing was"
-            + " sent");
-        assertThat(detection.requests()).containsExactly(N90);
-        assertThat(launcher.launchCount()).isZero();
-        assertThat(folder).as("no file in the target folder").isEmptyDirectory();
-        assertThat(ServerLogVersionProfile.leftovers()).isEmpty();
     }
 
     // --- trace: the 9.0 StartCLI client ------------------------------------------------------------
@@ -243,13 +223,20 @@ class ServerLogV90ContractTest {
 
     // --- web service: the REST_90 helper -------------------------------------------------------
 
+    /**
+     * The reconstructed {@code ok} case under the production matrix (T052): no non-empty 9.0 web
+     * service log was recorded, so its frames and content follow the 8.1 recording.
+     */
     @Test
     void webServiceOkRunsRestOnThe90ClientNamesTheInubitNodeAndMasksTheExcerpt()
         throws IOException {
+        assertThat(firstLine(FIXTURES.resolve("webservice/ok.origin")))
+            .startsWith("reconstructed ");
         byte[] okLog = FakeProcessLauncher.resource(WEB_SERVICE + "ok.log");
         FakeProcessLauncher launcher = ServerLogVersionProfile.helper(VERSION, "ok");
 
-        ServerLogResult result = service(launcher, MATRIX).download(call("webservice"));
+        ServerLogResult result = service(launcher, CapabilityMatrix.production())
+            .download(call("webservice"));
 
         assertThat(result.node()).isEqualTo(N90);
         assertThat(result.log()).isEqualTo(ServerLogKind.WEBSERVICE);
@@ -299,11 +286,25 @@ class ServerLogV90ContractTest {
         assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.EXECUTED);
     }
 
+    /**
+     * T052 (US3-1): the recorded 9.0 0-byte answer under the production matrix. Its frames carry
+     * the REST client's log4j status-logger line before {@code login ok}, which does not keep the
+     * run from succeeding; {@code part log ok 0} is a present empty log (D-8), so the hint does
+     * not say the log may not exist.
+     */
     @Test
-    void webServiceEmptyHintsThatWebServiceLoggingMayBeDisabled() throws IOException {
-        ServerLogResult result = service(ServerLogVersionProfile.helper(VERSION, "empty"),
-            MATRIX).download(call("webservice"));
+    void recordedWebServiceEmptyHintsThatWebServiceLoggingMayBeDisabled() throws IOException {
+        assertThat(firstLine(FIXTURES.resolve("webservice/empty.origin")))
+            .isEqualTo("recorded 2026-11-12 9.0.10 neutralized");
+        assertThat(new String(FakeProcessLauncher.resource(WEB_SERVICE + "empty.frames"),
+            StandardCharsets.UTF_8).lines().toList()).as("the REST client's log4j line")
+            .anySatisfy(line -> assertThat(line).doesNotStartWith("#QE1:")
+                .contains(" main ERROR Unable to load io.netty.resolver.dns.macos."));
 
+        ServerLogResult result = service(ServerLogVersionProfile.helper(VERSION, "empty"),
+            CapabilityMatrix.production()).download(call("webservice"));
+
+        assertThat(result.inubitNode()).contains("node1");
         assertThat(result.sizeBytes()).isZero();
         assertThat(result.file()).isRegularFile().isEmptyFile();
         assertThat(result.excerpt().orElseThrow().kind()).isEqualTo(ContentKind.EMPTY);
