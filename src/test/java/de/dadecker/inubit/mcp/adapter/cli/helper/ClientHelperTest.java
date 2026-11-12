@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.Call;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.Failure;
+import de.dadecker.inubit.mcp.testing.FakeInubitScript.NullFrom;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -34,6 +35,7 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -60,7 +62,7 @@ class ClientHelperTest {
         .concat(TestSecrets.CREDENTIAL_PAYLOAD_VALUE).concat("</Property></Properties>")
         .getBytes(StandardCharsets.UTF_8);
     private static final String NODE = "inubit-node-01";
-    private static final String CLIENT_UID = "fake-client-uid-0001";
+    static final String CLIENT_UID = "fake-client-uid-0001";
     private static final String WEBSERVICE_LOG = "webservice.log";
     private static final byte[] LOG = ("2026-11-12 10:00:00,000 1 [WebService] request\n"
         + "<soapenv:Envelope/>\n").getBytes(StandardCharsets.UTF_8);
@@ -738,6 +740,32 @@ class ClientHelperTest {
         if (variant.equals("SOAP_81")) {
             assertThat(script.calls()).last().isEqualTo(call("IBISSoapClient.logoutUser", USER));
         }
+    }
+
+    @ParameterizedTest
+    @EnumSource(NullFrom.class)
+    void aNodeLookupReturningNullIsANodeErrorWithoutDownloadAndStillLogsOut(NullFrom call)
+        throws Exception {
+        FakeInubitScript script = new FakeInubitScript().node(NODE).nodeLookupReturnsNull(call)
+            .file(WEBSERVICE_LOG, LOG);
+        Path logOut = dir.resolve("webservice.log");
+
+        Run run = run(script, serverLogRequest(lines -> lines.put("logOut",
+            encode(logOut.toString()))), vendor());
+
+        assertThat(run.exit()).isZero();
+        assertThat(frames(run.out())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "error", "java.lang.NullPointerException",
+                "the cluster client returned no node name"),
+            List.of("end"));
+        assertThat(logOut).doesNotExist();
+        assertThat(script.calls()).extracting(Call::name)
+            .noneMatch(name -> name.contains("clusterDownload")
+                || name.startsWith("MultipartDownloadThread"));
+        assertThat(script.calls()).last().isEqualTo(call("IBISSoapClient.logoutUser", USER));
+        TestSecrets.assertNoLeak(run.out());
     }
 
     @Test

@@ -67,9 +67,20 @@ public final class FakeInubitScript implements Serializable {
     private record Download(byte[] content, List<Failure> failure) implements Serializable {
     }
 
+    /** The call of the node lookup that {@link #nodeLookupReturnsNull} makes return null. */
+    public enum NullFrom {
+        /** {@code ClusterClient.getNode()}. */
+        GET_NODE,
+        /** {@code Node.getNodeName()}. */
+        GET_NODE_NAME,
+        /** {@code NodeName.getName()}. */
+        GET_NAME
+    }
+
     private final List<Failure> loginFailure = new ArrayList<>();
     private final List<Failure> nodeFailure = new ArrayList<>();
     private String nodeName;
+    private NullFrom nodeLookupNull;
     private final List<Failure> clusterDownloadFailure = new ArrayList<>();
     private final Map<String, Download> files = new HashMap<>();
     private final List<String> loginNoise = new ArrayList<>();
@@ -88,6 +99,12 @@ public final class FakeInubitScript implements Serializable {
     /** {@code ClusterClient.getNode} returns a node named {@code name}. */
     public FakeInubitScript node(String name) {
         nodeName = name;
+        return this;
+    }
+
+    /** The node lookup's call {@code call} returns {@code null} instead of a node or name. */
+    public FakeInubitScript nodeLookupReturnsNull(NullFrom call) {
+        nodeLookupNull = call;
         return this;
     }
 
@@ -248,6 +265,11 @@ public final class FakeInubitScript implements Serializable {
             throw new IllegalStateException("FakeInubitScript: no node scripted");
         }
         return nodeName;
+    }
+
+    /** For the fakes: the node lookup call scripted to return {@code null}, or {@code null}. */
+    public NullFrom nodeLookupNull() {
+        return nodeLookupNull;
     }
 
     /** For the fakes: throws the scripted failure of {@code clusterDownload}, if any. */

@@ -666,7 +666,7 @@ status explicit (FR-002…FR-004, FR-006, FR-016).
   `theHelperAcceptsTheEncodedServerLogRequestAndReceivesEveryValueUnchanged` (encoded
   `ServerLogRead` through the real helper, values received unchanged, next to the unchanged 020
   round trip)
-- [ ] T038 [US2] `adapter/cli/helper/ClientHelperProcessTest.java` (after T037): the packaged
+- [X] T038 [US2] `adapter/cli/helper/ClientHelperProcessTest.java` (after T037): the packaged
   helper runs `op=serverLog` in a real child JVM against the fake client home and writes
   `logOut`; `ClientHelperPackagingTest` still finds exactly one `ClientHelper.class` (major 61);
   `architecture/PackageBoundaryTest.java` (helper references only `java/*`) green

@@ -305,7 +305,8 @@ public final class ClientHelper {
     /**
      * Looks up the answering node and downloads its {@code webservice.log} into {@code logOut},
      * naming that node explicitly (D-5); writes the {@code node} frame and, after
-     * {@code node ok}, the {@code part log} frame.
+     * {@code node ok}, the {@code part log} frame. A lookup that yields no node or no node name
+     * is a {@code node error}.
      */
     private static void readServerLog(Map<String, Executable> api, Object client,
         Map<String, String> request, PrintStream out, List<String> secrets)
@@ -317,11 +318,18 @@ public final class ClientHelper {
         try {
             cluster = call(api, "ClusterClient", null, client, request.get("user"),
                 call(api, "getClientUID", null), call(api, "getUsedAdditionalUserGroup", null));
-            node = call(api, "getNodeName", call(api, "getNode", cluster));
-            name = (String) call(api, "getName", node);
+            Object found = call(api, "getNode", cluster);
+            node = found == null ? null : call(api, "getNodeName", found);
+            name = node == null ? null : (String) call(api, "getName", node);
         } catch (InvocationTargetException | LinkageError e) {
             Throwable failure = vendorFailure(e);
             frame(out, nonce, "node", "error", chain(failure), messages(failure, secrets));
+            return;
+        }
+        if (name == null) {
+            // a node lookup without a node name is a failed one: no node to download from
+            frame(out, nonce, "node", "error", NullPointerException.class.getName(),
+                "the cluster client returned no node name");
             return;
         }
         frame(out, nonce, "node", "ok", name);
@@ -443,8 +451,8 @@ public final class ClientHelper {
             }
             int equals = line.indexOf('=');
             String key = equals < 0 ? "" : line.substring(0, equals);
-            if (!SHARED_KEYS.contains(key) && !QUEUE_ENTRY_KEYS.contains(key)
-                && !SERVER_LOG_KEYS.contains(key) || request.containsKey(key)) {
+            if ((!SHARED_KEYS.contains(key) && !QUEUE_ENTRY_KEYS.contains(key)
+                && !SERVER_LOG_KEYS.contains(key)) || request.containsKey(key)) {
                 throw new IllegalArgumentException("unknown or repeated key");
             }
             request.put(key, decode(line.substring(equals + 1)));

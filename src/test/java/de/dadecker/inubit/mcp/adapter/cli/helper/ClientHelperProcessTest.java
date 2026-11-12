@@ -1,9 +1,11 @@
 package de.dadecker.inubit.mcp.adapter.cli.helper;
 
+import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.CLIENT_UID;
 import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.call;
 import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.encode;
 import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.outputs;
 import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.request;
+import static de.dadecker.inubit.mcp.adapter.cli.helper.ClientHelperTest.serverLogRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
@@ -45,7 +47,8 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * The packaged queue-entry helper of feature 020 (research D-3, D-4) in a real child JVM:
+ * The packaged helper of feature 020 (research D-3, D-4) in a real child JVM, reading a queue
+ * entry or (feature 021, D-4, D-5) the web service log:
  * {@link HelperInstallation} installs it in its private directory with a
  * {@link FakeInubitClient} as the client home, and its argument array (with the
  * {@code --add-opens} list) runs through {@link SystemProcessLauncher} and {@link ProcessRun}.
@@ -68,6 +71,10 @@ class ClientHelperProcessTest {
         .getBytes(StandardCharsets.UTF_8);
     private static final String NOISE = "INFO  [main] IBISClient - connecting to "
         + "inubit.example.test";
+    private static final String NODE = "inubit-node-01";
+    private static final String WEBSERVICE_LOG = "webservice.log";
+    private static final byte[] LOG = ("2026-11-12 10:00:00,000 1 [WebService] request\n"
+        + "2026-11-12 10:00:01,000 1 [WebService] response\n").getBytes(StandardCharsets.UTF_8);
     /** A frame-like noise line of another nonce, which a reader of this run must ignore. */
     private static final String FOREIGN_FRAME = "#QE1:ffffffffffffffffffffffffffffffff end";
 
@@ -199,6 +206,47 @@ class ClientHelperProcessTest {
             List.of("start", "REST_90"),
             List.of("login", "error", "java.io.IOException",
                 "login of " + USER + " refused, password ******"));
+        TestSecrets.assertNoLeak(result.stdout());
+        TestSecrets.assertNoLeak(result.stderr());
+    }
+
+    @Test
+    void soap81ServerLogDownloadsTheWebServiceLogOfItsNodeIntoLogOut() throws Exception {
+        FakeInubitClient client = FakeInubitClient.install(tmp.resolve("client"),
+            new FakeInubitScript()
+                .printsOnLogin(NOISE)
+                .node(NODE)
+                .file(WEBSERVICE_LOG, LOG));
+        LaunchSpec spec = launchSpec(client);
+        Path logOut = out(WEBSERVICE_LOG);
+
+        CliResult result = runHelper(spec, serverLogRequest(lines -> {
+            lines.put("url", encode(URL_81));
+            lines.put("logOut", encode(logOut.toString()));
+        }));
+
+        assertThat(result.exitCode()).isZero();
+        assertThat(frames(result.stdout())).containsExactly(
+            List.of("start", "SOAP_81"),
+            List.of("login", "ok"),
+            List.of("node", "ok", NODE),
+            List.of("part", "log", "ok", Integer.toString(LOG.length)),
+            List.of("end"));
+        assertThat(noise(result.stdout())).containsExactly(NOISE);
+        assertThat(logOut).hasBinaryContent(LOG);
+        assertThat(client.calls()).as("the child JVM's vendor calls (FR-006)").containsExactly(
+            call("IBISSoapClient.<init>", URL_81 + "?isCli", "/var/qe-0001/trust.p12",
+                TestSecrets.TRUST_STORE_PASSWORD, "null", "null", "true"),
+            call("IBISSoapClient.loginUserCli", USER, TestSecrets.CONFIGURED_PASSWORD),
+            call("ClusterClient.<init>", "IBISSoapClient", USER, CLIENT_UID, "null"),
+            call("ClusterClient.getNode"),
+            call("ClusterClient.clusterDownload", logOut.toString(), NODE, WEBSERVICE_LOG),
+            call("MultipartDownloadThread.start"),
+            call("MultipartDownloadThread.exceptionOccured"),
+            call("IBISSoapClient.logoutUser", USER));
+        assertThat(String.join(" ", spec.command())).as("request values travel on stdin only")
+            .doesNotContain(logOut.toString(), URL_81, TestSecrets.CONFIGURED_PASSWORD,
+                TestSecrets.TRUST_STORE_PASSWORD);
         TestSecrets.assertNoLeak(result.stdout());
         TestSecrets.assertNoLeak(result.stderr());
     }

@@ -14,6 +14,7 @@ import com.inubit.ibis.soap.IBISSoapClient;
 import com.inubit.ibis.utils.I_IBISClientInterface;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.Call;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.Failure;
+import de.dadecker.inubit.mcp.testing.FakeInubitScript.NullFrom;
 import java.io.File;
 import java.io.IOException;
 import java.net.ConnectException;
@@ -216,6 +217,22 @@ class FakeInubitClientTest {
     }
 
     @Test
+    void eachCallOfTheNodeLookupCanBeScriptedToReturnNull() throws Exception {
+        try (FakeInubitScript.Activation ignored = new FakeInubitScript()
+            .nodeLookupReturnsNull(NullFrom.GET_NODE).activate()) {
+            assertThat(clusterClient().getNode()).isNull();
+        }
+        try (FakeInubitScript.Activation ignored = new FakeInubitScript().node(NODE)
+            .nodeLookupReturnsNull(NullFrom.GET_NODE_NAME).activate()) {
+            assertThat(clusterClient().getNode().getNodeName()).isNull();
+        }
+        try (FakeInubitScript.Activation ignored = new FakeInubitScript().node(NODE)
+            .nodeLookupReturnsNull(NullFrom.GET_NAME).activate()) {
+            assertThat(clusterClient().getNode().getNodeName().getName()).isNull();
+        }
+    }
+
+    @Test
     void unscriptedNodeIsAFailure() {
         try (FakeInubitScript.Activation ignored = new FakeInubitScript().activate()) {
             ClusterClient cluster = new ClusterClient(new IBISSoapClient(
@@ -380,6 +397,12 @@ class FakeInubitClientTest {
         thread.start();
         thread.join();
         return thread.exceptionOccured() ? thread.getException() : null;
+    }
+
+    /** A cluster client of an 8.1 client, under the active script. */
+    private static ClusterClient clusterClient() {
+        return new ClusterClient(new IBISSoapClient("http://inubit.example.test/ibis?isCli", null,
+            null, null, null, false), USER, CurrentUser.getClientUID(), null);
     }
 
     private static Call call(String name, String... arguments) {

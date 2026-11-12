@@ -24,11 +24,22 @@ public class ClusterClient {
             additionalUserGroup);
     }
 
-    /** The scripted node, or the scripted failure. */
+    /**
+     * The scripted node, the scripted failure, or a node lookup with the {@code null} scripted by
+     * {@link FakeInubitScript#nodeLookupReturnsNull}.
+     */
     public Node getNode() throws Exception {
         FakeInubitScript script = FakeInubitScript.active();
         script.record("ClusterClient.getNode");
-        return new Node(NodeName.nodeName(script.node()));
+        FakeInubitScript.NullFrom nullFrom = script.nodeLookupNull();
+        if (nullFrom == FakeInubitScript.NullFrom.GET_NODE) {
+            return null;
+        }
+        if (nullFrom == FakeInubitScript.NullFrom.GET_NODE_NAME) {
+            return new Node(null);
+        }
+        return new Node(NodeName.nodeName(
+            nullFrom == FakeInubitScript.NullFrom.GET_NAME ? null : script.node()));
     }
 
     /**
