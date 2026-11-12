@@ -28,6 +28,7 @@ computer — that the assistant searches before researching in INUBIT and, after
 | `find_processes` | failed (`ERROR`), waiting, queued or hanging process instances | REST |
 | `query_logs` | log entries (systemLog, queueLog, auditLog, …) by time, workflow, severity, process id, text | REST |
 | `read_queue_entry` | the content of one Queue Manager entry in `ERROR`: metadata, data stream and workflow variables, credentials masked by name — through an **unsupported, undocumented INUBIT interface**, for diagnosis only, opt-in per group (`unsupported.queueEntryRead`) | REST + a helper on the INUBIT client |
+| `download_server_log` | the trace log or the web service log of ONE node, written into a local folder outside the workspace, the server's directories, git working trees and network paths, with a masked excerpt of the newest lines or of the lines containing a search text; the file is **in clear text** (business data and credentials; only the excerpt is masked) and existing files are never replaced; the web service log through an **unsupported, undocumented INUBIT interface**, for diagnosis only, opt-in per group (`unsupported.serverLogRead`) | StartCLI `trace --download` (trace log); a helper on the INUBIT client (web service log) |
 | `list_inventory` | diagrams or modules of the configured owner, filtered by name, type, INUBIT group | REST (diagrams), StartCLI (modules) |
 | `get_inventory_item` | one diagram or module: versions, tags, active flag, modules used; for a technical workflow its partner variables and the communication clouds that reference it | REST + StartCLI |
 | `find_partners` | partners of the INUBIT Partner Management in the owner's system diagrams: search or list them with their protocol entries, or compare them across nodes; passwords, keys and other secrets only as set or not set; every call audited | REST (model export) |
@@ -54,6 +55,7 @@ own explicit setting:
 | `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item`, `find_partners` | a node is not pinned to an INUBIT version that refuses the tool (none of them is offered, e.g., in a profile of INUBIT 6.1 nodes only) |
 | `export_artifacts`, `export_archives` | a node has a StartCLI installation and is not pinned to an INUBIT version that refuses the export |
 | `read_queue_entry` | a node's group has `unsupported.queueEntryRead: true`, the node is not pinned to an INUBIT version that refuses it, and it has an INUBIT client home |
+| `download_server_log` | a node has an INUBIT client home (StartCLI installation) and either is not pinned to an INUBIT version that refuses the trace log download, or its group has `unsupported.serverLogRead: true` and it is not pinned to a version that refuses the web service log download |
 | `restart_process`, `kill_process` | a node has effective write access (`write.enabled`) |
 | `import_artifacts`, `restore_backup`, `set_active`, `tag_artifacts` | a node has `development.enabled: true` (never on production) |
 | `deploy_release` | a group has a `deploy` record (stage chain); with a target in mode `EXECUTE` also `restore_backup` for deployment backups |
@@ -162,7 +164,7 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
 - Only for the CLI-based parts (`restart_process`, `kill_process`, the module list and version
   histories of the inventory tools, and every tool that exports, imports or tags artifacts —
   `export_artifacts`, `export_archives`, the development tools and `deploy_release`, which needs
-  it for the nodes of the source and the target group): a local **INUBIT 8.1 Workbench client
+  it for the nodes of the source and the target group, and `download_server_log`): a local **INUBIT 8.1 Workbench client
   installation** with StartCLI (`bin/startcli.sh`; on Windows `bin\startcli.bat` on a local
   drive) matching the servers' patch level, a Java 17 runtime for StartCLI, and "CLI login
   access" for the account. INUBIT 9.0 nodes need the **INUBIT 9.0 client** on a Java 21 runtime;

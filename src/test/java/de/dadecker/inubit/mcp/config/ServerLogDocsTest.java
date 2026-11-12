@@ -37,6 +37,8 @@ import tools.jackson.databind.json.JsonMapper;
  * "Unsupported functions"; it names every input and output field, the limits, excerpt, masking,
  * folder, memory and error rules; the capability rows, the announcement rule and the
  * {@code list_nodes} names; its 9.0 state matches the production matrix.
+ *
+ * <p>T058 (D-25): README.md lists the tool and the condition under which it is announced.
  */
 class ServerLogDocsTest {
 
@@ -277,5 +279,18 @@ class ServerLogDocsTest {
             "`webservice_log_read` only for nodes whose group has `unsupported.serverLogRead:"
                 + " true`",
             "`downloading the trace log`", "`downloading the web service log`");
+    }
+
+    @Test
+    void readmeListsTheToolAndWhenItIsOffered() throws IOException {
+        assertThat(folded(Files.readString(Path.of("README.md")))).contains(
+            "| `download_server_log` | the trace log or the web service log of ONE node",
+            "**in clear text** (business data and credentials; only the excerpt is masked)",
+            "the web service log through an **unsupported, undocumented INUBIT interface**, for"
+                + " diagnosis only, opt-in per group (`unsupported.serverLogRead`)",
+            "| `download_server_log` | a node has an INUBIT client home (StartCLI installation) and"
+                + " either is not pinned to an INUBIT version that refuses the trace log download,"
+                + " or its group has `unsupported.serverLogRead: true` and it is not pinned to a"
+                + " version that refuses the web service log download |");
     }
 }

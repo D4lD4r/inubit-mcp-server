@@ -878,12 +878,12 @@ helper's `variant`.
   matrix); "Tool announcement" rule; `list_nodes` names `trace_log_read`, `webservice_log_read`.
   `config/ServerLogDocsTest.java` extended first (short form in `docs/tools.md` and in the tool
   description; the documented 9.0 state matches `CapabilityMatrix.production()`)
-- [ ] T058 `README.md` tool table row for `download_server_log` and announcement row (trace:
+- [X] T058 `README.md` tool table row for `download_server_log` and announcement row (trace:
   a node with a StartCLI installation not pinned to a refusing version; webservice: additionally
   `unsupported.serverLogRead`); `SECURITY.md`: the downloaded log file among the clear-text
   outputs (business data and credentials; only the excerpt is masked); `ServerLogDocsTest`
   asserts the README row (after T057, which extends the same `config/ServerLogDocsTest.java`)
-- [ ] T059 [P] `CHANGELOG.md` `[Unreleased]`: Added — `download_server_log` (trace through StartCLI's
+- [X] T059 [P] `CHANGELOG.md` `[Unreleased]`: Added — `download_server_log` (trace through StartCLI's
   supported trace download; webservice through an unsupported, undocumented INUBIT interface,
   opt-in per group, diagnosis only), `unsupported.serverLogRead`, `list_nodes` capability names
   `trace_log_read` / `webservice_log_read`, `--check-config` line only with an opt-in, the 6.1

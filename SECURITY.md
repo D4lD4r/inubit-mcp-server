@@ -78,6 +78,16 @@ Reports are especially welcome for:
   `rwx------`; **on Windows the archives and folders inherit the target folder's ACLs** (they are
   not tightened), so choose a folder only you can read. Delete the archives when they are no
   longer needed.
+- **Server logs** (`download_server_log`): the downloaded trace or web service log file is the
+  verbatim log **in clear text** by design and may hold business data and credentials; only the
+  excerpt in the tool result is masked (secrets by name and the known credentials of every
+  configured node; a credential under a neutral name, in encoded content or in free text may still
+  appear there, business data always does). The file follows the folder rules, permissions and
+  known limits of `export_archives` above, never replaces an existing file, and the tool is
+  annotated as not read-only so that clients ask before calling it. Delete the file when it is no
+  longer needed. Reports are welcome for a log file written where the folder rules forbid it, for
+  log content reaching a log line or audit record, and for a configured credential reaching the
+  excerpt unmasked.
 - **Local knowledge** (`read_knowledge`, `record_knowledge`): the notes are plain Markdown files
   on the local disk, **unencrypted**; what the server creates there (folder, notes, history
   versions, lock file) is owner-only, existing folders keep their permissions (the server warns
