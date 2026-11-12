@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-12
 
-**Status**: Draft
+**Status**: Approved (spec reviews r1–r4)
 
 ## Clarifications
 
@@ -253,7 +253,8 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   node at once and reports the call as failed.
 - An automatic reset fails (node unreachable): the lease becomes `RESET_FAILED`, the failure is
   logged and audited, and the reset is retried at least every minute while the server runs and at
-  every start, until it succeeds or the reset tool ends the lease.
+  every start, until it succeeds, the reset tool forgets it, or it ends
+  automatically as `FORGOTTEN` (FR-044).
 - Two sets for the same node: the lease keeps the union of the loggers, the last level per logger
   and the later expiry; one reset ends it (the reset is per node).
 - Two MCP server instances with the same profile: each lease names its owner instance; another
@@ -377,16 +378,17 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   installation and credentials available, version supported and detectable), also when write tools
   are off (owner decision, see Clarifications); otherwise the lease is `RESET_FAILED` and a startup
   warning. A failed reset MUST be retried at least every minute while an instance runs and at every
-  start until it succeeds or the reset tool ends the lease. Every automatic reset, successful or
+  start until it succeeds, the reset tool forgets it, or it ends
+  automatically as `FORGOTTEN` (FR-044). Every automatic reset, successful or
   failed, MUST produce an audit record (tool, server, node, lease, outcome).
 - **FR-044**: `reset_temporary_log_level` with `node` MUST reset the addressed node and end its
   lease; it MUST also reset a node without a lease (cleaning up an earlier change). With `leaseId`
-  and `forget: true` it MUST end a lease that cannot be reset (another node answers) without
-  sending anything, audited, with a result saying the level may still be raised on that node until
-  its restart; this is only possible while the lease's server is configured, and the guards of
-  FR-040 are checked against that server's group. A lease whose server entry is no longer
-  configured MUST end automatically 7 days after its expiry in the state `FORGOTTEN` (audited, a
-  startup warning until then).
+  and `forget: true` it MUST end a lease in state `RESET_FAILED` (any reason; other states are
+  refused with `INVALID_INPUT`) without sending anything, audited, with a result saying the level
+  may still be raised on that node until its restart; this is only possible while the lease's server
+  is configured, and the guards of FR-040 are checked against that server's group. A lease whose
+  server entry is no longer configured MUST end automatically 7 days after its expiry in the state
+  `FORGOTTEN` (audited, a startup warning until then).
 - **FR-045**: The set and reset results MUST state that the reset restores every temporary level on
   the node, also those of other users, that levels can be lost earlier (restart, log configuration
   reload), and the expiry. `get_health` MUST show the open and failed leases of a node (also when
