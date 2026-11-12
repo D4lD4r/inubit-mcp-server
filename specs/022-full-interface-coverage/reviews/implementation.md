@@ -82,3 +82,13 @@ unless the owner overrides them:
 2. `get_server_settings` as its own tool (not an `includeSettings` flag on `get_health`).
 3. Version deletions offered within `deleteWorkflow` / `deleteModule`, under the objects opt-in
    and with a backup.
+
+## Rebase onto main (2026-11-12, after T009)
+
+Owner request: rebase onto the current `main`. `main` was at `f69e9b6a` (#85, tests kept out of
+the real user home); feature 021 (PR #84) is still open. The whole branch (the 021 commits up to
+T042 plus the 022 commits T001–T009) was rebased onto `f69e9b6a` without textual conflicts; the
+old head is kept as `backup/022-pre-rebase` (local only). Full build afterwards
+(`mvn -o -q clean verify -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-022-tmp`): green, 7948
+tests, 0 failures, 0 errors, 58 skipped. When PR #84 is squash-merged, this branch is moved with
+`git rebase --onto origin/main <last 021 commit>` so that only the 022 commits are replayed.
