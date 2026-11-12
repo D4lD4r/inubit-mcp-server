@@ -295,7 +295,7 @@ the opt-in gets the list and one node's details; a group without it is refused b
   `10.0.0.11:7800`); new `tools/NodeToolsFixtureCatalogueTest.java`: every case has a valid
   `.origin`, every file belongs to a case, and for every (version, capability):
   `CapabilityMatrix.production()` `SUPPORTED` ⇔ the required `recorded` cases of D-27 exist
-- [ ] T020 [US1] `adapter/cli/node/CliClusterNodeAdapter.java` + member/details rules in
+- [X] T020 [US1] `adapter/cli/node/CliClusterNodeAdapter.java` + member/details rules in
   `NodeFramesClassifier` (D-7, D-20; after T016, T019): `implements ClusterNodePort`; frames →
   `ClusterNodes` (status mapping, raw status rule, uptime ms → `Duration`, texts ≤ 200, details
   `Available`/`Unavailable` with scrubbed reason ≤ 200, `details unknown` → `INVALID_INPUT`
