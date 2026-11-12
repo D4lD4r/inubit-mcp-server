@@ -87,7 +87,7 @@ public final class CliTraceRunner {
     public DownloadedLog download(Duration remaining) {
         Objects.requireNonNull(remaining, "remaining");
         checkPreconditions();
-        // the client CliRunner#run chooses; never StartCLI's output (research D-18)
+        // the client CliRunner#run would choose now; never StartCLI's output (research D-18)
         EffectiveNodeConfig client = runner.select(server).server();
         LOG.debug("{}: trace log download, client {}, JDK {}", server.id(),
             client.cli().home().map(Path::toString).orElse("-"),

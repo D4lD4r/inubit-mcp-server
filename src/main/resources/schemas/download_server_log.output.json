@@ -1,0 +1,89 @@
+{
+  "type": "object",
+  "required": ["node", "log", "file", "sizeBytes", "downloadedAt", "excerpt", "hints", "warnings"],
+  "properties": {
+    "node": { "type": "string" },
+    "log": { "enum": ["trace", "webservice"] },
+    "inubitNode": { "type": "string", "description": "webservice only: the node name INUBIT reported" },
+    "file": { "type": "string", "description": "Absolute path of the written log file (clear-text content)" },
+    "sizeBytes": { "type": "integer", "minimum": 0 },
+    "downloadedAt": { "type": "string", "format": "date-time", "description": "ISO-8601 UTC; the instant in the file name" },
+    "excerpt": {
+      "description": "The masked excerpt: text, or of kind empty, binary (detected format only) or withheld (credentials not all read yet)",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "window", "selection", "returnedLines", "lines", "truncated"],
+          "properties": {
+            "kind": { "const": "text" },
+            "charset": { "type": "string", "description": "Absent if the window holds no whole line" },
+            "window": {
+              "type": "object",
+              "required": ["startLine", "lines", "bytes", "wholeFile"],
+              "properties": {
+                "startLine": { "type": "integer", "minimum": 1, "description": "Absolute number of the window's first line" },
+                "lines": { "type": "integer", "minimum": 0 },
+                "bytes": { "type": "integer", "minimum": 0 },
+                "wholeFile": { "type": "boolean", "description": "false if only the last 50 MiB were scanned" }
+              },
+              "additionalProperties": false
+            },
+            "selection": { "enum": ["tail", "contains"] },
+            "matchingLines": { "type": "integer", "minimum": 0, "description": "contains only: all matching lines of the window" },
+            "returnedLines": { "type": "integer", "minimum": 0, "maximum": 2000 },
+            "lines": {
+              "type": "array",
+              "maxItems": 2000,
+              "description": "Oldest first",
+              "items": {
+                "type": "object",
+                "required": ["number", "text"],
+                "properties": {
+                  "number": { "type": "integer", "minimum": 1, "description": "Absolute line number in the file" },
+                  "text": { "type": "string", "description": "Masked text" },
+                  "cut": { "const": true, "description": "The line was cut at maxChars" }
+                },
+                "additionalProperties": false
+              }
+            },
+            "truncated": {
+              "oneOf": [
+                { "const": false },
+                {
+                  "type": "object",
+                  "required": ["droppedLines", "cutLines"],
+                  "properties": {
+                    "droppedLines": { "type": "integer", "minimum": 0 },
+                    "cutLines": { "enum": [0, 1] }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind"],
+          "properties": {
+            "kind": { "const": "binary" },
+            "detected": { "enum": ["ZIP", "GZIP", "PDF", "PNG", "JPEG", "GIF", "JAVA_SERIALIZED"] }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind"],
+          "properties": {
+            "kind": { "enum": ["empty", "withheld"] }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "hints": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}

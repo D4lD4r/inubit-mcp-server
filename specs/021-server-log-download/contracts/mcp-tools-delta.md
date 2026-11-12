@@ -151,7 +151,7 @@ Fields:
 | `excerpt.selection` | `tail` or `contains`; with `contains` also `matchingLines` (all matches in the window) |
 | `excerpt.lines` | oldest first; `number` absolute in the file; `text` masked; a cut line has `"cut": true` |
 | `excerpt.truncated` | `false` or `{"droppedLines": n, "cutLines": 0 \| 1}` (FR-009 step 5) |
-| `hints` | fixed texts (see variants) |
+| `hints` | fixed texts (see variants); the hints of the call first, then those of the excerpt |
 | `warnings` | the unsupported warning (webservice only), the clear-text warning, the cloud-sync warning of the folder rules, version and client warnings of the gate, an audit warning |
 
 Variants:
@@ -163,7 +163,7 @@ Variants:
 | binary window | `"excerpt": {"kind": "binary", "detected": "GZIP"}`, hint `Binary content is not returned` (`detected` only if a signature matched) |
 | `contains` without match | `"selection": "contains", "matchingLines": 0, "returnedLines": 0, "lines": []`, hint `No line of the scanned window contains the search text` |
 | file > 50 MiB | `"window": {"startLine": 412877, …, "wholeFile": false}`, hint `Only the last 50 MiB were scanned; line numbers count the whole file` |
-| no line break in the last 50 MiB | `"excerpt": {"kind": "text", "charset": …, "window": {…, "lines": 0}, "lines": []}`, hint `No whole line in the last 50 MiB of the log` |
+| no line break in the last 50 MiB | `"excerpt": {"kind": "text", "window": {…, "lines": 0, "bytes": 0, "wholeFile": false}, …, "returnedLines": 0, "lines": []}` (no `charset`: nothing was decoded), hints `Only the last 50 MiB were scanned; line numbers count the whole file` and `No whole line in the last 50 MiB of the log` |
 
 Bounds: `lines` ≤ `tailLines` (≤ 2,000); the sum of `text` lengths ≤ `maxChars` (≤ 100,000); all
 counts on the masked text. Every string passes `SecretScrubber` (`ResultMapper`).

@@ -523,7 +523,7 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   line for success, for `NOT_FOUND` and for `TIMEOUT` with the fields above; a full call with
   secret-looking log content and a `contains` text leaves no excerpt line, no `contains` text, no
   StartCLI output and no masked value in the output at any level; leak check
-- [ ] T030 [P] [US1] Tool and schemas (FR-001, FR-004, FR-014, D-20; after T027):
+- [X] T030 [P] [US1] Tool and schemas (FR-001, FR-004, FR-014, D-20; after T027):
   `mcp/tools/DownloadServerLogTool.java` (name `download_server_log`, the description
   **verbatim** from contracts/mcp-tools-delta.md "Description", `ToolHints.localWrite("Download an
   INUBIT server log")` → `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint:

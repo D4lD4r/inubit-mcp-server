@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
 import ch.qos.logback.core.read.ListAppender;
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
@@ -296,7 +297,8 @@ class ServerLogLoggingTest {
 
     private String allLines() {
         return String.join("\n", appender.list.stream()
-            .map(event -> event.getFormattedMessage() + " " + event.getThrowableProxy())
+            .map(event -> event.getFormattedMessage() + " " + (event.getThrowableProxy() == null
+                ? "" : ThrowableProxyUtil.asString(event.getThrowableProxy())))
             .toList());
     }
 
