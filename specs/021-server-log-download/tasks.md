@@ -380,7 +380,7 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   `tools/ServerLogFixtureCatalogueTest.java`: every case has an `.origin` of a valid format; every
   file belongs to a case; for every (version, log): `CapabilityMatrix.production()` `SUPPORTED` ⇔
   `<version>/<log>/ok.origin` starts with `recorded` (D-22)
-- [ ] T025 [US1] `adapter/cli/CliTraceRunner.java` (FR-005, FR-008, FR-012, D-1, D-7, D-14; after
+- [X] T025 [US1] `adapter/cli/CliTraceRunner.java` (FR-005, FR-008, FR-012, D-1, D-7, D-14; after
   T012, T022–T024): precondition check as `CliExportRunner.checkPreconditions`
   (`CliExportRunner.java:370-390`: temp root usable and `CliPaths.passable`, credentials
   complete); reservation and private directory with `LOG_PREFIX`; `CliRunner.run(…,
