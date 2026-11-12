@@ -205,6 +205,7 @@ public final class ConfigValidator {
         checkArchivesOptIn(config, findings);
         checkQueueEntryReadOptIn(config, findings);
         checkServerLogReadOptIn(config, findings);
+        checkNodeToolOptIns(config, findings);
         checkE2eNodeNames(config, findings);
         checkChain(config, findings);
         boolean cliConfigured = !config.defaults().cliClients().isEmpty()
@@ -1188,6 +1189,44 @@ public final class ConfigValidator {
                     + " %s: the web service log is read through an undocumented INUBIT interface"
                     + " without vendor support", group.name());
             }
+        }
+    }
+
+    /**
+     * Feature 024 (FR-003, research D-5): each node-tool opt-in on a group with {@code production:
+     * true} is a warning; {@code unsupported.logLevelWrite} on a group none of whose nodes has
+     * write access is one too, since the log-level tools are not offered there.
+     */
+    private static void checkNodeToolOptIns(ProfileConfig config, Findings findings) {
+        for (GroupConfig group : config.groups()) {
+            UnsupportedConfig optIns = group.unsupported();
+            if (group.production()) {
+                warnOnProduction(group, "nodeStatusRead", optIns.nodeStatusRead(), "the cluster's"
+                    + " node list is read through an undocumented INUBIT interface without vendor"
+                    + " support", findings);
+                warnOnProduction(group, "ioLogRead", optIns.ioLogRead(), "module input and"
+                    + " output messages are read through an undocumented INUBIT interface without"
+                    + " vendor support; they can contain business and personal data", findings);
+                warnOnProduction(group, "nodeConfigRead", optIns.nodeConfigRead(), "node"
+                    + " configuration values are read through an undocumented INUBIT interface"
+                    + " without vendor support", findings);
+                warnOnProduction(group, "logLevelWrite", optIns.logLevelWrite(), "temporary log"
+                    + " levels of production nodes can be changed; the answering node is looked up"
+                    + " through an undocumented INUBIT interface", findings);
+            }
+            if (optIns.logLevelWrite().equals(Optional.of(true)) && nodesOf(config, group.name())
+                .stream().noneMatch(EffectiveNodeConfig::effectiveWriteEnabled)) {
+                findings.termWarning("unsupported.logLevelWrite has no effect on {group} %s: write"
+                    + " access is off (cleanup resets of recorded leases still run)", group.name());
+            }
+        }
+    }
+
+    private static void warnOnProduction(GroupConfig group, String key, Optional<Boolean> optIn,
+        String effect, Findings findings) {
+        if (optIn.equals(Optional.of(true))) {
+            findings.termWarning("unsupported.%s is enabled on production {group} %s: %s", key,
+                group.name(), effect);
         }
     }
 

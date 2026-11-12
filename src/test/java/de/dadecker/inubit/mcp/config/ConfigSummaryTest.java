@@ -498,6 +498,56 @@ class ConfigSummaryTest {
         assertThat(summary).doesNotContain("Group qa");
     }
 
+    // --- feature 024 T005: the four node-tool opt-ins (FR-003, D-5, SC-005) ---------------------
+
+    @Test
+    void nodeToolOptInsSetToFalseAreTheSameAsNone() {
+        String unset = CONFIG.replace("    production: true\n", "    production: true\n"
+            + "    unsupported:\n      nodeStatusRead: false\n      ioLogRead: false\n"
+            + "      nodeConfigRead: false\n      logLevelWrite: false\n");
+
+        assertThat(unset).isNotEqualTo(CONFIG);
+        assertThat(render(unset)).isEqualTo(render(CONFIG));
+        for (String key : NodeToolOptIns.KEYS) {
+            assertThat(render(CONFIG)).doesNotContain(key);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"nodeStatusRead", "ioLogRead", "nodeConfigRead", "logLevelWrite"})
+    void aNodeToolOptInAppendsOnlyItsStateToEveryGroupLine(String key) {
+        String summary = render(CONFIG.replace("    cli:\n      home: /opt/client\n",
+            "    unsupported:\n      " + key + ": true\n    cli:\n      home: /opt/client\n"));
+
+        assertThat(summary).isEqualTo(render(CONFIG)
+            .replace("\nGroup test: archives: allowed\n",
+                "\nGroup test: archives: allowed, " + key + ": enabled (unsupported)\n")
+            .replace("\nGroup prod (production): archives: refused (no"
+                + " archives.productionOptIn)\n", "\nGroup prod (production): archives:"
+                + " refused (no archives.productionOptIn), " + key + ": off\n"));
+        TestSecrets.assertNoLeak(summary);
+    }
+
+    @Test
+    void theOptInStatesFollowTheOrderOfTheKeys() {
+        String summary = render(CONFIG
+            .replace("    cli:\n      home: /opt/client\n", "    unsupported:\n"
+                + "      logLevelWrite: true\n      ioLogRead: true\n      queueEntryRead: true\n"
+                + "    cli:\n      home: /opt/client\n")
+            .replace("    production: true\n", "    production: true\n    unsupported:\n"
+                + "      nodeConfigRead: true\n      serverLogRead: true\n"
+                + "      nodeStatusRead: true\n"));
+
+        assertThat(summary).contains("\nGroup test: archives: allowed,"
+                + " queueEntryRead: enabled (unsupported), serverLogRead: off,"
+                + " nodeStatusRead: off, ioLogRead: enabled (unsupported), nodeConfigRead: off,"
+                + " logLevelWrite: enabled (unsupported)\n",
+            "\nGroup prod (production): archives: refused (no archives.productionOptIn),"
+                + " queueEntryRead: off, serverLogRead: enabled (unsupported),"
+                + " nodeStatusRead: enabled (unsupported), ioLogRead: off,"
+                + " nodeConfigRead: enabled (unsupported), logLevelWrite: off\n");
+    }
+
     @Test
     void showsTheCredentialPrefixAndTheAuditDirectoryOfTheProfile() {
         // 002 US2: what keeps this profile apart from others running side by side

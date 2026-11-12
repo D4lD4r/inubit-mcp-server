@@ -112,7 +112,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   for INUBIT 8.1", 6.1 → `UNSUPPORTED_VERSION` naming the supported lines),
   `application/NodeOverviewTest.java` (names; a capability listed only for opted-in groups with a
   client home — the `allowed` rule is wired in T023/T030/T036/T054)
-- [ ] T005 Validation and summary (FR-003, D-5; after T003 and T004): `config/ConfigValidator.java`
+- [X] T005 Validation and summary (FR-003, D-5; after T003 and T004): `config/ConfigValidator.java`
   production warnings per key and the `logLevelWrite`-without-write-access warning (texts of
   contracts/configuration-delta.md "Validation", terminology-aware); `config/ConfigSummary.java`
   group line parts in the order `queueEntryRead`, `serverLogRead`, `nodeStatusRead`, `ioLogRead`,

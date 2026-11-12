@@ -30,6 +30,7 @@ import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
@@ -2909,6 +2910,120 @@ class ConfigValidatorTest {
                 assertThat(report.errors()).as(yaml).isEmpty();
                 assertThat(report.warnings()).as(yaml).isEmpty();
             }
+        }
+    }
+
+    /**
+     * Feature 024 (T005, FR-003, research D-5): the four node-tool opt-ins
+     * (contracts/configuration-delta.md → Validation).
+     */
+    @Nested
+    class NodeToolOptIn {
+
+        private static final String WRITE_ACCESS =
+            "    write:\n      enabled: true\n      productionOptIn: true\n";
+
+        private static final String NO_EFFECT = "unsupported.logLevelWrite has no effect on"
+            + " group test: write access is off (cleanup resets of recorded leases still run)";
+
+        private static String profile(boolean production, String settings) {
+            return """
+                profile:
+                  name: acme
+                groups:
+                  - name: %s
+                    production: %s
+                %s    nodes:
+                      - name: node1
+                        baseUrl: https://inubit.example.test:8443
+                      - name: node2
+                        baseUrl: https://inubit-2.example.test:8443
+                """.formatted(production ? "prod" : "test", production, settings);
+        }
+
+        private static String optIn(String key, boolean value) {
+            return "    unsupported:\n      " + key + ": " + value + "\n";
+        }
+
+        @ParameterizedTest
+        @CsvSource(delimiter = '|', value = {
+            "nodeStatusRead | the cluster's node list is read through an undocumented INUBIT"
+                + " interface without vendor support",
+            "ioLogRead      | module input and output messages are read through an undocumented"
+                + " INUBIT interface without vendor support; they can contain business and"
+                + " personal data",
+            "nodeConfigRead | node configuration values are read through an undocumented INUBIT"
+                + " interface without vendor support",
+            "logLevelWrite  | temporary log levels of production nodes can be changed; the"
+                + " answering node is looked up through an undocumented INUBIT interface"})
+        void eachOptInOnAProductionGroupIsAWarning(String key, String effect) {
+            ValidationReport report = validate(profile(true, WRITE_ACCESS + optIn(key, true)));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("unsupported." + key
+                + " is enabled on production group prod: " + effect);
+            TestSecrets.assertNoLeak(String.join("\n", report.warnings()));
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"nodeStatusRead", "ioLogRead", "nodeConfigRead", "logLevelWrite"})
+        void anOptInOnANonProductionGroupAndAFalseOrAbsentOptInAreNoFinding(String key) {
+            for (String yaml : List.of(profile(false, WRITE_ACCESS + optIn(key, true)),
+                profile(true, WRITE_ACCESS + optIn(key, false)),
+                profile(false, optIn(key, false)), profile(false, ""), profile(true, ""))) {
+                ValidationReport report = validate(yaml);
+
+                assertThat(report.errors()).as(yaml).isEmpty();
+                assertThat(report.warnings()).as(yaml).isEmpty();
+            }
+        }
+
+        @Test
+        void logLevelWriteOnAGroupWithoutWriteAccessIsAWarning() {
+            ValidationReport report = validate(profile(false, optIn("logLevelWrite", true)));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly(NO_EFFECT);
+        }
+
+        @Test
+        void logLevelWriteWithWriteAccessOnOneNodeOfTheGroupIsNoFinding() {
+            ValidationReport report = validate(profile(false, "    write:\n      enabled: true\n"
+                + optIn("logLevelWrite", true)).replace(
+                    "baseUrl: https://inubit.example.test:8443\n",
+                    "baseUrl: https://inubit.example.test:8443\n"
+                        + "        write:\n          enabled: false\n"));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).isEmpty();
+        }
+
+        @Test
+        void logLevelWriteOnAProductionGroupWithoutTheWriteProductionOptInGivesBothWarnings() {
+            ValidationReport report = validate(profile(true, "    write:\n      enabled: true\n"
+                + optIn("logLevelWrite", true)));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly(
+                "unsupported.logLevelWrite is enabled on production group prod: temporary log"
+                    + " levels of production nodes can be changed; the answering node is looked"
+                    + " up through an undocumented INUBIT interface",
+                NO_EFFECT.replace("group test", "group prod"));
+        }
+
+        @Test
+        void theWarningsUseTheProfileTerminology() {
+            String stages = "terminology:\n  group: { singular: stage, plural: stages }\n"
+                + "  node: { singular: server, plural: servers }\ngroups:\n";
+
+            assertThat(validate(profile(true, WRITE_ACCESS + optIn("ioLogRead", true))
+                .replace("groups:\n", stages)).warnings()).containsExactly("unsupported.ioLogRead"
+                    + " is enabled on production stage prod: module input and output messages are"
+                    + " read through an undocumented INUBIT interface without vendor support; they"
+                    + " can contain business and personal data");
+            assertThat(validate(profile(false, optIn("logLevelWrite", true))
+                .replace("groups:\n", stages)).warnings())
+                .containsExactly(NO_EFFECT.replace("group test", "stage test"));
         }
     }
 

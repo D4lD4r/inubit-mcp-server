@@ -51,7 +51,9 @@ import java.util.function.Predicate;
  * has {@code unsupported.queueEntryRead: true}, every group line ends with
  * {@code , queueEntryRead: off} or {@code , queueEntryRead: enabled (unsupported)}; feature 021
  * (FR-016) likewise appends {@code , serverLogRead: …} once some group has
- * {@code unsupported.serverLogRead: true}.
+ * {@code unsupported.serverLogRead: true}; feature 024 (FR-003, research D-5) then appends
+ * {@code nodeStatusRead}, {@code ioLogRead}, {@code nodeConfigRead} and {@code logLevelWrite} the
+ * same way, each only once some group sets it.
  * Groups and nodes are named with the profile's display names (FR-007). Values and URLs are never
  * printed.
  */
@@ -164,6 +166,15 @@ public final class ConfigSummary {
         // feature 021 (FR-016, D-17): the same for serverLogRead, after the queueEntryRead state
         boolean serverLogRead = config.groups().stream().anyMatch(g -> g.unsupported()
             .serverLogRead().orElse(Defaults.BUILTIN_SERVER_LOG_READ));
+        // feature 024 (FR-003, D-5): the node-tool opt-ins likewise, in this order after them
+        boolean nodeStatusRead = config.groups().stream().anyMatch(g -> g.unsupported()
+            .nodeStatusRead().orElse(Defaults.BUILTIN_NODE_STATUS_READ));
+        boolean ioLogRead = config.groups().stream().anyMatch(g -> g.unsupported()
+            .ioLogRead().orElse(Defaults.BUILTIN_IO_LOG_READ));
+        boolean nodeConfigRead = config.groups().stream().anyMatch(g -> g.unsupported()
+            .nodeConfigRead().orElse(Defaults.BUILTIN_NODE_CONFIG_READ));
+        boolean logLevelWrite = config.groups().stream().anyMatch(g -> g.unsupported()
+            .logLevelWrite().orElse(Defaults.BUILTIN_LOG_LEVEL_WRITE));
         GroupId group = null;
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
             if (!server.id().group().equals(group)) {
@@ -172,7 +183,12 @@ public final class ConfigSummary {
                     .append(server.production() ? " (production)" : "").append(": archives: ")
                     .append(archives(server))
                     .append(queueEntryRead ? queueEntryRead(server) : "")
-                    .append(serverLogRead ? serverLogRead(server) : "").append('\n');
+                    .append(serverLogRead ? serverLogRead(server) : "")
+                    .append(nodeStatusRead ? optIn("nodeStatusRead", server.nodeStatusRead()) : "")
+                    .append(ioLogRead ? optIn("ioLogRead", server.ioLogRead()) : "")
+                    .append(nodeConfigRead ? optIn("nodeConfigRead", server.nodeConfigRead()) : "")
+                    .append(logLevelWrite ? optIn("logLevelWrite", server.logLevelWrite()) : "")
+                    .append('\n');
             }
             out.append("  ").append(terms.render("{Node} ")).append(server.id()).append(": ")
                 .append(writeFlag(server))
@@ -446,6 +462,11 @@ public final class ConfigSummary {
     private static String serverLogRead(EffectiveNodeConfig server) {
         return server.serverLogRead() ? ", serverLogRead: enabled (unsupported)"
             : ", serverLogRead: off";
+    }
+
+    /** Feature 024 (FR-003): the state of a group's node-tool opt-in {@code key}. */
+    private static String optIn(String key, boolean enabled) {
+        return ", " + key + (enabled ? ": enabled (unsupported)" : ": off");
     }
 
     private static String writeFlag(EffectiveNodeConfig server) {
