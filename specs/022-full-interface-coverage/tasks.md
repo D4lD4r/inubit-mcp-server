@@ -313,7 +313,7 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
     `Optional.empty()`; say so in the `Leaf` Javadoc and test it.
   - Failing tests first: `ConfigurationJsonParserTest.java` (both root keys, sections only, one
     section, unknown section â†’ `NOT_FOUND` naming the listing, masking; leak check).
-- [ ] T018 [US1] StartCLI settings parsers in the new package `adapter/cli/admin/`
+- [X] T018 [US1] StartCLI settings parsers in the new package `adapter/cli/admin/`
   (`package-info.java`; after T015):
   - `ThreadsParser`;
   - `PrivilegedWorkflowsParser` (percentage and list);
@@ -418,6 +418,9 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
     fields or `encrypted` flags; if there are any, `JsonLeafMasker` passes the type to
     `SecretRules.masks`; replace the SYNTHETIC `admin-configurations-reconstructed` and
     `admin-license-reconstructed` cases by the recordings.
+  - From the T018 review: replace the five `admin-settings-*-reconstructed` CLI cases with the
+    recordings and align the forms of `ThreadsParser`, `PrivilegedWorkflowsParser`,
+    `DbToleranceParser` and `ServerDateParser` (check whether StartCLI output is localized).
 - [ ] T026 [US1] 9.0 contracts and flip [BLOCKED: T024]: `SettingsV90ContractTest.java`, rows
   and matrix for `v9_0`, catalogue entries.
   - the same for the `v9_0` column of `license -td` / `license -ts` (`covered:get_server_settings`);

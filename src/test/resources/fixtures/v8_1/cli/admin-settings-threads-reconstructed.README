@@ -1,0 +1,6 @@
+SYNTHETIC – reconstructed answer of `threads showNumberOfWorkflowThreads` until T014 records the real one
+Hand-written fixture for ThreadsParser (tasks.md T018): one session block, the lines after the
+prompt as CliSessionParser hands them out (no .stderr/.exit: a block is not a run). The vendor
+page configuring-workflow-threads shows the command but no output, so the form
+"Number of workflow threads: <n>" is an assumption, kept in ThreadsParser.FORM. Replace this case
+with the recording of T014 (admin-settings-*) and align ThreadsParser (T025).

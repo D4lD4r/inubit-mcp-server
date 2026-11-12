@@ -1,0 +1,6 @@
+RECONSTRUCTED – answer of `dbconnectiontolerance show` copied from the vendor example until T014 records the real one
+Fixture for DbToleranceParser (tasks.md T018): one session block, the lines after the prompt as
+CliSessionParser hands them out (no .stderr/.exit: a block is not a run). The four lines and their
+values are the script-mode example of the vendor page diagnosis-commands ("Displaying and
+Configuring the Database Connection Tolerance"); the form is kept in DbToleranceParser.FORM.
+Replace this case with the recording of T014 (admin-settings-*) and align DbToleranceParser (T025).

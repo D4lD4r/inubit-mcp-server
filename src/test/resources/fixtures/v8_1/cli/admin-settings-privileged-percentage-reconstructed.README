@@ -1,0 +1,7 @@
+SYNTHETIC – reconstructed answer of `privilegedWorkflows showThreadsPercentage` until T014 records the real one
+Hand-written fixture for PrivilegedWorkflowsParser (tasks.md T018): one session block, the lines
+after the prompt as CliSessionParser hands them out (no .stderr/.exit: a block is not a run). The
+vendor page configuring-workflow-threads shows the command but no output, so the form
+"Percentage of threads reserved for privileged workflows: <n>%" is an assumption, kept in
+PrivilegedWorkflowsParser.PERCENTAGE. Replace this case with the recording of T014
+(admin-settings-*) and align PrivilegedWorkflowsParser (T025).
