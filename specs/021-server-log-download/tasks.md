@@ -854,7 +854,7 @@ helper's `variant`.
   files `rw-------`, sizes equal the results, the Workbench shows the same trace state as before
   (SC-005), the MCP server log contains no excerpt line; result rows in the quickstart validation
   record (fictitious ids only)
-- [ ] T056 **[LIVE] [OWNER]** 9.0 live check (quickstart "Live check" step 4; after T051/T052 or
+- [X] T056 **[LIVE] [OWNER]** 9.0 live check (quickstart "Live check" step 4; after T051/T052 or
   T053, T054): as T055 against a non-production 9.0 test node for every 9.0 log enabled; rows in
   the validation record
 

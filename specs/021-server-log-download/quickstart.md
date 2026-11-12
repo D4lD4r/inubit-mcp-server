@@ -91,5 +91,5 @@ concrete action in the chat.
 |---|---|---|---|---|
 | 2026-11-12 | 8.1.17 | trace | pass | T055 on the non-production 8.1 test node (`test/node1` here); about 79 MiB, window 340,215 lines; file `rw-------`, size equal to the result; trace state unchanged before and after (get_health systemInfo: tracing enabled, level info; SC-005); captured server log without excerpt lines; forced failure left the folder unchanged |
 | 2026-11-12 | 8.1.17 | webservice | pass | T055, same node and run, opt-in set in a private copy of the profile (the installed release 0.9.1 rejects the new key); about 21.4 MiB, window 382,917 lines, INUBIT node named in the result; file `rw-------`, size equal to the result; captured server log without excerpt lines |
-| | 9.0.x | trace | | |
-| | 9.0.x | webservice | | |
+| 2026-11-12 | 9.0.10 | trace | pass | T056 on the non-production 9.0 test node (`test/node2` here); 27,336 bytes, window 258 lines; file `rw-------`, size equal to the result; trace state unchanged before and after (get_health systemInfo: tracing enabled, level warn; SC-005); captured server log without excerpt lines; forced failure left the folder unchanged |
+| 2026-11-12 | 9.0.10 | webservice | pass | T056, same node and run, opt-in set in a private copy of the profile; 0 bytes (the same 0-byte answer as T050; on 9.0 an empty and a missing log cannot be told apart), excerpt kind empty (no excerpt lines to leak), INUBIT node named in the result; file `rw-------`, size equal to the result; the 9.0 webservice live check covered only this 0-byte case |
