@@ -111,7 +111,7 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
     `InubitHttpClient.encodePathSegment`.
   - Failing test first: `adapter/rest/RestEndpointTest.java` (template filling, encoding, wrong
     parameter count throws).
-- [ ] T005 Move every REST adapter to `RestEndpoint` (after T004; no behaviour change):
+- [X] T005 Move every REST adapter to `RestEndpoint` (after T004; no behaviour change):
   - Files: `adapter/rest/v81/*Adapter.java`, `V81MaintenanceProbe.java`,
     `V81VersionDetector.java`, `LogEndpoint.java`, `adapter/V81InventoryAdapter.java`.
   - `InubitHttpClient.get/post` accept a `RestEndpoint` plus parameters (the old string overloads
@@ -897,6 +897,10 @@ fails (US6 AS1–AS17).
       - missing entry;
       - leak check.
 - [ ] T078 [US6] `InubitHttpClient` PUT, DELETE and multipart (D-8):
+  - from the T005 review: `get`, `post`, `put` and `delete` assert that `endpoint.method()` matches
+    the verb (an `IllegalArgumentException` otherwise), and the client tests that send GET to
+    `RestEndpoint.LOG` use a GET endpoint (e.g. `MODEL_EXPORT`) instead; rewrap the migrated calls
+    in `InubitHttpClientAcceptTest` evenly;
   - `put(RestEndpoint, params, query, Body)`, `delete(...)`, `post` with JSON or an empty body;
   - `adapter/rest/Multipart.java` streams file parts from `UploadFile`'s channel and adds field
     parts; a secret field (`privateKeyPassword`) is never logged;

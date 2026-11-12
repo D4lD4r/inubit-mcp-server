@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.adapter.rest.v81;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.MediaRange;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.ResourceKind;
+import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.adapter.rest.RestResponse;
 import de.dadecker.inubit.mcp.adapter.rest.v81.LogRequestPlan.LogRequest;
 import de.dadecker.inubit.mcp.adapter.rest.v81.LogRequestPlan.Window;
@@ -31,7 +32,6 @@ import tools.jackson.databind.json.JsonMapper;
  */
 final class LogEndpoint {
 
-    static final String PATH_PREFIX = "/ibis/rest/log/";
     static final String CONTENT_TYPE = "application/xml";
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -69,7 +69,7 @@ final class LogEndpoint {
     private Window<JsonNode> send(String logName, LogRequest request) {
         RestResponse response;
         try {
-            response = client.post(PATH_PREFIX + logName, Map.of("format", "json"),
+            response = client.post(RestEndpoint.LOG, List.of(logName), Map.of("format", "json"),
                 request.body(), CONTENT_TYPE, MediaRange.JSON, ResourceKind.ENDPOINT);
         } catch (ToolErrorException e) {
             throw e.error().node().isPresent() ? e
@@ -113,7 +113,7 @@ final class LogEndpoint {
 
     private ToolErrorException unexpected(String logName, String problem) {
         return new ToolErrorException(ToolError.of(ErrorCode.UNEXPECTED_RESPONSE,
-            "The INUBIT answer to POST " + PATH_PREFIX + logName + " " + problem,
+            "The INUBIT answer to POST " + RestEndpoint.LOG.path(logName) + " " + problem,
             "The baseUrl does not point to the INUBIT REST API, a proxy answers instead, or this"
                 + " INUBIT version answers in another format",
             "Check the INUBIT server with get_health and the baseUrl in the configuration")

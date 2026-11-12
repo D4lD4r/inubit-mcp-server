@@ -3,10 +3,12 @@ package de.dadecker.inubit.mcp.adapter.rest.v81;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.MediaRange;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.ResourceKind;
+import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -19,8 +21,6 @@ import java.util.Optional;
  */
 public final class V81VersionDetector {
 
-    public static final String SYSTEM_INFO_PATH = "/ibis/rest/system/info";
-
     private V81VersionDetector() {
     }
 
@@ -32,8 +32,8 @@ public final class V81VersionDetector {
         Objects.requireNonNull(server, "server");
         byte[] body;
         try {
-            body = client.get(SYSTEM_INFO_PATH, Map.of(), MediaRange.XML, ResourceKind.ENDPOINT)
-                .body();
+            body = client.get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of(), MediaRange.XML,
+                ResourceKind.ENDPOINT).body();
         } catch (ToolErrorException e) {
             throw e.error().node().isPresent() ? e
                 : new ToolErrorException(e.error().withNode(server));

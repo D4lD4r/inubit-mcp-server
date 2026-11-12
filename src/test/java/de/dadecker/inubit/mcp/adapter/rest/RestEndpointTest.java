@@ -47,16 +47,23 @@ class RestEndpointTest {
     void tooFewParametersThrow() {
         assertThatThrownBy(() -> RestEndpoint.MODEL_BY_NAME.path())
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("MODEL_BY_NAME")
-            .hasMessageContaining("1")
-            .hasMessageContaining("0");
+            .hasMessage("MODEL_BY_NAME takes 1 path parameter(s), got 0");
     }
 
     @Test
     void tooManyParametersThrow() {
         assertThatThrownBy(() -> RestEndpoint.READY.path("x"))
-            .isInstanceOf(IllegalArgumentException.class);
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("READY takes 0 path parameter(s), got 1");
         assertThatThrownBy(() -> RestEndpoint.MODEL_EXPORT.path("a", "b"))
-            .isInstanceOf(IllegalArgumentException.class);
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("MODEL_EXPORT takes 1 path parameter(s), got 2");
+    }
+
+    @Test
+    void nullParameterThrows() {
+        assertThatThrownBy(() -> RestEndpoint.LOG.path((String) null))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage("LOG parameter 0");
     }
 }

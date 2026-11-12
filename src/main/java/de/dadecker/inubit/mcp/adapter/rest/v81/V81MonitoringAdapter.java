@@ -3,11 +3,13 @@ package de.dadecker.inubit.mcp.adapter.rest.v81;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.MediaRange;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.ResourceKind;
+import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.adapter.rest.RestResponse;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -31,11 +33,6 @@ import tools.jackson.databind.json.JsonMapper;
  * </ul>
  */
 public final class V81MonitoringAdapter implements MonitoringPort {
-
-    public static final String HEALTHCHECK_PATH = V81MaintenanceProbe.HEALTHCHECK_PATH;
-    public static final String READY_PATH = "/ibis/rest/ready";
-    public static final String SYSTEM_INFO_PATH = V81VersionDetector.SYSTEM_INFO_PATH;
-    public static final String METRICS_PATH = "/ibis/rest/metrics";
 
     /** Every non-2xx status: the healthcheck counts any answer as reachable. */
     private static final int[] ANY_STATUS = nonSuccessStatusesExcept();
@@ -89,14 +86,15 @@ public final class V81MonitoringAdapter implements MonitoringPort {
     @Override
     public Healthcheck healthcheck() {
         return HealthcheckParser.parse(withServer(() ->
-            client.getWithoutCredentials(HEALTHCHECK_PATH, Map.of(), MediaRange.JSON,
-                ANY_STATUS)));
+            client.getWithoutCredentials(RestEndpoint.HEALTHCHECK, List.of(), Map.of(),
+                MediaRange.JSON, ANY_STATUS)));
     }
 
     @Override
     public Readiness ready() {
         RestResponse response = withServer(() ->
-            client.getWithoutCredentials(READY_PATH, Map.of(), MediaRange.JSON, 503));
+            client.getWithoutCredentials(RestEndpoint.READY, List.of(), Map.of(),
+                MediaRange.JSON, 503));
         return new Readiness(response.status() != 503, message(response));
     }
 
@@ -105,7 +103,7 @@ public final class V81MonitoringAdapter implements MonitoringPort {
         SystemInfo info;
         try {
             RestResponse response = withServer(() ->
-                client.get(SYSTEM_INFO_PATH, Map.of(), MediaRange.XML,
+                client.get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of(), MediaRange.XML,
                     ResourceKind.ENDPOINT));
             info = SystemInfoXmlParser.parse(server, response.body());
         } catch (ToolErrorException e) {
@@ -119,16 +117,16 @@ public final class V81MonitoringAdapter implements MonitoringPort {
     @Override
     public Metrics metrics() {
         RestResponse response = withServer(() ->
-            client.get(METRICS_PATH, Map.of("format", "json"), MediaRange.JSON,
-                METRICS_ACCEPTED));
+            client.get(RestEndpoint.METRICS, List.of(), Map.of("format", "json"),
+                MediaRange.JSON, METRICS_ACCEPTED));
         if (response.status() < 200 || response.status() >= 300) {
-            return new Metrics.NotLicensed("GET " + METRICS_PATH + " answered HTTP "
-                + response.status());
+            return new Metrics.NotLicensed("GET " + RestEndpoint.METRICS.path()
+                + " answered HTTP " + response.status());
         }
         return MetricsJsonParser.parse(response.body())
             .<Metrics>map(Metrics.Available::new)
-            .orElseGet(() -> new Metrics.NotLicensed("GET " + METRICS_PATH + " answered HTTP "
-                + response.status() + " without the JSON load figures"));
+            .orElseGet(() -> new Metrics.NotLicensed("GET " + RestEndpoint.METRICS.path()
+                + " answered HTTP " + response.status() + " without the JSON load figures"));
     }
 
     private static Optional<String> message(RestResponse response) {

@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.rest;
 
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -48,6 +49,7 @@ public enum RestEndpoint {
      *
      * @param params one value per placeholder of the template, in order
      * @throws IllegalArgumentException if the number of values does not match the template
+     * @throws NullPointerException if a value is {@code null}
      */
     public String path(String... params) {
         long parameterCount = PARAMETER.matcher(template).results().count();
@@ -59,8 +61,10 @@ public enum RestEndpoint {
         StringBuilder path = new StringBuilder(ROOT);
         int next = 0;
         while (matcher.find()) {
+            String param = Objects.requireNonNull(params[next], name() + " parameter " + next);
+            next++;
             matcher.appendReplacement(path,
-                Matcher.quoteReplacement(InubitHttpClient.encodePathSegment(params[next++])));
+                Matcher.quoteReplacement(InubitHttpClient.encodePathSegment(param)));
         }
         matcher.appendTail(path);
         return path.toString();
