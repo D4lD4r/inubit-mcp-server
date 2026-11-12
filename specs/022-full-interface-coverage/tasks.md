@@ -170,7 +170,7 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
     tool's input schema, or `default` when the schema has none of them.
   - Failing first by adding one temporary unlisted `RestEndpoint` value in the test's own fixture
     enum.
-- [ ] T009 Generated docs page (after T007): `domain/model/CoverageDocs.java` renders
+- [X] T009 Generated docs page (after T007): `domain/model/CoverageDocs.java` renders
   `docs/interface-coverage.md`:
   - a source line;
   - counts per state and version;

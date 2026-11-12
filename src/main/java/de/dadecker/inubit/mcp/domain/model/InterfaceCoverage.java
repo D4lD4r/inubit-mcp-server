@@ -33,23 +33,28 @@ public final class InterfaceCoverage {
 
     private static final int COLUMNS = 8;
     private static final String DELIVERED_STORIES = "delivered-stories:";
+    private static final String SOURCE = "source:";
     private static final String NONE = "-";
 
     private final List<CoverageEntry> entries;
     private final Map<CoverageKey, CoverageEntry> byKey;
     private final Set<String> deliveredStories;
+    private final Optional<String> source;
 
     private InterfaceCoverage(List<CoverageEntry> entries,
-        Map<CoverageKey, CoverageEntry> byKey, Set<String> deliveredStories) {
+        Map<CoverageKey, CoverageEntry> byKey, Set<String> deliveredStories,
+        Optional<String> source) {
         this.entries = List.copyOf(entries);
         this.byKey = Map.copyOf(byKey);
         this.deliveredStories = Set.copyOf(deliveredStories);
+        this.source = source;
     }
 
     /**
      * Reads a coverage list: comment lines start with {@code #}, the comment
      * {@code # delivered-stories: US1, US2} names the delivered stories (none when absent or
-     * empty), then the header and one row per entry; blank lines are skipped.
+     * empty), the comment {@code # source: ...} names where the entries come from, then the
+     * header and one row per entry; blank lines are skipped.
      *
      * @throws IllegalArgumentException naming the line, on a delivered story other than
      *     {@code US1} … {@code US7}, a missing or wrong header, a row that
@@ -63,6 +68,7 @@ public final class InterfaceCoverage {
             throw new UncheckedIOException(e);
         }
         Set<String> delivered = Set.of();
+        Optional<String> source = Optional.empty();
         boolean header = false;
         Map<CoverageKey, CoverageEntry> byKey = new HashMap<>();
         Map<Integer, CoverageEntry> rows = new LinkedHashMap<>();
@@ -73,6 +79,8 @@ public final class InterfaceCoverage {
                 String comment = line.substring(1).strip();
                 if (comment.startsWith(DELIVERED_STORIES)) {
                     delivered = stories(number, comment.substring(DELIVERED_STORIES.length()));
+                } else if (comment.startsWith(SOURCE)) {
+                    source = Optional.of(comment.substring(SOURCE.length()).strip());
                 }
             } else if (line.isBlank()) {
                 continue;
@@ -102,7 +110,7 @@ public final class InterfaceCoverage {
         for (Map.Entry<Integer, CoverageEntry> row : rows.entrySet()) {
             checkDelivery(row.getKey(), row.getValue(), delivered);
         }
-        return new InterfaceCoverage(new ArrayList<>(rows.values()), byKey, delivered);
+        return new InterfaceCoverage(new ArrayList<>(rows.values()), byKey, delivered, source);
     }
 
     /**
@@ -127,6 +135,11 @@ public final class InterfaceCoverage {
     /** The stories of the {@code delivered-stories} line, e.g. {@code US1}; empty if none. */
     public Set<String> deliveredStories() {
         return deliveredStories;
+    }
+
+    /** The text of the {@code # source:} comment, e.g. the vendor pages; empty if none. */
+    public Optional<String> source() {
+        return source;
     }
 
     /**

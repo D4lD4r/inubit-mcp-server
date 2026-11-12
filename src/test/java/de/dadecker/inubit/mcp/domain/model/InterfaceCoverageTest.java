@@ -80,6 +80,13 @@ class InterfaceCoverageTest {
     }
 
     @Test
+    void sourceIsTheTextOfTheSourceComment() {
+        assertThat(loadText(EXAMPLE).source()).contains("vendor pages \"Command Line Interface\""
+            + " and \"REST API\", INUBIT 8.1 and 9.0, retrieved 2026-11-12");
+        assertThat(loadText(HEADER + "\n").source()).isEmpty();
+    }
+
+    @Test
     void stateIsEmptyForAnUnlistedEntryChannelOrLine() {
         InterfaceCoverage coverage = loadText(EXAMPLE);
 
