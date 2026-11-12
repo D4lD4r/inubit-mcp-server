@@ -113,7 +113,9 @@ Four groups of documented functions get no new access:
   the `deploy` command and `PUT /model/import` (`deploy_release`, `import_artifacts`), `uname`,
   `uptime` and `free` on 8.1 and 9.0 (`get_health` reads the same facts over REST), reading a
   repository resource (the only documented endpoint is the portal's form proxy under `/task/…`;
-  repository files are read with `export_archives`).
+  repository files are read with `export_archives`), setting or moving a tag (`tag --tagMove`:
+  `tag_artifacts` on development stages, `deploy_release` on the stage it deploys to; the tag
+  tool of this feature does not set tags).
 - **Not usable from a server process**: the cache mode (the vendor reserves it for its support
   and calls it dangerous), `validateMigrationBackup` (interactive only), `--encryptString` (takes
   a secret on the command line and prints the result), the offline scripts `backup.sh` and
@@ -242,7 +244,10 @@ an existing tool can answer is reached through that tool. Testable offline.
    report file is written into that folder as a new file and the result names its path and size.
 5. **Given** an 8.1 or 9.0 server, **When** the process counts are requested, **Then** the result
    names the number of processes in error, executing, waiting and queued state; counts that the
-   existing process search or `get_health` already returns come from there (FR-002).
+   existing process search or `get_health` already returns come from there (FR-002). The output
+   of `ps -u` (documented only by its argument, an index or a filter expression) is recorded on a
+   test system; the entry is then reached through the process search or excluded with the
+   reason found (FR-002).
 6. **Given** a workflow name, **When** its metadata is requested, **Then** the result contains
    the metadata with secret values masked; an export of the metadata of several workflows is
    written as a new file into a folder the caller names (FR-012).
@@ -271,10 +276,12 @@ mode is on. Both are offered; `-eq` is offered as an optional part of switching 
 on. The **active tag** of a user (`--tagSetActive`) names the tag whose versions INUBIT uses for
 that user; it does not activate or deactivate a workflow. The **midnight task** is the daily task
 INUBIT otherwise starts at its configured start time; the vendor documents its settings together
-with the system log configuration, and triggering it runs it at once.
+with the system log configuration and does not document what the task does, so the tool
+description says that; triggering it runs it at once.
 
-**Why this priority**: these are the changes operators make routinely. They are reversible or
-limited in effect, and they use the write protection that already exists.
+**Why this priority**: these are the changes operators make routinely and they use the write
+protection that already exists. Most are reversible; deleting processes in error state and
+removing a tag are not, and are previewed and backed up (FR-017, FR-018).
 
 **Independent Test**: With a fake StartCLI and REST server, each change is refused by default,
 shows a preview when enabled and is executed only with the confirmation; each step leaves an
@@ -285,8 +292,8 @@ audit record. Testable offline.
 1. **Given** a stage without write enablement, **When** the maintenance mode is to be switched on,
    **Then** the call is refused with the code of the existing write tools and the next step names
    the setting.
-2. **Given** a stage with write enablement, **When** the maintenance mode is to be switched on,
-   **Then** the first call returns a preview (server, current state, requested state, number of
+2. **Given** a stage with write enablement and `write.confirmation: SERVER`, **When** the
+   maintenance mode is to be switched on, **Then** the first call returns a preview (server, current state, requested state, number of
    running and queued processes) and a confirmation code; the second call with the code switches
    the mode and returns the state read afterwards.
 3. **Given** a production stage without the production opt-in, **When** any change of this story
@@ -304,15 +311,20 @@ audit record. Testable offline.
    means.
 8. **Given** debug output is off, **When** it is switched on, **Then** the result names the state
    before and after, and the description says that it stays on until it is switched off.
-9. **Given** the midnight task is to be triggered, **When** the preview is shown, **Then** it says
+9. **Given** the readiness state is READY, **When** it is to be set to NOT READY, **Then** the
+   preview names the current and the requested state and says that readiness stays NOT READY
+   while maintenance mode is on; the result re-reads the state.
+10. **Given** tracing is off, **When** it is switched on, **Then** the result names the state
+    before and after, as for debug output (AS8).
+11. **Given** the midnight task is to be triggered, **When** the preview is shown, **Then** it says
    that the daily task runs at once instead of at its configured start time, and names that start
    time if INUBIT reports it; the result names INUBIT's answer and the time it was sent.
-10. **Given** a test stage with write enablement, **When** the active tag of a user is set,
+12. **Given** a test stage with write enablement, **When** the active tag of a user is set,
     **Then** the call names the user and the tag, the preview names the user's current active
     tag and the new one, and the result re-reads it (FR-019a).
-11. **Given** a call to remove a tag without a diagram group or repository path, **When** it is
+13. **Given** a call to remove a tag without a diagram group or repository path, **When** it is
     made, **Then** it is refused with `INVALID_INPUT` before anything is read.
-12. **Given** the check on a test system showed that INUBIT limits tag removal to the named
+14. **Given** the check on a test system showed that INUBIT limits tag removal to the named
     diagram group, **When** a tag is removed from one group, **Then** the preview names every
     object and version in that group that carries the tag, the backup holds that list (FR-018),
     and the same tag in other groups stays (the result re-reads both). If the check showed that
@@ -347,7 +359,8 @@ and the confirmation. Testable offline.
 4. **Given** an archive file and a target server with write enablement and the run-time data
    opt-in, **When** the import is confirmed, **Then** the result names the operation id and the
    number of blocked processes.
-5. **Given** the operation id of an earlier run-time data import on that server, **When** the
+5. **Given** a stage with the run-time data opt-in and the operation id of an earlier run-time
+   data import on that server, **When** the
    blocked processes are listed, **Then** the result is a bounded page of those processes.
 6. **Given** that operation id, **When** the blocked processes are to be resumed, **Then** the
    preview names their number; the execution reports how many were resumed and re-reads the
@@ -360,7 +373,7 @@ and the confirmation. Testable offline.
 ### User Story 6 - Administer objects, libraries and settings (Priority: P3)
 
 An administrator removes what is no longer needed and changes how a server is set up: delete or
-rename a workflow, a module or a repository file, delete a tag, import metadata, upload or delete
+rename a workflow, a module or a repository file, import metadata, upload or delete
 a driver or a plug-in, register a plug-in, upload EDI rules, deploy keys to a module keystore,
 start a workflow through an IS Connector, change the number of workflow threads, the share of
 threads for privileged workflows, the database connection tolerance or a configuration value,
@@ -447,7 +460,10 @@ offline.
 **Acceptance Scenarios**:
 
 1. **Given** the opt-in for user administration, **When** a user is created, **Then** the preview
-   names login, group and roles, and the result confirms the creation without any password.
+   names login, group and roles, and the result confirms the creation without any password. The
+   call may name a secret-source entry for the initial password (FR-022); without one, the user
+   is created as INUBIT creates it without `--password`, which a check on a test system records
+   and the tool description names.
 2. **Given** a secret source that holds an entry for the new password, **When** the password of
    a user is set with the name of that entry, **Then** the server reads the value from the secret
    source and passes it to INUBIT; the value never appears in the call, the result, the audit
@@ -552,7 +568,10 @@ offline.
 **Reading**
 
 - **FR-008**: Read capabilities MUST work without write enablement and MUST NOT send any command
-  form that changes the server. Each read command is allowed with exactly the read options this
+  form that changes the server, apart from side effects INUBIT itself attaches to a read, which
+  the tool description names (the check-in comment trace of StartCLI exports, as for
+  `export_archives`). Whether `msgread` marks a message as read is checked on a test system and
+  named the same way. Each read command is allowed with exactly the read options this
   feature names.
 - **FR-009**: Read results MUST be bounded and paged like the existing read tools, and MUST name
   the server and the channel (StartCLI or REST) each fact came from.
@@ -595,8 +614,8 @@ offline.
   `archives.productionOptIn`, and follows the folder rules of `export_archives`; it does not need
   the write enablement. It targets exactly one server, needs no confirmation (like
   `export_archives`) and is audited like a change. Validating an archive (`process
-  validateExport`) runs on one server the caller names and needs that stage's run-time data
-  opt-in; the archive comes from an upload folder (FR-021). If a check on a test system shows that
+  validateExport`) and listing blocked processes (`process listBlocked`) run on one server the
+  caller names and need that stage's run-time data opt-in; the archive comes from an upload folder (FR-021). If a check on a test system shows that
   the export or the validation changes the server, it is governed by FR-014 instead.
 - **FR-017**: A bulk change (`processdelete error`, deleting all libraries of a type, resuming or
   deleting the blocked processes of an operation) MUST show in its preview what and how many
