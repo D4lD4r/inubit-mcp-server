@@ -67,7 +67,10 @@ class NodeOverviewTest {
         assertThat(capabilities.notUsable()).isEmpty();
     }
 
-    /** Feature 021 (T009, D-6): the names in {@code list_nodes}, refused until recorded. */
+    /**
+     * Feature 021 (T009, D-6): the names in {@code list_nodes}, refused until recorded; T031: the
+     * reason names the matrix note as the gate's refusal does.
+     */
     @Test
     void theServerLogReadsAreListedByTheirNamesAndRefusedBeforeTheirRecordings() {
         NodeSummary.Capabilities capabilities = capabilities(CapabilityMatrix.production(),
@@ -77,11 +80,15 @@ class NodeOverviewTest {
         assertThat(capabilities.notUsable()).extracting(NodeSummary.NotUsable::capability)
             .containsExactly("trace_log_read", "webservice_log_read");
         assertThat(capabilities.notUsable()).extracting(NodeSummary.NotUsable::reason)
-            .satisfiesExactly(
-                reason -> assertThat(reason)
-                    .endsWith(" does not support downloading the trace log yet"),
-                reason -> assertThat(reason)
-                    .endsWith(" does not support downloading the web service log yet"));
+            .containsExactly(
+                "INUBIT 8.1 on dev/node1: downloading the trace log is not yet verified for"
+                    + " INUBIT 8.1",
+                "INUBIT 8.1 on dev/node1: downloading the web service log is not yet verified"
+                    + " for INUBIT 8.1");
+        assertThat(version(VersionSetting.V9_0, EnumSet.of(Capability.TRACE_LOG_READ))
+            .capabilities().notUsable()).extracting(NodeSummary.NotUsable::reason)
+            .containsExactly("INUBIT 9.0 on dev/node1: downloading the trace log is not yet"
+                + " verified for INUBIT 9.0");
     }
 
     @Test

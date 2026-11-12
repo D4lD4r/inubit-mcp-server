@@ -47,6 +47,7 @@ import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import de.dadecker.inubit.mcp.testing.TestClientSelection;
+import de.dadecker.inubit.mcp.testing.TraceMatrix;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
 import java.nio.file.Path;
@@ -906,8 +907,9 @@ class ListNodesToolTest {
                 .isEqualTo("not_yet_detected");
             assertThat(usable(dev)).containsExactly("monitoring", "process_diagnosis",
                 "log_diagnosis", "inventory", "partner_management", "workspace_export");
-            assertThat(notUsable(dev)).as("no write access: no process control")
-                .containsExactly("development_writes");
+            assertThat(notUsable(dev)).as("no write access: no process control; feature 021:"
+                + " no version admits the trace log yet").containsExactly("development_writes",
+                "trace_log_read");
             JsonNode test = groups.path(1).path("nodes").path(0).path("version");
             assertThat(test.path("server").path("source").asString()).isEqualTo("pinned");
             assertThat(test.path("client").path("state").asString()).isEqualTo("not_available");
@@ -988,12 +990,14 @@ class ListNodesToolTest {
             assertThat(usable(test)).containsExactly("monitoring", "process_diagnosis",
                 "log_diagnosis", "inventory", "partner_management", "workspace_export",
                 "queue_entry_read");
-            assertThat(notUsable(test)).isEmpty();
+            assertThat(notUsable(test)).as("feature 021: not yet verified")
+                .containsExactly("trace_log_read");
             JsonNode prod = groups.path(1).path("nodes").path(0).path("version");
             assertThat(usable(prod)).as("SC-002: as without feature 020").containsExactly(
                 "monitoring", "process_diagnosis", "log_diagnosis", "inventory",
                 "partner_management", "workspace_export");
-            assertThat(notUsable(prod)).isEmpty();
+            assertThat(notUsable(prod)).as("feature 021: not yet verified")
+                .containsExactly("trace_log_read");
             JsonNode lab = groups.path(2).path("nodes").path(0).path("version");
             assertThat(usable(lab)).doesNotContain("queue_entry_read");
             assertThat(notUsable(lab)).doesNotContain("queue_entry_read");
@@ -1002,6 +1006,81 @@ class ListNodesToolTest {
             assertThat(notUsable(next)).doesNotContain("queue_entry_read");
             assertThat(result.toString()).doesNotContain(PASSWORD);
             TestSecrets.assertNoLeak(result.toString());
+        }
+    }
+
+    // --- feature 021 T031: trace_log_read for nodes with a client home (FR-002, D-17) ----------
+
+    @Test
+    void traceLogReadIsListedForNodesWithAClientHome() {
+        // test: client home on 8.1; prod: 8.1 without a client home
+        String baseUrl = "https://localhost:" + wireMock.httpsPort();
+        String yaml = """
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            groups:
+              - name: test
+                versionLine: V8_1
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+              - name: prod
+                versionLine: V8_1
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+            """.formatted(temp.resolve("audit"), temp.resolve("workspace"), CLI_HOME, baseUrl,
+            baseUrl);
+        ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
+            .parse(yaml, temp.resolve("config.yaml")).config();
+
+        Map<String, JsonNode> unrecorded = traceVersions(config, CapabilityMatrix.production());
+        assertThat(usable(unrecorded.get("test/node1"))).doesNotContain("trace_log_read");
+        assertThat(notUsable(unrecorded.get("test/node1"))).containsExactly("trace_log_read");
+        assertThat(reason(unrecorded.get("test/node1"), "trace_log_read")).isEqualTo("INUBIT 8.1 on"
+            + " test/node1: downloading the trace log is not yet verified for INUBIT 8.1");
+        assertThat(usable(unrecorded.get("prod/node1"))).doesNotContain("trace_log_read");
+        assertThat(notUsable(unrecorded.get("prod/node1"))).isEmpty();
+
+        Map<String, JsonNode> recorded = traceVersions(config, TraceMatrix.admittingEightOne());
+        assertThat(usable(recorded.get("test/node1"))).contains("trace_log_read");
+        assertThat(notUsable(recorded.get("test/node1"))).isEmpty();
+        assertThat(usable(recorded.get("prod/node1"))).doesNotContain("trace_log_read");
+        assertThat(notUsable(recorded.get("prod/node1"))).isEmpty();
+    }
+
+    /**
+     * The {@code version} block per node id of {@code config}, listed through the
+     * production wiring with {@code matrix}; checks that nothing is contacted or run and that the
+     * result matches the output schema.
+     */
+    private Map<String, JsonNode> traceVersions(ProfileConfig config, CapabilityMatrix matrix) {
+        SecretScrubber scrubber = new SecretScrubber();
+        AtomicInteger runs = new AtomicInteger();
+        Map<String, String> credentials = new HashMap<>();
+        for (String group : List.of("TEST", "PROD")) {
+            credentials.put("INUBIT_ACME_" + group + "_USERNAME", "jdoe");
+            credentials.put("INUBIT_ACME_" + group + "_PASSWORD", PASSWORD);
+        }
+        try (TestWiring wiring = TestWiring.of(config, TestSecrets.store(credentials), scrubber,
+                path -> true, false, noStartCli(runs), Map.of(), matrix);
+            McpTestClient wired = McpTestClient.start(wiring.toolHandlers(), scrubber)) {
+            wired.initialize();
+
+            JsonNode result = wired.callTool("list_nodes", Map.of());
+
+            assertThat(requests()).as("FR-004: no request to any node").isZero();
+            assertThat(runs.get()).as("FR-004: no StartCLI run").isZero();
+            assertMatchesOutputSchema(result);
+            TestSecrets.assertNoLeak(result.toString());
+            Map<String, JsonNode> versions = new HashMap<>();
+            result.path("structuredContent").path("groups").forEach(group -> group.path("nodes")
+                .forEach(node -> versions.put(node.path("id").asString(), node.path("version"))));
+            return versions;
         }
     }
 

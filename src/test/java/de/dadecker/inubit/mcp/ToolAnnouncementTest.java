@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp;
 
 import de.dadecker.inubit.mcp.testing.TestSecrets;
+import de.dadecker.inubit.mcp.testing.TraceMatrix;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
@@ -28,7 +29,8 @@ import org.junit.jupiter.api.io.TempDir;
  * Feature 019 (research D-15): {@code read_knowledge} always, right after {@code get_health},
  * and {@code record_knowledge} after it with {@code knowledge.recording} on (the default).
  * Feature 020 (T030, FR-002, SC-002): {@code read_queue_entry} only for an opted-in node that may
- * run the capability and has a client home.
+ * run the capability and has a client home. Feature 021 (T031, FR-002, D-17):
+ * {@code download_server_log} for a node with a client home that may download the trace log.
  */
 class ToolAnnouncementTest {
 
@@ -121,6 +123,12 @@ class ToolAnnouncementTest {
      */
     private List<String> queueEntryTools(String versionLine, String groupLines,
         boolean nineEntry) {
+        return groupTools(versionLine, groupLines, nineEntry, CapabilityMatrix.production());
+    }
+
+    /** As {@link #queueEntryTools}, with {@code matrix}. */
+    private List<String> groupTools(String versionLine, String groupLines, boolean nineEntry,
+        CapabilityMatrix matrix) {
         String defaults = nineEntry ? """
             defaults:
               cliClients:
@@ -139,7 +147,7 @@ class ToolAnnouncementTest {
                   - name: node1
                     baseUrl: https://localhost:1
             """.formatted(temp.resolve("workspace"), defaults, versionLine, groupLines);
-        return toolNames(yaml, CapabilityMatrix.production());
+        return toolNames(yaml, matrix);
     }
 
     private String cliHome() {
@@ -280,5 +288,61 @@ class ToolAnnouncementTest {
         List<String> names = toolNames("AUTO", "AUTO", CapabilityMatrix.production());
 
         assertThat(names).containsAll(ALWAYS).containsAll(READS);
+    }
+
+    // --- feature 021 T031: download_server_log (FR-002, US1-6, SC-002, research D-17) ---------
+
+    /** The tools of release 0.9.1 for one node with a client home and no opt-in. */
+    private static final List<String> TOOLS_0_9_1 = List.of("list_nodes", "get_health",
+        "read_knowledge", "record_knowledge", "find_processes", "query_logs", "list_inventory",
+        "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+        "check_artifacts");
+
+    @Test
+    void aClientHomeWithoutAnyUnsupportedSettingAnnouncesTheDownload() {
+        // US1-6: no opt-in needed for the trace log
+        assertThat(groupTools("V8_1", cliHome(), false, TraceMatrix.admittingEightOne()))
+            .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
+                "find_processes", "query_logs", "download_server_log", "list_inventory",
+                "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+                "check_artifacts");
+        assertThat(groupTools("AUTO", cliHome(), false, TraceMatrix.admittingEightOne()))
+            .as("an AUTO node may run 8.1").contains("download_server_log");
+    }
+
+    @Test
+    void theDownloadIsOfferedInReadOnlyModeAlsoOnAProductionGroupWithoutAnyOptIn() {
+        // FR-002: independent of write.*, archives.* and the production write opt-ins
+        for (String groupLines : List.of(cliHome(), "    production: true\n" + cliHome(),
+            "    write:\n      enabled: false\n" + cliHome())) {
+            assertThat(groupTools("V8_1", groupLines, false, TraceMatrix.admittingEightOne()))
+                .as(groupLines).contains("download_server_log")
+                .doesNotContain("restart_process", "kill_process", "import_artifacts");
+        }
+    }
+
+    @Test
+    void withoutAClientHomeAnywhereTheDownloadIsNotAnnounced() {
+        assertThat(groupTools("V8_1", "", false, TraceMatrix.admittingEightOne()))
+            .doesNotContain("download_server_log", "export_artifacts");
+    }
+
+    @Test
+    void nodesPinnedToSixOneOnlyDoNotAnnounceTheDownload() {
+        assertThat(toolNames("V6_1", "V6_1", TraceMatrix.admittingEightOne()))
+            .doesNotContain("download_server_log");
+        assertThat(toolNames("V6_1", "V8_1", TraceMatrix.admittingEightOne()))
+            .contains("download_server_log");
+    }
+
+    @Test
+    void onTheProductionMatrixTheToolListIsUnchangedBeforeTheTraceRecording() {
+        // before T033 no version admits the trace log, so not even an AUTO node may run it
+        assertThat(groupTools("V8_1", cliHome(), false, CapabilityMatrix.production()))
+            .containsExactlyElementsOf(TOOLS_0_9_1);
+        assertThat(groupTools("AUTO", cliHome(), false, CapabilityMatrix.production()))
+            .containsExactlyElementsOf(TOOLS_0_9_1);
+        assertThat(groupTools("V9_0", "", true, CapabilityMatrix.production()))
+            .contains("export_artifacts").doesNotContain("download_server_log");
     }
 }

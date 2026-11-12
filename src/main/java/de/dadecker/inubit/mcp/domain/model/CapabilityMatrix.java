@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * Declares per INUBIT version range whether each capability is supported, unverified or
@@ -179,6 +180,18 @@ public final class CapabilityMatrix {
                 || e.notes().containsKey(capability))
             .map(e -> line(e.range()))
             .toList();
+    }
+
+    /**
+     * Whether some version may run {@code capability}: a range or the declaration for unknown
+     * versions does not declare it unsupported (feature 021: what a node whose version is not
+     * known yet may turn out to run).
+     */
+    public boolean possiblySupported(Capability capability) {
+        Objects.requireNonNull(capability, "capability");
+        return Stream.concat(entries.stream().map(Entry::states), Stream.of(unknown))
+            .anyMatch(states -> states.getOrDefault(capability, SupportState.UNSUPPORTED)
+                != SupportState.UNSUPPORTED);
     }
 
     /** Whether {@code version} is reached through StartCLI only; an unknown version is not. */

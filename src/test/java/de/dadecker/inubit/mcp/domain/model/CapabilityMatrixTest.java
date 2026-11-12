@@ -412,6 +412,35 @@ class CapabilityMatrixTest {
             .isEqualTo("downloading the web service log");
     }
 
+    /**
+     * T031 (feature 021, FR-002): a version not yet known (an {@code AUTO} node) may run a
+     * capability only if some range or the unknown versions admit it; before their recordings no
+     * version admits a server log read.
+     */
+    @ParameterizedTest
+    @EnumSource(value = Capability.class, mode = Mode.EXCLUDE,
+        names = {"TRACE_LOG_READ", "WEBSERVICE_LOG_READ"})
+    void everyOtherCapabilityIsPossiblySupportedOnTheProductionMatrix(Capability capability) {
+        assertThat(production.possiblySupported(capability)).isTrue();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Capability.class, names = {"TRACE_LOG_READ", "WEBSERVICE_LOG_READ"})
+    void aServerLogReadIsNotPossiblySupportedBeforeItsRecording(Capability capability) {
+        assertThat(production.possiblySupported(capability)).isFalse();
+    }
+
+    @Test
+    void theUnknownVersionsAloneMakeACapabilityPossiblySupported() {
+        CapabilityMatrix matrix = new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
+            new VersionRange(8, 1, 8, 1), Map.of(Capability.INVENTORY, SupportState.SUPPORTED))),
+            Map.of(Capability.MONITORING, SupportState.UNVERIFIED));
+
+        assertThat(matrix.possiblySupported(Capability.MONITORING)).isTrue();
+        assertThat(matrix.possiblySupported(Capability.INVENTORY)).isTrue();
+        assertThat(matrix.possiblySupported(Capability.PROCESS_DIAGNOSIS)).isFalse();
+    }
+
     /** Until its recording (T033, T046, T051, T052) each log is refused as "not yet verified". */
     @ParameterizedTest
     @EnumSource(value = Capability.class, names = {"TRACE_LOG_READ", "WEBSERVICE_LOG_READ"})

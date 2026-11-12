@@ -2231,6 +2231,25 @@ class MainTest {
                 "check_artifacts");
     }
 
+    // --- feature 021 T031: download_server_log only once a version admits it (FR-002, SC-002) -
+
+    @Test
+    void beforeTheTraceRecordingTheToolListIsThatOfRelease091() throws Exception {
+        // the production matrix refuses the trace log on every version until T033, so neither an
+        // 8.1 node nor an AUTO node with a client home announces download_server_log
+        credentials();
+        List<String> release091 = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "list_inventory",
+            "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+            "check_artifacts");
+
+        assertThat(announcedTools(configWithClientHome("")))
+            .containsExactlyElementsOf(release091);
+        String auto = Files.readString(configWithClientHome(""))
+            .replace("versionLine: V8_1", "versionLine: AUTO");
+        assertThat(announcedTools(config(auto))).containsExactlyElementsOf(release091);
+    }
+
     @Test
     void aProfileWithoutAMarkedStageLogsNoPinPerServerLine() throws Exception {
         credentials();

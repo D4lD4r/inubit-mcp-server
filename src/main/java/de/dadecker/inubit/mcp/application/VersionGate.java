@@ -667,7 +667,7 @@ public final class VersionGate {
         return state.setting() instanceof VersionSetting.Line line && line.minor().isEmpty();
     }
 
-    private static String majorMinor(NodeVersionState state, Optional<InubitVersion> version) {
+    static String majorMinor(NodeVersionState state, Optional<InubitVersion> version) {
         if (version.isPresent()) {
             return version.get().major() + "." + version.get().minor();
         }

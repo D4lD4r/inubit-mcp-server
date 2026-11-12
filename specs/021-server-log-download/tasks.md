@@ -540,7 +540,7 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   credentials", "supported trace download", "unsupported", "undocumented", "without vendor
   support", "any INUBIT update", "never replaced"; a result of every contract variant validates
   against the output schema; arguments → `ServerLogRequest` with a fake service) The output field `excerpt.returnedLines` is `lines.size()`, set during JSON mapping, and is part of the output schema.
-- [ ] T031 [US1] Wiring, announcement and admission of the trace log (FR-002, D-11, D-17; after
+- [X] T031 [US1] Wiring, announcement and admission of the trace log (FR-002, D-11, D-17; after
   T029, T030): `Wiring.java`: service, `CliServerLogAdapter`, the existing feature-019
   `ProfileSecrets` instance as `ConfiguredSecrets` with its `timeout()` as `prepareBound` (the
   local variable becomes a field shared by `KnowledgeService` and `ServerLogService`),
