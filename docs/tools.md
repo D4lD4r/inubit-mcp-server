@@ -32,9 +32,11 @@ INUBIT 6.1 nodes of feature 012
 [its contract](../specs/018-partner-management-read/contracts/find_partners.md) (see
 [`find_partners`](#find_partners)), the local knowledge of feature 019
 [its delta](../specs/019-local-knowledge/contracts/mcp-tools-delta.md) (see
-[The local knowledge](#the-local-knowledge-feature-019)), and `read_queue_entry` of feature 020
-[its delta](../specs/020-queue-entry-read/contracts/mcp-tools-delta.md).
-All twenty-one tools are described here; each section quotes the description the server
+[The local knowledge](#the-local-knowledge-feature-019)), `read_queue_entry` of feature 020
+[its delta](../specs/020-queue-entry-read/contracts/mcp-tools-delta.md), and
+`download_server_log` of feature 021
+[its delta](../specs/021-server-log-download/contracts/mcp-tools-delta.md).
+All twenty-two tools are described here; each section quotes the description the server
 announces in `tools/list` for a profile `acme` without description and with the default
 terminology (Group/Node).
 
@@ -81,6 +83,7 @@ General rules:
 | [`find_processes`](#find_processes) | failed, waiting or hanging process instances | read-only, idempotent, open world | yes (REST `queueLog`) |
 | [`query_logs`](#query_logs) | INUBIT log entries by time, workflow, severity, process id, text | read-only, idempotent, open world | yes (REST) |
 | [`read_queue_entry`](#read_queue_entry) | the content of ONE Queue Manager entry in `ERROR` (metadata, data stream, variables) through an **unsupported INUBIT interface**, opt-in per group | read-only, idempotent, open world | yes (REST `queueLog` + a helper on the INUBIT client) |
+| [`download_server_log`](#download_server_log) | download the trace log or the web service log of ONE node into a local folder and return a masked excerpt — **the file is in clear text**; the web service log through an **unsupported INUBIT interface**, opt-in per group | not read-only (writes a local file; read-only for INUBIT), not destructive, non-idempotent, open world | yes (trace: StartCLI `trace --download`; web service log: a helper on the INUBIT client) |
 | [`list_inventory`](#list_inventory) | diagrams or modules filtered by name, type, group | read-only, idempotent, open world | yes (diagrams: REST; modules: StartCLI export) |
 | [`get_inventory_item`](#get_inventory_item) | one diagram or module: versions, tags, active flag, modules used; for a technical workflow its partner usage | read-only, idempotent, open world | yes (REST + StartCLI export with history; REST model export of the owner's system diagrams for the partner usage) |
 | [`find_partners`](#find_partners) | partners of the INUBIT Partner Management of the owner's system diagrams: search, list, compare across nodes; secrets only as set or not set | read-only, idempotent, open world | yes (REST model export of the owner's system diagrams, in memory) |
@@ -117,6 +120,12 @@ StartCLI installation and no write setting (feature 018).
 ([setup.md](setup.md#unsupported-functions)), that node is not pinned to a version that refuses
 the tool, and it has an INUBIT client home (see [its section](#read_queue_entry)).
 
+`download_server_log` is **offered only if** a node has an INUBIT client home and either is not
+pinned to a version that refuses the trace log download, or its group has
+`unsupported.serverLogRead: true` and it is not pinned to a version that refuses the web service
+log download (see [its section](#download_server_log)). It changes nothing on INUBIT, so it is
+offered in read-only mode, independent of `write.*`, `archives.*` and the production opt-ins.
+
 The development tools of feature 004 are **offered only if at least one node is a development
 stage** (`development.enabled: true`, never on production groups; see
 [setup.md](setup.md#development-settings)); `run_e2e_test` only if, in addition, such a node's
@@ -150,6 +159,8 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 | `export_artifacts`, `export_archives` | `workspace_export` | read on INUBIT | StartCLI | supported | runs with a warning if the client check passes (refused on 9.1 with an 8.1 client) | refused |
 | `check_artifacts` | – (its optional module lookup: `inventory` over StartCLI) | read | none, optional module lookup | runs | runs; the module lookup as `inventory` | runs; the module lookup is skipped |
 | `read_queue_entry` | `queue_entry_read` | read (unsupported vendor interface) | REST lookup + helper on the INUBIT client | supported (8.1 and 9.0) | refused (no warning run) | refused |
+| `download_server_log` `log: trace` | `trace_log_read` | read on INUBIT, writes a local file | StartCLI | supported (8.1 and 9.0) | refused (no warning run) | refused |
+| `download_server_log` `log: webservice` | `webservice_log_read` | read (unsupported vendor interface), writes a local file | helper on the INUBIT client | supported (8.1 and 9.0; on 9.0 verified against a recorded empty log only, see [its section](#download_server_log)) | refused (no warning run) | refused |
 | `import_artifacts`, `restore_backup` of a development backup, `set_active`, `tag_artifacts` | `development_writes` | write | StartCLI + REST | supported | refused | refused |
 | `restore_backup` of a deployment backup, `deploy_release` | `deployment` | write | StartCLI + REST | supported; `deploy_release` only within one minor version (8.1 → 8.1, 9.0 → 9.0) | refused; `deploy_release` also only within one minor version | refused |
 | `run_e2e_test` | `e2e_test` | write | SOAP + REST | supported | refused | refused |
@@ -159,7 +170,8 @@ A deployment backup restored on a node that is also a development stage is check
 `development_writes`; both capabilities have the same states in this version. Refusal and
 warning texts name the capability in words: `monitoring`, `process diagnosis`, `log diagnosis`,
 `inventory`, `partner management`, `workspace export`, `development writes`, `deployment`,
-`end-to-end test`, `process control`, `reading Queue Manager entries`. Before feature 012,
+`end-to-end test`, `process control`, `reading Queue Manager entries`, `downloading the trace
+log`, `downloading the web service log`. Before feature 012,
 `find_processes` and `query_logs` shared the capability `diagnosis`; `list_nodes` and
 `--check-config` now show the two capabilities instead, with the same states on every version
 other than 6.1.
@@ -312,8 +324,12 @@ e.g. in a profile whose only nodes are pinned to INUBIT 6.1; `list_nodes`, `get_
 `knowledge.recording: false`). Feature 020: `read_queue_entry` is offered only if a node
 of a group with `unsupported.queueEntryRead: true` is not pinned to a version that refuses
 `queue_entry_read` (6.1, a line other than 8.1 and 9.0) and has an INUBIT client home for one of
-its possible versions. `AUTO` nodes count as possibly capable; a later detection
-does not change the list, it leads to refusals.
+its possible versions. Feature 021: `download_server_log` is offered only if a node has an INUBIT
+client home for one of its possible versions and either is not pinned to a version that refuses
+`trace_log_read` (6.1, a line other than 8.1 and 9.0), or its group has
+`unsupported.serverLogRead: true` and it is not pinned to a version that refuses
+`webservice_log_read`; write settings do not matter. `AUTO` nodes count as possibly capable; a
+later detection does not change the list, it leads to refusals.
 
 ### INUBIT 6.1 (feature 012)
 
@@ -613,7 +629,7 @@ part of the result.
 | `server` | `{version, source, at?}` with `source` `detected` (an `AUTO` node, detected before a tool call), `observed` (read by `get_health`, also on a pinned node) or `pinned` (the pin, without `at`; `6.1` for `V6_1`, `8.1` for `V8_1`, `9.0` for `V9_0`, `9.x` for `V9_X`); or only `{"state": "not_yet_detected"}` (call `get_health`), or `{"state": "unknown", "reason": "<error code>", "at": …}` after a failed detection. Times are ISO-8601 to the second |
 | `client` | the StartCLI client as in `get_health`: `{version, supportedFrom?, supportedTo?, comparison}` with `comparison` `match`, `mismatch` or `not_comparable` (the server version is unknown or has no patch, e.g. `V8_1`); or only `state`: `not_available` (no StartCLI installation), `not_yet_detected` (not probed yet; after a timed-out probe with `reason` `TIMEOUT` and `at`) or `unknown` (the probe failed: error code in `reason`, `at`) |
 | `status` | `supported` (every capability the configuration allows is supported), `partially_supported` (some are usable, others are unverified or not usable; e.g. an INUBIT 9.0 node, on which `partner_management` is unverified, feature 018), `unsupported` (none is usable) or `unknown` (an `AUTO` node whose version is not yet detected or unknown) |
-| `capabilities` | `usable`: the capabilities whose tools run on the node now (supported, or unverified for reads except on INUBIT 6.1, and not refused by the client), out of those its configuration allows (the reads always; `workspace_export` with a StartCLI installation; `development_writes` on a development stage; `deployment` in a group that receives deployments; `e2e_test` where `e2eTests` allows it; `process_control` with write access; `queue_entry_read` only for nodes whose group has `unsupported.queueEntryRead: true`). `notUsable`: `[{capability, reason}]` with the reason the call would be refused; `inventory (StartCLI parts)` when `inventory` runs for its REST part but the client refuses its StartCLI parts (module list, version histories) |
+| `capabilities` | `usable`: the capabilities whose tools run on the node now (supported, or unverified for reads except on INUBIT 6.1, and not refused by the client), out of those its configuration allows (the reads always; `workspace_export` with a StartCLI installation; `development_writes` on a development stage; `deployment` in a group that receives deployments; `e2e_test` where `e2eTests` allows it; `process_control` with write access; `queue_entry_read` only for nodes whose group has `unsupported.queueEntryRead: true`; `trace_log_read` for nodes with an INUBIT client home; `webservice_log_read` only for nodes whose group has `unsupported.serverLogRead: true` and that have an INUBIT client home). `notUsable`: `[{capability, reason}]` with the reason the call would be refused; `inventory (StartCLI parts)` when `inventory` runs for its REST part but the client refuses its StartCLI parts (module list, version histories) |
 | `warnings` | only when non-empty: a pin contradicted by `get_health`, a client that differs from the server or excludes it (see [the warnings](#inubit-versions-and-capabilities-feature-009)) |
 
 | `startCli` field | Meaning |
@@ -1174,6 +1190,212 @@ at 2026-11-10T08:15:30Z); read_queue_entry needs it`).
 **Example prompt**: "Why did process 1234 fail on test/node1? Show me the data that ended in the
 queue." → `find_processes(target: "test/node1", states: ["ERROR"])`, then
 `read_queue_entry(target: "test/node1", processId: "1234")`.
+
+## `download_server_log`
+
+> [acme] Downloads the trace log (trace.log) or the web service log (webservice.log) of one INUBIT
+> node into a local folder you name and returns the newest lines, or the lines containing a search
+> text, as a masked excerpt with line numbers. Use it when a process or connector failed and
+> find_processes, query_logs or read_queue_entry do not show the cause (trace), or to see the SOAP
+> messages a web service connector really sent or received (webservice). The file is written IN
+> CLEAR TEXT: both logs may contain business data and credentials; only the excerpt is masked.
+> trace uses StartCLI's supported trace download. webservice is UNSUPPORTED: it uses an
+> undocumented internal INUBIT interface (the Workbench's Cluster Manager log download) without
+> vendor support or stability guarantee; it may stop working after any INUBIT update; available
+> only for groups with unsupported.serverLogRead. The folder must be an absolute path outside the
+> workspace, the server's directories, git working trees and network paths; existing files are
+> never replaced. Changes nothing on INUBIT.
+
+Feature 021 ([its delta](../specs/021-server-log-download/contracts/mcp-tools-delta.md)). The
+web service log is read through unsupported INUBIT functionality; read
+[setup.md, Unsupported functions](setup.md#unsupported-functions) before enabling it with
+`unsupported.serverLogRead`. Downloads ONE log of ONE node into `targetFolder` and returns a
+masked excerpt of it:
+
+- `log: trace` downloads `trace.log` with StartCLI's documented trace download
+  (`trace --download <file>`, the long form of `-d`) through the node's StartCLI client; no other
+  form of `trace` is sent, so the trace settings stay as they are.
+- `log: webservice` downloads `webservice.log` with the internal download the Workbench's Cluster
+  Manager uses for a node's log files, through a small helper that the server starts on the
+  INUBIT client installation of the node's version (as `read_queue_entry`). It sends only the
+  login, the lookup of the answering node, the download of the fixed name `webservice.log` and
+  (on 8.1) the logout; no input reaches the file name. It needs `unsupported.serverLogRead: true`
+  on the node's group.
+
+The file is the verbatim content INUBIT delivered (not masked, not re-encoded): **both logs may
+contain business data and credentials in clear text**; only the excerpt in the result is masked.
+Nothing is changed on INUBIT.
+
+The tool is annotated `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`,
+`openWorldHint: true` (title "Download an INUBIT server log"), so that clients ask before it
+writes a file with clear-text content. For when it is offered see
+[Tool announcement](#tool-announcement).
+
+**Input** (`download_server_log.input.json`):
+
+- `target` (required): id of exactly one node (`<group>/<node>`); a group id is `INVALID_INPUT`.
+- `log` (required): `trace` (`trace.log`) or `webservice` (`webservice.log`).
+- `targetFolder` (required): absolute path of a local folder for the log file, 1–4096 characters;
+  created owner-only if missing; the folder rules of [`export_archives`](#export_archives).
+- `tailLines` 1–2,000, default 200: the number of newest lines (with `contains`: newest matching
+  lines) in the excerpt.
+- `contains` 1–200 characters, no control characters, plain text, case-insensitive, matched
+  against the masked lines (not a pattern); a text that occurs only inside a masked value never
+  matches. It is never echoed in a message and never audited.
+- `maxChars` 1–100,000, default 20,000: the maximum characters of the excerpt lines (on the
+  masked text).
+
+**Output** (`download_server_log.output.json`):
+
+```json
+{"node": "test/node1", "log": "webservice", "inubitNode": "node1",
+ "file": "/Users/operator/inubit-logs/test-node1-webservice-20261111-081530.log",
+ "sizeBytes": 734003, "downloadedAt": "2026-11-11T08:15:30Z",
+ "excerpt": {"kind": "text", "charset": "UTF-8",
+   "window": {"startLine": 1, "lines": 9120, "bytes": 734003, "wholeFile": true},
+   "selection": "tail", "returnedLines": 200,
+   "lines": [
+     {"number": 8921, "text": "2026-11-11 08:15:29,114 INFO  [acme.ws.OrderService] request sent to https://partner.example.test/order"},
+     {"number": 8922, "text": "<wsse:Password>${secret:data.Password}</wsse:Password>"}],
+   "truncated": false},
+ "hints": [],
+ "warnings": ["Read through an unsupported, undocumented INUBIT interface; diagnosis only",
+   "The log file contains clear-text content"]}
+```
+
+| Field | Meaning |
+|---|---|
+| `node` | the node the log was downloaded from |
+| `log` | `trace` or `webservice` |
+| `inubitNode` | only for `webservice`: the node name INUBIT reported for the node the configured address reaches; absent for `trace` |
+| `file` | absolute path of the written file |
+| `sizeBytes` | size of the written file (= the download) |
+| `downloadedAt` | ISO-8601 UTC; the same instant as in the file name |
+| `excerpt` | `kind` `text`, `empty`, `binary` or `withheld` (see the variants); for text `charset` (`UTF-8` if the whole window is valid UTF-8, else `ISO-8859-1`), `window`, `selection`, `returnedLines`, `lines` and `truncated` |
+| `excerpt.window` | `startLine` (absolute line number of the window's first line), `lines`, `bytes`, `wholeFile` (`false` if the file is larger than 50 MiB) |
+| `excerpt.selection` | `tail` or `contains`; with `contains` also `matchingLines` (all matching lines in the window) |
+| `excerpt.lines` | oldest first; `number` absolute in the file, `text` masked; a cut line has `cut` (`true`) |
+| `excerpt.truncated` | `false`, or an object with `droppedLines` (lines dropped from the oldest) and `cutLines` (0 or 1), e.g. `{"droppedLines": 12, "cutLines": 0}` |
+| `hints` | fixed texts (see the variants); the hints of the call first, then those of the excerpt |
+| `warnings` | the unsupported warning (`webservice` only), always `The log file contains clear-text content`, the cloud-sync warning of the folder rules, the version and client warnings of the version check, an audit warning |
+
+Variants:
+
+| Case | Shape |
+|---|---|
+| empty log | `"excerpt": {"kind": "empty"}`, hint `The log is empty` (`webservice`: `The log is empty; web service logging may be disabled`) |
+| credentials of some configured node not read yet | `"excerpt": {"kind": "withheld"}`, hint `The excerpt is withheld: the credentials of prod/node2 (credential store: waiting) have not been read yet, so they could not be masked; every excerpt is withheld until this source can be read; the file is written`; the call is successful |
+| binary window | `"excerpt": {"kind": "binary", "detected": "GZIP"}`, hint `Binary content is not returned` (`detected` only if a signature matched) |
+| `contains` without a match | `"selection": "contains", "matchingLines": 0, "returnedLines": 0, "lines": []`, hint `No line of the scanned window contains the search text` |
+| file larger than 50 MiB | `"window": {"startLine": 412877, …, "wholeFile": false}`, hint `Only the last 50 MiB were scanned; line numbers count the whole file` |
+| no line break in the last 50 MiB | `"window": {…, "lines": 0, "bytes": 0, "wholeFile": false}`, `"returnedLines": 0, "lines": []`, no `charset`; hints `Only the last 50 MiB were scanned; line numbers count the whole file` and `No whole line in the last 50 MiB of the log` |
+
+**Excerpt** (built from a private copy of the download, in this order):
+
+1. The scanned window starts at the first whole line within the last 50 MiB of the file (the
+   whole file if it is smaller); a partial first line is not part of it. A window that is binary
+   (the rule of `read_queue_entry`: a known signature, a NUL byte or more than 10 % control bytes
+   in its first 8 KiB) gives no excerpt.
+2. Masking: the whole window is masked before lines are selected (see Masking below).
+3. Without `contains` the last `tailLines` lines are selected; with `contains` the last
+   `tailLines` lines of the masked window that contain the text.
+4. The line numbers are absolute in the downloaded file: lines before the window are counted, not
+   searched.
+5. If the selected lines exceed `maxChars`, the oldest lines are dropped first until the rest
+   fits (`droppedLines`); a single line longer than `maxChars` is cut at its end (`cutLines`).
+
+**Masking.** The text rules of `read_queue_entry` apply (see [its Masking](#read_queue_entry)):
+secret-named XML elements and attributes, JSON keys, `name=value` pairs and header-style lines
+become `${secret:data.<name>}`, every `Authorization` value and `Basic`/`Bearer` credential
+`${secret:authorization}`. In addition the known credentials of every configured node of the
+profile become `***`, not only those of the addressed node. Masking keeps every line break: a
+masked value spanning several lines leaves its token on the first line and empty lines for the
+lines it covered completely, so the line numbers stay exact. An end tag of a secret-named element
+whose start tag lies before the window masks every line from the window start up to that end
+tag. Limits:
+
+- a secret-named JSON value opened before the window is not detected;
+- the limits of `read_queue_entry` apply as well: a credential under a neutral name, inside
+  binary or encoded content or in free text **may still appear in the excerpt**, and business
+  data always does;
+- while the known credentials of some configured node are not read yet (for example a credential
+  store that has not answered within the call's remaining time, at most the credential source's
+  own timeout), the excerpt is withheld
+  (`"excerpt": {"kind": "withheld"}`, the hint names the node and the credential source) rather
+  than shown with possibly unscrubbed values; the file is still written and the call is
+  successful. The addressed node's own login credentials are read before the download; if they
+  are not available, the call fails (see Errors).
+
+**The file.** The download goes into a private temporary directory first and is then placed in
+`targetFolder` under the name `<group>-<node>-<log>-<yyyyMMdd-HHmmss>[-n].log` (UTC time of the
+download, e.g. `test-node1-trace-20261111-081530.log`). If that name exists, `-2` … `-999` is
+appended before `.log`; the name is claimed atomically, so parallel calls never share a name, and
+existing files are never replaced. The file appears under its final name only complete; a file
+system that supports neither hard links nor atomic renames is refused (`INVALID_INPUT`). The folder
+rules, the cloud-sync warning, the owner-only permissions (POSIX `rw-------`, created folders
+`rwx------`) and the Windows ACL behaviour are those of [`export_archives`](#export_archives). On
+every error no file of the call remains in `targetFolder`; a folder the call created stays
+(empty). Delete the file when it is no longer needed.
+
+**Time and memory.** Every wait and transfer of a call (a StartCLI slot of the node, the node's
+login credentials, the download, the wait for building the excerpt) is bounded by the node's
+`cliExportTimeout` (built-in 120 s, see [setup.md](setup.md#unsupported-functions)); its deadline
+starts after the version check. The call takes one StartCLI slot of the node. The MCP server
+builds one excerpt at a time; one excerpt of a 50 MiB window needs ≈ 250 MiB of memory at its
+peak, and waiting for a running excerpt counts against `cliExportTimeout`. Building the excerpt
+and placing the file are completed even if the deadline passes meanwhile. Vendor behaviour on
+INUBIT's side: the server reads trace.log fully into its memory before it sends it, so a very
+large trace log loads the INUBIT server; large logs need a larger `cliExportTimeout`.
+
+**Cluster nodes.** The log comes from the node the configured address reaches; address cluster
+nodes directly, not through a load balancer. For `webservice` the result names the INUBIT node in
+`inubitNode`.
+
+**Versions.** `trace_log_read` is supported on INUBIT 8.1 and 9.0, each verified against a
+recorded, neutralized StartCLI trace download of that version. `webservice_log_read` is supported
+on INUBIT 8.1 and 9.0: on 8.1 verified against a recorded, neutralized non-empty download; on
+9.0 only against a recorded answer of 0 bytes, together with the vendor code of 9.0 (no non-empty
+9.0 web service log could be recorded). From the answer alone, an empty and a missing web service
+log cannot be told apart on 9.0. The 9.0 vendor code reports a missing file as an error, which
+the tool returns as `NOT_FOUND`; that path is not recorded on 9.0. A 0-byte answer is reported as
+an empty log with the hint that web service logging may be disabled. INUBIT
+6.1, any other line (9.1, `V9_X`) and an undeclared version are refused with `UNSUPPORTED_VERSION`
+(`… supported: 8.1, 9.0`). The version of an `AUTO` node is detected first; if that fails, the
+detection's own error is returned (during the 60 s back-off: `The INUBIT version of test/node1
+could not be detected (UNREACHABLE at 2026-11-11T08:15:30Z); download_server_log needs it`).
+
+**Errors** (as `ToolError`, see [Common shapes](#common-shapes-page-and-toolerror)):
+
+| Code | When |
+|---|---|
+| `INVALID_INPUT` | an input fails its check (`Invalid tailLines 0 (1–2000)`; `contains` is never echoed), a group id as `target`, a folder rule (`targetFolder lies inside a git working tree: /work/repo/logs`), no free name up to `-999`, a file system without hard links and atomic renames |
+| `TARGET_UNKNOWN` | unknown id |
+| `NOT_CONFIGURED` | `log: webservice` on a node whose group has no `unsupported.serverLogRead: true` (checked before the version detection; nothing is sent): `download_server_log for the web service log is not enabled for group test: unsupported.serverLogRead is not set`, next step `Set unsupported.serverLogRead: true on group test and restart the MCP client (unsupported INUBIT functionality, see docs/setup.md "Unsupported functions")` |
+| `UNSUPPORTED_VERSION` | see Versions |
+| `NOT_FOUND` | the log file does not exist on the server: `trace.log does not exist on test/node1` (next step `Check the trace settings of the server in the Workbench`) / `test/node1 has no web service log (webservice.log on INUBIT node node1)` (next step `Enable web service logging in the server configuration, then retry`) |
+| `CLI_UNAVAILABLE` | no INUBIT client home for the node's version, `lib/ibis.jar` or the JDK missing, StartCLI or the helper could not start, a vendor class or method missing (`The INUBIT client installation … (chosen for INUBIT 9.0) lacks …`), for the web service log no private temporary directory |
+| `AUTH_FAILED` | the login was rejected (the same back-off as StartCLI) |
+| `FORBIDDEN` | the configured user lacks the right: StartCLI's login right, or for the web service log `test/node1 refused the web service log download for the configured user`, next step `Give the user the right the Workbench's Cluster Manager needs (Configuration)` |
+| `TLS_ERROR`, `UNREACHABLE`, `TIMEOUT` | TLS check, connection; `cliExportTimeout` exceeded (slot wait, credentials, download, wait for the excerpt): `The trace log download from test/node1 did not finish within cliExportTimeout (120 s)`, next step naming `cliExportTimeout` |
+| `SECRET_UNRESOLVED` (or the node's other credential codes) | the node's own credentials are not available; nothing is launched |
+| `MAINTENANCE_MODE` | the node reports maintenance mode (version detection before the launch) |
+| `UNEXPECTED_RESPONSE` | StartCLI did not confirm the trace download or wrote no file: `download_server_log got an unexpected answer from test/node1; StartCLI did not confirm the trace download` / unexpected helper output, `Server not in cluster mode.` or any other INUBIT error of the internal download: `download_server_log got an unexpected answer from test/node1; the unsupported INUBIT interface may have changed after an INUBIT update`; next step `Download the log in the Workbench; report the INUBIT version` |
+| `INTERNAL` | the helper is missing from the build; for the trace log no private temporary directory (`No private temporary directory for the log download on test/node1 (…)`); the downloaded copy could not be read (`The downloaded trace log of test/node1 could not be read (…); nothing was written`); the file could not be written to `targetFolder`, e.g. disk full (`The log file could not be written to /Users/operator/inubit-logs (…); no file of this call remains there`); the pending audit record could not be written; the server is shutting down |
+
+**Audit.** `capability: download_server_log`, step `EXECUTE`, one `auditId` per call. A refusal
+before the download (input, target, opt-in, folder rule) is one record `REFUSED`; otherwise
+`PENDING` (before the version check and the download) and then `EXECUTED` (also with a withheld
+excerpt), `FAILED` or `REFUSED` (version check). Inputs: `log`, `targetFolder`, `tailLines`,
+`maxChars` and whether `contains` was given, never its text; the outcome adds the file, its size
+and the INUBIT node. No audit record and no log line carries log content; the INFO log line names
+the node, the log, the file, the size, the window and the outcome. Calls that violate the input
+schema are not audited.
+
+**Example prompt**: "Process 1234 failed on test/node1 and the logs do not say why; look at the
+server's trace log for ORDER-4711 and keep the file in /Users/operator/inubit-logs" →
+`download_server_log(target: "test/node1", log: "trace", targetFolder:
+"/Users/operator/inubit-logs", contains: "ORDER-4711")`. Delete the file when it is no longer
+needed.
 
 ## Inventory: owner, groups, caching
 

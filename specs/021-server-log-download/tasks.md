@@ -860,7 +860,7 @@ helper's `variant`.
 
 ### Documentation (D-25)
 
-- [ ] T057 [P] `docs/tools.md` (FR-004, D-20, D-25; after T045, T046 and T051/T052 or T053): new section
+- [X] T057 [P] `docs/tools.md` (FR-004, D-20, D-25; after T045, T046 and T051/T052 or T053): new section
   `## download_server_log` starting with the tool description of contracts/mcp-tools-delta.md and
   a link to setup "Unsupported functions"; inputs with their limits ("`tailLines` 1–2,000, default
   200", "`contains` 1–200 characters, no control characters, plain text, case-insensitive, matched
