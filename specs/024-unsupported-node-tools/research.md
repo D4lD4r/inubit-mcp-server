@@ -460,7 +460,9 @@ merged lease (D-16).
   `WriteGuard.admitWithoutContact(node, tool, optIn, optInKey)` (target, production lock, `CLIENT`
   on production, `write.enabled`, `logLevelWrite`; **no version gate, no client check, no own-node
   lookup**: nothing is sent); state ≠ `RESET_FAILED` → `INVALID_INPUT` naming the state;
-  confirmation; audit; lease `FORGOTTEN` (generation + 1); result warning "the level may still be
+  confirmation; then the **node lock** (as set and reset, D-12) and, under the store lock, a
+  compare-and-set on the generation the confirmation saw (changed → `PRECONDITION_FAILED`, nothing
+  forgotten); audit; lease `FORGOTTEN` (generation + 1); result warning "the level may still be
   raised on node1 until its restart" (US4-9).
 - Any other input combination (`node` with `leaseId`, `forget` without `leaseId`, `leaseId`
   without `forget: true`) → `INVALID_INPUT` (the schema's `oneOf` and the service).
@@ -477,21 +479,28 @@ scheduler and the shutdown:
    next tick decides again).
 3. **Cleanup preconditions** (FR-043: node configured, client installation for its version,
    credentials, version supported by `LOG_LEVEL_WRITE` and detectable — **not** `write.enabled`,
-   the production opt-in or `logLevelWrite`); not met → `RESET_FAILED` `PRECONDITION`.
+   the production opt-in or `logLevelWrite`); not met → `RESET_FAILED` `PRECONDITION` and one
+   audit record `REFUSED` with the reason (nothing is sent, so no `PENDING`; if that record cannot
+   be written, an ERROR is logged and the reason becomes `AUDIT_NOT_WRITABLE`).
 4. Audit `PENDING` (`reset_temporary_log_level`, `trigger`); **fail closed**: if it cannot be
    written, nothing is sent, the lease keeps its state with `lastAttempt` reason
    `AUDIT_NOT_WRITABLE`, an ERROR is logged, and the next tick retries (D-22).
 5. Own-node lookup → another node than the lease names → `RESET_FAILED` `OTHER_NODE_ANSWERS`,
    audit `REFUSED`, nothing sent to StartCLI; same node → `trace --reset`. One deadline of
    `cliTimeout` for both processes.
-6. Under the store lock: compare-and-set on the generation read in step 2 (unchanged, because the
-   node lock is held) → `RESET` with `endedAt`, or `RESET_FAILED` with `lastAttempt` (`code` and
+6. Under the store lock: compare-and-set on the generation read in step 2. It is unchanged in
+   practice — set, reset and forget all hold the node lock, and a takeover by another instance
+   needs this instance to be gone — but if it differs, the outcome is not written, the final audit
+   record says "lease changed meanwhile", and the next tick decides again. Otherwise → `RESET` with
+   `endedAt`, or `RESET_FAILED` with `lastAttempt` (`code` and
    reason `NODE_UNREACHABLE`, `CLI_FAILED`, …); final audit record.
 
 **Scheduler** (`application/nodetools/LeaseScheduler`), one daemon thread
 (`inubit-mcp-log-level-leases`), `scheduleWithFixedDelay(tick, 0, 30 s)`; the first tick runs at
 startup without blocking the MCP initialization. A tick, under the store lock (wait ≤ 2 s; busy →
-skip): per lease decide `cleanup` (own `ACTIVE` expired; own `RESET_FAILED`), `takeover` (owner
+skip): per lease decide `cleanup` (own `ACTIVE` expired; own `RESET_FAILED` or a lease whose last
+attempt was refused or not audited, **at most once per 60 s** after its `lastAttempt` — FR-043's
+"at least every minute"), `takeover` (owner
 not alive, state `ACTIVE` or `RESET_FAILED`: owner := self, generation + 1, audited `trigger:
 takeover`; then `cleanup` if expired or failed, otherwise at its expiry by this instance),
 `forget` (server not configured and `expiresAt + 7 days` passed → `FORGOTTEN`, audited), `remove`
@@ -609,6 +618,12 @@ text appears in a log line or audit record.
   no reset is sent, the lease stays `ACTIVE`/`RESET_FAILED` with `lastAttempt` reason
   `AUDIT_NOT_WRITABLE`, an ERROR is logged, and the next tick retries. So every reset that reaches
   INUBIT has an audit record (FR-043).
+- **Audit volume** of retries: the retry interval is 60 s (D-16), so a lease that cannot be reset
+  produces at most two records per minute (`PENDING` + `FAILED`, or one `REFUSED` for a failed
+  precondition or another answering node) — at most 2,880 records per day and lease — until the
+  reset succeeds, the lease is forgotten with the tool, or it ends `FORGOTTEN` (unconfigured
+  server, 7 days after expiry). Each record is a few hundred bytes; the startup warning and
+  `get_health` show the failing lease so the operator can act.
 - Account: `WritePolicy.account()` of the server.
 
 ## D-23 Lease visibility: `get_health`, startup log, `--check-config` (FR-045)

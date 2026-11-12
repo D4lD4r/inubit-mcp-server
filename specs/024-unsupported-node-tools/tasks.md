@@ -138,8 +138,10 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   `IoLogEntry.java` (`parse(String processId, String entry)`: module part split at the last `(` of
   a part ending in `)`; unparsable module part kept raw with a flag; foreign process id →
   exception), `IoLogListing.java` (`filter(Optional<String> module)` on `moduleName` or `moduleId`
-  equality), `IoLogBounds.java`. Failing tests first in `domain/model/node/IoMessageRefTest.java`
-  (every line of `io-message-ref.vectors` — the same file the helper test uses),
+  equality), `IoLogBounds.java`; creates `src/test/resources/fixtures/node-tools/io-message-ref.vectors`
+  (≥ 5 fictitious entries incl. non-ASCII module names, `<entry>\t<ref>` per line; T013's helper
+  test reuses it). Failing tests first in `domain/model/node/IoMessageRefTest.java`
+  (every line of `io-message-ref.vectors`),
   `IoLogEntryTest.java` (`Orders(acme)(Module-0003)`, names with spaces and non-ASCII, missing id,
   `Input.0`/`Output.x` refused, foreign process id), `IoLogListingTest.java`
 
@@ -210,9 +212,8 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
   to `listOut` (UTF-8, one per line) → `io list ok <n>` / `io list error`; with `ref`: SHA-256 →
   Base64url (16 bytes) per entry, `io match <entry>` + `MultipartDownloadThread(client, user,
   "<workflow>###<entry>", "InputOutputLogging", null, additionalUserGroup)` to `messageOut` →
-  `part message ok <bytes>` / `part message error`, or `io match none` without a download;
-  `src/test/resources/fixtures/node-tools/io-message-ref.vectors` (≥ 5 fictitious entries incl.
-  non-ASCII module names). Failing tests first in `adapter/cli/helper/ClientHelperTest.java` (the
+  `part message ok <bytes>` / `part message error`, or `io match none` without a download (the
+  vector file of T007 is reused, not changed). Failing tests first in `adapter/cli/helper/ClientHelperTest.java` (the
   object name and type sent; listing file content and order; empty answer; every vector's ref; the
   download name built only from the workflow and the listed entry; `io match none` → no download
   thread created; 0-byte download → `part message ok 0`; vendor calls exactly as the contract;
@@ -226,7 +227,7 @@ decisions go to `specs/024-unsupported-node-tools/reviews/implementation.md`.
 
 - [ ] T015 Ports and port wiring (D-24; after T006, T007): `domain/port/ClusterNodePort.java`,
   `IoLogPort.java` (+ `IoLogRead` = `NoMatch` | `Message`, `AutoCloseable`), `NodeConfigPort.java`,
-  `LogLevelPort.java`, `LeaseView.java`; `domain/port/Gateway.java` / `GatewayFactory.java`
+  `LogLevelPort.java` (`LeaseView` follows in T045, after `Lease`); `domain/port/Gateway.java` / `GatewayFactory.java`
   default methods throwing `CLI_UNAVAILABLE`; `adapter/PortSet.java` (compatibility constructor),
   `V81PortSet.java`, `V81Gateway.java`, `AdapterGatewayFactory.java`, `StaleReportingPorts.java`
   (forward), `RefusingPorts.java` (6.1 refusal). Failing tests first in
@@ -282,7 +283,7 @@ the opt-in gets the list and one node's details; a group without it is refused b
   no names, no values) are appended to `specs/024-unsupported-node-tools/research.md` "Spike
   findings"; deviations from D-2/D-7/D-8/D-10 are listed for the owner before the affected flip
 - [ ] T019 [US1] Reconstructed cluster-nodes fixtures and catalogue (D-26, D-27; after T011):
-  `src/test/resources/fixtures/node-tools/v8_1/cluster-nodes/{ok,single,details,details_unknown,details_error,unknown_status,api_missing,garbage}.{frames,exit,origin}`
+  `src/test/resources/fixtures/node-tools/v8_1/cluster-nodes/{ok,single,details,details_truncated,details_unknown,details_error,unknown_status,api_missing,garbage}.{frames,exit,origin}`
   (all `reconstructed <source>`, fictitious `node1`/`node2`, `zone-a`, `/opt/inubit/…`,
   `10.0.0.11:7800`); new `tools/NodeToolsFixtureCatalogueTest.java`: every case has a valid
   `.origin`, every file belongs to a case, and for every (version, capability):
@@ -322,7 +323,8 @@ the opt-in gets the list and one node's details; a group without it is refused b
   equal the T001 reference)
 - [ ] T024 [US1] Contract test (D-27; after T023): `adapter/cli/node/NodeToolsV81ContractTest.java`
   runs `CliClusterNodeAdapter` + `ClusterNodeService` per `v8_1/cluster-nodes` case (test matrix):
-  `ok` → two nodes, one `UNKNOWN`; `single`; `details` → masked pairs + warning; `details_unknown`
+  `ok` → two nodes, one `UNKNOWN`; `single`; `details` → masked pairs + warning;
+  `details_truncated` (`details ok <n> true`) → `details.truncated: true` + hint; `details_unknown`
   → `INVALID_INPUT`; `details_error` → `available: false`; `unknown_status` → `UNKNOWN` + raw;
   `api_missing` → `CLI_UNAVAILABLE`; `garbage` → `UNEXPECTED_RESPONSE`; edge cases maintenance
   (detection), credentials missing (nothing launched), TLS failure
@@ -512,7 +514,9 @@ the other just changed.
   `<home>/.inubit-mcp/<profile>/log-levels/leases.json`, store lock `OwnerOnlyFileLock` on
   `log-levels/.lock`, owner-only through `PrivateFileSystem`, temporary file + atomic move, links
   refused, unreadable/invalid file → `Unreadable` and never overwritten, retention removal (ended +
-  7 days), `implements LeaseView`, created only on the first write; `NodeLogLevelLocks` =
+  7 days), new `domain/port/LeaseView.java` (read-only snapshot `List<Lease>` or `Unreadable`,
+  for `HealthService` and `ConfigSummary`) which `LeaseStore` implements, created only on the
+  first write; `NodeLogLevelLocks` =
   `OwnerOnlyFileLock` on `log-levels/nodes/<group>.<node>.lock` (cross-process, per server; busy →
   `PRECONDITION_FAILED` "another log-level change for test/node1 is running"). Failing tests first
   in `application/nodetools/LeaseStoreTest.java` (round trip incl. generation; `rw-------`/`rwx------`;
@@ -571,13 +575,16 @@ the other just changed.
   guard, node lock, own-node lookup, other-node refusal, confirmation, `PENDING`, `trace --reset`,
   lease `RESET`, result with `leaseOpen`), `leaseId` + `forget` form through
   `WriteGuard.admitWithoutContact` (no request; state must be `RESET_FAILED`; unconfigured server
-  refused; `FORGOTTEN`; warning), every other input combination → `INVALID_INPUT`. Failing tests
+  refused; after the confirmation the node lock and a compare-and-set on the generation the
+  confirmation saw; `FORGOTTEN`; warning), every other input combination → `INVALID_INPUT`. Failing tests
   first in `application/nodetools/LogLevelServiceResetTest.java` (US4-4, US4-8, US4-9; **US4-6**
   another node answers than the open (or failed) lease names → refused naming both, no `trace
   --reset`; **US4-7** for reset and for forget: `write.enabled: false`, production without
   `write.productionOptIn`, no `logLevelWrite` → existing refusal or `NOT_CONFIGURED`, nothing
   sent; forget of an `ACTIVE` lease, unknown id, unconfigured server → `INVALID_INPUT`; forget sends
-  nothing (zero launches, zero gate calls); reset failure keeps the lease and records `lastAttempt`;
+  nothing (zero launches, zero gate calls); forget while another instance holds the node lock →
+  `PRECONDITION_FAILED`, lease unchanged; lease changed between the confirmation and the forget
+  (generation) → `PRECONDITION_FAILED`, nothing forgotten; reset failure keeps the lease and records `lastAttempt`;
   leak check)
 - [ ] T051 [US4] `LogLevelService.cleanup` for one lease (FR-043, D-16 "Cleanup of one lease",
   D-22; after T050): node lock (busy → skipped), generation re-check under the store lock (changed
@@ -587,7 +594,10 @@ the other just changed.
   `application/nodetools/LogLevelServiceCleanupTest.java` (fake port, store, audit, clock: expired
   lease → reset, `RESET`, audit `PENDING` + `EXECUTED`; **write tools off** (`write.enabled:
   false`, opt-in removed, production opt-in removed) → cleanup still runs (owner decision); missing
-  client or credentials → `RESET_FAILED` `PRECONDITION`, nothing sent; other node answers →
+  client or credentials → `RESET_FAILED` `PRECONDITION`, nothing sent, **one audit record
+  `REFUSED` with the reason** (and, if that record cannot be written, an ERROR and reason
+  `AUDIT_NOT_WRITABLE`); compare-and-set failing in the final step → outcome not written, final
+  audit record "lease changed meanwhile"; other node answers →
   `RESET_FAILED` `OTHER_NODE_ANSWERS`, no StartCLI run; reset failure → `RESET_FAILED`
   `NODE_UNREACHABLE`; **audit `PENDING` not writable → nothing sent, state unchanged with reason
   `AUDIT_NOT_WRITABLE`, ERROR logged**; **set during the reset decision**: a set merges into the
@@ -602,7 +612,9 @@ the other just changed.
   `application/nodetools/LeaseSchedulerTest.java` (fake clock, fake liveness, fake port: US4-2
   reset within one tick after expiry; US4-3 and the creator decision: orphaned expired lease reset
   at start, orphaned unexpired lease taken over at once and reset at its expiry; `RESET_FAILED`
-  retried next tick; `AUDIT_NOT_WRITABLE` retried next tick; US4-10 unconfigured server →
+  retried **60 s after its last attempt** (not on the 30 s tick in between; at most two audit
+  records per minute and lease); `AUDIT_NOT_WRITABLE` and precondition refusals retried after 60 s
+  as well; US4-10 unconfigured server →
   `FORGOTTEN` after 7 days, audited, startup warning until then; a live other owner's lease
   untouched; ended leases removed after 7 days) and new
   `application/nodetools/LeaseTwoInstanceTest.java` (**two fake instances**, each with its own
@@ -611,7 +623,7 @@ the other just changed.
   merges a set while B decides a takeover after A "died" → B's cleanup sends nothing for the
   changed generation and ends the lease only on its next tick at the new expiry; both ticks at once
   → exactly one `trace --reset` per expiry; no lease lost or duplicated)
-- [ ] T053 [US4] Shutdown and startup integration (FR-043, FR-045, D-17; after T052): `Wiring.java`
+- [ ] T053 [US4] Shutdown and startup integration (FR-043, FR-045, D-17; after T052 and T036 — same `Wiring.java`/`MainTest.java`): `Wiring.java`
   creates `LeaseStore`, `NodeLogLevelLocks`, `LeaseScheduler` (started after construction),
   `resetLeasesOnShutdown()` (idempotent; `cleanup` with trigger `shutdown` for own open leases,
   parallel, bounded by the largest `cliTimeout`), the shutdown hook runs it **before**
@@ -793,7 +805,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
 - **US4** (after Phase 2): T040 ∥ T043 ∥ T044 ∥ T046 ∥ T047 ∥ T048; T041 after T033 (catalogue test);
   T042 needs T016, T040, T041; T045 needs T043, T044; T049 needs T042, T045–T048; then strictly
   T049 → T050 → T051 → T052 → T053 → T054 → T055 → T056 → T057 (T053–T056 share `Wiring.java`,
-  `Launcher.java` and `MainTest.java`; T054 also after T036); T058 **blocked by T039** and needs
+  `Launcher.java` and `MainTest.java`; T053 after T036, the last US3 task touching them); T058 **blocked by T039** and needs
   T057 and T025.
 - **US5** (after US1–US4 code): T059 needs T054; T062 **blocked by T060**, needs T059 and T025;
   T063/T064 need T062 and T032/T038; T065 **blocked by T061**, needs T062 and T058; T066 only
