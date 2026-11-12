@@ -836,7 +836,7 @@ helper's `variant`.
 
 ### Live check (gates the feature; SC-001, SC-005; D-24)
 
-- [ ] T054 Live test code (offline part; after T043): `live/ServerLogLiveTest.java` (`@Tag("live")`,
+- [X] T054 Live test code (offline part; after T043): `live/ServerLogLiveTest.java` (`@Tag("live")`,
   `-Plive`, production refused by `live/LiveTarget.java`; `INUBIT_LIVE_NODE`,
   `INUBIT_LIVE_LOG_FOLDER=<private folder outside every repository>`, skipped without them; calls
   `download_server_log` for `trace` and, if the group opts in, `webservice` through the wired
