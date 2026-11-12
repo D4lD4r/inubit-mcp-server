@@ -92,3 +92,21 @@ the new tool (`download_server_log`, contract `contracts/mcp-tools-delta.md`).
 - T028 minor for T030: merge `LogExcerpt.hints()` into the top-level `hints` of the tool output
   (contract "Output" has no `excerpt.hints`) and assert at least one variant text, e.g. "No line
   of the scanned window contains the search text".
+
+## Checkpoint phases 3 and 4 (after T046, commit c830d3ef)
+
+- `mvn -o -q clean verify` (T046 working tree, before a javadoc-only fix): exit 0; 7872 tests,
+  0 failures, 0 errors, 58 skipped — above the T001 reference of 7248 (SC-002).
+- Tool list (SC-002): `MainTest` asserts the 0.9.1 names plus `download_server_log` only; the tool is
+  announced for 8.1 nodes with a client home (trace) and, with `unsupported.serverLogRead`, for the
+  web service log. 9.0 stays refused "not yet verified" for both logs until T051/T052.
+- Code review of phases 3 and 4: T021–T046 each reviewed independently; all APPROVED, in round 1
+  except T025 and T034 (round 2). The owner approved the neutralized fixture diffs of T033 and T046.
+- Live: T021 (8.1 trace recording) and T034 (8.1 webservice spike) on the non-production 8.1 test
+  server; findings in research.md "Spike findings".
+- Carried forward:
+  - T057 must create the anchor `download_server_log` in docs/tools.md (linked from docs/setup.md).
+  - T041 note: the adapter requires the downloaded file to exist with the reported size; whether an
+    empty `webservice.log` on the server leaves no file at all is unknown (not observed in T034) —
+    watch for it in the live checks T055/T056.
+  - T050 (9.0 webservice spike): the throwaway runner must refuse a version mismatch (T034 review).
