@@ -604,3 +604,57 @@ Related offline checks run in the default build: `performance/HealthOverviewPerf
 
 V13 (production refusal) needs no server contact: a call on a `production: true` group without
 `write.productionOptIn` is refused with `PRODUCTION_PROTECTED` before anything is read.
+
+## Recording administration commands (feature 022)
+
+The live checks L-1 … L-18 of feature 022 (`specs/022-full-interface-coverage/research.md`,
+"Live checks") record administration commands on non-production servers of 8.1 and 9.0. Tasks
+marked [LIVE] run against such a server; [LIVE-W] marks a command that changes it.
+
+### Raw outputs
+
+- Every raw output of a [LIVE] task goes to `~/inubit-mcp-recordings/022/`: StartCLI stdout,
+  stderr and exit code, REST responses, the before and after state of a (W) check, and the
+  `INUBIT_LIVE_RECORD_DIR` of a live test.
+- The folder is outside every repository and every git working tree. Create it owner-only:
+
+  ```bash
+  mkdir -p ~/inubit-mcp-recordings/022
+  chmod 700 ~/inubit-mcp-recordings ~/inubit-mcp-recordings/022
+  ```
+
+- Raw files never enter a repository or a commit. Only the neutralized case files
+  (`tools/neutralize.py`, then `tools/check-identifiers.py`) are copied to
+  `src/test/resources/fixtures/{v8_1,v9_0}/{cli,rest}/` as `admin-<entry-slug>[-<variant>].*`
+  (layout in the fixture READMEs, section "Administration cases (feature 022)").
+- `tools/record-fixtures.sh` is the exception: it keeps its raw output in its own temporary
+  directory and writes only anonymized output straight into the fixture folders. The private
+  folder is for everything else: StartCLI or REST output captured by hand, the before and after
+  states of a [LIVE-W] command, and `INUBIT_LIVE_RECORD_DIR`.
+
+### Approval of a [LIVE-W] command
+
+Before each [LIVE-W] command (FR-026), the operator writes one approval line in the chat. One
+line approves exactly one command on one server:
+
+```text
+APPROVE <group>/<node> | <command> | change: <expected change> | undo: <how to undo it>
+```
+
+- `<group>/<node>`: the server, a node of a non-production group.
+- `<command>`: the complete command as it runs (StartCLI command with its options, or HTTP
+  method and path), never a password.
+- `change:` what the command changes on the server, as the before and after state should show.
+- `undo:` the command or step that restores the previous state.
+
+Example:
+
+```text
+APPROVE test/node1 | trace on | change: server trace switches from off to on | undo: trace off
+```
+
+- The agent runs only the command of the line, only on that server. Another command, another
+  server or a second run needs a new line. The approval is noted in the "Validation record" of
+  `specs/022-full-interface-coverage/quickstart.md`.
+- A [LIVE] task that only reads needs no undo. When the agent runs it, the operator's approval
+  names the server, the command and the output folder below `~/inubit-mcp-recordings/022/`.

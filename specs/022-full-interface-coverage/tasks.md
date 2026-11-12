@@ -92,7 +92,7 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
   - Rule: every user, workflow, host and value is fictitious, and every secret is replaced by a
     planted test secret.
   - No case files yet.
-- [ ] T003 [P] Private raw-output folder rule: document in `docs/live-tests.md` (new section
+- [X] T003 [P] Private raw-output folder rule: document in `docs/live-tests.md` (new section
   "Recording administration commands") where raw outputs of [LIVE] tasks go
   (`~/inubit-mcp-recordings/022/`, outside every repository). Also document the approval line
   format the operator writes in the chat for a [LIVE-W] command: server, command, expected
