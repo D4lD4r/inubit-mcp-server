@@ -164,3 +164,28 @@ The variants of the recorded `version` case for feature 009 (research D-15; task
 | `version` | recorded | the 8.1.17 client: preamble, `CLI 8.1.17`, copyright and URL lines, `Supported inubit Process Engine versions from 4.0.1 to 8.1.17.`, exit 0 |
 | `version_no_range` | **synthetic** | `version` without the `Supported …` line: `CLI 8.1.17` is the only version line, so the client reports no supported range; stderr and exit 0 unchanged |
 | `../../v9_0/cli/version` | **synthetic** | a 9.0 client: `version` with `CLI 9.0.7` and `Supported inubit Process Engine versions from 9.0.0 to 9.0.7.`; stderr and exit 0 unchanged. Kept with the other 9.0 fixtures, see `../../v9_0/README.md` |
+
+## Administration cases (feature 022)
+
+The recordings of the administration commands and endpoints of feature 022 (research D-26,
+`quickstart.md` "Live checks"; tasks T002). A coverage-list row becomes `reachable` for 8.1 only
+in the commit that adds its recording here, together with its row in the table below. No case
+has been recorded yet.
+
+- **Name**: `admin-<entry-slug>[-<variant>]`. `<entry-slug>` names the coverage-list entry or the
+  group of entries the recording belongs to, lower case with hyphens (`users`, `tags`,
+  `settings-change`, …); the optional `<variant>` names the input or outcome (`-empty`,
+  `-unknown`, `-refused`, …).
+- **CLI cases** (this directory): `<case>.stdout`, `<case>.stderr`, `<case>.exit`, split as
+  described in "Sources and neutralization" above. A case of a stdin session also has
+  `<case>.stdin`: the lines the session sent, one per line, with the password line replaced by
+  `<password>`.
+- **REST cases** (`../rest/`): `<case>.http` (status and headers) and the body in the format the
+  endpoint answered with (`<case>.json`, `<case>.xml`, …), as the existing REST cases.
+- **Neutralization**: with `tools/neutralize.py`, then checked with `tools/check-identifiers.py`;
+  the raw outputs are never committed. Every user, workflow, host and value in a case is
+  fictitious, and every secret (password, configuration or module value, key material, e-mail
+  in a listing) is replaced by a planted test secret.
+
+| Case | Kind | Coverage-list entry | What it is |
+|---|---|---|---|

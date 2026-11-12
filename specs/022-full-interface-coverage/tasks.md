@@ -82,7 +82,7 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
      - US5 as rewritten;
      - `get_server_settings` as its own tool;
      - version deletions offered.
-- [ ] T002 [P] Fixture layout (D-26): add an "Administration cases (feature 022)" section to
+- [X] T002 [P] Fixture layout (D-26): add an "Administration cases (feature 022)" section to
   `src/test/resources/fixtures/v8_1/cli/README.md` and `src/test/resources/fixtures/v9_0/README.md`.
   - Case names: `admin-<entry-slug>[-<variant>]`.
   - CLI cases: `.stdout`/`.stderr`/`.exit`; session cases also `.stdin` (with the password line

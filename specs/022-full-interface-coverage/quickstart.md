@@ -51,7 +51,8 @@ The checks are L-1 … L-18 in [research.md](research.md#live-checks).
 2. **Recording**: `tools/record-fixtures.sh` (`RECORD_INUBIT_LINE=8.1` or `9.0`) with the
    check's case names. Fixtures go to `src/test/resources/fixtures/{v8_1,v9_0}/{cli,rest}/`.
 3. **Neutralization**: `tools/neutralize.py`, then `tools/check-identifiers.py`. 9.0 cases get
-   `.origin` = `recorded <date> <version>`.
+   `.origin` = `recorded <date> <version> neutralized` (` neutralized` appended after
+   `tools/neutralize.py` has run).
 4. **Flip**: in the same commit, set the coverage row to `reachable` (or `excluded:<reason>`) and
    add the contract test.
 
