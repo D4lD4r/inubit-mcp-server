@@ -43,9 +43,12 @@ choice, pin probe), in a new adapter `adapter/cli/CliTraceRunner` built like
   `TraceCommand` declares (`withLongOpt("download")`).
 - The file is `<private dir>/trace.log` (D-7); the path must pass `CliPaths.passable` (existing
   `checkPreconditions`, `CliExportRunner.java:370-390`: temp root usable, credentials complete).
-- Success: StartCLI's success classification **and** one `n-OK` message matching
+- Success: exit code 0, no error marker or error classification of
+  `CliOutputClassifier.classifyTraceDownload`, **and** exactly one stdout line matching
   `^Trace data \(\S+ MB\) stored to: .+$` **and** a regular file at the requested path. The path
-  in the message is never used or returned. Anything else → D-14.
+  in the message is never used or returned. Anything else → D-14. *(Corrected after the 8.1.17
+  recording, see "Spike findings": StartCLI prints this line **without** an `n-OK:` prefix, so
+  `CliOutputClassifier.classify`'s "success = at least one `n-OK` message" does not apply.)*
 
 **Rationale**: FR-005 requires the documented command through the existing channel; the channel
 already provides argument arrays, `--execCommand` quoting, timeouts, exit-code evaluation, a

@@ -385,8 +385,9 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   (`CliExportRunner.java:370-390`: temp root usable and `CliPaths.passable`, credentials
   complete); reservation and private directory with `LOG_PREFIX`; `CliRunner.run(…,
   traceDownload(<dir>/trace.log), remaining, "cliExportTimeout", guard)` (017 client choice, pin
-  probe, password on stdin); success = StartCLI's success classification **and** one `n-OK`
-  message matching `^Trace data \(\S+ MB\) stored to: .+$` **and** a regular file at the
+  probe, password on stdin); success = exit code 0 with no error marker/classification of
+  `classifyTraceDownload` **and** exactly one stdout line (no `n-OK:` prefix, as recorded in
+  T021) matching `^Trace data \(\S+ MB\) stored to: .+$` **and** a regular file at the
   requested path (the path in the message is never used or returned); otherwise
   `UNEXPECTED_RESPONSE` "download_server_log got an unexpected answer from <node>; … StartCLI did
   not confirm the trace download", next step "Download the log in the Workbench; report the INUBIT
@@ -397,7 +398,9 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   `--execCommand` text; password only on stdin (not in argv or environment); `cliExportTimeout`
   named as budget; the 8.1 client chosen per 017; every v8_1/trace case → its code (`ok` result,
   `empty` 0 bytes, `missing` → `NOT_FOUND`, `login_failure` → `AUTH_FAILED`, `forbidden` →
-  `FORBIDDEN`); success text missing or no file → `UNEXPECTED_RESPONSE`; no client home →
+  `FORBIDDEN`; `CliOutputClassifier` has no 403 rule for StartCLI output yet, so add an
+  `AccessDenied` marker rule → `FORBIDDEN` to `classifyTraceDownload` (trace context only,
+  `classify` unchanged) with a test in `CliOutputClassifierTest`); success text missing or no file → `UNEXPECTED_RESPONSE`; no client home →
   `CLI_UNAVAILABLE` naming `defaults.cliClients."8.1"`; edge case "maintenance mode, credentials
   not available, TLS failure" with the existing StartCLI texts and mechanisms: credentials not
   resolvable → `SECRET_UNRESOLVED` (the node's usual credential error) with **nothing launched**,
