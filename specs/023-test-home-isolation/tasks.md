@@ -162,7 +162,7 @@ reads the process home.
 
 ## Phase 7: Polish & validation
 
-- [ ] T009 [P] Docs: `CHANGELOG.md` under `## [Unreleased]` add `### Fixed` with one line ("Tests and
+- [X] T009 [P] Docs: `CHANGELOG.md` under `## [Unreleased]` add `### Fixed` with one line ("Tests and
   live tests no longer write into `~/.inubit-mcp`; the server's state locations are unchanged.");
   in `docs/live-tests.md` replace the statements that live runs leave backups, ledger, packages and
   audit records under `~/.inubit-mcp/<profile>/` (around lines 110, 170, 205, 218; leave line 525,
