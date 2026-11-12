@@ -45,6 +45,15 @@ Decisions taken by the creator (owner may override):
 - The administrative areas always use the server-side preview, even where a stage uses
   `write.confirmation: CLIENT` (FR-015).
 
+Owner's answers after review round 1:
+
+- Tags on operational stages get a tool of their own with write enablement and production opt-in;
+  every tag operation names an explicit diagram group or repository path, and the owner-wide
+  forms are excluded (FR-019a). `tag_artifacts` stays as it is.
+- File-based user, group and role imports are refused when the file contains the server's login
+  user, its group or its role; a directory synchronisation is allowed only when the login user is
+  an internal user of INUBIT (FR-019b).
+
 **Input**: User description: "I would like to add all missing methods of StartCLI and REST, both
 reading and writing, to the MCP."
 
@@ -75,7 +84,7 @@ exactly one user story.
 | D. Processes and run-time data | write | `processdelete error` | US4 |
 | D. Processes and run-time data | write | `process export\|import\|resume\|deleteBlocked` | US5 |
 | E. Diagrams, modules, repository, tags | read | `GET /model/nodeByModel/…`, `GET /model/nodeByName/…` (8.1 only), `export --exportMetadata\|--exportMetadataNames`, `export --exportWorkflowGroupExclude`, `GET /process/metadata/{name}`, `GET /isconnector?…type=validateWorkflow`, `fetchXSLT1.0` | US3 |
-| E. Diagrams, modules, repository, tags | write | `tag --tagSetActive\|--tagRemoveActive` | US4 |
+| E. Diagrams, modules, repository, tags | write | `tag --tagSetActive\|--tagRemoveActive`, each with an explicit diagram group or repository path | US4 |
 | E. Diagrams, modules, repository, tags | write | `delete --deleteWorkflow\|--deleteModule`, `DELETE /diagrams/…`, `DELETE /modules/…`, `DELETE /repository`, `rename …`, `tag --tagDelete\|--tagRemove\|--tagDiagram\|--tagRepositoryPath\|--tagWorkflowGroupExclude`, `import --importMetadata`, `POST /isconnector` | US6 |
 | Start options | write | `--backupFile`, `--backupRepository` (documented by name only) | US6 |
 
@@ -268,8 +277,12 @@ audit record. Testable offline.
    before and after, and the description says that it stays on until it is switched off.
 9. **Given** the midnight task is triggered, **When** it is confirmed, **Then** the result names
    INUBIT's answer and the time it was sent.
-10. [NEEDS CLARIFICATION: tags on operational servers - see the question to the owner after
-    review round 1.]
+10. **Given** a test stage with write enablement, **When** the active tag version of a diagram
+    group is set, **Then** the call names the diagram group and the tag, the preview names the
+    workflows whose active version changes (from which version to which), and the result re-reads
+    them (FR-019a).
+11. **Given** a call to set or remove the active tag version without a diagram group or repository
+    path, **When** it is made, **Then** it is refused with `INVALID_INPUT` before anything is read.
 
 ---
 
@@ -353,8 +366,8 @@ before the deletion. Testable offline.
    module, its owner and the alias; the password is passed as FR-022 requires.
 9. **Given** a tag to delete, **When** the preview is shown, **Then** it names every object and
    version that carries the tag, and the backup holds that list (FR-018); the deletion is limited
-   to the scope the call names
-   [NEEDS CLARIFICATION: tag removal scope - see the question to the owner after review round 1].
+   to the diagram group or repository path the call names, and objects outside it keep the tag
+   (FR-019a).
 10. **Given** a workflow with an IS Connector and an input file in an allowed upload folder,
     **When** the workflow is started through the connector, **Then** the result names INUBIT's
     answer; if a check on a test system shows the call cannot be built from the documentation,
@@ -395,10 +408,13 @@ offline.
    repository (INUBIT's two documented choices); the preview names the number of owned workflows
    and repository entries and which of them will be cleaned up. INUBIT answers success even for
    an unknown user, so the result comes from re-reading the user list (FR-024).
-6. **Given** a user, group or role import, or a directory synchronisation, **When** it is
-   requested, **Then** [NEEDS CLARIFICATION: protection of the server's own login user in bulk
-   imports - see the question to the owner after review round 1].
-7. **Given** a message text, **When** it is sent to the logged-in users, **Then** the preview names
+6. **Given** a user, group or role import file that contains the server's login user, its group
+   or its role, **When** the import is requested, **Then** it is refused before any call to
+   INUBIT and the error names which of the three the file contains (FR-019b).
+7. **Given** the server's login user is managed by a directory service, **When** a directory
+   synchronisation is requested, **Then** it is refused; **Given** the login user is an internal
+   INUBIT user, **Then** the synchronisation is previewed and executed as other changes.
+8. **Given** a message text, **When** it is sent to the logged-in users, **Then** the preview names
    the recipients and the text; deleting a message names it by id.
 
 ### Edge Cases
@@ -533,6 +549,17 @@ offline.
   or right that grants it CLI access. `PUT /keys` deploys keys to a module keystore and does not
   touch the server's own TLS certificate; this feature changes no certificate pin (feature 006
   stays the only way to rotate a pin).
+- **FR-019a**: Tag operations on stages other than development (setting or removing the active
+  version, removing or deleting a tag) MUST be offered by a tool of their own, governed by FR-014
+  (write enablement, production opt-in), not by the development-stage rules of `tag_artifacts`.
+  Every call MUST name an explicit diagram group (with diagram type) or repository path; a call
+  without one is refused before anything is read, and the owner-wide forms of the `tag` command
+  are excluded with the reason that they change tags of every group of the owner. `tag_artifacts`
+  is not changed.
+- **FR-019b**: A file-based import of users, groups or roles MUST be refused when the file
+  contains the server's login user, its group or its role; the server reads the file before
+  sending it. A directory synchronisation MUST be refused when the login user is managed by the
+  directory service; it is allowed when the login user is an internal INUBIT user.
 - **FR-020**: Values MUST be validated before any call to INUBIT: numbers against the limits
   INUBIT reports (threads against the license), names against the patterns of the existing tools,
   enumerations against fixed lists. Filters (the `ps` filter, the run-time data export filter) are
