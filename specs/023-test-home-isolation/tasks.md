@@ -43,7 +43,7 @@ to `Wiring`.
   .resolve(".inubit-mcp")` (walk the tree if it exists; message names the offending paths). Run it
   on the unchanged production code and observe it red; put the failure line into the commit body.
   No production change in this task.
-- [ ] T003 [US1] Remove the dead factory `ConfigLoader.forSystem()` and imports that become unused in
+- [X] T003 [US1] Remove the dead factory `ConfigLoader.forSystem()` and imports that become unused in
   `main/config/ConfigLoader.java` (FR-004; no callers on `main`, 021 or 022).
 - [ ] T004 [US1] Make the home a required `Wiring` parameter (research D-1, D-2, D-6a; contract
   `contracts/wiring-home.md`). In `main/Wiring.java`: add `Path userHome` directly after
