@@ -100,3 +100,22 @@ flip it, every 8.1 and 9.0 node lists `server_settings` under `notUsable` ("not 
 a pinned 8.1 node reports `partially_supported`. This is accepted knowingly: phases 1–3 ship in
 one PR (US1), so no release from this branch shows the capability without its tool; plan.md's
 "capabilities per story" holds per PR. Later stories add their capability in their port task.
+
+## Rebase onto main after the 021 merge (2026-11-12, after T021)
+
+PR #84 (feature 021) was squash-merged as `913fdf93`. This branch was moved with
+`git rebase --onto origin/main 2af6435e` (the last 021 commit, T042), so only the 33 commits of 022
+were replayed; the old head is kept locally as `backup/022-pre-onto`. Conflicts, all resolved:
+
+- `CapabilityMatrix` / `CapabilityMatrixTest` (T011): 021 now declares both server logs supported
+  on 8.1 and 9.0; the merged matrix keeps that and adds `SERVER_SETTINGS` unsupported with "not yet
+  verified" on 8.1 and 9.0; the test exclusions list only `SERVER_SETTINGS` (and partner
+  management where it was excluded before).
+- `Wiring.allowed` Javadoc (T011): both feature notes kept.
+- `CliRunner` (T012, T019): 021 moved the pre-guard checks into `beforeTheGuard` and a deadline
+  overload; the session result masking now uses `guard.acquire()`, `beforeTheGuard` calls the
+  public `checkPin` from T019, and the `guarded` Javadoc keeps both notes.
+
+Full build afterwards (`mvn -o clean verify -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-022-tmp`):
+BUILD SUCCESS. The T001 references (test count, `ToolAnnouncementTest` lists) are taken again
+before the US1 PR opens, as noted in section 1.
