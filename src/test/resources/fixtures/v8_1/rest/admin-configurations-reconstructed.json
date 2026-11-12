@@ -1,0 +1,46 @@
+{
+  "SeverConfiguration": {
+    "JschConfigurationType": {
+      "MaxAuthTries": 9,
+      "PubkeyAcceptedAlgorithms": [
+        "ssh-ed25519",
+        "rsa-sha2-512"
+      ],
+      "compression.s2c": "none",
+      "enable_server_sig_algs": true
+    },
+    "GUIThreadsCount": 10,
+    "NotifyWorkflow": "",
+    "UserPasswordLimitPattern": "/(?=^.{8,255}$).*/",
+    "ProcessUserServer": {
+      "Url": "http://process-user.example.invalid:8080",
+      "Login": "synthetic-login-0001",
+      "ProcessUserImTenantAdminCredentials": {},
+      "KeyCloakClientCredential": "synthetic-secret-0301"
+    },
+    "SMTPProperties": {
+      "ErrorHost": "smtp.example.invalid",
+      "ErrorPort": "25",
+      "ErrorAuth": true,
+      "ErrorUser": "synthetic-user-0001",
+      "ErrorPassword": "synthetic-secret-0302"
+    },
+    "LDAPProperties": {
+      "LDAPHost": "ldap.example.invalid",
+      "LoginDN": "cn=Synthetic,dc=example,dc=invalid",
+      "BindValue": {
+        "encrypted": true,
+        "value": "synthetic-secret-0303"
+      }
+    },
+    "SystemProperties": {
+      "synthetic.timeout": "36000",
+      "synthetic.trust.material": "-----BEGIN PRIVATE KEY-----\nMIIBsyntheticsecret0304\n-----END PRIVATE KEY-----"
+    },
+    "MimetypesFileType": {
+      "application/xml": "xml XML",
+      "text/csv": "csv CSV"
+    },
+    "TracingCustom": {}
+  }
+}

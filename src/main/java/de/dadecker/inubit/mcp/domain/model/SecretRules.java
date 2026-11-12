@@ -55,10 +55,13 @@ public final class SecretRules {
     }
 
     /**
-     * A keystore or PEM private key as text, base64 of at least 64 characters, or base64 of any
-     * length in an {@code InternalDocument}.
+     * True if {@code value} is key material: a keystore or PEM private key as text, base64 of at
+     * least 64 characters, or base64 of any length in an {@code InternalDocument}. The one
+     * key-material rule (FR-010); {@code SecretPaths} of the workspace export calls it too.
+     *
+     * @param type the declared type of the value, if there is one
      */
-    private static boolean isKeyMaterial(Optional<String> type, String value) {
+    public static boolean isKeyMaterial(Optional<String> type, String value) {
         if (KeyMaterial.isKeyMaterial(value.getBytes(StandardCharsets.ISO_8859_1))) {
             return true;
         }

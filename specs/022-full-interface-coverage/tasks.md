@@ -297,7 +297,7 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
     for `node`, `privilegedWorkflows` and `dbConnectionTolerance`.
   - Failing tests first: `LicenseXmlParserTest.java` with a reconstructed fixture (the real one
     after T014): DTD refused, unknown elements ignored, missing expiry â†’ part unavailable.
-- [ ] T017 [US1] `adapter/rest/v81/ConfigurationJsonParser.java` (after T015):
+- [X] T017 [US1] `adapter/rest/v81/ConfigurationJsonParser.java` (after T015):
   - accepts the root key `SeverConfiguration` and `ServerConfiguration`;
   - the section names are the top-level keys below the root;
   - a section's leaves are flattened to `{path, value | masked}` through `JsonLeafMasker`, with
@@ -347,6 +347,10 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
     `adapter/PortSet.java`, `adapter/RefusingPorts.java`, `adapter/StaleReportingPorts.java`,
     `adapter/V81Gateway.java`, `adapter/AdapterGatewayFactory.java`, `V81PortSet.java`
     (9.0 reuses it).
+  - From the T017 review: `ConfigurationJsonParser.parse` takes `maxValues`/`maxChars`; the port
+    passes the `ResultLimiter` limits of the call (e.g. `configuration(section, limits)`), and the
+    parser rejects `maxValues < 1` like `ResultLimiter.validate` and cuts a `Leaf.path` longer than
+    `ItemBounds.MAX_FIELD_CHARS` with the truncation marker.
   - Failing tests first: `adapter/rest/v81/V81SettingsAdapterTest.java` (WireMock: 200; 403 â†’
     `FORBIDDEN` naming "System Administrator"; 503 â†’ `MAINTENANCE_MODE`) and `WiringAuditTest`.
 - [ ] T021 [US1] `application/ServerSettingsService.java`:
@@ -410,6 +414,10 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
     empty instead of failing the whole `license` part (the threads are only the `/metrics`
     fallback); rename or drop the `doesNotContain` assertion on `facts.toString()` in
     `LicenseXmlParserTest`.
+  - From the T013/T017 reviews: check the recorded `/configurations` answer for sibling type
+    fields or `encrypted` flags; if there are any, `JsonLeafMasker` passes the type to
+    `SecretRules.masks`; replace the SYNTHETIC `admin-configurations-reconstructed` and
+    `admin-license-reconstructed` cases by the recordings.
 - [ ] T026 [US1] 9.0 contracts and flip [BLOCKED: T024]: `SettingsV90ContractTest.java`, rows
   and matrix for `v9_0`, catalogue entries.
   - the same for the `v9_0` column of `license -td` / `license -ts` (`covered:get_server_settings`);

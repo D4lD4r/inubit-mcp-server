@@ -1,0 +1,10 @@
+SYNTHETIC – reconstructed GET /ibis/rest/configurations answer until T014 records the real one
+Hand-written fixture for ConfigurationJsonParser (tasks.md T017), shortened from the vendor example
+of GET /configurations (8.1): the root key is the documented "SeverConfiguration" (sic), the
+sections are a few of the documented ones with fictitious values. The vendor example has no
+secret values, no "encrypted" flags and no sibling type fields; the planted secrets are invented:
+ProcessUserServer/KeyCloakClientCredential (secret name), SMTPProperties/ErrorPassword (secret
+name), LDAPProperties/BindValue/value ("encrypted": true sibling flag) and
+SystemProperties/synthetic.trust.material (a PEM private key, key material). Every value starting
+with "synthetic-secret-" is a planted test secret. Replace this case with the recording of T014
+(admin-configurations*) and check it for sibling type fields.

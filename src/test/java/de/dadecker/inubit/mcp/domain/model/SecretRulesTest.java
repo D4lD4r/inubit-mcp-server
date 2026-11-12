@@ -97,4 +97,18 @@ class SecretRulesTest {
         assertThat(SecretRules.masks("Name", Optional.empty(), false, shortJks))
             .as("short base64 outside a document is not decoded").isFalse();
     }
+
+    @Test
+    void theKeyMaterialRuleLooksAtTheValueOnly() {
+        // T017: the one key-material rule that SecretPaths (features 003, 018) also calls
+        byte[] jks = Arrays.copyOf(new byte[] {(byte) 0xfe, (byte) 0xed, (byte) 0xfe,
+            (byte) 0xed, 0, 0, 0, 2}, 8);
+        String shortJks = Base64.getEncoder().encodeToString(jks);
+
+        assertThat(SecretRules.isKeyMaterial(Optional.empty(), PEM_KEY)).isTrue();
+        assertThat(SecretRules.isKeyMaterial(Optional.of("InternalDocument"), shortJks)).isTrue();
+        assertThat(SecretRules.isKeyMaterial(Optional.of("String"), shortJks)).isFalse();
+        assertThat(SecretRules.isKeyMaterial(Optional.of("Password"), "harmless-0001"))
+            .as("a secret type is not key material").isFalse();
+    }
 }

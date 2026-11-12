@@ -51,9 +51,12 @@ public record ConfigurationView(List<String> sections, Optional<String> section,
     }
 
     /**
-     * One leaf of a section: {@code {path, value}}, or {@code {path, masked: true}}.
+     * One leaf of a section: {@code {path, value}}, or {@code {path, masked: true}}. An empty
+     * {@code value} means "masked" and nothing else: a JSON {@code null} is shown as the text
+     * {@code null} and an empty string as {@code ""}, never as {@code Optional.empty()}.
      *
-     * @param path  the path of the leaf below the section, e.g. {@code /smtp/host}
+     * @param path  the path of the leaf below the section, e.g. {@code /smtp/host}; empty for a
+     *              section that is a single value
      * @param value the value; empty when masked
      */
     public record Leaf(String path, Optional<String> value) {
