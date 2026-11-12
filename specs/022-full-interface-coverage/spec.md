@@ -23,6 +23,28 @@
   per stage in addition to the write enablement (FR-016); a command that can take its secret only
   on a command line visible to other processes is excluded (FR-022).
 
+### Spec review round 1, 2026-11-12
+
+Decisions taken by the creator (owner may override):
+
+- Every entry of the Background table belongs to exactly one user story; entries no story covered
+  were assigned to one.
+- The tool limit is a total of 10 new tools; each serves exactly one user story (FR-006).
+- Where REST and StartCLI offer the same function for a version, REST is used (constitution,
+  Principle V); facts that `get_health` already returns are not read again (FR-002).
+- A bulk change re-reads its set right before sending and is refused with a new preview if the
+  set changed (FR-017).
+- The run-time data export does not change the source; it is governed like `export_archives`
+  plus the run-time data opt-in, not by the write enablement (FR-016a). If a check on a test
+  system shows that it changes the source, it becomes a write under FR-014.
+- Filters are structured fields, never a raw expression (FR-020).
+- Upload files come only from folders listed in a new profile setting, empty by default, with a
+  size limit per file type (FR-021).
+- `PUT /keys` deploys keys to a module keystore, not to the server's own TLS certificate; the
+  certificate pin of feature 006 is not touched by this feature (FR-019).
+- The administrative areas always use the server-side preview, even where a stage uses
+  `write.confirmation: CLIENT` (FR-015).
+
 **Input**: User description: "I would like to add all missing methods of StartCLI and REST, both
 reading and writing, to the MCP."
 
@@ -36,21 +58,34 @@ An operator who needs one of these functions still has to open the Workbench or 
 StartCLI.
 
 The missing functions for operation and administration fall into five areas. The table is the
-scope of this feature; commands are named as the vendor documents them.
+scope of this feature; commands are named as the vendor documents them, and each row belongs to
+exactly one user story.
 
-| Area | Missing read access | Missing write access |
-|---|---|---|
-| A. Server state and settings | `license -td\|-ts`, `GET /license`, `threads showNumberOfWorkflowThreads`, `privilegedWorkflows showThreadsPercentage\|showWorkflowList`, `dbconnectiontolerance show`, `getBlockingQueueSize`, `GET /configurations`, `date`, `lls`, `-sv`, `-pctmem`, `-maintenanceState` | `maintenance on\|off [-eq]`, `POST /ready/{on\|off}`, `threads setNumberOfWorkflowThreads`, setting the share of threads for privileged workflows, `dbconnectiontolerance set\|drop`, `PUT\|POST /configurations`, `PUT /license`, `triggerMidnightTask`, `trace on\|off`, `trace -l <level>`, `debug on\|off` |
-| B. Users and groups | `finger <login>`, `user <name>`, `-who`, `-nwho`, `GET /user/users`, `msglist`, `msgread` | `create -cu\|-cug\|-cur`, `user --setGroup\|--setAdditionalGroups\|--addAdditionalGroups\|--removeAdditionalGroups`, `passwd`, `delete --deleteUser\|--deleteUserGroup`, `DELETE /user/users/{name}`, `import --importUserGroup\|--overwriteUserRoles\|--importLDAPDetails\|--syncLDAPUsers`, `msgsend`, `msgdel` |
-| C. Libraries, plug-ins, EDI rules, keys | `library --list` | `library --upload\|--delete\|--deleteAll`, `plugin --register\|--deregister`, `PUT /libraries`, `DELETE /libraries/{name}`, `PUT\|POST /edirules`, `PUT /keys` |
-| D. Processes and run-time data | `ps -f '<filter>'`, `ps -u`, `-ne`, `-nx`, `-nw`, `-nq` on 8.1 and 9.0, `process listBlocked`, `process validateExport` | `processdelete error`, `process export\|import\|resume\|deleteBlocked` |
-| E. Diagrams, modules, repository, tags | `GET /model/nodeByModel/…`, `GET /model/nodeByName/…` (8.1 only), `export --exportMetadata\|--exportMetadataNames`, `export --exportWorkflowGroupExclude`, `GET /process/metadata/{name}`, `GET /isconnector?…type=validateWorkflow`, `fetchXSLT1.0`, reading a repository resource | `delete --deleteWorkflow\|--deleteModule`, `DELETE /diagrams/…`, `DELETE /modules/…`, `DELETE /repository`, `rename …`, `tag --tagSetActive\|--tagRemoveActive\|--tagDelete\|--tagRemove\|--tagDiagram\|--tagRepositoryPath\|--tagWorkflowGroupExclude`, `import --importMetadata`, `POST /isconnector` |
+| Area | Kind | Entries | Story |
+|---|---|---|---|
+| A. Server state and settings | read | `license -td\|-ts`, `GET /license`, `threads showNumberOfWorkflowThreads`, `privilegedWorkflows showThreadsPercentage\|showWorkflowList`, `dbconnectiontolerance show`, `getBlockingQueueSize`, `GET /configurations`, `date`, `lls`, `-sv`, `-pctmem`, `-maintenanceState` | US1 |
+| A. Server state and settings | write | `maintenance on\|off [-eq true\|false]`, `POST /ready/{on\|off}`, `trace on\|off`, `trace -l <level>`, `debug on\|off`, `triggerMidnightTask` | US4 |
+| A. Server state and settings | write | `threads setNumberOfWorkflowThreads`, setting the share of threads for privileged workflows, `dbconnectiontolerance set\|drop`, `PUT\|POST /configurations`, `PUT /license` | US6 |
+| B. Users and groups | read | `finger <login>`, `user <name>`, `-who`, `-nwho`, `GET /user/users`, `msglist`, `msgread` | US2 |
+| B. Users and groups | write | `create -cu\|-cug\|-cur`, `user --setGroup\|--setAdditionalGroups\|--addAdditionalGroups\|--removeAdditionalGroups`, `passwd`, `delete --deleteUser\|--deleteUserGroup`, `DELETE /user/users/{name}`, `import --importUserGroup\|--overwriteUserRoles\|--importLDAPDetails\|--syncLDAPUsers`, `msgsend`, `msgdel` | US7 |
+| C. Libraries, plug-ins, EDI rules, keys | read | `library --list` | US3 |
+| C. Libraries, plug-ins, EDI rules, keys | write | `library --upload\|--delete\|--deleteAll`, `plugin --register\|--deregister`, `PUT /libraries`, `DELETE /libraries/{name}`, `PUT\|POST /edirules`, `PUT /keys` | US6 |
+| D. Processes and run-time data | read | `ps -f '<filter>'`, `ps -u`, `-ne`, `-nx`, `-nw`, `-nq` on 8.1 and 9.0 | US3 |
+| D. Processes and run-time data | read | `process listBlocked`, `process validateExport` | US5 |
+| D. Processes and run-time data | write | `processdelete error` | US4 |
+| D. Processes and run-time data | write | `process export\|import\|resume\|deleteBlocked` | US5 |
+| E. Diagrams, modules, repository, tags | read | `GET /model/nodeByModel/…`, `GET /model/nodeByName/…` (8.1 only), `export --exportMetadata\|--exportMetadataNames`, `export --exportWorkflowGroupExclude`, `GET /process/metadata/{name}`, `GET /isconnector?…type=validateWorkflow`, `fetchXSLT1.0` | US3 |
+| E. Diagrams, modules, repository, tags | write | `tag --tagSetActive\|--tagRemoveActive` | US4 |
+| E. Diagrams, modules, repository, tags | write | `delete --deleteWorkflow\|--deleteModule`, `DELETE /diagrams/…`, `DELETE /modules/…`, `DELETE /repository`, `rename …`, `tag --tagDelete\|--tagRemove\|--tagDiagram\|--tagRepositoryPath\|--tagWorkflowGroupExclude`, `import --importMetadata`, `POST /isconnector` | US6 |
+| Start options | write | `--backupFile`, `--backupRepository` (documented by name only) | US6 |
 
 Four groups of documented functions get no new access:
 
 - **Already covered by a tool with the same effect**: `GET /log/{name}` (the `POST` form is used),
   the `deploy` command and `PUT /model/import` (`deploy_release`, `import_artifacts`), `uname`,
-  `uptime` and `free` on 8.1 and 9.0 (`get_health` reads the same facts over REST).
+  `uptime` and `free` on 8.1 and 9.0 (`get_health` reads the same facts over REST), reading a
+  repository resource (the only documented endpoint is the portal's form proxy under `/task/…`;
+  repository files are read with `export_archives`).
 - **Not usable from a server process**: the cache mode (the vendor reserves it for its support
   and calls it dangerous), `validateMigrationBackup` (interactive only), `--encryptString` (takes
   a secret on the command line and prints the result), the offline scripts `backup.sh` and
@@ -79,7 +114,8 @@ An operator (or an agent working for them) wants to know how a server is set up 
 the Workbench: when the license expires and how many threads it allows, how many workflow threads
 are configured and how many are reserved for privileged workflows, which workflows are
 privileged, the tolerance for database connection errors, the size of the blocking queue, and the
-server configuration.
+server configuration; and the small facts StartCLI shows about the server (server time, version
+string, memory share, maintenance state, the list of log files).
 
 **Why this priority**: read only, no risk, and these are the facts asked for most often in support
 cases. It needs no write enablement.
@@ -103,6 +139,12 @@ one server: the result contains each fact as a named field with its source. Test
    **Then** the other items are returned and the missing one is reported with the role it needs.
 5. **Given** a stage id as target, **When** the settings are requested, **Then** the result
    contains one entry per server of that stage.
+6. **Given** a server with a configured StartCLI client, **When** the settings are requested,
+   **Then** the result also contains the server time, the version string, the memory share in
+   use, the maintenance state and the names and sizes of the log files StartCLI lists.
+7. **Given** `get_health` already returns the licensed threads, the maximum blocking queue size
+   and the maintenance mode over REST, **When** the settings are requested, **Then** these facts
+   come from the same REST source and are not read a second time over StartCLI.
 
 ---
 
@@ -124,21 +166,29 @@ the logins: the results are bounded pages with stable fields. Testable offline.
    with the login name, group, additional groups and roles of each user and a cursor for the next
    page.
 2. **Given** a login name, **When** that user is read, **Then** the result contains the user's
-   group, additional groups, roles and state; a password hash or any other secret field of the
-   INUBIT answer is never part of the result.
+   group, additional groups, roles and the account state INUBIT reports (for example locked or
+   inactive; absent if INUBIT reports none), plus the personal fields INUBIT reports for that
+   user (for example the e-mail address); a password hash or any other secret field of the INUBIT
+   answer is never part of the result.
 3. **Given** a login name that does not exist, **When** that user is read, **Then** the result is
    an error that says so and names the listing as the next step.
 4. **Given** three users are logged in, **When** the logins are requested, **Then** the result
    names them with the login time INUBIT reports.
+5. **Given** a listing of users, **When** it is returned, **Then** it contains no e-mail address
+   or other personal field of any user.
+6. **Given** messages for the login user on the server, **When** the messages are listed, **Then**
+   the result is a bounded page with id, sender, time and subject; reading one message by id
+   returns its text, masked and bounded.
 
 ---
 
 ### User Story 3 - Read processes, run-time data and model details (Priority: P2)
 
 An operator wants to filter the running processes of an 8.1 or 9.0 server by workflow and tag as
-the Queue Manager does, see blocked run-time data of an earlier transfer, read one module of a
-diagram without exporting the whole diagram, read process metadata, check an IS Connector, list
-the installed drivers and plug-ins, and get the list of XSLT 1.0 usages.
+the Queue Manager does, count them by state, read one module of a diagram without exporting the
+whole diagram, read or export process metadata, export diagrams while leaving out some groups,
+check an IS Connector, list the installed drivers and plug-ins, and get the list of XSLT 1.0
+usages.
 
 **Why this priority**: read only, but each item serves a narrower question than User Stories 1
 and 2, and several overlap with existing tools.
@@ -157,8 +207,17 @@ an existing tool can answer is reached through that tool. Testable offline.
    **Then** the result names each file with its type.
 4. **Given** a target folder, **When** the XSLT 1.0 usage is requested, **Then** the vendor's
    report file is written into that folder as a new file and the result names its path and size.
-5. **Given** the operation id of an earlier run-time data export, **When** the blocked processes
-   are listed, **Then** the result is a bounded page of those processes.
+5. **Given** an 8.1 or 9.0 server, **When** the process counts are requested, **Then** the result
+   names the number of processes in error, executing, waiting and queued state; counts that the
+   existing process search or `get_health` already returns come from there (FR-002).
+6. **Given** a workflow name, **When** its metadata is requested, **Then** the result contains
+   the metadata with secret values masked; an export of the metadata of several workflows is
+   written as a new file into a folder the caller names (FR-012).
+7. **Given** an owner with five diagram groups, **When** diagrams are exported while two groups
+   are left out, **Then** the archive holds only the other three groups.
+8. **Given** a workflow with an IS Connector module, **When** the connector is checked, **Then**
+   the result says whether INUBIT considers the workflow valid for remote calls, with INUBIT's
+   message.
 
 ---
 
@@ -166,8 +225,15 @@ an existing tool can answer is reached through that tool. Testable offline.
 
 An operator prepares and finishes a maintenance window through the agent: switch the maintenance
 mode and the readiness state, delete the processes that are in error state, set or remove the
-active tag version, change the trace level for a diagnosis and switch it back, trigger the
-midnight task.
+active tag version, change the trace level or switch tracing and debug output on for a diagnosis
+and back off, trigger the midnight task.
+
+As the vendor documents them: in **maintenance mode** the process engine executes no processes
+(queued processes only if `-eq true` is set) and the REST API answers every request with "service
+unavailable"; the **readiness state** is what the readiness probe reports to a load balancer
+(READY or NOT READY) without stopping the engine, and it is always NOT READY while maintenance
+mode is on. Both are offered; `-eq` is offered as an optional part of switching maintenance mode
+on.
 
 **Why this priority**: these are the changes operators make routinely. They are reversible or
 limited in effect, and they use the write protection that already exists.
@@ -188,21 +254,30 @@ audit record. Testable offline.
 3. **Given** a production stage without the production opt-in, **When** any change of this story
    is requested, **Then** it is refused, whatever the write enablement says.
 4. **Given** 40 processes in error state, **When** their deletion is requested, **Then** the
-   preview names the number 40 and the workflows concerned; the execution reports how many were
-   deleted.
+   preview names the number 40 and the workflows concerned; the execution re-reads the set right
+   before sending and reports the number INUBIT names as deleted (FR-017).
 5. **Given** the trace level is `error`, **When** it is set to `debug`, **Then** the result names
    the level before and after, and the tool description says that the level stays until it is
    set back.
 6. **Given** the maintenance mode is on, **When** it is to be switched off, **Then** the change
    works although INUBIT answers every other REST request with "service unavailable".
+7. **Given** maintenance mode is to be switched on with queued processes still executing,
+   **When** the preview is shown, **Then** it names the `-eq` value that will be sent and what it
+   means.
+8. **Given** debug output is off, **When** it is switched on, **Then** the result names the state
+   before and after, and the description says that it stays on until it is switched off.
+9. **Given** the midnight task is triggered, **When** it is confirmed, **Then** the result names
+   INUBIT's answer and the time it was sent.
+10. [NEEDS CLARIFICATION: tags on operational servers - see the question to the owner after
+    review round 1.]
 
 ---
 
 ### User Story 5 - Transfer and repair run-time data (Priority: P3)
 
 An operator moves the run-time data of running processes from one system to another (export on
-the source, import on the target), resumes the blocked processes after the import or deletes
-them.
+the source, import on the target), checks an export archive, lists the processes the import left
+blocked, and resumes or deletes them.
 
 **Why this priority**: rare (migrations), with large files and a multi-step flow, but there is no
 other way than the CLI.
@@ -213,12 +288,23 @@ and the confirmation. Testable offline.
 
 **Acceptance Scenarios**:
 
-1. **Given** a source server and a target folder, **When** the run-time data is exported with a
-   filter expression, **Then** the archive is written as a new file and the result names path,
-   size and the operation id.
-2. **Given** an archive file and a target server with write enablement, **When** the import is
-   confirmed, **Then** the result names the operation id and the number of blocked processes.
-3. **Given** an operation id, **When** the blocked processes are to be deleted, **Then** the
+1. **Given** a source server with the run-time data opt-in and a target folder, **When** the
+   run-time data is exported with a filter given as structured fields (workflow, tag, process ids
+   from a file in an allowed folder), **Then** the archive is written as a new file under the
+   folder rules of `export_archives` and the result names path, size and the operation id.
+2. **Given** a production source without `archives.productionOptIn`, **When** the export is
+   requested, **Then** it is refused as `export_archives` refuses it.
+3. **Given** an archive file, **When** it is validated, **Then** the result says whether INUBIT
+   accepts it and names the problems INUBIT reports, without importing it.
+4. **Given** an archive file and a target server with write enablement and the run-time data
+   opt-in, **When** the import is confirmed, **Then** the result names the operation id and the
+   number of blocked processes.
+5. **Given** the operation id of an earlier run-time data import on that server, **When** the
+   blocked processes are listed, **Then** the result is a bounded page of those processes.
+6. **Given** that operation id, **When** the blocked processes are to be resumed, **Then** the
+   preview names their number; the execution reports how many were resumed and re-reads the
+   list.
+7. **Given** that operation id, **When** the blocked processes are to be deleted, **Then** the
    preview names their number and the execution reports how many were deleted.
 
 ---
@@ -226,9 +312,11 @@ and the confirmation. Testable offline.
 ### User Story 6 - Administer objects, libraries and settings (Priority: P3)
 
 An administrator removes what is no longer needed and changes how a server is set up: delete or
-rename a workflow, a module or a repository file, delete a tag, upload or delete a driver or a
-plug-in, upload EDI rules, change the number of workflow threads, the database connection
-tolerance or a configuration value, upload a new license.
+rename a workflow, a module or a repository file, delete a tag, import metadata, upload or delete
+a driver or a plug-in, register a plug-in, upload EDI rules, deploy keys to a module keystore,
+start a workflow through an IS Connector, change the number of workflow threads, the share of
+threads for privileged workflows, the database connection tolerance or a configuration value,
+upload a new license.
 
 **Why this priority**: these changes are rare and mostly irreversible. A mistake stops business
 processes, so they need the strictest protection of this feature.
@@ -257,13 +345,30 @@ before the deletion. Testable offline.
    message.
 6. **Given** a configuration change, **When** it is previewed, **Then** the preview shows the
    current and the new value of each changed setting, with secret values masked on both sides.
+7. **Given** a license file in an allowed upload folder, **When** it is uploaded, **Then** the
+   preview shows the current expiry date and licensed threads and the file's name, size and
+   checksum; the result shows the expiry date and licensed threads read after the upload.
+8. **Given** a keystore file in an allowed upload folder and a named entry of a secret source for
+   its private key password, **When** it is deployed to a module, **Then** the preview names the
+   module, its owner and the alias; the password is passed as FR-022 requires.
+9. **Given** a tag to delete, **When** the preview is shown, **Then** it names every object and
+   version that carries the tag, and the backup holds that list (FR-018); the deletion is limited
+   to the scope the call names
+   [NEEDS CLARIFICATION: tag removal scope - see the question to the owner after review round 1].
+10. **Given** a workflow with an IS Connector and an input file in an allowed upload folder,
+    **When** the workflow is started through the connector, **Then** the result names INUBIT's
+    answer; if a check on a test system shows the call cannot be built from the documentation,
+    the entry is excluded with that reason (FR-002).
+11. **Given** the share of threads for privileged workflows is to be set to 120 %, **When** the
+    call is made, **Then** it is refused before any change.
 
 ---
 
 ### User Story 7 - Administer users and groups (Priority: P4)
 
 An administrator creates a user, a group or a role, changes the groups of a user, sets a
-password, deletes a user or a group, or starts the synchronisation with a directory service.
+password, deletes a user or a group, imports users, groups or roles from a file or a directory
+service, or sends and deletes messages to logged-in users.
 
 **Why this priority**: user administration is done seldom and usually through the Workbench or a
 directory service; it touches credentials, which the constitution keeps out of the conversation.
@@ -285,8 +390,16 @@ offline.
    the secret source, not a value.
 4. **Given** the login user of the MCP server itself, **When** it is to be deleted, moved to
    another group or given a new password, **Then** the call is refused.
-5. **Given** a user who owns workflows, **When** the user is to be deleted, **Then** the preview
-   names the number of owned workflows and repository entries and what happens to them.
+5. **Given** a user who owns workflows, **When** the user is to be deleted, **Then** the call
+   says whether INUBIT also removes the user's references in diagrams and modules and in the
+   repository (INUBIT's two documented choices); the preview names the number of owned workflows
+   and repository entries and which of them will be cleaned up. INUBIT answers success even for
+   an unknown user, so the result comes from re-reading the user list (FR-024).
+6. **Given** a user, group or role import, or a directory synchronisation, **When** it is
+   requested, **Then** [NEEDS CLARIFICATION: protection of the server's own login user in bulk
+   imports - see the question to the owner after review round 1].
+7. **Given** a message text, **When** it is sent to the logged-in users, **Then** the preview names
+   the recipients and the text; deleting a message names it by id.
 
 ### Edge Cases
 
@@ -306,16 +419,17 @@ offline.
 - A change needs a restart of the process engine to take effect (libraries, some configuration
   values): the result says so; the server cannot restart the engine.
 - The server's own access depends on the change (own user, own group, the role that grants CLI
-  access, the certificate in the keystore): the change is refused.
-- A file to upload is missing, outside the allowed folders, a symbolic link or larger than the
-  limit: refused before any call to INUBIT.
+  access): the change is refused (FR-019).
+- A file to upload is missing, outside the allowed upload folders, a symbolic link, not a regular
+  file or larger than the limit for its type: refused before any call to INUBIT (FR-021).
 - A command prints a text the parser does not know (new patch level): the result is an error that
   says the output was not understood, with a masked and bounded excerpt, never a guessed value.
 - A stage id is given for a change: refused; a change always names exactly one server.
-- Two changes of the same kind run at the same time against one server: the second is refused or
-  waits, as with the existing write tools.
-- `POST /isconnector` starts a workflow with a payload in a vendor-internal format: if the payload
-  cannot be built reliably, the function goes to the exclusion list with that reason.
+- A second state-changing call against the same server and the same object (or the same bulk
+  set) while one runs: refused with `PRECONDITION_FAILED`, as for `restart_process`.
+- `POST /isconnector` starts a workflow with a payload in a vendor-internal format: if a check on
+  a test system shows that the payload cannot be built from the documentation, the entry goes to
+  the exclusion list with that reason.
 
 ## Requirements *(mandatory)*
 
@@ -323,15 +437,21 @@ offline.
 
 **Coverage**
 
-- **FR-001**: The project MUST keep a coverage list of every StartCLI command and option group and
-  every REST endpoint that the vendor documents for INUBIT 8.1 and 9.0. Each entry has exactly one
-  state: reachable through a named tool, covered by a named tool with the same effect, or excluded
-  with a stated reason. While the feature is being delivered, an entry of a later user story has
-  the state "planned" with the number of that story.
-- **FR-002**: After this feature, every entry of areas A to E of the Background table MUST be
-  reachable through a tool, unless it is moved to the exclusion list with a reason that a check
-  against a real system gave (for example: the command does not exist in that version, needs an
-  interactive terminal, or cannot be made safe).
+- **FR-001**: The project MUST keep a coverage list of the StartCLI commands and REST endpoints
+  documented on the vendor's pages "Command Line Interface" (administration guide, with its
+  subpages) and "REST API" (with every endpoint page) for INUBIT 8.1 and 9.0, as retrieved on
+  2026-11-12. An entry is one StartCLI command with one option (or one set of mutually exclusive
+  values of an option, such as `on|off`), or one HTTP method with one path. Each entry has one
+  state per INUBIT version: reachable through a named tool, covered by a named tool with the same
+  effect, planned (with the number of the user story), not documented for that version, or
+  excluded with a stated reason.
+- **FR-002**: When the feature is complete, every entry of the Background table MUST be reachable
+  through a tool, or covered by one, or excluded. An exclusion reason comes from the documentation
+  (the command is interactive only, the portal functions) or from a check on a test system (the
+  command does not exist in that version, cannot be built from the documentation, or cannot be
+  made safe). Where REST and StartCLI offer the same function for a version, the capability uses
+  REST and the StartCLI entry gets the state "covered by" that tool. Facts that `get_health`
+  already returns are not fetched again by another channel.
 - **FR-003**: A test MUST fail when a command or endpoint the server can send is missing from the
   coverage list, and when an entry names a tool that does not exist.
 - **FR-004**: The feature MUST be delivered story by story in the order of the priorities (User
@@ -343,10 +463,12 @@ offline.
 
 - **FR-005**: New capabilities MUST be grouped by the task they serve, not offered as one tool per
   command. Where an existing tool serves the same task, it is extended (for example process
-  search for the `ps` filters, the health view for license and threads, tagging for the tag
-  operations) instead of adding a tool.
-- **FR-006**: The feature MUST add at most one read tool and one write tool per area of the
-  Background table. The plan justifies each new tool with the user story it serves.
+  search for the `ps` filters, the health view for license and threads) instead of adding a tool.
+  An extended tool keeps the protection it has; a capability that needs a different protection
+  (for example a change on an operational stage added to a development tool) gets a tool of its
+  own.
+- **FR-006**: The feature MUST add at most 10 tools in total. Each new tool serves exactly one
+  user story, and the plan names that story for each tool.
 - **FR-007**: Every new tool and every extended tool MUST have a description, a typed input with
   documented limits and a documented result shape, in the same form as the existing tools.
 
@@ -358,10 +480,11 @@ offline.
 - **FR-009**: Read results MUST be bounded and paged like the existing read tools, and MUST name
   the server and the channel (StartCLI or REST) each fact came from.
 - **FR-010**: Every text taken from INUBIT MUST pass the existing masking before it is returned.
-  Configuration values, module properties and user records MUST additionally mask every field
-  whose name marks it as a secret.
-- **FR-011**: User listings MUST return login name, group, additional groups, roles and state
-  only. E-mail addresses and other personal fields are returned only when the caller asks for one
+  Configuration values, module properties and user records MUST additionally mask every value
+  that the secret rules of feature 018 (FR-008 there: secret types, `encrypted` flags, the secret
+  name pattern, key material) would mask; there is one rule, not a second one.
+- **FR-011**: User listings MUST return login name, group, additional groups, roles and the
+  account state INUBIT reports only. E-mail addresses and other personal fields are returned only when the caller asks for one
   named user.
 - **FR-012**: A read that produces a file (XSLT 1.0 report, metadata export) MUST write it as a
   new file into a folder the caller names, under the folder rules of `export_archives`, and return
@@ -378,25 +501,51 @@ offline.
   client.
 - **FR-015**: Every state-changing capability MUST use the existing two-step confirmation: the
   first call returns a preview of what will change and a one-time code bound to that server,
-  action and target; only a second call with the code executes.
+  action and target; only a second call with the code executes. The operational changes of User
+  Story 4 follow the stage's `write.confirmation` setting as `restart_process` does (`CLIENT` is
+  not allowed on production); the administrative areas of FR-016 always use the server-side
+  preview, whatever that setting says.
 - **FR-016**: The administrative areas (objects and repository, libraries and keys, server
   settings and license, users and groups, run-time data) MUST each need their own opt-in per
   stage, off by default, in addition to the write enablement. The operational changes of User
   Story 4 need the write enablement only.
+- **FR-016a**: The run-time data export (User Story 5) does not change the source server. It
+  needs the run-time data opt-in of the source stage and, on a production stage,
+  `archives.productionOptIn`, and follows the folder rules of `export_archives`; it does not need
+  the write enablement. It is audited like a change. If a check on a test system shows that the
+  export changes the source, it is governed by FR-014 instead.
 - **FR-017**: A bulk change (`processdelete error`, deleting all libraries of a type, deleting the
   blocked processes of an operation) MUST show in its preview what and how many objects it will
-  affect. The confirmation is valid only while that set is unchanged.
+  affect. The execution re-reads the set right before sending; if it differs from the preview,
+  the call is refused with a new preview. The result names the number INUBIT reports as
+  affected, which may include objects that entered the set after the re-read.
 - **FR-018**: Before an object is deleted or replaced that INUBIT can export (workflow, module,
-  repository file, tag state), the server MUST store an export in the existing backup location
-  and name it in the result. If the backup fails, nothing is deleted.
-- **FR-019**: The server MUST refuse every change that would remove its own access: its login
-  user, that user's group and roles, and the key material its connection uses.
+  repository file), the server MUST store an export in the existing backup location, with the
+  existing retention (30 days, the newest of its scope kept), and name it in the result. If the
+  backup fails, nothing is deleted. Before a tag is removed or deleted, the backup holds the list
+  of objects and versions that carried it. `restore_backup` restores these backups only where its
+  own rules allow it (development nodes); this feature does not widen `restore_backup`, and on
+  other stages the backup is imported by hand. Objects INUBIT cannot export (libraries, license,
+  configuration values, users) get no backup; their preview shows the current state instead
+  (file name and checksum, expiry date, current value).
+- **FR-019**: The server MUST refuse every change that would remove its own access: deleting,
+  regrouping or re-passwording its login user, deleting that user's group, and removing the role
+  or right that grants it CLI access. `PUT /keys` deploys keys to a module keystore and does not
+  touch the server's own TLS certificate; this feature changes no certificate pin (feature 006
+  stays the only way to rotate a pin).
 - **FR-020**: Values MUST be validated before any call to INUBIT: numbers against the limits
   INUBIT reports (threads against the license), names against the patterns of the existing tools,
-  enumerations against fixed lists. No free text of the caller reaches a command line unchecked.
-- **FR-021**: Files to upload (license, library, EDI rules, keystore, run-time data archive) MUST
-  be read from a local path the caller names, within the allowed folders, with a size limit. File
-  content never passes through the conversation.
+  enumerations against fixed lists. Filters (the `ps` filter, the run-time data export filter) are
+  given as structured fields; the server builds the filter expression from validated values only
+  and never accepts a raw expression. No free text of the caller reaches a command line
+  unchecked.
+- **FR-021**: Files to upload (license, library or plug-in, EDI rules, keystore, run-time data
+  archive, process id list, IS Connector input) MUST be read from a local path the caller names.
+  The path must be a regular file, not a symbolic link, inside one of the upload folders listed
+  in a new profile setting; the list is empty by default, so uploads are off until it is set.
+  Each file type has a size limit with a default (license, keystore and process id list 1 MiB,
+  EDI rules and IS Connector input 50 MiB, library or plug-in 200 MiB, run-time data archive
+  2 GiB) that the profile can lower or raise. File content never passes through the conversation.
 - **FR-022**: The tools of this feature MUST NOT accept a password, key password or other secret
   as a parameter and MUST NOT return one. A command that needs a secret (setting a password,
   creating a user with a password, uploading a keystore) takes the name of an entry of a
@@ -423,24 +572,26 @@ offline.
 
 ### Key Entities
 
-- **Coverage entry**: one documented StartCLI command or REST endpoint with its INUBIT versions,
-  its kind (read or write), its area and its state (reachable through, covered by, excluded
-  because).
+- **Coverage entry**: one documented StartCLI command with one option, or one HTTP method with
+  one path; its kind (read or write), its area, its user story and its state per INUBIT version
+  (reachable through, covered by, planned, not documented, excluded because).
 - **Server settings**: the facts of User Story 1 for one server, each with value, source channel
   and, if missing, the reason.
-- **User record**: login name, group, additional groups, roles, state; personal fields only for a
-  single named user.
+- **User record**: login name, group, additional groups, roles, account state; personal fields
+  only for a single named user.
 - **Change preview**: what a state-changing call will do, the state it was computed from, the
   confirmation code and its expiry.
 - **Administration opt-in**: a per-stage setting that enables one administrative area.
+- **Upload folder list**: a profile setting naming the local folders upload files may come from,
+  with the size limit per file type.
 - **Change result**: action, target, state before and after, backup (if one was taken), audit id.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: 100 % of the StartCLI commands and REST endpoints documented for INUBIT 8.1 and 9.0
-  appear in the coverage list with exactly one state; when the feature is complete, no entry is
+- **SC-001**: 100 % of the entries of the documentation pages named in FR-001 appear in the
+  coverage list with one state per INUBIT version; when the feature is complete, no entry is
   without a state or still "planned".
 - **SC-002**: An operator gets each fact of User Stories 1 and 2 (license expiry, configured
   threads, users of a server, logins) with one request to the agent and without opening the
@@ -453,7 +604,7 @@ offline.
   read, 0 of these values appear in a result, an error text, a log line or an audit record.
 - **SC-006**: Every new result stays within the size limits of the existing tools; no call
   returns an unbounded list or text.
-- **SC-007**: The number of tools grows by at most 10 (one read and one write tool per area).
+- **SC-007**: The number of tools grows by at most 10, each serving one user story.
 - **SC-008**: Every executed or refused change can be found afterwards by its audit record with
   who, where, what and why.
 - **SC-009**: The tools that exist before this feature behave as before; their tests pass
@@ -472,8 +623,9 @@ offline.
   the login user. The feature reports a missing role; it does not grant roles.
 - INUBIT 6.1 stays read-only and gets no new capabilities from this feature.
 - `processLog` stays excluded until a version exists on which the endpoint works.
-- The start options `--backupFile` and `--backupRepository` are documented only by name. They are
-  classified (reachable or excluded) after a check on a non-production system.
+- The start options `--backupFile` and `--backupRepository` are documented only by name. They
+  belong to User Story 6 and are classified (reachable or excluded) after a check on a
+  non-production system.
 - Secret sources are those of features 010 and 011; this feature adds no new kind of source.
 - Feature 021 is merged before the implementation of this feature starts; the trace download of
   021 and the trace switches of this feature stay separate capabilities.
