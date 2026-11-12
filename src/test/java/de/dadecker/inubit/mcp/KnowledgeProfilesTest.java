@@ -75,7 +75,7 @@ class KnowledgeProfilesTest {
             prefix + "PASSWORD", profile + "-knowledge-pw")), new SecretScrubber(),
             ClockProvider.system(), path -> false, false, failing, Map.of(), () -> {
                 throw new AssertionError("no node reads from the Parameter Store");
-            }, TestWiring.TEST_CONFIG_LOCATION);
+            }, TestWiring.TEST_CONFIG_LOCATION, home);
         closeables.add(wiring);
         McpTestClient client = McpTestClient.start(
             wiring.serverFactory("0.0.0-test", wiring.toolHandlers()));

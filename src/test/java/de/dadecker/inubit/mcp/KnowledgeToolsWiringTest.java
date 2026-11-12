@@ -80,7 +80,7 @@ class KnowledgeToolsWiringTest {
         return new Wiring(config, store, scrubber, ClockProvider.system(), path -> false, false,
             failing, Map.of(), () -> {
                 throw new AssertionError("no node reads from the Parameter Store");
-            }, TestWiring.TEST_CONFIG_LOCATION);
+            }, TestWiring.TEST_CONFIG_LOCATION, temp.resolve("home"));
     }
 
     private void note(String name, String text) throws IOException {

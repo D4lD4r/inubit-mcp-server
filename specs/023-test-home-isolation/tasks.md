@@ -45,7 +45,7 @@ to `Wiring`.
   No production change in this task.
 - [X] T003 [US1] Remove the dead factory `ConfigLoader.forSystem()` and imports that become unused in
   `main/config/ConfigLoader.java` (FR-004; no callers on `main`, 021 or 022).
-- [ ] T004 [US1] Make the home a required `Wiring` parameter (research D-1, D-2, D-6a; contract
+- [X] T004 [US1] Make the home a required `Wiring` parameter (research D-1, D-2, D-6a; contract
   `contracts/wiring-home.md`). In `main/Wiring.java`: add `Path userHome` directly after
   `ConfigLocation configLocation` to every constructor (Javadoc `@param userHome the home below which
   the per-profile state lies ({@code <home>/.inubit-mcp}); the caller's, never the process's`),

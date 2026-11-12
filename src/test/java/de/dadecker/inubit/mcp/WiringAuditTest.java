@@ -148,7 +148,8 @@ class WiringAuditTest {
         environment.put("PATH", System.getenv().getOrDefault("PATH", "/usr/bin"));
         wiring = new Wiring(config, TestSecrets.store(environment), scrubber,
             new ClockProvider(clock), Files::exists, Platform.windows(), startCli(), environment,
-            () -> store, new ConfigLocation(temp.resolve("config"), temp.resolve("config/config.yaml")));
+            () -> store, new ConfigLocation(temp.resolve("config"),
+                temp.resolve("config/config.yaml")), temp.resolve("home"));
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client.initialize();
     }

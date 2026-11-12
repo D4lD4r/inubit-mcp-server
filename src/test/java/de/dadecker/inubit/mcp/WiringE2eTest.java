@@ -125,7 +125,8 @@ class WiringE2eTest {
         wiring = new Wiring(config, credentialStore, scrubber,
             new ClockProvider(clock), path -> false, false, new SystemProcessLauncher(),
             environment, () -> store,
-            new ConfigLocation(temp.resolve("config"), temp.resolve("config/config.yaml")));
+            new ConfigLocation(temp.resolve("config"), temp.resolve("config/config.yaml")),
+            temp.resolve("home"));
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client.initialize();
     }

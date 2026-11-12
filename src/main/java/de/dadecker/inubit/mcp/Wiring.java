@@ -175,7 +175,8 @@ import java.util.function.Supplier;
  * share one
  * challenge registry and the audit log; the import service uses the check service and keeps
  * its backups in
- * {@code ~/.inubit-mcp/<profile>/backups} (created on the first import). Feature 009 (research
+ * {@code <home>/.inubit-mcp/<profile>/backups} (created on the first import), {@code <home>}
+ * being the home handed to the constructor (feature 023). Feature 009 (research
  * D-12): these conditions ignore nodes pinned to a version on which the tool's capability is
  * unsupported ({@link #possiblyCapable}); {@code deploy_release} needs such a target node.
  *
@@ -232,6 +233,8 @@ final class Wiring implements AutoCloseable {
     private final Thread cleanupHook;
     /** Feature 015 (research R-9): the configuration roots an archive target stays out of. */
     private final ConfigLocation configLocation;
+    /** Feature 023 (research D-6a): the locations derived from the handed-in home. */
+    private final HomeLocations homeLocations;
     /**
      * Feature 015 (research R-10): tells whether a drive letter is a mapped network drive; the
      * native API is loaded only on Windows, on the first drive letter asked.
@@ -246,12 +249,14 @@ final class Wiring implements AutoCloseable {
      * @param windows whether the server runs on Windows ({@code startcli.bat})
      * @param configLocation the default configuration directory and the configuration file in use
      *     (feature 015, research R-9)
+     * @param userHome the home below which the per-profile state lies
+     *     ({@code <home>/.inubit-mcp}); the caller's, never the process's
      */
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows,
-        ConfigLocation configLocation) {
+        ConfigLocation configLocation, Path userHome) {
         this(config, credentialStore, scrubber, clock, exists, windows, new SystemProcessLauncher(),
-            System.getenv(), SsmParameterStore::new, configLocation);
+            System.getenv(), SsmParameterStore::new, configLocation, userHome);
     }
 
     /**
@@ -260,9 +265,9 @@ final class Wiring implements AutoCloseable {
      */
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
-        Map<String, String> environment, ConfigLocation configLocation) {
+        Map<String, String> environment, ConfigLocation configLocation, Path userHome) {
         this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
-            SsmParameterStore::new, configLocation);
+            SsmParameterStore::new, configLocation, userHome);
     }
 
     /**
@@ -273,18 +278,19 @@ final class Wiring implements AutoCloseable {
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
         Map<String, String> environment, Supplier<ParameterStore> parameterStore,
-        ConfigLocation configLocation) {
+        ConfigLocation configLocation, Path userHome) {
         this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
-            parameterStore, configLocation, new NoJob());
+            parameterStore, configLocation, userHome, new NoJob());
     }
 
     /** As above, with a capability matrix other than the production one (tests, feature 012). */
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
         Map<String, String> environment, Supplier<ParameterStore> parameterStore,
-        ConfigLocation configLocation, CapabilityMatrix matrix) {
+        ConfigLocation configLocation, Path userHome, CapabilityMatrix matrix) {
         this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
-            parameterStore, configLocation, new NoJob(), OsPrivateFileSystem.forHost(), matrix);
+            parameterStore, configLocation, userHome, new NoJob(), OsPrivateFileSystem.forHost(),
+            matrix);
     }
 
     /**
@@ -295,9 +301,9 @@ final class Wiring implements AutoCloseable {
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
         Map<String, String> environment, Supplier<ParameterStore> parameterStore,
-        ConfigLocation configLocation, ProcessContainment containment) {
+        ConfigLocation configLocation, Path userHome, ProcessContainment containment) {
         this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
-            parameterStore, configLocation, containment, OsPrivateFileSystem.forHost());
+            parameterStore, configLocation, userHome, containment, OsPrivateFileSystem.forHost());
     }
 
     /**
@@ -308,10 +314,10 @@ final class Wiring implements AutoCloseable {
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
         Map<String, String> environment, Supplier<ParameterStore> parameterStore,
-        ConfigLocation configLocation, ProcessContainment containment,
+        ConfigLocation configLocation, Path userHome, ProcessContainment containment,
         PrivateFileSystem privateFiles) {
         this(config, credentialStore, scrubber, clock, exists, windows, launcher, environment,
-            parameterStore, configLocation, containment, privateFiles,
+            parameterStore, configLocation, userHome, containment, privateFiles,
             CapabilityMatrix.production());
     }
 
@@ -319,11 +325,12 @@ final class Wiring implements AutoCloseable {
     Wiring(ProfileConfig config, CredentialStore credentialStore, SecretScrubber scrubber,
         ClockProvider clock, Predicate<Path> exists, boolean windows, ProcessLauncher launcher,
         Map<String, String> environment, Supplier<ParameterStore> parameterStore,
-        ConfigLocation configLocation, ProcessContainment containment,
+        ConfigLocation configLocation, Path userHome, ProcessContainment containment,
         PrivateFileSystem privateFiles, CapabilityMatrix matrix) {
         Objects.requireNonNull(containment, "containment");
         Objects.requireNonNull(privateFiles, "privateFiles");
         this.configLocation = Objects.requireNonNull(configLocation, "configLocation");
+        Objects.requireNonNull(userHome, "userHome");
         this.networkPathProbe = new WindowsNetworkPaths(windows, JnaDriveTypeApi::new);
         this.profile = config.profileInfo();
         this.matrix = matrix;
@@ -457,9 +464,9 @@ final class Wiring implements AutoCloseable {
         // feature 015: the archives go to a user-chosen local folder outside the server's
         // directories (research R-9); production only with archives.productionOptIn (R-15);
         // the shared audit log
-        TargetFolderRules folders = new TargetFolderRules(
-            Path.of(System.getProperty("user.home")), workspace, config.auditDirectory(),
-            configLocation.roots(), environment, networkPathProbe, windows);
+        TargetFolderRules folders = new TargetFolderRules(userHome, workspace,
+            config.auditDirectory(), configLocation.roots(), environment, networkPathProbe,
+            windows);
         this.exportArchives = new ExportArchivesTool(new ArchiveExportService(targets,
             id -> byId.get(id).inventory().owner(), id -> policies.apply(id).account(),
             id -> byId.get(id).production(), id -> byId.get(id).archivesProductionOptIn(),
@@ -489,8 +496,12 @@ final class Wiring implements AutoCloseable {
         Function<NodeId, ImportService.Account> accounts = id -> new ImportService.Account(
             policies.apply(id).account().orElse("unknown"), byId.get(id).baseUrl().getHost());
         WriteChallengeRegistry challenges = new WriteChallengeRegistry(clock.clock());
-        Path backups = BackupStore.defaultRoot(Path.of(System.getProperty("user.home")),
-            profile.name());
+        Path backups = BackupStore.defaultRoot(userHome, profile.name());
+        Path deployments = DeploymentLedger.defaultDirectory(userHome, profile.name());
+        Path packages = PackageWriter.defaultDirectory(userHome, profile.name());
+        // research D-6a: TargetFolderRules derives this root from userHome itself
+        this.homeLocations = new HomeLocations(backups, deployments, packages,
+            userHome.resolve(".inubit-mcp"));
         this.tagArtifacts = new TagArtifactsTool(new TagService(new TagService.Dependencies(
             workspace, profile.name(), developmentGuard, gateways::tags,
             id -> byId.get(id).inventory().owner(), accounts, challenges, audit, clock.clock(),
@@ -523,8 +534,6 @@ final class Wiring implements AutoCloseable {
         if (chain.isEmpty()) {
             this.deployRelease = Optional.empty();
         } else {
-            Path deployments = DeploymentLedger.defaultDirectory(
-                Path.of(System.getProperty("user.home")), profile.name());
             ArchiveCodec codec = new ArchiveCodec();
             V81ReleaseArchives releases = new V81ReleaseArchives();
             V81ImportArchives importArchives = new V81ImportArchives();
@@ -540,9 +549,8 @@ final class Wiring implements AutoCloseable {
                 releases, importArchives, codec, gateways::imports, gateways::tags, accounts,
                 new BackupStore(backups, clock.clock(), privateFiles), ledger, audit,
                 profile.name(), clock.clock(), UUID::randomUUID, workspace,
-                new DiagramGroupTagger(workspace), new PackageWriter(
-                    PackageWriter.defaultDirectory(Path.of(System.getProperty("user.home")),
-                        profile.name()), clock.clock(), privateFiles)));
+                new DiagramGroupTagger(workspace), new PackageWriter(packages, clock.clock(),
+                    privateFiles)));
             deployer = Optional.of(nodeDeployer);
             DeployService deploy = new DeployService(new DeployService.Dependencies(workspace,
                 deployments, profile.name(), new DeployGuard(chain, targets, group ->
@@ -731,6 +739,19 @@ final class Wiring implements AutoCloseable {
     /** Feature 016: the status the update check records and {@code get_health} shows. */
     UpdateStatus updateStatus() {
         return updateStatus;
+    }
+
+    /** Feature 023 (research D-6a): the locations below the home, as handed to the services. */
+    HomeLocations homeLocations() {
+        return homeLocations;
+    }
+
+    /**
+     * The per-profile state below the home handed to the constructor, and the root that
+     * {@code TargetFolderRules} keeps archive exports out of ({@code <home>/.inubit-mcp}).
+     */
+    record HomeLocations(Path backups, Path deployments, Path packages,
+        Path forbiddenExportRoot) {
     }
 
     ConfigLocation configLocation() {
