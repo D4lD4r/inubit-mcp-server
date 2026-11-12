@@ -87,15 +87,14 @@ public final class CapabilityMatrix {
      * 9.0: everything as on 8.1 except partner management, which runs with a warning until recorded
      * 9.0 responses are under contract test (feature 018, FR-016, research D-7); reading Queue
      * Manager entries included since its recorded 9.0 error entry (feature 020, FR-019, research
-     * D-20); the server-log reads of feature 021 not yet verified.
+     * D-20); downloading the trace log of feature 021 since its recording (T051), the web service
+     * log not yet verified.
      */
     private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0),
-        with(with(with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED),
-            Capability.TRACE_LOG_READ, SupportState.UNSUPPORTED),
+        with(with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED),
             Capability.WEBSERVICE_LOG_READ, SupportState.UNSUPPORTED),
         Map.of(), false,
-        Map.of(Capability.TRACE_LOG_READ, NOT_YET_VERIFIED,
-            Capability.WEBSERVICE_LOG_READ, NOT_YET_VERIFIED));
+        Map.of(Capability.WEBSERVICE_LOG_READ, NOT_YET_VERIFIED));
 
     /**
      * Unknown versions: reading Queue Manager entries and the server logs is refused, not run with
@@ -133,9 +132,9 @@ public final class CapabilityMatrix {
      * management on 9.0.x, which is unverified (feature 018); any other known version and unknown
      * versions: reads unverified, writes unsupported. Feature 020 (research D-6, D-20): reading
      * Queue Manager entries is supported on 8.1 and 9.0, on any other and on unknown versions
-     * unsupported. Feature 021 (research D-6): downloading the trace log and the web service log
-     * is supported on 8.1 (T033, T046); otherwise both are unsupported everywhere, on 9.0 with the
-     * note "not yet verified".
+     * unsupported. Feature 021 (research D-6): downloading the trace log is supported on 8.1 and
+     * 9.0 (T033, T051), downloading the web service log on 8.1 (T046); otherwise both are
+     * unsupported everywhere, the web service log on 9.0 with the note "not yet verified".
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;

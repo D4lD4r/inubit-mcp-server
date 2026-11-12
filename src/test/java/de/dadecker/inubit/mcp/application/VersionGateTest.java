@@ -1389,8 +1389,9 @@ class VersionGateTest {
     // --- feature 021, T009: downloading the server logs (FR-002, FR-017, D-6) ----------------
 
     /**
-     * Until its recording a log is refused with the matrix note: both logs on 9.0; T033, T046:
-     * the recorded 8.1 trace and web service logs are admitted without warning.
+     * Until its recording a log is refused with the matrix note: the web service log on 9.0;
+     * T033, T046, T051: the recorded 8.1 trace and web service logs and the recorded 9.0 trace log
+     * are admitted without warning.
      */
     @Test
     void aServerLogReadIsNotYetVerifiedUntilItsRecording() {
@@ -1400,16 +1401,21 @@ class VersionGateTest {
                 CLI);
             assertThat(v81.warnings()).as("%s", capability).isEmpty();
             assertThat(v81.version()).as("%s", capability).contains(version("8.1.17"));
-
-            ToolError v90 = refusal(() -> gate().admit("download_server_log", V9_0,
-                capability, Kind.READ, CLI));
-
-            assertThat(v90.message()).isEqualTo("download_server_log: INUBIT 9.0 on prod/node4: "
-                + capability.label() + " is not yet verified for INUBIT 9.0; nothing was sent");
-            assertNoLeak(v90);
         }
+        Admission v90Trace = gate().admit("download_server_log", V9_0,
+            Capability.TRACE_LOG_READ, Kind.READ, CLI);
+        assertThat(v90Trace.warnings()).isEmpty();
+        assertThat(v90Trace.version()).map(InubitVersion::raw).contains("9.0");
+
+        ToolError v90 = refusal(() -> gate().admit("download_server_log", V9_0,
+            Capability.WEBSERVICE_LOG_READ, Kind.READ, CLI));
+
+        assertThat(v90.message()).isEqualTo("download_server_log: INUBIT 9.0 on prod/node4:"
+            + " downloading the web service log is not yet verified for INUBIT 9.0; nothing was"
+            + " sent");
+        assertNoLeak(v90);
         assertThat(probe.calls).as("no StartCLI run").isEmpty();
-        assertThat(appender.list).hasSize(2);
+        assertThat(appender.list).hasSize(1);
     }
 
     @Test

@@ -814,7 +814,7 @@ helper's `variant`.
   missing / 0-byte cases where they occur, `Server not in cluster mode.` on a single node): proposal,
   explicit approval, read-only, never production, outputs only in the private directory, neutral
   findings in research.md "Spike findings"
-- [ ] T051 [US3] **[OWNER]** **[BLOCKED: T049]** Enable 9.0 trace in **one commit**: neutralize as
+- [X] T051 [US3] **[OWNER]** **[BLOCKED: T049]** Enable 9.0 trace in **one commit**: neutralize as
   in T033 into `src/test/resources/fixtures/server-log/v9_0/trace/ok.*` (`.origin` "`recorded
   <date> 9.0.x neutralized`"), owner reviews the diff, and `CapabilityMatrix` 9.0
   `TRACE_LOG_READ` → `SUPPORTED` in the same commit; updated first: `ServerLogV90ContractTest`

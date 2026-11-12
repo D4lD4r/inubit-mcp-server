@@ -79,12 +79,13 @@ class NodeOverviewTest {
 
         assertThat(capabilities.usable()).containsExactly("trace_log_read", "webservice_log_read");
         assertThat(capabilities.notUsable()).isEmpty();
-        assertThat(version(VersionSetting.V9_0,
-                EnumSet.of(Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ))
-            .capabilities().notUsable()).extracting(NodeSummary.NotUsable::reason)
-            .containsExactly("INUBIT 9.0 on dev/node1: downloading the trace log is not yet"
-                + " verified for INUBIT 9.0", "INUBIT 9.0 on dev/node1: downloading the web"
-                + " service log is not yet verified for INUBIT 9.0");
+        // T051: the recorded 9.0 trace log is usable; the web service log waits for T052
+        NodeSummary.Capabilities v90 = version(VersionSetting.V9_0,
+            EnumSet.of(Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ)).capabilities();
+        assertThat(v90.usable()).containsExactly("trace_log_read");
+        assertThat(v90.notUsable()).extracting(NodeSummary.NotUsable::reason)
+            .containsExactly("INUBIT 9.0 on dev/node1: downloading the web service log is not yet"
+                + " verified for INUBIT 9.0");
     }
 
     @Test

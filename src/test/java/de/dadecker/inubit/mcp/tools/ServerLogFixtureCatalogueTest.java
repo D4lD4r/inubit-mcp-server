@@ -21,6 +21,8 @@ import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -48,13 +50,15 @@ import org.junit.jupiter.params.provider.CsvSource;
  * {@code <version>/<log>/<case>.<ext>} with the suffixes of its log; the case is the file name up
  * to its first dot. Every version case has an {@code .origin} whose first line is
  * {@code recorded <date> <version> neutralized} or {@code reconstructed <source>}. A trace
- * {@code .stdout} that confirms the download names the size of its {@code .log} in MiB, rounded
- * (research "Spike findings"); a web service {@code part log ok <bytes>} frame names the size of
- * its {@code .log} in bytes. For every (version, log) the production capability matrix says
+ * {@code .stdout} that confirms the download names the size of its {@code .log} in MiB, rounded to
+ * the decimals it prints (8.1 none, 9.0 three; research "Spike findings"); a web service
+ * {@code part log ok <bytes>} frame names the size of its {@code .log} in bytes. For every
+ * (version, log) the production capability matrix says
  * {@code SUPPORTED} exactly when {@code <version>/<log>/ok.origin} starts with {@code recorded}.
  * T040: the 8.1 web service cases are classified as their names say. T048: the reconstructed 9.0
- * cases, classified as the 8.1 ones in the {@code REST_90} variant; while their {@code ok} cases are
- * not recorded, the production matrix supports neither 9.0 log (FR-017).
+ * cases, classified as the 8.1 ones in the {@code REST_90} variant; while its {@code ok} case is
+ * not recorded, the production matrix does not support a 9.0 log (FR-017). T051: the 9.0 trace
+ * {@code ok} case is recorded.
  */
 class ServerLogFixtureCatalogueTest {
 
@@ -74,7 +78,7 @@ class ServerLogFixtureCatalogueTest {
     private static final Pattern ORIGIN = Pattern.compile(
         "recorded \\d{4}-\\d{2}-\\d{2} \\d+\\.\\d+(?:\\.\\d+)* neutralized|reconstructed \\S.*");
     private static final Pattern TRACE_DATA =
-        Pattern.compile("^Trace data \\((\\d+) MB\\) stored to: .+$");
+        Pattern.compile("^Trace data \\((\\d+(?:\\.\\d+)?) MB\\) stored to: .+$");
     private static final Pattern PART_LOG_OK =
         Pattern.compile("^#QE1:[0-9a-f]{32} part log ok (\\d+)$");
     private static final long MIB = 1L << 20;
@@ -118,20 +122,35 @@ class ServerLogFixtureCatalogueTest {
     }
 
     /**
-     * T048 (FR-017, D-22): until the 9.0 recordings (T051 trace, T052 web service) every 9.0 case
-     * is reconstructed and the production matrix supports neither 9.0 log.
+     * T048 (FR-017, D-22): until the 9.0 web service recording (T052) every 9.0 web service case
+     * is reconstructed and the production matrix does not support the 9.0 web service log.
      */
-    @ParameterizedTest
-    @CsvSource({"trace, TRACE_LOG_READ", "webservice, WEBSERVICE_LOG_READ"})
-    void every90CaseIsReconstructedAndTheProductionMatrixDoesNotSupport90(String log,
-        Capability capability) throws IOException {
+    @Test
+    void every90WebServiceCaseIsReconstructedAndTheProductionMatrixDoesNotSupportIt()
+        throws IOException {
         List<String> cases = cases(ROOT).stream()
-            .filter(name -> name.startsWith("v9_0/" + log + "/")).toList();
+            .filter(name -> name.startsWith("v9_0/webservice/")).toList();
 
         assertThat(cases).isNotEmpty().allSatisfy(name ->
             assertThat(firstLine(ROOT.resolve(name + ".origin"))).startsWith("reconstructed "));
-        assertThat(CapabilityMatrix.production().stateOfLine(9, OptionalInt.of(0), capability))
-            .isEqualTo(SupportState.UNSUPPORTED);
+        assertThat(CapabilityMatrix.production().stateOfLine(9, OptionalInt.of(0),
+            Capability.WEBSERVICE_LOG_READ)).isEqualTo(SupportState.UNSUPPORTED);
+    }
+
+    /**
+     * T051 (FR-017, D-22): the 9.0 trace {@code ok} case is the neutralized T049 recording; the
+     * other 9.0 trace cases stay reconstructed, as the recording did not observe them.
+     */
+    @Test
+    void the90TraceOkCaseIsRecordedAndTheProductionMatrixSupportsIt() throws IOException {
+        assertThat(firstLine(ROOT.resolve("v9_0/trace/ok.origin")))
+            .isEqualTo("recorded 2026-11-12 9.0.10 neutralized");
+        assertThat(cases(ROOT).stream().filter(name -> name.startsWith("v9_0/trace/"))
+            .filter(name -> !name.equals("v9_0/trace/ok")).toList())
+            .isNotEmpty().allSatisfy(name -> assertThat(firstLine(ROOT.resolve(name + ".origin")))
+                .startsWith("reconstructed "));
+        assertThat(CapabilityMatrix.production().stateOfLine(9, OptionalInt.of(0),
+            Capability.TRACE_LOG_READ)).isEqualTo(SupportState.SUPPORTED);
     }
 
     @Test
@@ -218,11 +237,16 @@ class ServerLogFixtureCatalogueTest {
         Path stdout = copy.resolve("v8_1/trace/ok.stdout");
         Files.writeString(stdout, Files.readString(stdout).replace("Trace data (0 MB)",
             "Trace data (71 MB)"));
+        Path stdout90 = copy.resolve("v9_0/trace/ok.stdout");
+        Files.writeString(stdout90, Files.readString(stdout90).replace("Trace data (0.004 MB)",
+            "Trace data (0.005 MB)"));
 
         assertThat(violations(copy)).containsExactlyInAnyOrder(
             "v8_1/trace/empty: .stdout names 0 MB, but .log has " + MIB / 2 + " bytes (1 MiB)",
             "v8_1/trace/ok: .stdout names 71 MB, but .log has "
-                + Files.size(copy.resolve("v8_1/trace/ok.log")) + " bytes (0 MiB)");
+                + Files.size(copy.resolve("v8_1/trace/ok.log")) + " bytes (0 MiB)",
+            "v9_0/trace/ok: .stdout names 0.005 MB, but .log has "
+                + Files.size(copy.resolve("v9_0/trace/ok.log")) + " bytes (0.004 MiB)");
     }
 
     @Test
@@ -312,15 +336,19 @@ class ServerLogFixtureCatalogueTest {
         return Optional.empty();
     }
 
-    /** The MB value of a trace confirmation that does not round the {@code .log} size to it. */
+    /**
+     * The MB value of a trace confirmation that is not the {@code .log} size in MiB, rounded to
+     * the decimals of the value.
+     */
     private static Optional<String> mbViolation(Path root, String name) {
         for (String line : lines(root.resolve(name + ".stdout"))) {
             Matcher matcher = TRACE_DATA.matcher(line);
             if (matcher.matches()) {
                 long size = size(root.resolve(name + ".log"));
-                long mib = Math.round((double) size / MIB);
-                long named = Long.parseLong(matcher.group(1));
-                if (named != mib) {
+                BigDecimal named = new BigDecimal(matcher.group(1));
+                BigDecimal mib = BigDecimal.valueOf(size).divide(BigDecimal.valueOf(MIB),
+                    named.scale(), RoundingMode.HALF_UP);
+                if (named.compareTo(mib) != 0) {
                     return Optional.of(name + ": .stdout names " + named
                         + " MB, but .log has " + size + " bytes (" + mib + " MiB)");
                 }

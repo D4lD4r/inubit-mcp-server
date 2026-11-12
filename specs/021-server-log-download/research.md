@@ -736,7 +736,9 @@ outside the repository.
   three decimals; 8.1 printed an integer. D-1's `\S+` accepts both; nothing parses the number.
 - **stderr**, 1 line: the runner's `Picked up JAVA_TOOL_OPTIONS: …`; nothing from StartCLI.
 - **File**: a regular file at the requested path, plain ASCII text, 27,336 bytes (258 lines;
-  the server's trace level is `warn`).
+  the server's trace level is `warn`). The entry lines have the 8.1 layout
+  `<LEVEL> dd.MM.yy HH:mm:ss,SSS [<thread>] …`; at level `warn` most lines are tab-indented
+  `at …` stack-trace lines of a few warnings.
 - **Trace state (SC-005)**: get_health systemInfo before (10:08:12 UTC) and after (10:08:53 UTC):
   `tracingEnabled=true`, `TracingLevel=warn` — unchanged.
 - For T051: the contract test must pin that the log4j `ERROR …` line of the REST client does not

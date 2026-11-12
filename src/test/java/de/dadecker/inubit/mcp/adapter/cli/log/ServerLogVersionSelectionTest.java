@@ -67,7 +67,6 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -83,8 +82,9 @@ import org.junit.jupiter.params.provider.ValueSource;
  * the web service log the helper variant and the address. 6.1, 9.1 and an undetectable version
  * are refused before any launch, as is a 9.0 node without a 9.0 client; an 8.1 client chosen for
  * a 9.0 node fails when the helper misses its 9.0 API. Test matrix declaration {@link #MATRIX}
- * admits both logs on 8.1 and 9.0; {@link CapabilityMatrix#production()} refuses them on 9.0 until
- * their recordings (T051, T052 update that test). No server is contacted.
+ * admits both logs on 8.1 and 9.0; {@link CapabilityMatrix#production()} admits the 9.0 trace log
+ * since its recording (T051) and refuses the 9.0 web service log until its recording (T052
+ * updates that test). No server is contacted.
  */
 @Timeout(60)
 class ServerLogVersionSelectionTest {
@@ -166,14 +166,18 @@ class ServerLogVersionSelectionTest {
         assertCleanedUp();
     }
 
-    /** US3-2: the {@code defaults.cliClients."9.0"} StartCLI client and its JDK. */
+    /**
+     * US3-2: the {@code defaults.cliClients."9.0"} StartCLI client and its JDK, with the shipped
+     * matrix since the 9.0 trace recording (T051).
+     */
     @ParameterizedTest
     @MethodSource("autoAndPinned90")
     void nineZeroTraceRunsThe90StartCliClientWithItsJdk(VersionSetting line) {
         pin(N90, line);
         FakeProcessLauncher launcher = launch(N90, ServerLogVersionProfile.startCli());
 
-        ServerLogResult result = service(MATRIX).download(call(N90, "trace"));
+        ServerLogResult result = service(CapabilityMatrix.production())
+            .download(call(N90, "trace"));
 
         assertThat(result.node()).isEqualTo(N90);
         assertThat(launcher.launchCount()).isOne();
@@ -316,18 +320,16 @@ class ServerLogVersionSelectionTest {
 
     // --- the shipped declaration -----------------------------------------------------------------
 
-    /** FR-017: until its recording (T051 trace, T052 web service) 9.0 is refused per log. */
-    @ParameterizedTest
-    @CsvSource({"trace, downloading the trace log",
-        "webservice, downloading the web service log"})
-    void theProductionMatrixRefusesNineZeroAsNotYetVerifiedWithoutLaunch(String log,
-        String label) {
+    /** FR-017: until its recording (T052) the 9.0 web service log is refused. */
+    @Test
+    void theProductionMatrixRefusesTheNineZeroWebServiceLogAsNotYetVerifiedWithoutLaunch() {
         ToolError error = errorOf(() -> service(CapabilityMatrix.production())
-            .download(call(N90, log)));
+            .download(call(N90, "webservice")));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
-        assertThat(error.message()).isEqualTo("download_server_log: INUBIT 9.0.10 on test/n90: "
-            + label + " is not yet verified for INUBIT 9.0; nothing was sent");
+        assertThat(error.message()).isEqualTo("download_server_log: INUBIT 9.0.10 on test/n90:"
+            + " downloading the web service log is not yet verified for INUBIT 9.0; nothing was"
+            + " sent");
         assertThat(detection.requests()).containsExactly(N90);
         assertNothingLaunched();
     }
