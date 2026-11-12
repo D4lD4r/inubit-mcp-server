@@ -561,8 +561,8 @@ result names path, size and the masked excerpt (US1-1…US1-9); no INUBIT contac
   per `v8_1/trace` case (test matrix declaration): `ok` → result shape, `sizeBytes` = `ok.log`,
   masked excerpt; `empty` → `kind: empty`; `missing` → `NOT_FOUND` text; `login_failure` →
   `AUTH_FAILED`; `forbidden` → `FORBIDDEN`; edge case "maintenance mode, credentials not
-  available, TLS failure": `SECRET_UNRESOLVED` (nothing launched), `MAINTENANCE_MODE`,
-  `TLS_ERROR`; after each failure no file in the folder (SC-004), private directory deleted and
+  available, TLS failure": the node's usual credential error (`AUTH_FAILED`, nothing launched),
+  `MAINTENANCE_MODE` from the detection before launch (service level), `TLS_ERROR`; after each failure no file in the folder (SC-004), private directory deleted and
   audit `FAILED` with the code
 - [ ] T033 [US1] **[OWNER]** **[BLOCKED: T021]** Enable 8.1 trace in **one commit** (FR-017,
   D-21, D-22): the agent neutralizes the T021 output in the private directory: the recorded
