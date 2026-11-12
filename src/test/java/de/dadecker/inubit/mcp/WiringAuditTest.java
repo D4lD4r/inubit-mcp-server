@@ -148,7 +148,8 @@ class WiringAuditTest {
         environment.put("PATH", System.getenv().getOrDefault("PATH", "/usr/bin"));
         wiring = new Wiring(config, TestSecrets.store(environment), scrubber,
             new ClockProvider(clock), Files::exists, Platform.windows(), startCli(), environment,
-            () -> store, new ConfigLocation(temp.resolve("config"), temp.resolve("config/config.yaml")));
+            () -> store, new ConfigLocation(temp.resolve("config"),
+                temp.resolve("config/config.yaml")), temp.resolve("home"));
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client.initialize();
     }
@@ -308,6 +309,30 @@ class WiringAuditTest {
             ENV_USER, ENV_USER);
         assertThat(accounts(audit("import_artifacts"))).containsOnly(ENV_USER);
         assertThat(importedWorkflows()).contains("Deploying User: " + ENV_USER + "@@@");
+    }
+
+    @Test
+    void anImportLeavesTheRealHomeUntouched() throws IOException {
+        // feature 023 (research D-6, FR-008): the backup of an import lands below the handed-in
+        // home (temp/home), not below the real one; keyed on the import's audit id, so other
+        // processes writing below the real home do not interfere
+        startEnvironmentServer();
+
+        assertExecuted(importGroup());
+
+        String auditId = audit("import_artifacts").getLast().path("auditId").asString();
+        assertThat(auditId).as("audit id of the import").isNotEmpty();
+        Path realHome = Path.of(System.getProperty("user.home")).resolve(".inubit-mcp");
+        List<Path> leaked = List.of();
+        if (Files.isDirectory(realHome)) {
+            try (Stream<Path> files = Files.walk(realHome)) {
+                leaked = files.filter(file -> file.getFileName().toString().startsWith(auditId))
+                    .toList();
+            }
+        }
+        assertThat(leaked).as("files of the import %s below %s", auditId, realHome).isEmpty();
+        assertThat(temp.resolve("home/.inubit-mcp/acme/backups").resolve(auditId + ".json"))
+            .as("backup manifest below the handed-in home").isRegularFile();
     }
 
     @Test

@@ -1703,6 +1703,24 @@ class MainTest {
     }
 
     @Test
+    void theLauncherHandsItsContextHomeToTheWiring() throws Exception {
+        // feature 023 T007 (FR-009): the Wiring's backups lie below the context's home
+        credentials();
+        Path file = validConfig();
+        AtomicReference<Wiring.HomeLocations> captured = new AtomicReference<>();
+
+        int exit = main(new ByteArrayInputStream(new byte[0]), stdout, wiring -> {
+            captured.set(wiring.homeLocations());
+            return wiring.toolHandlers();
+        }).run("--config", file.toString());
+
+        assertThat(exit).as(err()).isZero();
+        assertThat(captured.get()).as("the server was started").isNotNull();
+        assertThat(captured.get().backups())
+            .isEqualTo(home.resolve(".inubit-mcp").resolve("acme").resolve("backups"));
+    }
+
+    @Test
     void exportArchivesRefusesTheFolderOfTheConfigurationFileInUse() throws Exception {
         // feature 015 T017 (research R-9): the folder of --config is one of the server's
         // directories, refused before StartCLI
@@ -2012,6 +2030,13 @@ class MainTest {
     void onMacOsAndLinuxTheSystemContextNeedsNoJob() {
         assertThat(Launcher.Context.system(System.out).containment().get())
             .isInstanceOf(NoJob.class);
+    }
+
+    @Test
+    void theSystemContextHandsOnTheProcessHome() {
+        // feature 023 T007 (FR-009): the one place that reads the process home
+        assertThat(Launcher.Context.system(System.out).userHome())
+            .isEqualTo(Path.of(System.getProperty("user.home")));
     }
 
     @Test

@@ -15,6 +15,7 @@ import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.DevelopmentConfig;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.GroupConfig;
+import de.dadecker.inubit.mcp.config.KnowledgeConfig;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.config.NodeConfig;
 import de.dadecker.inubit.mcp.config.ParameterStore;
@@ -24,13 +25,17 @@ import de.dadecker.inubit.mcp.config.ValidationReport;
 import de.dadecker.inubit.mcp.config.WorkspaceDirectory;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Assumptions;
 
 /**
@@ -42,8 +47,14 @@ import org.junit.jupiter.api.Assumptions;
  * credential store of this system or AWS Parameter Store. Skips without the variable; the variable
  * of feature 001, {@code INUBIT_LIVE_SERVER}, is refused with a hint; a node whose group is
  * {@code production: true} is refused before anything is contacted.
+ *
+ * <p>Feature 023 (research D-4): the configuration and the credential store come from the real
+ * home, but every wiring writes its state (backups, ledger, packages, audit, workspace unless a
+ * test passes one, knowledge) below the temporary {@link #stateDirectory()} of this target, never
+ * below the real {@code ~/.inubit-mcp}.
  */
-record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boolean windows) {
+record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boolean windows,
+    LiveState state) {
 
     static final String NODE_VARIABLE = "INUBIT_LIVE_NODE";
     /** The variable of feature 001; refused (002 research D-13). */
@@ -94,7 +105,7 @@ record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boo
             fail("Refusing to run live tests against " + nodeId
                 + ": its group is production: true (Constitution III)");
         }
-        return new LiveTarget(nodeId, loaded, configured.scrubber(), windows);
+        return new LiveTarget(nodeId, loaded, configured.scrubber(), windows, new LiveState());
     }
 
     /** The validated real configuration. */
@@ -167,7 +178,8 @@ record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boo
         if (link.mode() == de.dadecker.inubit.mcp.domain.model.DeployMode.PACKAGE_ONLY) {
             fail("Refusing to run the deployment live test: " + group + " is package-only");
         }
-        return new LiveTarget(nodes.get(0).id(), loaded, configured.scrubber(), windows);
+        return new LiveTarget(nodes.get(0).id(), loaded, configured.scrubber(), windows,
+            new LiveState());
     }
 
     /**
@@ -210,8 +222,8 @@ record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boo
      */
     TestWiring wiring(ProfileConfig config, CredentialStore credentialStore,
         Supplier<ParameterStore> parameterStore) {
-        return TestWiring.withParameterStoreSupplier(config, credentialStore, scrubber,
-            Files::exists, windows, new SystemProcessLauncher(), System.getenv(), parameterStore);
+        return wiring(isolated(config, null), credentialStore, parameterStore,
+            new SystemProcessLauncher());
     }
 
     /**
@@ -219,8 +231,7 @@ record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boo
      * queue entry live test records the helper's raw output).
      */
     TestWiring wiring(ProcessLauncher launcher) {
-        return TestWiring.withParameterStoreSupplier(loaded.config(), store(), scrubber,
-            Files::exists, windows, launcher, System.getenv(), SsmParameterStore::new);
+        return wiring(isolated(loaded.config(), null), store(), SsmParameterStore::new, launcher);
     }
 
     /**
@@ -278,16 +289,76 @@ record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boo
     }
 
     private TestWiring wiring(ProfileConfig config, Path workspace) {
-        return wiring(new ProfileConfig(config.profile(), config.terminology(),
-            config.credentials(), config.groups(), config.defaults(), config.auditDirectory(),
-            config.logLevel(), config.resultLimits(), workspace, config.updateCheck(),
-            config.knowledge()), store(),
-            SsmParameterStore::new);
+        return wiring(isolated(config, workspace), store(), SsmParameterStore::new,
+            new SystemProcessLauncher());
+    }
+
+    /**
+     * The wiring of an already {@link #isolated} {@code config} on the home that all wirings of
+     * this target share (feature 023, research D-4: a backup taken in one wiring can be restored
+     * in a later one, as on a real server).
+     */
+    private TestWiring wiring(ProfileConfig config, CredentialStore credentialStore,
+        Supplier<ParameterStore> parameterStore, ProcessLauncher launcher) {
+        return TestWiring.withHome(config, credentialStore, scrubber, Files::exists, windows,
+            launcher, System.getenv(), parameterStore, stateDirectory().resolve("home"));
+    }
+
+    /** The temporary directory that holds the state of every wiring of this target. */
+    Path stateDirectory() {
+        return state.directory();
+    }
+
+    /**
+     * {@code config} with its audit, knowledge and (unless {@code workspace} is given) workspace
+     * directories below {@link #stateDirectory()}; {@code knowledge.recording} is kept.
+     */
+    ProfileConfig isolated(ProfileConfig config, Path workspace) {
+        Path directory = stateDirectory();
+        return new ProfileConfig(config.profile(), config.terminology(), config.credentials(),
+            config.groups(), config.defaults(), directory.resolve("audit"), config.logLevel(),
+            config.resultLimits(), workspace != null ? workspace : directory.resolve("workspace"),
+            config.updateCheck(),
+            new KnowledgeConfig(directory.resolve("knowledge"), config.knowledge().recording()));
     }
 
     /** The credential store of this system, as the server picks it (Launcher). */
     private static CredentialStore store() {
         return CredentialStores.forOs(System.getProperty("os.name"), new SystemProcessLauncher(),
             System.getenv(), Path.of(System.getProperty("user.home")));
+    }
+
+    /**
+     * The state directory of one {@link LiveTarget} (feature 023, research D-4): created on first
+     * use, its path printed once to stderr, deleted recursively at JVM exit.
+     */
+    static final class LiveState {
+
+        private Path directory;
+
+        synchronized Path directory() {
+            if (directory == null) {
+                try {
+                    directory = Files.createTempDirectory("inubit-mcp-live");
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+                System.err.println("[live] state directory: " + directory);
+                Path created = directory;
+                Runtime.getRuntime().addShutdownHook(new Thread(() -> delete(created),
+                    "inubit-mcp-live-state-cleanup"));
+            }
+            return directory;
+        }
+
+        private static void delete(Path directory) {
+            try (Stream<Path> paths = Files.walk(directory)) {
+                for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                    Files.deleteIfExists(path);
+                }
+            } catch (IOException | UncheckedIOException e) {
+                System.err.println("[live] could not delete " + directory + ": " + e);
+            }
+        }
     }
 }

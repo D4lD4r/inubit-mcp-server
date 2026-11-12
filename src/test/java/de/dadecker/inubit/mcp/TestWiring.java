@@ -10,17 +10,33 @@ import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpServerFactory;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Test-visible access to the package-private composition root {@link Wiring}, so that tests in
  * other packages (e.g. the live tests) run exactly the production wiring.
+ *
+ * <p>Feature 023 (research D-2): every server built by a factory other than {@code withHome} gets
+ * a fresh temporary home, deleted by {@link #close()} or, if the server is never closed, at JVM
+ * exit; no test writes below the real {@code ~/.inubit-mcp}.
  */
 public final class TestWiring implements AutoCloseable {
+
+    private static final Logger LOG = LoggerFactory.getLogger(TestWiring.class);
 
     /**
      * The configuration location of the factories without one (feature 015, research R-9): a
@@ -34,33 +50,73 @@ public final class TestWiring implements AutoCloseable {
         TEST_CONFIG_LOCATION = new ConfigLocation(directory, directory.resolve("config.yaml"));
     }
 
-    private final Wiring wiring;
+    /** The temporary homes created here and not deleted yet. */
+    private static final Set<Path> OWNED_HOMES = ConcurrentHashMap.newKeySet();
 
-    private TestWiring(Wiring wiring) {
+    static {
+        Runtime.getRuntime().addShutdownHook(new Thread(
+            () -> OWNED_HOMES.forEach(TestWiring::deleteHome), "inubit-mcp-test-home-cleanup"));
+    }
+
+    private final Wiring wiring;
+    private final Path userHome;
+    private final boolean ownsHome;
+
+    private TestWiring(Wiring wiring, Path userHome, boolean ownsHome) {
         this.wiring = wiring;
+        this.userHome = userHome;
+        this.ownsHome = ownsHome;
+    }
+
+    /** Builds the wiring on a fresh temporary home that this class deletes. */
+    private static TestWiring withTemporaryHome(Function<Path, Wiring> wiring) {
+        Path home;
+        try {
+            home = Files.createTempDirectory("inubit-mcp-home");
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        OWNED_HOMES.add(home);
+        return new TestWiring(wiring.apply(home), home, true);
+    }
+
+    /** Deletes a temporary home once; a failure is logged and otherwise ignored. */
+    private static void deleteHome(Path home) {
+        if (!OWNED_HOMES.remove(home)) {
+            return;
+        }
+        try (Stream<Path> paths = Files.walk(home)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        } catch (IOException | UncheckedIOException e) {
+            LOG.warn("Could not delete the temporary home {}: {}", home, e.toString());
+        }
     }
 
     /** @param config a configuration that {@code ConfigValidator} reported no errors for */
     public static TestWiring of(ProfileConfig config, CredentialStore credentials,
         SecretScrubber scrubber, Predicate<Path> exists, boolean windows) {
-        return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
-            exists, windows, TEST_CONFIG_LOCATION));
+        return withTemporaryHome(home -> new Wiring(config, credentials, scrubber,
+            ClockProvider.system(), exists, windows, TEST_CONFIG_LOCATION, home));
     }
 
     /** As above, with a fake StartCLI ({@code launcher}) and its parent environment. */
     public static TestWiring of(ProfileConfig config, CredentialStore credentials,
         SecretScrubber scrubber, Predicate<Path> exists, boolean windows,
         ProcessLauncher launcher, Map<String, String> environment) {
-        return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
-            exists, windows, launcher, environment, TEST_CONFIG_LOCATION));
+        return withTemporaryHome(home -> new Wiring(config, credentials, scrubber,
+            ClockProvider.system(), exists, windows, launcher, environment, TEST_CONFIG_LOCATION,
+            home));
     }
 
     /** As above, with the Parameter Store of the AWS nodes. */
     public static TestWiring of(ProfileConfig config, CredentialStore credentials,
         SecretScrubber scrubber, Predicate<Path> exists, boolean windows,
         ProcessLauncher launcher, Map<String, String> environment, ParameterStore store) {
-        return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
-            exists, windows, launcher, environment, () -> store, TEST_CONFIG_LOCATION));
+        return withTemporaryHome(home -> new Wiring(config, credentials, scrubber,
+            ClockProvider.system(), exists, windows, launcher, environment, () -> store,
+            TEST_CONFIG_LOCATION, home));
     }
 
     /**
@@ -71,8 +127,22 @@ public final class TestWiring implements AutoCloseable {
         CredentialStore credentials, SecretScrubber scrubber, Predicate<Path> exists,
         boolean windows, ProcessLauncher launcher, Map<String, String> environment,
         Supplier<ParameterStore> parameterStore) {
+        return withTemporaryHome(home -> new Wiring(config, credentials, scrubber,
+            ClockProvider.system(), exists, windows, launcher, environment, parameterStore,
+            TEST_CONFIG_LOCATION, home));
+    }
+
+    /**
+     * As {@link #withParameterStoreSupplier}, with a home the caller owns (feature 023, research
+     * D-2): the state survives a new wiring on the same home, and this class never deletes it.
+     */
+    public static TestWiring withHome(ProfileConfig config, CredentialStore credentials,
+        SecretScrubber scrubber, Predicate<Path> exists, boolean windows,
+        ProcessLauncher launcher, Map<String, String> environment,
+        Supplier<ParameterStore> parameterStore, Path userHome) {
         return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
-            exists, windows, launcher, environment, parameterStore, TEST_CONFIG_LOCATION));
+            exists, windows, launcher, environment, parameterStore, TEST_CONFIG_LOCATION,
+            userHome), userHome, false);
     }
 
     /**
@@ -83,18 +153,18 @@ public final class TestWiring implements AutoCloseable {
     public static TestWiring withConfigLocation(ProfileConfig config, CredentialStore credentials,
         SecretScrubber scrubber, Predicate<Path> exists, boolean windows,
         ProcessLauncher launcher, Map<String, String> environment, ConfigLocation location) {
-        return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
-            exists, windows, launcher, environment, location));
+        return withTemporaryHome(home -> new Wiring(config, credentials, scrubber,
+            ClockProvider.system(), exists, windows, launcher, environment, location, home));
     }
 
     /** As the launcher variant, with a capability matrix other than the production one. */
     public static TestWiring of(ProfileConfig config, CredentialStore credentials,
         SecretScrubber scrubber, Predicate<Path> exists, boolean windows,
         ProcessLauncher launcher, Map<String, String> environment, CapabilityMatrix matrix) {
-        return new TestWiring(new Wiring(config, credentials, scrubber, ClockProvider.system(),
-            exists, windows, launcher, environment, () -> {
+        return withTemporaryHome(home -> new Wiring(config, credentials, scrubber,
+            ClockProvider.system(), exists, windows, launcher, environment, () -> {
                 throw new IllegalStateException("no Parameter Store in this test");
-            }, TEST_CONFIG_LOCATION, matrix));
+            }, TEST_CONFIG_LOCATION, home, matrix));
     }
 
     /** The MCP server the launcher starts, with {@link #toolHandlers()}. */
@@ -117,8 +187,20 @@ public final class TestWiring implements AutoCloseable {
         return wiring.gateways();
     }
 
+    /** The home the wiring keeps its per-profile state below ({@code <home>/.inubit-mcp}). */
+    public Path userHome() {
+        return userHome;
+    }
+
+    /** Closes the wiring, then deletes its temporary home (not a home given to withHome). */
     @Override
     public void close() {
-        wiring.close();
+        try {
+            wiring.close();
+        } finally {
+            if (ownsHome) {
+                deleteHome(userHome);
+            }
+        }
     }
 }

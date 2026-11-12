@@ -119,12 +119,6 @@ public final class ConfigLoader {
             .build();
     }
 
-    /** A loader for the current process environment. */
-    public static ConfigLoader forSystem() {
-        return new ConfigLoader(System.getenv(), Path.of(System.getProperty("user.home")),
-            System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows"));
-    }
-
     /** Returns the configuration file to use; neither {@code --config} nor {@code --profile}. */
     public Path locate() {
         return locate(null, null);

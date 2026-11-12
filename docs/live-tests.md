@@ -47,6 +47,12 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 mvn verify -Plive
   of this system (the profile's entries, setup.md section 4) or from AWS Parameter Store for
   nodes with that source (log in to AWS first). They are never passed on the command line or as
   environment variables. On macOS the first read may show a Keychain access dialog.
+- The server state a live test writes stays out of `~/.inubit-mcp` (feature 023): every
+  `LiveTarget` keeps it in one temporary **live state directory**, printed at the start of the run
+  as `[live] state directory: <path>` and deleted at JVM exit. It holds `home/` (the backups, the
+  deployment ledger and lock files and the packages below `home/.inubit-mcp/<profile>/`),
+  `audit/` (the audit records), `workspace/` (unless the test uses its own temporary workspace)
+  and `knowledge/`. Configuration and credentials are still read from the real home.
 - The selection logic itself (old variable refused, node parsed, location order, production
   refusal) is covered offline by `live/LiveTargetTest`, which runs in the default build.
 
@@ -106,8 +112,8 @@ INUBIT_MCP_CONFIG=/path/to/acme-live-copy.yaml INUBIT_LIVE_DEV_NODE=dev/node1 \
   real file under `~/.config/inubit-mcp/` for a test run. Keep the copy outside that directory and
   point the run at it with `INUBIT_MCP_CONFIG` as above (it comes before `INUBIT_MCP_PROFILE`); the
   copy keeps the `profile.name`, so the validation only warns that it shares the name with the real
-  file. The test works in a **temporary workspace**; the audit records go to the profile's audit
-  directory and the backups to `~/.inubit-mcp/<profile>/backups` as for every development call.
+  file. The test works in a **temporary workspace**; the audit records and the backups go to the
+  live state directory (see [Run](#run)) and are deleted with it at JVM exit.
 - Scenario (research D-23): `export_artifacts` of the group → one layout value (`xPos`) of the
   named workflow +10 → `import_artifacts` (preview confirmed with its code) → the workspace shows
   the verified change → `restore_backup` of that import → the original value is back →
@@ -167,9 +173,10 @@ schema with the run's time stamp. Scenario (quickstart.md of feature 008, "Live"
    and the probe with its previous content (or, after the first run, with the content of step 2).
 
 What stays: the probe file in your test folder (never deleted; every run creates new versions of
-it in INUBIT), the backups of the import and the restore under `~/.inubit-mcp/<profile>/backups`
-and the audit records of `import_artifacts` and `restore_backup` (the refused call as `REFUSED`),
-as for every development call. Only counts and timings are printed, e.g.
+it in INUBIT). The backups of the import and the restore and the audit records of
+`import_artifacts` and `restore_backup` (the refused call as `REFUSED`) go to the live state
+directory (see [Run](#run)) and are deleted with it at JVM exit. Only counts and timings are
+printed, e.g.
 `[live] dev/node1: repository probe modified, refused read-only, restored; 3 file(s) in the test folder, 95 s`.
 
 ## Deployment live test (feature 005)
@@ -202,7 +209,7 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEPLOY_TARGET=int INUBIT_LIVE_DEPLOY_DIAGRAM
   changed (`list_inventory`). The restored node keeps the state before the deployment; deploy
   again to bring it to the release.
 - The test works in a **temporary workspace**; the audit records, backups and the ledger go to the
-  profile's directories under `~/.inubit-mcp/<profile>/` as for every deployment. Only counts and
+  live state directory (see [Run](#run)) and are deleted with it at JVM exit. Only counts and
   timings are printed, e.g.
   `[live] int: deploy, redeploy (unchanged) and restore of one test diagram group on 2 node(s): 5 artifact(s) imported, 340 s`.
 
@@ -215,12 +222,11 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_DEPLOY_TARGET=int INUBIT_LIVE_DEPLOY_DIAGRAM
 - **The tag** on the source (if the test tagged it) and on every target node's deployed diagram
   group — never removed (StartCLI removes tags only owner-wide); the next run with the same tag
   moves it.
-- **Under `~/.inubit-mcp/<profile>/`**: the `DEPLOYMENT` backups of every written node and of the
-  restore (`backups/`, 30-day retention, the newest per scope kept), the ledger and lock file of
-  the target group (`deployments/<group>.ledger.json`, `deployments/<group>.lock`), and — never for
-  this test, which refuses package-only groups — `packages/`.
-- **Audit records** (`audit/audit-YYYY-MM.jsonl`) of every call: `deploy_release` (group and node
-  records), `tag_artifacts`, `restore_backup`.
+- **Nothing under `~/.inubit-mcp`**: the `DEPLOYMENT` backups of every written node and of the
+  restore, the ledger and lock file of the target group (`deployments/<group>.ledger.json`,
+  `deployments/<group>.lock`) and the audit records of every call (`deploy_release` with group and
+  node records, `tag_artifacts`, `restore_backup`) go to the live state directory (see
+  [Run](#run)) and are deleted with it at JVM exit.
 - The temporary workspace is removed; the reports below it go with it.
 
 ## Queue entry read (feature 020)
@@ -497,8 +503,12 @@ Steps, in PowerShell:
    `inubit-mcp-export-*` directory is left below `java.io.tmpdir`.
 3. Only on a development node or an approved target, with approval: `DevelopmentLiveTest` and
    `DeploymentLiveTest` ([Development live test](#development-live-test-feature-004),
-   [Deployment live test](#deployment-live-test-feature-005)); check the access list of a backup
-   with `icacls` (the account of the server and SYSTEM only, no inherited entries).
+   [Deployment live test](#deployment-live-test-feature-005)). The backups of the run lie in the
+   live state directory, below `<live state directory>\home\.inubit-mcp\<profile>\backups` (path
+   from the `[live] state directory:` line), and are deleted at JVM exit, so check them while the
+   run is still going: debug `DeploymentLiveTest` in the IDE with a breakpoint on its
+   `restore_backup` call, check the access list of a backup there with `icacls` (the account of
+   the server and SYSTEM only, no inherited entries), then let the test finish.
 4. Record per step the Windows version, the client version, the code page and the outcome kind
    (no customer data) in the "Validation record" of
    `specs/013-windows-startcli/quickstart.md`. If the separator, the handling of `\`, the

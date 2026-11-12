@@ -128,7 +128,8 @@ class MessageTerminologyTest {
             SecretScrubber scrubber = new SecretScrubber();
             CredentialStore credentials = TestSecrets.store(env);
             wiring = new Wiring(loaded.config(), credentials, scrubber, ClockProvider.system(),
-                path -> true, Platform.windows(), new ConfigLocation(cliHome, loaded.source()));
+                path -> true, Platform.windows(), new ConfigLocation(cliHome, loaded.source()),
+                cliHome.resolve("home"));
         }
         return wiring.toolHandlers().stream().filter(h -> h.name().equals(name)).findFirst()
             .orElseThrow();

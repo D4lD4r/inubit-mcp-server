@@ -109,7 +109,7 @@ class ToolAnnouncementTest {
         try (Wiring wiring = new Wiring(config, TestSecrets.store(Map.of()), scrubber,
             ClockProvider.system(), path -> false, false, failing, Map.of(), () -> {
                 throw new AssertionError("no node reads from the Parameter Store");
-            }, TestWiring.TEST_CONFIG_LOCATION, matrix)) {
+            }, TestWiring.TEST_CONFIG_LOCATION, temp.resolve("home"), matrix)) {
             return wiring.toolHandlers().stream().map(ToolHandler::name).toList();
         }
     }

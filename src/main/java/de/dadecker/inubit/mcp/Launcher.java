@@ -543,7 +543,7 @@ final class Launcher {
         try (Wiring wiring = new Wiring(config, context.credentialStore().get(), context.scrubber(),
             ClockProvider.system(), context.exists(), context.windows(),
             new SystemProcessLauncher(), System.getenv(), context.parameterStore(),
-            location, containment, context.privateFiles())) {
+            location, context.userHome(), containment, context.privateFiles())) {
             UpdateCheck check = null;
             UpdateNotice notice = UpdateNotice.NONE;
             if (checkUpdates) {

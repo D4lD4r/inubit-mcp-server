@@ -99,7 +99,8 @@ class StartCliClientWiringTest {
             "INUBIT_ACME_DEV_PASSWORD", "test-password")), scrubber, ClockProvider.system(),
             Files::exists, Platform.windows(), new SystemProcessLauncher(), System.getenv(),
             FakeParameterStore::new,
-            new ConfigLocation(temp.resolve("config"), temp.resolve("config/config.yaml")));
+            new ConfigLocation(temp.resolve("config"), temp.resolve("config/config.yaml")),
+            temp.resolve("home"));
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client.initialize();
     }
