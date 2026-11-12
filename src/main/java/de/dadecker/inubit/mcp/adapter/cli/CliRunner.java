@@ -413,9 +413,7 @@ public final class CliRunner {
         }
         Selection selection = select(server);
         checkLaunch(selection);
-        if (server.tls().pinPerServer()) {
-            pinProbe.check(selection.server());
-        }
+        checkPin(selection);
         return selection;
     }
 
@@ -550,6 +548,21 @@ public final class CliRunner {
         return new CliResult(result.exitCode(), mask.apply(result.stdout()),
             mask.apply(result.stderr()), result.duration(), result.truncated(),
             result.outputBound(), result.clientMajor());
+    }
+
+    /**
+     * For a server of a stage with {@code tls.pinPerServer}, checks the certificate at the
+     * StartCLI address against the server's own pin (feature 014, research R-15); otherwise does
+     * nothing. {@link #run} calls it itself; an 8.1/9.0 caller of {@link #runSession} calls it
+     * before the session (feature 022, research D-7), the 6.1 session runs its own handshake.
+     *
+     * @throws ToolErrorException {@code TLS_ERROR}, {@code UNREACHABLE} or {@code TIMEOUT} with
+     *     the server id; StartCLI must then not be started
+     */
+    public void checkPin(Selection selection) {
+        if (selection.server().tls().pinPerServer()) {
+            pinProbe.check(selection.server());
+        }
     }
 
     /**
@@ -697,13 +710,16 @@ public final class CliRunner {
 
     /**
      * Runs {@code launch} under the guard permit {@code acquired}, which it closes: a
-     * {@code LoginFailure} rejects and an exit code 0 confirms the credentials.
+     * {@code LoginFailure} rejects and an exit code 0 confirms the credentials. A refusal for a
+     * missing "CLI login access" right does not reject: the credentials are right then, so the
+     * node must not be paused for them (feature 022).
      */
     private static CliResult guarded(CredentialGuard.Permit acquired,
         Supplier<CliResult> launch) {
         try (CredentialGuard.Permit permit = acquired) {
             CliResult result = launch.get();
-            if (CliOutputClassifier.isLoginFailure(result)) {
+            if (CliOutputClassifier.isLoginFailure(result)
+                && !CliOutputClassifier.isMissingCliRight(result)) {
                 permit.rejected();
             } else if (result.exitCode() == 0) {
                 permit.accepted();

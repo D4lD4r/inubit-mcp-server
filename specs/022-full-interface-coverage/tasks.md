@@ -324,7 +324,7 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
     excerpt â‰¤ 500 characters, never a guess.
   - Failing tests first: one test class per parser with reconstructed cases (recorded after
     T014).
-- [ ] T019 [US1] StartCLI commands for settings reads (after T012, T018):
+- [X] T019 [US1] StartCLI commands for settings reads (after T012, T018):
   - `CliSessionCommand.SESSION_OPTIONS` admits `threads showNumberOfWorkflowThreads`,
     `privilegedWorkflows showThreadsPercentage|showWorkflowList`, `dbconnectiontolerance show`,
     `date`;
@@ -421,6 +421,9 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
   - From the T018 review: replace the five `admin-settings-*-reconstructed` CLI cases with the
     recordings and align the forms of `ThreadsParser`, `PrivilegedWorkflowsParser`,
     `DbToleranceParser` and `ServerDateParser` (check whether StartCLI output is localized).
+  - From the T019 review: anchor `CliOutputClassifier.MISSING_CLI_RIGHT` to the recorded refusal
+    code or text for a missing "CLI login access" right (L-1), and add classifier tests for that
+    text and for the recorded wrong-credentials text (the guard must still pause on the latter).
 - [ ] T026 [US1] 9.0 contracts and flip [BLOCKED: T024]: `SettingsV90ContractTest.java`, rows
   and matrix for `v9_0`, catalogue entries.
   - the same for the `v9_0` column of `license -td` / `license -ts` (`covered:get_server_settings`);

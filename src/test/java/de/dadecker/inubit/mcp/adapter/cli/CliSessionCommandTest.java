@@ -20,7 +20,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * T016: the allow-listed commands of a 6.1 StartCLI session (research D-5, D-10); feature 022
- * T012: the version-neutral builder with the value rules of {@link CliCommand} (research D-7).
+ * T012: the version-neutral builder with the value rules of {@link CliCommand} (research D-7);
+ * T019: the settings reads of US1 in the production allowlist.
  */
 class CliSessionCommandTest {
 
@@ -89,7 +90,7 @@ class CliSessionCommandTest {
 
     // --- feature 022 (T012, research D-7): commands built from the session allowlist ----------
 
-    /** An allowlist for the builder's rules; the production one admits nothing yet. */
+    /** An allowlist for the builder's value rules; the production one has no valued option yet. */
     private static final Map<String, Set<String>> ALLOWLIST = Map.of(
         "show", Set.of("--group", "--path", "--all"));
 
@@ -102,11 +103,36 @@ class CliSessionCommandTest {
         });
     }
 
+    /** T019 (US1): the settings reads of {@code get_server_settings}, and nothing else. */
     @Test
-    void noBuiltCommandIsAdmittedFor81And90Yet() {
-        assertThat(CliSessionCommand.SESSION_OPTIONS).isEmpty();
-        assertInvalid(() -> CliSessionCommand.command("threads"), "");
+    void theSettingsReadsAreAdmitted() {
+        assertThat(CliSessionCommand.SESSION_OPTIONS).isEqualTo(Map.of(
+            "threads", Set.of("showNumberOfWorkflowThreads"),
+            "privilegedWorkflows", Set.of("showThreadsPercentage", "showWorkflowList"),
+            "dbconnectiontolerance", Set.of("show"),
+            "date", Set.of()));
+        assertThat(CliSessionCommand.command("threads").flag("showNumberOfWorkflowThreads")
+            .build().text()).isEqualTo("threads showNumberOfWorkflowThreads");
+        assertThat(CliSessionCommand.command("privilegedWorkflows").flag("showThreadsPercentage")
+            .build().text()).isEqualTo("privilegedWorkflows showThreadsPercentage");
+        assertThat(CliSessionCommand.command("privilegedWorkflows").flag("showWorkflowList")
+            .build().text()).isEqualTo("privilegedWorkflows showWorkflowList");
+        assertThat(CliSessionCommand.command("dbconnectiontolerance").flag("show").build().text())
+            .isEqualTo("dbconnectiontolerance show");
+        assertThat(CliSessionCommand.command("date").build().text()).isEqualTo("date");
+    }
+
+    /** T019: the settings changes (US6) and every other command stay outside the allowlist. */
+    @Test
+    void aSettingsChangeOrAnotherCommandIsRejected() {
+        assertInvalid(() -> CliSessionCommand.command("threads")
+            .flag("setNumberOfWorkflowThreads"), "setNumberOfWorkflowThreads");
+        assertInvalid(() -> CliSessionCommand.command("privilegedWorkflows")
+            .flag("setThreadsPercentage"), "setThreadsPercentage");
+        assertInvalid(() -> CliSessionCommand.command("dbconnectiontolerance").flag("set"), "");
+        assertInvalid(() -> CliSessionCommand.command("date").flag("-s"), "");
         assertInvalid(() -> CliSessionCommand.command("passwd"), "");
+        assertInvalid(() -> CliSessionCommand.command("license"), "");
         assertInvalid(() -> CliSessionCommand.command(null), "");
     }
 

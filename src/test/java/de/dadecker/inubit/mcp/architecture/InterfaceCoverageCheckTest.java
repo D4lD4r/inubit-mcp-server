@@ -46,7 +46,8 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * Feature 022 (T008, T010, FR-003, research D-2): checks 1–6 of contracts/coverage-list.md,
  * "Checks". Each check is a function of its inputs; the production tests feed it the real sources
- * ({@code CliCommand.OPTIONS}, the {@code CliSessionCommand} constants, {@code RestEndpoint},
+ * ({@code CliCommand.OPTIONS}, the {@code CliSessionCommand} constants and
+ * {@code SESSION_OPTIONS}, {@code RestEndpoint},
  * the tools and the action catalogue of {@link TestWiring}, the input schemas and
  * {@link InterfaceCoverage#production()}),
  * the fixture tests show that each check reports what it should.
@@ -62,6 +63,8 @@ import tools.jackson.databind.json.JsonMapper;
  *       row limit dropped ({@code ps -e -l 10} → {@code ps -e}, {@code ps -l};
  *       {@code ps -c -q} → {@code ps -c}, {@code ps -q}); the lines of
  *       {@link #SESSION_WITHOUT_ROW} have no row.
+ *   <li>{@code CliSessionCommand.SESSION_OPTIONS} (INUBIT 8.1/9.0): as {@code CliCommand.OPTIONS}
+ *       ({@code threads showNumberOfWorkflowThreads}, {@code date}).
  * </ul>
  */
 class InterfaceCoverageCheckTest {
@@ -105,6 +108,8 @@ class InterfaceCoverageCheckTest {
             .as("CliCommand.OPTIONS pairs without a row").isEmpty();
         assertThat(missingRows(coverage, sessionKeys(sessionLines())))
             .as("CliSessionCommand lines without a row").isEmpty();
+        assertThat(missingRows(coverage, commandKeys(sessionOptions())))
+            .as("CliSessionCommand.SESSION_OPTIONS pairs without a row").isEmpty();
     }
 
     @Test
@@ -152,6 +157,9 @@ class InterfaceCoverageCheckTest {
             cli("trace --download"), cli("kill"), cli("processErrorStart"));
         assertThat(sessionKeys(sessionLines())).contains(cli("uname"), cli("free -m"),
             cli("ps -a"), cli("ps -l"), cli("ps -c")).doesNotContain(cli("exit"));
+        assertThat(commandKeys(sessionOptions())).contains(
+            cli("threads showNumberOfWorkflowThreads"), cli("dbconnectiontolerance show"),
+            cli("date"));
         assertThat(tools).contains("get_health", "export_archives", "download_server_log",
             "tag_artifacts", "deploy_release", "kill_process");
     }
@@ -448,10 +456,23 @@ class InterfaceCoverageCheckTest {
     // --- the production sources ---------------------------------------------------------------
 
     /** {@code CliCommand.OPTIONS}: the allowlist is private to the adapter, so it is read here. */
-    @SuppressWarnings("unchecked")
     private static Map<String, Set<String>> cliCommandOptions()
         throws ReflectiveOperationException {
-        Field field = CliCommand.class.getDeclaredField("OPTIONS");
+        return allowlist(CliCommand.class, "OPTIONS");
+    }
+
+    /**
+     * {@code CliSessionCommand.SESSION_OPTIONS} (8.1/9.0 session commands, feature 022 T019):
+     * package-private to the adapter, so it is read here.
+     */
+    private static Map<String, Set<String>> sessionOptions() throws ReflectiveOperationException {
+        return allowlist(CliSessionCommand.class, "SESSION_OPTIONS");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Set<String>> allowlist(Class<?> owner, String name)
+        throws ReflectiveOperationException {
+        Field field = owner.getDeclaredField(name);
         field.setAccessible(true);
         return (Map<String, Set<String>>) field.get(null);
     }

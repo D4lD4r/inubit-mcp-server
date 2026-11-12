@@ -40,10 +40,15 @@ public final class CliSessionCommand {
     public static final CliSessionCommand EXIT = new CliSessionCommand("exit");
 
     /**
-     * The session commands {@link #command} admits and the options each accepts; empty until the
-     * stories add the 8.1/9.0 commands (feature 022, research D-7).
+     * The session commands {@link #command} admits and the options each accepts (feature 022,
+     * research D-7): the settings reads of {@code get_server_settings} (US1). The settings changes
+     * ({@code threads setNumberOfWorkflowThreads}, …) are not admitted.
      */
-    static final Map<String, Set<String>> SESSION_OPTIONS = Map.of();
+    static final Map<String, Set<String>> SESSION_OPTIONS = Map.of(
+        "threads", Set.of("showNumberOfWorkflowThreads"),
+        "privilegedWorkflows", Set.of("showThreadsPercentage", "showWorkflowList"),
+        "dbconnectiontolerance", Set.of("show"),
+        "date", Set.of());
 
     /** The process states a {@code ps} command selects. */
     public enum Listing {
