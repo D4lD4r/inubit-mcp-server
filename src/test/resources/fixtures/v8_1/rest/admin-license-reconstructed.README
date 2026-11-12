@@ -1,0 +1,7 @@
+SYNTHETIC – reconstructed GET /ibis/rest/license answer until T014 records the real one
+Hand-written fixture for LicenseXmlParser (tasks.md T016). The vendor page of GET /license shows
+only the root <license> with "<!-- Your license content -->", so every element below the root is a
+guess: licensee, expiryDate (ISO date), licensedThreads, and the unknown elements edition, modules,
+activationPassword and signature, which the parser must ignore. The values of activationPassword
+and signature are planted test secrets; the licensee is fictitious. Replace this case with the
+recording of T014 (admin-license*) and adjust the element names in LicenseXmlParser.

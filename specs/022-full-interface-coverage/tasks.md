@@ -287,7 +287,7 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
     `configuration`, `serverTime`) are added to `UnavailablePart.PARTS`, which `Part` requires
     (T010 review).
   - Failing tests first: `domain/model/ServerSettingsTest.java` (bounds, parts).
-- [ ] T016 [US1] `adapter/rest/v81/LicenseXmlParser.java` (after T015):
+- [X] T016 [US1] `adapter/rest/v81/LicenseXmlParser.java` (after T015):
   - uses `XmlSupport` hardening;
   - reads the expiry date, licensed threads and licensee (the licensed threads are used only when
     `/metrics` is not licensed; data-model `ServerSettings`);
@@ -405,6 +405,11 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
     echoes each command after the prompt, drop the echoed command line from each block and accept
     the echoed `exit`; otherwise remove the echo from `CliRunnerSessionTest`'s client model. Note
     the recorded behaviour in the parser Javadoc.
+  - From the T016 review: with the recorded license format, align `LicenseXmlParser`'s element
+    names; a `licensedThreads` value that is not a positive whole number leaves only the threads
+    empty instead of failing the whole `license` part (the threads are only the `/metrics`
+    fallback); rename or drop the `doesNotContain` assertion on `facts.toString()` in
+    `LicenseXmlParserTest`.
 - [ ] T026 [US1] 9.0 contracts and flip [BLOCKED: T024]: `SettingsV90ContractTest.java`, rows
   and matrix for `v9_0`, catalogue entries.
   - the same for the `v9_0` column of `license -td` / `license -ts` (`covered:get_server_settings`);

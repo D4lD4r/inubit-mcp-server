@@ -56,7 +56,7 @@ public record UnavailablePart(String part, String reason, Optional<String> likel
 
     public UnavailablePart {
         if (!PARTS.contains(part)) {
-            throw new IllegalArgumentException("unknown health part " + Names.quote(part));
+            throw new IllegalArgumentException("unknown part " + Names.quote(part));
         }
         Objects.requireNonNull(reason, "reason");
         likelyCause = likelyCause == null ? Optional.empty() : likelyCause;

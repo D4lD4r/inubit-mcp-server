@@ -9,8 +9,12 @@ import java.util.Optional;
  * The settings of one server (data-model.md → ServerSettings, US1). A fact that could not be
  * read is empty, and its part is listed in {@code unavailable} with the reason (FR-013).
  *
+ * @param node                the server the settings belong to
  * @param license             license facts (part {@code license})
  * @param workflowThreads     the configured workflow threads (part {@code threads})
+ * @param privilegedWorkflows the share of threads for privileged workflows and their names
+ *                            (part {@code privilegedWorkflows})
+ * @param dbConnectionTolerance the DB connection tolerance (part {@code dbConnectionTolerance})
  * @param blockingQueueSize   the maximum blocking queue size, from the {@code /metrics} call
  *                            {@code get_health} uses
  * @param version             the version string, from the same source as {@code get_health}
