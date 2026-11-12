@@ -573,7 +573,7 @@ public final class VersionGate {
             throw refuse(node, spec.capability(), name(state, Optional.empty())
                     .map(line -> line + " on " + node + " names no major.minor; "
                         + spec.action() + " is offered per INUBIT major.minor")
-                    .orElseGet(() -> capitalized(spec.action()) + " refused: "
+                    .orElseGet(() -> spec.action() + " refused: "
                         + unknown(node, state)),
                 "This server lists the entries it sends per INUBIT major.minor",
                 terms.render("Let get_health detect the version of the {node}, or set versionLine"
@@ -840,7 +840,7 @@ public final class VersionGate {
         return switch (capability) {
             case LOG_DIAGNOSIS -> "read the logs of INUBIT " + release + " in the Workbench";
             case WORKSPACE_EXPORT -> "use the Workbench export";
-            case MONITORING, PROCESS_DIAGNOSIS, INVENTORY, PARTNER_MANAGEMENT ->
+            case MONITORING, PROCESS_DIAGNOSIS, INVENTORY, PARTNER_MANAGEMENT, SERVER_SETTINGS ->
                 terms.render("use the Workbench, or another {node} with a different INUBIT"
                     + " version");
             case DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL -> "use the Workbench";

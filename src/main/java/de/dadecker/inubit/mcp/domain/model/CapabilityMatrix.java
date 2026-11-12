@@ -72,30 +72,44 @@ public final class CapabilityMatrix {
         true);
 
     /**
-     * 8.1: everything; the server-log reads of feature 021 since their recordings (trace log T033,
-     * web service log T046).
+     * Feature 022 (research D-1, D-12): each capability is refused on 8.1 and 9.0 with this note
+     * until its contract tests flip it.
      */
-    private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1), ALL_SUPPORTED);
+    private static final String NOT_YET_VERIFIED = "not yet verified";
+
+    /**
+     * 8.1: everything except reading the server settings of feature 022 (not yet verified); the
+     * server-log reads of feature 021 since their recordings (trace log T033, web service log T046).
+     */
+    private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1),
+        with(ALL_SUPPORTED, Capability.SERVER_SETTINGS, SupportState.UNSUPPORTED),
+        Map.of(), false,
+        Map.of(Capability.SERVER_SETTINGS, NOT_YET_VERIFIED));
 
     /**
      * 9.0: everything as on 8.1 except partner management, which runs with a warning until recorded
      * 9.0 responses are under contract test (feature 018, FR-016, research D-7); reading Queue
      * Manager entries included since its recorded 9.0 error entry (feature 020, FR-019, research
      * D-20); the server-log reads of feature 021 since their recordings (trace log T051, web
-     * service log T052).
+     * service log T052); reading the server settings of feature 022 not yet verified.
      */
     private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0),
-        with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED));
+        with(with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED),
+            Capability.SERVER_SETTINGS, SupportState.UNSUPPORTED),
+        Map.of(), false,
+        Map.of(Capability.SERVER_SETTINGS, NOT_YET_VERIFIED));
 
     /**
-     * Unknown versions: reading Queue Manager entries and the server logs is refused, not run with
-     * a warning.
+     * Unknown versions: reading Queue Manager entries, the server logs and the server settings is
+     * refused, not run with a warning (feature 022: the coverage gate knows 8.1 and 9.0 only).
      */
     private static final CapabilityMatrix PRODUCTION = new CapabilityMatrix(
         List.of(V6_1, V8_1, V9_0),
-        with(with(with(READS_UNVERIFIED, Capability.QUEUE_ENTRY_READ, SupportState.UNSUPPORTED),
+        with(with(with(with(READS_UNVERIFIED, Capability.QUEUE_ENTRY_READ,
+            SupportState.UNSUPPORTED),
             Capability.TRACE_LOG_READ, SupportState.UNSUPPORTED),
-            Capability.WEBSERVICE_LOG_READ, SupportState.UNSUPPORTED));
+            Capability.WEBSERVICE_LOG_READ, SupportState.UNSUPPORTED),
+            Capability.SERVER_SETTINGS, SupportState.UNSUPPORTED));
 
     /**
      * The version lines whose stored secret forms are verified as comparable across servers, so
@@ -125,7 +139,8 @@ public final class CapabilityMatrix {
      * Queue Manager entries is supported on 8.1 and 9.0, on any other and on unknown versions
      * unsupported. Feature 021 (research D-6): downloading the trace log and the web service log
      * is supported on 8.1 (T033, T046) and 9.0 (T051, T052), on any other and on unknown versions
-     * unsupported.
+     * unsupported. Feature 022 (research D-1): reading the server settings is unsupported
+     * everywhere, on 8.1 and 9.0 with the note "not yet verified" until T025 / T026.
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;

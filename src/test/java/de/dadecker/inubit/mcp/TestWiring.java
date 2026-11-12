@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp;
 
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
+import de.dadecker.inubit.mcp.application.ActionCatalog;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.CredentialStore;
 import de.dadecker.inubit.mcp.config.ParameterStore;
@@ -178,7 +179,7 @@ public final class TestWiring implements AutoCloseable {
     }
 
     /** Feature 022 (coverage check 6): the registered tool actions. */
-    public de.dadecker.inubit.mcp.application.ActionCatalog actionCatalog() {
+    public ActionCatalog actionCatalog() {
         return wiring.actionCatalog();
     }
 

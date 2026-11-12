@@ -862,12 +862,14 @@ final class Wiring implements AutoCloseable {
      * where allowed, process control with write access; feature 020 (research D-15): reading
      * Queue Manager entries with the group's {@code unsupported.queueEntryRead} and the client;
      * feature 021 (research D-17): downloading the trace log with the client, the web service log
-     * with the client and the group's {@code unsupported.serverLogRead}.
+     * with the client and the group's {@code unsupported.serverLogRead}; feature 022 (research
+     * D-1): reading the server settings, allowed without a client; its StartCLI parts are then
+     * reported unavailable per part (research D-2).
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
         Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
             Capability.PROCESS_DIAGNOSIS, Capability.LOG_DIAGNOSIS, Capability.INVENTORY,
-            Capability.PARTNER_MANAGEMENT);
+            Capability.PARTNER_MANAGEMENT, Capability.SERVER_SETTINGS);
         if (withClient) {
             allowed.add(Capability.WORKSPACE_EXPORT);
         }

@@ -2383,7 +2383,7 @@ Group dev: archives: allowed
 Group next: archives: allowed
   Node next/node1: read-only, cli: unavailable, client: none, address: base URL, inubit: V9_X, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_NEXT_USERNAME ok, password ← INUBIT_ACME_NEXT_PASSWORD ok
 Group legacy: archives: allowed
-  Node legacy/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process diagnosis, log diagnosis, inventory, partner management, workspace export, development writes, deployment, end-to-end test, process control, downloading the trace log), client: 6.1.0 (4.0.1–6.1.0; options: no trust-store option, no host-name option), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_LEGACY_USERNAME ok, password ← INUBIT_ACME_LEGACY_PASSWORD ok
+  Node legacy/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process diagnosis, log diagnosis, inventory, partner management, workspace export, development writes, deployment, end-to-end test, process control, downloading the trace log, reading server settings), client: 6.1.0 (4.0.1–6.1.0; options: no trust-store option, no host-name option), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_LEGACY_USERNAME ok, password ← INUBIT_ACME_LEGACY_PASSWORD ok
 client /opt/inubit-8.1/client (Java 17): CLI 8.1.17 (4.0.1–8.1.17)
 client /opt/inubit-6.1/client (Java 8): CLI 6.1.0 (4.0.1–6.1.0)
 Warnings:

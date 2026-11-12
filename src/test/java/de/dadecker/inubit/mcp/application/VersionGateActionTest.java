@@ -48,6 +48,8 @@ class VersionGateActionTest {
     private static final NodeId V6_1 = NodeId.parse("old/node1");
     /** A major-only line: no major.minor to look the entries up for. */
     private static final NodeId V9_X = NodeId.parse("prod/node1");
+    /** {@code AUTO}, its version not detected yet. */
+    private static final NodeId UNDETECTED = NodeId.parse("auto/node1");
 
     private static final String TOOL = "get_model_details";
 
@@ -81,12 +83,16 @@ class VersionGateActionTest {
 
     private final NodeVersions versions = new NodeVersions(Clock.systemUTC(),
         Map.of(V8_1, VersionSetting.V8_1, V9_0, VersionSetting.V9_0, V6_1, VersionSetting.V6_1,
-            V9_X, VersionSetting.V9_X)::get,
+            V9_X, VersionSetting.V9_X, UNDETECTED, VersionSetting.AUTO)::get,
         node -> Duration.ofMinutes(10));
     /** The nodes with a StartCLI installation (none by default). */
     private final Set<NodeId> withClient = new HashSet<>();
 
-    private final VersionGate gate = new VersionGate(versions, new FakeVersionDetection(versions),
+    /** The {@code AUTO} node's detection fails, so its version stays unknown. */
+    private final FakeVersionDetection detection =
+        new FakeVersionDetection(versions).fail(UNDETECTED, ErrorCode.TIMEOUT);
+
+    private final VersionGate gate = new VersionGate(versions, detection,
         everythingSupported(), (node, version, timeout) -> {
             throw new AssertionError("no client probe expected for " + node);
         }, TestClientSelection.of(withClient::contains), node -> Duration.ZERO,
@@ -154,6 +160,17 @@ class VersionGateActionTest {
 
         assertThat(error.message()).contains("INUBIT 9.x (versionLine V9_X) on " + V9_X)
             .contains("names no major.minor");
+    }
+
+    @Test
+    void anAutoNodeWhoseVersionIsNotDetectedIsRefusedNamingTheActionAsGiven() {
+        // T010 review: the action key as given ("module"), not capitalized
+        ToolError error = refusal(() -> gate.admitCall(TOOL, UNDETECTED, MODULE,
+            Set.of(BY_ID)));
+
+        assertThat(error.message()).startsWith(TOOL + ": module refused: the INUBIT version of "
+            + UNDETECTED + " is unknown (TIMEOUT at ");
+        assertThat(detection.requests()).containsExactly(UNDETECTED);
     }
 
     @Test

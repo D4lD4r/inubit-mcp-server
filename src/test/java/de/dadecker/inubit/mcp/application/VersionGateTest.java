@@ -1043,6 +1043,8 @@ class VersionGateTest {
             + " download the log in the Workbench (Administration, Server Log)");
         expected.put(Capability.WEBSERVICE_LOG_READ, "downloading the web service log; supported:"
             + " 8.1, 9.0; download the log in the Workbench (Administration, Server Log)");
+        // feature 022 (T011)
+        expected.put(Capability.SERVER_SETTINGS, "reading server settings; " + other);
 
         for (Capability capability : Capability.values()) {
             ToolError error = refusal(() -> gate().admit(V6_1, capability, capability.kind(),

@@ -35,7 +35,12 @@ public enum Capability {
      * {@code download_server_log} with {@code log: webservice}: a helper on the INUBIT client
      * (feature 021).
      */
-    WEBSERVICE_LOG_READ(Kind.READ, Set.of(Channel.CLI));
+    WEBSERVICE_LOG_READ(Kind.READ, Set.of(Channel.CLI)),
+    /**
+     * {@code get_server_settings}: REST and StartCLI parts, each admitted by the coverage gate on
+     * its own (feature 022, research D-1, D-2).
+     */
+    SERVER_SETTINGS(Kind.READ, Set.of(Channel.REST, Channel.CLI));
 
     /** Whether the capability only reads from INUBIT or changes it. */
     public enum Kind {
@@ -100,6 +105,7 @@ public enum Capability {
             case QUEUE_ENTRY_READ -> "reading Queue Manager entries";
             case TRACE_LOG_READ -> "downloading the trace log";
             case WEBSERVICE_LOG_READ -> "downloading the web service log";
+            case SERVER_SETTINGS -> "reading server settings";
         };
     }
 }

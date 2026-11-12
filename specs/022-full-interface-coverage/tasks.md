@@ -209,7 +209,7 @@ Findings and decisions go to `specs/022-full-interface-coverage/reviews/implemen
     passes with the empty catalogue and gains entries with each story. From the T008 review:
     derive the test's `ALL_STORIES` from one shared source with `CoverageEntry`'s story pattern
     (e.g. a public `CoverageEntry.STORIES`).
-- [ ] T011 Capability for US1 and the pattern for later stories (D-1; after T010):
+- [X] T011 Capability for US1 and the pattern for later stories (D-1; after T010):
   - In `domain/model/Capability.java` add `SERVER_SETTINGS` (READ, REST+CLI) with its `label()`.
   - In `CapabilityMatrix.production()`: 8.1 and 9.0 `UNSUPPORTED` + "not yet verified"; 6.1
     unsupported.

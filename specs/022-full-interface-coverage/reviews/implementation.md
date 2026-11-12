@@ -92,3 +92,11 @@ old head is kept as `backup/022-pre-rebase` (local only). Full build afterwards
 (`mvn -o -q clean verify -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-022-tmp`): green, 7948
 tests, 0 failures, 0 errors, 58 skipped. When PR #84 is squash-merged, this branch is moved with
 `git rebase --onto origin/main <last 021 commit>` so that only the 022 commits are replayed.
+
+## T011 – `server_settings` before its tool (2026-11-12)
+
+T011 adds `SERVER_SETTINGS` in phase 2, before `get_server_settings` exists (T022). Until T025/T026
+flip it, every 8.1 and 9.0 node lists `server_settings` under `notUsable` ("not yet verified"), and
+a pinned 8.1 node reports `partially_supported`. This is accepted knowingly: phases 1–3 ship in
+one PR (US1), so no release from this branch shows the capability without its tool; plan.md's
+"capabilities per story" holds per PR. Later stories add their capability in their port task.
