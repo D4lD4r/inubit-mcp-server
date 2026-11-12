@@ -278,7 +278,7 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
   Neutralize into `fixtures/v8_1/cli/admin-settings-*` and `fixtures/v8_1/rest/admin-license*`,
   `admin-configurations*`, with planted secrets in at least two configuration leaves. The owner
   reviews the fixture diff. Repeat for 9.0 as T024.
-- [ ] T015 [P] [US1] Domain records (data-model "ServerSettings"): `domain/model/ServerSettings.java`,
+- [X] T015 [P] [US1] Domain records (data-model "ServerSettings"): `domain/model/ServerSettings.java`,
   `ConfigurationView.java`, `LicenseFacts.java`, `DbConnectionTolerance.java`,
   `PrivilegedWorkflows.java` (â‰¤ 200 names, `truncated`).
   - New `UnavailablePart` parts: `license`, `threads`, `privilegedWorkflows`,
@@ -292,6 +292,9 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
   - reads the expiry date, licensed threads and licensee (the licensed threads are used only when
     `/metrics` is not licensed; data-model `ServerSettings`);
   - the licensee is masked by `SecretRules`, and any element matching `SecretRules` is masked.
+  - From the T015 review (cleanup): `UnavailablePart`'s error message says "unknown part"
+    (adjust `UnavailablePartTest`), and `ServerSettings`' Javadoc gets the missing `@param` lines
+    for `node`, `privilegedWorkflows` and `dbConnectionTolerance`.
   - Failing tests first: `LicenseXmlParserTest.java` with a reconstructed fixture (the real one
     after T014): DTD refused, unknown elements ignored, missing expiry â†’ part unavailable.
 - [ ] T017 [US1] `adapter/rest/v81/ConfigurationJsonParser.java` (after T015):
@@ -305,6 +308,9 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
     partner masking and configuration masking cannot diverge (018 tests unchanged). Check the
     recorded configuration JSON (T014) for sibling type fields; if it has them, `JsonLeafMasker`
     passes them as the `type` argument of `SecretRules.masks`.
+  - From the T015 review: `ConfigurationView.Leaf.masked()` means "value empty", so a JSON
+    `null` or absent value is shown as a value (e.g. `""` or `"null"`), never as
+    `Optional.empty()`; say so in the `Leaf` Javadoc and test it.
   - Failing tests first: `ConfigurationJsonParserTest.java` (both root keys, sections only, one
     section, unknown section â†’ `NOT_FOUND` naming the listing, masking; leak check).
 - [ ] T018 [US1] StartCLI settings parsers in the new package `adapter/cli/admin/`
