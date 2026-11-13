@@ -35,7 +35,7 @@ class UnavailablePartTest {
     void anUnknownPartIsRejected(String part) {
         assertThatIllegalArgumentException()
             .isThrownBy(() -> new UnavailablePart(part, "TIMEOUT: too slow"))
-            .withMessageContaining("unknown health part");
+            .withMessageContaining("unknown part");
     }
 
     @Test

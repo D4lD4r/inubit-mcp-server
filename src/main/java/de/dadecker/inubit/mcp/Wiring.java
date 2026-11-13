@@ -34,6 +34,7 @@ import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
 import de.dadecker.inubit.mcp.adapter.soap.SoapE2eClient;
 import de.dadecker.inubit.mcp.adapter.git.GitCli;
 import de.dadecker.inubit.mcp.adapter.xslt.SaxonXsltRunner;
+import de.dadecker.inubit.mcp.application.ActionCatalog;
 import de.dadecker.inubit.mcp.application.ArchiveExportAudit;
 import de.dadecker.inubit.mcp.application.ArchiveExportService;
 import de.dadecker.inubit.mcp.application.ArchiveFolderWriter;
@@ -69,6 +70,7 @@ import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.ServerLogAudit;
 import de.dadecker.inubit.mcp.application.ServerLogService;
+import de.dadecker.inubit.mcp.application.ServerSettingsService;
 import de.dadecker.inubit.mcp.application.TagService;
 import de.dadecker.inubit.mcp.application.TargetFolderRules;
 import de.dadecker.inubit.mcp.application.TargetResolver;
@@ -95,6 +97,7 @@ import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
+import de.dadecker.inubit.mcp.domain.model.InterfaceCoverage;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
@@ -123,6 +126,7 @@ import de.dadecker.inubit.mcp.mcp.tools.ExportArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.FindPartnersTool;
 import de.dadecker.inubit.mcp.mcp.tools.FindProcessesTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetHealthTool;
+import de.dadecker.inubit.mcp.mcp.tools.GetServerSettingsTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetInventoryItemTool;
 import de.dadecker.inubit.mcp.mcp.tools.DeployReleaseTool;
 import de.dadecker.inubit.mcp.mcp.tools.DownloadServerLogTool;
@@ -216,12 +220,16 @@ final class Wiring implements AutoCloseable {
     /** Feature 020: built for every configuration; announced only under its opt-in. */
     private final ReadQueueEntryTool readQueueEntry;
     private final ClientSelectionPort clientSelection;
+    /** Feature 022 (research D-2): the tool actions of the coverage gate; stories add theirs. */
+    private final ActionCatalog actions = new ActionCatalog(List.of(ServerSettingsService.SPEC));
     private final ExportArtifactsTool exportArtifacts;
     /** Feature 015: offered under the condition of {@code export_artifacts} (research R-16). */
     private final ExportArchivesTool exportArchives;
     private final CheckArtifactsTool checkArtifacts;
     /** Feature 021: built for every configuration; announced as {@link #anyServerLogNode()}. */
     private final DownloadServerLogTool downloadServerLog;
+    /** Feature 022 (US1): announced where some node may read the server settings. */
+    private final GetServerSettingsTool getServerSettings;
     /**
      * Feature 019 (research D-7): the credentials of every node of the profile; feature 021
      * (research D-11): also masked in the excerpt of {@code download_server_log}.
@@ -401,9 +409,11 @@ final class Wiring implements AutoCloseable {
         ClientSelectionPort clientSelection =
             new CliClientSelector(cliRunner, byId::get, exists, windows);
         this.clientSelection = clientSelection;
+        // feature 022 (research D-2): the coverage list of the gate, loaded (and checked) at start
         VersionGate versionGate = new VersionGate(versions, gateways, matrix, clientVersions,
             clientSelection, id -> byId.get(id).cliTimeout(), terms,
-            servers.stream().anyMatch(server -> !server.cliSources().clients().isEmpty()));
+            servers.stream().anyMatch(server -> !server.cliSources().clients().isEmpty()),
+            InterfaceCoverage.production());
         Map<NodeId, Duration> timeouts = new HashMap<>();
         servers.forEach(server -> timeouts.put(server.id(), server.timeout()));
         // feature 011 (research R-8): get_health names the credential store a read waits for
@@ -424,6 +434,10 @@ final class Wiring implements AutoCloseable {
         this.diagnosis = new DiagnosisService(gateways, targets, fanOut, limiter, timeouts::get,
             id -> byId.get(id).cliTimeout(), hangingThresholds::get, clock.clock(),
             ResultJson::size, versionGate, secretTiming);
+        // feature 022 (US1): the settings reads, gated per part by the coverage list (D-2)
+        this.getServerSettings = new GetServerSettingsTool(new ServerSettingsService(gateways,
+            targets, fanOut, limiter, timeouts::get, id -> byId.get(id).cliTimeout(),
+            versionGate, secretTiming)::read, updateStatus::current);
         // feature 020 (FR-011): the configured credentials are replaced before the masking
         this.readQueueEntry = new ReadQueueEntryTool(new QueueEntryService(targets,
             id -> byId.get(id).queueEntryRead(), versionGate, gateways::processes,
@@ -675,6 +689,10 @@ final class Wiring implements AutoCloseable {
         if (anyServerLogNode()) {
             handlers.add(downloadServerLog);
         }
+        // feature 022 (contracts/mcp-tools-delta.md "Announcement"): also without a client
+        if (anyPossiblyCapable(Capability.SERVER_SETTINGS)) {
+            handlers.add(getServerSettings);
+        }
         if (anyPossiblyCapable(Capability.INVENTORY)) {
             handlers.add(new ListInventoryTool(inventory));
             handlers.add(new GetInventoryItemTool(inventory));
@@ -758,6 +776,11 @@ final class Wiring implements AutoCloseable {
 
     GatewayFactory gateways() {
         return gateways;
+    }
+
+    /** Feature 022 (coverage check 6): the registered tool actions. */
+    ActionCatalog actionCatalog() {
+        return actions;
     }
 
     /** The configuration location the server runs with (feature 015, research R-9). */
@@ -851,12 +874,14 @@ final class Wiring implements AutoCloseable {
      * where allowed, process control with write access; feature 020 (research D-15): reading
      * Queue Manager entries with the group's {@code unsupported.queueEntryRead} and the client;
      * feature 021 (research D-17): downloading the trace log with the client, the web service log
-     * with the client and the group's {@code unsupported.serverLogRead}.
+     * with the client and the group's {@code unsupported.serverLogRead}; feature 022 (research
+     * D-1): reading the server settings, allowed without a client; its StartCLI parts are then
+     * reported unavailable per part (research D-2).
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
         Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
             Capability.PROCESS_DIAGNOSIS, Capability.LOG_DIAGNOSIS, Capability.INVENTORY,
-            Capability.PARTNER_MANAGEMENT);
+            Capability.PARTNER_MANAGEMENT, Capability.SERVER_SETTINGS);
         if (withClient) {
             allowed.add(Capability.WORKSPACE_EXPORT);
         }

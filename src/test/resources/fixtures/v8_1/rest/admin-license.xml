@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?><license>
+  <LicenseInformation>
+    <Version>Synthetic Edition</Version>
+    <CustomerNumber>900</CustomerNumber>
+    <CompanyName>Fictitious Licensee 0001</CompanyName>
+    <ContactPerson>John Doe</ContactPerson>
+    <Comment/>
+    <keytype>Development</keytype>
+    <RequestID>00000000-0000-0000-0000-000000000401</RequestID>
+    <KeyID>00000000-0000-0000-0000-000000000402</KeyID>
+    <LicenseGenerationDate>01.07.2026</LicenseGenerationDate>
+    <SystemID>00900001</SystemID>
+  </LicenseInformation>
+  <inubit>
+    <AllowedIPs/>
+    <AllowedMACs>
+      <MAC>02:00:00:00:00:01</MAC>
+    </AllowedMACs>
+    <LicenseType>
+      <ExpirationDate>2046-10-08</ExpirationDate>
+      <Version>8.1</Version>
+      <ConnectorsCount>9999</ConnectorsCount>
+      <MaxUserCount>50</MaxUserCount>
+      <ConcurrentPortalUser>5</ConcurrentPortalUser>
+      <ThreadCount>999999</ThreadCount>
+      <RuntimeLicense>false</RuntimeLicense>
+      <ServiceContract>true</ServiceContract>
+      <ClientServerMode>true</ClientServerMode>
+    </LicenseType>
+    <Features>
+      <UserManagement>false</UserManagement>
+      <Plugins type="Administration Tools">
+        <Plugin>BPD</Plugin>
+        <Plugin>BPEL Designer</Plugin>
+        <Plugin>Organigram Designer</Plugin>
+        <Plugin>Process Maps</Plugin>
+        <Plugin>Resource Diagram Designer</Plugin>
+        <Plugin>SOA Maps</Plugin>
+        <Plugin>System Diagram Designer</Plugin>
+        <Plugin>Unit Tests</Plugin>
+      </Plugins>
+      <Plugins type="Data Converter">
+        <Plugin>Task Generator</Plugin>
+      </Plugins>
+      <Plugins type="Format Adapter">
+        <Plugin>CSV Adapter</Plugin>
+        <Plugin>MIME-XML Adapter</Plugin>
+        <Plugin>XLS-XML Adapter</Plugin>
+        <Plugin>XLSX Adapter</Plugin>
+        <Plugin>XML-MIME Adapter</Plugin>
+        <Plugin>XML-XLS Adapter</Plugin>
+      </Plugins>
+      <Plugins type="System Connector">
+        <Plugin>AS2 Connector</Plugin>
+        <Plugin>Database Connector</Plugin>
+        <Plugin>JMS Connector</Plugin>
+        <Plugin>Mail Connector</Plugin>
+        <Plugin>REST Connector</Plugin>
+        <Plugin>VFS Connector</Plugin>
+        <Plugin>Web Application Connector</Plugin>
+        <Plugin>Web Services Connector</Plugin>
+      </Plugins>
+      <Plugins type="Utilities">
+        <Plugin>Process Data Logger</Plugin>
+        <Plugin>SMIME</Plugin>
+      </Plugins>
+      <Plugins type="Web Service Controls">
+        <Plugin>Invoke</Plugin>
+        <Plugin>OnMessage</Plugin>
+        <Plugin>Receive</Plugin>
+        <Plugin>Reply</Plugin>
+      </Plugins>
+      <Plugins type="Other">
+        <Plugin>AS2 MDN Validator</Plugin>
+        <Plugin>Business Rules</Plugin>
+        <Plugin>Point In Time Recovery</Plugin>
+        <Plugin>Portal Server</Plugin>
+        <Plugin>Process Designer</Plugin>
+        <Plugin>Process Monitor</Plugin>
+        <Plugin>Reporting</Plugin>
+        <Plugin>Tagging</Plugin>
+        <Plugin>Tasklist</Plugin>
+        <Plugin>inubit Metrics</Plugin>
+      </Plugins>
+    </Features>
+  </inubit>
+<Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315#WithComments"/><SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/><Reference URI=""><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/></Transforms><DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><DigestValue>KOA2x3f1hQVvqVHePsyFU1n8L9HkEwti0gCF58a+JY8=</DigestValue></Reference></SignedInfo><SignatureValue>SSlN/S0AbX//kem++ZwXZEhN7EbNNWHrKwSWv0n3ha6B2pqW4ZTJx2f30aIt2LrcBDMEZeW2FgrJ&#xD;
+0gtNReJkKOUVim8NgIMtBgfaCzOTpzdnjw+niVWiZD3Vt3/xznCLG84CqGUx2K9TjuXReza5vhtS&#xD;
+xQatKw4sO51+vSy+y95m8BNoXznkJrQ7adHBZz87fNCmrZiGYQaOOJhf9IbE2j5KufNzA0570fzI&#xD;
+cIppSoOJX/uW8q3+srBbrzOLCeCEgWcnGQXCYQz6ldh9FqNtJom0P1kLEl2umigyZMAOBz7op/GF&#xD;
+h3herm7U7+ick4TtDZFowbxq+ntL2h82DtaiWQ==</SignatureValue><KeyInfo><KeyValue><RSAKeyValue><Modulus>XVnsocfCqkdQ0w0yDDvrOnox4r9vEb5HIlk3V//ryVkKnVVWgZe+ZKlOHSqI6qJyJgWpAcZu3p/x&#xD;
+r0cZ+inih2s28YIhfHOzmxB/gMmmUoOzPivwIICaHoL87PtFKf2taoHnqiFjHB4X3EF40WO2/WF2&#xD;
+Ri233bPJytZ5PUvbYiNdoHqYkt3GYvv72fexJ/e2MSacNqTRiTKBKR/nTS69zOuGYM3GLvUKhxqT&#xD;
+6x/2D5gQypzugh3i1rdZAoFEv69enVaFolvS3MPeiMsF9sGfXCpZhyyzJnDX5XWKBm6tRSQur0qP&#xD;
+3YiwHsTwsdJ5uBqS87XValbgxcGoan79cEMDHg==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue></KeyValue></KeyInfo></Signature></license>

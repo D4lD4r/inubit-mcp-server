@@ -12,6 +12,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
+import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -19,6 +20,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterAll;
@@ -138,7 +140,7 @@ class V81MaintenanceProbeTest {
             scrubber);
             InubitHttpClient client = InubitHttpClient.create(config,
                 credentials(config), probe, scrubber)) {
-            assertThatThrownBy(() -> client.get("/ibis/rest/system/info", Map.of()))
+            assertThatThrownBy(() -> client.get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of()))
                 .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(
                     e.error().code()).isEqualTo(ErrorCode.MAINTENANCE_MODE));
         }
@@ -155,7 +157,7 @@ class V81MaintenanceProbeTest {
             scrubber);
             InubitHttpClient client = InubitHttpClient.create(config,
                 credentials(config), probe, scrubber)) {
-            assertThatThrownBy(() -> client.get(HEALTHCHECK, Map.of()))
+            assertThatThrownBy(() -> client.get(RestEndpoint.HEALTHCHECK, List.of(), Map.of()))
                 .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(
                     e.error().code()).isEqualTo(ErrorCode.UNREACHABLE));
         }

@@ -16,6 +16,14 @@ log with content; the 9.0 web service log only against a recorded answer of 0 by
 9.0 web service log could be recorded), so on 9.0 an empty and a missing web service log cannot be
 told apart from the answer alone.
 
+Feature 022, first increment (user story 1): `get_server_settings` reads a node's license,
+workflow threads, privileged workflows, DB connection tolerance, server time and configuration.
+It is **supported on INUBIT 8.1; 9.0 not yet verified**: verified against the recorded, neutralized
+answers of a live 8.1 node; on 9.0 the capability `server_settings` stays refused until the
+recordings of a 9.0 node are under contract test. Workflow threads and privileged workflows are
+always reported unavailable: StartCLI answers them only to the INUBIT root user. The new coverage
+page lists every documented StartCLI command and REST endpoint with its state per version.
+
 ### Added
 
 - `download_server_log` (feature 021) downloads ONE log of ONE node into a local folder
@@ -54,13 +62,34 @@ told apart from the answer alone.
 - `--check-config` ends every group line with `serverLogRead: enabled (unsupported)` or
   `serverLogRead: off`, but only when some group of the profile has the opt-in; otherwise its
   group lines are unchanged.
+- `get_server_settings` (feature 022) reads the settings of one node or of every node of a group,
+  one entry per node: the license (expiry date, licensed threads; the licensee always masked) over
+  REST, the workflow threads, privileged workflows, DB connection tolerance and server time in one
+  StartCLI session, and on request the configuration over REST, by section names or one section's
+  values with secrets masked. Version, memory share, blocking queue size and maintenance mode come
+  from the same calls as `get_health`. Every fact names its channel in `sources`; a part that
+  cannot be read (a missing "System Administrator" role for license and configuration, no
+  StartCLI client, a part not verified for the node's version) is listed under `unavailable` and
+  the other parts are returned. Supported on INUBIT 8.1, where the workflow threads and privileged
+  workflows are excluded (StartCLI answers them only to the INUBIT root user, so these parts are
+  always `unavailable`); 9.0 not yet verified, so the tool is offered only when a node may run 8.1.
+- The capability `server_settings` in `list_nodes` (`reading server settings` in messages and
+  among the refused capabilities of a 6.1 node in `--check-config`): supported on INUBIT 8.1, not
+  yet verified on 9.0 and refused on every other version, so every 9.0 node shows it under
+  `notUsable` and is `partially_supported` until it is verified.
+- The coverage list of every documented StartCLI command and REST endpoint of INUBIT 8.1 and 9.0
+  with its state per version (`reachable`, `covered`, `planned` with what it waits for,
+  `undocumented`, `excluded` with the reason), published as `docs/interface-coverage.md`. A new
+  tool part is sent to a node only when its entries are `reachable` for the node's version.
 
 ### Changed
 
 - Internal, no behaviour change: the helper on the INUBIT client, which `read_queue_entry` uses
   and now also `download_server_log`, is renamed `ClientHelper`; the helper classes both tools
   share moved to `adapter/cli/helper`.
-- `docs/tools.md` describes twenty-two tools.
+- `docs/tools.md` describes twenty-three tools.
+- `docs/setup.md` names the INUBIT role "System Administrator" that `get_server_settings` needs for
+  the license and the configuration.
 
 ### Fixed
 

@@ -749,8 +749,8 @@ class ConfigSummaryTest {
         String access = " (INUBIT 6.1, StartCLI only; available: none; refused: monitoring,"
             + " process diagnosis, log diagnosis, inventory, partner management, workspace"
             + " export, development writes, deployment, end-to-end test, process control,"
-            + " downloading the trace log), secrets: credentialStore (macOS Keychain), username"
-            + " ←";
+            + " downloading the trace log, reading server settings), secrets: credentialStore"
+            + " (macOS Keychain), username ←";
         assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
             + access);
         assertThat(summary).as("a concrete 6.1 pin is judged like the line")
@@ -773,7 +773,7 @@ class ConfigSummaryTest {
             + " (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process"
             + " diagnosis, log diagnosis, inventory, partner management, workspace export,"
             + " development writes, deployment, end-to-end test, process control, reading Queue"
-            + " Manager entries, downloading the trace log),"
+            + " Manager entries, downloading the trace log, reading server settings),"
             + " secrets: credentialStore (macOS Keychain), username ←");
         assertThat(summary).as("8.1 lines are unchanged")
             .contains("test/node3: read-only, cli: available, inubit: V8_1, secrets:"
@@ -792,7 +792,7 @@ class ConfigSummaryTest {
             + " (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process"
             + " diagnosis, log diagnosis, inventory, partner management, workspace export,"
             + " development writes, deployment, end-to-end test, process control, downloading the"
-            + " trace log, downloading the web service log),"
+            + " trace log, downloading the web service log, reading server settings),"
             + " secrets: credentialStore (macOS Keychain), username ←");
         assertThat(summary).as("8.1 lines are unchanged")
             .contains("test/node3: read-only, cli: available, inubit: V8_1, secrets:"
@@ -815,7 +815,8 @@ class ConfigSummaryTest {
         assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
             + " (INUBIT 6.1, StartCLI only; available: monitoring, process diagnosis; refused:"
             + " log diagnosis, inventory, partner management, workspace export, development"
-            + " writes, deployment, end-to-end test, process control, downloading the trace log),"
+            + " writes, deployment, end-to-end test, process control, downloading the trace log,"
+            + " reading server settings),"
             + " secrets: credentialStore (macOS Keychain), username ←");
     }
 
@@ -844,11 +845,11 @@ class ConfigSummaryTest {
             NodeId.parse("test/node3"), client("8.1.17", "4.0.1", "8.1.17")),
             Map.of(NodeId.parse("test/node1"), none, NodeId.parse("test/node2"), both));
 
-        assertThat(summary).contains("downloading the trace log), client: 6.1.0 (4.0.1–6.1.0;"
+        assertThat(summary).contains("reading server settings), client: 6.1.0 (4.0.1–6.1.0;"
             + " options: no trust-store option, no host-name option), server version: determined"
             + " at runtime, secrets: credentialStore (macOS Keychain), username ←");
         assertThat(summary).as("a client without declared range")
-            .contains("downloading the trace log), client: 6.1.0 (options: trust-store option,"
+            .contains("reading server settings), client: 6.1.0 (options: trust-store option,"
                 + " host-name option), client vs pin: ");
         assertThat(summary).as("8.1 lines are unchanged: no client options")
             .contains("test/node3: read-only, cli: available, inubit: V8_1, client: 8.1.17"
@@ -863,7 +864,7 @@ class ConfigSummaryTest {
             new CliClientOptions(false, false, false, Optional.empty())));
 
         assertThat(summary)
-            .contains("downloading the trace log), secrets: credentialStore (macOS Keychain),"
+            .contains("reading server settings), secrets: credentialStore (macOS Keychain),"
                 + " username ←")
             .doesNotContain("options:");
     }

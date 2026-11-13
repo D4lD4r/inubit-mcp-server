@@ -280,6 +280,27 @@ class V61HealthAdapterTest {
         assertThat(launchers.sessions()).isEqualTo(1);
     }
 
+    /**
+     * Feature 022, edge case "missing right" (refusal SYNTHETIC until T014): a refusal for the
+     * missing "CLI login access" right ends the session with exit code 0; it is still classified,
+     * as {@code FORBIDDEN}, and does not pause the node, so the next snapshot launches again.
+     */
+    @Test
+    void aMissingCliLoginRightWithExitCodeZeroIsForbidden() {
+        Launchers launchers = new Launchers(FakeProcessLauncher.of("Password: \nERROR"
+            + " 08:00:01,234 [main] @Start@LoginFailure@@@The user jdoe has no CLI login access"
+            + " right.@End@\n", "", 0));
+        V61HealthAdapter adapter = adapter(launchers);
+
+        ToolError error = errorOf(adapter, BUDGET);
+        errorOf(adapter, BUDGET);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.FORBIDDEN);
+        assertThat(error.message()).contains("CLI login access");
+        assertThat(error.node()).contains(ID);
+        assertThat(launchers.sessions()).isEqualTo(2);
+    }
+
     @Test
     void anUnreachableServerIsUnreachableForTheNode() {
         Launchers launchers = Launchers.replaying("unreachable");

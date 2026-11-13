@@ -1,0 +1,31 @@
+JAVA_HOME is set
+Connecting as 'jdoe' to https://inubit-dev-1.example.test:8443/ibis/servlet/IBISSoapServlet with hostname verification OFF
+Password: 
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+
+Connection to inubit Process Engine 8.1.17 established.
+<TAB> shows command list
+[COMMAND] with option -h or --help shows help for this command
+CLI|jdoe@inubit-dev-1.example.test> threads showNumberOfWorkflowThreads
+EXECUTION ERROR
+Only root user can use this command.
+CLI|jdoe@inubit-dev-1.example.test> privilegedWorkflows showThreadsPercentage
+EXECUTION ERROR
+Only root user can use this command.
+CLI|jdoe@inubit-dev-1.example.test> privilegedWorkflows showWorkflowList
+EXECUTION ERROR
+Only root user can use this command.
+CLI|jdoe@inubit-dev-1.example.test> dbconnectiontolerance show
+Error level: 		0%
+
+Fault threshold: 	20
+Drop rate: 		5%
+Drop interval (s): 	1800 seconds
+
+CLI|jdoe@inubit-dev-1.example.test> date
+Fri Nov 13 05:48:53 CET 2026
+CLI|jdoe@inubit-dev-1.example.test> license -td
+7300
+CLI|jdoe@inubit-dev-1.example.test> license -ts
+630700000
+CLI|jdoe@inubit-dev-1.example.test> exit

@@ -270,75 +270,96 @@ public final class InubitHttpClient implements AutoCloseable {
     /**
      * {@code GET <baseUrl><path>?<query>}.
      *
-     * @param path absolute path below the base URL, already encoded (see
-     *     {@link #encodePathSegment})
+     * @param endpoint the endpoint whose path is requested
+     * @param params the path parameters of {@code endpoint} (see {@link RestEndpoint#path})
      * @param query parameters in iteration order; keys and values are encoded here
      * @param acceptedStatuses non-2xx statuses that are returned instead of mapped to an error
      */
-    public RestResponse get(String path, Map<String, String> query, int... acceptedStatuses) {
-        return get(path, query, ResourceKind.RESOURCE, acceptedStatuses);
+    public RestResponse get(RestEndpoint endpoint, List<String> params,
+        Map<String, String> query, int... acceptedStatuses) {
+        return get(endpoint, params, query, ResourceKind.RESOURCE, acceptedStatuses);
     }
 
-    /** As {@link #get(String, Map, int...)}, with the meaning of a 404 for this request. */
-    public RestResponse get(String path, Map<String, String> query, ResourceKind kind,
-        int... acceptedStatuses) {
+    /** As {@link #get(RestEndpoint, List, Map, int...)}, with the meaning of a 404. */
+    public RestResponse get(RestEndpoint endpoint, List<String> params,
+        Map<String, String> query, ResourceKind kind, int... acceptedStatuses) {
+        String path = path(endpoint, params);
         return send("GET", path, HttpRequest.newBuilder(uri(path, query)).GET(), true, kind,
             ACCEPT, acceptedStatuses);
     }
 
-    /** As {@link #get(String, Map, int...)}, asking for {@code range} (research D-11). */
-    public RestResponse get(String path, Map<String, String> query, MediaRange range,
-        int... acceptedStatuses) {
-        return get(path, query, range, ResourceKind.RESOURCE, acceptedStatuses);
+    /**
+     * As {@link #get(RestEndpoint, List, Map, int...)}, asking for {@code range} (research
+     * D-11).
+     */
+    public RestResponse get(RestEndpoint endpoint, List<String> params,
+        Map<String, String> query, MediaRange range, int... acceptedStatuses) {
+        return get(endpoint, params, query, range, ResourceKind.RESOURCE, acceptedStatuses);
     }
 
-    /** As {@link #get(String, Map, ResourceKind, int...)}, asking for {@code range}. */
-    public RestResponse get(String path, Map<String, String> query, MediaRange range,
-        ResourceKind kind, int... acceptedStatuses) {
+    /** As {@link #get(RestEndpoint, List, Map, ResourceKind, int...)}, asking for {@code range}. */
+    public RestResponse get(RestEndpoint endpoint, List<String> params,
+        Map<String, String> query, MediaRange range, ResourceKind kind, int... acceptedStatuses) {
+        String path = path(endpoint, params);
         return send("GET", path, HttpRequest.newBuilder(uri(path, query)).GET(), true, kind,
             range.header(), acceptedStatuses);
     }
 
     /** As {@link #get}, but never with the {@code Authorization} header (public endpoints). */
-    public RestResponse getWithoutCredentials(String path, Map<String, String> query,
-        int... acceptedStatuses) {
+    public RestResponse getWithoutCredentials(RestEndpoint endpoint, List<String> params,
+        Map<String, String> query, int... acceptedStatuses) {
+        String path = path(endpoint, params);
         return send("GET", path, HttpRequest.newBuilder(uri(path, query)).GET(), false,
             ResourceKind.RESOURCE, ACCEPT, acceptedStatuses);
     }
 
-    /** As {@link #getWithoutCredentials(String, Map, int...)}, asking for {@code range}. */
-    public RestResponse getWithoutCredentials(String path, Map<String, String> query,
-        MediaRange range, int... acceptedStatuses) {
+    /**
+     * As {@link #getWithoutCredentials(RestEndpoint, List, Map, int...)}, asking for
+     * {@code range}.
+     */
+    public RestResponse getWithoutCredentials(RestEndpoint endpoint, List<String> params,
+        Map<String, String> query, MediaRange range, int... acceptedStatuses) {
+        String path = path(endpoint, params);
         return send("GET", path, HttpRequest.newBuilder(uri(path, query)).GET(), false,
             ResourceKind.RESOURCE, range.header(), acceptedStatuses);
     }
 
     /** {@code POST} with a text body of the given content type; see {@link #get}. */
-    public RestResponse post(String path, Map<String, String> query, String body,
-        String contentType, int... acceptedStatuses) {
-        return post(path, query, body, contentType, ResourceKind.RESOURCE, acceptedStatuses);
+    public RestResponse post(RestEndpoint endpoint, List<String> params,
+        Map<String, String> query, String body, String contentType, int... acceptedStatuses) {
+        return post(endpoint, params, query, body, contentType, ResourceKind.RESOURCE,
+            acceptedStatuses);
     }
 
-    /** As {@link #post(String, Map, String, String, int...)}, with the meaning of a 404. */
-    public RestResponse post(String path, Map<String, String> query, String body,
-        String contentType, ResourceKind kind, int... acceptedStatuses) {
-        return post(path, query, body, contentType, kind, ACCEPT, acceptedStatuses);
+    /** As {@link #post(RestEndpoint, List, Map, String, String, int...)}, with a 404 meaning. */
+    public RestResponse post(RestEndpoint endpoint, List<String> params,
+        Map<String, String> query, String body, String contentType, ResourceKind kind,
+        int... acceptedStatuses) {
+        return post(path(endpoint, params), query, body, contentType, kind, ACCEPT,
+            acceptedStatuses);
     }
 
-    /** As {@link #post(String, Map, String, String, int...)}, asking for {@code range}. */
-    public RestResponse post(String path, Map<String, String> query, String body,
-        String contentType, MediaRange range, int... acceptedStatuses) {
-        return post(path, query, body, contentType, range, ResourceKind.RESOURCE,
+    /** As {@link #post(RestEndpoint, List, Map, String, String, int...)}, asking for a range. */
+    public RestResponse post(RestEndpoint endpoint, List<String> params,
+        Map<String, String> query, String body, String contentType, MediaRange range,
+        int... acceptedStatuses) {
+        return post(endpoint, params, query, body, contentType, range, ResourceKind.RESOURCE,
             acceptedStatuses);
     }
 
     /**
-     * As {@link #post(String, Map, String, String, ResourceKind, int...)}, asking for
+     * As {@link #post(RestEndpoint, List, Map, String, String, ResourceKind, int...)}, asking for
      * {@code range}.
      */
-    public RestResponse post(String path, Map<String, String> query, String body,
-        String contentType, MediaRange range, ResourceKind kind, int... acceptedStatuses) {
-        return post(path, query, body, contentType, kind, range.header(), acceptedStatuses);
+    public RestResponse post(RestEndpoint endpoint, List<String> params,
+        Map<String, String> query, String body, String contentType, MediaRange range,
+        ResourceKind kind, int... acceptedStatuses) {
+        return post(path(endpoint, params), query, body, contentType, kind, range.header(),
+            acceptedStatuses);
+    }
+
+    private static String path(RestEndpoint endpoint, List<String> params) {
+        return endpoint.path(params.toArray(String[]::new));
     }
 
     private RestResponse post(String path, Map<String, String> query, String body,

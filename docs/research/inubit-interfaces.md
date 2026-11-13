@@ -88,6 +88,10 @@ processes), workflow activation/publishing, switching maintenance mode, user cre
 management, generic Technical Workflow start (except IS Connector or user-defined REST Connector
 listeners under `/ibis/rest/rc/...`). → covered by the CLI.
 
+Since feature 022 every documented REST endpoint and StartCLI command is listed with its state on
+INUBIT 8.1 and 9.0 (reachable through which tool, covered by another entry, planned, undocumented
+or excluded with the reason) in the coverage page [interface-coverage.md](../interface-coverage.md).
+
 ## 2. CLI — StartCLI (8.1)
 
 ### 2.1 Invocation
@@ -128,6 +132,9 @@ listeners under `/ibis/rest/rc/...`). → covered by the CLI.
 
 Offline scripts (engine stopped, not StartCLI): `backup.sh`, `restore.sh`,
 `start_process_engine.sh`, `stop_process_engine.sh`. The CLI has no start/stop command.
+
+The state of each command and option on INUBIT 8.1 and 9.0 (which tool sends it, or why it is
+not sent) is in the coverage page [interface-coverage.md](../interface-coverage.md) (feature 022).
 
 ## 3. Other interfaces
 

@@ -51,6 +51,20 @@ public final class CliOutputClassifier {
         "@Start@((?:(?!@@@|@End@).)*)(?:@@@(.*?))?@End@", Pattern.DOTALL);
     private static final Pattern LOGIN_FAILURE = Pattern.compile("@Start@\\s*LoginFailure\\b");
     /**
+     * StartCLI's refusal of a user without the role System Administrator or the right "CLI login
+     * access" (feature 022, spec edge case "missing right"): an INUBIT marker whose code or text
+     * names the right. SYNTHETIC: the vendor documents the right, not the refusal text, and T014
+     * recorded with an account that has the right, so the refusal is still not recorded. The only
+     * place that recognizes it. The pattern matches the right's name anywhere in any marker, also
+     * in a {@code LoginFailure} text; the recorded 8.1 text for wrong credentials
+     * ({@code The user does not exist or password does not match.}) does not name it, and neither
+     * does the recorded refusal of a root-only command (T014).
+     */
+    private static final String CLI_LOGIN_RIGHT = "CLI login access";
+    private static final Pattern MISSING_CLI_RIGHT = Pattern.compile(
+        "@Start@(?:(?!@End@).)*" + Pattern.quote(CLI_LOGIN_RIGHT),
+        Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
+    /**
      * An {@code n-OK}/{@code n-NOK} line. StartCLI prints an import's last progress text
      * {@code Completed = … MB / … MB } without a line break before it (feature 008, probe P-2).
      */
@@ -115,6 +129,16 @@ public final class CliOutputClassifier {
     public static boolean isLoginFailure(CliResult result) {
         return LOGIN_FAILURE.matcher(result.stdout()).find()
             || LOGIN_FAILURE.matcher(result.stderr()).find();
+    }
+
+    /**
+     * True if StartCLI refused the user for a missing role System Administrator or right "CLI
+     * login access" (feature 022, spec edge case "missing right"; form SYNTHETIC, not recorded);
+     * {@link #classify} reports it as {@code FORBIDDEN} naming the right, not {@code AUTH_FAILED}.
+     */
+    public static boolean isMissingCliRight(CliResult result) {
+        return MISSING_CLI_RIGHT.matcher(result.stdout()).find()
+            || MISSING_CLI_RIGHT.matcher(result.stderr()).find();
     }
 
     /**
@@ -231,6 +255,9 @@ public final class CliOutputClassifier {
     }
 
     private Optional<ToolError> byMarker(CliOutput output, String all, boolean nine) {
+        if (MISSING_CLI_RIGHT.matcher(all).find()) {
+            return Optional.of(missingCliRight());
+        }
         for (Marker marker : output.markers()) {
             String code = marker.code();
             if (code.equals("LoginFailure")) {
@@ -342,6 +369,17 @@ public final class CliOutputClassifier {
             labels.map(SecretLabels::fixCredentials).orElse("Check the node's username and"
                 + " password with --check-config and correct them where they are stored")
                 + (nine ? INTERNAL_USERS : ""));
+    }
+
+    private ToolError missingCliRight() {
+        String node = labels.map(names -> names.node().value()).orElse("the INUBIT server");
+        return error(ErrorCode.FORBIDDEN, "StartCLI refused the configured user of " + node
+                + ": it lacks the role System Administrator or the right \"" + CLI_LOGIN_RIGHT
+                + "\"",
+            "StartCLI admits only users with the role System Administrator or the right \""
+                + CLI_LOGIN_RIGHT + "\"",
+            "Ask the INUBIT administrators to give the user the right \"" + CLI_LOGIN_RIGHT
+                + "\", or configure another account");
     }
 
     private ToolError unreachable() {

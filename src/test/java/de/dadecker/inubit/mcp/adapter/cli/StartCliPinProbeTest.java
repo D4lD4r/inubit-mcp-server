@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.MaintenanceProbe;
+import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.adapter.rest.TlsTestServer;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
@@ -29,6 +30,7 @@ import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -101,7 +103,7 @@ class StartCliPinProbeTest {
         try (InubitHttpClient client = new InubitHttpClient(swapped, Optional.empty(),
             Optional.empty(), MaintenanceProbe.NONE, new SecretScrubber())) {
             restError = catchThrowableOfType(ToolErrorException.class,
-                () -> client.get("/ibis/rest/healthcheck", Map.of())).error();
+                () -> client.get(RestEndpoint.HEALTHCHECK, List.of(), Map.of())).error();
         }
 
         assertThat(restError.code()).isEqualTo(ErrorCode.TLS_ERROR);

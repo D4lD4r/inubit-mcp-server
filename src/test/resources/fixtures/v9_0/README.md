@@ -38,3 +38,34 @@ StartCLI client is `RECORD_CLI_HOME`, else the `defaults.cliClients."9.0"` entry
 `defaults.cliJavaHome`). Every CLI case first checks that this client reports `CLI 9.0.*`
 (`startcli -v`), every case with a node that the node reports 9.0; otherwise nothing is recorded.
 `V90FixtureCatalogueTest` keeps catalogue ∪ `NOT_RECORDABLE.txt` = the files here = `V90Cases`.
+
+## Administration cases (feature 022)
+
+The 9.0 counterparts of the feature-022 administration cases (research D-26; tasks T002). A
+coverage-list row becomes `reachable` for 9.0 only in the commit that adds its recording here,
+together with its row in the table below. No case has been recorded yet; the 9.0 recordings wait
+for the decision on the changed certificate of the 9.0 test server (feature 021).
+
+- **Name**: `admin-<entry-slug>[-<variant>]`, the same name as the 8.1 case of the same command
+  or endpoint (see "Administration cases (feature 022)" in `../v8_1/cli/README.md`).
+- **CLI cases** (`cli/`): `<case>.stdout`, `<case>.stderr`, `<case>.exit`; a case of a stdin
+  session also has `<case>.stdin`, the lines the session sent, with the password line replaced by
+  `<password>`.
+- **REST cases** (`rest/`): `<case>.http` (status and headers) and the body in the format the
+  endpoint answered with (`<case>.json`, `<case>.xml`, …).
+- **`<case>.origin`**, first line, one of:
+  - `recorded <date> <version> neutralized` — recorded against a non-production 9.0 node, then
+    neutralized; `tools/record-fixtures.sh` writes `recorded <date> <version>`, and the person who
+    runs `tools/neutralize.py` appends ` neutralized` (for feature-022 cases this form is required);
+  - `reconstructed <source>` — derived from `<source>` (documentation or the 8.1 recording);
+    not verified against a 9.0 node.
+- **Catalogue**: every case is listed in `V90_CASES` of `tools/record-fixtures.sh` or in
+  `NOT_RECORDABLE.txt` (a case the recorder does not capture, with its reason), and is opened
+  through `V90Cases`, as `V90FixtureCatalogueTest` requires.
+- **Neutralization**: with `tools/neutralize.py`, then checked with `tools/check-identifiers.py`;
+  the raw outputs are never committed. Every user, workflow, host and value in a case is
+  fictitious, and every secret (password, configuration or module value, key material, e-mail
+  in a listing) is replaced by a planted test secret.
+
+| Case | `.origin` | Coverage-list entry | What it is |
+|---|---|---|---|

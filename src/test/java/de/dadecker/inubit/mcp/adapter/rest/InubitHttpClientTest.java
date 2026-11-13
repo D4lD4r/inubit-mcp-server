@@ -149,7 +149,7 @@ class InubitHttpClientTest {
         wireMock.stubFor(get(urlEqualTo("/ibis/rest/system/info")).willReturn(aResponse()
             .withHeader("Content-Type", "application/xml").withBody(systemInfo)));
 
-        RestResponse response = client().get("/ibis/rest/system/info", Map.of());
+        RestResponse response = client().get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of());
 
         assertThat(response.status()).isEqualTo(200);
         assertThat(response.contentType()).contains("application/xml");
@@ -165,8 +165,8 @@ class InubitHttpClientTest {
         stubStatus(200, "application/json", "{}");
         InubitHttpClient client = client();
 
-        client.get("/ibis/rest/metrics", Map.of("format", "json"));
-        client.get("/ibis/rest/metrics", Map.of("format", "json"));
+        client.get(RestEndpoint.METRICS, List.of(), Map.of("format", "json"));
+        client.get(RestEndpoint.METRICS, List.of(), Map.of("format", "json"));
 
         wireMock.verify(2, getRequestedFor(urlEqualTo("/ibis/rest/metrics?format=json"))
             .withHeader("Authorization", equalTo("Basic " + TOKEN)));
@@ -178,7 +178,7 @@ class InubitHttpClientTest {
         InubitHttpClient client = track(new InubitHttpClient(trusted(wireMock).build(),
             Optional.empty(), Optional.empty(), MaintenanceProbe.NONE, scrubber));
 
-        client.get("/ibis/rest/healthcheck", Map.of());
+        client.get(RestEndpoint.HEALTHCHECK, List.of(), Map.of());
 
         wireMock.verify(getRequestedFor(urlEqualTo("/ibis/rest/healthcheck"))
             .withHeader("Authorization", absent())
@@ -190,8 +190,9 @@ class InubitHttpClientTest {
         stubStatus(200, "application/json", "{\"status\":\"OK\"}");
         InubitHttpClient client = client();
 
-        RestResponse response = client.getWithoutCredentials("/ibis/rest/healthcheck", Map.of());
-        client.get("/ibis/rest/system/info", Map.of());
+        RestResponse response = client.getWithoutCredentials(RestEndpoint.HEALTHCHECK, List.of(),
+            Map.of());
+        client.get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of());
 
         assertThat(response.bodyText()).contains("OK");
         wireMock.verify(getRequestedFor(urlEqualTo("/ibis/rest/healthcheck"))
@@ -206,9 +207,11 @@ class InubitHttpClientTest {
         stubStatus(503, "application/json", "{\"status\":\"NOT_READY\"}");
         InubitHttpClient client = client();
 
-        assertThat(client.getWithoutCredentials("/ibis/rest/ready", Map.of(), 503).status())
+        assertThat(client.getWithoutCredentials(RestEndpoint.READY, List.of(), Map.of(),
+            503).status())
             .isEqualTo(503);
-        assertThat(errorOf(() -> client.getWithoutCredentials("/ibis/rest/ready", Map.of()))
+        assertThat(errorOf(() -> client.getWithoutCredentials(RestEndpoint.READY, List.of(),
+            Map.of()))
             .code()).isEqualTo(ErrorCode.UNREACHABLE);
     }
 
@@ -234,23 +237,24 @@ class InubitHttpClientTest {
         CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", ID), clock);
         InubitHttpClient client = guardedClient(guard);
 
-        assertThat(errorOf(() -> client.get("/ibis/rest/system/info", Map.of())).code())
+        assertThat(errorOf(() -> client.get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of())).code())
             .isEqualTo(ErrorCode.AUTH_FAILED);
-        ToolError cached = errorOf(() -> client.get("/ibis/rest/metrics", Map.of()));
+        ToolError cached = errorOf(() -> client.get(RestEndpoint.METRICS, List.of(), Map.of()));
         clock.advance(Duration.ofSeconds(59));
-        ToolError stillCached = errorOf(() -> client.get("/ibis/rest/metrics", Map.of()));
+        ToolError stillCached = errorOf(() -> client.get(RestEndpoint.METRICS, List.of(),
+            Map.of()));
 
         assertThat(cached.code()).isEqualTo(ErrorCode.AUTH_FAILED);
         assertThat(cached.message()).contains("not retried for 60 s");
         assertThat(stillCached.message()).contains("not retried for 1 s");
         assertThat(authenticatedRequests()).as("one failed login only").isEqualTo(1);
 
-        client.getWithoutCredentials("/ibis/rest/healthcheck", Map.of(), 401);
+        client.getWithoutCredentials(RestEndpoint.HEALTHCHECK, List.of(), Map.of(), 401);
         assertThat(wireMock.findAll(getRequestedFor(urlEqualTo("/ibis/rest/healthcheck"))))
             .as("unauthenticated calls are not blocked").hasSize(1);
 
         clock.advance(Duration.ofSeconds(1));
-        errorOf(() -> client.get("/ibis/rest/system/info", Map.of()));
+        errorOf(() -> client.get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of()));
         assertThat(authenticatedRequests()).as("retried after the pause").isEqualTo(2);
     }
 
@@ -265,7 +269,8 @@ class InubitHttpClientTest {
             java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
             for (int i = 0; i < 5; i++) {
                 calls.add(executor.submit(() ->
-                    errorOf(() -> client.get("/ibis/rest/system/info", Map.of())).code()));
+                    errorOf(() -> client.get(RestEndpoint.SYSTEM_INFO, List.of(),
+                        Map.of())).code()));
             }
             for (java.util.concurrent.Future<ErrorCode> call : calls) {
                 assertThat(call.get()).isEqualTo(ErrorCode.AUTH_FAILED);
@@ -280,12 +285,12 @@ class InubitHttpClientTest {
         CredentialGuard guard = new CredentialGuard(storeLabels("INUBIT", ID), clock);
         InubitHttpClient client = guardedClient(guard);
         stubStatus(403, "text/html", "forbidden");
-        errorOf(() -> client.get("/ibis/rest/metrics", Map.of()));
+        errorOf(() -> client.get(RestEndpoint.METRICS, List.of(), Map.of()));
         assertThat(guard.confirmed()).as("403: authenticated, but not allowed").isTrue();
 
         CredentialGuard other = new CredentialGuard(storeLabels("INUBIT", ID), clock);
         stubStatus(200, "application/json", "{}");
-        guardedClient(other).get("/ibis/rest/metrics", Map.of());
+        guardedClient(other).get(RestEndpoint.METRICS, List.of(), Map.of());
         assertThat(other.confirmed()).isTrue();
     }
 
@@ -295,8 +300,8 @@ class InubitHttpClientTest {
         InubitHttpClient client = guardedClient(guard);
         stubStatus(500, "text/html", "boom");
 
-        errorOf(() -> client.get("/ibis/rest/metrics", Map.of()));
-        errorOf(() -> client.get("/ibis/rest/metrics", Map.of()));
+        errorOf(() -> client.get(RestEndpoint.METRICS, List.of(), Map.of()));
+        errorOf(() -> client.get(RestEndpoint.METRICS, List.of(), Map.of()));
 
         assertThat(guard.confirmed()).isFalse();
         assertThat(authenticatedRequests()).isEqualTo(2);
@@ -309,7 +314,7 @@ class InubitHttpClientTest {
         query.put("user", "OWNERS Group&co");
         query.put("deep", "true");
 
-        client().get("/ibis/rest/model/models", query);
+        client().get(RestEndpoint.MODELS, List.of(), query);
 
         wireMock.verify(getRequestedFor(
             urlEqualTo("/ibis/rest/model/models?user=OWNERS%20Group%26co&deep=true")));
@@ -327,7 +332,7 @@ class InubitHttpClientTest {
         String body = "<logRequest><startIndex>0</startIndex><noOfItems>5</noOfItems>"
             + "</logRequest>";
 
-        RestResponse response = client().post("/ibis/rest/log/queueLog",
+        RestResponse response = client().post(RestEndpoint.LOG, List.of("queueLog"),
             Map.of("format", "json"), body, "application/xml");
 
         assertThat(response.bodyText()).contains("queueLog");
@@ -345,7 +350,8 @@ class InubitHttpClientTest {
             + " Unauthorized</title></head><body><h1>HTTP Status 401 – Unauthorized</h1>"
             + "<p>Tomcat page</p></body></html>");
 
-        ToolError error = errorOf(() -> client().get("/ibis/rest/system/info", Map.of()));
+        ToolError error = errorOf(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(),
+            Map.of()));
 
         assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
         assertThat(error.excerpt()).isEmpty();
@@ -361,7 +367,7 @@ class InubitHttpClientTest {
     void forbiddenIsMapped() {
         stubStatus(403, "text/html", "<html>forbidden</html>");
 
-        assertThat(errorOf(() -> client().get("/ibis/rest/metrics", Map.of())).code())
+        assertThat(errorOf(() -> client().get(RestEndpoint.METRICS, List.of(), Map.of())).code())
             .isEqualTo(ErrorCode.FORBIDDEN);
     }
 
@@ -369,7 +375,7 @@ class InubitHttpClientTest {
     void notFoundIsMapped() {
         stubStatus(404, "text/html", "<html>not found</html>");
 
-        assertThat(errorOf(() -> client().get("/ibis/rest/model/modelByName/x", Map.of()))
+        assertThat(errorOf(() -> client().get(RestEndpoint.MODEL_BY_NAME, List.of("x"), Map.of()))
             .code()).isEqualTo(ErrorCode.NOT_FOUND);
     }
 
@@ -378,7 +384,7 @@ class InubitHttpClientTest {
     void notFoundOfAResourceRequestIsMapped() {
         stubStatus(404, "text/html", "<html>not found</html>");
 
-        assertThat(errorOf(() -> client().get("/ibis/rest/model/modelByName/x", Map.of(),
+        assertThat(errorOf(() -> client().get(RestEndpoint.MODEL_BY_NAME, List.of("x"), Map.of(),
             InubitHttpClient.ResourceKind.RESOURCE)).code()).isEqualTo(ErrorCode.NOT_FOUND);
     }
 
@@ -387,9 +393,9 @@ class InubitHttpClientTest {
     void notFoundOfAnEndpointRequestIsAnUnexpectedResponse() {
         stubStatus(404, "text/html", "<html>not found</html>");
 
-        ToolError get = errorOf(() -> client().get("/ibis/rest/system/info", Map.of(),
+        ToolError get = errorOf(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of(),
             InubitHttpClient.ResourceKind.ENDPOINT));
-        ToolError post = errorOf(() -> client().post("/ibis/rest/log/queueLog",
+        ToolError post = errorOf(() -> client().post(RestEndpoint.LOG, List.of("queueLog"),
             Map.of("format", "json"), "<logRequest/>", "application/xml",
             InubitHttpClient.ResourceKind.ENDPOINT));
 
@@ -407,16 +413,16 @@ class InubitHttpClientTest {
     void onlyNotFoundOfAnEndpointRequestIsMarkedAsAMissingEndpoint() {
         stubStatus(404, "text/html", "<html>not found</html>");
 
-        assertThatThrownBy(() -> client().get("/ibis/rest/system/info", Map.of(),
+        assertThatThrownBy(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of(),
             InubitHttpClient.ResourceKind.ENDPOINT))
             .isInstanceOf(InubitHttpClient.EndpointMissing.class);
-        assertThatThrownBy(() -> client().get("/ibis/rest/model/modelByName/x", Map.of(),
+        assertThatThrownBy(() -> client().get(RestEndpoint.MODEL_BY_NAME, List.of("x"), Map.of(),
             InubitHttpClient.ResourceKind.RESOURCE))
             .isNotInstanceOf(InubitHttpClient.EndpointMissing.class);
 
         stubStatus(500, "text/html", "<html>boom</html>");
 
-        assertThatThrownBy(() -> client().get("/ibis/rest/system/info", Map.of(),
+        assertThatThrownBy(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of(),
             InubitHttpClient.ResourceKind.ENDPOINT))
             .isInstanceOf(ToolErrorException.class)
             .isNotInstanceOf(InubitHttpClient.EndpointMissing.class);
@@ -426,7 +432,7 @@ class InubitHttpClientTest {
     void anAcceptedNotFoundOfAnEndpointRequestIsReturned() {
         stubStatus(404, "text/html", "<html>not found</html>");
 
-        assertThat(client().get("/ibis/rest/system/info", Map.of(),
+        assertThat(client().get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of(),
             InubitHttpClient.ResourceKind.ENDPOINT, 404).status()).isEqualTo(404);
     }
 
@@ -439,7 +445,8 @@ class InubitHttpClientTest {
             return Optional.of(true);
         };
 
-        assertThat(errorOf(() -> client().get("/ibis/rest/system/info", Map.of())).code())
+        assertThat(errorOf(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(),
+            Map.of())).code())
             .isEqualTo(ErrorCode.MAINTENANCE_MODE);
         assertThat(probes).hasValue(1);
     }
@@ -450,7 +457,8 @@ class InubitHttpClientTest {
             + "</body></html>");
         probe = () -> Optional.of(false);
 
-        ToolError error = errorOf(() -> client().get("/ibis/rest/system/info", Map.of()));
+        ToolError error = errorOf(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(),
+            Map.of()));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNREACHABLE);
         assertThat(error.likelyCause()).isEqualTo("INUBIT answered 503: starting up,"
@@ -466,10 +474,12 @@ class InubitHttpClientTest {
         probe = () -> {
             throw new IllegalStateException("probe broke");
         };
-        assertThat(errorOf(() -> client().get("/ibis/rest/system/info", Map.of())).code())
+        assertThat(errorOf(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(),
+            Map.of())).code())
             .isEqualTo(ErrorCode.UNREACHABLE);
         probe = Optional::empty;
-        assertThat(errorOf(() -> client().get("/ibis/rest/system/info", Map.of())).code())
+        assertThat(errorOf(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(),
+            Map.of())).code())
             .isEqualTo(ErrorCode.UNREACHABLE);
     }
 
@@ -480,7 +490,8 @@ class InubitHttpClientTest {
             throw new AssertionError("must not be called");
         };
 
-        assertThat(errorOf(() -> client().get("/ibis/rest/system/info", Map.of())).code())
+        assertThat(errorOf(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(),
+            Map.of())).code())
             .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
     }
 
@@ -490,7 +501,8 @@ class InubitHttpClientTest {
         InubitHttpClient client = track(new InubitHttpClient(trusted(wireMock).build(),
             Optional.empty(), Optional.empty(), MaintenanceProbe.NONE, scrubber, 1024));
 
-        ToolError error = errorOf(() -> client.get("/ibis/rest/log/systemLog", Map.of()));
+        ToolError error = errorOf(() -> client.get(RestEndpoint.LOG, List.of("systemLog"),
+            Map.of()));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.message()).contains("too large");
@@ -503,7 +515,8 @@ class InubitHttpClientTest {
         InubitHttpClient client = track(new InubitHttpClient(trusted(wireMock).build(),
             Optional.empty(), Optional.empty(), MaintenanceProbe.NONE, scrubber, 1024));
 
-        assertThat(client.get("/ibis/rest/log/systemLog", Map.of()).body()).hasSize(1024);
+        assertThat(client.get(RestEndpoint.LOG, List.of("systemLog"),
+            Map.of()).body()).hasSize(1024);
     }
 
     private static byte[] gzip(byte[] content) {
@@ -529,7 +542,8 @@ class InubitHttpClientTest {
         byte[] archive = fixture("model_export_sample.zip");
         stubEncoded("gzip", gzip(archive));
 
-        RestResponse response = client().get("/ibis/rest/model/export/Workflow-0101", Map.of(),
+        RestResponse response = client().get(RestEndpoint.MODEL_EXPORT, List.of("Workflow-0101"),
+            Map.of(),
             InubitHttpClient.MediaRange.ANY);
 
         assertThat(response.body()).isEqualTo(archive);
@@ -543,7 +557,8 @@ class InubitHttpClientTest {
             wireMock.resetAll();
             stubEncoded(encoding, gzip(archive));
 
-            assertThat(client().get("/ibis/rest/model/export/Workflow-0101", Map.of()).body())
+            assertThat(client().get(RestEndpoint.MODEL_EXPORT, List.of("Workflow-0101"),
+                Map.of()).body())
                 .as(encoding).isEqualTo(archive);
         }
     }
@@ -555,7 +570,8 @@ class InubitHttpClientTest {
             wireMock.resetAll();
             stubEncoded(encoding, body);
 
-            assertThat(client().get("/ibis/rest/model/export/Workflow-0101", Map.of()).body())
+            assertThat(client().get(RestEndpoint.MODEL_EXPORT, List.of("Workflow-0101"),
+                Map.of()).body())
                 .as(encoding).isEqualTo(body);
         }
     }
@@ -566,7 +582,8 @@ class InubitHttpClientTest {
             .withHeader("Content-Type", "text/plain").withHeader("Content-Encoding", "gzip")
             .withBody(gzip("Internal INUBIT error".getBytes(StandardCharsets.UTF_8)))));
 
-        ToolError error = errorOf(() -> client().get("/ibis/rest/system/info", Map.of()));
+        ToolError error = errorOf(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(),
+            Map.of()));
 
         assertThat(error.excerpt()).hasValueSatisfying(excerpt ->
             assertThat(excerpt).contains("Internal INUBIT error"));
@@ -579,7 +596,8 @@ class InubitHttpClientTest {
         InubitHttpClient client = track(new InubitHttpClient(trusted(wireMock).build(),
             Optional.empty(), Optional.empty(), MaintenanceProbe.NONE, scrubber, 1024));
 
-        ToolError error = errorOf(() -> client.get("/ibis/rest/model/export/Workflow-0101",
+        ToolError error = errorOf(() -> client.get(RestEndpoint.MODEL_EXPORT,
+            List.of("Workflow-0101"),
             Map.of()));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
@@ -590,7 +608,8 @@ class InubitHttpClientTest {
     void aCorruptGzipBodyIsAnUnexpectedResponse() {
         stubEncoded("gzip", "not gzip at all".getBytes(StandardCharsets.UTF_8));
 
-        ToolError error = errorOf(() -> client().get("/ibis/rest/model/export/Workflow-0101",
+        ToolError error = errorOf(() -> client().get(RestEndpoint.MODEL_EXPORT,
+            List.of("Workflow-0101"),
             Map.of()));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
@@ -605,7 +624,8 @@ class InubitHttpClientTest {
         String body = tags + "x".repeat(4096 - tags.length() - 6) + "ab " + PASSWORD + " tail";
         stubStatus(500, "text/html", body);
 
-        ToolError error = errorOf(() -> client().get("/ibis/rest/system/info", Map.of()));
+        ToolError error = errorOf(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(),
+            Map.of()));
 
         assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
             .contains("ab").doesNotContain(PASSWORD.substring(0, 3)));
@@ -627,7 +647,7 @@ class InubitHttpClientTest {
     void acceptedStatusesAreReturnedInsteadOfMapped() {
         stubStatus(503, "application/json", "{\"status\":\"NOT_READY\",\"message\":\"m\"}");
 
-        RestResponse response = client().get("/ibis/rest/ready", Map.of(), 503);
+        RestResponse response = client().get(RestEndpoint.READY, List.of(), Map.of(), 503);
 
         assertThat(response.status()).isEqualTo(503);
         assertThat(response.bodyText()).contains("NOT_READY");
@@ -640,7 +660,7 @@ class InubitHttpClientTest {
             + "x".repeat(2000);
         stubStatus(500, "text/html;charset=UTF-8", html);
 
-        ToolError error = errorOf(() -> client().get("/ibis/rest/log/processLog",
+        ToolError error = errorOf(() -> client().get(RestEndpoint.LOG, List.of("processLog"),
             Map.of("format", "json")));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
@@ -657,7 +677,8 @@ class InubitHttpClientTest {
         wireMock.stubFor(get(anyUrl()).willReturn(aResponse().withStatus(302)
             .withHeader("Location", "https://localhost:" + wireMock.httpsPort() + "/login")));
 
-        assertThat(errorOf(() -> client().get("/ibis/rest/system/info", Map.of())).code())
+        assertThat(errorOf(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(),
+            Map.of())).code())
             .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         wireMock.verify(0, getRequestedFor(urlEqualTo("/login")));
     }
@@ -670,7 +691,7 @@ class InubitHttpClientTest {
             .build());
         long start = System.nanoTime();
 
-        ToolError error = errorOf(() -> client.get("/ibis/rest/system/info", Map.of()));
+        ToolError error = errorOf(() -> client.get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of()));
 
         assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
         assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(2));
@@ -685,7 +706,7 @@ class InubitHttpClientTest {
         InubitHttpClient client = client(TestNodeConfig.node()
             .baseUrl("https://127.0.0.1:" + port).trustStore(CERTS.trustStore()).build());
 
-        assertThat(errorOf(() -> client.get("/ibis/rest/healthcheck", Map.of())).code())
+        assertThat(errorOf(() -> client.get(RestEndpoint.HEALTHCHECK, List.of(), Map.of())).code())
             .isEqualTo(ErrorCode.UNREACHABLE);
     }
 
@@ -696,7 +717,7 @@ class InubitHttpClientTest {
             .baseUrl("https://no-such-host.invalid:8443").trustStore(CERTS.trustStore())
             .timeout(Duration.ofSeconds(3)).build());
 
-        assertThat(errorOf(() -> client.get("/ibis/rest/healthcheck", Map.of())).code())
+        assertThat(errorOf(() -> client.get(RestEndpoint.HEALTHCHECK, List.of(), Map.of())).code())
             .isIn(ErrorCode.UNREACHABLE, ErrorCode.TIMEOUT);
     }
 
@@ -705,7 +726,7 @@ class InubitHttpClientTest {
         InubitHttpClient client = client(TestNodeConfig.node()
             .baseUrl("https://localhost:" + wireMock.httpsPort()).build()); // JVM default trust
 
-        assertThat(errorOf(() -> client.get("/ibis/rest/healthcheck", Map.of())).code())
+        assertThat(errorOf(() -> client.get(RestEndpoint.HEALTHCHECK, List.of(), Map.of())).code())
             .isEqualTo(ErrorCode.TLS_ERROR);
     }
 
@@ -714,7 +735,7 @@ class InubitHttpClientTest {
         InubitHttpClient client = client(trusted(wireMock)
             .pin(TestCertificates.fingerprint(CERTS.selfsignedCertificate())).build());
 
-        assertThat(errorOf(() -> client.get("/ibis/rest/healthcheck", Map.of())).code())
+        assertThat(errorOf(() -> client.get(RestEndpoint.HEALTHCHECK, List.of(), Map.of())).code())
             .isEqualTo(ErrorCode.TLS_ERROR);
     }
 
@@ -730,9 +751,11 @@ class InubitHttpClientTest {
             InubitHttpClient relaxed = client(TestNodeConfig.node().baseUrl(baseUrl)
                 .trustStore(CERTS.trustStore()).disableHostnameVerification(pin).build());
 
-            assertThat(errorOf(() -> strict.get("/x", Map.of())).code())
+            assertThat(errorOf(() -> strict.get(RestEndpoint.HEALTHCHECK, List.of(),
+                Map.of())).code())
                 .isEqualTo(ErrorCode.TLS_ERROR);
-            assertThat(relaxed.get("/x", Map.of()).status()).isEqualTo(200);
+            assertThat(relaxed.get(RestEndpoint.HEALTHCHECK, List.of(),
+                Map.of()).status()).isEqualTo(200);
         } finally {
             selfsigned.stop();
         }
@@ -755,8 +778,10 @@ class InubitHttpClientTest {
             InubitHttpClient a = client(stageServer("int/a", wireMock, false, pinA));
             InubitHttpClient b = client(stageServer("int/b", serverB, true, pinB));
 
-            assertThat(a.get("/ibis/rest/healthcheck", Map.of()).status()).isEqualTo(200);
-            assertThat(b.get("/ibis/rest/healthcheck", Map.of()).status()).isEqualTo(200);
+            assertThat(a.get(RestEndpoint.HEALTHCHECK, List.of(),
+                Map.of()).status()).isEqualTo(200);
+            assertThat(b.get(RestEndpoint.HEALTHCHECK, List.of(),
+                Map.of()).status()).isEqualTo(200);
         } finally {
             serverB.stop();
         }
@@ -777,7 +802,7 @@ class InubitHttpClientTest {
 
             for (var entry : Map.of("int/a", a, "int/b", b).entrySet()) {
                 ToolError error = stageErrorOf(NodeId.parse(entry.getKey()),
-                    () -> entry.getValue().get("/ibis/rest/healthcheck", Map.of()));
+                    () -> entry.getValue().get(RestEndpoint.HEALTHCHECK, List.of(), Map.of()));
                 assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
                 assertThat(error.message())
                     .contains("(CertificateException)")
@@ -825,7 +850,7 @@ class InubitHttpClientTest {
             Optional.empty(), Optional.empty());
 
         track(InubitHttpClient.create(config, credentials, MaintenanceProbe.NONE, scrubber))
-            .get("/ibis/rest/metrics", Map.of());
+            .get(RestEndpoint.METRICS, List.of(), Map.of());
 
         wireMock.verify(getRequestedFor(urlEqualTo("/ibis/rest/metrics"))
             .withHeader("Authorization", equalTo("Basic " + TOKEN)));

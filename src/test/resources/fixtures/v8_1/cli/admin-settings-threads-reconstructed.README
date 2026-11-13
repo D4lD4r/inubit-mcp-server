@@ -1,0 +1,8 @@
+SYNTHETIC – reconstructed answer of `threads showNumberOfWorkflowThreads`; the real one needs the INUBIT root user
+Hand-written fixture for ThreadsParser (tasks.md T018): one session block, the lines after the
+prompt as CliSessionParser hands them out (no .stderr/.exit: a block is not a run). The vendor
+page configuring-workflow-threads shows the command but no output, so the form
+"Number of workflow threads: <n>" is an assumption, kept in ThreadsParser.FORM. Kept after T025: T014 could record only the refusal "Only root user can use this command."
+for the profile's account (admin-settings-*-refused); the coverage row is excluded on 8.1 and
+9.0 (owner decision 2026-11-13). A recording with the root user would replace this case and
+confirm ThreadsParser.

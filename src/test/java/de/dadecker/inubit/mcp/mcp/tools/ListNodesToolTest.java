@@ -909,14 +909,18 @@ class ListNodesToolTest {
             assertThat(usable(dev)).containsExactly("monitoring", "process_diagnosis",
                 "log_diagnosis", "inventory", "partner_management", "workspace_export");
             assertThat(notUsable(dev)).as("no write access: no process control; feature 021:"
-                + " no version admits the trace log yet").containsExactly("development_writes",
-                "trace_log_read");
+                + " no version admits the trace log yet; feature 022: server settings not yet"
+                + " verified").containsExactly("development_writes", "trace_log_read",
+                "server_settings");
             JsonNode test = groups.path(1).path("nodes").path(0).path("version");
             assertThat(test.path("server").path("source").asString()).isEqualTo("pinned");
             assertThat(test.path("client").path("state").asString()).isEqualTo("not_available");
-            assertThat(test.path("status").asString()).isEqualTo("supported");
+            assertThat(test.path("status").asString()).as("feature 022 T025: server settings"
+                + " supported on 8.1").isEqualTo("supported");
             assertThat(usable(test)).containsExactly("monitoring", "process_diagnosis",
-                "log_diagnosis", "inventory", "partner_management", "deployment");
+                "log_diagnosis", "inventory", "partner_management", "deployment",
+                "server_settings");
+            assertThat(notUsable(test)).isEmpty();
         }
     }
 
@@ -991,12 +995,13 @@ class ListNodesToolTest {
             assertThat(usable(test)).as("feature 021 T033: the 8.1 trace log is recorded")
                 .containsExactly("monitoring", "process_diagnosis", "log_diagnosis", "inventory",
                     "partner_management", "workspace_export", "queue_entry_read",
-                    "trace_log_read");
-            assertThat(notUsable(test)).isEmpty();
+                    "trace_log_read", "server_settings");
+            assertThat(notUsable(test)).as("feature 022 T025: server settings supported on 8.1")
+                .isEmpty();
             JsonNode prod = groups.path(1).path("nodes").path(0).path("version");
             assertThat(usable(prod)).as("SC-002: as without feature 020").containsExactly(
                 "monitoring", "process_diagnosis", "log_diagnosis", "inventory",
-                "partner_management", "workspace_export", "trace_log_read");
+                "partner_management", "workspace_export", "trace_log_read", "server_settings");
             assertThat(notUsable(prod)).isEmpty();
             JsonNode lab = groups.path(2).path("nodes").path(0).path("version");
             assertThat(usable(lab)).doesNotContain("queue_entry_read");
@@ -1041,7 +1046,8 @@ class ListNodesToolTest {
         // T033: the production matrix supports the recorded 8.1 trace log
         Map<String, JsonNode> production = traceVersions(config, CapabilityMatrix.production());
         assertThat(usable(production.get("test/node1"))).contains("trace_log_read");
-        assertThat(notUsable(production.get("test/node1"))).isEmpty();
+        assertThat(notUsable(production.get("test/node1"))).as("feature 022 T025: supported")
+            .isEmpty();
         assertThat(usable(production.get("prod/node1"))).doesNotContain("trace_log_read");
         assertThat(notUsable(production.get("prod/node1"))).isEmpty();
 
@@ -1144,6 +1150,46 @@ class ListNodesToolTest {
                 .forEach(node -> versions.put(node.path("id").asString(), node.path("version"))));
             return versions;
         }
+    }
+
+    // --- feature 022 T011, T025: server_settings usable on 8.1, not yet verified on 9.0 (D-1) ----
+
+    @Test
+    void serverSettingsIsUsableOn81AndNotUsableOn90UntilVerified() {
+        String baseUrl = "https://localhost:" + wireMock.httpsPort();
+        String yaml = """
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            groups:
+              - name: test
+                versionLine: V8_1
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+              - name: prod
+                versionLine: V9_0
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+            """.formatted(temp.resolve("audit"), temp.resolve("workspace"), CLI_HOME, baseUrl,
+            baseUrl);
+        ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
+            .parse(yaml, temp.resolve("config.yaml")).config();
+
+        Map<String, JsonNode> versions = traceVersions(config, CapabilityMatrix.production());
+
+        JsonNode test = versions.get("test/node1");
+        assertThat(usable(test)).contains("server_settings");
+        assertThat(notUsable(test)).isEmpty();
+        JsonNode prod = versions.get("prod/node1");
+        assertThat(usable(prod)).doesNotContain("server_settings");
+        assertThat(notUsable(prod)).contains("server_settings");
+        assertThat(reason(prod, "server_settings"))
+            .endsWith("reading server settings is not yet verified for INUBIT 9.0");
     }
 
     @Test

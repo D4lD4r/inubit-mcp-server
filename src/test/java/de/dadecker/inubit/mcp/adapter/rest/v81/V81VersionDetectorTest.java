@@ -12,6 +12,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.MaintenanceProbe;
+import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -69,7 +70,7 @@ class V81VersionDetectorTest {
     }
 
     private static void systemInfo(int status, String body) {
-        wireMock.stubFor(get(urlPathEqualTo(V81VersionDetector.SYSTEM_INFO_PATH))
+        wireMock.stubFor(get(urlPathEqualTo(RestEndpoint.SYSTEM_INFO.path()))
             .willReturn(aResponse().withStatus(status).withHeader("Content-Type", "text/html")
                 .withBody(body)));
     }
@@ -84,12 +85,12 @@ class V81VersionDetectorTest {
 
     @Test
     void theVersionOfTheSystemInformationIsDetected() {
-        wireMock.stubFor(get(urlPathEqualTo(V81VersionDetector.SYSTEM_INFO_PATH))
+        wireMock.stubFor(get(urlPathEqualTo(RestEndpoint.SYSTEM_INFO.path()))
             .willReturn(RestFixtures.response("system_info", "xml")));
 
         assertThat(V81VersionDetector.detect(ID, client)).isEqualTo("8.1.17");
         // feature 017 T028 (research D-11): the XML parser asks for XML
-        wireMock.verify(getRequestedFor(urlPathEqualTo(V81VersionDetector.SYSTEM_INFO_PATH))
+        wireMock.verify(getRequestedFor(urlPathEqualTo(RestEndpoint.SYSTEM_INFO.path()))
             .withHeader("Accept", equalTo("application/xml, */*;q=0.1")));
     }
 

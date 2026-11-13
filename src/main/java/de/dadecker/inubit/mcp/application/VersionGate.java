@@ -5,7 +5,10 @@ import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.CoverageKey;
+import de.dadecker.inubit.mcp.domain.model.CoverageState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InterfaceCoverage;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.MajorMinor;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -16,6 +19,7 @@ import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.ClientSelectionPort;
@@ -24,12 +28,17 @@ import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -68,6 +77,11 @@ import org.slf4j.LoggerFactory;
  *
  * <p>The purpose of a call is a {@link Capability.Kind} ({@code READ} or {@code WRITE}).
  *
+ * <p>Feature 022 (research D-2 "Gate per call", D-12 step 5): {@link #admitCall} and
+ * {@link #admitParts} run the capability admission of an {@link ActionSpec}, then admit only the
+ * coverage entries that are {@code reachable} for the node's major.minor in the
+ * {@link InterfaceCoverage} the gate is given.
+ *
  * <p>Thread-safe; it keeps no state of its own. Concurrent admissions on the same node may both
  * detect or both probe the client (the check and the detection or probe are not atomic);
  * {@link NodeVersions} keeps the latest outcome, so no state is lost.
@@ -77,6 +91,9 @@ public final class VersionGate {
     private static final Logger LOG = LoggerFactory.getLogger(VersionGate.class);
     /** The end of every refusal message. */
     private static final String NOTHING_SENT = "; nothing was sent";
+    /** Feature 022: the likely cause of a refused coverage entry. */
+    private static final String COVERAGE_CAUSE = "This server sends an entry of the INUBIT"
+        + " interfaces only on a version for which it is verified (docs/interface-coverage.md)";
 
     /**
      * An admitted call (data-model.md → Admission): the warnings for the call's result, and the
@@ -138,6 +155,23 @@ public final class VersionGate {
         }
     }
 
+    /**
+     * The outcome of {@link #admitParts}: the capability admission, the admitted parts, and every
+     * other requested part with its reason, in the order of the part names.
+     */
+    public record PartAdmission(Admission admission, Set<Part> admitted,
+        List<UnavailablePart> unavailable) {
+        public PartAdmission {
+            Objects.requireNonNull(admission, "admission");
+            admitted = Set.copyOf(admitted);
+            unavailable = List.copyOf(unavailable);
+        }
+    }
+
+    /** The capability admission of an action and the version line its entries are judged on. */
+    private record ActionAdmission(Admission admission, String versionName, MajorMinor line) {
+    }
+
     /** A refusal of this gate: the error and the cause its message was built from. */
     private static final class Refusal extends ToolErrorException {
 
@@ -159,12 +193,25 @@ public final class VersionGate {
     private final Function<NodeId, Duration> cliTimeouts;
     private final Terminology terms;
     private final boolean cliClientsConfigured;
+    private final InterfaceCoverage coverage;
 
-    /** A gate of a profile without {@code defaults.cliClients}. */
+    /**
+     * A gate of a profile without {@code defaults.cliClients}, with an empty coverage list
+     * ({@link #admitCall} and {@link #admitParts} refuse every entry).
+     */
     public VersionGate(NodeVersions versions, GatewayFactory gateways, CapabilityMatrix matrix,
         ClientVersionPort clients, ClientSelectionPort selection,
         Function<NodeId, Duration> cliTimeouts, Terminology terms) {
         this(versions, gateways, matrix, clients, selection, cliTimeouts, terms, false);
+    }
+
+    /** As below, with an empty coverage list. */
+    public VersionGate(NodeVersions versions, GatewayFactory gateways, CapabilityMatrix matrix,
+        ClientVersionPort clients, ClientSelectionPort selection,
+        Function<NodeId, Duration> cliTimeouts, Terminology terms,
+        boolean cliClientsConfigured) {
+        this(versions, gateways, matrix, clients, selection, cliTimeouts, terms,
+            cliClientsConfigured, InterfaceCoverage.empty());
     }
 
     /**
@@ -174,12 +221,15 @@ public final class VersionGate {
      * @param terms       the profile's terminology of the messages
      * @param cliClientsConfigured whether the profile sets {@code defaults.cliClients}: the
      *     refusal of a client names the entry of the version then (feature 017, research D-8)
+     * @param coverage    the coverage list of {@link #admitCall} and {@link #admitParts}
+     *     (feature 022)
      */
     public VersionGate(NodeVersions versions, GatewayFactory gateways, CapabilityMatrix matrix,
         ClientVersionPort clients, ClientSelectionPort selection,
         Function<NodeId, Duration> cliTimeouts, Terminology terms,
-        boolean cliClientsConfigured) {
+        boolean cliClientsConfigured, InterfaceCoverage coverage) {
         this.cliClientsConfigured = cliClientsConfigured;
+        this.coverage = Objects.requireNonNull(coverage, "coverage");
         this.versions = Objects.requireNonNull(versions, "versions");
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.matrix = Objects.requireNonNull(matrix, "matrix");
@@ -391,7 +441,7 @@ public final class VersionGate {
     }
 
     /** Starts the message of this gate's refusal with {@code tool}. */
-    private static Admission named(String tool, Supplier<Admission> admission) {
+    private static <T> T named(String tool, Supplier<T> admission) {
         try {
             return admission.get();
         } catch (ToolErrorException e) {
@@ -403,6 +453,205 @@ public final class VersionGate {
                 + error.message(), error.likelyCause(), error.nextStep(), error.node(),
                 error.excerpt()));
         }
+    }
+
+    /**
+     * Admits one call of {@code spec} that sends {@code callEntries} (feature 022, research D-2
+     * "Gate per call", D-12 step 5): the capability admission of
+     * {@link #admit(String, NodeId, Capability, Capability.Kind, Set)} on the channels of the
+     * entries, a {@code CHANGE} as a write, then every entry must be {@code reachable} for the
+     * node's major.minor. A refusal names the action and the first entry that is not, e.g.
+     * "get_model_details: INUBIT 9.0 on test/node1: module via REST GET /model/nodeByName/…
+     * is not documented for this version (INUBIT 9.0); nothing was sent"; a sibling variant whose
+     * entries are reachable is still admitted.
+     *
+     * @param callEntries the entries of this call ({@link ActionSpec#entries}), a non-empty
+     *     subset of {@link ActionSpec#callEntries()}
+     * @throws ToolErrorException {@code UNSUPPORTED_VERSION} if the capability admission refuses,
+     *     the node's major.minor is not known, or an entry is not reachable; otherwise as
+     *     {@code admit}
+     */
+    public Admission admitCall(String tool, NodeId node, ActionSpec spec,
+        Set<CoverageKey> callEntries) {
+        Objects.requireNonNull(tool, "tool");
+        if (callEntries.isEmpty() || !spec.callEntries().containsAll(callEntries)) {
+            throw new IllegalArgumentException("The entries " + callEntries + " are not a variant"
+                + " of " + spec.tool() + "/" + spec.action());
+        }
+        return named(tool, () -> {
+            ActionAdmission judged = admitAction(node, spec, channelsOf(callEntries));
+            coverage.refusal(callEntries, judged.line()).ifPresent(gap -> {
+                throw refuse(node, spec.capability(),
+                    judged.versionName() + " on " + node + ": " + spec.action() + " via "
+                        + gap.key().channel() + " " + gap.key().entry() + " is "
+                        + why(gap.state(), judged.line()),
+                    COVERAGE_CAUSE, coverageStep());
+            });
+            return judged.admission();
+        });
+    }
+
+    /**
+     * Admits the requested parts of a multi-part read of {@code spec} (feature 022, research D-2
+     * "Gate per call", FR-013): the capability admission as in {@link #admitCall} on the channels
+     * of the parts, then each part is admitted when its entries are {@code reachable} for the
+     * node's major.minor and, for a StartCLI part, the node has a StartCLI client at that version.
+     * Every other part is reported as an {@link UnavailablePart} with {@code UNSUPPORTED_VERSION}
+     * ("not yet verified", "not documented for this version" or the exclusion reason) or
+     * {@code CLI_UNAVAILABLE}. When the call has REST and StartCLI parts and only the StartCLI
+     * channel adds a refusal (for example the node's StartCLI client does not support its
+     * version), the StartCLI parts are reported with that refusal and the REST parts are admitted
+     * (T021, FR-013).
+     *
+     * @param parts a non-empty subset of {@link ActionSpec#parts()}
+     * @throws ToolErrorException as {@link #admitCall} for the capability admission and an
+     *     unknown major.minor; when no part is admitted, {@code CLI_UNAVAILABLE} if every part
+     *     lacks only the client, else {@code UNSUPPORTED_VERSION}, naming every part's reason
+     */
+    public PartAdmission admitParts(String tool, NodeId node, ActionSpec spec, Set<Part> parts) {
+        Objects.requireNonNull(tool, "tool");
+        if (parts.isEmpty() || !spec.parts().containsAll(parts)) {
+            throw new IllegalArgumentException("The parts " + parts + " are not parts of "
+                + spec.tool() + "/" + spec.action());
+        }
+        return named(tool, () -> {
+            Set<Channel> channels =
+                parts.stream().map(Part::channel).collect(Collectors.toUnmodifiableSet());
+            ActionAdmission judged;
+            // T021 (T010 review): a refusal that only the StartCLI channel adds, for example a
+            // client whose range excludes the version, refuses only the StartCLI parts (FR-013)
+            Optional<ToolError> cliRefusal = Optional.empty();
+            try {
+                judged = admitAction(node, spec, channels);
+            } catch (ToolErrorException e) {
+                if (e.error().code() != ErrorCode.UNSUPPORTED_VERSION
+                    || !channels.equals(Set.of(Channel.REST, Channel.CLI))) {
+                    throw e;
+                }
+                judged = admitAction(node, spec, Set.of(Channel.REST));
+                cliRefusal = Optional.of(e.error());
+            }
+            Optional<InubitVersion> version = judged.admission().version();
+            boolean client = selection.current(node, version).isPresent()
+                && selection.available(node, version);
+            Set<Part> admitted = new HashSet<>();
+            Map<Part, ToolError> refused = new LinkedHashMap<>();
+            for (Part part : parts.stream().sorted(Comparator.comparing(Part::name)).toList()) {
+                Optional<InterfaceCoverage.Unreachable> gap =
+                    coverage.refusal(part.entries(), judged.line());
+                if (gap.isPresent()) {
+                    refused.put(part, ToolError.of(ErrorCode.UNSUPPORTED_VERSION, part.name() + " via "
+                        + gap.get().key().channel() + " " + gap.get().key().entry() + " is "
+                        + why(gap.get().state(), judged.line()), COVERAGE_CAUSE,
+                        coverageStep()));
+                } else if (part.channel() == Channel.CLI && cliRefusal.isPresent()) {
+                    // the REST parts are still sent, so without "nothing was sent"
+                    ToolError error = cliRefusal.get();
+                    refused.put(part, ToolError.of(ErrorCode.UNSUPPORTED_VERSION, part.name()
+                        + ": " + error.message().replace(NOTHING_SENT, ""),
+                        error.likelyCause(), error.nextStep()));
+                } else if (part.channel() == Channel.CLI && !client) {
+                    refused.put(part, ToolError.of(ErrorCode.CLI_UNAVAILABLE, part.name()
+                        + " is read through StartCLI, and no StartCLI client is installed for "
+                        + node,
+                        terms.render("No StartCLI client is configured or installed for the INUBIT"
+                            + " version of the {node}"),
+                        "Install a StartCLI client for " + node + " (cli.home or"
+                            + " defaults.cliClients) to read " + part.name()));
+                } else {
+                    admitted.add(part);
+                }
+            }
+            if (admitted.isEmpty()) {
+                throw noPart(tool, node, spec.capability(), judged.versionName(),
+                    List.copyOf(refused.values()));
+            }
+            return new PartAdmission(judged.admission(), admitted, refused.entrySet().stream()
+                .map(entry -> UnavailablePart.of(entry.getKey().name(), entry.getValue()))
+                .toList());
+        });
+    }
+
+    private String coverageStep() {
+        return terms.render("Use another variant of the call if there is one, or another {node}"
+            + " whose INUBIT version offers it (docs/interface-coverage.md lists the entries per"
+            + " version)");
+    }
+
+    /**
+     * The capability admission of an action on {@code channels}, a {@code CHANGE} as a write, and
+     * the major.minor its entries are judged on.
+     *
+     * @throws ToolErrorException {@code UNSUPPORTED_VERSION} if the node has no known
+     *     major.minor, else as {@link #evaluate}
+     */
+    private ActionAdmission admitAction(NodeId node, ActionSpec spec, Set<Channel> channels) {
+        Capability.Kind purpose = spec.kind() == ActionSpec.Kind.CHANGE
+            ? Capability.Kind.WRITE : Capability.Kind.READ;
+        Evaluation evaluation = evaluate(node, spec.capability(), purpose, channels,
+            Optional.empty());
+        Admission admission = admission(spec.capability(), evaluation);
+        if (evaluation.version().isEmpty()) {
+            NodeVersionState state = versions.state(node);
+            throw refuse(node, spec.capability(), name(state, Optional.empty())
+                    .map(line -> line + " on " + node + " names no major.minor; "
+                        + spec.action() + " is offered per INUBIT major.minor")
+                    .orElseGet(() -> spec.action() + " refused: "
+                        + unknown(node, state)),
+                "This server lists the entries it sends per INUBIT major.minor",
+                terms.render("Let get_health detect the version of the {node}, or set versionLine"
+                    + " of ") + node + " to a line with minor (such as V9_0) and restart the"
+                    + " server");
+        }
+        return new ActionAdmission(admission, evaluation.versionName(),
+            MajorMinor.of(evaluation.version().get()));
+    }
+
+    /** The channels of {@code entries}. */
+    private static Set<Channel> channelsOf(Set<CoverageKey> entries) {
+        return entries.stream().map(CoverageKey::channel)
+            .collect(Collectors.toUnmodifiableSet());
+    }
+
+    /**
+     * Why an entry that is not {@code reachable} on {@code line} is refused: "not yet verified
+     * for INUBIT 9.0", "not documented for this version (INUBIT 9.0)", "excluded for INUBIT 9.0:
+     * &lt;reason&gt;", or "not listed for INUBIT 6.1" without a state.
+     */
+    private static String why(Optional<CoverageState> state, MajorMinor line) {
+        String version = "INUBIT " + line.text();
+        return switch (state.orElse(null)) {
+            case null -> "not listed for " + version;
+            case CoverageState.Planned planned -> "not yet verified for " + version;
+            case CoverageState.Undocumented undocumented ->
+                "not documented for this version (" + version + ")";
+            case CoverageState.Excluded excluded ->
+                "excluded for " + version + ": " + excluded.reason();
+            case CoverageState.Covered covered -> "not sent by this server on " + version + " ("
+                + covered.tool() + " reads it through another entry)";
+            case CoverageState.Reachable reachable ->
+                throw new IllegalStateException("A reachable entry is no refusal");
+        };
+    }
+
+    /**
+     * The refusal of {@link #admitParts} when no part is admitted: {@code CLI_UNAVAILABLE} if
+     * every part lacks only the client, else {@code UNSUPPORTED_VERSION}; the message names every
+     * part's reason, cause and step are those of the first part.
+     */
+    private ToolErrorException noPart(String tool, NodeId node, Capability capability,
+        String versionName, List<ToolError> errors) {
+        String cause = versionName + " on " + node + ": no requested part can be read: "
+            + errors.stream().map(ToolError::message).collect(Collectors.joining("; "));
+        ToolError first = errors.get(0);
+        if (errors.stream().allMatch(error -> error.code() == ErrorCode.CLI_UNAVAILABLE)) {
+            String message = tool + ": " + cause + NOTHING_SENT;
+            LOG.info("{} on {}: REFUSED ({}): {}", capability, node, ErrorCode.CLI_UNAVAILABLE,
+                message);
+            return new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE, message,
+                first.likelyCause(), first.nextStep()).withNode(node));
+        }
+        return refuse(node, capability, cause, first.likelyCause(), first.nextStep());
     }
 
     /**
@@ -614,7 +863,7 @@ public final class VersionGate {
         return switch (capability) {
             case LOG_DIAGNOSIS -> "read the logs of INUBIT " + release + " in the Workbench";
             case WORKSPACE_EXPORT -> "use the Workbench export";
-            case MONITORING, PROCESS_DIAGNOSIS, INVENTORY, PARTNER_MANAGEMENT ->
+            case MONITORING, PROCESS_DIAGNOSIS, INVENTORY, PARTNER_MANAGEMENT, SERVER_SETTINGS ->
                 terms.render("use the Workbench, or another {node} with a different INUBIT"
                     + " version");
             case DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL -> "use the Workbench";

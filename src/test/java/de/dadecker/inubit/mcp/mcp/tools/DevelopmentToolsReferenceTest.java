@@ -2,11 +2,16 @@ package de.dadecker.inubit.mcp.mcp.tools;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -19,7 +24,10 @@ import org.junit.jupiter.api.Test;
  * catalogue as well (described in full with {@code deploy_release}, T029). Feature 018 (T032,
  * FR-022): {@code find_partners} is the eighteenth tool, quoted as announced, with its masking,
  * the limits of the equality statement, the name collisions of the REST export and its audit
- * records, and {@code get_inventory_item} documents its {@code partnerUsage}.
+ * records, and {@code get_inventory_item} documents its {@code partnerUsage}. Feature 022 (T027,
+ * FR-027): {@code get_server_settings} is the twenty-third tool, quoted as announced, with its
+ * parts, fields and errors, the role it needs and its state per version as the production matrix
+ * declares it.
  */
 class DevelopmentToolsReferenceTest {
 
@@ -29,6 +37,14 @@ class DevelopmentToolsReferenceTest {
     /** The text with quote markers and line breaks folded into single spaces. */
     private static String folded(Path file) throws IOException {
         return Files.readString(file).replaceAll("\\n> ?", " ").replaceAll("\\s+", " ");
+    }
+
+    /** The folded part of {@code text} from {@code heading} up to the next level-2 heading. */
+    private static String section(String text, String heading) {
+        int start = text.indexOf(heading);
+        assertThat(start).as(heading).isNotNegative();
+        int end = text.indexOf(" ## ", start + heading.length());
+        return end < 0 ? text.substring(start) : text.substring(start, end);
     }
 
     @Test
@@ -45,7 +61,7 @@ class DevelopmentToolsReferenceTest {
             "| [`restore_backup`](#restore_backup) |", "| [`set_active`](#set_active) |",
             "| [`tag_artifacts`](#tag_artifacts) |", "| [`run_e2e_test`](#run_e2e_test) |",
             "| [`deploy_release`](#deploy_release) |",
-            "All twenty-two tools");
+            "All twenty-three tools");
     }
 
     @Test
@@ -74,6 +90,47 @@ class DevelopmentToolsReferenceTest {
         assertThat(reference).contains("| `partnerUsage` |", "`partnerManagementNode`",
             "`3 × timeout + cliExportTimeout`", "**the read goes on and fills the cache**",
             "The partner usage is **not audited**");
+    }
+
+    @Test
+    void getServerSettingsIsQuotedAsRenderedAndDescribed() throws IOException {
+        String reference = folded(TOOLS);
+
+        assertThat(reference).contains(
+            "[acme] " + Terminology.DEFAULT.render(GetServerSettingsTool.DESCRIPTION),
+            "| [`get_server_settings`](#get_server_settings) |",
+            "`get_server_settings` of feature 022 [its delta](../specs/022-full-interface-coverage/"
+                + "contracts/mcp-tools-delta.md)",
+            "| `get_server_settings` | `server_settings` |", "`reading server settings`",
+            "`get_server_settings` is **offered only if**");
+        String section = section(reference, "## `get_server_settings`");
+        // every input and output field
+        assertThat(section).contains("`target`", "`parts`", "`configurationSection`", "`node`",
+            "`license`", "`expiryDate`", "`licensedThreads`", "`licensee`", "`workflowThreads`",
+            "`privilegedWorkflows`", "`percentage`", "`workflows`", "`truncated`",
+            "`dbConnectionTolerance`", "`faultThreshold`", "`dropRatePercent`",
+            "`dropIntervalSeconds`", "`blockingQueueSize`", "`version`", "`memoryUsedPercent`",
+            "`maintenanceMode`", "`serverTime`", "`configuration`", "`sections`", "`section`",
+            "`values`", "`path`", "`value`", "`masked`", "`maskedCount`", "`sources`",
+            "`unavailable`", "`warnings`", "`error`", "`serverUpdate`");
+        // the role, the coverage page and the errors the tool uses
+        assertThat(section).contains("\"System Administrator\"", "\"CLI login access\"",
+            "[interface-coverage.md](interface-coverage.md)", "`readOnlyHint: true`",
+            "| `INVALID_INPUT` |", "| `TARGET_UNKNOWN` |", "| `UNSUPPORTED_VERSION` |",
+            "| `CLI_UNAVAILABLE` |", "| `FORBIDDEN` |", "| `NOT_FOUND` |",
+            "| `MAINTENANCE_MODE` |", "| `UNEXPECTED_RESPONSE` |",
+            "| `AUTH_FAILED`, `TLS_ERROR`, `UNREACHABLE`, `TIMEOUT` |", "**Example prompts**");
+        // the state per version follows the production matrix (flipped in T025 / T026)
+        CapabilityMatrix matrix = CapabilityMatrix.production();
+        for (String line : List.of("8.1", "9.0")) {
+            boolean verified = matrix.state(InubitVersion.parse(line + ".0"),
+                Capability.SERVER_SETTINGS) == SupportState.SUPPORTED;
+            assertThat(section).contains("- INUBIT " + line + ": "
+                + (verified ? "supported" : "not yet verified"));
+        }
+
+        assertThat(folded(SETUP)).contains("`get_server_settings` reads the license and the"
+            + " configuration only with the INUBIT role \"System Administrator\"");
     }
 
     @Test

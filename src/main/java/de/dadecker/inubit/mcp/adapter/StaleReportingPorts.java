@@ -1,10 +1,13 @@
 package de.dadecker.inubit.mcp.adapter;
 
+import de.dadecker.inubit.mcp.domain.model.CliSettingsSnapshot;
+import de.dadecker.inubit.mcp.domain.model.ConfigurationView;
 import de.dadecker.inubit.mcp.domain.model.EntryPart;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
+import de.dadecker.inubit.mcp.domain.model.LicenseFacts;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
 import de.dadecker.inubit.mcp.domain.model.LogQuery;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -31,12 +34,14 @@ import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
+import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -70,7 +75,7 @@ final class StaleReportingPorts {
             new Artifacts(ports.artifacts()), new Imports(ports.imports()),
             new Tags(ports.tags()), new Partners(ports.partners()),
             new QueueEntryContent(ports.queueEntryContent()),
-            new ServerLogs(ports.serverLogs()));
+            new ServerLogs(ports.serverLogs()), new ServerSettings(ports.serverSettings()));
     }
 
     private <T> T call(Supplier<T> call) {
@@ -363,6 +368,30 @@ final class StaleReportingPorts {
         public DownloadedLog download(ServerLogKind kind, InubitVersion version,
             long deadlineNanos) {
             return call(() -> delegate.download(kind, version, deadlineNanos));
+        }
+    }
+
+    final class ServerSettings implements ServerSettingsPort {
+        private final ServerSettingsPort delegate;
+
+        ServerSettings(ServerSettingsPort delegate) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public LicenseFacts license() {
+            return call(delegate::license);
+        }
+
+        @Override
+        public ConfigurationView configuration(Optional<String> section, int maxValues,
+            int maxChars) {
+            return call(() -> delegate.configuration(section, maxValues, maxChars));
+        }
+
+        @Override
+        public CliSettingsSnapshot cliSettings(Set<String> parts) {
+            return call(() -> delegate.cliSettings(parts));
         }
     }
 }

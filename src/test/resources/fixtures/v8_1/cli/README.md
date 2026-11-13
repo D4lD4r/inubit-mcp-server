@@ -164,3 +164,69 @@ The variants of the recorded `version` case for feature 009 (research D-15; task
 | `version` | recorded | the 8.1.17 client: preamble, `CLI 8.1.17`, copyright and URL lines, `Supported inubit Process Engine versions from 4.0.1 to 8.1.17.`, exit 0 |
 | `version_no_range` | **synthetic** | `version` without the `Supported …` line: `CLI 8.1.17` is the only version line, so the client reports no supported range; stderr and exit 0 unchanged |
 | `../../v9_0/cli/version` | **synthetic** | a 9.0 client: `version` with `CLI 9.0.7` and `Supported inubit Process Engine versions from 9.0.0 to 9.0.7.`; stderr and exit 0 unchanged. Kept with the other 9.0 fixtures, see `../../v9_0/README.md` |
+
+## Administration cases (feature 022)
+
+The recordings of the administration commands and endpoints of feature 022 (research D-26,
+`quickstart.md` "Live checks"; tasks T002). A coverage-list row becomes `reachable` for 8.1 only
+in the commit that adds its recording here, together with its row in the table below. The first
+cases come from T014 (below).
+
+- **Name**: `admin-<entry-slug>[-<variant>]`. `<entry-slug>` names the coverage-list entry or the
+  group of entries the recording belongs to, lower case with hyphens (`users`, `tags`,
+  `settings-change`, …); the optional `<variant>` names the input or outcome (`-empty`,
+  `-unknown`, `-refused`, …).
+- **CLI cases** (this directory): `<case>.stdout`, `<case>.stderr`, `<case>.exit`, split as
+  described in "Sources and neutralization" above. A case of a stdin session also has
+  `<case>.stdin`: the lines the session sent, one per line, with the password line replaced by
+  `<password>`.
+- **REST cases** (`../rest/`): `<case>.http` (status and headers) and the body in the format the
+  endpoint answered with (`<case>.json`, `<case>.xml`, …), as the existing REST cases.
+- **Neutralization**: with `tools/neutralize.py`, then checked with `tools/check-identifiers.py`;
+  the raw outputs are never committed. Every user, workflow, host and value in a case is
+  fictitious, and every secret (password, configuration or module value, key material, e-mail
+  in a listing) is replaced by a planted test secret.
+
+| Case | Kind | Coverage-list entry | What it is |
+|---|---|---|---|
+| `admin-settings-session` | recorded | the US1 CLI reads below | one stdin session (`.stdin`): `threads showNumberOfWorkflowThreads`, `privilegedWorkflows showThreadsPercentage`, `privilegedWorkflows showWorkflowList`, `dbconnectiontolerance show`, `date`, `license -td`, `license -ts`, `exit`. Before the first prompt: `Connecting as '<user>' to <cliUrl> …`, `Password: ` followed by a line break, the hostname warning, an empty line, `Connection to inubit Process Engine 8.1.17 established.` and two help lines. Each command is echoed as `CLI\|jdoe@inubit-dev-1.example.test> <command>`; its answer follows up to the next echo. The three root-only commands answer `EXECUTION ERROR` / `Only root user can use this command.` and the session goes on; exit 1 |
+| `admin-settings-threads-refused` | recorded | CLI `threads showNumberOfWorkflowThreads` | script mode, account without root: `ERROR … CLI` record, `InubitException: @Start@IError@@@Internal INUBIT error!@End@@Start@Only root user can use this command.…`, stack trace, `EXECUTION ERROR`, `Internal INUBIT error!`, `Only root user can use this command.`, exit 1 |
+| `admin-settings-privileged-percentage-refused` | recorded | CLI `privilegedWorkflows showThreadsPercentage` | as `admin-settings-threads-refused` |
+| `admin-settings-privileged-list-refused` | recorded | CLI `privilegedWorkflows showWorkflowList` | as `admin-settings-threads-refused` |
+| `admin-settings-db-tolerance` | recorded | CLI `dbconnectiontolerance show` | script mode: `Error level: \t\t0%`, an empty line, `Fault threshold: \t20`, `Drop rate: \t\t5%`, `Drop interval (s): \t1800 seconds`, an empty line (tabs and LF as recorded; the session answer ends with a `\r` line instead); exit 0 |
+| `admin-settings-date` | recorded | CLI `date` | script mode: `Fri Nov 13 05:52:06 CET 2026` (Java `Date.toString`, server time zone); exit 0 |
+| `admin-settings-license-days` | recorded | CLI `license -td` | script mode: a bare number, the days until the license expires (`7300`); exit 0 |
+| `admin-settings-license-seconds` | recorded | CLI `license -ts` | script mode: a bare number, the seconds until the license expires (`630699804`, 196 less than in the session run a few minutes earlier); exit 0 |
+| `../rest/admin-license` | recorded | REST `GET /license` | `200`, `text/xml;charset=UTF-8` (Accept XML): `<license>` with `LicenseInformation` (edition, customer number, company, contact, key type, request and key ids, generation date `dd.MM.yyyy`, system id), `inubit` (`AllowedIPs`, `AllowedMACs/MAC`, `LicenseType` with `ExpirationDate` `yyyy-MM-dd`, version, counts, flags; `Features` with `Plugins type="…"`) and an XML-DSig `Signature` |
+| `../rest/admin-configurations` | recorded | REST `GET /configurations` | `200`, `application/json;charset=UTF-8` (Accept JSON): one compact line, root key `ServerConfiguration`, no `type` or `encrypted` fields; three planted test secrets (see below) |
+
+Neutralization of the T014 cases (recorded 2026-11-13 on an 8.1.17 development server with a
+non-root account; raw outputs private, never committed):
+
+- the account → `jdoe`, the server host → `inubit-dev-1.example.test`, the trust-store path in
+  `Picked up JAVA_TOOL_OPTIONS` → `/home/jdoe/.config/inubit-mcp/dev-truststore.p12`;
+- `dbconnectiontolerance` values, the `license -td`/`-ts` numbers (session and script runs) →
+  fictitious; `date` and the error-record timestamps are kept;
+- license: customer number, company (`Fictitious Licensee 0001`), contact (`John Doe`), request
+  and key ids (`00000000-0000-0000-0000-00000000040x`), generation date, system id, MAC
+  (`02:00:00:00:00:01`), expiry date, user counts → fictitious; `DigestValue`, `SignatureValue`
+  and `Modulus` → synthetic base64 in the recorded layout (76-character lines joined by
+  `&#xD;` and a line break), so the signature no longer verifies. The edition name →
+  `Synthetic Edition`. Key type, version, unlimited markers and the plugin list are kept. The expiry date keeps the recorded relation to
+  `license -td` (see research "Live recording T014");
+- configuration: proxy hosts and exceptions, proxy user, `ServerName`, `ServerID`,
+  `ClusterKnownNodes` (shortened to four entries), the node name key of `NodeMaintenanceModeMap` and the four login values →
+  fictitious; vendor defaults (`localhost` URLs, LDAP and Keycloak placeholders, mime types, SSH
+  algorithm lists, log layouts) and plain numeric and boolean settings are kept as recorded;
+- planted test secrets in the configuration (the recording has no secret leaf at all):
+  `ProxyPassword` after `ProxyUserName` (`synthetic-secret-0401`, by name),
+  `SMTPProperties/ErrorPassword` after `ErrorUser` (`synthetic-secret-0402`, by name) and
+  `ProcessUserServer/ProcessUserImTenantAdminCredentials/Value` (`synthetic-secret-0403`, by path;
+  recorded as `{}`).
+
+T025 replaced the `*-reconstructed` cases of `dbconnectiontolerance show`, `date`, `GET /license`
+and `GET /configurations` by these recordings. The three `*-reconstructed` cases of the root-only
+reads (`admin-settings-threads-reconstructed`, `admin-settings-privileged-percentage-reconstructed`,
+`admin-settings-privileged-list-reconstructed`) stay SYNTHETIC: the profile's account could record
+only their refusal, and their coverage rows are `excluded:needs the INUBIT root user` (owner
+decision 2026-11-13).
