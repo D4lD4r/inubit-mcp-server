@@ -68,7 +68,11 @@ import org.slf4j.LoggerFactory;
  *       without {@code --trustStoreFilePath} gets the trust store through
  *       {@code -Djavax.net.ssl.trustStore} and {@code -Djavax.net.ssl.trustStoreType} appended
  *       to {@code JAVA_TOOL_OPTIONS}; never a trust-store password.
- *   <li>Both kinds of run also append the trust store to {@code JAVA_TOOL_OPTIONS} when the
+ *   <li>A client option run ({@link #runClientOption}, feature 022, research D-20):
+ *       {@code [startcli.sh, -u, <user>, [--trustStoreFilePath, <p12>],
+ *       [--disableHostNameVerification], --who|--nwho, <cliUrl>]}, stdin as for
+ *       {@code --execCommand}.
+ *   <li>Every kind of run also appends the trust store to {@code JAVA_TOOL_OPTIONS} when the
  *       client gets {@code --trustStoreFilePath}, because the INUBIT 9.0.10 client ignores that
  *       option for its login connection (T047 live check, finding F-1); a path with whitespace
  *       is passed only as the argument.
@@ -99,9 +103,10 @@ import org.slf4j.LoggerFactory;
  *   <li>Feature 017 (research D-3, D-4): every call reads the node's effective version once and
  *       chooses the client, JDK and address for it ({@link #select}); everything above sees the
  *       chosen {@code cli} settings.
- *   <li>Feature 017 (FR-017, research D-4): before {@link #run} and {@link #runSession} launch,
- *       the launch guard ({@link #checkLaunch}) compares the chosen client with its recorded
- *       check; the {@code -v}/{@code -h} probes and {@link #checkAvailable} are not guarded.
+ *   <li>Feature 017 (FR-017, research D-4): before {@link #run}, {@link #runSession} and
+ *       {@link #runClientOption} launch, the launch guard ({@link #checkLaunch}) compares the
+ *       chosen client with its recorded check; the {@code -v}/{@code -h} probes and
+ *       {@link #checkAvailable} are not guarded.
  *   <li>Feature 017 (FR-018, research D-24): {@link #run} with a {@link WritePermit} (a write)
  *       starts StartCLI inside {@link WriteLock#handOff}: under the node's lock it selects the
  *       client again with the locked version ({@code CLI_UNAVAILABLE} if the client or address
@@ -295,6 +300,16 @@ public final class CliRunner {
         Secret password, CliCommand command, Duration timeout, String timeoutSetting,
         StartHook hook) {
         EffectiveNodeConfig server = selection.server();
+        List<String> arguments = loginArguments(server, username);
+        arguments.add("--execCommand");
+        arguments.add(command.commandLine());
+        arguments.add(server.cli().url().toString());
+        return execute(selection, arguments, Optional.of(password), List.of(), timeout,
+            timeoutSetting, jvmTrustStore(server.tls().trustStore()), MAX_OUTPUT_BYTES, hook);
+    }
+
+    /** {@code -u <user> [--trustStoreFilePath <p12>] [--disableHostNameVerification]}. */
+    private static List<String> loginArguments(EffectiveNodeConfig server, String username) {
         List<String> arguments = new ArrayList<>(List.of("-u", username));
         server.tls().trustStore().ifPresent(trustStore -> {
             arguments.add("--trustStoreFilePath");
@@ -303,11 +318,53 @@ public final class CliRunner {
         if (server.tls().disableHostnameVerification()) {
             arguments.add("--disableHostNameVerification");
         }
-        arguments.add("--execCommand");
-        arguments.add(command.commandLine());
+        return arguments;
+    }
+
+    /**
+     * The options of the StartCLI client that read something as a run of their own (feature 022,
+     * research D-20, "Live recording T028a"). On 8.1 they are neither session commands (the
+     * session answers {@code Command not found.}) nor {@code --execCommand} arguments (the
+     * client takes them as its own option, T028).
+     */
+    public enum ClientOption {
+        /** The systems connected to the server, client connections included. */
+        WHO("--who"),
+        /** The number of rows {@link #WHO} lists. */
+        NWHO("--nwho");
+
+        private final String argument;
+
+        ClientOption(String argument) {
+            this.argument = argument;
+        }
+    }
+
+    /**
+     * Runs {@code startcli <login arguments> <option> <cliUrl>}, the same arguments as an
+     * {@code --execCommand} run with {@code option} in place of the command (T028a): only the
+     * password is written to stdin, guarded like
+     * {@link #run(EffectiveNodeConfig, String, Secret, CliCommand, Duration, CredentialGuard)}.
+     * As for {@link #runSession(Selection, String, Secret, CliClientOptions, List, Duration,
+     * int, CredentialGuard)}, the caller checks the pin first ({@link #checkPin}); the launch
+     * guard runs here.
+     *
+     * @throws ToolErrorException as {@link #runSession(Selection, String, Secret,
+     *     CliClientOptions, List, Duration, int, CredentialGuard)}
+     */
+    public CliResult runClientOption(Selection selection, String username, Secret password,
+        ClientOption option, Duration timeout, CredentialGuard guard) {
+        EffectiveNodeConfig server = selection.server();
+        if (windows) {
+            refuseWindowsCredentials(server, username, password);
+        }
+        checkLaunch(selection);
+        List<String> arguments = loginArguments(server, username);
+        arguments.add(option.argument);
         arguments.add(server.cli().url().toString());
-        return execute(selection, arguments, Optional.of(password), List.of(), timeout,
-            timeoutSetting, jvmTrustStore(server.tls().trustStore()), MAX_OUTPUT_BYTES, hook);
+        return guarded(guard.acquire(), () -> execute(selection, arguments,
+            Optional.of(password), List.of(), timeout, "cliTimeout",
+            jvmTrustStore(server.tls().trustStore()), MAX_OUTPUT_BYTES, StartHook.DIRECT));
     }
 
     /**

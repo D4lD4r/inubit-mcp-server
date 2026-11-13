@@ -21,7 +21,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 /**
  * T016: the allow-listed commands of a 6.1 StartCLI session (research D-5, D-10); feature 022
  * T012: the version-neutral builder with the value rules of {@link CliCommand} (research D-7);
- * T019: the settings reads of US1 in the production allowlist.
+ * T019: the settings reads of US1 in the production allowlist; T032: the user reads of US2 with
+ * a quoted login.
  */
 class CliSessionCommandTest {
 
@@ -103,14 +104,22 @@ class CliSessionCommandTest {
         });
     }
 
-    /** T019 (US1): the settings reads of {@code get_server_settings}, and nothing else. */
+    /**
+     * T019 (US1): the settings reads of {@code get_server_settings}; T032 (US2): the user reads
+     * {@code user '<login>'} and {@code finger '<login>'}; nothing else. {@code -who}/{@code -nwho}
+     * are client options, not session commands (research D-20, T028a), and the message reads wait
+     * for L-17.
+     */
     @Test
-    void theSettingsReadsAreAdmitted() {
+    void theSettingsAndUserReadsAreAdmitted() {
         assertThat(CliSessionCommand.SESSION_OPTIONS).isEqualTo(Map.of(
             "threads", Set.of("showNumberOfWorkflowThreads"),
             "privilegedWorkflows", Set.of("showThreadsPercentage", "showWorkflowList"),
             "dbconnectiontolerance", Set.of("show"),
-            "date", Set.of()));
+            "date", Set.of(),
+            "user", Set.of(),
+            "finger", Set.of()));
+        assertThat(CliSessionCommand.LOGIN_COMMANDS).containsExactlyInAnyOrder("user", "finger");
         assertThat(CliSessionCommand.command("threads").flag("showNumberOfWorkflowThreads")
             .build().text()).isEqualTo("threads showNumberOfWorkflowThreads");
         assertThat(CliSessionCommand.command("privilegedWorkflows").flag("showThreadsPercentage")
@@ -134,6 +143,43 @@ class CliSessionCommandTest {
         assertInvalid(() -> CliSessionCommand.command("passwd"), "");
         assertInvalid(() -> CliSessionCommand.command("license"), "");
         assertInvalid(() -> CliSessionCommand.command(null), "");
+    }
+
+    /** T032 (US2, research "Live recording T028"): the login is quoted as recorded. */
+    @ParameterizedTest
+    @ValueSource(strings = {"jdoe", "batch-user", "qa_robot"})
+    void theUserReadsQuoteTheLogin(String login) {
+        assertThat(CliSessionCommand.command("user").login(login).build().text())
+            .isEqualTo("user '" + login + "'");
+        assertThat(CliSessionCommand.command("finger").login(login).build().text())
+            .isEqualTo("finger '" + login + "'");
+    }
+
+    /** T032: a login outside the value rule never becomes a command; the message omits it. */
+    @ParameterizedTest
+    @ValueSource(strings = {"it's", "-who", "a\nb", "a;b", "", "a$b", "x\u00e4", "jdoe@corp"})
+    void aLoginOutsideTheValueRuleIsRejected(String login) {
+        assertInvalid(() -> CliSessionCommand.command("user").login(login), login);
+        assertInvalid(() -> CliSessionCommand.command("finger").login(login), login);
+        assertInvalid(() -> CliSessionCommand.command("user").login(null), "");
+    }
+
+    /**
+     * T032: user and finger take exactly one login and nothing else, no other command takes one,
+     * and the logins and message reads are not session commands.
+     */
+    @Test
+    void exactlyOneLoginOnlyForTheUserReads() {
+        assertInvalid(() -> CliSessionCommand.command("user").build(), "");
+        assertInvalid(() -> CliSessionCommand.command("finger").login("jdoe").login("root"),
+            "root");
+        assertInvalid(() -> CliSessionCommand.command("user").flag("-a"), "");
+        assertInvalid(() -> CliSessionCommand.command("date").login("jdoe"), "jdoe");
+        assertInvalid(() -> CliSessionCommand.command("show", ALLOWLIST).login("jdoe"), "jdoe");
+        assertInvalid(() -> CliSessionCommand.command("-who"), "");
+        assertInvalid(() -> CliSessionCommand.command("-nwho"), "");
+        assertInvalid(() -> CliSessionCommand.command("msglist"), "");
+        assertInvalid(() -> CliSessionCommand.command("msgread"), "");
     }
 
     @Test

@@ -19,9 +19,10 @@ import java.util.Set;
  *       ({@link #psList});
  *   <li>a process count {@code ps -c <-a|-e|-w|-q>} ({@link #psCount});
  *   <li>INUBIT 8.1/9.0 (feature 022, research D-7): a command of {@link #SESSION_OPTIONS}
- *       built by {@link #command}, with the value rules of {@link CliCommand}: a value matches
- *       {@link CliCommand#VALUE} and a repository path {@link CliCommand#REPOSITORY_PATH}
- *       without {@code .}/{@code ..} segment, each wrapped in single quotes.
+ *       built by {@link #command}, with the value rules of {@link CliCommand}: a value (also the
+ *       login of {@link #LOGIN_COMMANDS}) matches {@link CliCommand#VALUE} and a repository
+ *       path {@link CliCommand#REPOSITORY_PATH} without {@code .}/{@code ..} segment, each
+ *       wrapped in single quotes.
  * </ul>
  *
  * <p>No command is built from free text: the texts are constants, assembled from a
@@ -41,14 +42,24 @@ public final class CliSessionCommand {
 
     /**
      * The session commands {@link #command} admits and the options each accepts (feature 022,
-     * research D-7): the settings reads of {@code get_server_settings} (US1). The settings changes
-     * ({@code threads setNumberOfWorkflowThreads}, …) are not admitted.
+     * research D-7): the settings reads of {@code get_server_settings} (US1) and the user reads of
+     * {@code read_users} (US2, research D-20). The settings changes
+     * ({@code threads setNumberOfWorkflowThreads}, …) are not admitted, nor {@code -who} and
+     * {@code -nwho}: on 8.1 they are options of the client, not session commands (T028a).
      */
     static final Map<String, Set<String>> SESSION_OPTIONS = Map.of(
         "threads", Set.of("showNumberOfWorkflowThreads"),
         "privilegedWorkflows", Set.of("showThreadsPercentage", "showWorkflowList"),
         "dbconnectiontolerance", Set.of("show"),
-        "date", Set.of());
+        "date", Set.of(),
+        "user", Set.of(),
+        "finger", Set.of());
+    /**
+     * The commands of {@link #SESSION_OPTIONS} that take exactly one login
+     * ({@link Builder#login}) and nothing else: {@code user '<login>'} and
+     * {@code finger '<login>'}, quoted as recorded (research "Live recording T028").
+     */
+    static final Set<String> LOGIN_COMMANDS = Set.of("user", "finger");
 
     /** The process states a {@code ps} command selects. */
     public enum Listing {
@@ -130,14 +141,33 @@ public final class CliSessionCommand {
         /** {@code <option> '<value>'}; the value must match {@link CliCommand#VALUE}. */
         public Builder quoted(String option, String value) {
             String checked = option(option);
+            String quoted = quotedValue(checked, value);
+            tokens.add(checked);
+            tokens.add(quoted);
+            return this;
+        }
+
+        /**
+         * {@code '<login>'} for a command of {@link #LOGIN_COMMANDS}, exactly once; the login must
+         * match {@link CliCommand#VALUE}.
+         */
+        public Builder login(String login) {
+            if (!LOGIN_COMMANDS.contains(name) || tokens.size() > 1) {
+                throw invalid("The StartCLI session command " + name + " takes "
+                        + (LOGIN_COMMANDS.contains(name) ? "exactly one" : "no") + " login",
+                    "Only user and finger take a login, exactly one");
+            }
+            tokens.add(quotedValue("the login", login));
+            return this;
+        }
+
+        private static String quotedValue(String what, String value) {
             if (value == null || !CliCommand.VALUE.matcher(value).matches()) {
-                throw invalid("The value for " + checked + " cannot be passed to StartCLI safely",
+                throw invalid("The value for " + what + " cannot be passed to StartCLI safely",
                     "It must match " + CliCommand.VALUE.pattern()
                         + " (no quotes, at most 200 chars)");
             }
-            tokens.add(checked);
-            tokens.add("'" + value + "'");
-            return this;
+            return "'" + value + "'";
         }
 
         /**
@@ -158,6 +188,10 @@ public final class CliSessionCommand {
         }
 
         public CliSessionCommand build() {
+            if (LOGIN_COMMANDS.contains(name) && tokens.size() != 2) {
+                throw invalid("The StartCLI session command " + name + " needs a login",
+                    "user and finger take exactly one login");
+            }
             return new CliSessionCommand(String.join(" ", tokens));
         }
 

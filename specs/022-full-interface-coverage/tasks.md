@@ -490,7 +490,7 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   - Failing tests first: one test class each, with reconstructed cases (recorded after T028).
   - `WhoParser` reads the system table of `--who` (research "Live recording T028a"): only
     `Toolset` rows become a `LoginEntry`, `since` stays empty on 8.1; `--nwho` counts all rows.
-- [ ] T032 [US2] `adapter/cli/admin/CliUserRunner.java` (after T012, T031):
+- [X] T032 [US2] `adapter/cli/admin/CliUserRunner.java` (after T012, T031):
   - one session per page with `user <login>` + `finger <login>` for ≤ 25 logins;
   - logins: one client run per form, `startcli.sh … --who <url>` and `startcli.sh … --nwho <url>`
     (T028a), not in the session and not with `--execCommand`;
