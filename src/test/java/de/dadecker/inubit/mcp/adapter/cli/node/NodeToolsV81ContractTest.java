@@ -23,6 +23,8 @@ import de.dadecker.inubit.mcp.application.nodetools.ClusterNodeService;
 import de.dadecker.inubit.mcp.application.nodetools.ClusterNodesRequest;
 import de.dadecker.inubit.mcp.application.nodetools.IoLogRequest;
 import de.dadecker.inubit.mcp.application.nodetools.IoLogService;
+import de.dadecker.inubit.mcp.application.nodetools.NodeConfigRequest;
+import de.dadecker.inubit.mcp.application.nodetools.NodeConfigService;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
@@ -42,6 +44,12 @@ import de.dadecker.inubit.mcp.domain.model.node.IoDirection;
 import de.dadecker.inubit.mcp.domain.model.node.IoLogEntry;
 import de.dadecker.inubit.mcp.domain.model.node.IoLogResult;
 import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigResult;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValue;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValue.Absent;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValue.Failed;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValue.Present;
 import de.dadecker.inubit.mcp.domain.model.node.NodeDetail;
 import de.dadecker.inubit.mcp.domain.model.node.NodeStatus;
 import de.dadecker.inubit.mcp.domain.port.ClusterNodePort;
@@ -51,6 +59,7 @@ import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.IoLogPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
+import de.dadecker.inubit.mcp.domain.port.NodeConfigPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -71,6 +80,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -112,6 +122,14 @@ import org.junit.jupiter.params.provider.CsvSource;
  * {@code .message} to the request's {@code listOut} and {@code messageOut}. {@code read_text}
  * checks end to end that its invented credentials are masked before the cut and appear in no
  * result, error or log line.
+ *
+ * <p>T037 (FR-030 … FR-032, research D-10, D-21): each {@code node-tools/v8_1/node-config} case
+ * runs the real {@link NodeConfigService} over the real {@link CliNodeConfigAdapter} with the names
+ * its {@code .origin} names. {@code all} is reconstructed until T038 replaces it with a recording;
+ * its values are asserted against what its frames say, so only the counts of present and absent
+ * names ({@link #ALL_PRESENT}) and the credential-looking value ({@link #CONFIG_SECRET},
+ * {@link #CONFIG_SECRET_NAME}) are written into this test. {@code absent} carries both forms of a
+ * property the node does not have, {@code one_error} a failure of one name only.
  */
 @Timeout(60)
 class NodeToolsV81ContractTest {
@@ -125,6 +143,9 @@ class NodeToolsV81ContractTest {
     static final List<String> IO_CASES = List.of("listing", "empty_listing", "read_text",
         "read_latin1", "read_binary", "read_empty", "no_match", "foreign_process", "list_error");
 
+    /** The node-config cases; exactly the {@code v8_1/node-config/*.frames} on disk. */
+    static final List<String> CONFIG_CASES = List.of("all", "absent", "one_error", "api_missing");
+
     private static final CapabilityMatrix MATRIX = TraceMatrix.admittingEightOne();
     private static final Path DIRECTORY =
         Path.of("src/test/resources/fixtures/node-tools/v8_1/cluster-nodes");
@@ -132,6 +153,9 @@ class NodeToolsV81ContractTest {
     private static final Path IO_DIRECTORY =
         Path.of("src/test/resources/fixtures/node-tools/v8_1/io-log");
     private static final String IO_FIXTURES = "node-tools/v8_1/io-log/";
+    private static final Path CONFIG_DIRECTORY =
+        Path.of("src/test/resources/fixtures/node-tools/v8_1/node-config");
+    private static final String CONFIG_FIXTURES = "node-tools/v8_1/node-config/";
     private static final String FRAMES = ".frames";
     private static final String FIXTURE_NONCE = "0123456789abcdef0123456789abcdef";
     private static final String FRAME_PREFIX = "#QE1:" + FIXTURE_NONCE + " ";
@@ -148,6 +172,23 @@ class NodeToolsV81ContractTest {
     /** The {@code read_text} credentials, also the password the Basic value decodes to. */
     private static final String[] READ_TEXT_SECRETS =
         {PASSWORD_SECRET, BASIC_SECRET, "fictitious-Basic-7"};
+    /**
+     * The names {@code all} answers; the others it answers with INUBIT 8.1.17's error for a
+     * property the node does not have (T018). T038: adjust if the recording answers others.
+     */
+    private static final int ALL_PRESENT = 11;
+    /** The name whose value in {@code all} carries {@link #CONFIG_SECRET}. T038: adjust. */
+    private static final NodeConfigName CONFIG_SECRET_NAME = NodeConfigName.DATA_SOURCE_LOCATION;
+    /**
+     * The invented {@code password=} value in {@code all}'s {@link #CONFIG_SECRET_NAME}, and its
+     * placeholder (D-21). T038: the recording must carry it too, or this case changes.
+     */
+    private static final String CONFIG_SECRET = "example-secret";
+    private static final String CONFIG_PLACEHOLDER = "${secret:data.password}";
+    /** The {@code config <name> error} message of 8.1.17 for a property the node lacks (T018). */
+    private static final String MISSING_PROPERTY = "Cannot invoke \"Object.getClass()\" because"
+        + " \"o\" is null";
+    private static final String MISSING_PROPERTY_CHAIN = "com.inubit.ibis.utils.InubitException";
     /** The server's environment, with credentials the helper must never get (leak check). */
     private static final Map<String, String> PARENT = Map.of(
         "PATH", "/usr/bin:/bin",
@@ -192,7 +233,8 @@ class NodeToolsV81ContractTest {
         for (ILoggingEvent event : appender.list) {
             String message = event.getFormattedMessage();
             TestSecrets.assertNoLeak(message);
-            assertThat(message).doesNotContain(DETAILS_SECRET).doesNotContain(READ_TEXT_SECRETS);
+            assertThat(message).doesNotContain(DETAILS_SECRET, CONFIG_SECRET)
+                .doesNotContain(READ_TEXT_SECRETS);
         }
     }
 
@@ -204,6 +246,12 @@ class NodeToolsV81ContractTest {
     @Test
     void theIoLogCasesAreExactlyTheFixtureCasesOnDisk() throws IOException {
         assertThat(casesOnDisk(IO_DIRECTORY)).containsExactlyInAnyOrderElementsOf(IO_CASES);
+    }
+
+    @Test
+    void theNodeConfigCasesAreExactlyTheFixtureCasesOnDisk() throws IOException {
+        assertThat(casesOnDisk(CONFIG_DIRECTORY))
+            .containsExactlyInAnyOrderElementsOf(CONFIG_CASES);
     }
 
     // --- the list (US1-1, US1-2, US1-5) -------------------------------------------------------
@@ -655,6 +703,120 @@ class NodeToolsV81ContractTest {
         assertTempRootEmpty();
     }
 
+    // --- get_node_config (US3-1 … US3-5) --------------------------------------------------------
+
+    @Test
+    void allAnswersEveryNameInListOrderAsItsFramesSayWithTheMissingPropertyFormAbsent()
+        throws IOException {
+        List<String[]> frames = frames("all", CONFIG_FIXTURES).stream()
+            .filter(frame -> frame.startsWith("config ")).map(frame -> frame.split(" ", -1))
+            .toList();
+        List<String> wireNames = Arrays.stream(NodeConfigName.values())
+            .map(NodeConfigName::wireName).toList();
+        assertThat(configNames("all")).as("all.origin names all 20 in list order")
+            .isEqualTo(wireNames);
+        assertThat(frames).extracting(frame -> frame[1]).isEqualTo(wireNames);
+        assertThat(frames).filteredOn(frame -> frame[2].equals("error"))
+            .as("every error of all is the missing-property form").allSatisfy(frame -> {
+                assertThat(frame[3]).isEqualTo(MISSING_PROPERTY_CHAIN);
+                assertThat(decode(frame[4])).contains(MISSING_PROPERTY);
+            });
+        assertThat(frames).filteredOn(frame -> frame[1].equals(CONFIG_SECRET_NAME.wireName()))
+            .singleElement().satisfies(frame -> assertThat(decode(frame[9]))
+                .as("the case carries a credential-looking value")
+                .endsWith("password=" + CONFIG_SECRET));
+        launcher = replaying("all", CONFIG_FIXTURES);
+
+        // no names: all of them, in list order
+        NodeConfigResult result = nodeConfigService()
+            .read(new NodeConfigRequest(NODE.value(), List.of()));
+
+        assertThat(result.node()).isEqualTo(NODE);
+        assertThat(result.answeringNode()).isEqualTo(token(frames("all", CONFIG_FIXTURES),
+            "node ok "));
+        assertThat(result.values()).extracting(NodeConfigValue::name)
+            .containsExactly(NodeConfigName.values());
+        assertThat(result.values()).containsExactlyElementsOf(frames.stream()
+            .map(NodeToolsV81ContractTest::expectedConfigValue).toList());
+        assertThat(result.values()).filteredOn(Present.class::isInstance).hasSize(ALL_PRESENT);
+        assertThat(result.values()).filteredOn(Absent.class::isInstance)
+            .hasSize(NodeConfigName.values().length - ALL_PRESENT);
+        assertThat(result.values()).filteredOn(value -> value.name() == CONFIG_SECRET_NAME)
+            .singleElement().satisfies(value -> assertThat(((Present) value).value())
+                .endsWith("password=" + CONFIG_PLACEHOLDER));
+        assertThat(result.warnings()).containsExactly(NodeConfigResult.WARNING);
+        assertThat(requestLines()).contains("op=nodeConfig");
+        assertThat(field(launcher.last().stdinBytes(), "names"))
+            .isEqualTo(String.join(",", wireNames));
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertThat(appender.list).extracting(ILoggingEvent::getFormattedMessage)
+            .contains("get_node_config on test/node1: 20 name(s), outcome OK");
+        assertNoLeak(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void absentMapsBothFormsOfAMissingPropertyToAbsent() throws IOException {
+        List<String> frames = frames("absent", CONFIG_FIXTURES);
+        assertThat(frames).as("the case carries the 8.1.17 error form and the absent form")
+            .contains("config ClusterBindAddress absent")
+            .anySatisfy(frame -> assertThat(decode(frame))
+                .startsWith("config OperationMode error " + MISSING_PROPERTY_CHAIN + " ")
+                .endsWith(MISSING_PROPERTY));
+        launcher = replaying("absent", CONFIG_FIXTURES);
+
+        NodeConfigResult result = nodeConfigService()
+            .read(new NodeConfigRequest(NODE.value(), configNames("absent")));
+
+        assertThat(field(launcher.last().stdinBytes(), "names"))
+            .isEqualTo("OperationMode,ClusterBindAddress,NodeName");
+        assertThat(result.values()).containsExactly(
+            new Absent(NodeConfigName.OPERATION_MODE),
+            new Absent(NodeConfigName.CLUSTER_BIND_ADDRESS),
+            new Present(NodeConfigName.NODE_NAME, "node1", false, "String", "Node name",
+                "Name of this node within the cluster.", "Cluster", true, false));
+        assertThat(result.warnings()).containsExactly(NodeConfigResult.WARNING);
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertNoLeak(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void oneErrorFailsOnlyThatNameWithItsCodeAndAScrubbedMessageAndReturnsTheOthers()
+        throws IOException {
+        launcher = replaying("one_error", CONFIG_FIXTURES);
+
+        NodeConfigResult result = nodeConfigService()
+            .read(new NodeConfigRequest(NODE.value(), configNames("one_error")));
+
+        assertThat(field(launcher.last().stdinBytes(), "names"))
+            .isEqualTo("ClusterName,NodeName,retryInterval");
+        assertThat(result.values()).extracting(NodeConfigValue::name).containsExactly(
+            NodeConfigName.CLUSTER_NAME, NodeConfigName.NODE_NAME, NodeConfigName.RETRY_INTERVAL);
+        assertThat(((Present) result.values().get(0)).value()).isEqualTo("acme-cluster");
+        // the chain names a SocketTimeoutException; the line break of the message is gone
+        assertThat(result.values().get(1)).isEqualTo(new Failed(NodeConfigName.NODE_NAME,
+            ErrorCode.UNREACHABLE,
+            "Exception from service object: Node node1 did not answer in time. Read timed out"));
+        assertThat(((Present) result.values().get(2)).value()).isEqualTo("5000");
+        assertThat(result.warnings()).containsExactly(NodeConfigResult.WARNING);
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertNoLeak(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void apiMissingIsCliUnavailableAndLeavesNothing() throws IOException {
+        launcher = replaying("api_missing", CONFIG_FIXTURES);
+
+        ToolError error = errorOf(nodeConfigService(),
+            new NodeConfigRequest(NODE.value(), configNames("api_missing")));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertTempRootEmpty();
+    }
+
     // --- helpers ----------------------------------------------------------------------------
 
     /**
@@ -666,7 +828,7 @@ class NodeToolsV81ContractTest {
             server.secretLabels());
         return new ClusterNodeService(new TargetResolver(List.of(NODE)), node -> true,
             FakeVersionDetection.gateWithoutClients(versions, detection, MATRIX),
-            new Gateways(port, null), node -> CLI_TIMEOUT, System::nanoTime);
+            new Gateways(port, null, null), node -> CLI_TIMEOUT, System::nanoTime);
     }
 
     /**
@@ -679,8 +841,18 @@ class NodeToolsV81ContractTest {
             server.secretLabels());
         return new IoLogService(new TargetResolver(List.of(NODE)), node -> true,
             FakeVersionDetection.gateWithoutClients(versions, detection, MATRIX),
-            new Gateways(null, port), node -> CLI_TIMEOUT, node -> CLI_TIMEOUT, scrubber::scrub,
-            System::nanoTime);
+            new Gateways(null, port, null), node -> CLI_TIMEOUT, node -> CLI_TIMEOUT,
+            scrubber::scrub, System::nanoTime);
+    }
+
+    /** The real {@code get_node_config} service over the real adapter, as {@link #service}. */
+    private NodeConfigService nodeConfigService() {
+        EffectiveNodeConfig server = http().build();
+        NodeConfigPort port = new CliNodeConfigAdapter(helper(server, credentials()), scrubber,
+            server.secretLabels());
+        return new NodeConfigService(new TargetResolver(List.of(NODE)), node -> true,
+            FakeVersionDetection.gateWithoutClients(versions, detection, MATRIX),
+            new Gateways(null, null, port), node -> CLI_TIMEOUT, System::nanoTime);
     }
 
     /** The real helper runner for {@code server}, the helper getting {@code credentials}. */
@@ -735,6 +907,23 @@ class NodeToolsV81ContractTest {
         return error;
     }
 
+    /** The error of a {@code get_node_config} call; it carries the node and leaks nothing. */
+    private static ToolError errorOf(NodeConfigService service, NodeConfigRequest request) {
+        ToolErrorException thrown =
+            catchThrowableOfType(ToolErrorException.class, () -> service.read(request));
+        assertThat(thrown).as("the call fails").isNotNull();
+        ToolError error = thrown.error();
+        assertThat(error.node()).contains(NODE);
+        TestSecrets.assertNoLeak(error.toString());
+        assertThat(error.toString()).doesNotContain(CONFIG_SECRET);
+        return error;
+    }
+
+    private static void assertNoLeak(NodeConfigResult result) {
+        TestSecrets.assertNoLeak(result.toString());
+        assertThat(result.toString()).doesNotContain(CONFIG_SECRET);
+    }
+
     private static void assertNoLeak(ClusterNodesResult result) {
         TestSecrets.assertNoLeak(result.toString());
         assertThat(result.toString()).doesNotContain(DETAILS_SECRET);
@@ -769,7 +958,12 @@ class NodeToolsV81ContractTest {
 
     /** The operation frames of {@code <case>.frames}: each line after the nonce, still encoded. */
     private static List<String> frames(String fixtureCase) {
-        return fixture(fixtureCase + FRAMES).lines()
+        return frames(fixtureCase, FIXTURES);
+    }
+
+    /** As {@link #frames(String)}, of the case in the resource directory {@code fixtures}. */
+    private static List<String> frames(String fixtureCase, String fixtures) {
+        return fixture(fixtures, fixtureCase + FRAMES).lines()
             .filter(line -> line.startsWith(FRAME_PREFIX))
             .map(line -> line.substring(FRAME_PREFIX.length())).toList();
     }
@@ -787,13 +981,22 @@ class NodeToolsV81ContractTest {
     }
 
     private static String fixture(String name) {
-        return new String(FakeProcessLauncher.resource(FIXTURES + name), StandardCharsets.UTF_8);
+        return fixture(FIXTURES, name);
+    }
+
+    private static String fixture(String fixtures, String name) {
+        return new String(FakeProcessLauncher.resource(fixtures + name), StandardCharsets.UTF_8);
     }
 
     /** Replays {@code <case>.frames}/{@code .exit} of the cluster-nodes fixtures with the nonce. */
     private static FakeProcessLauncher replaying(String fixtureCase) {
-        String frames = fixture(fixtureCase + FRAMES);
-        int exit = Integer.parseInt(fixture(fixtureCase + ".exit").strip());
+        return replaying(fixtureCase, FIXTURES);
+    }
+
+    /** As {@link #replaying(String)}, of the case in the resource directory {@code fixtures}. */
+    private static FakeProcessLauncher replaying(String fixtureCase, String fixtures) {
+        String frames = fixture(fixtures, fixtureCase + FRAMES);
+        int exit = Integer.parseInt(fixture(fixtures, fixtureCase + ".exit").strip());
         return FakeProcessLauncher.of("", "", 0).responding(request -> new Answer(
             frames.replace(FIXTURE_NONCE, field(request, "nonce")), exit));
     }
@@ -847,6 +1050,32 @@ class NodeToolsV81ContractTest {
         return value.find() ? Optional.of(value.group(1)) : Optional.empty();
     }
 
+    /** The configuration names the first line of {@code <case>.origin} names in {@code names=}. */
+    private static List<String> configNames(String fixtureCase) {
+        String origin = fixture(CONFIG_FIXTURES, fixtureCase + ".origin").lines().findFirst()
+            .orElseThrow();
+        Matcher names = Pattern.compile(" names=([0-9A-Za-z,]+)").matcher(origin);
+        assertThat(names.find()).as("%s.origin names the request's names", fixtureCase).isTrue();
+        return List.of(names.group(1).split(","));
+    }
+
+    /**
+     * What the service returns for the split {@code config} frame of {@code all}: an {@code ok}
+     * frame its {@link Present} with {@link #CONFIG_SECRET} masked, any other frame (by the
+     * assertions on the case, the missing-property form) {@link Absent}.
+     */
+    private static NodeConfigValue expectedConfigValue(String[] frame) {
+        NodeConfigName name = NodeConfigName.parse(frame[1]).orElseThrow();
+        if (!frame[2].equals("ok")) {
+            return new Absent(name);
+        }
+        // config <name> ok <type> <editable> <deprecated> <displayName> <category>
+        //     <description> <value>
+        return new Present(name, decode(frame[9]).replace(CONFIG_SECRET, CONFIG_PLACEHOLDER),
+            false, frame[3], decode(frame[6]), decode(frame[8]), decode(frame[7]),
+            Boolean.parseBoolean(frame[4]), Boolean.parseBoolean(frame[5]));
+    }
+
     private static String ioFixture(String name) {
         return new String(ioBytes(name), StandardCharsets.UTF_8);
     }
@@ -888,11 +1117,11 @@ class NodeToolsV81ContractTest {
     }
 
     /**
-     * Only the given port of {@link #NODE} (the other one is {@code null}); every other port is
+     * Only the given port of {@link #NODE} (the others are {@code null}); every other port is
      * an assertion error.
      */
-    private record Gateways(ClusterNodePort clusterNodePort, IoLogPort ioLogPort)
-        implements GatewayFactory {
+    private record Gateways(ClusterNodePort clusterNodePort, IoLogPort ioLogPort,
+        NodeConfigPort nodeConfigPort) implements GatewayFactory {
 
         @Override
         public ClusterNodePort clusterNodes(NodeId server) {
@@ -906,6 +1135,13 @@ class NodeToolsV81ContractTest {
             assertThat(server).isEqualTo(NODE);
             assertThat(ioLogPort).as("the I/O log port is expected").isNotNull();
             return ioLogPort;
+        }
+
+        @Override
+        public NodeConfigPort nodeConfig(NodeId server) {
+            assertThat(server).isEqualTo(NODE);
+            assertThat(nodeConfigPort).as("the node-configuration port is expected").isNotNull();
+            return nodeConfigPort;
         }
 
         @Override

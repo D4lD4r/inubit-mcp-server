@@ -452,7 +452,7 @@ the list is refused before any request; the fake records that only listed names 
   first in `mcp/tools/GetNodeConfigToolTest.java` (schema enum ⇔ `NodeConfigName.values()`; a
   non-listed name fails the schema; description lists the 20 names), `ToolAnnouncementTest.java`,
   new `GetNodeConfigWiringTest.java` (no opt-in → nothing sent), `MainTest.java` (after T030)
-- [ ] T037 [US3] Contract test (after T036): `NodeToolsV81ContractTest` `+` every
+- [X] T037 [US3] Contract test (after T036): `NodeToolsV81ContractTest` `+` every
   `v8_1/node-config` case (`all` reconstructed until T038; `absent` in the 8.1.17 NPE form → absent; `one_error`; `api_missing`)
 - [ ] T038 [US3] **[OWNER]** **[BLOCKED: T018]** Enable 8.1 `node_config_read` in **one commit**:
   as T025 for the T018 `nodeConfig` output (values replaced by fictitious ones of the same type;
