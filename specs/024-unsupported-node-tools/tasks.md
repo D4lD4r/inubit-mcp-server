@@ -328,7 +328,7 @@ the opt-in gets the list and one node's details; a group without it is refused b
   (a group without the opt-in → `NOT_CONFIGURED`, zero WireMock requests, zero launches; with the
   test matrix a full call through the wired server), `MainTest.java` (without opt-ins the tool lists
   equal the T001 reference)
-- [ ] T024 [US1] Contract test (D-27; after T023): `adapter/cli/node/NodeToolsV81ContractTest.java`
+- [X] T024 [US1] Contract test (D-27; after T023): `adapter/cli/node/NodeToolsV81ContractTest.java`
   runs `CliClusterNodeAdapter` + `ClusterNodeService` per `v8_1/cluster-nodes` case (test matrix):
   `ok` → two nodes, one `UNKNOWN`; `single`; `details` → masked pairs + warning;
   `details_truncated` (`details ok <n> true`) → `details.truncated: true` + hint; `details_unknown`
