@@ -369,7 +369,9 @@ message is read masked and bounded; an unlisted reference is refused before any 
   (D-8, D-9, D-20; after T007, T016, T026): `implements IoLogPort`; request `op=ioLog` with
   `listOut`/`messageOut` in the private directory; listing file read bounded (≤ 16 MiB, else
   `UNEXPECTED_RESPONSE`) and parsed with `IoLogEntry.parse`; `io match none` → `NoMatch`; `part
-  message ok <n>` → `Message` with the file (size must equal `<n>`); `io list error`, `part message
+  message ok <n>` → `Message` with the file (size must equal `<n>`); `io list error` whose message is
+  INUBIT's `NotAllowedAccess` → `FORBIDDEN` (T018 spike: the listing checks a right of the account;
+  research D-20 and contracts updated in this task); other `io list error`, `part message
   error`, a foreign process id → `UNEXPECTED_RESPONSE`; the `IoLogRead` closes the private
   directory. Failing tests first in `adapter/cli/node/CliIoLogAdapterTest.java` (every v8_1 case;
   the request never contains a caller-provided entry text, only `ref`; budget `cliTimeout` for a
