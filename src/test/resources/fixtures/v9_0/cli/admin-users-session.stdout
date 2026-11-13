@@ -1,0 +1,43 @@
+JAVA_HOME is set
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+ERROR 14:38:57,078 [main      ] DnsServerAddressStreamProviders Unable to load io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider, fallback to system defaults. This may result in incorrect DNS resolutions on MacOS. Check whether you have a dependency on 'io.netty:netty-resolver-dns-native-macos'. Use DEBUG level to see the full stack: java.lang.UnsatisfiedLinkError: failed to load the required native library
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+Password: 
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+Connecting as 'jdoe' to https://inubit-dev-2.example.test:8443?isCli
+
+Connection to inubit Process Engine 9.0.10 established.
+<TAB> shows command list
+[COMMAND] with option -h or --help shows help for this command
+CLI|jdoe@inubit-dev-2.example.test> user 'jdoe'
+User name              jdoe          
+User group             OPS           
+Super group            headoffice    
+Additional user group  ProcessPortal 
+
+CLI|jdoe@inubit-dev-2.example.test> finger 'jdoe'
+Login: jdoe           Name: Doe, John
+Email: john.doe@example.test
+Role: Platform Administrator
+CLI|jdoe@inubit-dev-2.example.test> user 'Ops_viewer'
+User name    Ops_viewer 
+User group   OPS        
+Super group  headoffice 
+
+CLI|jdoe@inubit-dev-2.example.test> finger 'Ops_viewer'
+Login: Ops_viewer     
+Email: ops.viewer@corp.example.test
+Role: XYZ_maintainer
+CLI|jdoe@inubit-dev-2.example.test> user 'qa_robot'
+User name    qa_robot   
+User group   OPS        
+Super group  headoffice 
+
+CLI|jdoe@inubit-dev-2.example.test> finger 'qa_robot'
+Login: qa_robot       
+Email: qa.robot+qa_inubit@corp.example.test
+Role: XYZ_operator
+CLI|jdoe@inubit-dev-2.example.test> msglist
+ID   Subject                                 Sender         Date
+
+CLI|jdoe@inubit-dev-2.example.test> exit

@@ -396,7 +396,7 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
 - [X] T023 [US1] `security/ServerSettingsSecretLeakTest.java`: planted secrets in license XML,
   configuration leaves, StartCLI output and errors never appear in results, errors, logs (logback
   test appender) or audit; leak check.
-- [ ] T024 [LIVE] [OWNER] [US1] The same recordings as T014 on the 9.0 test server, into
+- [X] T024 [LIVE] [OWNER] [US1] The same recordings as T014 on the 9.0 test server, into
   `fixtures/v9_0/{cli,rest}/admin-settings-*` with `.origin`. Blocked until the 9.0 server's
   certificate pin is renewed (feature 021 open point); record that state in `implementation.md`
   while waiting.
@@ -564,7 +564,7 @@ e-mail, the logins and a message, each bounded (US2 AS1â€“AS6).
 
   Then open the US2 PR.
 
-- [ ] T028b [LIVE] [OWNER] [US2] The T028/T028a recordings on the 9.0 test server (added
+- [X] T028b [LIVE] [OWNER] [US2] The T028/T028a recordings on the 9.0 test server (added
   2026-11-13 after the pin renewal, owner approval): `GET /user/users?type=processEngineUser`,
   a session with `user`/`finger` for three logins, `--who`, `--nwho`, `msglist` (and `msgread`
   for one message if the account has one, L-17), into `fixtures/v9_0/{cli,rest}/admin-users-*`

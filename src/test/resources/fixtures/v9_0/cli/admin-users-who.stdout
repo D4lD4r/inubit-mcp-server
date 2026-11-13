@@ -1,0 +1,13 @@
+JAVA_HOME is set
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+ERROR 14:39:12,428 [main      ] DnsServerAddressStreamProviders Unable to load io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider, fallback to system defaults. This may result in incorrect DNS resolutions on MacOS. Check whether you have a dependency on 'io.netty:netty-resolver-dns-native-macos'. Use DEBUG level to see the full stack: java.lang.UnsatisfiedLinkError: failed to load the required native library
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+Password: 
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+SYSTEM-ID                                                        SYSTEM TYPE                   STATE     VERSION        IDLE
+jdbc:postgresql://inubit-db-002.example.test:5432/inubitlogdb    Log DB (PostgreSQL)                     42.7.7         52:07:13s
+jdbc:postgresql://inubit-db-002.example.test:5432/inubitcachedb  Repository DB (PostgreSQL)              42.7.7         52:07:13s
+jdbc:postgresql://inubit-db-002.example.test:5432/inubitcachedb  Cache DB (PostgreSQL)                   42.7.7         52:07:13s
+http://localhost:8181/                                           Portal (BPC)                                           52:07:13s
+                                                                 Process User Server (inubit)                           52:07:13s
+

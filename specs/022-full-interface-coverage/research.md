@@ -896,3 +896,84 @@ and its row is `covered:read_users`.
 recorded; `WhoParser` treats such a table as unknown output, so the `logins` view then fails as a
 whole. A recording from a server with a longer database URL decides whether the parser can read
 the overflow form.
+
+## Live recording T024/T028b (9.0, 2026-11-13)
+
+Read-only recordings on the 9.0.10 test node (non-production) with the profile's account, which is
+not the INUBIT root user, approved by the owner on 2026-11-13 after the renewed certificate was
+confirmed (the leaf fingerprint was checked against the profile's pin and the trust store before
+the first request). StartCLI: the profile's 9.0.10 client on Java 21, against the base URL (no
+servlet path, D-3). Every command ran once:
+
+- T024 (the commands of T014): one stdin session with the seven US1 reads and `exit`, the same
+  seven reads once each in script mode, `GET /license`, `GET /configurations`;
+- T028b (the commands of T028 and T028a): `GET /user/users?type=processEngineUser`, `msglist` in
+  script mode, one stdin session with `user '<login>'` and `finger '<login>'` for three logins and
+  `msglist`, `exit`, the six `user`/`finger` reads in script mode, and one client run each of
+  `startcli.sh … --who <url>` and `--nwho <url>`. No login on the 9.0 node has a hyphen; the
+  three logins are the profile's account and the two other logins with an underscore (one with a
+  capital initial). `-who`/`-nwho` were not sent in the session or with `--execCommand`: the 9.0
+  client's help (`startcli.sh -h`, no server contact) lists `--who` and `--nwho` as client options,
+  as on 8.1.
+
+Fixtures: `fixtures/v9_0/cli/admin-settings-*`, `admin-users-*` and `fixtures/v9_0/rest/
+admin-license.*`, `admin-configurations.*`, `admin-users.*`, each with `.origin`
+(`recorded 2026-11-13 9.0.10 neutralized`) and registered in `V90Cases` and `NOT_RECORDABLE.txt`
+(neutralization in `fixtures/v9_0/README.md`). The root-only reads were refused; as decided for
+8.1, only the refusal is recorded.
+
+**Differences from 8.1.**
+
+| Aspect | 8.1 (T014, T028, T028a) | 9.0 |
+|---|---|---|
+| StartCLI address | `<baseUrl>/ibis/servlet/IBISSoapServlet` | `<baseUrl>`; the client prints it as `<baseUrl>?isCli` |
+| Session preamble | `JAVA_HOME is set`, `Connecting as '<user>' to <cliUrl> with hostname verification OFF`, `Password: `, the hostname warning, an empty line, `Connection to inubit Process Engine 8.1.17 established.`, two help lines (CRLF) | `JAVA_HOME is set`, the warning, a Netty line `ERROR <time> [main      ] DnsServerAddressStreamProviders Unable to load io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider …` (the client ran on macOS; whether it appears on Linux is not recorded), the warning, `Password: `, the warning, `Connecting as '<user>' to <baseUrl>?isCli` (after the password, without "with hostname verification OFF"), an empty line, `Connection to inubit Process Engine 9.0.10 established.`, two help lines; all LF |
+| Script-mode, `--who`, `--nwho` preamble | `JAVA_HOME is set`, `Password: `, the warning | `JAVA_HOME is set`, the warning, the Netty line, the warning, `Password: `, the warning; no `Connecting as` line |
+| stderr | only `Picked up JAVA_TOOL_OPTIONS` | the same |
+| Echo | `CLI\|<user>@<host>> <command>` (LF), `<host>` the server's host name | the same |
+| Settings answers in the session | mostly CRLF | LF |
+| End of a script-mode answer | as the session block | one more empty line (LF) after every answer |
+| Refusal in the session | `EXECUTION ERROR`, the reason; the session goes on; exit 1 | the same lines (LF); the session goes on; **exit 0**: a refused command no longer sets the exit code |
+| Refusal in script mode | `ERROR … CLI ERROR` record, `InubitException: @Start@IError@@@…` line, stack trace, `EXECUTION ERROR`, `Internal INUBIT error!`, `Only root user can use this command.`; exit 1 | `EXECUTION ERROR`, then only the `InubitException: @Start@IError@@@…` line; no record, no stack trace; exit 1 |
+| `dbconnectiontolerance show` | labels and tabs as in T014; the session block ends with a `\r` line | the same labels and tabs; the session block ends with an empty line |
+| `date`, `license -td`, `license -ts` | `Date.toString`, bare integers | the same; the days still count to one month after `ExpirationDate` |
+| `GET /license` | `text/xml;charset=UTF-8`, indented by two spaces | `application/xml;charset=UTF-8`, indented by three; `LicenseInformation` has two new elements, `LicenseName` and `Environment`; otherwise the same elements and signature layout |
+| `GET /configurations` | `application/json;charset=UTF-8`, root `ServerConfiguration`, one compact line | content type **`application/xml;charset=UTF-8`** although the request accepts JSON and the body is the same compact JSON line; root `ServerConfiguration`; 255 leaves instead of 276: no `GUIThreadPriority`, `GUIThreadsCount`, `PortalDeployment/AllowGenericProxyUrls`, `SystemProperties/com.sun.xml.ws.transport.http.HttpAdapter.dump`, no `TracingCustom` loggers of the FTP and JMS plugins and ActiveMQ; new `MimetypesFileType/application/json`. Still no `type`/`encrypted` field and no secret leaf (`ProcessUserImTenantAdminCredentials` `{}`) |
+| `GET /user/users` | one line, root `UserList` in the default namespace, unused `ns2`, no trailing line break | XML declaration with `standalone="yes"`, root `ns2:UserList` (`ns2` = the user namespace, `ns1` = the base namespace; the feature-004 form), one `ns2:User` per line, trailing line break; the same attributes; two users share one e-mail |
+| `user '<login>'` | three rows (CRLF); the session block ends with an empty `\r` line | a fourth row `Additional user group` for a user with an additional group; labels padded to the longest label plus two (13, or 23 with the fourth row), values to the longest value plus one; rows CRLF; the session block ends with an empty LF line |
+| `finger '<login>'` | `Login:` padded to 15, `Name:` only with both names, `Email:`, one `Role:` line; every line CRLF in the session, the last LF in script mode | the same lines; the `Role:` line ends in LF in both modes |
+| `msglist` without messages | the header (CRLF) and an empty line (`\r` in the session) | the header and an empty line, LF only |
+| `--who` | `SYSTEM-ID` column 64 wide; a `Toolset` row for the client's own connection | `SYSTEM-ID` column **65** wide; **no `Toolset` row**: the client's own run is not listed; no row has a `STATE`; the other rows and columns as on 8.1 |
+| `--nwho` | `6` | `5`: again the number of rows `--who` lists |
+| Exit codes | session 1 (refusals, unknown commands), script reads 0, refusals 1, `--who`/`--nwho` 0 | sessions 0, script reads 0, refusals 1, `--who`/`--nwho` 0 |
+
+**L-1 (stdin session on 9.0): works** as on 8.1: the whole input written up front, one echo per
+command, the session ended with `exit`.
+
+**L-5 on 9.0:** the forms of `dbconnectiontolerance show`, `date`, `license -td` and `license -ts`
+are those of 8.1; the three root-only reads are refused for a non-root account on 9.0 too.
+
+**L-6 on 9.0.** Fields as on 8.1 (REST `id`, `email`, `type`, names; `user` groups; `finger`
+role), plus the `Additional user group` row; no account state anywhere (L-13 still not answered).
+Logins: `--who` lists the five systems only. The StartCLI run's own connection does not appear,
+so on 9.0 `--who` showed no login at all; whether a Workbench connection appears as a `Toolset`
+row on 9.0 is not recorded (none was connected).
+
+**`--who` column width (open point of T028a).** The longest `SYSTEM-ID` was 62 characters on 8.1
+and 63 on 9.0, and the column 64 and 65 wide: the column is the longest `SYSTEM-ID` plus two,
+not a fixed 64, so a longer database URL widens the column instead of being cut (two
+recordings; `SYSTEM TYPE` is 30 in both, its longest value plus two; `STATE` 10 and `VERSION` 15
+in both).
+
+**L-17 (`msgread`): still open on 9.0.** `msglist` showed no message for the profile's account in
+both modes, so `msgread` was not run.
+
+**For T026 and T037a (not applied here).** The session preamble (Netty line, `Connecting as` after
+the password, `?isCli`), the session exit code 0 with refusals, the shorter script-mode refusal,
+the extra empty line after script-mode answers, the `application/xml` content type of the JSON
+configuration, the `Additional user group` row with its wider label padding, and `--who` without
+a `Toolset` row and with a 65-wide first column all meet parsers that were written against the 8.1
+recordings (`WhoParser` assumes fixed columns of 64, 30, 10 and 15). The contract tests also meet
+the 9.0 license shape (`application/xml`, new `LicenseName` and `Environment`, 3-space indent),
+the `/user/users` form (XML declaration, `ns2:UserList`, one user per line; the parsers match
+local names) and the 21 configuration leaves 9.0 no longer has.

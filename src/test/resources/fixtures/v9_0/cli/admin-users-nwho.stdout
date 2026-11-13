@@ -1,0 +1,7 @@
+JAVA_HOME is set
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+ERROR 14:39:14,731 [main      ] DnsServerAddressStreamProviders Unable to load io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider, fallback to system defaults. This may result in incorrect DNS resolutions on MacOS. Check whether you have a dependency on 'io.netty:netty-resolver-dns-native-macos'. Use DEBUG level to see the full stack: java.lang.UnsatisfiedLinkError: failed to load the required native library
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+Password: 
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+5
