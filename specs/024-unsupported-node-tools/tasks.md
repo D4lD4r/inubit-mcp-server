@@ -480,7 +480,8 @@ the other just changed.
   `trace` form is ever run. Records stdout, stderr, exit code of both runs owner-only outside the
   repository; appends the neutral facts (the confirmation form of `CommandResult("OK")`, whether
   the long option names are accepted, exit codes, persistent trace state unchanged) to research.md
-  "Spike findings"
+  "Spike findings"; then aligns spec.md FR-007 and the trace forms named in the contracts' tool
+  descriptions with the confirmed spelling (T040 review)
 - [X] T040 [P] [US4] `adapter/cli/CliCommand.java` `trace` forms (FR-007, D-11):
   `traceNodeLevel(TemporaryLevel, LoggerName)` → `trace --nodelevel <L> --package '<logger>'`,
   `traceReset()` → `trace --reset`; options `--nodelevel` (value from the enum only), `--package`
