@@ -294,6 +294,8 @@ class CliUserRunnerTest {
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.node()).contains(DEV);
+        assertThat(error.excerpt()).isEmpty();
+        assertThat(error.nextStep()).doesNotContain("excerpt");
         assertNoPersonalValue(error);
     }
 

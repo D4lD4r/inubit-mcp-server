@@ -136,6 +136,19 @@ class V81UserAdapterTest {
         assertThat(cliCalls).as("no StartCLI call").isEmpty();
     }
 
+    /** The user list in a failed answer never reaches the error, and nothing points to it. */
+    @Test
+    void aFailedListCarriesNoExcerpt() {
+        stub(500, "<UserList><User id=\"jdoe\" email=\"john.doe@example.test\"/></UserList>");
+
+        assertError(adapter()::listUsers, error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+            assertThat(error.excerpt()).isEmpty();
+            assertThat(error.nextStep()).doesNotContain("excerpt");
+            assertThat(error.toString()).doesNotContain("john.doe@example.test");
+        });
+    }
+
     @Test
     void anAnswerThatIsNoUserListIsAnUnexpectedResponseOfTheNode() {
         wireMock.stubFor(get(urlPathEqualTo(USERS)).willReturn(aResponse().withStatus(200)

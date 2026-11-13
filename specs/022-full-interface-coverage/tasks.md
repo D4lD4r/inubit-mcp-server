@@ -541,7 +541,7 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
     in the Wiring `ActionCatalog` with the tool.
   - Failing tests first: `ReadUsersToolTest.java`, the output schema test,
     `ToolAnnouncementTest`.
-- [ ] T036 [US2] `security/ReadUsersSecretLeakTest.java`: planted e-mails never appear in `users`,
+- [X] T036 [US2] `security/ReadUsersSecretLeakTest.java`: planted e-mails never appear in `users`,
   and planted secrets in finger output are masked (message text after L-17); leak check.
   - From the T034 review: plant e-mails in a failing `finger` block and in a whole-session failure
     and check end to end that no listing shows them.

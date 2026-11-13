@@ -7,12 +7,14 @@ import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.domain.model.ListedUser;
 import de.dadecker.inubit.mcp.domain.model.LoginEntry;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.UserFacts;
 import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
@@ -30,7 +32,8 @@ import java.util.function.Supplier;
  *
  * <p>Every HTTP status keeps the mapping of {@link InubitHttpClient}, e.g. 403 {@code FORBIDDEN},
  * 503 during maintenance {@code MAINTENANCE_MODE}; a 404 is a missing endpoint
- * ({@code UNEXPECTED_RESPONSE}).
+ * ({@code UNEXPECTED_RESPONSE}). An error of the list carries no excerpt of the body: an answer of
+ * this endpoint may hold the users' e-mails and names (FR-011, T036).
  */
 public final class V81UserAdapter implements UserDirectoryPort {
 
@@ -59,9 +62,16 @@ public final class V81UserAdapter implements UserDirectoryPort {
             return UserListXmlParser.parse(server, client.get(RestEndpoint.USERS, List.of(),
                 PROCESS_ENGINE_USERS, MediaRange.XML, ResourceKind.ENDPOINT).body());
         } catch (ToolErrorException e) {
-            throw e.error().node().isPresent() ? e
-                : new ToolErrorException(e.error().withNode(server));
+            ToolError error = e.error();
+            throw new ToolErrorException(new ToolError(error.code(), error.message(),
+                error.likelyCause(), withoutExcerpt(error.nextStep()),
+                error.node().or(() -> Optional.of(server)), Optional.empty()));
         }
+    }
+
+    /** The next step without its pointer to the excerpt this adapter drops (FR-011). */
+    static String withoutExcerpt(String nextStep) {
+        return nextStep.replace("See the excerpt; check", "Check");
     }
 
     @Override
