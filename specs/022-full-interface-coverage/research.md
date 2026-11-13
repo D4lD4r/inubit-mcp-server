@@ -884,12 +884,10 @@ Fixtures: `fixtures/v8_1/cli/admin-users-who.*` and `admin-users-nwho.*` (neutra
 - `--nwho` prints a bare number and a line break (LF): `6`, the number of rows `--who` listed,
   systems included. It is therefore not the number of logged-in users.
 
-**Consequence.** D-20 "Logins" and T032 read the logins with one client run per form, not in the
+**Consequence.** D-20 "Logins" and T032 read the logins with a client run of their own, not in the
 session; `CliSessionCommand.SESSION_OPTIONS` stays without `-who` / `-nwho`. The coverage entries
 keep their keys `-who` / `-nwho`. How `--who` rows become `LoginEntry` values (only `Toolset`
 rows, `since` empty) and what `--nwho` is reported as is left to T031 and T034. Decided in T034
-and by the owner (2026-11-13): only `Toolset` rows become `LoginEntry` values; `--nwho` is not run,
-and its row is `covered:read_users`. Decided in T034
 and by the owner (2026-11-13): only `Toolset` rows become `LoginEntry` values; `--nwho` is not run,
 and its row is `covered:read_users`.
 
