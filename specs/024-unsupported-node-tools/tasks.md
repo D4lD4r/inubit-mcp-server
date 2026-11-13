@@ -514,7 +514,7 @@ the other just changed.
   later expiry, owner := setter; expiry from the executed time; every transition increments the
   generation; transitions allowed only per the lifecycle; invalid server id, node name, logger,
   UUID refused) and `LeaseSummaryTest.java`
-- [ ] T044 [P] [US4] Generalize the lock of feature 019 (D-12): new `application/OwnerOnlyFileLock.java`
+- [X] T044 [P] [US4] Generalize the lock of feature 019 (D-12): new `application/OwnerOnlyFileLock.java`
   (`Held acquire(Path lockFile, Duration wait, Supplier<ToolErrorException> busy)`: in-process
   `ReentrantLock` per lock-file path, then `FileChannel.tryLock` polled every 50 ms until the wait
   covering both steps runs out; lock file created owner-only through `PrivateFileSystem`, never
