@@ -548,10 +548,9 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
 - [ ] T037 [US2] Contracts and flips [BLOCKED: T028]: `UsersV81ContractTest.java` (and
   `UsersV90ContractTest.java` when 9.0 is recorded); rows, matrix and docs page.
   - From the T034 review: `logins` does not read `--nwho` (it counts every connected system), so
-    the `CLI -nwho` row cannot become `reachable:read_users/logins`; [OWNER] decide between
-    `covered:read_users` (the `logins` page `total` is the number of logged-in users) and
-    `excluded:` with the T028a finding, then remove `connectedSystems()` from the port and the
-    runner or keep it on purpose.
+    the `CLI -nwho` row cannot become `reachable:read_users/logins`. Owner decision 2026-11-13:
+    `covered:read_users` (the `logins` page `total` is the number of logged-in users); remove
+    `connectedSystems()` from the port, the adapter and the runner.
 - [ ] T038 [US2] Docs and PR:
   - `docs/tools.md` section `read_users`;
   - `docs/research/inubit-interfaces.md`;
