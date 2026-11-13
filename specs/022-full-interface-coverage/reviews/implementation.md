@@ -154,3 +154,14 @@ later checkpoints and SC-007/SC-009:
 - Tools: 23 (the 22 of `main` plus `get_server_settings`); `ToolAnnouncementTest`'s ordered lists
   now contain `get_server_settings` after `download_server_log` wherever a node may run 8.1.
 - SC-007: +1 tool so far (US1), at most 10 in total.
+
+## Paused 2026-11-13 after T024/T028b (branch `022-v90-settings-users`)
+
+- Done: the 9.0 test server's new certificate adopted (owner: legitimate); T024 and T028b recorded,
+  reviewed and committed with owner approval of the fixture diff.
+- Next: T026 (US1 9.0 contracts and flip; adapt parsers to the 9.0 forms listed in research
+  "Live recording T024/T028b", paragraph "For T026 and T037a"), then T037a (US2 9.0; `--who` has
+  no `Toolset` row on 9.0, so decide how `logins` behaves there; `Additional user group` row), then
+  T038a (docs, CHANGELOG, PR). T026 was started and stopped before any change.
+- Outside this branch: the profile's stage `kon` has the placeholder pin `<fingerprint>`, which
+  makes the profile unloadable until the real pin is set.
