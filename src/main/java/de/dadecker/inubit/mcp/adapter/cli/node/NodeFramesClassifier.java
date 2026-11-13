@@ -9,6 +9,9 @@ import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.DetailsError;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.DetailsOk;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.DetailsUnknown;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Frame;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.IoListError;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.IoListOk;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.IoMatch;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.LoginError;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.LoginOk;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Member;
@@ -16,6 +19,9 @@ import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.MembersError;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.MembersOk;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.NodeError;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.NodeOk;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Part;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.PartError;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.PartOk;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Start;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperRequest;
 import de.dadecker.inubit.mcp.application.nodetools.NodeTextMasking;
@@ -26,10 +32,19 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.node.ClusterNode;
 import de.dadecker.inubit.mcp.domain.model.node.ClusterNodes;
+import de.dadecker.inubit.mcp.domain.model.node.IoLogBounds;
+import de.dadecker.inubit.mcp.domain.model.node.IoLogEntry;
+import de.dadecker.inubit.mcp.domain.model.node.IoLogListing;
+import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
 import de.dadecker.inubit.mcp.domain.model.node.NodeDetail;
 import de.dadecker.inubit.mcp.domain.model.node.NodeStatus;
+import de.dadecker.inubit.mcp.domain.port.IoLogPort.IoLogRead;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -40,7 +55,8 @@ import java.util.regex.Pattern;
 /**
  * Judges the part of a client-helper run that every node-tools operation shares (feature 024,
  * research D-2, D-3, D-20); the operation's own frames are handed on, and those of
- * {@code clusterNodes} are judged by {@link #clusterNodes} (D-7).
+ * {@code clusterNodes} are judged by {@link #clusterNodes} (D-7), those of {@code ioLog} by
+ * {@link #ioListing} and {@link #ioRead} (D-8, D-9).
  *
  * <ul>
  *   <li>A complete run has exit code 0 and the frames {@code start <variant of the request>},
@@ -68,6 +84,11 @@ public final class NodeFramesClassifier {
     private static final Pattern RAW_STATUS = Pattern.compile("[A-Za-z0-9_.-]{1,64}");
     /** The members an {@code INVALID_INPUT} for an unknown details node names at most. */
     private static final int MAX_NAMED_MEMBERS = 20;
+    /**
+     * INUBIT's refusal of the I/O log listing for the account, in the message of
+     * {@code io list error} (spike T018, research D-20).
+     */
+    private static final Pattern NOT_ALLOWED_ACCESS = Pattern.compile("@Start@NotAllowedAccess@");
 
     private final HelperFailures failures;
     private final SecretLabels labels;
@@ -309,6 +330,141 @@ public final class NodeFramesClassifier {
         NodeTextMasking.Bounded value =
             masking.maskAndCut(detail.value(), NodeDetail.MAX_VALUE_CHARS);
         return new NodeDetail(detail.key(), value.text(), detail.cut() || value.cut());
+    }
+
+    /**
+     * The I/O log listing of a listing-only {@code ioLog} run that answered for
+     * {@code inubitNode} (research D-8, D-20): the only frame is {@code io list ok <count>} and
+     * {@code listOut} holds {@code count} entries, one per line, UTF-8, at most
+     * {@value IoLogBounds#MAX_LIST_BYTES} bytes, each an entry of the requested process
+     * ({@link IoLogEntry#parse}).
+     *
+     * @throws ToolErrorException {@code FORBIDDEN} for an {@code io list error} with INUBIT's
+     *     {@code NotAllowedAccess}; {@link HelperFailures#callFailure}'s code, else
+     *     {@code UNEXPECTED_RESPONSE} with a scrubbed excerpt, for another {@code io list error};
+     *     {@code UNEXPECTED_RESPONSE} for any other frame, order or count, a listing that is
+     *     missing, too large or not UTF-8, and an entry that breaks the rules, without quoting it
+     */
+    public IoLogListing ioListing(HelperRequest request, String inubitNode, List<Frame> frames) {
+        IoLogListing listing = listing(request, inubitNode, frames);
+        if (frames.size() != 1) {
+            throw unexpected("The INUBIT client helper wrote frames after the listing that were"
+                + " not asked for");
+        }
+        return listing;
+    }
+
+    /**
+     * The read of an {@code ioLog} run with {@code ref} that answered for {@code inubitNode}
+     * (research D-8, D-9, D-20): the listing as {@link #ioListing}, then {@code io match none} if
+     * no listed entry has the reference ({@link IoLogRead.NoMatch}), else {@code io match <the
+     * listed entry with the reference>} and {@code part message ok <bytes>} with
+     * {@code messageOut} a regular file of that size ({@link IoLogRead.Message}, whose close runs
+     * {@code deletePrivateDirectory}).
+     *
+     * @throws ToolErrorException the listing's failures; {@link HelperFailures#callFailure}'s
+     *     code, else {@code UNEXPECTED_RESPONSE} with a scrubbed excerpt, for
+     *     {@code part message error}; {@code UNEXPECTED_RESPONSE} for a match that disagrees with
+     *     the listing, any other frame or order, and a missing message file or one of another
+     *     size
+     */
+    public IoLogRead ioRead(HelperRequest request, String inubitNode, List<Frame> frames,
+        Runnable deletePrivateDirectory) {
+        HelperRequest.IoLog log = (HelperRequest.IoLog) request.operation();
+        IoMessageRef ref = log.ref().orElseThrow();
+        IoLogListing listing = listing(request, inubitNode, frames);
+        Optional<IoLogEntry> listed = listing.entries().stream()
+            .filter(entry -> entry.ref().equals(ref)).findFirst();
+        if (frames.size() < 2 || !(frames.get(1) instanceof IoMatch match)
+            || !match.entry().equals(listed.map(IoLogEntry::entry))) {
+            throw unexpected("The match of the INUBIT client helper does not agree with the"
+                + " listing");
+        }
+        if (listed.isEmpty() && frames.size() == 2) {
+            return new IoLogRead.NoMatch(listing);
+        }
+        if (frames.size() == 3 && frames.get(2) instanceof PartError error
+            && error.part() == Part.MESSAGE) {
+            throw new ToolErrorException(callError(request, error.exceptionChain(),
+                error.message(), "INUBIT reported an error when asked for the message"));
+        }
+        if (listed.isEmpty() || frames.size() != 3 || !(frames.get(2) instanceof PartOk ok)
+            || ok.part() != Part.MESSAGE) {
+            throw unexpected("The INUBIT client helper did not end the read with one part"
+                + " message frame");
+        }
+        Path file = log.messageOut().orElseThrow();
+        if (!regularFile(file, ok.bytes())) {
+            throw unexpected("The INUBIT client helper reported " + ok.bytes() + " bytes, but"
+                + " did not leave a regular file of that length");
+        }
+        return new IoLogRead.Message(listing, listed.get(), file, ok.bytes(),
+            deletePrivateDirectory);
+    }
+
+    /** The listing of the first frame and {@code listOut}; see {@link #ioListing}. */
+    private IoLogListing listing(HelperRequest request, String inubitNode, List<Frame> frames) {
+        HelperRequest.IoLog log = (HelperRequest.IoLog) request.operation();
+        Frame first = frames.isEmpty() ? null : frames.get(0);
+        if (first instanceof IoListError error && frames.size() == 1) {
+            throw new ToolErrorException(NOT_ALLOWED_ACCESS.matcher(error.message()).find()
+                ? failures.forbidden()
+                : callError(request, error.exceptionChain(), error.message(),
+                    "INUBIT reported an error when asked for the input/output logging"));
+        }
+        if (!(first instanceof IoListOk ok)) {
+            throw unexpected("The INUBIT client helper did not answer with io list ok or one"
+                + " io list error");
+        }
+        List<IoLogEntry> entries = new ArrayList<>();
+        for (String line : listingText(log.listOut()).lines().toList()) {
+            try {
+                entries.add(IoLogEntry.parse(log.processId(), line));
+            } catch (IllegalArgumentException e) {
+                // the entry is not repeated: it is not known to be safe to show
+                throw unexpected("The INUBIT client helper listed an entry that is not an"
+                    + " input/output logging entry of the requested process");
+            }
+        }
+        if (entries.size() != ok.count()) {
+            throw unexpected("The INUBIT client helper listed " + entries.size() + " entries,"
+                + " but reported " + ok.count());
+        }
+        return new IoLogListing(inubitNode, entries);
+    }
+
+    /**
+     * The listing file as UTF-8 text: a regular file (not a link) of at most
+     * {@value IoLogBounds#MAX_LIST_BYTES} bytes.
+     */
+    private String listingText(Path file) {
+        try {
+            BasicFileAttributes attributes = Files.readAttributes(file,
+                BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            if (!attributes.isRegularFile()) {
+                throw unexpected("The INUBIT client helper did not leave the listing as a"
+                    + " regular file");
+            }
+            if (attributes.size() > IoLogBounds.MAX_LIST_BYTES) {
+                throw unexpected("The INUBIT client helper wrote a listing of more than "
+                    + IoLogBounds.MAX_LIST_BYTES + " bytes");
+            }
+            return Files.readString(file);
+        } catch (IOException e) {
+            throw unexpected("The listing of the INUBIT client helper is missing or not UTF-8 ("
+                + e.getClass().getSimpleName() + ")");
+        }
+    }
+
+    /** Whether {@code file} is a regular file (not a link) of {@code size} bytes. */
+    private static boolean regularFile(Path file, long size) {
+        try {
+            BasicFileAttributes attributes = Files.readAttributes(file,
+                BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            return attributes.isRegularFile() && attributes.size() == size;
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     /** {@code INVALID_INPUT}: {@code node} is not a member; names the first members. */

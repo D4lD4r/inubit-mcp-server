@@ -365,7 +365,7 @@ message is read masked and bounded; an unlisted reference is refused before any 
   `Audit Logger(Module-0007)`; `read_text.message` with a `<password>` element and an
   `Authorization: Basic …` line; `read_binary.message` a GZIP header; `read_latin1.message`
   ISO-8859-1 bytes); `NodeToolsFixtureCatalogueTest` extended
-- [ ] T027 [US2] `adapter/cli/node/CliIoLogAdapter.java` + io rules in `NodeFramesClassifier`
+- [X] T027 [US2] `adapter/cli/node/CliIoLogAdapter.java` + io rules in `NodeFramesClassifier`
   (D-8, D-9, D-20; after T007, T016, T026): `implements IoLogPort`; request `op=ioLog` with
   `listOut`/`messageOut` in the private directory; listing file read bounded (≤ 16 MiB, else
   `UNEXPECTED_RESPONSE`) and parsed with `IoLogEntry.parse`; `io match none` → `NoMatch`; `part

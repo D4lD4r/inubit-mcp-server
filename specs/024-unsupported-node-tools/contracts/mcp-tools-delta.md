@@ -203,7 +203,8 @@ As `list_cluster_nodes` (tool name and opt-in `unsupported.ioLogRead`), plus:
 | `INVALID_INPUT` | `message` not in the run's listing (no download) | `Message Q2Fh7tZk1oVYbP3x9w-aAA is not in the input/output logging of process 4711 of Orders-Inbound on test/node1` | `Call read_io_log without message and use a listed ref` |
 | `INVALID_INPUT` | `workflow` with a separator or control character, `processId`, `module`, `maxChars` outside the limits | `Invalid maxChars 0 (1–100000)` | fix the input |
 | `TIMEOUT` | listing: `cliTimeout`; read: `cliExportTimeout` | `read_io_log on test/node1 did not finish within cliExportTimeout (120 s)` | `Raise cliExportTimeout of test/node1` |
-| `UNEXPECTED_RESPONSE` | `io list error`, `part message error`, listing > 16 MiB, an entry of another process | as above | `Use the Workbench's input/output logging view; report the INUBIT version` |
+| `FORBIDDEN` | `io list error` with INUBIT's `NotAllowedAccess` (the account lacks the right to read the input/output logging; spike T018) | `test/node1 refused the input/output logging for the configured user` | `Give the user the right the Workbench's input/output logging view needs` |
+| `UNEXPECTED_RESPONSE` | another `io list error`, `part message error`, listing > 16 MiB, an entry of another process | as above | `Use the Workbench's input/output logging view; report the INUBIT version` |
 
 ---
 

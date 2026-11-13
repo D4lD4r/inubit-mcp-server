@@ -588,7 +588,8 @@ Queue Manager row).
 | detection failure (reads) | the detection's own code |
 | no client home, `ibis.jar`/JDK missing, launch failure, vendor API missing (`api missing`) | `CLI_UNAVAILABLE` |
 | login, TLS, network, 403 (`HelperFailures`; StartCLI classifier) | `AUTH_FAILED`, `TLS_ERROR`, `UNREACHABLE`, `FORBIDDEN` |
-| `node error`, `members error`, `io list error`, `part message error`, garbage frames, exit code ≠ frames, invalid node name, unexpected entry format, StartCLI without the confirmation | `UNEXPECTED_RESPONSE` "… the unsupported INUBIT interface may have changed after an INUBIT update" (scrubbed excerpt ≤ 200 chars) |
+| `io list error` whose message is INUBIT's `NotAllowedAccess` (`@Start@NotAllowedAccess@…`; spike T018: the listing checks a right of the account) | `FORBIDDEN` "<node> refused the input/output logging for the configured user" (INUBIT's text, which names the user, is not repeated) |
+| `node error`, `members error`, another `io list error`, `part message error`, garbage frames, exit code ≠ frames, invalid node name, unexpected entry format, StartCLI without the confirmation | `UNEXPECTED_RESPONSE` "… the unsupported INUBIT interface may have changed after an INUBIT update" (scrubbed excerpt ≤ 200 chars) |
 | `cliTimeout` / `cliExportTimeout` exceeded | `TIMEOUT` naming the setting |
 | `RESET_FAILED` lease on set; other node answers; another change running; lease store unreadable; preview state changed | `PRECONDITION_FAILED` |
 | invalid/expired confirmation code | `CONFIRMATION_INVALID` |
