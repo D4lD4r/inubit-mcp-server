@@ -15,11 +15,12 @@ public sealed interface NodeConfigValue {
      * The node has the property.
      *
      * @param value masked (D-21), at most {@value NodeConfigValue#MAX_VALUE_CHARS} characters
+     * @param cut   whether {@code value} was cut to that limit
      * @param type  the simple name of the value's Java type
      */
-    record Present(NodeConfigName name, String value, String type, String displayName,
-        String description, String category, boolean editable, boolean deprecated)
-        implements NodeConfigValue {
+    record Present(NodeConfigName name, String value, boolean cut, String type,
+        String displayName, String description, String category, boolean editable,
+        boolean deprecated) implements NodeConfigValue {
 
         public Present {
             Objects.requireNonNull(name, "name");

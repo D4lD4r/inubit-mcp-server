@@ -428,7 +428,7 @@ the list is refused before any request; the fake records that only listed names 
   com.inubit.ibis.utils.InubitException` wrapping `Cannot invoke "Object.getClass()" because "o" is null`;
   `noOfRetries`/`retryInterval` exist on 8.1); one value containing a credential-looking
   text to prove the defence-in-depth masking); `NodeToolsFixtureCatalogueTest` extended
-- [ ] T034 [US3] `adapter/cli/node/CliNodeConfigAdapter.java` + config rules in
+- [X] T034 [US3] `adapter/cli/node/CliNodeConfigAdapter.java` + config rules in
   `NodeFramesClassifier` (D-10; after T027 — same `NodeFramesClassifier` — and T033): `implements NodeConfigPort`; request `names` only
   from `NodeConfigName`; frames → `NodeConfigValue` in request order; a `config <name> error` with exactly the 8.1.17
   missing-property shape (InubitException wrapping the `"o" is null` NPE; T018) → `Absent`, any other
@@ -439,8 +439,8 @@ the list is refused before any request; the fake records that only listed names 
 - [ ] T035 [US3] `application/nodetools/NodeConfigService.java` (FR-030 … FR-032; after T017,
   T034): validate names (unknown → `INVALID_INPUT` listing the allowed names, the refused text never
   echoed; duplicates refused) → server → opt-in `nodeConfigRead` → `admitWithDetection(…,
-  NODE_CONFIG_READ, READ, {CLI})` → deadline `cliTimeout` → credentials → port → values masked
-  (`NodeTextMasking`, ≤ 2,000) → result (no names → all 20 in list order) → INFO line. Failing tests
+  NODE_CONFIG_READ, READ, {CLI})` → deadline `cliTimeout` → credentials → port (values already masked and cut to 2,000 with
+  `cut` by the T034 adapter; the service does not mask or cut again) → result (no names → all 20 in list order) → INFO line. Failing tests
   first in `application/nodetools/NodeConfigServiceTest.java` (US3-1…US3-5; `Database`,
   `ClusterPassword`, `initialRootUserPassword`, `IdentityProvider`, an empty string, a 10,000-char
   text, a name with different case → `INVALID_INPUT` and **nothing sent** (SC-003); masked value;

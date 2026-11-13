@@ -4,6 +4,9 @@ import de.dadecker.inubit.mcp.adapter.cli.CliResult;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFailures;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.ApiMissing;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.ConfigAbsent;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.ConfigError;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.ConfigOk;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Detail;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.DetailsError;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.DetailsOk;
@@ -36,6 +39,9 @@ import de.dadecker.inubit.mcp.domain.model.node.IoLogBounds;
 import de.dadecker.inubit.mcp.domain.model.node.IoLogEntry;
 import de.dadecker.inubit.mcp.domain.model.node.IoLogListing;
 import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValue;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValues;
 import de.dadecker.inubit.mcp.domain.model.node.NodeDetail;
 import de.dadecker.inubit.mcp.domain.model.node.NodeStatus;
 import de.dadecker.inubit.mcp.domain.port.IoLogPort.IoLogRead;
@@ -56,7 +62,8 @@ import java.util.regex.Pattern;
  * Judges the part of a client-helper run that every node-tools operation shares (feature 024,
  * research D-2, D-3, D-20); the operation's own frames are handed on, and those of
  * {@code clusterNodes} are judged by {@link #clusterNodes} (D-7), those of {@code ioLog} by
- * {@link #ioListing} and {@link #ioRead} (D-8, D-9).
+ * {@link #ioListing} and {@link #ioRead} (D-8, D-9), those of {@code nodeConfig} by
+ * {@link #nodeConfig} (D-10).
  *
  * <ul>
  *   <li>A complete run has exit code 0 and the frames {@code start <variant of the request>},
@@ -89,6 +96,15 @@ public final class NodeFramesClassifier {
      * {@code io list error} (spike T018, research D-20).
      */
     private static final Pattern NOT_ALLOWED_ACCESS = Pattern.compile("@Start@NotAllowedAccess@");
+    /**
+     * The exception chain and message part of INUBIT 8.1.17's answer for a configuration property
+     * the node does not have (spike T018, research D-10): an internal INUBIT error wrapping the
+     * server's {@code NullPointerException}.
+     */
+    private static final List<String> MISSING_PROPERTY_CHAIN =
+        List.of("com.inubit.ibis.utils.InubitException");
+    private static final String MISSING_PROPERTY_MESSAGE =
+        "Cannot invoke \"Object.getClass()\" because \"o\" is null";
 
     private final HelperFailures failures;
     private final SecretLabels labels;
@@ -330,6 +346,72 @@ public final class NodeFramesClassifier {
         NodeTextMasking.Bounded value =
             masking.maskAndCut(detail.value(), NodeDetail.MAX_VALUE_CHARS);
         return new NodeDetail(detail.key(), value.text(), detail.cut() || value.cut());
+    }
+
+    /**
+     * The configuration values of a {@code nodeConfig} run that answered for {@code inubitNode}
+     * (research D-10, D-20, D-21): one {@code config} frame per requested name, in request order.
+     *
+     * <ul>
+     *   <li>{@code config <name> ok …} is {@link NodeConfigValue.Present}; the value has the
+     *       configured credentials and secret-named values masked ({@link NodeTextMasking})
+     *       before it is cut to {@value NodeConfigValue#MAX_VALUE_CHARS} characters, and a
+     *       cut value is marked as cut.
+     *   <li>{@code config <name> absent} is {@link NodeConfigValue.Absent}; so is a
+     *       {@code config <name> error} with exactly INUBIT 8.1.17's answer for a property the
+     *       node does not have (spike T018): the only exception class
+     *       {@code com.inubit.ibis.utils.InubitException} and a message containing
+     *       {@code Cannot invoke "Object.getClass()" because "o" is null}.
+     *   <li>Any other {@code config <name> error} is {@link NodeConfigValue.Failed} with
+     *       {@link HelperFailures#callFailure}'s code, else {@code UNEXPECTED_RESPONSE}, and the
+     *       scrubbed excerpt as message; the other names are still answered.
+     * </ul>
+     *
+     * @throws ToolErrorException {@code UNEXPECTED_RESPONSE} if the frames do not answer each
+     *     requested name exactly once in request order (a name not asked for, a missing, repeated
+     *     or reordered name, any other frame), without repeating the name
+     */
+    public NodeConfigValues nodeConfig(HelperRequest request, String inubitNode,
+        List<Frame> frames) {
+        List<NodeConfigName> names = ((HelperRequest.NodeConfig) request.operation()).names();
+        if (frames.size() != names.size()) {
+            throw unexpectedConfigFrames();
+        }
+        List<NodeConfigValue> values = new ArrayList<>();
+        for (int i = 0; i < names.size(); i++) {
+            values.add(configValue(request, names.get(i), frames.get(i)));
+        }
+        return new NodeConfigValues(inubitNode, values);
+    }
+
+    private NodeConfigValue configValue(HelperRequest request, NodeConfigName name, Frame frame) {
+        String wire = name.wireName();
+        if (frame instanceof ConfigOk ok && ok.name().equals(wire)) {
+            NodeTextMasking.Bounded value =
+                masking.maskAndCut(ok.value(), NodeConfigValue.MAX_VALUE_CHARS);
+            return new NodeConfigValue.Present(name, value.text(), value.cut(), ok.type(),
+                ok.displayName(), ok.description(), ok.category(), ok.editable(), ok.deprecated());
+        }
+        if (frame instanceof ConfigAbsent absent && absent.name().equals(wire)) {
+            return new NodeConfigValue.Absent(name);
+        }
+        if (frame instanceof ConfigError error && error.name().equals(wire)) {
+            if (error.exceptionChain().equals(MISSING_PROPERTY_CHAIN)
+                && error.message().contains(MISSING_PROPERTY_MESSAGE)) {
+                return new NodeConfigValue.Absent(name);
+            }
+            ErrorCode code = failures.callFailure(error.exceptionChain(), error.message())
+                .map(ToolError::code).orElse(ErrorCode.UNEXPECTED_RESPONSE);
+            return new NodeConfigValue.Failed(name, code,
+                failures.details(request, error.exceptionChain(), error.message()));
+        }
+        throw unexpectedConfigFrames();
+    }
+
+    private ToolErrorException unexpectedConfigFrames() {
+        // the frame's name is not repeated: it is not known to be safe to show
+        return unexpected("The INUBIT client helper did not answer each requested configuration"
+            + " name once, in request order");
     }
 
     /**

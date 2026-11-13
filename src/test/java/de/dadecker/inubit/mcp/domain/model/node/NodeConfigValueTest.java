@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 class NodeConfigValueTest {
 
     private static NodeConfigValue.Present present(String value) {
-        return new NodeConfigValue.Present(NodeConfigName.CLUSTER_NAME, value, "String",
+        return new NodeConfigValue.Present(NodeConfigName.CLUSTER_NAME, value, false, "String",
             "Cluster name", "The name of the cluster", "Cluster", true, false);
     }
 
@@ -20,6 +20,7 @@ class NodeConfigValueTest {
 
         assertThat(value.name()).isEqualTo(NodeConfigName.CLUSTER_NAME);
         assertThat(value.value()).isEqualTo("acme-cluster");
+        assertThat(value.cut()).isFalse();
         assertThat(value.type()).isEqualTo("String");
         assertThat(value.displayName()).isEqualTo("Cluster name");
         assertThat(value.description()).isEqualTo("The name of the cluster");
@@ -33,6 +34,14 @@ class NodeConfigValueTest {
         assertThat(present("v".repeat(2_000)).value()).hasSize(NodeConfigValue.MAX_VALUE_CHARS);
         assertThatIllegalArgumentException().isThrownBy(() -> present("v".repeat(2_001)))
             .withMessageContaining("2000");
+    }
+
+    @Test
+    void presentKeepsWhetherTheValueWasCut() {
+        NodeConfigValue.Present cut = new NodeConfigValue.Present(NodeConfigName.CLUSTER_NAME,
+            "v".repeat(1_994) + "…[cut]", true, "String", "", "", "", true, false);
+
+        assertThat(cut.cut()).isTrue();
     }
 
     @Test

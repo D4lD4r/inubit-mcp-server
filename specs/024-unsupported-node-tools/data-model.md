@@ -31,7 +31,7 @@ Types for [spec.md](spec.md); decisions in [research.md](research.md). "New" = n
 | `IoLogListing` | new | `String answeringNode`, `List<IoLogEntry> entries` (all, server order) | `filter(Optional<String> module)`; parse failures kept with a flag |
 | `IoLogBounds` | new | `MAX_LISTED = 500`, `MAX_LIST_BYTES = 16 MiB`, `MAX_WORKFLOW_CHARS = 200`, `MAX_MODULE_CHARS = 200` | content limits reused from `QueueEntryBounds` |
 | `NodeConfigName` | new | enum of the 20 FR-030 names; `wireName()` | `parse(String)` → `Optional`; the helper has the same list |
-| `NodeConfigValue` | new | `NodeConfigName name`, sealed `Present(String value, String type, String displayName, String description, String category, boolean editable, boolean deprecated)` \| `Absent` \| `Failed(ErrorCode code, String message)` | value masked, ≤ 2,000 |
+| `NodeConfigValue` | new | `NodeConfigName name`, sealed `Present(String value, boolean cut, String type, String displayName, String description, String category, boolean editable, boolean deprecated)` \| `Absent` \| `Failed(ErrorCode code, String message)` | value masked, ≤ 2,000 (`cut` when longer, D-21) |
 | `LoggerName` | new | `String value` | `^com\.inubit\.ibis(\.[A-Za-z_][A-Za-z0-9_]*)+$`, ≤ 200 |
 | `TemporaryLevel` | new | `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR` | — |
 | `LeaseState` | new | `ACTIVE`, `RESET`, `RESET_FAILED`, `FORGOTTEN` | `open()` = `ACTIVE` \| `RESET_FAILED` |

@@ -304,8 +304,22 @@ and shutdown (`CliResources` reservation, as 020).
   `MaxEntriesInMemoryLimit` (SC-003).
 - Result per name: `present: true` with `value` (masked, D-21, ≤ 2,000 chars), `type`,
   `displayName`, `description`, `category`, `editable`, `deprecated`; or `present: false` ("not
-  present on this node", e.g. `noOfRetries` on 8.1, US3-4); `config error` for one name → that
-  entry `error: {code, message}` and the others still returned.
+  present on this node", US3-4); `config error` for one name → that entry `error: {code, message}`
+  and the others still returned.
+- **Absent mapping (updated by T034 after spike T018)**: 8.1.17 does not answer a property the
+  node lacks with `null` (`config <name> absent`) but with `config <name> error`, the chain
+  exactly `com.inubit.ibis.utils.InubitException` and a message containing `Cannot invoke
+  "Object.getClass()" because "o" is null` (see "Spike findings"; `noOfRetries` and
+  `retryInterval` do exist on 8.1.17). `NodeFramesClassifier.nodeConfig` maps both `absent` and
+  exactly this shape to `Absent`; any other `config error` (another chain, e.g. a wrapped
+  `SocketTimeoutException`, or another message) stays that name's `Failed`, with
+  `HelperFailures.callFailure`'s code (`UNREACHABLE`, `TLS_ERROR`, `FORBIDDEN`) else
+  `UNEXPECTED_RESPONSE` and the scrubbed excerpt (≤ 200 chars) as message, so a different
+  internal error is never reported as absent. The frames must answer each requested name once,
+  in request order; a name not requested, a missing, repeated or reordered name →
+  `UNEXPECTED_RESPONSE` for the call. The adapter masks each value (D-21) before cutting it to
+  2,000 chars and marks a cut value `cut` (`NodeTextMasking.maskAndCut`, as the T020 detail
+  values).
 - Never `setNodeConfigurationProperty` (FR-032): the helper's API map does not contain it; a
   fake-vendor test records every call.
 
