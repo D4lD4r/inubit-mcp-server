@@ -545,7 +545,7 @@ the other just changed.
   equal within 1 s when both known). Failing tests first in
   `application/nodetools/ProcessLivenessTest.java` (self alive; a finished child process not alive;
   same pid with another start time not alive; unknown start time → pid decides)
-- [ ] T047 [P] [US4] Write guard and challenge overloads (FR-040, FR-044, D-15, D-18, D-19): if T001
+- [X] T047 [P] [US4] Write guard and challenge overloads (FR-040, FR-044, D-15, D-18, D-19): if T001
   recorded 022 as merged, use its `ChangeGuard` instead of the overloads and note it; else
   `application/WriteGuard.java` `+ admit(String node, String tool, Capability capability,
   Set<Channel> channels, Predicate<NodeId> optIn, String optInKey)` (order: target, production
@@ -562,7 +562,7 @@ the other just changed.
   gateways record zero calls); nothing sent) and `application/WriteChallengeRegistryTest.java` (a
   node/tool code does not confirm another tool, node, fingerprint or an `Operation` code; single
   use; expiry)
-- [ ] T048 [P] [US4] `application/nodetools/LogLevelAudit.java` (D-22, Constitution VII): tool
+- [X] T048 [P] [US4] `application/nodetools/LogLevelAudit.java` (D-22, Constitution VII): tool
   records (`PREVIEW`/`EXECUTE`, `CHALLENGE_ISSUED`, `PENDING`, `EXECUTED`, `FAILED`, `REFUSED`;
   inputs in fixed order; code as SHA-256 prefix; details) and automatic-reset records (`trigger`,
   `leaseId`, `PENDING` then outcome and reason; a failed `PENDING` write is reported to the caller,
