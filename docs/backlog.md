@@ -82,7 +82,7 @@ share a tool. The order is the expected benefit for operations.
 |---|---|---|---|---|
 | 1 | License: expiry date, licensed threads | `license -td`, `license -ts` | `GET /license` | REST needs the role System Administrator; fits `get_health` |
 | 2 | Workflow threads | `threads showNumberOfWorkflowThreads`, `privilegedWorkflows showThreadsPercentage`, `privilegedWorkflows showWorkflowList` | – | CLI only; fits `get_health` |
-| 3 | Users and logins | `finger <login>`, `user <name>`, `-who`, `-nwho` | `GET /user/users?type=…` | personal data: decide what is returned |
+| 3 | Users and logins | `finger <login>`, `user <name>`, client options `--who`, `--nwho` | `GET /user/users?type=…` | personal data: decide what is returned |
 | 4 | Installed drivers and plug-ins | `library --list -t driver\|plugin` | – | CLI only |
 | 5 | Running processes on 8.1 and 9.0 | `ps -f 'workflow=… AND tag=…'`, `-ne`, `-nx`, `-nw`, `-nq` | – | today `ps` is used on 6.1 only; 8.1 and 9.0 read the queue log |
 | 6 | Server configuration | `dbconnectiontolerance show` | `GET /configurations` | large JSON that can hold secrets: only with masking and bounds |

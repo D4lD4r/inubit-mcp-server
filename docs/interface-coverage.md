@@ -75,12 +75,12 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 
 | Entry | Kind | Story | 8.1 | 9.0 |
 | --- | --- | --- | --- | --- |
-| CLI `finger` | READ | US2 | reachable `read_users/users` | planned |
-| CLI `user` | READ | US2 | reachable `read_users/users` | planned |
-| CLI `-who` | READ | US2 | reachable `read_users/logins` | planned |
-| CLI `-nwho` | READ | US2 | covered `read_users` | planned |
-| CLI `msglist` | READ | US2 | planned | planned |
-| CLI `msgread` | READ | US2 | planned | planned |
+| CLI `finger` | READ | US2 | reachable `read_users/users` | planned, waits `9.0-pin` |
+| CLI `user` | READ | US2 | reachable `read_users/users` | planned, waits `9.0-pin` |
+| CLI `-who` | READ | US2 | reachable `read_users/logins` | planned, waits `9.0-pin` |
+| CLI `-nwho` | READ | US2 | covered `read_users` | planned, waits `9.0-pin` |
+| CLI `msglist` | READ | US2 | planned, waits `L-17+9.0-pin` | planned, waits `L-17+9.0-pin` |
+| CLI `msgread` | READ | US2 | planned, waits `L-17+9.0-pin` | planned, waits `L-17+9.0-pin` |
 | CLI `create -cu` | WRITE | US7 | planned | planned |
 | CLI `create -cug` | WRITE | US7 | planned | planned |
 | CLI `create -cur` | WRITE | US7 | planned | planned |
@@ -110,7 +110,7 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | CLI `msgdel` | WRITE | US7 | planned | planned |
 | CLI `msgdel -a` | WRITE | US7 | planned | planned |
 | REST `DELETE /user/users/{name}` | WRITE | US7 | planned | planned |
-| REST `GET /user/users` | READ | US2 | reachable `read_users/users` | planned |
+| REST `GET /user/users` | READ | US2 | reachable `read_users/users` | planned, waits `9.0-pin` |
 
 ## C. Libraries, plug-ins, EDI rules, keys
 

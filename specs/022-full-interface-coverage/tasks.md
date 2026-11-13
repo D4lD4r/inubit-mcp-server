@@ -551,7 +551,7 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
     the `CLI -nwho` row cannot become `reachable:read_users/logins`. Owner decision 2026-11-13:
     `covered:read_users` (the `logins` page `total` is the number of logged-in users); remove
     `connectedSystems()` from the port, the adapter and the runner.
-- [ ] T038 [US2] Docs and PR:
+- [X] T038 [US2] Docs and PR:
   - `docs/tools.md` section `read_users`;
   - `docs/research/inubit-interfaces.md` (from the T037 review: `-who`/`-nwho` are client options
     `--who`/`--nwho`; `--who` is read by `read_users` `logins`, `--nwho` is covered; also

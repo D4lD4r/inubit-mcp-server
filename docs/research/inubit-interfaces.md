@@ -107,7 +107,10 @@ or excluded with the reason) in the coverage page [interface-coverage.md](../int
   - Without `-p` the CLI prompts for the password interactively. No env-var or password-file
     option is documented. → `-p` exposes the password in the process list (conflicts with
     Constitution Principle II); **UNVERIFIED** whether the prompt can be fed via stdin.
-- Direct option mode: `startcli [-u] [-p] -<option> [URL]` (e.g. `-who`, `-ne`, `-sv`).
+- Direct option mode: `startcli [-u] [-p] -<option> [URL]` (e.g. `-ne`, `-sv`). The documented
+  `-who` and `-nwho` are client options with two dashes on 8.1, `--who` and `--nwho`
+  (`startcli.sh -h`; recorded in feature 022): neither a session command nor an `--execCommand`
+  argument, each a client run of its own.
 - Transport: the CLI talks to the SOAP servlet `/ibis/servlet/IBISSoapServlet`, not to REST.
 - TLS: `--trustStoreFilePath`, `--keyStoreFilePath` + `--keyStoreFilePwd`,
   `--disableHostNameVerification` (8.1.1+). Hostname verification on by default.
@@ -128,7 +131,7 @@ or excluded with the reason) in the coverage page [interface-coverage.md](../int
 | Runtime data | `process export|import|listBlocked|resume|deleteBlocked|validateExport` |
 | Libraries & plug-ins | `library --upload/--list/--delete/--deleteAll -t driver|plugin`, `plugin --register/--deregister` |
 | Configuration & ops | `threads`, `privilegedWorkflows`, `maintenance [on|off|-s|-eq]`, `triggerMidnightTask`, `dbconnectiontolerance`, `trace`, `debug`, `getBlockingQueueSize`, `validateMigrationBackup` (interactive only), `fetchXSLT1.0` |
-| Diagnosis & monitoring | `ps -a|-c|-csv|-e|-q|-w|-l n|-u|-f 'workflow=… AND tag=…'` (columns NODE, UID, PID, PRIO, STATE, DATE, WORKFLOW, MODULE, TAG), direct options `-who -nwho -ne -nx -nw -nq -q -sv -pctmem -maintenanceState`, `uname`, `uptime`, `date`, `free`, `lls`, `msgsend/msglist/msgread/msgdel`, `license -td|-ts` |
+| Diagnosis & monitoring | `ps -a|-c|-csv|-e|-q|-w|-l n|-u|-f 'workflow=… AND tag=…'` (columns NODE, UID, PID, PRIO, STATE, DATE, WORKFLOW, MODULE, TAG), direct options `-ne -nx -nw -nq -q -sv -pctmem -maintenanceState`, client options `--who` (read by `read_users`, view `logins`) and `--nwho` (the number of all connected systems; covered by `logins`), `uname`, `uptime`, `date`, `free`, `lls`, `msgsend/msglist/msgread/msgdel`, `license -td|-ts` |
 
 Offline scripts (engine stopped, not StartCLI): `backup.sh`, `restore.sh`,
 `start_process_engine.sh`, `stop_process_engine.sh`. The CLI has no start/stop command.

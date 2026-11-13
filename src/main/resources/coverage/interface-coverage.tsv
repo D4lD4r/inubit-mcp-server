@@ -1,5 +1,5 @@
 # source: vendor pages "Command Line Interface" (with subpages) and "REST API" (every endpoint page), INUBIT 8.1 and 9.0, retrieved 2026-11-12
-# delivered-stories: US1
+# delivered-stories: US1, US2
 #
 # Feature 022 coverage list (contracts/coverage-list.md, research D-2). One row per entry:
 # CLI: one command with one option or option value set, as the vendor writes it;
@@ -63,13 +63,13 @@ REST	POST /configurations	WRITE	A	US6	planned	planned	-
 
 # B. Users and groups
 # finger, user, GET /user/users: sent by the read_users views users and user; the row names users (one state per version)
-CLI	finger	READ	B	US2	reachable:read_users/users	planned	-
-CLI	user	READ	B	US2	reachable:read_users/users	planned	-
-CLI	-who	READ	B	US2	reachable:read_users/logins	planned	-
+CLI	finger	READ	B	US2	reachable:read_users/users	planned	9.0-pin
+CLI	user	READ	B	US2	reachable:read_users/users	planned	9.0-pin
+CLI	-who	READ	B	US2	reachable:read_users/logins	planned	9.0-pin
 # -nwho: covered:read_users on 8.1 (owner decision 2026-11-13): it counts every connected system; the logins page total counts the logged-in users
-CLI	-nwho	READ	B	US2	covered:read_users	planned	-
-CLI	msglist	READ	B	US2	planned	planned	-
-CLI	msgread	READ	B	US2	planned	planned	-
+CLI	-nwho	READ	B	US2	covered:read_users	planned	9.0-pin
+CLI	msglist	READ	B	US2	planned	planned	L-17+9.0-pin
+CLI	msgread	READ	B	US2	planned	planned	L-17+9.0-pin
 CLI	create -cu	WRITE	B	US7	planned	planned	-
 CLI	create -cug	WRITE	B	US7	planned	planned	-
 CLI	create -cur	WRITE	B	US7	planned	planned	-
@@ -100,7 +100,7 @@ CLI	msgsend -f	WRITE	B	US7	planned	planned	-
 CLI	msgdel	WRITE	B	US7	planned	planned	-
 CLI	msgdel -a	WRITE	B	US7	planned	planned	-
 REST	DELETE /user/users/{name}	WRITE	B	US7	planned	planned	-
-REST	GET /user/users	READ	B	US2	reachable:read_users/users	planned	-
+REST	GET /user/users	READ	B	US2	reachable:read_users/users	planned	9.0-pin
 
 # C. Libraries, plug-ins, EDI rules, keys
 CLI	library --list	READ	C	US3	planned	planned	-

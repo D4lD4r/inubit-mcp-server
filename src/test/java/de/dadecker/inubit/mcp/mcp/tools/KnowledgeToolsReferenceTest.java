@@ -74,7 +74,7 @@ class KnowledgeToolsReferenceTest {
             assertThat(reference).contains("[acme] " + Terminology.DEFAULT.render(description));
         }
         assertThat(reference).contains("| [`read_knowledge`](#read_knowledge) |",
-            "| [`record_knowledge`](#record_knowledge) |", "All twenty-three tools");
+            "| [`record_knowledge`](#record_knowledge) |", "All twenty-four tools");
         assertThat(folded(Path.of("README.md"))).contains("| `read_knowledge` |",
             "| `record_knowledge` |", "`knowledge.recording: false`");
     }
