@@ -505,7 +505,7 @@ the other just changed.
   first in `adapter/cli/node/CliLogLevelAdapterTest.java` (`ScriptedProcessLauncher`: argv and
   `--execCommand` texts; password only on stdin; one run per call; each v8_1/log-level case → its
   code; `ownNode` frames → name; leak check)
-- [ ] T043 [P] [US4] Lease domain (pure; D-12 … D-14, data-model "Lease lifecycle"):
+- [X] T043 [P] [US4] Lease domain (pure; D-12 … D-14, data-model "Lease lifecycle"):
   `domain/model/node/LeaseState.java`, `LeaseOwner.java`, `LeaseReason.java` (incl.
   `AUDIT_NOT_WRITABLE`), `LeaseAttempt.java`, `Lease.java` (`generation`; `merge`, `executed`,
   `reset`, `failed`, `forgotten`, `takenOverBy`, each returning generation + 1;
