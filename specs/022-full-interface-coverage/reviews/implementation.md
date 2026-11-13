@@ -136,3 +136,14 @@ cause and next step only; the test asserts no `excerpt` field), and the feature'
 both kinds (`UnknownOutput`). Other tools that return a `ToolError` with its excerpt may show such
 a value. This is outside 022's scope; it is a candidate for a separate fix (both excerpts through
 `SecretTextMasker`, as `HelperFailures` and `UnknownOutput` do).
+
+## References retaken before the US1 PR (2026-11-13, after T025)
+
+Feature 021 is merged and this branch sits on `main` (`913fdf93` + #86). New references for the
+later checkpoints and SC-007/SC-009:
+
+- Test count: 8346 surefire tests (58 skipped) plus 4 failsafe tests, all green (full suite after
+  T025 round 2).
+- Tools: 23 (the 22 of `main` plus `get_server_settings`); `ToolAnnouncementTest`'s ordered lists
+  now contain `get_server_settings` after `download_server_log` wherever a node may run 8.1.
+- SC-007: +1 tool so far (US1), at most 10 in total.
