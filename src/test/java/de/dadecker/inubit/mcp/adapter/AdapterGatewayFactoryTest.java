@@ -589,8 +589,7 @@ class AdapterGatewayFactoryTest {
 
                         assertThat(port.listUsers()).hasSize(58);
                         for (Runnable call : List.<Runnable>of(
-                            () -> port.readUsers(List.of("jdoe")), port::loggedIn,
-                            port::connectedSystems)) {
+                            () -> port.readUsers(List.of("jdoe")), port::loggedIn)) {
                             assertThat(codeOf(call)).as("no StartCLI client configured")
                                 .isEqualTo(ErrorCode.CLI_UNAVAILABLE);
                         }

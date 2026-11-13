@@ -9,9 +9,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * The answers of the client runs {@code startcli.sh … --who <url>} and {@code … --nwho <url>}
- * (US2, logins; research D-20). Both are options of the client, not session commands, so each
- * parser takes the output lines of its own run without the client's preamble.
+ * The answer of the client run {@code startcli.sh … --who <url>} (US2, logins; research D-20).
+ * {@code --who} is an option of the client, not a session command, so the parser takes the output
+ * lines of its own run without the client's preamble.
  *
  * <p>FORM of {@code --who} as recorded on 8.1.17 (T028a, L-6; fixture {@code admin-users-who}): a
  * table of the systems connected to the server, the header
@@ -24,13 +24,14 @@ import java.util.regex.Pattern;
  * time: the table shows only an idle time. A row that does not fit the columns (e.g. a value as
  * wide as its column) makes the table unknown.
  *
- * <p>FORM of {@code --nwho} (fixture {@code admin-users-nwho}): one line with a bare number, the
- * number of rows {@code --who} lists, systems included. It is not a number of logged-in users.
+ * <p>{@code --nwho} (fixture {@code admin-users-nwho}) prints one bare number, the number of rows
+ * {@code --who} lists, systems included. It is not a number of logged-in users, so
+ * {@code read_users} does not run it: the {@code logins} page's {@code total} is the number of
+ * logged-in users (owner decision 2026-11-13, coverage row {@code covered:read_users}).
  */
 public final class WhoParser {
 
     static final String WHO_COMMAND = "--who";
-    static final String NWHO_COMMAND = "--nwho";
     private static final String TOOLSET = "Toolset";
 
     private static final int[] COLUMN_ENDS = {64, 94, 104, 119};
@@ -38,11 +39,9 @@ public final class WhoParser {
         "SYSTEM TYPE", "STATE", "VERSION", "IDLE");
     private static final Pattern IDLE = Pattern.compile("\\d{1,9}:\\d{2}:\\d{2}s");
     private static final Pattern CLIENT = Pattern.compile("\\S+ \\(([^()\\s]+)\\)");
-    private static final Pattern COUNT = Pattern.compile("\\d{1,9}");
     private static final String WHO_EXPECTED = "the recorded table with the header 'SYSTEM-ID"
         + " SYSTEM TYPE STATE VERSION IDLE' (columns 64, 30, 10, 15 characters wide) and"
         + " '<host> (<login>)' in the SYSTEM-ID of a Toolset row";
-    private static final String NWHO_EXPECTED = "the recorded form, one line with a number";
 
     private WhoParser() {
     }
@@ -70,18 +69,6 @@ public final class WhoParser {
             }
         }
         return logins;
-    }
-
-    /**
-     * @param lines the output lines of the {@code --nwho} run, without preamble and blank lines
-     * @return the number of rows of {@code --who}, systems included
-     * @throws ToolErrorException {@code UNEXPECTED_RESPONSE} unless the lines are one number
-     */
-    public static int count(List<String> lines) {
-        if (lines.size() == 1 && COUNT.matcher(lines.getFirst().strip()).matches()) {
-            return Integer.parseInt(lines.getFirst().strip());
-        }
-        throw UnknownOutput.of(NWHO_COMMAND, NWHO_EXPECTED, lines);
     }
 
     /** Each padded column ends in a space, and the idle time follows the last one. */

@@ -16,7 +16,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
-import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -25,9 +24,9 @@ import java.util.function.Supplier;
  * <ul>
  *   <li>{@code GET /ibis/rest/user/users?type=processEngineUser} with credentials
  *       ({@link UserListXmlParser}: login and type only);
- *   <li>the StartCLI reads are passed to {@code readUsers}, {@code loggedIn} and
- *       {@code connectedSystems} (in production the methods of {@code CliUserRunner}), so this
- *       REST package does not reach the StartCLI adapter.
+ *   <li>the StartCLI reads are passed to {@code readUsers} and {@code loggedIn} (in production
+ *       the methods of {@code CliUserRunner}), so this REST package does not reach the StartCLI
+ *       adapter.
  * </ul>
  *
  * <p>Every HTTP status keeps the mapping of {@link InubitHttpClient}, e.g. 403 {@code FORBIDDEN},
@@ -44,16 +43,13 @@ public final class V81UserAdapter implements UserDirectoryPort {
     private final InubitHttpClient client;
     private final Function<List<String>, List<UserFacts>> readUsers;
     private final Supplier<List<LoginEntry>> loggedIn;
-    private final IntSupplier connectedSystems;
 
     public V81UserAdapter(NodeId server, InubitHttpClient client,
-        Function<List<String>, List<UserFacts>> readUsers, Supplier<List<LoginEntry>> loggedIn,
-        IntSupplier connectedSystems) {
+        Function<List<String>, List<UserFacts>> readUsers, Supplier<List<LoginEntry>> loggedIn) {
         this.server = Objects.requireNonNull(server, "server");
         this.client = Objects.requireNonNull(client, "client");
         this.readUsers = Objects.requireNonNull(readUsers, "readUsers");
         this.loggedIn = Objects.requireNonNull(loggedIn, "loggedIn");
-        this.connectedSystems = Objects.requireNonNull(connectedSystems, "connectedSystems");
     }
 
     @Override
@@ -82,11 +78,6 @@ public final class V81UserAdapter implements UserDirectoryPort {
     @Override
     public List<LoginEntry> loggedIn() {
         return loggedIn.get();
-    }
-
-    @Override
-    public int connectedSystems() {
-        return connectedSystems.getAsInt();
     }
 
     @Override

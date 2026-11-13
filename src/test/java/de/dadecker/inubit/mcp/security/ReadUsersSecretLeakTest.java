@@ -165,7 +165,7 @@ class ReadUsersSecretLeakTest {
         CLI\tuser\tREAD\tB\tUS2\treachable:read_users/users\tplanned\t-
         CLI\tfinger\tREAD\tB\tUS2\treachable:read_users/users\tplanned\t-
         CLI\t-who\tREAD\tB\tUS2\treachable:read_users/logins\tplanned\t-
-        CLI\t-nwho\tREAD\tB\tUS2\tplanned\tplanned\t-
+        CLI\t-nwho\tREAD\tB\tUS2\tcovered:read_users\tplanned\t-
         """;
 
     private static WireMockServer wireMock;
@@ -598,8 +598,7 @@ class ReadUsersSecretLeakTest {
             clients.add(http);
         }
         CliUserRunner users = runner();
-        return new V81UserAdapter(DEV1, http, users::read, users::logins,
-            users::connectedSystems);
+        return new V81UserAdapter(DEV1, http, users::read, users::logins);
     }
 
     private CliUserRunner runner() {

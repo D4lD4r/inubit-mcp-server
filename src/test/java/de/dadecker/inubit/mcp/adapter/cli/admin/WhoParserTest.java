@@ -10,11 +10,10 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /**
- * T031 (feature 022, US2 AS4): the answers of the client runs {@code --who} and {@code --nwho},
- * against the recorded cases {@code admin-users-who} and {@code admin-users-nwho} (T028a: a system
- * table with the columns {@code SYSTEM-ID} 64, {@code SYSTEM TYPE} 30, {@code STATE} 10,
- * {@code VERSION} 15 and {@code IDLE}; only the {@code Toolset} row is a login; {@code --nwho}
- * prints the number of rows).
+ * T031 (feature 022, US2 AS4): the answer of the client run {@code --who}, against the recorded
+ * case {@code admin-users-who} (T028a: a system table with the columns {@code SYSTEM-ID} 64,
+ * {@code SYSTEM TYPE} 30, {@code STATE} 10, {@code VERSION} 15 and {@code IDLE}; only the
+ * {@code Toolset} row is a login).
  */
 class WhoParserTest {
 
@@ -81,25 +80,8 @@ class WhoParserTest {
     }
 
     @Test
-    void theRecordedCountIsTheNumberOfTableRows() {
-        assertThat(WhoParser.count(AdminCliFixtures.answer("admin-users-nwho"))).isEqualTo(6);
-        assertThat(AdminCliFixtures.answer("admin-users-who")).hasSize(1 + 6);
-    }
-
-    @Test
-    void anUnknownCountIsUnexpectedAndNeverGuessed() {
-        assertUnknown(() -> WhoParser.count(List.of()));
-        assertUnknown(() -> WhoParser.count(List.of("6", "7")));
-        assertUnknown(() -> WhoParser.count(List.of("6 users")));
-        assertUnknown(() -> WhoParser.count(List.of("-1")));
-        assertUnknown(() -> WhoParser.count(List.of("99999999999")));
-        assertUnknown(() -> WhoParser.count(
-            AdminCliFixtures.block("admin-users-nwho-missing-argument")));
-    }
-
-    @Test
     void theExcerptShowsTheUnknownAnswer() {
-        assertThat(assertUnknown(() -> WhoParser.count(List.of("Command not found.")))
+        assertThat(assertUnknown(() -> WhoParser.parse(List.of("Command not found.")))
             .excerpt()).contains("Command not found.");
     }
 }

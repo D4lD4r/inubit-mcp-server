@@ -230,9 +230,4 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
     public List<LoginEntry> loggedIn() {
         throw refusal();
     }
-
-    @Override
-    public int connectedSystems() {
-        throw refusal();
-    }
 }

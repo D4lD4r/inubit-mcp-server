@@ -94,11 +94,6 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
         public List<LoginEntry> loggedIn() {
             throw noUserDirectory();
         }
-
-        @Override
-        public int connectedSystems() {
-            throw noUserDirectory();
-        }
     };
 
     public PortSet {

@@ -21,11 +21,10 @@ class CapabilityMatrixTest {
 
     /**
      * Feature 021: the server-log reads are supported since their 8.1 recordings (trace T033, web
-     * service T046).
+     * service T046); feature 022: the server settings (T025) and the users (T037).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"SERVER_SETTINGS", "USER_DIRECTORY"},
-        mode = Mode.EXCLUDE)
+    @EnumSource(Capability.class)
     void everyCapabilityIsSupportedOn81(Capability capability) {
         assertThat(production.state(version("8.1.17"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -423,12 +422,12 @@ class CapabilityMatrixTest {
     /**
      * T031 (feature 021, FR-002): a version not yet known (an {@code AUTO} node) may run a
      * capability only if some range or the unknown versions admit it; since their 8.1 recordings
-     * (T033, T046) 8.1 admits both server-log reads.
+     * (T033, T046) 8.1 admits both server-log reads, and since their contract tests the server
+     * settings (T025) and the users (T037).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, mode = Mode.EXCLUDE,
-        names = {"SERVER_SETTINGS", "USER_DIRECTORY"})
-    void everyOtherCapabilityIsPossiblySupportedOnTheProductionMatrix(Capability capability) {
+    @EnumSource(Capability.class)
+    void everyCapabilityIsPossiblySupportedOnTheProductionMatrix(Capability capability) {
         assertThat(production.possiblySupported(capability)).isTrue();
     }
 
@@ -541,22 +540,22 @@ class CapabilityMatrixTest {
         assertThat(Capability.USER_DIRECTORY.label()).isEqualTo("reading users");
     }
 
-    /** Refused on 8.1 and 9.0 as "not yet verified" until its contract tests (T037). */
+    /** Supported on 8.1 since its contract tests (T037); 9.0 "not yet verified". */
     @Test
-    void userDirectoryIsNotYetVerifiedOn81And90() {
-        for (Optional<InubitVersion> version : List.of(version("8.1.17"), version("9.0.7"))) {
-            assertThat(production.state(version, Capability.USER_DIRECTORY)).as("%s", version)
-                .isEqualTo(SupportState.UNSUPPORTED);
-            assertThat(production.note(version, Capability.USER_DIRECTORY)).as("%s", version)
-                .contains("not yet verified");
-        }
-        assertThat(production.stateOfLine(8, OptionalInt.of(1), Capability.USER_DIRECTORY))
+    void userDirectoryIsSupportedOn81AndNotYetVerifiedOn90() {
+        assertThat(production.state(version("8.1.17"), Capability.USER_DIRECTORY))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.note(version("8.1.17"), Capability.USER_DIRECTORY)).isEmpty();
+        assertThat(production.state(version("9.0.7"), Capability.USER_DIRECTORY))
             .isEqualTo(SupportState.UNSUPPORTED);
+        assertThat(production.note(version("9.0.7"), Capability.USER_DIRECTORY))
+            .contains("not yet verified");
+        assertThat(production.stateOfLine(8, OptionalInt.of(1), Capability.USER_DIRECTORY))
+            .isEqualTo(SupportState.SUPPORTED);
         assertThat(production.stateOfLine(9, OptionalInt.of(0), Capability.USER_DIRECTORY))
             .isEqualTo(SupportState.UNSUPPORTED);
         assertThat(production.lines(Capability.USER_DIRECTORY)).containsExactly("8.1", "9.0");
-        assertThat(production.possiblySupported(Capability.USER_DIRECTORY))
-            .as("no version runs it yet, so read_users is not announced").isFalse();
+        assertThat(production.possiblySupported(Capability.USER_DIRECTORY)).isTrue();
     }
 
     /** As the server settings: 6.1, other and unknown versions refuse it without a note. */

@@ -62,10 +62,12 @@ REST	PUT /configurations	WRITE	A	US6	planned	planned	-
 REST	POST /configurations	WRITE	A	US6	planned	planned	-
 
 # B. Users and groups
-CLI	finger	READ	B	US2	planned	planned	-
-CLI	user	READ	B	US2	planned	planned	-
-CLI	-who	READ	B	US2	planned	planned	-
-CLI	-nwho	READ	B	US2	planned	planned	-
+# finger, user, GET /user/users: sent by the read_users views users and user; the row names users (one state per version)
+CLI	finger	READ	B	US2	reachable:read_users/users	planned	-
+CLI	user	READ	B	US2	reachable:read_users/users	planned	-
+CLI	-who	READ	B	US2	reachable:read_users/logins	planned	-
+# -nwho: covered:read_users on 8.1 (owner decision 2026-11-13): it counts every connected system; the logins page total counts the logged-in users
+CLI	-nwho	READ	B	US2	covered:read_users	planned	-
 CLI	msglist	READ	B	US2	planned	planned	-
 CLI	msgread	READ	B	US2	planned	planned	-
 CLI	create -cu	WRITE	B	US7	planned	planned	-
@@ -98,7 +100,7 @@ CLI	msgsend -f	WRITE	B	US7	planned	planned	-
 CLI	msgdel	WRITE	B	US7	planned	planned	-
 CLI	msgdel -a	WRITE	B	US7	planned	planned	-
 REST	DELETE /user/users/{name}	WRITE	B	US7	planned	planned	-
-REST	GET /user/users	READ	B	US2	planned	planned	-
+REST	GET /user/users	READ	B	US2	reachable:read_users/users	planned	-
 
 # C. Libraries, plug-ins, EDI rules, keys
 CLI	library --list	READ	C	US3	planned	planned	-

@@ -169,11 +169,12 @@ class ToolAnnouncementTest {
     @Test
     void withoutAnOptInTheToolListIsUnchangedByFeature020() {
         // feature 021 T033: an AUTO node with a client home also announces download_server_log;
-        // feature 022 T025: and get_server_settings, as it may run 8.1
+        // feature 022 T025, T037: and get_server_settings and read_users, as it may run 8.1
         List<String> withoutFeature020 = List.of("list_nodes", "get_health",
             "read_knowledge", "record_knowledge", "find_processes", "query_logs",
-            "download_server_log", "get_server_settings", "list_inventory", "get_inventory_item",
-            "find_partners", "export_artifacts", "export_archives", "check_artifacts");
+            "download_server_log", "get_server_settings", "read_users", "list_inventory",
+            "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+            "check_artifacts");
 
         assertThat(queueEntryTools("AUTO", cliHome(), false))
             .containsExactlyElementsOf(withoutFeature020);
@@ -186,8 +187,8 @@ class ToolAnnouncementTest {
         assertThat(queueEntryTools("AUTO", optIn("true") + "\n" + cliHome(), false))
             .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
                 "find_processes", "query_logs", "read_queue_entry", "download_server_log",
-                "get_server_settings", "list_inventory", "get_inventory_item", "find_partners",
-                "export_artifacts", "export_archives", "check_artifacts");
+                "get_server_settings", "read_users", "list_inventory", "get_inventory_item",
+                "find_partners", "export_artifacts", "export_archives", "check_artifacts");
     }
 
     @Test
@@ -344,13 +345,15 @@ class ToolAnnouncementTest {
     @Test
     void onTheProductionMatrixThe81And90RecordingsAnnounceTheDownload() {
         // T033: 8.1 admits the trace log, so an 8.1 and an AUTO node with a client home run it;
-        // feature 022 T025: 8.1 (and so an AUTO node) also admits the server settings
+        // feature 022 T025, T037: 8.1 (and so an AUTO node) also admits the server settings and
+        // the users
         List<String> withDownload = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
             "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
             "export_archives", "check_artifacts");
         List<String> withSettings = new ArrayList<>(withDownload);
         withSettings.add(withSettings.indexOf("list_inventory"), "get_server_settings");
+        withSettings.add(withSettings.indexOf("list_inventory"), "read_users");
         assertThat(groupTools("V8_1", cliHome(), false, CapabilityMatrix.production()))
             .containsExactlyElementsOf(withSettings);
         assertThat(groupTools("AUTO", cliHome(), false, CapabilityMatrix.production()))
@@ -507,13 +510,19 @@ class ToolAnnouncementTest {
     }
 
     @Test
-    void onTheProductionMatrixReadUsersWaitsForItsRecordings() {
-        // USER_DIRECTORY is "not yet verified" on 8.1 and 9.0 until T037
+    void onTheProductionMatrixReadUsersIsAnnouncedFor81Only() {
+        // T037 flipped 8.1; 9.0 refuses USER_DIRECTORY as "not yet verified"
         assertThat(groupTools("V8_1", cliHome(), false, CapabilityMatrix.production()))
-            .doesNotContain("read_users");
+            .contains("read_users");
+        assertThat(groupTools("V8_1", "", false, CapabilityMatrix.production()))
+            .as("without a client the groups and roles are unavailable").contains("read_users");
         assertThat(groupTools("AUTO", cliHome(), false, CapabilityMatrix.production()))
-            .doesNotContain("read_users");
+            .as("an AUTO node may run 8.1").contains("read_users");
+        assertThat(toolNames("V6_1", "V8_1", CapabilityMatrix.production()))
+            .contains("read_users");
         assertThat(groupTools("V9_0", "", true, CapabilityMatrix.production()))
+            .doesNotContain("read_users");
+        assertThat(toolNames("V6_1", "V6_1", CapabilityMatrix.production()))
             .doesNotContain("read_users");
     }
 }

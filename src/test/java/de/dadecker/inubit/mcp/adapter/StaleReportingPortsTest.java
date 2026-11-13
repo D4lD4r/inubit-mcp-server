@@ -380,11 +380,6 @@ class StaleReportingPortsTest {
             public List<LoginEntry> loggedIn() {
                 return logins;
             }
-
-            @Override
-            public int connectedSystems() {
-                return 3;
-            }
         };
 
         UserDirectoryPort wrapped = stale.ports(withUserDirectory(answering)).userDirectory();
@@ -392,7 +387,6 @@ class StaleReportingPortsTest {
         assertThat(wrapped.listUsers()).isSameAs(users);
         assertThat(wrapped.readUsers(List.of("jdoe"))).isSameAs(facts);
         assertThat(wrapped.loggedIn()).isSameAs(logins);
-        assertThat(wrapped.connectedSystems()).isEqualTo(3);
         assertThat(asked).containsExactly(List.of("jdoe"));
         assertThat(versions.events()).isEmpty();
 
@@ -413,7 +407,7 @@ class StaleReportingPortsTest {
             assertThat(thrownBy(method, port)).as(method.toString()).isSameAs(unexpected);
         }
         assertThat(versions.events()).containsExactly("stale dev/node1", "stale dev/node1",
-            "stale dev/node1", "stale dev/node1");
+            "stale dev/node1");
     }
 
     /** A port set of throwing ports whose user directory port is {@code userDirectory}. */

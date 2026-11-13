@@ -421,10 +421,5 @@ final class StaleReportingPorts {
         public List<LoginEntry> loggedIn() {
             return call(delegate::loggedIn);
         }
-
-        @Override
-        public int connectedSystems() {
-            return call(delegate::connectedSystems);
-        }
     }
 }

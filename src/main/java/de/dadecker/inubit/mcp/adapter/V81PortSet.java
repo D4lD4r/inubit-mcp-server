@@ -99,8 +99,7 @@ final class V81PortSet {
             new V81SettingsAdapter(node.server().id(), node.client(),
                 new CliSettingsRunner(node.server(), node.credentials(), node.guard(),
                     node.cliRunner(), classifier(node))::read),
-            new V81UserAdapter(node.server().id(), node.client(), users::read, users::logins,
-                users::connectedSystems));
+            new V81UserAdapter(node.server().id(), node.client(), users::read, users::logins));
     }
 
     private static CliOutputClassifier classifier(PortSetRegistry.NodeResources node) {

@@ -58,8 +58,8 @@ import org.junit.jupiter.params.provider.CsvSource;
  * T034 (feature 022, US2 AS1–AS6, research D-20, "Live recording T028"/"T028a", FR-009, FR-011,
  * FR-013): the views {@code users}, {@code user} and {@code logins} of {@code read_users}. The
  * capability matrix supports {@code USER_DIRECTORY} and the coverage list is a fixture whose US2
- * rows are reachable on 8.1 and {@code planned} on 9.0; the production list keeps them
- * {@code planned} until T037. The message views wait for an L-17 recording (owner decision
+ * rows are reachable on 8.1 ({@code -nwho} covered) and {@code planned} on 9.0, as in the
+ * production list since T037. The message views wait for an L-17 recording (owner decision
  * 2026-11-13).
  */
 @Timeout(30)
@@ -77,7 +77,7 @@ class UserReadServiceTest {
         CLI\tuser\tREAD\tB\tUS2\treachable:read_users/users\tplanned\t-
         CLI\tfinger\tREAD\tB\tUS2\treachable:read_users/users\tplanned\t-
         CLI\t-who\tREAD\tB\tUS2\treachable:read_users/logins\tplanned\t-
-        CLI\t-nwho\tREAD\tB\tUS2\tplanned\tplanned\t-
+        CLI\t-nwho\tREAD\tB\tUS2\tcovered:read_users\tplanned\t-
         """;
 
     private static final ToolError SESSION_FAILED = ToolError.of(ErrorCode.CLI_UNAVAILABLE,
@@ -395,7 +395,7 @@ class UserReadServiceTest {
 
     /**
      * The user directory of one node: {@code finger} gives one role, an e-mail and a name per
-     * user (planted, AS5); {@code --nwho} is never asked for.
+     * user (planted, AS5).
      */
     private static final class FakeDirectory implements UserDirectoryPort {
 
@@ -435,11 +435,6 @@ class UserReadServiceTest {
         public List<LoginEntry> loggedIn() {
             loginReads++;
             return loggedIn;
-        }
-
-        @Override
-        public int connectedSystems() {
-            throw new AssertionError("the --nwho count is not a user count and is not read");
         }
     }
 }

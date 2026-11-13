@@ -179,6 +179,8 @@ a story not delivered yet therefore stays `planned` with that story, and changes
 | Rows | Becomes | In |
 |---|---|---|
 | `license -td`, `license -ts` | `covered:get_server_settings` | T025 / T026 (US1) |
+| `-nwho` (owner decision 2026-11-13: the `logins` page `total`) | `covered:read_users` | T037 (US2) |
+| `-nwho` (owner decision 2026-11-13: the `logins` page `total`) | `covered:read_users` | T037 (US2) |
 | `delete --deleteWorkflow`, `delete --deleteModule`, `library --upload`, `library --delete`, `POST /edirules` | `covered:administer_objects` | T091 (US6) |
 | `POST /configurations` | `covered:change_server_settings` | T091 (US6) |
 | `delete --deleteUser` | `covered:administer_users` | T102 (US7) |
@@ -517,10 +519,11 @@ values again.
   (D-7) runs `user <login>` (groups) and `finger <login>` (roles).
 - **One user**: the same session, plus `email` from `finger` / REST. An account state is reported
   only if INUBIT shows one (L-6).
-- **Logins**: one client run per form, `startcli.sh … --who <url>` and `startcli.sh … --nwho
-  <url>`, each a StartCLI run of its own (T028a). They are not session commands: in the session
-  8.1 answers `Command not found.`, and `--execCommand -who` fails because the client takes `-who`
-  as its own option (T028). `CliSessionCommand.SESSION_OPTIONS` therefore admits neither form; the
+- **Logins**: one client run, `startcli.sh … --who <url>`, a StartCLI run of its own (T028a).
+  `--nwho` is not run: it counts every connected system, not users; owner decision 2026-11-13,
+  row `covered:read_users` (the `logins` page `total` is the number of logged-in users). Neither
+  is a session command: in the session 8.1 answers `Command not found.`, and `--execCommand -who`
+  fails because the client takes `-who` as its own option (T028). `CliSessionCommand.SESSION_OPTIONS` therefore admits neither form; the
   coverage entries keep their keys `-who` / `-nwho`. `--who` shows no login time, only an idle
   time per row (see "Live recording T028a").
 - **Messages**: `msglist`, then `msgread <id>`. The text is masked and limited to
@@ -884,7 +887,11 @@ Fixtures: `fixtures/v8_1/cli/admin-users-who.*` and `admin-users-nwho.*` (neutra
 **Consequence.** D-20 "Logins" and T032 read the logins with one client run per form, not in the
 session; `CliSessionCommand.SESSION_OPTIONS` stays without `-who` / `-nwho`. The coverage entries
 keep their keys `-who` / `-nwho`. How `--who` rows become `LoginEntry` values (only `Toolset`
-rows, `since` empty) and what `--nwho` is reported as is left to T031 and T034.
+rows, `since` empty) and what `--nwho` is reported as is left to T031 and T034. Decided in T034
+and by the owner (2026-11-13): only `Toolset` rows become `LoginEntry` values; `--nwho` is not run,
+and its row is `covered:read_users`. Decided in T034
+and by the owner (2026-11-13): only `Toolset` rows become `LoginEntry` values; `--nwho` is not run,
+and its row is `covered:read_users`.
 
 **Open point (T031).** The JDBC URLs in this recording are 60–62 characters, close to the 64-wide
 `SYSTEM-ID` column. How `--who` prints a longer `SYSTEM-ID` (cut, or the row shifted) is not

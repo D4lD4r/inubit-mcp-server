@@ -98,9 +98,6 @@ class V81UserAdapterTest {
         }, () -> {
             cliCalls.add("--who");
             return loginsAnswer;
-        }, () -> {
-            cliCalls.add("--nwho");
-            return 7;
         });
     }
 
@@ -196,9 +193,8 @@ class V81UserAdapterTest {
 
         assertThat(adapter.readUsers(List.of("jdoe"))).isSameAs(factsAnswer);
         assertThat(adapter.loggedIn()).isSameAs(loginsAnswer);
-        assertThat(adapter.connectedSystems()).isEqualTo(7);
 
-        assertThat(cliCalls).containsExactly(List.of("jdoe"), "--who", "--nwho");
+        assertThat(cliCalls).containsExactly(List.of("jdoe"), "--who");
         assertThat(wireMock.getAllServeEvents()).isEmpty();
     }
 }

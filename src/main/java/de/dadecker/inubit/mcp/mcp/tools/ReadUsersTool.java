@@ -37,19 +37,19 @@ import java.util.TreeMap;
 public final class ReadUsersTool implements ToolHandler {
 
     static final String DESCRIPTION = "Read the users of one INUBIT {node}. `target` takes the id"
-        + " of exactly one {node} (`<{group}>/<{node}>`). `view` picks what to read: `users`"
-        + " lists the users by login, each with its group and roles, without e-mail or other"
-        + " personal fields; `user` shows the one user named in `login` with group, super group,"
-        + " roles, e-mail and the other personal fields INUBIT shows (e-mail and personal fields"
-        + " come only for one named user); `logins` lists the users logged in with a client (the"
-        + " `Toolset` connections of StartCLI `--who`, this call's own connection included),"
-        + " without a login time on INUBIT 8.1. `users` and `logins` are sorted by login and"
-        + " paged with `offset` and `limit` (at most 25); `nextOffset` gives the next page. The"
-        + " logins come from the INUBIT user list; groups, roles, e-mail and personal fields are"
-        + " read with StartCLI. A part that cannot be read is listed under the user's"
-        + " `unavailable` with the reason, the other users and parts are returned. An unknown"
-        + " login gives NOT_FOUND: list the users first. The messages of the INUBIT message box"
-        + " are not offered yet. Reads only; changes nothing on INUBIT.";
+        + " of exactly one {node} (`<{group}>/<{node}>`). `view` picks what to read: `users` lists"
+        + " the users by login, each with its user group and roles, without e-mail or other"
+        + " personal fields; `user` shows the one user named in `login` with its user group, the"
+        + " parent of that user group, roles, e-mail and the other personal fields INUBIT shows"
+        + " (e-mail and personal fields come only for one named user); `logins` lists the users"
+        + " logged in with a client (the `Toolset` connections of StartCLI `--who`, this call's own"
+        + " connection included), without a login time on INUBIT 8.1. `users` and `logins` are"
+        + " sorted by login and paged with `offset` and `limit` (at most 25); `nextOffset` gives"
+        + " the next page. The logins come from the INUBIT user list; the user group, roles,"
+        + " e-mail and personal fields are read with StartCLI. A part that cannot be read is"
+        + " listed under the user's `unavailable` with the reason, the other users and parts are"
+        + " returned. An unknown login gives NOT_FOUND: list the users first. The messages of the"
+        + " INUBIT message box are not offered yet. Reads only; changes nothing on INUBIT.";
 
     private final UserReadService users;
 

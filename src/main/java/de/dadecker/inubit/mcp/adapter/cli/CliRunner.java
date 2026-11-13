@@ -70,7 +70,7 @@ import org.slf4j.LoggerFactory;
  *       to {@code JAVA_TOOL_OPTIONS}; never a trust-store password.
  *   <li>A client option run ({@link #runClientOption}, feature 022, research D-20):
  *       {@code [startcli.sh, -u, <user>, [--trustStoreFilePath, <p12>],
- *       [--disableHostNameVerification], --who|--nwho, <cliUrl>]}, stdin as for
+ *       [--disableHostNameVerification], --who, <cliUrl>]}, stdin as for
  *       {@code --execCommand}.
  *   <li>Every kind of run also appends the trust store to {@code JAVA_TOOL_OPTIONS} when the
  *       client gets {@code --trustStoreFilePath}, because the INUBIT 9.0.10 client ignores that
@@ -329,9 +329,7 @@ public final class CliRunner {
      */
     public enum ClientOption {
         /** The systems connected to the server, client connections included. */
-        WHO("--who"),
-        /** The number of rows {@link #WHO} lists. */
-        NWHO("--nwho");
+        WHO("--who");
 
         private final String argument;
 

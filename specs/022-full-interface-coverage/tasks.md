@@ -545,7 +545,7 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   and planted secrets in finger output are masked (message text after L-17); leak check.
   - From the T034 review: plant e-mails in a failing `finger` block and in a whole-session failure
     and check end to end that no listing shows them.
-- [ ] T037 [US2] Contracts and flips [BLOCKED: T028]: `UsersV81ContractTest.java` (and
+- [X] T037 [US2] Contracts and flips [BLOCKED: T028]: `UsersV81ContractTest.java` (and
   `UsersV90ContractTest.java` when 9.0 is recorded); rows, matrix and docs page.
   - From the T034 review: `logins` does not read `--nwho` (it counts every connected system), so
     the `CLI -nwho` row cannot become `reachable:read_users/logins`. Owner decision 2026-11-13:
@@ -553,7 +553,9 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
     `connectedSystems()` from the port, the adapter and the runner.
 - [ ] T038 [US2] Docs and PR:
   - `docs/tools.md` section `read_users`;
-  - `docs/research/inubit-interfaces.md`;
+  - `docs/research/inubit-interfaces.md` (from the T037 review: `-who`/`-nwho` are client options
+    `--who`/`--nwho`; `--who` is read by `read_users` `logins`, `--nwho` is covered; also
+    `docs/backlog.md`);
   - `CHANGELOG.md`;
   - `delivered-stories: US1, US2`, with `waits` set on every US2 row still `planned`.
 

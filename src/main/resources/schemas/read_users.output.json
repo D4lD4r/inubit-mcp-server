@@ -95,7 +95,7 @@
       "properties": {
         "login": { "type": "string" },
         "group": { "type": "string" },
-        "superGroup": { "type": "string", "description": "The parent of the group" },
+        "superGroup": { "type": "string", "description": "The parent of the user group" },
         "roles": { "type": "array", "items": { "type": "string" } },
         "email": { "type": "string", "description": "Absent if INUBIT shows none" },
         "personal": {

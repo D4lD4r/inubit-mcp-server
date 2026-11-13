@@ -44,11 +44,4 @@ public interface UserDirectoryPort {
      *     failed StartCLI run or an unknown answer
      */
     List<LoginEntry> loggedIn();
-
-    /**
-     * The number {@code --nwho} prints: every connected system, not a number of logged-in users.
-     *
-     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException as {@link #loggedIn()}
-     */
-    int connectedSystems();
 }

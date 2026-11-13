@@ -160,8 +160,7 @@ class RefusingPortsTest {
     void userReadsRefuseWithTheSixOneRefusalWithoutContact() {
         // feature 022 T033: no user reads on 6.1 (spec edge case "INUBIT 6.1")
         for (Runnable call : List.<Runnable>of(refusing::listUsers,
-            () -> refusing.readUsers(List.of("jdoe")), refusing::loggedIn,
-            refusing::connectedSystems)) {
+            () -> refusing.readUsers(List.of("jdoe")), refusing::loggedIn)) {
             assertThatThrownBy(call::run).isInstanceOfSatisfying(ToolErrorException.class, e ->
                 assertThat(e.error()).isEqualTo(refusing.refusal().error()));
         }
@@ -178,8 +177,7 @@ class RefusingPortsTest {
         for (PortSet ports : List.of(eight, eleven)) {
             for (Runnable call : List.<Runnable>of(() -> ports.userDirectory().listUsers(),
                 () -> ports.userDirectory().readUsers(List.of()),
-                () -> ports.userDirectory().loggedIn(),
-                () -> ports.userDirectory().connectedSystems())) {
+                () -> ports.userDirectory().loggedIn())) {
                 assertThatThrownBy(call::run).isInstanceOfSatisfying(ToolErrorException.class,
                     e -> {
                         assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);

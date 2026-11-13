@@ -36,10 +36,10 @@ import java.util.function.Function;
  *       one stdin session bounded by the node's {@code cliTimeout}, with
  *       {@code user '<login>'} ({@link UserGroupsParser}) and {@code finger '<login>'}
  *       ({@link FingerParser}) per login, quoted as recorded (T028);
- *   <li>{@link #logins} and {@link #connectedSystems}: one client run each,
- *       {@code startcli.sh … --who <url>} and {@code … --nwho <url>} ({@link WhoParser}), with
- *       only the password on stdin. On 8.1 they are neither session commands nor
- *       {@code --execCommand} arguments (T028, T028a).
+ *   <li>{@link #logins}: one client run, {@code startcli.sh … --who <url>} ({@link WhoParser}),
+ *       with only the password on stdin. On 8.1 {@code -who} is neither a session command nor an
+ *       {@code --execCommand} argument (T028, T028a). {@code --nwho} is not run: it counts every
+ *       connected system, not the logged-in users (owner decision 2026-11-13).
  * </ul>
  *
  * <p>A block its parser cannot read, and a login outside {@link CliSessionCommand}'s value rule
@@ -48,7 +48,7 @@ import java.util.function.Function;
  * {@code EXECUTION ERROR} in its block and the session ends with exit code 1 (T014, L-1). A
  * failure of the whole session or client run (credentials, pin, launch, timeout, an exit code
  * other than 0 without such a block, cut output, a refused login, a missing "CLI login access"
- * right, not one prompt per command, an unknown {@code --who}/{@code --nwho} answer) is thrown
+ * right, not one prompt per command, an unknown {@code --who} answer) is thrown
  * with the node set.
  *
  * <p>Excerpts: a failure of the whole session carries none, because the session's output holds
@@ -141,17 +141,17 @@ public final class CliUserRunner {
      * @throws ToolErrorException with the node set, for a failed run or an unknown table
      */
     public List<LoginEntry> logins() {
-        return clientRun(ClientOption.WHO, WhoParser::parse);
-    }
-
-    /**
-     * The number {@code --nwho} prints: the rows of {@code --who}, systems included; not a number
-     * of logged-in users.
-     *
-     * @throws ToolErrorException with the node set, for a failed run or an unknown answer
-     */
-    public int connectedSystems() {
-        return clientRun(ClientOption.NWHO, WhoParser::count);
+        CliResult result = start(selection -> runner.runClientOption(selection, username(),
+            password(), ClientOption.WHO, server.cliTimeout(), guard));
+        if (result.exitCode() != 0 || result.truncated()
+            || CliOutputClassifier.isLoginFailure(result)) {
+            throwFailure(result, true);
+        }
+        try {
+            return WhoParser.parse(classifier.parse(result).outputLines());
+        } catch (ToolErrorException e) {
+            throw failed(e.error());
+        }
     }
 
     private static CliSessionCommand command(String name, String login) {
@@ -178,20 +178,6 @@ public final class CliUserRunner {
         }
         try {
             return CliSessionParser.STANDARD.blocks(result.stdout(), commands);
-        } catch (ToolErrorException e) {
-            throw failed(e.error());
-        }
-    }
-
-    private <T> T clientRun(ClientOption option, Function<List<String>, T> parser) {
-        CliResult result = start(selection -> runner.runClientOption(selection, username(),
-            password(), option, server.cliTimeout(), guard));
-        if (result.exitCode() != 0 || result.truncated()
-            || CliOutputClassifier.isLoginFailure(result)) {
-            throwFailure(result, true);
-        }
-        try {
-            return parser.apply(classifier.parse(result).outputLines());
         } catch (ToolErrorException e) {
             throw failed(e.error());
         }

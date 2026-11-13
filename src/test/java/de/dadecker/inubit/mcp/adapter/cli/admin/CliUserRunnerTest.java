@@ -51,11 +51,10 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * T032 (feature 022, US2, research D-7, D-20): the groups and roles of a page of users come from
  * one stdin session with {@code user '<login>'} and {@code finger '<login>'} per login; a block
- * that cannot be read costs only that user's groups or roles. The logins come from client runs of
- * their own, {@code --who} and {@code --nwho} (research "Live recording T028a"), with only the
- * password on stdin. The session is scripted in the recorded form (prompt with the echoed
- * command, {@code admin-users-session}); the client runs replay {@code admin-users-who} and
- * {@code admin-users-nwho}.
+ * that cannot be read costs only that user's groups or roles. The logins come from a client run of
+ * its own, {@code --who} (research "Live recording T028a"), with only the password on stdin. The
+ * session is scripted in the recorded form (prompt with the echoed command,
+ * {@code admin-users-session}); the client runs replay {@code admin-users-who}.
  */
 @Timeout(30)
 class CliUserRunnerTest {
@@ -421,18 +420,6 @@ class CliUserRunnerTest {
             "--who", CLI_URL);
     }
 
-    /** T028a: {@code --nwho} counts the rows of {@code --who}, systems included. */
-    @Test
-    void theRowCountComesFromAnNwhoRunOfItsOwn() {
-        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("admin-users-nwho");
-
-        assertThat(runner(launcher).connectedSystems()).isEqualTo(6);
-        assertThat(stdin(launcher)).isEqualTo(PASSWORD + "\n");
-        assertThat(launcher.last().spec().startCliArguments())
-            .containsExactly("-u", USER, "--nwho", CLI_URL)
-            .doesNotContain("--execCommand");
-    }
-
     @Test
     void anUnknownWhoTableFailsWithTheNode() {
         FakeProcessLauncher launcher = FakeProcessLauncher.of(
@@ -450,7 +437,7 @@ class CliUserRunnerTest {
         FakeProcessLauncher launcher =
             FakeProcessLauncher.replaying("admin-users-who-missing-argument");
 
-        ToolError error = errorOf(() -> runner(launcher).connectedSystems());
+        ToolError error = errorOf(() -> runner(launcher).logins());
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.node()).contains(DEV);
