@@ -463,6 +463,16 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
 
   Neutralize into `fixtures/v8_1/{rest,cli}/admin-users-*` (personal fields replaced by
   `*.example.test` values). Record whether `msgread` marks the message as read.
+- [ ] T028a [LIVE] [OWNER] [US2] L-6 logins on 8.1 (added 2026-11-13 after T028: `-who`/`-nwho`
+  are StartCLI client options, not session commands):
+  - record `startcli.sh … --who <url>` and `startcli.sh … --nwho <url>` once each, read-only, on
+    the T028 server (owner approval 2026-11-13);
+  - neutralized fixtures `fixtures/v8_1/cli/admin-users-who.*` and `admin-users-nwho.*`, README
+    rows, research section "Live recording T028a";
+  - D-20 "Logins" and T032 changed to one client run per form (not in the session,
+    `SESSION_OPTIONS` without `-who`/`-nwho`); the coverage entries keep their keys `-who`/`-nwho`.
+  - L-17 stays open by owner decision (2026-11-13): the message reads stay `planned`, no
+    `msgread` parser before a recording.
 - [X] T029 [P] [US2] Domain records: `domain/model/UserSummary.java` (no personal field by
   construction), `UserDetail.java`, `LoginEntry.java`, `MessageSummary.java`, `MessageText.java`
   (`ItemBounds.MAX_ITEM_CHARS`, `truncated`).
