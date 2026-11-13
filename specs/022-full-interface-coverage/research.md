@@ -809,7 +809,8 @@ only.
   break. Root `UserList` in the default namespace `inubit.com/ibis/external/user`, with an unused
   `xmlns:ns2="inubit.com/ibis/external/base"`; the feature-004 recording of the same endpoint had
   `ns2:UserList` with `ns2` bound to the user namespace. Same namespace URI, different prefixes:
-  only a namespace-aware reader (local name plus URI) reads both. Each `User` has `id`, `email`,
+  a reader that ignores prefixes reads both. `UserListXmlParser` (T030) matches local names only,
+  as `XmlSupport` does everywhere: the endpoint is fixed and only `id` and `type` are read. Each `User` has `id`, `email`,
   `type="ProcessEngineUser"` and, for 26 of 58, `firstName` and `lastName`; no state, group or
   role attribute. The list is not sorted by `id`.
 - `user '<login>'`: three rows, `User name`, `User group` (one group) and `Super group` (the

@@ -477,7 +477,7 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   construction), `UserDetail.java`, `LoginEntry.java`, `MessageSummary.java`, `MessageText.java`
   (`ItemBounds.MAX_ITEM_CHARS`, `truncated`).
   - Failing tests first: `domain/model/UserRecordsTest.java`.
-- [ ] T030 [US2] `adapter/rest/v81/UserListXmlParser.java` (after T029): reads only `id` and `type`.
+- [X] T030 [US2] `adapter/rest/v81/UserListXmlParser.java` (after T029): reads only `id` and `type`.
   `email`, `firstName`, `lastName` and unknown attributes are never read into any object. XML is
   hardened.
   - Failing tests first: `UserListXmlParserTest.java` (fixture with planted e-mails: parsed
