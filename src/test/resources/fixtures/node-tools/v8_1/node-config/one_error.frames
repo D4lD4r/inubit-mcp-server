@@ -1,0 +1,9 @@
+log4j:WARN No appenders could be found for logger (com.inubit.ibis.soap.IBISSoapClient).
+log4j:WARN Please initialize the log4j system properly.
+#QE1:0123456789abcdef0123456789abcdef start SOAP_81
+#QE1:0123456789abcdef0123456789abcdef login ok
+#QE1:0123456789abcdef0123456789abcdef node ok node1
+#QE1:0123456789abcdef0123456789abcdef config ClusterName ok String true false Cluster%20name Cluster Name%20of%20the%20cluster%20the%20node%20belongs%20to. acme-cluster
+#QE1:0123456789abcdef0123456789abcdef config NodeName error com.inubit.ibis.utils.InubitException%3Ejava.net.SocketTimeoutException Exception%20from%20service%20object%3A%20Node%20node1%20did%20not%20answer%20in%20time.%0ARead%20timed%20out
+#QE1:0123456789abcdef0123456789abcdef config retryInterval ok Long true false Retry%20interval Cluster Wait%20between%20two%20retries%20in%20milliseconds. 5000
+#QE1:0123456789abcdef0123456789abcdef end

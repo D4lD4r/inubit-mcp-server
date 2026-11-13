@@ -1,0 +1,9 @@
+log4j:WARN No appenders could be found for logger (com.inubit.ibis.soap.IBISSoapClient).
+log4j:WARN Please initialize the log4j system properly.
+#QE1:0123456789abcdef0123456789abcdef start SOAP_81
+#QE1:0123456789abcdef0123456789abcdef login ok
+#QE1:0123456789abcdef0123456789abcdef node ok node1
+#QE1:0123456789abcdef0123456789abcdef config OperationMode error com.inubit.ibis.utils.InubitException Exception%20from%20service%20object%3A%20%40Start%40IError%40%40%40Internal%20INUBIT%20error%21%40End%40Cannot%20invoke%20%22Object.getClass%28%29%22%20because%20%22o%22%20is%20null
+#QE1:0123456789abcdef0123456789abcdef config ClusterBindAddress absent
+#QE1:0123456789abcdef0123456789abcdef config NodeName ok String true false Node%20name Cluster Name%20of%20this%20node%20within%20the%20cluster. node1
+#QE1:0123456789abcdef0123456789abcdef end

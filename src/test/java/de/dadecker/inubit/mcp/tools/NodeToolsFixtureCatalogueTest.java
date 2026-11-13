@@ -3,6 +3,9 @@ package de.dadecker.inubit.mcp.tools;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.ConfigAbsent;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.ConfigError;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.ConfigOk;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Detail;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.DetailsOk;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.IoListError;
@@ -19,14 +22,17 @@ import de.dadecker.inubit.mcp.domain.model.EntryContentClassifier;
 import de.dadecker.inubit.mcp.domain.model.EntryContentClassifier.Classified;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -51,7 +57,7 @@ import org.junit.jupiter.params.provider.CsvSource;
  * matrix says {@code SUPPORTED} exactly when all cases D-27 requires for it are recorded and have
  * their data files: {@code ok} for the cluster nodes, {@code listing} and {@code read_text} for the
  * I/O log, {@code all} for the node configuration, {@code set_ok} and {@code reset_ok} for the log
- * level. The 8.1 cluster-nodes and io-log cases parse as the helper protocol
+ * level. The 8.1 cluster-nodes, io-log and node-config cases parse as the helper protocol
  * (contracts/helper-protocol-delta.md) and as their names say.
  */
 class NodeToolsFixtureCatalogueTest {
@@ -106,7 +112,8 @@ class NodeToolsFixtureCatalogueTest {
             "v8_1/cluster-nodes/garbage", "v8_1/io-log/listing", "v8_1/io-log/empty_listing",
             "v8_1/io-log/read_text", "v8_1/io-log/read_latin1", "v8_1/io-log/read_binary",
             "v8_1/io-log/read_empty", "v8_1/io-log/no_match", "v8_1/io-log/foreign_process",
-            "v8_1/io-log/list_error");
+            "v8_1/io-log/list_error", "v8_1/node-config/all", "v8_1/node-config/absent",
+            "v8_1/node-config/one_error", "v8_1/node-config/api_missing");
     }
 
     @Test
@@ -281,6 +288,112 @@ class NodeToolsFixtureCatalogueTest {
             List.of("com.inubit.ibis.utils.InubitException"), "Exception from service object:"
                 + " @Start@NotAllowedAccess@@@The user \"jdoe\" is not allowed to access the"
                 + " requested data.@@@jdoe@End@"));
+    }
+
+    /**
+     * The message of every 8.1.17 {@code config error} of the T018 spike (research.md "Spike
+     * findings"): the server's answer for a property the node does not have.
+     */
+    private static final String PROPERTY_MISSING = "Exception from service object:"
+        + " @Start@IError@@@Internal INUBIT error!@End@Cannot invoke \"Object.getClass()\""
+        + " because \"o\" is null";
+
+    /**
+     * Each 8.1 node-config case: its exit code, its frames and the parse problem; after a run that
+     * reached the node, the {@code config} frames name the requested names (the {@code names=} of
+     * its {@code .origin}) in their order, one frame each.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "all | 0 | Start LoginOk NodeOk ConfigError ConfigOk ConfigError ConfigOk*4 ConfigError*3"
+            + " ConfigOk ConfigError ConfigOk*3 ConfigError*3 ConfigOk*2 End | -",
+        "absent | 0 | Start LoginOk NodeOk ConfigError ConfigAbsent ConfigOk End | -",
+        "one_error | 0 | Start LoginOk NodeOk ConfigOk ConfigError ConfigOk End | -",
+        "api_missing | 4 | ApiMissing | -"})
+    void aNodeConfigCaseParsesAsItsNameSays(String name, int exit, String summary,
+        String problem) throws IOException {
+        HelperFrames frames = configFrames(name);
+
+        assertThat(Integer.parseInt(firstLine(ROOT.resolve("v8_1/node-config/" + name + ".exit"))))
+            .isEqualTo(exit);
+        assertThat(summary(frames.frames()) + " | "
+            + frames.problem().map(Enum::name).orElse("-")).isEqualTo(summary + " | " + problem);
+        if (exit == 0) {
+            assertThat(frames.frames().stream().map(frame -> switch (frame) {
+                case ConfigOk ok -> ok.name();
+                case ConfigAbsent absent -> absent.name();
+                case ConfigError error -> error.name();
+                default -> null;
+            }).filter(Objects::nonNull).toList()).isEqualTo(requestedNames(name));
+        }
+    }
+
+    /**
+     * {@code all} asks for every allowlisted name and has the shape of the T018 spike on 8.1.17:
+     * the eleven names it answered with their types, editable and not deprecated, and the other
+     * nine in the error form of a missing property; one value carries a credential-looking text
+     * for the masking of D-21 (defence in depth).
+     */
+    @Test
+    void theAllCaseHasTheShapeOfThe8_1SpikeAndAMaskableValue() throws IOException {
+        assertThat(requestedNames("all")).isEqualTo(Arrays.stream(NodeConfigName.values())
+            .map(NodeConfigName::wireName).toList());
+        List<ConfigOk> answered = configFrames("all").frames().stream()
+            .filter(ConfigOk.class::isInstance).map(ConfigOk.class::cast).toList();
+        assertThat(answered).extracting(ok -> ok.name() + " " + ok.type() + " " + ok.editable()
+            + " " + ok.deprecated()).containsExactly("ClusterName String true false",
+            "NodeName String true false", "LocalMaintenanceMode Boolean true false",
+            "ActivateClusterManager Boolean true false", "ClusterDebug Boolean true false",
+            "RuntimeDataCacheXMXPercentage Integer true false", "indexEnabled Boolean true false",
+            "iterationCount Integer true false", "DataSourceLocation String true false",
+            "noOfRetries Integer true false", "retryInterval Long true false");
+        assertThat(answered).allSatisfy(ok -> assertThat(List.of(ok.displayName(),
+            ok.category(), ok.description(), ok.value())).doesNotContain(""));
+        assertThat(answered).extracting(ConfigOk::value).contains("acme-cluster", "node1")
+            .anySatisfy(value -> assertThat(value).startsWith("java:/comp/env/jdbc/IBISDB")
+                .containsPattern("(?i)password=\\S"));
+        assertThat(configFrames("all").frames()).filteredOn(ConfigError.class::isInstance)
+            .containsExactly(propertyMissing("OperationMode"), propertyMissing("ZoneName"),
+                propertyMissing("ContainerShutdownOnNodeFailure"),
+                propertyMissing("RegisterMBeans"), propertyMissing("RegisterInternalMBeans"),
+                propertyMissing("socketTimeoutInMillisecs"),
+                propertyMissing("LogsDBDataSourceLocation"),
+                propertyMissing("RepositoryDataSourceLocation"),
+                propertyMissing("ClusterBindAddress"));
+    }
+
+    /**
+     * {@code absent} has both forms of a property the node does not have: the error form 8.1.17
+     * answers (T018) and the {@code null} answer the protocol allows; the error of
+     * {@code one_error} is another failure, of more than one exception, not that form.
+     */
+    @Test
+    void theAbsentCaseHasBothMissingFormsAndOneErrorAnother() throws IOException {
+        assertThat(configFrames("absent").frames()).contains(propertyMissing("OperationMode"),
+            new ConfigAbsent("ClusterBindAddress"));
+        assertThat(configFrames("one_error").frames()).filteredOn(ConfigError.class::isInstance)
+            .map(ConfigError.class::cast).singleElement().satisfies(error -> {
+                assertThat(error.exceptionChain()).hasSizeGreaterThan(1);
+                assertThat(error.message()).doesNotContain("Object.getClass()");
+            });
+    }
+
+    private static ConfigError propertyMissing(String name) {
+        return new ConfigError(name, List.of("com.inubit.ibis.utils.InubitException"),
+            PROPERTY_MISSING);
+    }
+
+    private static HelperFrames configFrames(String name) throws IOException {
+        return HelperFrames.parse(NONCE, Files.readString(
+            ROOT.resolve("v8_1/node-config/" + name + ".frames"), StandardCharsets.UTF_8));
+    }
+
+    /** The {@code names=…} on the first line of the {@code .origin} of a node-config case. */
+    private static List<String> requestedNames(String name) {
+        Matcher names = Pattern.compile(" names=([A-Za-z]+(?:,[A-Za-z]+)*)(?![A-Za-z,])")
+            .matcher(firstLine(ROOT.resolve("v8_1/node-config/" + name + ".origin")));
+        assertThat(names.find()).as(name + ".origin names names=<name>,...").isTrue();
+        return List.of(names.group(1).split(","));
     }
 
     private static HelperFrames ioFrames(String name) throws IOException {

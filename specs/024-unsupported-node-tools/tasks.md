@@ -421,7 +421,7 @@ ever sent (FR-030 … FR-032, SC-003).
 **Independent test**: with a fake INUBIT client, each listed name returns its value; a name outside
 the list is refused before any request; the fake records that only listed names were sent.
 
-- [ ] T033 [US3] Reconstructed node-config fixtures (D-26; after T012, T026 — same catalogue test):
+- [X] T033 [US3] Reconstructed node-config fixtures (D-26; after T012, T026 — same catalogue test):
   `src/test/resources/fixtures/node-tools/v8_1/node-config/{all,absent,one_error,api_missing}.{frames,exit,origin}`
   (fictitious values: `CLUSTER`, `acme-cluster`, `zone-a`, `node1`, `java:/comp/env/jdbc/IBISDB`, …;
   `absent` in the form 8.1.17 really answers a property the node lacks (T018 spike: `config <name> error
