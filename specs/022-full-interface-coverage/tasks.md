@@ -511,7 +511,7 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
     small copy method on `PortSet`) instead of copying an 8-port set, before the user-directory
     port is added.
   - Failing tests first: `V81UserAdapterTest.java` and `WiringAuditTest`.
-- [ ] T034 [US2] `application/UserReadService.java`:
+- [X] T034 [US2] `application/UserReadService.java`:
   - views `users`, `user`, `logins`; `messages`, `message` wait for an L-17 recording (owner
     decision 2026-11-13);
   - logins sorted, `offset` 0–9999, `limit` 1–25 (default 25), `nextOffset`;
@@ -534,12 +534,22 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
     flat (`user.login`, not `user.summary.login`), mapped in the tool layer.
   - From the T029 notes: if a user's groups can be `unavailable` (missing session block), decide
     whether `UserSummary.group` becomes optional or the user is listed with its groups unavailable.
+  - From the T034 review: the `user` view reports the source `personal` (CLI); add it to
+    `read_users.output.json` and to the contract's `sources` list. Register `UserReadService.SPECS`
+    in the Wiring `ActionCatalog` with the tool.
   - Failing tests first: `ReadUsersToolTest.java`, the output schema test,
     `ToolAnnouncementTest`.
 - [ ] T036 [US2] `security/ReadUsersSecretLeakTest.java`: planted e-mails never appear in `users`,
-  and planted secrets in finger output and message text are masked; leak check.
+  and planted secrets in finger output are masked (message text after L-17); leak check.
+  - From the T034 review: plant e-mails in a failing `finger` block and in a whole-session failure
+    and check end to end that no listing shows them.
 - [ ] T037 [US2] Contracts and flips [BLOCKED: T028]: `UsersV81ContractTest.java` (and
   `UsersV90ContractTest.java` when 9.0 is recorded); rows, matrix and docs page.
+  - From the T034 review: `logins` does not read `--nwho` (it counts every connected system), so
+    the `CLI -nwho` row cannot become `reachable:read_users/logins`; [OWNER] decide between
+    `covered:read_users` (the `logins` page `total` is the number of logged-in users) and
+    `excluded:` with the T028a finding, then remove `connectedSystems()` from the port and the
+    runner or keep it on purpose.
 - [ ] T038 [US2] Docs and PR:
   - `docs/tools.md` section `read_users`;
   - `docs/research/inubit-interfaces.md`;
