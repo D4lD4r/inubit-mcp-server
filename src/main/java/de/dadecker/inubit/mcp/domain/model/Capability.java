@@ -40,7 +40,12 @@ public enum Capability {
      * {@code get_server_settings}: REST and StartCLI parts, each admitted by the coverage gate on
      * its own (feature 022, research D-1, D-2).
      */
-    SERVER_SETTINGS(Kind.READ, Set.of(Channel.REST, Channel.CLI));
+    SERVER_SETTINGS(Kind.READ, Set.of(Channel.REST, Channel.CLI)),
+    /**
+     * {@code read_users}: the login list over REST, groups, roles, personal fields and logins
+     * over StartCLI (feature 022, US2, research D-20).
+     */
+    USER_DIRECTORY(Kind.READ, Set.of(Channel.REST, Channel.CLI));
 
     /** Whether the capability only reads from INUBIT or changes it. */
     public enum Kind {
@@ -106,6 +111,7 @@ public enum Capability {
             case TRACE_LOG_READ -> "downloading the trace log";
             case WEBSERVICE_LOG_READ -> "downloading the web service log";
             case SERVER_SETTINGS -> "reading server settings";
+            case USER_DIRECTORY -> "reading users";
         };
     }
 }

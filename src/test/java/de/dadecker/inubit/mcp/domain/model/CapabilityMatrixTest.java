@@ -21,10 +21,10 @@ class CapabilityMatrixTest {
 
     /**
      * Feature 021: the server-log reads are supported since their 8.1 recordings (trace T033, web
-     * service T046).
+     * service T046); feature 022: the server settings (T025) and the users (T037).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"SERVER_SETTINGS"}, mode = Mode.EXCLUDE)
+    @EnumSource(Capability.class)
     void everyCapabilityIsSupportedOn81(Capability capability) {
         assertThat(production.state(version("8.1.17"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -41,8 +41,8 @@ class CapabilityMatrixTest {
      * included since their 9.0 recordings (T051, T052).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"PARTNER_MANAGEMENT", "SERVER_SETTINGS"},
-        mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"PARTNER_MANAGEMENT", "SERVER_SETTINGS",
+        "USER_DIRECTORY"}, mode = EnumSource.Mode.EXCLUDE)
     void everyCapabilityIsSupportedOn90LikeOn81(Capability capability) {
         assertThat(production.state(version("9.0.7"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -96,7 +96,7 @@ class CapabilityMatrixTest {
     /** Feature 017 (T004, research D-9): {@code V9_X} still selects no 9.0 support. */
     @ParameterizedTest
     @EnumSource(value = Capability.class, names = {"QUEUE_ENTRY_READ", "TRACE_LOG_READ",
-        "WEBSERVICE_LOG_READ", "SERVER_SETTINGS"}, mode = Mode.EXCLUDE)
+        "WEBSERVICE_LOG_READ", "SERVER_SETTINGS", "USER_DIRECTORY"}, mode = Mode.EXCLUDE)
     void theMajorOnlyNineLineAndNineOneStayUnverified(Capability capability) {
         assertThat(production.stateOfLine(9, OptionalInt.empty(), capability))
             .isEqualTo(notBaseline(capability));
@@ -121,7 +121,7 @@ class CapabilityMatrixTest {
 
     @ParameterizedTest
     @EnumSource(value = Capability.class, names = {"QUEUE_ENTRY_READ", "TRACE_LOG_READ",
-        "WEBSERVICE_LOG_READ", "SERVER_SETTINGS"}, mode = Mode.EXCLUDE)
+        "WEBSERVICE_LOG_READ", "SERVER_SETTINGS", "USER_DIRECTORY"}, mode = Mode.EXCLUDE)
     void anOtherKnownVersionIsTreatedLikeUnknown(Capability capability) {
         assertThat(production.state(version("10.0"), capability))
             .isEqualTo(notBaseline(capability));
@@ -133,7 +133,7 @@ class CapabilityMatrixTest {
 
     @ParameterizedTest
     @EnumSource(value = Capability.class, names = {"QUEUE_ENTRY_READ", "TRACE_LOG_READ",
-        "WEBSERVICE_LOG_READ", "SERVER_SETTINGS"}, mode = Mode.EXCLUDE)
+        "WEBSERVICE_LOG_READ", "SERVER_SETTINGS", "USER_DIRECTORY"}, mode = Mode.EXCLUDE)
     void anUnknownVersionGivesReadsUnverifiedAndWritesUnsupported(Capability capability) {
         assertThat(production.state(Optional.empty(), capability))
             .isEqualTo(notBaseline(capability));
@@ -141,7 +141,7 @@ class CapabilityMatrixTest {
 
     @ParameterizedTest
     @EnumSource(value = Capability.class, names = {"QUEUE_ENTRY_READ", "TRACE_LOG_READ",
-        "WEBSERVICE_LOG_READ", "SERVER_SETTINGS"}, mode = Mode.EXCLUDE)
+        "WEBSERVICE_LOG_READ", "SERVER_SETTINGS", "USER_DIRECTORY"}, mode = Mode.EXCLUDE)
     void aMajorOnlyLineIsLookedUpAsUnknown(Capability capability) {
         assertThat(production.stateOfLine(9, OptionalInt.empty(), capability))
             .isEqualTo(production.state(Optional.empty(), capability))
@@ -158,7 +158,7 @@ class CapabilityMatrixTest {
                 Capability.LOG_DIAGNOSIS, Capability.INVENTORY, Capability.PARTNER_MANAGEMENT,
                 Capability.WORKSPACE_EXPORT, Capability.QUEUE_ENTRY_READ,
                 Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ,
-                Capability.SERVER_SETTINGS);
+                Capability.SERVER_SETTINGS, Capability.USER_DIRECTORY);
         assertThat(Capability.values()).filteredOn(c -> c.kind() == Kind.WRITE)
             .containsExactly(Capability.DEVELOPMENT_WRITE, Capability.DEPLOYMENT,
                 Capability.E2E_TEST, Capability.PROCESS_CONTROL);
@@ -200,6 +200,8 @@ class CapabilityMatrixTest {
         assertThat(Capability.TRACE_LOG_READ.channels()).containsExactly(Channel.CLI);
         assertThat(Capability.WEBSERVICE_LOG_READ.channels()).containsExactly(Channel.CLI);
         assertThat(Capability.SERVER_SETTINGS.channels())
+            .containsExactlyInAnyOrder(Channel.REST, Channel.CLI);
+        assertThat(Capability.USER_DIRECTORY.channels())
             .containsExactlyInAnyOrder(Channel.REST, Channel.CLI);
     }
 
@@ -342,7 +344,8 @@ class CapabilityMatrixTest {
         assertThat(production.stateOfLine(9, OptionalInt.of(0), Capability.QUEUE_ENTRY_READ))
             .isEqualTo(SupportState.SUPPORTED);
         for (Capability capability : Capability.values()) {
-            if (capability != Capability.SERVER_SETTINGS) {
+            if (capability != Capability.SERVER_SETTINGS
+                && capability != Capability.USER_DIRECTORY) {
                 assertThat(production.note(version("9.0.7"), capability)).as("%s", capability)
                     .isEmpty();
             }
@@ -367,7 +370,7 @@ class CapabilityMatrixTest {
     /** The other capabilities keep their unknown-version rule: reads unverified. */
     @ParameterizedTest
     @EnumSource(value = Capability.class, names = {"QUEUE_ENTRY_READ", "TRACE_LOG_READ",
-        "WEBSERVICE_LOG_READ", "SERVER_SETTINGS"}, mode = Mode.EXCLUDE)
+        "WEBSERVICE_LOG_READ", "SERVER_SETTINGS", "USER_DIRECTORY"}, mode = Mode.EXCLUDE)
     void theUnknownRuleOfTheOtherCapabilitiesIsUnchanged(Capability capability) {
         assertThat(production.state(Optional.empty(), capability))
             .isEqualTo(notBaseline(capability));
@@ -419,11 +422,12 @@ class CapabilityMatrixTest {
     /**
      * T031 (feature 021, FR-002): a version not yet known (an {@code AUTO} node) may run a
      * capability only if some range or the unknown versions admit it; since their 8.1 recordings
-     * (T033, T046) 8.1 admits both server-log reads.
+     * (T033, T046) 8.1 admits both server-log reads, and since their contract tests the server
+     * settings (T025) and the users (T037).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, mode = Mode.EXCLUDE, names = {"SERVER_SETTINGS"})
-    void everyOtherCapabilityIsPossiblySupportedOnTheProductionMatrix(Capability capability) {
+    @EnumSource(Capability.class)
+    void everyCapabilityIsPossiblySupportedOnTheProductionMatrix(Capability capability) {
         assertThat(production.possiblySupported(capability)).isTrue();
     }
 
@@ -525,6 +529,46 @@ class CapabilityMatrixTest {
                 .isEmpty();
         }
         assertThat(production.stateOfLine(9, OptionalInt.empty(), Capability.SERVER_SETTINGS))
+            .isEqualTo(SupportState.UNSUPPORTED);
+    }
+
+    // --- feature 022 T033: reading the users (US2, research D-1, D-20) --------------------------
+
+    @Test
+    void userDirectoryIsARestAndCliReadWithItsLabel() {
+        assertThat(Capability.USER_DIRECTORY.kind()).isEqualTo(Kind.READ);
+        assertThat(Capability.USER_DIRECTORY.label()).isEqualTo("reading users");
+    }
+
+    /** Supported on 8.1 since its contract tests (T037); 9.0 "not yet verified". */
+    @Test
+    void userDirectoryIsSupportedOn81AndNotYetVerifiedOn90() {
+        assertThat(production.state(version("8.1.17"), Capability.USER_DIRECTORY))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.note(version("8.1.17"), Capability.USER_DIRECTORY)).isEmpty();
+        assertThat(production.state(version("9.0.7"), Capability.USER_DIRECTORY))
+            .isEqualTo(SupportState.UNSUPPORTED);
+        assertThat(production.note(version("9.0.7"), Capability.USER_DIRECTORY))
+            .contains("not yet verified");
+        assertThat(production.stateOfLine(8, OptionalInt.of(1), Capability.USER_DIRECTORY))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.stateOfLine(9, OptionalInt.of(0), Capability.USER_DIRECTORY))
+            .isEqualTo(SupportState.UNSUPPORTED);
+        assertThat(production.lines(Capability.USER_DIRECTORY)).containsExactly("8.1", "9.0");
+        assertThat(production.possiblySupported(Capability.USER_DIRECTORY)).isTrue();
+    }
+
+    /** As the server settings: 6.1, other and unknown versions refuse it without a note. */
+    @Test
+    void userDirectoryIsUnsupportedOn61OtherAndUnknownVersionsWithoutNote() {
+        for (Optional<InubitVersion> other : List.of(version("6.1.0.89-HF1"), version("9.1.0"),
+                version("10.0"), Optional.<InubitVersion>empty())) {
+            assertThat(production.state(other, Capability.USER_DIRECTORY)).as("%s", other)
+                .isEqualTo(SupportState.UNSUPPORTED);
+            assertThat(production.note(other, Capability.USER_DIRECTORY)).as("%s", other)
+                .isEmpty();
+        }
+        assertThat(production.stateOfLine(9, OptionalInt.empty(), Capability.USER_DIRECTORY))
             .isEqualTo(SupportState.UNSUPPORTED);
     }
 

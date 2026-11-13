@@ -3,6 +3,9 @@ package de.dadecker.inubit.mcp.adapter.cli.admin;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import de.dadecker.inubit.mcp.adapter.cli.CliSessionCommand;
+import de.dadecker.inubit.mcp.adapter.cli.CliSessionParser;
+import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -10,6 +13,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.List;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 
@@ -56,6 +60,19 @@ final class AdminCliFixtures {
         assertThat(lines.subList(0, 3)).as("the preamble of " + fixtureCase)
             .containsExactly("JAVA_HOME is set", "Password: ", PREAMBLE_WARNING);
         return lines.subList(3, lines.size());
+    }
+
+    /**
+     * The blocks of a recorded stdin session, split by {@code CliSessionParser.STANDARD} as the
+     * runners do. The parser only counts the commands, so the commands passed are placeholders.
+     *
+     * @param commands the number of commands in the session's {@code .stdin}, without
+     *     {@code exit}
+     */
+    static List<List<String>> sessionBlocks(String fixtureCase, int commands) {
+        return CliSessionParser.STANDARD.blocks(
+            FakeProcessLauncher.fixtureText(fixtureCase + ".stdout"),
+            Collections.nCopies(commands, CliSessionCommand.UNAME));
     }
 
     /** Asserts {@code UNEXPECTED_RESPONSE} with an excerpt and returns the error. */

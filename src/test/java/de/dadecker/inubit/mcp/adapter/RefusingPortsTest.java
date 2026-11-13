@@ -157,6 +157,37 @@ class RefusingPortsTest {
     }
 
     @Test
+    void userReadsRefuseWithTheSixOneRefusalWithoutContact() {
+        // feature 022 T033: no user reads on 6.1 (spec edge case "INUBIT 6.1")
+        for (Runnable call : List.<Runnable>of(refusing::listUsers,
+            () -> refusing.readUsers(List.of("jdoe")), refusing::loggedIn)) {
+            assertThatThrownBy(call::run).isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error()).isEqualTo(refusing.refusal().error()));
+        }
+    }
+
+    @Test
+    void thePortSetCompatibilityConstructorsFillInARefusingUserDirectoryPort() {
+        // feature 022 T033: port sets built with the previous eight or eleven ports
+        PortSet eight = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing);
+        PortSet eleven = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing, refusing, refusing);
+
+        for (PortSet ports : List.of(eight, eleven)) {
+            for (Runnable call : List.<Runnable>of(() -> ports.userDirectory().listUsers(),
+                () -> ports.userDirectory().readUsers(List.of()),
+                () -> ports.userDirectory().loggedIn())) {
+                assertThatThrownBy(call::run).isInstanceOfSatisfying(ToolErrorException.class,
+                    e -> {
+                        assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+                        assertThat(e.error().message()).contains("User reads");
+                    });
+            }
+        }
+    }
+
+    @Test
     void theRefusalNamesTheNodeAndThatNothingWasSent() {
         assertThatThrownBy(() -> refusing.query(null))
             .isInstanceOfSatisfying(ToolErrorException.class, e -> {

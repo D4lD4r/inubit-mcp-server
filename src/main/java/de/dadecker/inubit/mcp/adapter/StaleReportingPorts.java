@@ -8,8 +8,10 @@ import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
 import de.dadecker.inubit.mcp.domain.model.LicenseFacts;
+import de.dadecker.inubit.mcp.domain.model.ListedUser;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
 import de.dadecker.inubit.mcp.domain.model.LogQuery;
+import de.dadecker.inubit.mcp.domain.model.LoginEntry;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Page;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
@@ -21,6 +23,7 @@ import de.dadecker.inubit.mcp.domain.model.RawEntryContent;
 import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.UserFacts;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.model.partner.DiagramRef;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
@@ -36,6 +39,7 @@ import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
+import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import java.time.Duration;
 import java.time.Instant;
@@ -75,7 +79,8 @@ final class StaleReportingPorts {
             new Artifacts(ports.artifacts()), new Imports(ports.imports()),
             new Tags(ports.tags()), new Partners(ports.partners()),
             new QueueEntryContent(ports.queueEntryContent()),
-            new ServerLogs(ports.serverLogs()), new ServerSettings(ports.serverSettings()));
+            new ServerLogs(ports.serverLogs()), new ServerSettings(ports.serverSettings()),
+            new UserDirectory(ports.userDirectory()));
     }
 
     private <T> T call(Supplier<T> call) {
@@ -392,6 +397,29 @@ final class StaleReportingPorts {
         @Override
         public CliSettingsSnapshot cliSettings(Set<String> parts) {
             return call(() -> delegate.cliSettings(parts));
+        }
+    }
+
+    final class UserDirectory implements UserDirectoryPort {
+        private final UserDirectoryPort delegate;
+
+        UserDirectory(UserDirectoryPort delegate) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public List<ListedUser> listUsers() {
+            return call(delegate::listUsers);
+        }
+
+        @Override
+        public List<UserFacts> readUsers(List<String> logins) {
+            return call(() -> delegate.readUsers(logins));
+        }
+
+        @Override
+        public List<LoginEntry> loggedIn() {
+            return call(delegate::loggedIn);
         }
     }
 }

@@ -27,7 +27,8 @@ import org.junit.jupiter.api.Test;
  * records, and {@code get_inventory_item} documents its {@code partnerUsage}. Feature 022 (T027,
  * FR-027): {@code get_server_settings} is the twenty-third tool, quoted as announced, with its
  * parts, fields and errors, the role it needs and its state per version as the production matrix
- * declares it.
+ * declares it. T038 (US2): {@code read_users} is the twenty-fourth tool, with its views, fields,
+ * errors and state per version in the same way.
  */
 class DevelopmentToolsReferenceTest {
 
@@ -61,7 +62,7 @@ class DevelopmentToolsReferenceTest {
             "| [`restore_backup`](#restore_backup) |", "| [`set_active`](#set_active) |",
             "| [`tag_artifacts`](#tag_artifacts) |", "| [`run_e2e_test`](#run_e2e_test) |",
             "| [`deploy_release`](#deploy_release) |",
-            "All twenty-three tools");
+            "All twenty-four tools");
     }
 
     @Test
@@ -99,8 +100,8 @@ class DevelopmentToolsReferenceTest {
         assertThat(reference).contains(
             "[acme] " + Terminology.DEFAULT.render(GetServerSettingsTool.DESCRIPTION),
             "| [`get_server_settings`](#get_server_settings) |",
-            "`get_server_settings` of feature 022 [its delta](../specs/022-full-interface-coverage/"
-                + "contracts/mcp-tools-delta.md)",
+            "`get_server_settings` and `read_users` of feature 022 [their delta]("
+                + "../specs/022-full-interface-coverage/contracts/mcp-tools-delta.md)",
             "| `get_server_settings` | `server_settings` |", "`reading server settings`",
             "`get_server_settings` is **offered only if**");
         String section = section(reference, "## `get_server_settings`");
@@ -131,6 +132,39 @@ class DevelopmentToolsReferenceTest {
 
         assertThat(folded(SETUP)).contains("`get_server_settings` reads the license and the"
             + " configuration only with the INUBIT role \"System Administrator\"");
+    }
+
+    @Test
+    void readUsersIsQuotedAsRenderedAndDescribed() throws IOException {
+        String reference = folded(TOOLS);
+
+        assertThat(reference).contains(
+            "[acme] " + Terminology.DEFAULT.render(ReadUsersTool.DESCRIPTION),
+            "| [`read_users`](#read_users) |", "| `read_users` | `user_directory` |",
+            "`reading users`", "`read_users` is **offered only if**");
+        String section = section(reference, "## `read_users`");
+        // every input and output field
+        assertThat(section).contains("`target`", "`view`", "`users`", "`user`", "`logins`",
+            "`login`", "`offset`", "`limit`", "`node`", "`sources`", "`page`", "`items`",
+            "`nextOffset`", "`group`", "`superGroup`", "`roles`", "`email`", "`personal`",
+            "`name`", "`value`", "`masked`", "`unavailable`", "`part`", "`reason`", "`since`",
+            "`warnings`", "`loggedIn`");
+        // personal fields only in `user`, the --who rows, the message views, paging and errors
+        assertThat(section).contains("only in the view `user`", "`Toolset`", "`--who`",
+            "`--nwho`", "L-17", "at most 25", "\"CLI login access\"",
+            "[interface-coverage.md](interface-coverage.md)", "`readOnlyHint: true`",
+            "| `INVALID_INPUT` |", "| `TARGET_UNKNOWN` |", "| `UNSUPPORTED_VERSION` |",
+            "| `CLI_UNAVAILABLE` |", "| `FORBIDDEN` |", "| `NOT_FOUND` |",
+            "| `MAINTENANCE_MODE` |", "| `UNEXPECTED_RESPONSE` |",
+            "| `AUTH_FAILED`, `TLS_ERROR`, `UNREACHABLE`, `TIMEOUT` |", "**Example prompts**");
+        // the state per version follows the production matrix (flipped in T037)
+        CapabilityMatrix matrix = CapabilityMatrix.production();
+        for (String line : List.of("8.1", "9.0")) {
+            boolean verified = matrix.state(InubitVersion.parse(line + ".0"),
+                Capability.USER_DIRECTORY) == SupportState.SUPPORTED;
+            assertThat(section).contains("- INUBIT " + line + ": "
+                + (verified ? "supported" : "not yet verified"));
+        }
     }
 
     @Test

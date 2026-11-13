@@ -1,0 +1,11 @@
+<password>
+user 'jdoe'
+finger 'jdoe'
+user 'batch-user'
+finger 'batch-user'
+user 'qa_robot'
+finger 'qa_robot'
+-who
+-nwho
+msglist
+exit

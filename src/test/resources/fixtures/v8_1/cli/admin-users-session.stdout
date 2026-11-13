@@ -1,0 +1,43 @@
+JAVA_HOME is set
+Connecting as 'jdoe' to https://inubit-dev-1.example.test:8443/ibis/servlet/IBISSoapServlet with hostname verification OFF
+Password: 
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+
+Connection to inubit Process Engine 8.1.17 established.
+<TAB> shows command list
+[COMMAND] with option -h or --help shows help for this command
+CLI|jdoe@inubit-dev-1.example.test> user 'jdoe'
+User name    jdoe       
+User group   OPS        
+Super group  headoffice 
+
+CLI|jdoe@inubit-dev-1.example.test> finger 'jdoe'
+Login: jdoe           Name: Doe, John
+Email: john.doe@example.test
+Role: Platform Administrator
+CLI|jdoe@inubit-dev-1.example.test> user 'batch-user'
+User name    batch-user 
+User group   OPS        
+Super group  headoffice 
+
+CLI|jdoe@inubit-dev-1.example.test> finger 'batch-user'
+Login: batch-user     Name: Service, Batch
+Email: batch.service@external.example.test
+Role: Platform Administrator
+CLI|jdoe@inubit-dev-1.example.test> user 'qa_robot'
+User name    qa_robot   
+User group   OPS        
+Super group  headoffice 
+
+CLI|jdoe@inubit-dev-1.example.test> finger 'qa_robot'
+Login: qa_robot       
+Email: qa.robot+qa_inubit@corp.example.test
+Role: XYZ_operator
+CLI|jdoe@inubit-dev-1.example.test> -who
+Command not found.
+CLI|jdoe@inubit-dev-1.example.test> -nwho
+Command not found.
+CLI|jdoe@inubit-dev-1.example.test> msglist
+ID   Subject                                 Sender         Date
+
+CLI|jdoe@inubit-dev-1.example.test> exit

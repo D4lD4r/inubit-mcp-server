@@ -15,8 +15,8 @@ import java.util.Optional;
  * {@link #inventory()} (US3), {@link #processControl()} (US4), feature 003 adds
  * {@link #artifacts()}, feature 004 {@link #imports()} and {@link #tags()}, feature 018
  * {@link #partners()}, feature 020 {@link #queueEntryContent()}, feature 021
- * {@link #serverLogs()} and feature 022 {@link #serverSettings()}, implemented by the
- * version-specific adapters.
+ * {@link #serverLogs()} and feature 022 {@link #serverSettings()} and {@link #userDirectory()},
+ * implemented by the version-specific adapters.
  * Application services obtain gateways only through {@link GatewayFactory}, so supporting 9.x is an
  * adapter change, not a change of the tool logic.
  */
@@ -147,6 +147,20 @@ public interface Gateway {
         throw new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
             "Server settings are not available for this INUBIT version on " + node(),
             "This adapter line has no server settings adapter",
+            "Call list_nodes for what this node supports").withNode(node()));
+    }
+
+    /**
+     * The users of this server, over REST and StartCLI (feature 022, US2). The default is for
+     * gateways without a user adapter.
+     *
+     * @throws ToolErrorException {@code UNSUPPORTED_VERSION} with the server id, unless the
+     *     version-specific gateway provides an adapter
+     */
+    default UserDirectoryPort userDirectory() {
+        throw new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
+            "User reads are not available for this INUBIT version on " + node(),
+            "This adapter line has no user directory adapter",
             "Call list_nodes for what this node supports").withNode(node()));
     }
 }

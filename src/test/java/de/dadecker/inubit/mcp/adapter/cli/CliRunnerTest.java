@@ -179,10 +179,11 @@ class CliRunnerTest {
     @Test
     void onlyTheGuardedRunIsAccessibleOutsideTheRunner() {
         // Phase 3 re-review N1: tools cannot bypass the credential guard
-        // feature 012 (T016): also the 6.1 session
+        // feature 012 (T016): also the 6.1 session; feature 022 (T032): also a client option run
         List<Method> runs = Arrays.stream(CliRunner.class.getDeclaredMethods())
             .filter(method -> method.getName().equals("run")
-                || method.getName().equals("runSession"))
+                || method.getName().equals("runSession")
+                || method.getName().equals("runClientOption"))
             .filter(method -> !Modifier.isPrivate(method.getModifiers()))
             .toList();
 

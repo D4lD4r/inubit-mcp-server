@@ -200,7 +200,7 @@
       "enum": ["monitoring", "process_diagnosis", "log_diagnosis", "inventory",
         "partner_management", "workspace_export", "development_writes", "deployment", "e2e_test",
         "process_control", "queue_entry_read", "trace_log_read", "webservice_log_read",
-        "server_settings"]
+        "server_settings", "user_directory"]
     },
     "Level": {
       "type": "object",

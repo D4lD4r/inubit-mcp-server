@@ -24,6 +24,12 @@ recordings of a 9.0 node are under contract test. Workflow threads and privilege
 always reported unavailable: StartCLI answers them only to the INUBIT root user. The new coverage
 page lists every documented StartCLI command and REST endpoint with its state per version.
 
+Feature 022, second increment (user story 2): `read_users` reads the users of one node: a page of
+users with their user group and roles, one user with e-mail and personal fields, or the users
+logged in with a client. It is **supported on INUBIT 8.1; 9.0 not yet verified**, like
+`get_server_settings`. The messages of the INUBIT message box are not offered yet: how `msglist`
+lists a message and whether `msgread` marks it as read have not been recorded.
+
 ### Added
 
 - `download_server_log` (feature 021) downloads ONE log of ONE node into a local folder
@@ -77,6 +83,22 @@ page lists every documented StartCLI command and REST endpoint with its state pe
   among the refused capabilities of a 6.1 node in `--check-config`): supported on INUBIT 8.1, not
   yet verified on 9.0 and refused on every other version, so every 9.0 node shows it under
   `notUsable` and is `partially_supported` until it is verified.
+- `read_users` (feature 022) reads the users of ONE node, read-only, in three views. `users` lists
+  the users sorted by login, at most 25 per page with `offset`, `limit` and `nextOffset`: the
+  logins from the REST user list, the user group and roles from one StartCLI session per page
+  (`user` and `finger`). E-mail and the other personal fields are never part of the listing, only
+  of the view `user`, which shows one named user with its user group, the parent group, roles,
+  e-mail and personal fields (secrets masked); an unknown login gives `NOT_FOUND`. `logins` lists
+  the users logged in with a client, the `Toolset` rows of the StartCLI client option `--who`
+  (this call's own connection included), without a login time on INUBIT 8.1. A user whose user
+  group or roles cannot be read is still listed, with the part under its own `unavailable`; a node
+  without a StartCLI client still lists its users (the view `logins` then fails with
+  `CLI_UNAVAILABLE`). Supported on INUBIT 8.1; 9.0 not yet verified, so the tool is offered only
+  when a node may run 8.1.
+- The capability `user_directory` in `list_nodes` (`reading users` in messages and among the
+  refused capabilities of a 6.1 node in `--check-config`): supported on INUBIT 8.1, not yet
+  verified on 9.0 and refused on every other version, so every 9.0 node shows it under
+  `notUsable` and is `partially_supported` until it is verified.
 - The coverage list of every documented StartCLI command and REST endpoint of INUBIT 8.1 and 9.0
   with its state per version (`reachable`, `covered`, `planned` with what it waits for,
   `undocumented`, `excluded` with the reason), published as `docs/interface-coverage.md`. A new
@@ -87,9 +109,11 @@ page lists every documented StartCLI command and REST endpoint with its state pe
 - Internal, no behaviour change: the helper on the INUBIT client, which `read_queue_entry` uses
   and now also `download_server_log`, is renamed `ClientHelper`; the helper classes both tools
   share moved to `adapter/cli/helper`.
-- `docs/tools.md` describes twenty-three tools.
+- `docs/tools.md` describes twenty-four tools.
 - `docs/setup.md` names the INUBIT role "System Administrator" that `get_server_settings` needs for
   the license and the configuration.
+- `docs/setup.md` lists the StartCLI reads of `read_users` among the CLI-backed tools and under
+  `cliTimeout`.
 
 ### Fixed
 

@@ -235,7 +235,7 @@ class CapabilityExtensionTest {
             // capabilities of the US3 version extension only
             (id, withClient) -> EnumSet.complementOf(EnumSet.of(Capability.QUEUE_ENTRY_READ,
                 Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ,
-                Capability.SERVER_SETTINGS)),
+                Capability.SERVER_SETTINGS, Capability.USER_DIRECTORY)),
             TestClientSelection.of(id -> true));
         client = McpTestClient.start(List.of(
             new ListNodesTool(McpTestClient.TEST_PROFILE, overview::nodes),

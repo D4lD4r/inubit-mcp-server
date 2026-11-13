@@ -5,9 +5,9 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * A part of a health report or of server settings (feature 022, FR-013) that could not be
- * obtained, with the reason (FR-008). A tool reports only its own parts; {@code get_health}
- * documents its subset in its output schema.
+ * A part of a health report, of server settings or of one user of {@code read_users} (feature
+ * 022, FR-013) that could not be obtained, with the reason (FR-008). A tool reports only its own
+ * parts; {@code get_health} documents its subset in its output schema.
  *
  * @param part        one of {@link #PARTS}
  * @param reason      starts with a code, e.g. {@code METRICS_NOT_LICENSED: …} or
@@ -45,9 +45,17 @@ public record UnavailablePart(String part, String reason, Optional<String> likel
     public static final String CONFIGURATION = "configuration";
     /** The server time of server settings (feature 022). */
     public static final String SERVER_TIME = "serverTime";
+    /** The group and super group of one user of {@code read_users} (feature 022, US2). */
+    public static final String GROUPS = "groups";
+    /** The roles of one user of {@code read_users} (feature 022, US2). */
+    public static final String ROLES = "roles";
+    /** The e-mail address of the one user of the {@code read_users} view {@code user}. */
+    public static final String EMAIL = "email";
+    /** The other personal fields of the one user of the {@code read_users} view {@code user}. */
+    public static final String PERSONAL = "personal";
     public static final Set<String> PARTS = Set.of(STATUS, READY, VERSION, SYSTEM_INFO, LOAD,
         CLIENT, THREADS, BLOCKING_QUEUE, PROCESS_COUNTS, LICENSE, PRIVILEGED_WORKFLOWS,
-        DB_CONNECTION_TOLERANCE, CONFIGURATION, SERVER_TIME);
+        DB_CONNECTION_TOLERANCE, CONFIGURATION, SERVER_TIME, GROUPS, ROLES, EMAIL, PERSONAL);
 
     /** Reason code of a {@code /metrics} failure that indicates a missing license (R-10). */
     public static final String METRICS_NOT_LICENSED = "METRICS_NOT_LICENSED";

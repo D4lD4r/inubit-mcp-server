@@ -455,7 +455,7 @@ messages (US2).
 **Independent test**: with recorded outputs, a page of users with groups and roles, one user with
 e-mail, the logins and a message, each bounded (US2 AS1–AS6).
 
-- [ ] T028 [LIVE] [OWNER] [US2] L-6, L-17 on 8.1 (and 9.0 when possible):
+- [X] T028 [LIVE] [OWNER] [US2] L-6, L-17 on 8.1 (and 9.0 when possible):
   - `GET /user/users?type=processEngineUser`;
   - a session with `user <login>` and `finger <login>` for three fictitious-named test users;
   - `-who`, `-nwho`;
@@ -463,27 +463,47 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
 
   Neutralize into `fixtures/v8_1/{rest,cli}/admin-users-*` (personal fields replaced by
   `*.example.test` values). Record whether `msgread` marks the message as read.
-- [ ] T029 [P] [US2] Domain records: `domain/model/UserSummary.java` (no personal field by
+- [X] T028a [LIVE] [OWNER] [US2] L-6 logins on 8.1 (added 2026-11-13 after T028: `-who`/`-nwho`
+  are StartCLI client options, not session commands):
+  - record `startcli.sh … --who <url>` and `startcli.sh … --nwho <url>` once each, read-only, on
+    the T028 server (owner approval 2026-11-13);
+  - neutralized fixtures `fixtures/v8_1/cli/admin-users-who.*` and `admin-users-nwho.*`, README
+    rows, research section "Live recording T028a";
+  - D-20 "Logins" and T032 changed to one client run per form (not in the session,
+    `SESSION_OPTIONS` without `-who`/`-nwho`); the coverage entries keep their keys `-who`/`-nwho`.
+  - L-17 stays open by owner decision (2026-11-13): the message reads stay `planned`, no
+    `msgread` parser before a recording.
+- [X] T029 [P] [US2] Domain records: `domain/model/UserSummary.java` (no personal field by
   construction), `UserDetail.java`, `LoginEntry.java`, `MessageSummary.java`, `MessageText.java`
   (`ItemBounds.MAX_ITEM_CHARS`, `truncated`).
   - Failing tests first: `domain/model/UserRecordsTest.java`.
-- [ ] T030 [US2] `adapter/rest/v81/UserListXmlParser.java` (after T029): reads only `id` and `type`.
+  - Replaced in T035: `UserSummary` and `UserDetail` were removed; the tool maps `UserFacts` to the
+    flat user of data-model.md, and `PersonalField` has its own file.
+- [X] T030 [US2] `adapter/rest/v81/UserListXmlParser.java` (after T029): reads only `id` and `type`.
   `email`, `firstName`, `lastName` and unknown attributes are never read into any object. XML is
   hardened.
   - Failing tests first: `UserListXmlParserTest.java` (fixture with planted e-mails: parsed
     objects and `toString` contain none).
-- [ ] T031 [US2] StartCLI parsers (after T029) `adapter/cli/admin/UserGroupsParser.java` (`user <name>`),
-  `FingerParser.java` (login, e-mail, roles, account state if shown), `WhoParser.java`,
-  `MessageListParser.java`, `MessageReadParser.java`.
+- [X] T031 [US2] StartCLI parsers (after T029) `adapter/cli/admin/UserGroupsParser.java` (`user <name>`),
+  `FingerParser.java` (login, e-mail, roles, account state if shown), `WhoParser.java`.
+  - `MessageListParser.java` and `MessageReadParser.java` wait for an L-17 recording (owner
+    decision 2026-11-13: `msglist` was empty in T028, so its row layout and the form of `msgread`
+    are not recorded).
   - Failing tests first: one test class each, with reconstructed cases (recorded after T028).
-- [ ] T032 [US2] `adapter/cli/admin/CliUserRunner.java` (after T012, T031):
+  - `WhoParser` reads the system table of `--who` (research "Live recording T028a"): only
+    `Toolset` rows become a `LoginEntry`, `since` stays empty on 8.1; `--nwho` counts all rows.
+- [X] T032 [US2] `adapter/cli/admin/CliUserRunner.java` (after T012, T031):
   - one session per page with `user <login>` + `finger <login>` for ≤ 25 logins;
-  - `-who`/`-nwho`;
-  - `msglist`, `msgread <id>` (id pattern `^[0-9]{1,10}$`).
-  - `SESSION_OPTIONS` admits exactly these read forms.
+  - logins: one client run per form, `startcli.sh … --who <url>` and `startcli.sh … --nwho <url>`
+    (T028a), not in the session and not with `--execCommand`;
+  - `msglist`, `msgread <id>` (id pattern `^[0-9]{1,10}$`): wait for an L-17 recording (owner
+    decision 2026-11-13), not built in this task.
+  - `SESSION_OPTIONS` admits exactly the session read forms above (`user`, `finger`; `msglist`,
+    `msgread` only after L-17), without `-who`/`-nwho`; the coverage entries keep their keys
+    `-who`/`-nwho`.
   - Failing tests first: `CliUserRunnerTest.java` (scripted session of 25 users; login names
     quoted; a block missing → that user's groups `unavailable`) and `CliSessionCommandTest`.
-- [ ] T033 [US2] Port and wiring:
+- [X] T033 [US2] Port and wiring:
   - `domain/port/UserDirectoryPort.java`;
   - `adapter/rest/v81/V81UserAdapter.java`, `RestEndpoint` + `GET /user/users`;
   - the full `Gateway`/`PortSet` wiring set as in T020.
@@ -493,30 +513,49 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
     small copy method on `PortSet`) instead of copying an 8-port set, before the user-directory
     port is added.
   - Failing tests first: `V81UserAdapterTest.java` and `WiringAuditTest`.
-- [ ] T034 [US2] `application/UserReadService.java`:
-  - views `users`, `user`, `logins`, `messages`, `message`;
+- [X] T034 [US2] `application/UserReadService.java`:
+  - views `users`, `user`, `logins`; `messages`, `message` wait for an L-17 recording (owner
+    decision 2026-11-13);
   - logins sorted, `offset` 0–9999, `limit` 1–25 (default 25), `nextOffset`;
   - an unknown login gives `NOT_FOUND` with the next step "list the users" (AS3);
   - personal fields appear only in `user` (FR-011);
   - `ActionSpec`s per view.
+  - `loggedIn` lists the `Toolset` rows of `--who` (research "Live recording T028a"), without a
+    login time on 8.1; the `--nwho` count of all systems is not reported as a user count.
   - `sources` per fact (FR-009): `logins` REST; `groups`, `roles`, `accountState`, `email`,
-    `loggedIn`, `messages` CLI; asserted per view;
+    `loggedIn` CLI (`messages` CLI after L-17); asserted per view;
   - Failing tests first: `application/UserReadServiceTest.java` (AS1–AS6; a 500-user list gives
     pages; AS5 no e-mail in a listing).
-- [ ] T035 [US2] Tool `mcp/tools/ReadUsersTool.java`:
+- [X] T035 [US2] Tool `mcp/tools/ReadUsersTool.java`:
   - schemas `read_users.{input,output}.json`;
   - read-only, idempotent;
-  - the description names the `msgread` side effect from T028 (FR-008);
+  - the description names the `msgread` side effect (FR-008) once an L-17 recording shows it;
+    until then the tool offers no message view;
   - announcement when `anyPossiblyCapable(USER_DIRECTORY)`.
+  - From the T029 review: `UserDetail` nests its `UserSummary`; the output schema shows a user
+    flat (`user.login`, not `user.summary.login`), mapped in the tool layer.
+  - From the T029 notes: if a user's groups can be `unavailable` (missing session block), decide
+    whether `UserSummary.group` becomes optional or the user is listed with its groups unavailable.
+  - From the T034 review: the `user` view reports the source `personal` (CLI); add it to
+    `read_users.output.json` and to the contract's `sources` list. Register `UserReadService.SPECS`
+    in the Wiring `ActionCatalog` with the tool.
   - Failing tests first: `ReadUsersToolTest.java`, the output schema test,
     `ToolAnnouncementTest`.
-- [ ] T036 [US2] `security/ReadUsersSecretLeakTest.java`: planted e-mails never appear in `users`,
-  and planted secrets in finger output and message text are masked; leak check.
-- [ ] T037 [US2] Contracts and flips [BLOCKED: T028]: `UsersV81ContractTest.java` (and
+- [X] T036 [US2] `security/ReadUsersSecretLeakTest.java`: planted e-mails never appear in `users`,
+  and planted secrets in finger output are masked (message text after L-17); leak check.
+  - From the T034 review: plant e-mails in a failing `finger` block and in a whole-session failure
+    and check end to end that no listing shows them.
+- [X] T037 [US2] Contracts and flips [BLOCKED: T028]: `UsersV81ContractTest.java` (and
   `UsersV90ContractTest.java` when 9.0 is recorded); rows, matrix and docs page.
-- [ ] T038 [US2] Docs and PR:
+  - From the T034 review: `logins` does not read `--nwho` (it counts every connected system), so
+    the `CLI -nwho` row cannot become `reachable:read_users/logins`. Owner decision 2026-11-13:
+    `covered:read_users` (the `logins` page `total` is the number of logged-in users); remove
+    `connectedSystems()` from the port, the adapter and the runner.
+- [X] T038 [US2] Docs and PR:
   - `docs/tools.md` section `read_users`;
-  - `docs/research/inubit-interfaces.md`;
+  - `docs/research/inubit-interfaces.md` (from the T037 review: `-who`/`-nwho` are client options
+    `--who`/`--nwho`; `--who` is read by `read_users` `logins`, `--nwho` is covered; also
+    `docs/backlog.md`);
   - `CHANGELOG.md`;
   - `delivered-stories: US1, US2`, with `waits` set on every US2 row still `planned`.
 

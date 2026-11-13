@@ -179,6 +179,8 @@ a story not delivered yet therefore stays `planned` with that story, and changes
 | Rows | Becomes | In |
 |---|---|---|
 | `license -td`, `license -ts` | `covered:get_server_settings` | T025 / T026 (US1) |
+| `-nwho` (owner decision 2026-11-13: the `logins` page `total`) | `covered:read_users` | T037 (US2) |
+| `-nwho` (owner decision 2026-11-13: the `logins` page `total`) | `covered:read_users` | T037 (US2) |
 | `delete --deleteWorkflow`, `delete --deleteModule`, `library --upload`, `library --delete`, `POST /edirules` | `covered:administer_objects` | T091 (US6) |
 | `POST /configurations` | `covered:change_server_settings` | T091 (US6) |
 | `delete --deleteUser` | `covered:administer_users` | T102 (US7) |
@@ -517,13 +519,20 @@ values again.
   (D-7) runs `user <login>` (groups) and `finger <login>` (roles).
 - **One user**: the same session, plus `email` from `finger` / REST. An account state is reported
   only if INUBIT shows one (L-6).
-- **Logins**: `-who` (names, login time) and `-nwho`.
+- **Logins**: one client run, `startcli.sh … --who <url>`, a StartCLI run of its own (T028a).
+  `--nwho` is not run: it counts every connected system, not users; owner decision 2026-11-13,
+  row `covered:read_users` (the `logins` page `total` is the number of logged-in users). Neither
+  is a session command: in the session 8.1 answers `Command not found.`, and `--execCommand -who`
+  fails because the client takes `-who` as its own option (T028). `CliSessionCommand.SESSION_OPTIONS` therefore admits neither form; the
+  coverage entries keep their keys `-who` / `-nwho`. `--who` shows no login time, only an idle
+  time per row (see "Live recording T028a").
 - **Messages**: `msglist`, then `msgread <id>`. The text is masked and limited to
   `ItemBounds.MAX_ITEM_CHARS`.
 
 The spec's "cursor" (US2 AS1) is the project's `nextOffset`, the paging form of every other tool.
 
 **Rationale**: REST has no groups or roles; one session per page keeps one JVM start per page.
+The logins cost one JVM start per form, because the 8.1 client offers them only as its own options.
 
 ## D-21 Model details and file-producing reads (US3, FR-012)
 
@@ -784,3 +793,106 @@ runner reads every declared StartCLI part a coverage list admits. Their `*-recon
 stay SYNTHETIC; the other `*-reconstructed` cases of US1 are replaced by the recordings. The
 refusal for a missing "CLI login access" right is still not recorded (the profile's account has
 the right), so `CliOutputClassifier.MISSING_CLI_RIGHT` stays SYNTHETIC.
+
+## Live recording T028 (8.1, 2026-11-13)
+
+Read-only recordings on the same 8.1.17 development server and account as T014: `GET
+/user/users?type=processEngineUser`, one stdin session with `user '<login>'` and `finger '<login>'`
+for three logins of that list (the profile's account, the first other login with a hyphen, the
+first other login with an underscore), `-who`, `-nwho`, `msglist` and `exit`, and the same commands
+once each in script mode. Script-mode `msglist` ran first: the session's input is written up
+front, so the message id had to be known before the session. Fixtures:
+`fixtures/v8_1/cli/admin-users-*` and `fixtures/v8_1/rest/admin-users.*` (neutralization in
+`fixtures/v8_1/cli/README.md`). 9.0 was not recorded: the approval covered the 8.1 server
+only.
+
+**L-6 (fields, account state): no account state anywhere.**
+
+- `GET /user/users`: `200`, `application/xml;charset=UTF-8`, one line without a trailing line
+  break. Root `UserList` in the default namespace `inubit.com/ibis/external/user`, with an unused
+  `xmlns:ns2="inubit.com/ibis/external/base"`; the feature-004 recording of the same endpoint had
+  `ns2:UserList` with `ns2` bound to the user namespace. Same namespace URI, different prefixes:
+  a reader that ignores prefixes reads both. `UserListXmlParser` (T030) matches local names only,
+  as `XmlSupport` does everywhere: the endpoint is fixed and only `id` and `type` are read. Each `User` has `id`, `email`,
+  `type="ProcessEngineUser"` and, for 26 of 58, `firstName` and `lastName`; no state, group or
+  role attribute. The list is not sorted by `id`.
+- `user '<login>'`: three rows, `User name`, `User group` (one group) and `Super group` (the
+  parent group). Labels are padded to 13 characters, values to the longest value plus one space.
+  No row for additional groups appeared; whether one appears for a user with additional groups
+  was not recorded (none of the three has one, or the command does not show them). No roles.
+- `finger '<login>'`: `Login: ` with the login padded to 15 characters, then `Name: <last name>,
+  <first name>` only if the user has both names (the user without names in the REST list has no
+  `Name:`); `Email: ` (the same value as the REST `email`); `Role: <role>`, one line per user in
+  all three recordings. Whether several roles give several lines was not recorded. Neither
+  `finger` nor `user` shows a locked, disabled or directory-managed state (L-13 not answered).
+- Single-quoted logins with a hyphen or an underscore work in both modes.
+- Line ends: in the session every answer line ends in CRLF and the `user` block ends with an
+  empty `\r` line; in script mode the last line of `finger` ends in LF only and the `user` block
+  ends with an empty LF line.
+
+**`-who`, `-nwho`: not session commands on 8.1.**
+
+- In the session both answer `Command not found.` (CRLF); the session goes on, and its exit code
+  is 1 although no other command failed: an unknown command counts as a failure like a refused
+  one (T014).
+- In script mode `--execCommand -who` (and `-nwho`) fails before connecting: the client's option
+  parser takes `-who` as its own option, so `--execCommand` has no argument: `EXECUTION ERROR`,
+  `Missing argument for option: execCommand`, exit 1, no `Password:` line.
+- The client's help, `startcli.sh -h` (no server contact), lists `--who` ("List logged in
+  users") and `--nwho` ("Number logged in users") as options of the client itself, beside `--maintenance` and `-x`. The logins are
+  therefore read with `startcli.sh … --who <url>` as a run of its own, neither in the session nor
+  with `--execCommand`. That form was not part of the approval and was not run: L-6 stays open
+  for the logins (the output of `--who` and `--nwho` is unknown), and D-20's "logins: `-who`" in
+  the session does not work as planned on 8.1.
+
+**L-17 (`msgread`): still open.** `msglist` showed no message for the profile's account in both
+modes: only the header `ID   Subject … Sender … Date` (columns 5, 40 and 15 characters wide,
+CRLF) and an empty line. `msgread` was skipped, so whether it marks a message as read, and the
+row layout of `msglist`, are not recorded.
+
+## Live recording T028a (8.1, 2026-11-13)
+
+Read-only recordings on the same 8.1.17 development server and account as T028, approved by the
+owner on 2026-11-13: one client run each of `startcli.sh -u <user> --trustStoreFilePath <store>
+--disableHostNameVerification --who <cliUrl>` and the same with `--nwho`, the password on stdin.
+Fixtures: `fixtures/v8_1/cli/admin-users-who.*` and `admin-users-nwho.*` (neutralization in
+`fixtures/v8_1/cli/README.md`). 9.0 was not recorded.
+
+**L-6 (logins): answered for 8.1.**
+
+- Both forms ask for the password like script mode and print the script-mode preamble:
+  `JAVA_HOME is set`, `Password: ` followed by a line break, the hostname-verification warning
+  (LF). No `Connecting as` line and no `Connection to inubit Process Engine … established.` line.
+  stderr holds only the JVM's `Picked up JAVA_TOOL_OPTIONS` line. Exit code 0 for both.
+- `--who` prints a table, not a list of users: the header `SYSTEM-ID`, `SYSTEM TYPE`, `STATE`,
+  `VERSION`, `IDLE`, the first four columns 64, 30, 10 and 15 characters wide, the fifth, `IDLE`, unpadded, header
+  and rows ending in CRLF, then an empty line (LF). One row per connected system:
+  - the three database connections, `SYSTEM-ID` the JDBC URL, `SYSTEM TYPE` `Log DB
+    (PostgreSQL)`, `Repository DB (PostgreSQL)` or `Cache DB (PostgreSQL)`, `VERSION` the JDBC
+    driver version;
+  - `Portal (BPC)` with its URL, and `Process User Server (inubit)` with an empty `SYSTEM-ID`;
+  - one `Toolset` row for the client connection: `SYSTEM-ID` `<client host> (<login>)`, `STATE`
+    `OK`, `VERSION` the client's version `8.1.17`. Only this row had a `STATE`.
+- No login time and no session data (no session id, no start time). `IDLE` is a duration
+  `<hours>:<mm>:<ss>s`; the five system rows showed the same value of several days, the client
+  row 2 seconds.
+- The user's own login is listed: the run's own connection is the `Toolset` row, with the host the
+  client ran on and the profile account in parentheses. No other `Toolset` row appeared, so how
+  other Workbench or StartCLI connections look was not recorded. The profile account and the
+  operating-system user of the client host have the same name in this recording, so whether the
+  parentheses hold the INUBIT login or the client's operating-system user is not settled.
+- `--nwho` prints a bare number and a line break (LF): `6`, the number of rows `--who` listed,
+  systems included. It is therefore not the number of logged-in users.
+
+**Consequence.** D-20 "Logins" and T032 read the logins with a client run of their own, not in the
+session; `CliSessionCommand.SESSION_OPTIONS` stays without `-who` / `-nwho`. The coverage entries
+keep their keys `-who` / `-nwho`. How `--who` rows become `LoginEntry` values (only `Toolset`
+rows, `since` empty) and what `--nwho` is reported as is left to T031 and T034. Decided in T034
+and by the owner (2026-11-13): only `Toolset` rows become `LoginEntry` values; `--nwho` is not run,
+and its row is `covered:read_users`.
+
+**Open point (T031).** The JDBC URLs in this recording are 60–62 characters, close to the 64-wide
+`SYSTEM-ID` column. How `--who` prints a longer `SYSTEM-ID` (cut, or the row shifted) is not
+recorded; `WhoParser` treats such a table as unknown output, so the `logins` view then fails as a
+whole. A recording from a server with a longer database URL decides whether the parser can read
+the overflow form.
