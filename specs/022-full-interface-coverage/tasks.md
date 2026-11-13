@@ -482,9 +482,11 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   hardened.
   - Failing tests first: `UserListXmlParserTest.java` (fixture with planted e-mails: parsed
     objects and `toString` contain none).
-- [ ] T031 [US2] StartCLI parsers (after T029) `adapter/cli/admin/UserGroupsParser.java` (`user <name>`),
-  `FingerParser.java` (login, e-mail, roles, account state if shown), `WhoParser.java`,
-  `MessageListParser.java`, `MessageReadParser.java`.
+- [X] T031 [US2] StartCLI parsers (after T029) `adapter/cli/admin/UserGroupsParser.java` (`user <name>`),
+  `FingerParser.java` (login, e-mail, roles, account state if shown), `WhoParser.java`.
+  - `MessageListParser.java` and `MessageReadParser.java` wait for an L-17 recording (owner
+    decision 2026-11-13: `msglist` was empty in T028, so its row layout and the form of `msgread`
+    are not recorded).
   - Failing tests first: one test class each, with reconstructed cases (recorded after T028).
   - `WhoParser` reads the system table of `--who` (research "Live recording T028a"): only
     `Toolset` rows become a `LoginEntry`, `since` stays empty on 8.1; `--nwho` counts all rows.
@@ -492,9 +494,11 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   - one session per page with `user <login>` + `finger <login>` for ≤ 25 logins;
   - logins: one client run per form, `startcli.sh … --who <url>` and `startcli.sh … --nwho <url>`
     (T028a), not in the session and not with `--execCommand`;
-  - `msglist`, `msgread <id>` (id pattern `^[0-9]{1,10}$`).
-  - `SESSION_OPTIONS` admits exactly the session read forms above (`user`, `finger`, `msglist`,
-    `msgread`), without `-who`/`-nwho`; the coverage entries keep their keys `-who`/`-nwho`.
+  - `msglist`, `msgread <id>` (id pattern `^[0-9]{1,10}$`): wait for an L-17 recording (owner
+    decision 2026-11-13), not built in this task.
+  - `SESSION_OPTIONS` admits exactly the session read forms above (`user`, `finger`; `msglist`,
+    `msgread` only after L-17), without `-who`/`-nwho`; the coverage entries keep their keys
+    `-who`/`-nwho`.
   - Failing tests first: `CliUserRunnerTest.java` (scripted session of 25 users; login names
     quoted; a block missing → that user's groups `unavailable`) and `CliSessionCommandTest`.
 - [ ] T033 [US2] Port and wiring:
@@ -508,7 +512,8 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
     port is added.
   - Failing tests first: `V81UserAdapterTest.java` and `WiringAuditTest`.
 - [ ] T034 [US2] `application/UserReadService.java`:
-  - views `users`, `user`, `logins`, `messages`, `message`;
+  - views `users`, `user`, `logins`; `messages`, `message` wait for an L-17 recording (owner
+    decision 2026-11-13);
   - logins sorted, `offset` 0–9999, `limit` 1–25 (default 25), `nextOffset`;
   - an unknown login gives `NOT_FOUND` with the next step "list the users" (AS3);
   - personal fields appear only in `user` (FR-011);
@@ -516,13 +521,14 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   - `loggedIn` lists the `Toolset` rows of `--who` (research "Live recording T028a"), without a
     login time on 8.1; the `--nwho` count of all systems is not reported as a user count.
   - `sources` per fact (FR-009): `logins` REST; `groups`, `roles`, `accountState`, `email`,
-    `loggedIn`, `messages` CLI; asserted per view;
+    `loggedIn` CLI (`messages` CLI after L-17); asserted per view;
   - Failing tests first: `application/UserReadServiceTest.java` (AS1–AS6; a 500-user list gives
     pages; AS5 no e-mail in a listing).
 - [ ] T035 [US2] Tool `mcp/tools/ReadUsersTool.java`:
   - schemas `read_users.{input,output}.json`;
   - read-only, idempotent;
-  - the description names the `msgread` side effect from T028 (FR-008);
+  - the description names the `msgread` side effect (FR-008) once an L-17 recording shows it;
+    until then the tool offers no message view;
   - announcement when `anyPossiblyCapable(USER_DIRECTORY)`.
   - From the T029 review: `UserDetail` nests its `UserSummary`; the output schema shows a user
     flat (`user.login`, not `user.summary.login`), mapped in the tool layer.

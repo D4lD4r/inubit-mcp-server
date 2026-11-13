@@ -6,12 +6,13 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.util.List;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
 /**
  * T018 (feature 022, spec edge case "a command prints a text the parser does not know"): the
  * error of every settings parser for an unknown answer, with a masked excerpt of at most 500
- * characters.
+ * characters. T031 (US2, FR-011): for a block with personal values, an excerpt of the labels only.
  */
 class UnknownOutputTest {
 
@@ -37,6 +38,35 @@ class UnknownOutputTest {
 
         assertThat(excerpt).doesNotContain(PLANTED, "synthetic-secret-0182")
             .contains(SecretScrubber.MASK);
+    }
+
+    @Test
+    void theLabelsOnlyExcerptKeepsEachLineLabelButNoValue() {
+        ToolError error = UnknownOutput.labelsOnly("finger <login>", "the recorded form X",
+            List.of("Login: jdoe   Name: Doe, Jane", "Email: jane.doe@example.test",
+                "jane.doe@example.test", "  Role: XYZ_operator")).error();
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.likelyCause()).contains("the recorded form X");
+        assertThat(error.excerpt()).contains(String.join("\n", "Login: " + UnknownOutput.HIDDEN,
+            "Email: " + UnknownOutput.HIDDEN, UnknownOutput.HIDDEN,
+            "Role: " + UnknownOutput.HIDDEN));
+    }
+
+    @Test
+    void thePaddedLabelsOnlyExcerptShowsKnownRowsAndOnlyTheLabelOfOthers() {
+        SecretScrubber.global().register(PLANTED);
+
+        ToolError error = UnknownOutput.paddedLabelsOnly("user <login>", "the recorded form X",
+            List.of("User group   OPS-" + PLANTED, "E-mail       jane.doe@example.test",
+                "jane.doe@example.test", "Doe, Jane"),
+            Pattern.compile("User group +\\S.*")).error();
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.likelyCause()).contains("the recorded form X");
+        assertThat(error.excerpt()).contains(String.join("\n",
+            "User group   OPS-" + SecretScrubber.MASK, "E-mail  " + UnknownOutput.HIDDEN,
+            UnknownOutput.HIDDEN, UnknownOutput.HIDDEN));
     }
 
     @Test

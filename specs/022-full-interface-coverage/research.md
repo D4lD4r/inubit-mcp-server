@@ -885,3 +885,9 @@ Fixtures: `fixtures/v8_1/cli/admin-users-who.*` and `admin-users-nwho.*` (neutra
 session; `CliSessionCommand.SESSION_OPTIONS` stays without `-who` / `-nwho`. The coverage entries
 keep their keys `-who` / `-nwho`. How `--who` rows become `LoginEntry` values (only `Toolset`
 rows, `since` empty) and what `--nwho` is reported as is left to T031 and T034.
+
+**Open point (T031).** The JDBC URLs in this recording are 60–62 characters, close to the 64-wide
+`SYSTEM-ID` column. How `--who` prints a longer `SYSTEM-ID` (cut, or the row shifted) is not
+recorded; `WhoParser` treats such a table as unknown output, so the `logins` view then fails as a
+whole. A recording from a server with a longer database URL decides whether the parser can read
+the overflow form.
