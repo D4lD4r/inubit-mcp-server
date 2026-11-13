@@ -125,10 +125,11 @@ import org.junit.jupiter.params.provider.CsvSource;
  *
  * <p>T037 (FR-030 … FR-032, research D-10, D-21): each {@code node-tools/v8_1/node-config} case
  * runs the real {@link NodeConfigService} over the real {@link CliNodeConfigAdapter} with the names
- * its {@code .origin} names. {@code all} is reconstructed until T038 replaces it with a recording;
- * its values are asserted against what its frames say, so only the counts of present and absent
- * names ({@link #ALL_PRESENT}) and the credential-looking value ({@link #CONFIG_SECRET},
- * {@link #CONFIG_SECRET_NAME}) are written into this test. {@code absent} carries both forms of a
+ * its {@code .origin} names. {@code all} is the recording of spike T018 (T038); its values are
+ * asserted against what its frames say, so only the counts of present and absent names
+ * ({@link #ALL_PRESENT}) are written into this test. {@code secret_value} keeps the reconstructed
+ * shape of {@code all} with a credential-looking value ({@link #CONFIG_SECRET},
+ * {@link #CONFIG_SECRET_NAME}) for the masking of D-21. {@code absent} carries both forms of a
  * property the node does not have, {@code one_error} a failure of one name only.
  */
 @Timeout(60)
@@ -144,7 +145,8 @@ class NodeToolsV81ContractTest {
         "read_latin1", "read_binary", "read_empty", "no_match", "foreign_process", "list_error");
 
     /** The node-config cases; exactly the {@code v8_1/node-config/*.frames} on disk. */
-    static final List<String> CONFIG_CASES = List.of("all", "absent", "one_error", "api_missing");
+    static final List<String> CONFIG_CASES = List.of("all", "secret_value", "absent", "one_error",
+        "api_missing");
 
     private static final CapabilityMatrix MATRIX = TraceMatrix.admittingEightOne();
     private static final Path DIRECTORY =
@@ -173,15 +175,15 @@ class NodeToolsV81ContractTest {
     private static final String[] READ_TEXT_SECRETS =
         {PASSWORD_SECRET, BASIC_SECRET, "fictitious-Basic-7"};
     /**
-     * The names {@code all} answers; the others it answers with INUBIT 8.1.17's error for a
-     * property the node does not have (T018). T038: adjust if the recording answers others.
+     * The names the recorded {@code all} answers; the others it answers with INUBIT 8.1.17's error
+     * for a property the node does not have (T018).
      */
     private static final int ALL_PRESENT = 11;
-    /** The name whose value in {@code all} carries {@link #CONFIG_SECRET}. T038: adjust. */
+    /** The name whose value in {@code secret_value} carries {@link #CONFIG_SECRET}. */
     private static final NodeConfigName CONFIG_SECRET_NAME = NodeConfigName.DATA_SOURCE_LOCATION;
     /**
-     * The invented {@code password=} value in {@code all}'s {@link #CONFIG_SECRET_NAME}, and its
-     * placeholder (D-21). T038: the recording must carry it too, or this case changes.
+     * The invented {@code password=} value in {@code secret_value}'s {@link #CONFIG_SECRET_NAME},
+     * and its placeholder (D-21).
      */
     private static final String CONFIG_SECRET = "example-secret";
     private static final String CONFIG_PLACEHOLDER = "${secret:data.password}";
@@ -721,10 +723,6 @@ class NodeToolsV81ContractTest {
                 assertThat(frame[3]).isEqualTo(MISSING_PROPERTY_CHAIN);
                 assertThat(decode(frame[4])).contains(MISSING_PROPERTY);
             });
-        assertThat(frames).filteredOn(frame -> frame[1].equals(CONFIG_SECRET_NAME.wireName()))
-            .singleElement().satisfies(frame -> assertThat(decode(frame[9]))
-                .as("the case carries a credential-looking value")
-                .endsWith("password=" + CONFIG_SECRET));
         launcher = replaying("all", CONFIG_FIXTURES);
 
         // no names: all of them, in list order
@@ -741,9 +739,6 @@ class NodeToolsV81ContractTest {
         assertThat(result.values()).filteredOn(Present.class::isInstance).hasSize(ALL_PRESENT);
         assertThat(result.values()).filteredOn(Absent.class::isInstance)
             .hasSize(NodeConfigName.values().length - ALL_PRESENT);
-        assertThat(result.values()).filteredOn(value -> value.name() == CONFIG_SECRET_NAME)
-            .singleElement().satisfies(value -> assertThat(((Present) value).value())
-                .endsWith("password=" + CONFIG_PLACEHOLDER));
         assertThat(result.warnings()).containsExactly(NodeConfigResult.WARNING);
         assertThat(requestLines()).contains("op=nodeConfig");
         assertThat(field(launcher.last().stdinBytes(), "names"))
@@ -751,6 +746,31 @@ class NodeToolsV81ContractTest {
         assertThat(launcher.launchCount()).isEqualTo(1);
         assertThat(appender.list).extracting(ILoggingEvent::getFormattedMessage)
             .contains("get_node_config on test/node1: 20 name(s), outcome OK");
+        assertNoLeak(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void secretValueMasksTheCredentialLookingValueEndToEnd() throws IOException {
+        List<String[]> frames = frames("secret_value", CONFIG_FIXTURES).stream()
+            .filter(frame -> frame.startsWith("config ")).map(frame -> frame.split(" ", -1))
+            .toList();
+        assertThat(frames).filteredOn(frame -> frame[1].equals(CONFIG_SECRET_NAME.wireName()))
+            .singleElement().satisfies(frame -> assertThat(decode(frame[9]))
+                .as("the case carries a credential-looking value")
+                .endsWith("password=" + CONFIG_SECRET));
+        launcher = replaying("secret_value", CONFIG_FIXTURES);
+
+        NodeConfigResult result = nodeConfigService()
+            .read(new NodeConfigRequest(NODE.value(), configNames("secret_value")));
+
+        assertThat(result.values()).containsExactlyElementsOf(frames.stream()
+            .map(NodeToolsV81ContractTest::expectedConfigValue).toList());
+        assertThat(result.values()).filteredOn(value -> value.name() == CONFIG_SECRET_NAME)
+            .singleElement().satisfies(value -> assertThat(((Present) value).value())
+                .endsWith("password=" + CONFIG_PLACEHOLDER).doesNotContain(CONFIG_SECRET));
+        assertThat(result.warnings()).containsExactly(NodeConfigResult.WARNING);
+        assertThat(launcher.launchCount()).isEqualTo(1);
         assertNoLeak(result);
         assertTempRootEmpty();
     }
@@ -1050,19 +1070,23 @@ class NodeToolsV81ContractTest {
         return value.find() ? Optional.of(value.group(1)) : Optional.empty();
     }
 
-    /** The configuration names the first line of {@code <case>.origin} names in {@code names=}. */
+    /**
+     * The configuration names of the first {@code names=} in {@code <case>.origin} (on its second
+     * line for a recorded case, whose first line is only {@code recorded <date> <version>
+     * neutralized}).
+     */
     private static List<String> configNames(String fixtureCase) {
-        String origin = fixture(CONFIG_FIXTURES, fixtureCase + ".origin").lines().findFirst()
-            .orElseThrow();
-        Matcher names = Pattern.compile(" names=([0-9A-Za-z,]+)").matcher(origin);
+        String origin = fixture(CONFIG_FIXTURES, fixtureCase + ".origin");
+        Matcher names = Pattern.compile("(?<![A-Za-z])names=([0-9A-Za-z,]+)").matcher(origin);
         assertThat(names.find()).as("%s.origin names the request's names", fixtureCase).isTrue();
         return List.of(names.group(1).split(","));
     }
 
     /**
-     * What the service returns for the split {@code config} frame of {@code all}: an {@code ok}
-     * frame its {@link Present} with {@link #CONFIG_SECRET} masked, any other frame (by the
-     * assertions on the case, the missing-property form) {@link Absent}.
+     * What the service returns for the split {@code config} frame of {@code all} or
+     * {@code secret_value}: an {@code ok} frame its {@link Present} with {@code -} as the empty
+     * text and {@link #CONFIG_SECRET} masked, any other frame (by the assertions on the cases, the
+     * missing-property form) {@link Absent}.
      */
     private static NodeConfigValue expectedConfigValue(String[] frame) {
         NodeConfigName name = NodeConfigName.parse(frame[1]).orElseThrow();
@@ -1071,9 +1095,14 @@ class NodeToolsV81ContractTest {
         }
         // config <name> ok <type> <editable> <deprecated> <displayName> <category>
         //     <description> <value>
-        return new Present(name, decode(frame[9]).replace(CONFIG_SECRET, CONFIG_PLACEHOLDER),
-            false, frame[3], decode(frame[6]), decode(frame[8]), decode(frame[7]),
+        return new Present(name, text(frame[9]).replace(CONFIG_SECRET, CONFIG_PLACEHOLDER),
+            false, frame[3], text(frame[6]), text(frame[8]), text(frame[7]),
             Boolean.parseBoolean(frame[4]), Boolean.parseBoolean(frame[5]));
+    }
+
+    /** A text token of a frame; {@code -} is the empty text (helper-protocol-delta.md). */
+    private static String text(String token) {
+        return token.equals("-") ? "" : decode(token);
     }
 
     private static String ioFixture(String name) {

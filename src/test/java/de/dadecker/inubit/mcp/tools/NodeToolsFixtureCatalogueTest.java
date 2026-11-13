@@ -45,6 +45,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * T019 (feature 024, research D-26, D-27): the closed world of the node-tool fixtures in
@@ -112,8 +113,9 @@ class NodeToolsFixtureCatalogueTest {
             "v8_1/cluster-nodes/garbage", "v8_1/io-log/listing", "v8_1/io-log/empty_listing",
             "v8_1/io-log/read_text", "v8_1/io-log/read_latin1", "v8_1/io-log/read_binary",
             "v8_1/io-log/read_empty", "v8_1/io-log/no_match", "v8_1/io-log/foreign_process",
-            "v8_1/io-log/list_error", "v8_1/node-config/all", "v8_1/node-config/absent",
-            "v8_1/node-config/one_error", "v8_1/node-config/api_missing");
+            "v8_1/io-log/list_error", "v8_1/node-config/all", "v8_1/node-config/secret_value",
+            "v8_1/node-config/absent", "v8_1/node-config/one_error",
+            "v8_1/node-config/api_missing");
     }
 
     @Test
@@ -307,6 +309,8 @@ class NodeToolsFixtureCatalogueTest {
     @CsvSource(delimiter = '|', value = {
         "all | 0 | Start LoginOk NodeOk ConfigError ConfigOk ConfigError ConfigOk*4 ConfigError*3"
             + " ConfigOk ConfigError ConfigOk*3 ConfigError*3 ConfigOk*2 End | -",
+        "secret_value | 0 | Start LoginOk NodeOk ConfigError ConfigOk ConfigError ConfigOk*4"
+            + " ConfigError*3 ConfigOk ConfigError ConfigOk*3 ConfigError*3 ConfigOk*2 End | -",
         "absent | 0 | Start LoginOk NodeOk ConfigError ConfigAbsent ConfigOk End | -",
         "one_error | 0 | Start LoginOk NodeOk ConfigOk ConfigError ConfigOk End | -",
         "api_missing | 4 | ApiMissing | -"})
@@ -329,30 +333,25 @@ class NodeToolsFixtureCatalogueTest {
     }
 
     /**
-     * {@code all} asks for every allowlisted name and has the shape of the T018 spike on 8.1.17:
-     * the eleven names it answered with their types, editable and not deprecated, and the other
-     * nine in the error form of a missing property; one value carries a credential-looking text
-     * for the masking of D-21 (defence in depth).
+     * {@code all} is the recording of the T018 spike on 8.1.17 (T038), {@code secret_value} its
+     * reconstructed shape: both ask for every allowlisted name, answer the eleven names T018 saw
+     * with their types, editable and not deprecated, and the other nine in the error form of a
+     * missing property.
      */
-    @Test
-    void theAllCaseHasTheShapeOfThe8_1SpikeAndAMaskableValue() throws IOException {
-        assertThat(requestedNames("all")).isEqualTo(Arrays.stream(NodeConfigName.values())
+    @ParameterizedTest
+    @ValueSource(strings = {"all", "secret_value"})
+    void anAllNamesCaseHasTheShapeOfThe8_1Spike(String name) throws IOException {
+        assertThat(requestedNames(name)).isEqualTo(Arrays.stream(NodeConfigName.values())
             .map(NodeConfigName::wireName).toList());
-        List<ConfigOk> answered = configFrames("all").frames().stream()
-            .filter(ConfigOk.class::isInstance).map(ConfigOk.class::cast).toList();
-        assertThat(answered).extracting(ok -> ok.name() + " " + ok.type() + " " + ok.editable()
-            + " " + ok.deprecated()).containsExactly("ClusterName String true false",
-            "NodeName String true false", "LocalMaintenanceMode Boolean true false",
-            "ActivateClusterManager Boolean true false", "ClusterDebug Boolean true false",
-            "RuntimeDataCacheXMXPercentage Integer true false", "indexEnabled Boolean true false",
-            "iterationCount Integer true false", "DataSourceLocation String true false",
-            "noOfRetries Integer true false", "retryInterval Long true false");
-        assertThat(answered).allSatisfy(ok -> assertThat(List.of(ok.displayName(),
-            ok.category(), ok.description(), ok.value())).doesNotContain(""));
-        assertThat(answered).extracting(ConfigOk::value).contains("acme-cluster", "node1")
-            .anySatisfy(value -> assertThat(value).startsWith("java:/comp/env/jdbc/IBISDB")
-                .containsPattern("(?i)password=\\S"));
-        assertThat(configFrames("all").frames()).filteredOn(ConfigError.class::isInstance)
+        assertThat(answered(name)).extracting(ok -> ok.name() + " " + ok.type() + " "
+            + ok.editable() + " " + ok.deprecated()).containsExactly(
+            "ClusterName String true false", "NodeName String true false",
+            "LocalMaintenanceMode Boolean true false", "ActivateClusterManager Boolean true false",
+            "ClusterDebug Boolean true false", "RuntimeDataCacheXMXPercentage Integer true false",
+            "indexEnabled Boolean true false", "iterationCount Integer true false",
+            "DataSourceLocation String true false", "noOfRetries Integer true false",
+            "retryInterval Long true false");
+        assertThat(configFrames(name).frames()).filteredOn(ConfigError.class::isInstance)
             .containsExactly(propertyMissing("OperationMode"), propertyMissing("ZoneName"),
                 propertyMissing("ContainerShutdownOnNodeFailure"),
                 propertyMissing("RegisterMBeans"), propertyMissing("RegisterInternalMBeans"),
@@ -360,6 +359,37 @@ class NodeToolsFixtureCatalogueTest {
                 propertyMissing("LogsDBDataSourceLocation"),
                 propertyMissing("RepositoryDataSourceLocation"),
                 propertyMissing("ClusterBindAddress"));
+    }
+
+    /**
+     * As recorded on 8.1.17, {@code all} carries the generic vendor texts (display name = name,
+     * category = type, no description) and its fictitious values have nothing credential-looking.
+     */
+    @Test
+    void theAllCaseCarriesTheGenericVendorTextsOfTheRecording() throws IOException {
+        assertThat(answered("all")).allSatisfy(ok -> {
+            assertThat(ok.displayName()).isEqualTo(ok.name());
+            assertThat(ok.category()).isEqualTo(ok.type());
+            assertThat(ok.description()).isEmpty();
+            assertThat(ok.value()).isNotEmpty().doesNotContainPattern("(?i)password|user=");
+        });
+        assertThat(answered("all")).extracting(ConfigOk::value)
+            .contains("acme-cluster", "node1", "java:/comp/env/jdbc/IBISDB");
+    }
+
+    /**
+     * {@code secret_value} has invented display names, categories and descriptions, and its
+     * {@code DataSourceLocation} value carries a credential-looking text for the masking of D-21
+     * (defence in depth).
+     */
+    @Test
+    void theSecretValueCaseCarriesAMaskableValue() throws IOException {
+        List<ConfigOk> answered = answered("secret_value");
+        assertThat(answered).allSatisfy(ok -> assertThat(List.of(ok.displayName(),
+            ok.category(), ok.description(), ok.value())).doesNotContain(""));
+        assertThat(answered).filteredOn(ok -> ok.name().equals("DataSourceLocation"))
+            .singleElement().extracting(ConfigOk::value).asString()
+            .startsWith("java:/comp/env/jdbc/IBISDB").containsPattern("(?i)password=\\S");
     }
 
     /**
@@ -388,12 +418,23 @@ class NodeToolsFixtureCatalogueTest {
             ROOT.resolve("v8_1/node-config/" + name + ".frames"), StandardCharsets.UTF_8));
     }
 
-    /** The {@code names=…} on the first line of the {@code .origin} of a node-config case. */
-    private static List<String> requestedNames(String name) {
-        Matcher names = Pattern.compile(" names=([A-Za-z]+(?:,[A-Za-z]+)*)(?![A-Za-z,])")
-            .matcher(firstLine(ROOT.resolve("v8_1/node-config/" + name + ".origin")));
+    /**
+     * The first {@code names=…} in the {@code .origin} of a node-config case (on its second line
+     * for a recorded case, whose first line is only {@code recorded <date> <version> neutralized}).
+     */
+    private static List<String> requestedNames(String name) throws IOException {
+        Matcher names = Pattern.compile(
+                "(?<![A-Za-z])names=([A-Za-z]+(?:,[A-Za-z]+)*)(?![A-Za-z,])")
+            .matcher(Files.readString(ROOT.resolve("v8_1/node-config/" + name + ".origin"),
+                StandardCharsets.UTF_8));
         assertThat(names.find()).as(name + ".origin names names=<name>,...").isTrue();
         return List.of(names.group(1).split(","));
+    }
+
+    /** The {@code config ok} frames of a node-config case, in order. */
+    private static List<ConfigOk> answered(String name) throws IOException {
+        return configFrames(name).frames().stream().filter(ConfigOk.class::isInstance)
+            .map(ConfigOk.class::cast).toList();
     }
 
     private static HelperFrames ioFrames(String name) throws IOException {

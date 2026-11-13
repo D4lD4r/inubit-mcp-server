@@ -422,7 +422,7 @@ ever sent (FR-030 … FR-032, SC-003).
 the list is refused before any request; the fake records that only listed names were sent.
 
 - [X] T033 [US3] Reconstructed node-config fixtures (D-26; after T012, T026 — same catalogue test):
-  `src/test/resources/fixtures/node-tools/v8_1/node-config/{all,absent,one_error,api_missing}.{frames,exit,origin}`
+  `src/test/resources/fixtures/node-tools/v8_1/node-config/{all,absent,one_error,api_missing}.{frames,exit,origin}` (T038: `all` recorded; the former reconstructed `all` is `secret_value`)
   (fictitious values: `CLUSTER`, `acme-cluster`, `zone-a`, `node1`, `java:/comp/env/jdbc/IBISDB`, …;
   `absent` in the form 8.1.17 really answers a property the node lacks (T018 spike: `config <name> error
   com.inubit.ibis.utils.InubitException` wrapping `Cannot invoke "Object.getClass()" because "o" is null`;
@@ -454,7 +454,7 @@ the list is refused before any request; the fake records that only listed names 
   new `GetNodeConfigWiringTest.java` (no opt-in → nothing sent), `MainTest.java` (after T030)
 - [X] T037 [US3] Contract test (after T036): `NodeToolsV81ContractTest` `+` every
   `v8_1/node-config` case (`all` reconstructed until T038; `absent` in the 8.1.17 NPE form → absent; `one_error`; `api_missing`)
-- [ ] T038 [US3] **[OWNER]** **[BLOCKED: T018]** Enable 8.1 `node_config_read` in **one commit**:
+- [X] T038 [US3] **[OWNER]** **[BLOCKED: T018]** Enable 8.1 `node_config_read` in **one commit**:
   as T025 for the T018 `nodeConfig` output (values replaced by fictitious ones of the same type;
   display names, descriptions and categories kept only if they are generic vendor texts, else
   replaced); `v8_1/node-config/all.*` recorded; **owner reviews the fixture diff**; 8.1

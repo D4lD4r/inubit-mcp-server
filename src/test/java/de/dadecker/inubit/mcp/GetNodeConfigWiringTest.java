@@ -51,10 +51,9 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * Feature 024 T036 (FR-002, FR-030, research D-6): {@code get_node_config} through the production
  * wiring with {@link TraceMatrix#admittingEightOne()}, a test matrix that admits the node
- * configuration on 8.1 (the production matrix does not before T038). A group without
- * {@code unsupported.nodeConfigRead} is refused before any request or launch; an opted-in group
- * reads all 20 values through the INUBIT client helper, a fake replaying the
- * {@code node-tools/v8_1/node-config/all} case.
+ * configuration on 8.1. A group without {@code unsupported.nodeConfigRead} is refused before any
+ * request or launch; an opted-in group reads all 20 values through the INUBIT client helper, a
+ * fake replaying the {@code node-tools/v8_1/node-config/secret_value} case.
  */
 @Timeout(60)
 class GetNodeConfigWiringTest {
@@ -209,8 +208,8 @@ class GetNodeConfigWiringTest {
 
     /**
      * StartCLI and the INUBIT client helper: a helper run records its request without the
-     * password in {@code requests} and answers with the {@code all} frames carrying the request's
-     * nonce; every other run (the client version probe) replays {@code version}.
+     * password in {@code requests} and answers with the {@code secret_value} frames carrying the
+     * request's nonce; every other run (the client version probe) replays {@code version}.
      */
     private static ProcessLauncher helper(List<Map<String, String>> requests) {
         FakeProcessLauncher helper = FakeProcessLauncher.of("", "", 0).responding(request -> {
@@ -225,8 +224,8 @@ class GetNodeConfigWiringTest {
             String nonce = fields.get("nonce");
             fields.remove("password");
             requests.add(fields);
-            return new FakeProcessLauncher.Answer(fixture("all.frames").replace(
-                FIXTURE_NONCE, nonce), Integer.parseInt(fixture("all.exit").strip()));
+            return new FakeProcessLauncher.Answer(fixture("secret_value.frames").replace(
+                FIXTURE_NONCE, nonce), Integer.parseInt(fixture("secret_value.exit").strip()));
         });
         return spec -> spec.command().getLast().equals(HelperInstallation.MAIN_CLASS)
             ? helper.launch(spec) : FakeProcessLauncher.replaying("version").launch(spec);

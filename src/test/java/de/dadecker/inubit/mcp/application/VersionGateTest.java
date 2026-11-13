@@ -1469,9 +1469,14 @@ class VersionGateTest {
         Capability.NODE_CONFIG_READ, "get_node_config",
         Capability.LOG_LEVEL_WRITE, "set_temporary_log_level");
 
+    /** The node-tool capabilities admitted on 8.1 since their recordings (T025, T038). */
+    private static final Map<Capability, String> RECORDED_ON_81 = Map.of(
+        Capability.CLUSTER_NODES_READ, "list_cluster_nodes",
+        Capability.NODE_CONFIG_READ, "get_node_config");
+
     /**
      * Until its recording each node tool is refused with the matrix note: on 9.0 every one, on
-     * 8.1 every one but the cluster's node list (recorded in T025, below).
+     * 8.1 every one but those recorded there ({@link #RECORDED_ON_81}, below).
      */
     @Test
     void aNodeToolIsNotYetVerifiedUntilItsRecording() {
@@ -1481,7 +1486,7 @@ class VersionGateTest {
             assertThat(v90.message()).isEqualTo(tool + ": INUBIT 9.0 on prod/node4: "
                 + capability.label() + " is not yet verified for INUBIT 9.0; nothing was sent");
             assertNoLeak(v90);
-            if (capability != Capability.CLUSTER_NODES_READ) {
+            if (!RECORDED_ON_81.containsKey(capability)) {
                 ToolError v81 = refusal(() -> gate().admit(tool, PINNED, capability,
                     capability.kind(), CLI));
                 assertThat(v81.message()).isEqualTo(tool + ": INUBIT 8.1.17 on prod/node1: "
@@ -1491,17 +1496,21 @@ class VersionGateTest {
             }
         });
         assertThat(probe.calls).as("no StartCLI run").isEmpty();
-        assertThat(appender.list).hasSize(2 * NODE_TOOLS.size() - 1);
+        assertThat(appender.list).hasSize(2 * NODE_TOOLS.size() - RECORDED_ON_81.size());
     }
 
-    /** T025: the recorded 8.1 cluster-nodes case admits the cluster's node list without warning. */
+    /**
+     * T025, T038: the recorded 8.1 cluster-nodes and node-config cases admit the cluster's node
+     * list and the node configuration without warning.
+     */
     @Test
-    void theClusterNodeListIsAdmittedOn81SinceItsRecording() {
-        Admission v81 = gate().admit("list_cluster_nodes", PINNED, Capability.CLUSTER_NODES_READ,
-            Kind.READ, CLI);
+    void aRecordedNodeToolIsAdmittedOn81SinceItsRecording() {
+        RECORDED_ON_81.forEach((capability, tool) -> {
+            Admission v81 = gate().admit(tool, PINNED, capability, Kind.READ, CLI);
 
-        assertThat(v81.warnings()).isEmpty();
-        assertThat(v81.version()).contains(version("8.1.17"));
+            assertThat(v81.warnings()).as(tool).isEmpty();
+            assertThat(v81.version()).as(tool).contains(version("8.1.17"));
+        });
         assertThat(probe.calls).as("no StartCLI run").isEmpty();
         assertThat(appender.list).isEmpty();
     }

@@ -612,14 +612,22 @@ class ToolAnnouncementTest {
     }
 
     @Test
-    void onTheProductionMatrixGetNodeConfigIsNotAnnouncedBeforeItsRecording() {
-        // NODE_CONFIG_READ stays unsupported on 8.1 and 9.0 until T038
+    void onTheProductionMatrixGetNodeConfigIsAnnouncedForAnOptedInEightOneOrAutoNode() {
+        // since T038 the production matrix supports NODE_CONFIG_READ on 8.1; 9.0 still not
         CapabilityMatrix production = CapabilityMatrix.production();
+        List<String> withNodeConfig = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "get_node_config", "list_inventory", "get_inventory_item", "find_partners",
+            "export_artifacts", "export_archives", "check_artifacts");
         assertThat(groupTools("V8_1", nodeConfigOptIn("true") + "\n" + cliHome(), false,
-            production)).containsExactlyElementsOf(REFERENCE);
+            production)).containsExactlyElementsOf(withNodeConfig);
         assertThat(groupTools("AUTO", nodeConfigOptIn("true") + "\n" + cliHome(), false,
-            production)).containsExactlyElementsOf(REFERENCE);
+            production)).containsExactlyElementsOf(withNodeConfig);
         assertThat(groupTools("V9_0", nodeConfigOptIn("true"), true, production))
+            .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V8_1", cliHome(), false, production))
+            .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("AUTO", cliHome(), false, production))
             .containsExactlyElementsOf(REFERENCE);
     }
 }

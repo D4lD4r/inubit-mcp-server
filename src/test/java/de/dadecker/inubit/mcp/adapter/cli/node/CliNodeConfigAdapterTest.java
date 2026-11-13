@@ -138,9 +138,9 @@ class CliNodeConfigAdapterTest {
     // --- the reconstructed cases (T033) ---------------------------------------------------------
 
     @Test
-    void theAllCaseAnswersEveryNameInRequestOrderAndTheMissingPropertyFormIsAbsent()
+    void theSecretValueCaseAnswersEveryNameInRequestOrderAndTheMissingPropertyFormIsAbsent()
         throws IOException {
-        launcher = replaying("all");
+        launcher = replaying("secret_value");
         EffectiveNodeConfig server = http().build();
         List<NodeConfigName> names = List.of(NodeConfigName.values());
 

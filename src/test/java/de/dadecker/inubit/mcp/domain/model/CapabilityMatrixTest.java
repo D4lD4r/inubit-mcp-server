@@ -25,12 +25,12 @@ class CapabilityMatrixTest {
 
     /**
      * Feature 021: the server-log reads are supported since their 8.1 recordings (trace T033, web
-     * service T046); feature 024: the cluster's node list since its 8.1 recording (T025), the
-     * other node tools wait for their recordings (below).
+     * service T046); feature 024: the cluster's node list and the node configuration since their
+     * 8.1 recordings (T025, T038), the other node tools wait for their recordings (below).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"IO_LOG_READ", "NODE_CONFIG_READ",
-        "LOG_LEVEL_WRITE"}, mode = Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"IO_LOG_READ", "LOG_LEVEL_WRITE"},
+        mode = Mode.EXCLUDE)
     void everyCapabilityIsSupportedOn81(Capability capability) {
         assertThat(production.state(version("8.1.17"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -434,12 +434,13 @@ class CapabilityMatrixTest {
     /**
      * T031 (feature 021, FR-002): a version not yet known (an {@code AUTO} node) may run a
      * capability only if some range or the unknown versions admit it; since their 8.1 recordings
-     * (T033, T046) 8.1 admits both server-log reads; feature 024: since its 8.1 recording (T025)
-     * the cluster's node list, the other node tools not before their recordings (below).
+     * (T033, T046) 8.1 admits both server-log reads; feature 024: since their 8.1 recordings
+     * (T025, T038) the cluster's node list and the node configuration, the other node tools not
+     * before their recordings (below).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"IO_LOG_READ", "NODE_CONFIG_READ",
-        "LOG_LEVEL_WRITE"}, mode = Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"IO_LOG_READ", "LOG_LEVEL_WRITE"},
+        mode = Mode.EXCLUDE)
     void everyCapabilityIsPossiblySupportedOnTheProductionMatrix(Capability capability) {
         assertThat(production.possiblySupported(capability)).isTrue();
     }
@@ -520,35 +521,35 @@ class CapabilityMatrixTest {
     }
 
     /**
-     * T025 (FR-005, D-27): the recorded 8.1 cluster-nodes case enabled the cluster's node list on
-     * 8.1; its note is gone there. 9.0 still refuses it as "not yet verified" (until T062).
+     * T025, T038 (FR-005, D-27): the recorded 8.1 cluster-nodes and node-config cases enabled the
+     * cluster's node list and the node configuration on 8.1; their notes are gone there. 9.0 still
+     * refuses them as "not yet verified" (until T062, T064).
      */
-    @Test
-    void theClusterNodeListIsSupportedOn81WithoutNoteAndNotYetVerifiedOn90() {
-        Capability clusterNodes = Capability.CLUSTER_NODES_READ;
-        assertThat(production.state(version("8.1.17"), clusterNodes))
+    @ParameterizedTest
+    @EnumSource(value = Capability.class, names = {"CLUSTER_NODES_READ", "NODE_CONFIG_READ"})
+    void aRecordedNodeToolIsSupportedOn81WithoutNoteAndNotYetVerifiedOn90(Capability capability) {
+        assertThat(production.state(version("8.1.17"), capability))
             .isEqualTo(SupportState.SUPPORTED);
-        assertThat(production.stateOfLine(8, OptionalInt.of(1), clusterNodes))
+        assertThat(production.stateOfLine(8, OptionalInt.of(1), capability))
             .isEqualTo(SupportState.SUPPORTED);
-        assertThat(production.note(version("8.1.17"), clusterNodes)).isEmpty();
-        assertThat(production.channels(version("8.1.17"), clusterNodes))
+        assertThat(production.note(version("8.1.17"), capability)).isEmpty();
+        assertThat(production.channels(version("8.1.17"), capability))
             .containsExactly(Channel.CLI);
-        assertThat(production.state(version("9.0.7"), clusterNodes))
+        assertThat(production.state(version("9.0.7"), capability))
             .isEqualTo(SupportState.UNSUPPORTED);
-        assertThat(production.stateOfLine(9, OptionalInt.of(0), clusterNodes))
+        assertThat(production.stateOfLine(9, OptionalInt.of(0), capability))
             .isEqualTo(SupportState.UNSUPPORTED);
-        assertThat(production.note(version("9.0.7"), clusterNodes)).contains("not yet verified");
-        assertThat(production.lines(clusterNodes)).containsExactly("8.1", "9.0");
-        assertThat(production.possiblySupported(clusterNodes)).isTrue();
+        assertThat(production.note(version("9.0.7"), capability)).contains("not yet verified");
+        assertThat(production.lines(capability)).containsExactly("8.1", "9.0");
+        assertThat(production.possiblySupported(capability)).isTrue();
     }
 
     /**
-     * Until its recording (T032, T038, T058, T063–T065) each other node tool is refused on 8.1
-     * and 9.0 as "not yet verified", and no version may run it.
+     * Until its recording (T032, T058, T063, T065) each other node tool is refused on 8.1 and 9.0
+     * as "not yet verified", and no version may run it.
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"IO_LOG_READ", "NODE_CONFIG_READ",
-        "LOG_LEVEL_WRITE"})
+    @EnumSource(value = Capability.class, names = {"IO_LOG_READ", "LOG_LEVEL_WRITE"})
     void aNodeToolIsNotYetVerifiedOn81And90(Capability capability) {
         for (Optional<InubitVersion> verified : List.of(version("8.1.17"), version("9.0.7"))) {
             assertThat(production.state(verified, capability)).as("%s", verified)

@@ -2343,10 +2343,13 @@ class MainTest {
         // T030
         Path ioLogOptedOut = configWithClientHome("    unsupported:\n      ioLogRead: false\n");
         assertThat(announcedTools(ioLogOptedOut)).containsExactlyElementsOf(reference);
-        // T036
+        // T036, T038
         Path nodeConfigOptedOut =
             configWithClientHome("    unsupported:\n      nodeConfigRead: false\n");
         assertThat(announcedTools(nodeConfigOptedOut)).containsExactlyElementsOf(reference);
+        assertThat(announcedTools(config(Files.readString(nodeConfigOptedOut)
+            .replace("versionLine: V8_1", "versionLine: AUTO"))))
+            .containsExactlyElementsOf(reference);
     }
 
     @Test
@@ -2383,22 +2386,22 @@ class MainTest {
             .containsExactlyElementsOf(reference);
     }
 
-    // --- feature 024 T036: get_node_config only under its opt-in (FR-002, SC-005, D-6)
+    // --- feature 024 T036, T038: get_node_config only under its opt-in (FR-002, SC-005, D-6)
 
     @Test
-    void anOptedInNodeDoesNotAnnounceGetNodeConfigBeforeItsRecording() throws Exception {
-        // the production matrix keeps NODE_CONFIG_READ unsupported on 8.1 and 9.0 until T038
+    void anOptedInEightOneOrAutoNodeWithAClientHomeAnnouncesGetNodeConfig() throws Exception {
+        // T038: the production matrix supports the node configuration on 8.1 since its recording
         credentials();
-        List<String> reference = List.of("list_nodes", "get_health", "read_knowledge",
+        List<String> withNodeConfig = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
-            "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
-            "export_archives", "check_artifacts");
+            "get_node_config", "list_inventory", "get_inventory_item", "find_partners",
+            "export_artifacts", "export_archives", "check_artifacts");
 
         Path optedIn = configWithClientHome("    unsupported:\n      nodeConfigRead: true\n");
-        assertThat(announcedTools(optedIn)).containsExactlyElementsOf(reference);
+        assertThat(announcedTools(optedIn)).containsExactlyElementsOf(withNodeConfig);
         assertThat(announcedTools(config(Files.readString(optedIn)
             .replace("versionLine: V8_1", "versionLine: AUTO"))))
-            .containsExactlyElementsOf(reference);
+            .containsExactlyElementsOf(withNodeConfig);
     }
 
     @Test

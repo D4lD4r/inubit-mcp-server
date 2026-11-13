@@ -77,7 +77,7 @@ public final class CapabilityMatrix {
      * yet verified"; the commit that adds the recording of one removes it here.
      */
     private static final Set<Capability> V8_1_NOT_YET_VERIFIED = Set.of(
-        Capability.IO_LOG_READ, Capability.NODE_CONFIG_READ, Capability.LOG_LEVEL_WRITE);
+        Capability.IO_LOG_READ, Capability.LOG_LEVEL_WRITE);
 
     /** Feature 024: the same for 9.0. */
     private static final Set<Capability> V9_0_NOT_YET_VERIFIED = Set.of(
@@ -86,8 +86,8 @@ public final class CapabilityMatrix {
 
     /**
      * 8.1: everything; the server-log reads of feature 021 since their recordings (trace log T033,
-     * web service log T046); of the node tools of feature 024 the cluster's node list since its
-     * recording (T025), the others not yet verified.
+     * web service log T046); of the node tools of feature 024 the cluster's node list and the node
+     * configuration since their recordings (T025, T038), the others not yet verified.
      */
     private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1),
         unsupported(ALL_SUPPORTED, V8_1_NOT_YET_VERIFIED), Map.of(), false,
