@@ -491,7 +491,7 @@ the other just changed.
   Windows quoting; refused before any launch: `on`, `off`, `--level`, `-l`, `-nl`/`-p`/`-r` raw,
   `--nodelevel` without `--package` and vice versa, `--reset` with another option, `--download`
   with `--reset`, a positional argument, a process id; the 021 `traceDownload` text unchanged)
-- [ ] T041 [P] [US4] StartCLI classification and fixtures (D-11, D-20):
+- [X] T041 [P] [US4] StartCLI classification and fixtures (D-11, D-20):
   `adapter/cli/CliOutputClassifier.java` `+ classifyTraceLevel(CliResult)` (success form
   reconstructed as `1-OK:` until T039 pins it; `Missing log level.` → `UNEXPECTED_RESPONSE`;
   otherwise `classify`); `src/test/resources/fixtures/node-tools/v8_1/log-level/{set_ok,reset_ok,missing_level,login_failure,forbidden}.{stdout,stderr,exit,origin}`

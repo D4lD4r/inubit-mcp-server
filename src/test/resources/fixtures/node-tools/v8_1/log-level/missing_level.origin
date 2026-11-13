@@ -1,0 +1,2 @@
+reconstructed research.md "Static facts" (TraceCommand: -p without -nl -> "Missing log level.") and D-11 for trace --package 'com.inubit.ibis.acme' without --nodelevel; CliCommand never builds this form; error layout as fixtures/server-log/v8_1/trace/forbidden.stdout.
+The exception class, the stack frames and the exit code are invented; StartCLI's answer to a missing level was not recorded.

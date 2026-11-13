@@ -14,6 +14,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
@@ -616,6 +617,192 @@ class CliOutputClassifierTest {
         assertThat(error.excerpt()).isEmpty();
         assertThat(String.join("\n", error.message(), error.likelyCause(), error.nextStep()))
             .doesNotContain("hunter2-secret", "/opt/");
+    }
+
+    // --- trace log level (feature 024, research D-11, D-20) ----------------------------------
+
+    /** {@code fixtures/node-tools/v8_1/log-level/<fixtureCase>.*} (T041, reconstructed). */
+    private static CliResult logLevelFixture(String fixtureCase) {
+        String base = "node-tools/v8_1/log-level/" + fixtureCase;
+        return new CliResult(
+            Integer.parseInt(text(base + ".exit").strip()), text(base + ".stdout"),
+            text(base + ".stderr"), Duration.ofSeconds(3), false, CliRunner.MAX_OUTPUT_BYTES);
+    }
+
+    private ToolError traceLevelFailure(CliOutputClassifier classifier, CliResult result) {
+        CliOutcome outcome = classifier.classifyTraceLevel(result);
+        assertThat(outcome).isInstanceOf(CliOutcome.Failure.class);
+        return ((CliOutcome.Failure) outcome).error();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"set_ok", "reset_ok"})
+    void theReconstructedConfirmationIsASuccessInTheTraceLevelContext(String fixtureCase) {
+        CliOutcome outcome = classifier.classifyTraceLevel(logLevelFixture(fixtureCase));
+
+        assertThat(outcome).isInstanceOfSatisfying(CliOutcome.Success.class, success ->
+            assertThat(success.output().okMessages()).containsExactly("OK"));
+    }
+
+    @Test
+    void theTraceDownloadConfirmationIsNoLevelConfirmation() {
+        // exit code 0 without an n-OK message: not the confirmation form (D-11)
+        ToolError error = traceLevelFailure(classifier, traceFixture("ok"));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error).isEqualTo(failure(traceFixture("ok")));
+    }
+
+    @Test
+    void aMissingLogLevelIsAnUnexpectedResponseNamingStartCli() {
+        ToolError error = traceLevelFailure(classifier, logLevelFixture("missing_level"));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI did not change the log level: Missing log level.");
+        assertThat(error.nextStep())
+            .isEqualTo("Reset with reset_temporary_log_level; report the INUBIT version");
+        assertThat(error.excerpt()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1})
+    void aMissingLogLevelIsNeverASuccessEvenWithAnOkPrefix(int exitCode) {
+        // the reconstructed fixture is an error layout; StartCLI may print it as a command result
+        CliResult result = result(exitCode, PREAMBLE + "1-"
+            + (exitCode == 0 ? "OK" : "NOK") + ": Missing log level.\n");
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI did not change the log level: Missing log level.");
+    }
+
+    @Test
+    void anErrorMarkerBesideTheConfirmationIsNoSuccess() {
+        CliResult result = result(0, PREAMBLE
+            + "ERROR 10:00:00,000 [main      ] CLI                       ERROR\n"
+            + "com.inubit.ibis.utils.InubitException: @Start@IError@@@Internal INUBIT error!@End@\n"
+            + "1-OK: OK\n");
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(classifier.classify(result)).isInstanceOf(CliOutcome.Success.class);
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message()).isEqualTo("Unrecognized StartCLI output (exit code 0)");
+    }
+
+    @Test
+    void anExceptionWithoutMarkerBesideTheConfirmationIsNoSuccess() {
+        scrubber.register("hunter2-secret");
+        CliResult result = result(0, PREAMBLE
+            + "ERROR 10:00:00,000 [main      ] CLI                       ERROR\n"
+            + "java.lang.IllegalStateException: no node for hunter2-secret\n"
+            + "\tat com.inubit.ibis.cli.cmds.TraceCommand.execute(TraceCommand.java:1)\n"
+            + "1-OK: OK\n");
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(classifier.classify(result)).isInstanceOf(CliOutcome.Success.class);
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message()).isEqualTo("Unrecognized StartCLI output (exit code 0)");
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
+            .contains("java.lang.IllegalStateException").doesNotContain("hunter2-secret"));
+        assertThat(String.join("\n", error.message(), error.likelyCause(), error.nextStep()))
+            .doesNotContain("hunter2-secret");
+    }
+
+    @Test
+    void aLoginFailureIsAuthFailedInTheTraceLevelContext() {
+        CliResult result = logLevelFixture("login_failure");
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(error).isEqualTo(failure(result));
+    }
+
+    @Test
+    void anAccessDeniedMarkerIsForbiddenInTheTraceLevelContext() {
+        CliOutputClassifier forNode = new CliOutputClassifier(scrubber, NODE1, false);
+        CliResult refused = logLevelFixture("forbidden");
+
+        ToolError error = traceLevelFailure(forNode, refused);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.FORBIDDEN);
+        assertThat(error.message())
+            .isEqualTo("The INUBIT account is not allowed to change log levels on test/node1");
+        assertThat(error.excerpt()).isEmpty();
+        assertThat(String.join("\n", error.message(), error.likelyCause(), error.nextStep()))
+            .doesNotContain("jdoe");
+        // the export and trace-download contexts are unchanged
+        assertThat(failure(refused).message())
+            .isEqualTo("Unrecognized StartCLI output (exit code 1)");
+        assertThat(((CliOutcome.Failure) forNode.classifyTraceDownload(refused)).error()
+            .message()).isEqualTo("The INUBIT account is not allowed to download trace.log from"
+                + " test/node1");
+    }
+
+    @Test
+    void theOtherLogLevelCasesKeepTheirExportAndTraceDownloadClassification() {
+        assertThat(classifier.classify(logLevelFixture("set_ok")))
+            .isInstanceOf(CliOutcome.Success.class);
+        assertThat(failure(logLevelFixture("missing_level")).message())
+            .isEqualTo("Unrecognized StartCLI output (exit code 1)");
+        assertThat(((CliOutcome.Failure) classifier.classifyTraceDownload(
+            logLevelFixture("missing_level"))).error())
+            .isEqualTo(failure(logLevelFixture("missing_level")));
+        assertThat(((CliOutcome.Failure) classifier.classifyTraceDownload(
+            logLevelFixture("login_failure"))).error().code()).isEqualTo(ErrorCode.AUTH_FAILED);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "login_failed, AUTH_FAILED",
+        "unreachable, UNREACHABLE",
+        "unknown_command, INTERNAL",
+        "import_nok, UNEXPECTED_RESPONSE"})
+    void theTraceLevelContextKeepsEveryOtherRule(String fixtureCase, ErrorCode expected) {
+        CliResult result = fixture(fixtureCase);
+
+        ToolError level = traceLevelFailure(classifier, result);
+
+        assertThat(level.code()).isEqualTo(expected);
+        assertThat(level).isEqualTo(failure(result));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"set_ok", "forbidden", "missing_level"})
+    void cutTraceLevelOutputIsNeverASuccessForbiddenOrMissingLevel(String fixtureCase) {
+        CliResult full = logLevelFixture(fixtureCase);
+        CliResult cut = new CliResult(full.exitCode(), full.stdout(), full.stderr(),
+            Duration.ZERO, true, CliRunner.MAX_OUTPUT_BYTES);
+
+        ToolError error = traceLevelFailure(classifier, cut);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message()).contains("exceeded 1 MiB");
+    }
+
+    @Test
+    void theTraceLevelFailuresLeakNoSecret() {
+        scrubber.register("hunter2-secret");
+        CliOutputClassifier forNode = new CliOutputClassifier(scrubber, NODE1, false);
+        String leak = "INFO 10:00:00,000 [main      ] CLI                       connecting to"
+            + " https://jdoe:hunter2-secret@node1.example.test\n";
+        CliResult missing = result(1, PREAMBLE + leak + "EXECUTION ERROR\nMissing log level.\n");
+        CliResult refused = result(1, PREAMBLE + leak
+            + "com.inubit.ibis.utils.InubitException: @Start@AccessDenied@@@hunter2-secret@End@\n");
+        CliResult marker = result(0, PREAMBLE + leak
+            + "com.inubit.ibis.utils.InubitException: @Start@IError@@@hunter2-secret@End@\n"
+            + "1-OK: OK\n");
+
+        for (CliResult result : List.of(missing, refused, marker)) {
+            ToolError error = traceLevelFailure(forNode, result);
+            assertThat(String.join("\n", error.message(), error.likelyCause(), error.nextStep(),
+                error.excerpt().orElse(""))).doesNotContain("hunter2-secret");
+        }
     }
 
     @Test

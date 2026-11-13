@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * Interprets StartCLI output (research R-6, R-7; recordings of spikes S-2/S-3).
@@ -60,6 +61,8 @@ public final class CliOutputClassifier {
     private static final String FILE_WAS_NOT_FOUND = "FileWasNotFound";
     /** The server's marker for a refused request (feature 021, research D-14). */
     private static final String ACCESS_DENIED = "AccessDenied";
+    /** StartCLI's text for a temporary log level change without a level (feature 024, D-11). */
+    private static final String MISSING_LOG_LEVEL = "Missing log level.";
     private static final Pattern MISSING_MODULE = Pattern.compile("^The module .+ not found$");
 
     private static final String PASSWORD_PROMPT = "Password:";
@@ -223,6 +226,43 @@ public final class CliOutputClassifier {
             return new CliOutcome.Success(output);
         }
         return classify(result);
+    }
+
+    /**
+     * Classifies a {@code trace --nodelevel … --package …} or {@code trace --reset} run (feature
+     * 024, research D-11, D-20). StartCLI's text for an option form without a level,
+     * {@code Missing log level.}, is {@code UNEXPECTED_RESPONSE} whatever its prefix or exit code;
+     * the server's marker {@code AccessDenied} is a refused change ({@code FORBIDDEN}). The
+     * confirmation of {@code CommandResult("OK")} is taken as an {@code n-OK} message until the
+     * write spike T039 records it, so a success is {@link #classify(CliResult)}'s success without
+     * any marker and without an exception line in the log records; anything else, and cut output, is classified as by {@link #classify(CliResult)}.
+     */
+    public CliOutcome classifyTraceLevel(CliResult result) {
+        if (result.truncated()) {
+            return classify(result);
+        }
+        CliOutput output = parse(result);
+        String node = labels.map(names -> names.node().value()).orElse("the INUBIT server");
+        if (output.markers().stream().anyMatch(marker -> marker.code().equals(ACCESS_DENIED))) {
+            return new CliOutcome.Failure(error(ErrorCode.FORBIDDEN,
+                "The INUBIT account is not allowed to change log levels on " + node,
+                "The account lacks the INUBIT right to change the log level",
+                "Ask the INUBIT administrators for the right, or use another account"));
+        }
+        if (Stream.concat(output.outputLines().stream(), output.logLines().stream())
+            .anyMatch(line -> line.contains(MISSING_LOG_LEVEL))) {
+            return new CliOutcome.Failure(error(ErrorCode.UNEXPECTED_RESPONSE,
+                "StartCLI did not change the log level: " + MISSING_LOG_LEVEL,
+                "StartCLI did not take the level of the trace command; the INUBIT client may"
+                    + " name its options differently",
+                "Reset with reset_temporary_log_level; report the INUBIT version"));
+        }
+        CliOutcome outcome = classify(result);
+        if (outcome instanceof CliOutcome.Success && (!output.markers().isEmpty()
+            || output.logLines().stream().anyMatch(line -> EXCEPTION_LINE.matcher(line).find()))) {
+            return new CliOutcome.Failure(unexpected(result, output));
+        }
+        return outcome;
     }
 
     /** {@code bytes} as whole MiB where it is one, else in bytes. */

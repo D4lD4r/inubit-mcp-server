@@ -1,0 +1,2 @@
+reconstructed fixtures/server-log/v8_1/trace/forbidden.stdout (the 403 texts of feature 020 research D-5, AccessDenied -> FORBIDDEN, in the error layout of fixtures/v8_1/cli/tag_repository_user_refused.stdout) for trace --nodelevel DEBUG --package 'com.inubit.ibis.acme';
+The marker text and the message are invented (fictitious user jdoe); a refused log level change was not recorded.

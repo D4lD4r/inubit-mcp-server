@@ -1,0 +1,2 @@
+reconstructed research.md "Static facts" (TraceCommand: -nl/-p -> changeTemporaryLogLevel, CommandResult("OK")) and D-11 for trace --nodelevel DEBUG --package 'com.inubit.ibis.acme'; preamble and stderr as fixtures/v8_1/cli/processErrorStart_ok.
+The confirmation line "1-OK: OK" is invented (the n-OK form of fixtures/v8_1/cli/processErrorStart_ok.stdout with the CommandResult text) until the write spike T039 records it; T058 replaces this case by the neutralized recording.

@@ -115,7 +115,9 @@ class NodeToolsFixtureCatalogueTest {
             "v8_1/io-log/read_empty", "v8_1/io-log/no_match", "v8_1/io-log/foreign_process",
             "v8_1/io-log/list_error", "v8_1/node-config/all", "v8_1/node-config/secret_value",
             "v8_1/node-config/absent", "v8_1/node-config/one_error",
-            "v8_1/node-config/api_missing");
+            "v8_1/node-config/api_missing", "v8_1/log-level/set_ok", "v8_1/log-level/reset_ok",
+            "v8_1/log-level/missing_level", "v8_1/log-level/login_failure",
+            "v8_1/log-level/forbidden");
     }
 
     @Test
@@ -406,6 +408,37 @@ class NodeToolsFixtureCatalogueTest {
                 assertThat(error.exceptionChain()).hasSizeGreaterThan(1);
                 assertThat(error.message()).doesNotContain("Object.getClass()");
             });
+    }
+
+    /**
+     * Each 8.1 log-level case (StartCLI, research D-11): its exit code, the trace form its
+     * {@code .origin} names on the first line, and the line of its stdout that says what it is.
+     * The reset is the only {@code --reset} form; every other case names a {@code --package} below
+     * {@code com.inubit.ibis}.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "set_ok | 0 | trace --nodelevel DEBUG --package 'com.inubit.ibis.acme' | 1-OK: OK",
+        "reset_ok | 0 | trace --reset | 1-OK: OK",
+        "missing_level | 1 | trace --package 'com.inubit.ibis.acme' without --nodelevel"
+            + " | Missing log level.",
+        "login_failure | 1 | trace --nodelevel DEBUG --package 'com.inubit.ibis.acme'"
+            + " | com.inubit.ibis.cli.CliConnectionException: @Start@LoginFailure@@@The user does"
+            + " not exist or password does not match.@End@",
+        "forbidden | 1 | trace --nodelevel DEBUG --package 'com.inubit.ibis.acme'"
+            + " | com.inubit.ibis.utils.InubitException: @Start@AccessDenied@@@Access"
+            + " denied!@End@The user jdoe has no right to change log levels."})
+    void aLogLevelCaseIsTheStartCliAnswerItsNameSays(String name, int exit, String form,
+        String line) throws IOException {
+        Path base = ROOT.resolve("v8_1/log-level/" + name);
+
+        assertThat(Integer.parseInt(firstLine(Path.of(base + ".exit")))).isEqualTo(exit);
+        assertThat(firstLine(Path.of(base + ".origin"))).startsWith("reconstructed ")
+            .contains(" for " + form + ";");
+        assertThat(Files.readAllLines(Path.of(base + ".stdout"), StandardCharsets.UTF_8))
+            .startsWith("JAVA_HOME is set", "Password: ").contains(line);
+        assertThat(Files.readString(Path.of(base + ".stdout"), StandardCharsets.UTF_8)
+            .contains("-OK: ")).isEqualTo(exit == 0);
     }
 
     private static ConfigError propertyMissing(String name) {
