@@ -41,7 +41,9 @@ researching 021 (2026-11-12). Static analysis of the 8.1.17 and 9.0.10 client in
 - **Module input/output logging**: for a process run, the server lists the logged input and output
   messages of its System Connector and Message Logger Utility modules (an entry per module,
   direction and index) and streams one message on request. A message that no longer exists is
-  delivered as an empty stream. The server checks neither group nor right beyond the login.
+  delivered as an empty stream. The server checks no group; on 8.1.17 the listing needs a right
+  of the configured user and is refused with `NotAllowedAccess` without it (`FORBIDDEN`; spike
+  T018).
 - **Node configuration value**: the server returns any node configuration property by name,
   including properties that hold secrets (the database connection with its password, the cluster
   password, the initial root user password, identity provider settings).
@@ -288,9 +290,10 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
 - **FR-003**: The documentation (setup guide, tool reference) and every tool description MUST state
   that the tool uses unsupported, undocumented INUBIT functionality, without vendor support or
   stability guarantee, for diagnosis only; for `read_io_log` also that messages can contain
-  business and personal data that masking does not cover and that INUBIT checks no right beyond
-  the login. The configuration summary MUST list each opt-in per group; an opt-in on a
-  `production: true` group MUST be a startup warning.
+  business and personal data that masking does not cover and that INUBIT requires a right of the
+  configured user for the listing (`FORBIDDEN` without it; spike T018). The configuration summary
+  MUST list each opt-in per group; an opt-in on a `production: true` group MUST be a startup
+  warning.
 - **FR-004**: Each tool MUST work on single-node servers and on cluster nodes, address exactly the
   configured server, and name the INUBIT node that answered.
 - **FR-005**: Each tool MUST be supported on INUBIT 8.1 and 9.0 only with contract tests against

@@ -685,7 +685,8 @@ text appears in a log line or audit record.
 `ToolHints.destructive(<title>)` (as `restart_process`). Descriptions in
 contracts/mcp-tools-delta.md; `NodeToolsDocsTest` asserts their key phrases ("unsupported",
 "undocumented", "without vendor support", "diagnosis only"; for `read_io_log` "business and
-personal data" and "no right beyond the login"; for the two log-level tools also "every temporary
+personal data" and "a right of the configured user" (spike T018: the listing is refused without
+it); for the two log-level tools also "every temporary
 log level on that node, also those other users set") and the FR-003 sentences in `docs/setup.md` and
 `docs/tools.md`. The set and reset descriptions carry the same FR-003 sentence as the reads
 ("UNSUPPORTED: uses unsupported, undocumented INUBIT functionality without vendor support or

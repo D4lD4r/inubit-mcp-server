@@ -2340,6 +2340,9 @@ class MainTest {
         assertThat(announcedTools(config(Files.readString(optedOut)
             .replace("versionLine: V8_1", "versionLine: AUTO"))))
             .containsExactlyElementsOf(reference);
+        // T030
+        Path ioLogOptedOut = configWithClientHome("    unsupported:\n      ioLogRead: false\n");
+        assertThat(announcedTools(ioLogOptedOut)).containsExactlyElementsOf(reference);
     }
 
     @Test
@@ -2356,6 +2359,24 @@ class MainTest {
         assertThat(announcedTools(config(Files.readString(optedIn)
             .replace("versionLine: V8_1", "versionLine: AUTO"))))
             .containsExactlyElementsOf(withClusterNodes);
+    }
+
+    // --- feature 024 T030: read_io_log only under its opt-in (FR-002, SC-005, D-6)
+
+    @Test
+    void anOptedInNodeDoesNotAnnounceReadIoLogBeforeItsRecording() throws Exception {
+        // the production matrix keeps IO_LOG_READ unsupported on 8.1 and 9.0 until T032
+        credentials();
+        List<String> reference = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
+            "export_archives", "check_artifacts");
+
+        Path optedIn = configWithClientHome("    unsupported:\n      ioLogRead: true\n");
+        assertThat(announcedTools(optedIn)).containsExactlyElementsOf(reference);
+        assertThat(announcedTools(config(Files.readString(optedIn)
+            .replace("versionLine: V8_1", "versionLine: AUTO"))))
+            .containsExactlyElementsOf(reference);
     }
 
     @Test

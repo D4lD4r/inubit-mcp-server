@@ -128,8 +128,8 @@ class TemplateGrammarTest {
         // run_e2e_test .{input,output}.json; feature 005 deploy_release; feature 015
         // export_archives; feature 018 find_partners; feature 019 read_knowledge and
         // record_knowledge; feature 020 read_queue_entry; feature 021 download_server_log;
-        // feature 024 list_cluster_nodes
-        assertThat(Files.list(SCHEMAS).count()).isEqualTo(46);
+        // feature 024 list_cluster_nodes and read_io_log
+        assertThat(Files.list(SCHEMAS).count()).isEqualTo(48);
         assertThat(schemaTemplates()).filteredOn(t -> PLACEHOLDER.matcher(t).find())
             .hasSizeGreaterThan(15);
     }

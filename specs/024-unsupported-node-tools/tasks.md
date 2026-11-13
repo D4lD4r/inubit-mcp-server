@@ -392,13 +392,13 @@ message is read masked and bounded; an unlisted reference is refused before any 
   (US2-2, US2-3, US2-5; the `<password>` element and a configured password of another node masked
   before the cut; Latin-1; binary; > 10 MiB generated; `maxChars` 1 and 100,000; leak check incl.
   the log line)
-- [ ] T030 [US2] Tool, schemas and wiring (FR-001, FR-003, D-6, D-25; after T029):
+- [X] T030 [US2] Tool, schemas and wiring (FR-001, FR-003, D-6, D-25; after T029):
   `mcp/tools/ReadIoLogTool.java` (`ToolHints.readOnly("Read INUBIT module input/output logging",
   true)`, description of contracts), `src/main/resources/schemas/read_io_log.{input,output}.json`,
   `Wiring.java` announcement and `allowed()` (`IO_LOG_READ` with `withClient && ioLogRead`).
   Failing tests first in `mcp/tools/ReadIoLogToolTest.java` (schema: separators and control
   characters in `workflow`, bad `message`, `maxChars` 0/100001 refused; description phrases incl.
-  "business and personal data" and "no right beyond the login"), `ToolAnnouncementTest.java`, new
+  "business and personal data" and "a right of the configured user" (T018 spike: the listing is refused without it; the outdated "no right beyond the login" statements for `read_io_log` in spec, research D-25, contracts are corrected in this task)), `ToolAnnouncementTest.java`, new
   `ReadIoLogWiringTest.java` (no opt-in → nothing sent), `MainTest.java` (unchanged without
   opt-ins; runs after T023 — same file)
 - [ ] T031 [US2] Contract test (after T030): `NodeToolsV81ContractTest` `+` every `v8_1/io-log` case

@@ -13,6 +13,7 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.node.CliClusterNodeAdapter;
+import de.dadecker.inubit.mcp.adapter.cli.node.CliIoLogAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61HealthAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61ProcessQueryAdapter;
@@ -146,9 +147,9 @@ class PortSetRegistryTest {
     }
 
     @Test
-    void theHelperPortSetListsTheClusterNodesOnEightOneAndNineZero() {
-        // feature 024 T023 (research D-24): the 8.1 port set with the helper also serves 9.0 (the
-        // helper picks its variant by version); the other node tools are not wired yet
+    void theHelperPortSetReadsTheClusterNodesAndTheIoLogOnEightOneAndNineZero() {
+        // feature 024 T023, T030 (research D-24): the 8.1 port set with the helper also serves 9.0
+        // (the helper picks its variant by version); the other node tools are not wired yet
         SecretScrubber scrubber = new SecretScrubber();
         try (CliResources resources = new CliResources("acme", PrivateFiles.forHost())) {
             HelperInstallation.Host host = new HelperInstallation.Host(false, Map.of(),
@@ -170,6 +171,8 @@ class PortSetRegistryTest {
 
                     assertThat(ports.clusterNodes()).as(setting.text())
                         .isInstanceOf(CliClusterNodeAdapter.class);
+                    assertThat(ports.ioLog()).as(setting.text())
+                        .isInstanceOf(CliIoLogAdapter.class);
                     assertThatThrownBy(() -> ports.nodeConfig().values(
                         List.of(NodeConfigName.CLUSTER_NAME), effective(setting).orElseThrow(),
                         System.nanoTime())).as(setting.text())

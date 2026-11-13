@@ -54,8 +54,10 @@ text after the `serverLogRead` text (verbatim; links relative to `docs/`):
 >   guarantee for these interfaces. They may stop working, or behave differently, after **any**
 >   INUBIT update, including patch releases.
 > - **Diagnosis only.**
-> - **INUBIT checks no right beyond the login** for these reads: every INUBIT user the profile
->   logs in with can read them.
+> - **INUBIT checks no right beyond the login** for `list_cluster_nodes` and `get_node_config`:
+>   every INUBIT user the profile logs in with can read them. `read_io_log` is the exception:
+>   INUBIT requires a right of the configured user for the listing and refuses it without that
+>   right (`FORBIDDEN`).
 > - **`read_io_log`: business and personal data.** Logged messages contain what the modules
 >   received and sent. They are masked like Queue Manager entries (known credentials and
 >   secret-named values), but masking does not cover business and personal data.
