@@ -3,13 +3,18 @@ package de.dadecker.inubit.mcp.adapter.cli;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Built;
 import de.dadecker.inubit.mcp.config.CliPaths;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
+import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.testing.Platform;
 import java.nio.file.Path;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /** T022: allow-listed command tokens and the R-11 quoting rule for {@code --execCommand}. */
@@ -302,7 +307,7 @@ class CliCommandTest {
     // --- feature 021 (T022, FR-005, research D-1): the trace download only -------------------
 
     @Test
-    void traceDownloadIsTheOnlyTraceCommand() {
+    void traceDownloadKeepsItsText() {
         assertThat(CliCommand.traceDownload(file("/tmp/inubit-mcp-1/trace.log"), WINDOWS)
             .commandLine())
             .isEqualTo("trace --download '" + DRIVE + "/tmp/inubit-mcp-1/trace.log'");
@@ -348,7 +353,7 @@ class CliCommandTest {
     }
 
     @Test
-    void traceNeedsExactlyOneDownloadAndNothingElse() {
+    void traceDownloadNeedsExactlyOneDownloadAndNothingElse() {
         // a missing --download would switch or show the trace state (SC-005)
         assertInvalidInput(() -> CliCommand.command("trace").build());
         assertInvalidInput(() -> CliCommand.command("trace").processId("1"));
@@ -370,5 +375,124 @@ class CliCommandTest {
         assertInvalidInput(() -> CliCommand.command("import")
             .path("--download", file("/tmp/x/trace.log"), WINDOWS));
     }
-}
 
+    // --- feature 024 (T040, FR-007, research D-11): one logger's level and the reset ----------
+
+    private static final LoggerName ACME = new LoggerName("com.inubit.ibis.acme");
+
+    @Test
+    void traceNodeLevelUsesTheLongOptionNamesWithTheLevelBareAndTheLoggerQuoted() {
+        assertThat(CliCommand.traceNodeLevel(TemporaryLevel.DEBUG, ACME).commandLine())
+            .isEqualTo("trace --nodelevel DEBUG --package 'com.inubit.ibis.acme'");
+        assertThat(CliCommand.traceNodeLevel(TemporaryLevel.DEBUG, ACME).name())
+            .isEqualTo("trace");
+        assertThat(CliCommand.traceNodeLevel(TemporaryLevel.TRACE,
+                new LoggerName("com.inubit.ibis.server.Work_flow2")).commandLine())
+            .isEqualTo("trace --nodelevel TRACE --package 'com.inubit.ibis.server.Work_flow2'");
+        assertThat(CliCommand.command("trace").nodeLevel(TemporaryLevel.WARN)
+            .loggerPackage(ACME).build().commandLine())
+            .isEqualTo("trace --nodelevel WARN --package 'com.inubit.ibis.acme'");
+    }
+
+    @ParameterizedTest
+    @EnumSource(TemporaryLevel.class)
+    void everyTemporaryLevelIsPassedByItsName(TemporaryLevel level) {
+        assertThat(CliCommand.traceNodeLevel(level, ACME).commandLine())
+            .isEqualTo("trace --nodelevel " + level.name() + " --package 'com.inubit.ibis.acme'");
+    }
+
+    @Test
+    void traceResetIsTheResetFlagAlone() {
+        assertThat(CliCommand.traceReset().commandLine()).isEqualTo("trace --reset");
+        assertThat(CliCommand.traceReset().name()).isEqualTo("trace");
+        assertThat(CliCommand.command("trace").flag("--reset").build().commandLine())
+            .isEqualTo("trace --reset");
+    }
+
+    @Test
+    void onWindowsTheLevelAndResetTextsReachStartCliUnchangedAsOneArgument() {
+        // no path and no platform switch: the POSIX texts above, as one quoted cmd.exe argument
+        assertThat(windowsCall(CliCommand.traceNodeLevel(TemporaryLevel.DEBUG, ACME)))
+            .isEqualTo("\"\"C:\\inubit\\bin\\startcli.bat\" \"--execCommand\""
+                + " \"trace --nodelevel DEBUG --package 'com.inubit.ibis.acme'\"\"");
+        assertThat(windowsCall(CliCommand.traceReset()))
+            .isEqualTo("\"\"C:\\inubit\\bin\\startcli.bat\" \"--execCommand\""
+                + " \"trace --reset\"\"");
+    }
+
+    /** The argument {@code cmd.exe /c} gets for a StartCLI call with only {@code command}. */
+    private static String windowsCall(CliCommand command) {
+        WindowsCommandLine.Result result = WindowsCommandLine.build("C:\\Windows\\system32",
+            "C:\\inubit\\bin\\startcli.bat", List.of("--execCommand", command.commandLine()));
+        assertThat(result).isInstanceOf(Built.class);
+        return ((Built) result).command().get(5);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"--nodelevel", "--package", "--reset"})
+    void theLevelOptionsTakeOnlyTheirOwnTypes(String option) {
+        if (!option.equals("--reset")) {
+            assertInvalidInput(() -> CliCommand.command("trace").flag(option));
+        }
+        assertInvalidInput(() -> CliCommand.command("trace").quoted(option, "DEBUG"));
+        assertInvalidInput(() -> CliCommand.command("trace")
+            .quoted(option, "com.inubit.ibis.acme"));
+        assertInvalidInput(() -> CliCommand.command("trace").emptyQuoted(option));
+        assertInvalidInput(() -> CliCommand.command("trace")
+            .path(option, file("/tmp/x/trace.log"), WINDOWS));
+        assertInvalidInput(() -> CliCommand.command("trace").repositoryPath(option, "/Root/x"));
+        // and only trace takes them
+        assertInvalidInput(() -> CliCommand.command("export").flag(option));
+        assertInvalidInput(() -> CliCommand.command("export").quoted(option, "DEBUG"));
+    }
+
+    @Test
+    void onlyTraceTakesALevelOrALogger() {
+        assertInvalidInput(() -> CliCommand.command("export").nodeLevel(TemporaryLevel.DEBUG));
+        assertInvalidInput(() -> CliCommand.command("import").loggerPackage(ACME));
+        assertInvalidInput(() -> CliCommand.command("kill").nodeLevel(TemporaryLevel.DEBUG));
+    }
+
+    @Test
+    void traceRefusesEveryCombinationOtherThanTheThreeForms() {
+        Path log = file("/tmp/x/trace.log");
+        // --nodelevel without --package and vice versa
+        assertInvalidInput(() -> CliCommand.command("trace").nodeLevel(TemporaryLevel.DEBUG)
+            .build());
+        assertInvalidInput(() -> CliCommand.command("trace").loggerPackage(ACME).build());
+        // one level and one logger per run, in the one order D-11 pins
+        assertInvalidInput(() -> CliCommand.command("trace").loggerPackage(ACME)
+            .nodeLevel(TemporaryLevel.DEBUG).build());
+        assertInvalidInput(() -> CliCommand.command("trace").nodeLevel(TemporaryLevel.DEBUG)
+            .nodeLevel(TemporaryLevel.INFO).build());
+        assertInvalidInput(() -> CliCommand.command("trace").nodeLevel(TemporaryLevel.DEBUG)
+            .loggerPackage(ACME).loggerPackage(new LoggerName("com.inubit.ibis.other")).build());
+        // --reset with another option
+        assertInvalidInput(() -> CliCommand.command("trace").flag("--reset").flag("--reset")
+            .build());
+        assertInvalidInput(() -> CliCommand.command("trace").flag("--reset")
+            .nodeLevel(TemporaryLevel.DEBUG).loggerPackage(ACME).build());
+        assertInvalidInput(() -> CliCommand.command("trace").nodeLevel(TemporaryLevel.DEBUG)
+            .loggerPackage(ACME).flag("--reset").build());
+        assertInvalidInput(() -> CliCommand.command("trace").flag("--reset")
+            .loggerPackage(ACME).build());
+        // --download with --reset or a level
+        assertInvalidInput(() -> CliCommand.command("trace").path("--download", log, WINDOWS)
+            .flag("--reset").build());
+        assertInvalidInput(() -> CliCommand.command("trace").flag("--reset")
+            .path("--download", log, WINDOWS).build());
+        assertInvalidInput(() -> CliCommand.command("trace").nodeLevel(TemporaryLevel.DEBUG)
+            .loggerPackage(ACME).path("--download", log, WINDOWS).build());
+        assertInvalidInput(() -> CliCommand.command("trace").path("--download", log, WINDOWS)
+            .nodeLevel(TemporaryLevel.DEBUG).loggerPackage(ACME).build());
+        // a positional argument or process id, on, off, -l, --level and the short forms raw
+        assertInvalidInput(() -> CliCommand.command("trace").flag("--reset").processId("1"));
+        assertInvalidInput(() -> CliCommand.command("trace").nodeLevel(TemporaryLevel.DEBUG)
+            .loggerPackage(ACME).processId("110190387"));
+        for (String raw : List.of("on", "off", "-l", "--level", "-nl", "-p", "-r")) {
+            assertInvalidInput(() -> CliCommand.command("trace").flag("--reset").flag(raw));
+            assertInvalidInput(() -> CliCommand.command("trace").nodeLevel(TemporaryLevel.DEBUG)
+                .quoted(raw, "com.inubit.ibis.acme"));
+        }
+    }
+}

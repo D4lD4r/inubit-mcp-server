@@ -481,7 +481,7 @@ the other just changed.
   repository; appends the neutral facts (the confirmation form of `CommandResult("OK")`, whether
   the long option names are accepted, exit codes, persistent trace state unchanged) to research.md
   "Spike findings"
-- [ ] T040 [P] [US4] `adapter/cli/CliCommand.java` `trace` forms (FR-007, D-11):
+- [X] T040 [P] [US4] `adapter/cli/CliCommand.java` `trace` forms (FR-007, D-11):
   `traceNodeLevel(TemporaryLevel, LoggerName)` → `trace --nodelevel <L> --package '<logger>'`,
   `traceReset()` → `trace --reset`; options `--nodelevel` (value from the enum only), `--package`
   (a `LoggerName` only, quoted), `--reset` (flag); `build()` refuses for `trace` every combination

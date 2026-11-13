@@ -4,10 +4,13 @@ import de.dadecker.inubit.mcp.config.CliPaths;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
+import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -30,6 +33,12 @@ import java.util.regex.Pattern;
  *       {@code trace --download '<path>'} ({@link #traceDownload}): exactly one
  *       {@code --download}, given through {@link Builder#path} only, and nothing else, so the
  *       trace state is never switched or changed.
+ *   <li>Feature 024 (FR-007, research D-11): besides the download, {@code trace} takes exactly
+ *       two more forms: {@code trace --nodelevel <level> --package '<logger>'}
+ *       ({@link #traceNodeLevel}; the level only from {@link TemporaryLevel} through
+ *       {@link Builder#nodeLevel}, the logger only as a {@link LoggerName} through
+ *       {@link Builder#loggerPackage}) and {@code trace --reset} ({@link #traceReset}). Never
+ *       {@code on}, {@code off}, {@code -l}, {@code --level} or the short option names.
  *   <li>Process ids are 1–19 decimal digits without leading zero ({@code ^[1-9][0-9]{0,18}$}).
  *   <li>Every other value (workflow, type, group, owner) must match
  *       {@link #VALUE} (no leading {@code -}) and is wrapped in single quotes; a value with
@@ -73,12 +82,17 @@ public final class CliCommand {
             "--importWorkflowInactive", "--importModule", "--importUser", "--returnProtocol",
             "--importRepositoryPath"),
         "tag", Set.of("--tagMove", "--tagWorkflowGroup", "--tagWorkflowType", "--tagUser"),
-        // feature 021 (research D-1): never on, off, -l, -nl, -p, -r
-        "trace", Set.of("--download"));
+        // feature 021 (research D-1), feature 024 (D-11): never on, off, -l, --level, -nl, -p, -r
+        "trace", Set.of("--download", "--nodelevel", "--package", "--reset"));
     /** The options without value ({@link Builder#flag}); every other option takes one. */
     private static final Set<String> FLAGS = Set.of("--includeHistory", "--importWorkflow",
         "--importWorkflowActive", "--importWorkflowInactive", "--importModule",
-        "--returnProtocol");
+        "--returnProtocol", "--reset");
+    /**
+     * The options that take a level ({@link Builder#nodeLevel}) or a logger
+     * ({@link Builder#loggerPackage}) only (feature 024, D-11).
+     */
+    private static final Set<String> LEVEL_OPTIONS = Set.of("--nodelevel", "--package");
     /** The options that take a repository path ({@link Builder#repositoryPath}) only. */
     private static final Set<String> REPOSITORY_OPTIONS =
         Set.of("--exportRepositoryPath", "--importRepositoryPath");
@@ -119,6 +133,19 @@ public final class CliCommand {
      */
     public static CliCommand traceDownload(Path file, boolean windows) {
         return command("trace").path("--download", file, windows).build();
+    }
+
+    /**
+     * {@code trace --nodelevel <level> --package '<logger>'}: set one logger's level on the node
+     * StartCLI talks to (feature 024, FR-007, research D-11).
+     */
+    public static CliCommand traceNodeLevel(TemporaryLevel level, LoggerName logger) {
+        return command("trace").nodeLevel(level).loggerPackage(logger).build();
+    }
+
+    /** {@code trace --reset}: reset the node's log levels (feature 024, FR-007, D-11). */
+    public static CliCommand traceReset() {
+        return command("trace").flag("--reset").build();
     }
 
     /** The command name, e.g. {@code export}. */
@@ -266,6 +293,25 @@ public final class CliCommand {
             return this;
         }
 
+        /** {@code --nodelevel <level>}: the enum name, unquoted (feature 024, D-11). */
+        public Builder nodeLevel(TemporaryLevel level) {
+            Objects.requireNonNull(level, "level");
+            tokens.add(option("--nodelevel"));
+            tokens.add(level.name());
+            return this;
+        }
+
+        /**
+         * {@code --package '<logger>'}: a {@link LoggerName}, whose rule keeps quotes and
+         * {@code $} out (feature 024, D-11).
+         */
+        public Builder loggerPackage(LoggerName logger) {
+            Objects.requireNonNull(logger, "logger");
+            tokens.add(option("--package"));
+            tokens.add("'" + logger.value() + "'");
+            return this;
+        }
+
         /** A bare process id of 1–19 decimal digits (the Queue Manager id, research S-4). */
         public Builder processId(String processId) {
             if (!PROCESS_COMMANDS.contains(name) || processIds > 0) {
@@ -288,11 +334,11 @@ public final class CliCommand {
                 throw invalid("The StartCLI command " + name + " needs a process id",
                     "processErrorStart and kill take exactly one process id");
             }
-            if (name.equals("trace")
-                && !(tokens.size() == 3 && tokens.get(1).equals("--download"))) {
-                throw invalid("The StartCLI command trace needs exactly one --download",
-                    "Only the trace download is supported; every other trace form switches or"
-                        + " shows the trace state (research D-1)");
+            if (name.equals("trace") && !traceForm()) {
+                throw invalid("The StartCLI command trace takes exactly one of --download,"
+                        + " --nodelevel with --package, or --reset",
+                    "Every other trace form switches or shows the trace state or sets more than"
+                        + " one logger (research D-1, D-11)");
             }
             if (emptyGroupList && !tagged) {
                 throw invalid("The empty diagram group list is only allowed in a tag export",
@@ -300,6 +346,19 @@ public final class CliCommand {
                         + " '' (research D-4); only the release export narrows it by --exportTag");
             }
             return new CliCommand(tokens);
+        }
+
+        /**
+         * {@code trace --download '<file>'}, {@code trace --nodelevel <level> --package
+         * '<logger>'} or {@code trace --reset}, nothing more (each value is one token).
+         */
+        private boolean traceForm() {
+            return switch (tokens.size()) {
+                case 2 -> tokens.get(1).equals("--reset");
+                case 3 -> tokens.get(1).equals("--download");
+                case 5 -> tokens.get(1).equals("--nodelevel") && tokens.get(3).equals("--package");
+                default -> false;
+            };
         }
 
         private String option(String option) {
@@ -316,6 +375,10 @@ public final class CliCommand {
             if (REPOSITORY_OPTIONS.contains(checked)) {
                 throw invalid("The StartCLI option " + checked + " takes a repository path",
                     "Repository paths are passed only through their own rule");
+            }
+            if (LEVEL_OPTIONS.contains(checked)) {
+                throw invalid("The StartCLI option " + checked + " takes a log level or logger",
+                    "Pass it with nodeLevel() or loggerPackage()");
             }
             return checked;
         }
