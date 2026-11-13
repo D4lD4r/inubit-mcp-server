@@ -445,7 +445,7 @@ the list is refused before any request; the fake records that only listed names 
   `ClusterPassword`, `initialRootUserPassword`, `IdentityProvider`, an empty string, a 10,000-char
   text, a name with different case → `INVALID_INPUT` and **nothing sent** (SC-003); masked value;
   one failed name; leak check)
-- [ ] T036 [US3] Tool, schemas and wiring (after T035): `mcp/tools/GetNodeConfigTool.java`
+- [X] T036 [US3] Tool, schemas and wiring (after T035): `mcp/tools/GetNodeConfigTool.java`
   (`ToolHints.readOnly("Read INUBIT node configuration values", true)`),
   `src/main/resources/schemas/get_node_config.{input,output}.json` (the `enum` equals
   `NodeConfigName`), `Wiring.java` announcement and `allowed()` (`NODE_CONFIG_READ`). Failing tests

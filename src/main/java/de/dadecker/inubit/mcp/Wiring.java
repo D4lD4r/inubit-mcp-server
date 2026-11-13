@@ -84,6 +84,7 @@ import de.dadecker.inubit.mcp.application.knowledge.KnowledgeService;
 import de.dadecker.inubit.mcp.application.knowledge.NoteRefs;
 import de.dadecker.inubit.mcp.application.nodetools.ClusterNodeService;
 import de.dadecker.inubit.mcp.application.nodetools.IoLogService;
+import de.dadecker.inubit.mcp.application.nodetools.NodeConfigService;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialNames;
@@ -126,6 +127,7 @@ import de.dadecker.inubit.mcp.mcp.tools.FindPartnersTool;
 import de.dadecker.inubit.mcp.mcp.tools.FindProcessesTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetHealthTool;
 import de.dadecker.inubit.mcp.mcp.tools.GetInventoryItemTool;
+import de.dadecker.inubit.mcp.mcp.tools.GetNodeConfigTool;
 import de.dadecker.inubit.mcp.mcp.tools.DeployReleaseTool;
 import de.dadecker.inubit.mcp.mcp.tools.DownloadServerLogTool;
 import de.dadecker.inubit.mcp.mcp.tools.ImportArtifactsTool;
@@ -172,7 +174,7 @@ import java.util.function.Supplier;
  * feature 020: {@code read_queue_entry} only if {@link #anyQueueEntryReadNode()}; feature 021:
  * {@code download_server_log} only if {@link #anyServerLogNode()}; feature 024:
  * {@code list_cluster_nodes} only if {@link #anyClusterNodesNode()}, {@code read_io_log} only if
- * {@link #anyIoLogNode()}).
+ * {@link #anyIoLogNode()}, {@code get_node_config} only if {@link #anyNodeConfigNode()}).
  * Feature 012 (research D-12): the read tools other than {@code list_nodes}, {@code get_health}
  * and {@code check_artifacts} are announced only if some node may run their capability
  * ({@link #possiblyCapable}).
@@ -232,6 +234,8 @@ final class Wiring implements AutoCloseable {
     private final ListClusterNodesTool listClusterNodes;
     /** Feature 024: built for every configuration; announced as {@link #anyIoLogNode()}. */
     private final ReadIoLogTool readIoLog;
+    /** Feature 024: built for every configuration; announced as {@link #anyNodeConfigNode()}. */
+    private final GetNodeConfigTool getNodeConfig;
     /**
      * Feature 019 (research D-7): the credentials of every node of the profile; feature 021
      * (research D-11): also masked in the excerpt of {@code download_server_log}.
@@ -517,6 +521,11 @@ final class Wiring implements AutoCloseable {
             id -> byId.get(id).ioLogRead(), versionGate, gateways,
             id -> byId.get(id).cliTimeout(), id -> byId.get(id).cliExportTimeout(),
             scrubber::scrub, System::nanoTime)::read);
+        // feature 024 (FR-030 ... FR-032): the node configuration through the same helper, within
+        // the node's cliTimeout
+        this.getNodeConfig = new GetNodeConfigTool(new NodeConfigService(targets,
+            id -> byId.get(id).nodeConfigRead(), versionGate, gateways,
+            id -> byId.get(id).cliTimeout(), System::nanoTime)::read);
         ArtifactCheckService checks = new ArtifactCheckService(workspace,
             new WorkspaceInspector(), new SaxonXsltRunner(workspace), group -> servers.stream()
                 .map(EffectiveNodeConfig::id).filter(id -> id.group().equals(group)).findFirst(),
@@ -703,6 +712,9 @@ final class Wiring implements AutoCloseable {
         if (anyIoLogNode()) {
             handlers.add(readIoLog);
         }
+        if (anyNodeConfigNode()) {
+            handlers.add(getNodeConfig);
+        }
         if (anyPossiblyCapable(Capability.INVENTORY)) {
             handlers.add(new ListInventoryTool(inventory));
             handlers.add(new GetInventoryItemTool(inventory));
@@ -882,7 +894,8 @@ final class Wiring implements AutoCloseable {
      * with the client and the group's {@code unsupported.serverLogRead}; feature 024 (research
      * D-6): listing the cluster's nodes with the client and the group's
      * {@code unsupported.nodeStatusRead}, reading the I/O log with the client and the group's
-     * {@code unsupported.ioLogRead}.
+     * {@code unsupported.ioLogRead}, reading the node configuration with the client and the
+     * group's {@code unsupported.nodeConfigRead}.
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
         Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
@@ -917,6 +930,9 @@ final class Wiring implements AutoCloseable {
         }
         if (withClient && server.ioLogRead()) {
             allowed.add(Capability.IO_LOG_READ);
+        }
+        if (withClient && server.nodeConfigRead()) {
+            allowed.add(Capability.NODE_CONFIG_READ);
         }
         return allowed;
     }
@@ -975,6 +991,18 @@ final class Wiring implements AutoCloseable {
     private boolean anyIoLogNode() {
         return servers.stream().anyMatch(server -> server.ioLogRead()
             && possiblyCapable(server, Capability.IO_LOG_READ)
+            && clientSelection.anyCandidate(server.id()));
+    }
+
+    /**
+     * Feature 024 (FR-002, research D-6): true if a node of a group with
+     * {@code unsupported.nodeConfigRead} may read the node configuration
+     * ({@link #possiblyCapable}) and has a client home some version of it may use
+     * ({@link ClientSelectionPort#anyCandidate}); independent of write access.
+     */
+    private boolean anyNodeConfigNode() {
+        return servers.stream().anyMatch(server -> server.nodeConfigRead()
+            && possiblyCapable(server, Capability.NODE_CONFIG_READ)
             && clientSelection.anyCandidate(server.id()));
     }
 

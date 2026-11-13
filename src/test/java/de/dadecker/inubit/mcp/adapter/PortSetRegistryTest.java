@@ -14,6 +14,7 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.node.CliClusterNodeAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.node.CliIoLogAdapter;
+import de.dadecker.inubit.mcp.adapter.cli.node.CliNodeConfigAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61HealthAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61ProcessQueryAdapter;
@@ -33,7 +34,6 @@ import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
-import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
 import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -147,9 +147,9 @@ class PortSetRegistryTest {
     }
 
     @Test
-    void theHelperPortSetReadsTheClusterNodesAndTheIoLogOnEightOneAndNineZero() {
-        // feature 024 T023, T030 (research D-24): the 8.1 port set with the helper also serves 9.0
-        // (the helper picks its variant by version); the other node tools are not wired yet
+    void theHelperPortSetReadsTheClusterNodesTheIoLogAndTheNodeConfigOnEightOneAndNineZero() {
+        // feature 024 T023, T030, T036 (research D-24): the 8.1 port set with the helper also
+        // serves 9.0 (the helper picks its variant by version); the log level is not wired yet
         SecretScrubber scrubber = new SecretScrubber();
         try (CliResources resources = new CliResources("acme", PrivateFiles.forHost())) {
             HelperInstallation.Host host = new HelperInstallation.Host(false, Map.of(),
@@ -173,9 +173,10 @@ class PortSetRegistryTest {
                         .isInstanceOf(CliClusterNodeAdapter.class);
                     assertThat(ports.ioLog()).as(setting.text())
                         .isInstanceOf(CliIoLogAdapter.class);
-                    assertThatThrownBy(() -> ports.nodeConfig().values(
-                        List.of(NodeConfigName.CLUSTER_NAME), effective(setting).orElseThrow(),
-                        System.nanoTime())).as(setting.text())
+                    assertThat(ports.nodeConfig()).as(setting.text())
+                        .isInstanceOf(CliNodeConfigAdapter.class);
+                    assertThatThrownBy(() -> ports.logLevel().answeringNode(
+                        effective(setting).orElseThrow(), System.nanoTime())).as(setting.text())
                         .isInstanceOfSatisfying(ToolErrorException.class, e ->
                             assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE));
                 }

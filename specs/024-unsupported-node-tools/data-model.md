@@ -142,8 +142,8 @@ ClusterNodesResult   node, inubitNode, nodes[≤200]{name,status,rawStatus?,vers
 IoLogResult          node, inubitNode, workflow, processId, total, matching, entries[≤500]{ref,moduleName,moduleId?,direction,index},
                      truncated, message?{ref, moduleName, moduleId?, direction, index, sizeBytes, kind(text|binary|empty|tooLarge),
                      charset?, detected?, textChars?, text?, cut?}, hints, warnings
-NodeConfigResult     node, inubitNode, values[]{name, present, value?, type?, displayName?, description?, category?, editable?,
-                     deprecated?, error?}, warnings
+NodeConfigResult     node, inubitNode, values[]{name, present? (absent when error is set), value?, cut?, type?, displayName?,
+                     description?, category?, editable?, deprecated?, error?}, warnings
 LogLevelResult       challenge{confirmationCode, expiresAt, preview, message} | result{node, inubitNode, outcome, leaseId?,
                      loggers[]{name, level}, expiresAt?, leaseOpen, message, auditId, warnings}
 ```

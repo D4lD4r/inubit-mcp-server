@@ -36,7 +36,8 @@ import org.junit.jupiter.api.io.TempDir;
  * may download the web service log. Feature 024 (T023, FR-002, SC-005, D-6):
  * {@code list_cluster_nodes} only for a node of a group with {@code unsupported.nodeStatusRead}
  * that may list the cluster's nodes and has a client home; T030: {@code read_io_log} the same with
- * {@code unsupported.ioLogRead}.
+ * {@code unsupported.ioLogRead}; T036: {@code get_node_config} the same with
+ * {@code unsupported.nodeConfigRead}.
  */
 class ToolAnnouncementTest {
 
@@ -568,6 +569,57 @@ class ToolAnnouncementTest {
         assertThat(groupTools("AUTO", ioLogOptIn("true") + "\n" + cliHome(), false, production))
             .containsExactlyElementsOf(REFERENCE);
         assertThat(groupTools("V9_0", ioLogOptIn("true"), true, production))
+            .containsExactlyElementsOf(REFERENCE);
+    }
+
+    // --- feature 024 T036: get_node_config (FR-002, SC-005, research D-6) ----------------------
+
+    private static String nodeConfigOptIn(String value) {
+        return "    unsupported:\n      nodeConfigRead: " + value;
+    }
+
+    @Test
+    void anOptedInNodeWithAClientHomeAnnouncesGetNodeConfig() {
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V8_1", nodeConfigOptIn("true") + "\n" + cliHome(), false, matrix))
+            .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
+                "find_processes", "query_logs", "download_server_log", "get_node_config",
+                "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
+                "export_archives", "check_artifacts");
+        assertThat(groupTools("V8_1", "    unsupported:\n      nodeStatusRead: true\n"
+            + "      ioLogRead: true\n      nodeConfigRead: true\n" + cliHome(), false, matrix))
+            .as("after list_cluster_nodes and read_io_log")
+            .containsSubsequence("list_cluster_nodes", "read_io_log", "get_node_config",
+                "list_inventory");
+        assertThat(groupTools("AUTO", nodeConfigOptIn("true") + "\n" + cliHome(), false, matrix))
+            .as("an AUTO node may run 8.1").contains("get_node_config");
+        assertThat(groupTools("V8_1", "    production: true\n    write:\n      enabled: false\n"
+            + nodeConfigOptIn("true") + "\n" + cliHome(), false, matrix))
+            .as("read-only, independent of write.*").contains("get_node_config");
+    }
+
+    @Test
+    void withoutTheOptInOrAClientHomeGetNodeConfigIsNotAnnounced() {
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V8_1", nodeConfigOptIn("false") + "\n" + cliHome(), false, matrix))
+            .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V8_1", nodeConfigOptIn("true"), false, matrix))
+            .doesNotContain("get_node_config", "export_artifacts");
+        assertThat(groupTools("V8_1", ioLogOptIn("true") + "\n" + cliHome(), false, matrix))
+            .as("another node-tool opt-in").doesNotContain("get_node_config");
+        assertThat(groupTools("V6_1", nodeConfigOptIn("true") + "\n" + cliHome(), false, matrix))
+            .as("pinned to 6.1").doesNotContain("get_node_config");
+    }
+
+    @Test
+    void onTheProductionMatrixGetNodeConfigIsNotAnnouncedBeforeItsRecording() {
+        // NODE_CONFIG_READ stays unsupported on 8.1 and 9.0 until T038
+        CapabilityMatrix production = CapabilityMatrix.production();
+        assertThat(groupTools("V8_1", nodeConfigOptIn("true") + "\n" + cliHome(), false,
+            production)).containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("AUTO", nodeConfigOptIn("true") + "\n" + cliHome(), false,
+            production)).containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V9_0", nodeConfigOptIn("true"), true, production))
             .containsExactlyElementsOf(REFERENCE);
     }
 }

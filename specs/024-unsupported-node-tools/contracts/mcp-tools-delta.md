@@ -256,7 +256,7 @@ Returns configuration values of the INUBIT node one {node} reaches, from a fixed
 
 `values` in request order (all 20 in list order without `names`); `value` masked, ≤ 2,000 chars
 (`cut: true`); `present: false` = "not present on this node"; a single failed name has
-`error: {code, message}` and the others are still returned.
+`error: {code, message}` and no `present`, and the others are still returned.
 
 ### Errors
 
