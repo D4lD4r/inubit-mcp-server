@@ -33,7 +33,9 @@ import org.junit.jupiter.api.io.TempDir;
  * run the capability and has a client home. Feature 021 (T031, FR-002, D-17):
  * {@code download_server_log} for a node with a client home that may download the trace log;
  * T043: or for a node of a group with {@code unsupported.serverLogRead} with a client home that
- * may download the web service log.
+ * may download the web service log. Feature 024 (T023, FR-002, SC-005, D-6):
+ * {@code list_cluster_nodes} only for a node of a group with {@code unsupported.nodeStatusRead}
+ * that may list the cluster's nodes and has a client home.
  */
 class ToolAnnouncementTest {
 
@@ -423,5 +425,90 @@ class ToolAnnouncementTest {
         // lab has a client home on 8.1 but no opt-in
         assertThat(webServiceTools("V6_1", true)).doesNotContain("download_server_log");
         assertThat(webServiceTools("V8_1", false)).doesNotContain("download_server_log");
+    }
+
+    // --- feature 024 T023: list_cluster_nodes (FR-002, SC-005, research D-6) -----------------
+
+    /** The T001 reference (SC-005): the tools of a client home on 8.1 or AUTO without opt-in. */
+    private static final List<String> REFERENCE = List.of("list_nodes", "get_health",
+        "read_knowledge", "record_knowledge", "find_processes", "query_logs",
+        "download_server_log", "list_inventory", "get_inventory_item", "find_partners",
+        "export_artifacts", "export_archives", "check_artifacts");
+
+    private static String nodeStatusOptIn(String value) {
+        return "    unsupported:\n      nodeStatusRead: " + value;
+    }
+
+    @Test
+    void anOptedInNodeWithAClientHomeAnnouncesListClusterNodes() {
+        // TraceMatrix admits every capability on 8.1 but the web service log, the cluster's
+        // node list included
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V8_1", nodeStatusOptIn("true") + "\n" + cliHome(), false,
+            matrix)).containsExactly("list_nodes", "get_health", "read_knowledge",
+                "record_knowledge", "find_processes", "query_logs", "download_server_log",
+                "list_cluster_nodes", "list_inventory", "get_inventory_item", "find_partners",
+                "export_artifacts", "export_archives", "check_artifacts");
+        assertThat(groupTools("AUTO", nodeStatusOptIn("true") + "\n" + cliHome(), false,
+            matrix)).as("an AUTO node may run 8.1").contains("list_cluster_nodes");
+        assertThat(groupTools("V8_1", "    production: true\n    write:\n      enabled: false\n"
+            + nodeStatusOptIn("true") + "\n" + cliHome(), false, matrix))
+            .as("read-only, independent of write.*").contains("list_cluster_nodes");
+    }
+
+    @Test
+    void withoutTheOptInOrAClientHomeListClusterNodesIsNotAnnounced() {
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V8_1", cliHome(), false, matrix))
+            .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V8_1", nodeStatusOptIn("false") + "\n" + cliHome(), false,
+            matrix)).containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V8_1", nodeStatusOptIn("true"), false, matrix))
+            .doesNotContain("list_cluster_nodes", "export_artifacts");
+    }
+
+    @Test
+    void aNodePinnedToSixOneDoesNotAnnounceListClusterNodes() {
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V6_1", nodeStatusOptIn("true") + "\n" + cliHome(), false,
+            matrix)).doesNotContain("list_cluster_nodes");
+        // the opt-in on the 6.1 group, the 8.1 client home on another group without it
+        String yaml = """
+            profile:
+              name: acme
+            workspace: %s
+            groups:
+              - name: legacy
+                versionLine: V6_1
+                unsupported:
+                  nodeStatusRead: true
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: https://localhost:1
+              - name: test
+                versionLine: V8_1
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: https://localhost:2
+            """.formatted(temp.resolve("workspace"), temp.resolve("cli-legacy"),
+            temp.resolve("cli-test"));
+        assertThat(toolNames(yaml, matrix)).contains("download_server_log")
+            .doesNotContain("list_cluster_nodes");
+    }
+
+    @Test
+    void onTheProductionMatrixListClusterNodesIsNotAnnouncedBeforeTheFlip() {
+        // until T025 the production matrix declares CLUSTER_NODES_READ unsupported on 8.1 and 9.0
+        CapabilityMatrix production = CapabilityMatrix.production();
+        assertThat(groupTools("V8_1", nodeStatusOptIn("true") + "\n" + cliHome(), false,
+            production)).containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("AUTO", nodeStatusOptIn("true") + "\n" + cliHome(), false,
+            production)).containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V9_0", nodeStatusOptIn("true"), true, production))
+            .containsExactlyElementsOf(REFERENCE);
     }
 }

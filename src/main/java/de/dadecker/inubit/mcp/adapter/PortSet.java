@@ -106,7 +106,7 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
     }
 
     /** The node-tool ports of a port set without node-tool adapters (feature 024). */
-    private static final class NodeToolsUnavailable
+    static final class NodeToolsUnavailable
         implements ClusterNodePort, IoLogPort, NodeConfigPort, LogLevelPort {
 
         static final NodeToolsUnavailable INSTANCE = new NodeToolsUnavailable();

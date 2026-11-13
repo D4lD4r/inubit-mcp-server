@@ -2322,6 +2322,27 @@ class MainTest {
         assertThat(announcedTools(validConfig())).doesNotContain("download_server_log");
     }
 
+    // --- feature 024 T023: list_cluster_nodes only under its opt-in (FR-002, SC-005, D-6) ----
+
+    @Test
+    void withoutANodeToolOptInOrBeforeItsFlipTheToolListEqualsTheReference() throws Exception {
+        // SC-005: the T001 reference of an 8.1 node with a client home; until T025 the
+        // production matrix declares the cluster's node list unsupported, so the opt-in adds
+        // nothing either
+        credentials();
+        List<String> reference = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
+            "export_archives", "check_artifacts");
+
+        assertThat(announcedTools(configWithClientHome(
+            "    unsupported:\n      nodeStatusRead: false\n")))
+            .containsExactlyElementsOf(reference);
+        assertThat(announcedTools(configWithClientHome(
+            "    unsupported:\n      nodeStatusRead: true\n")))
+            .containsExactlyElementsOf(reference);
+    }
+
     @Test
     void aProfileWithoutAMarkedStageLogsNoPinPerServerLine() throws Exception {
         credentials();

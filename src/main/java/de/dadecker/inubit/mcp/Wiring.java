@@ -82,6 +82,7 @@ import de.dadecker.inubit.mcp.application.knowledge.KnowledgeDirectory;
 import de.dadecker.inubit.mcp.application.knowledge.KnowledgeLimits;
 import de.dadecker.inubit.mcp.application.knowledge.KnowledgeService;
 import de.dadecker.inubit.mcp.application.knowledge.NoteRefs;
+import de.dadecker.inubit.mcp.application.nodetools.ClusterNodeService;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialNames;
@@ -128,6 +129,7 @@ import de.dadecker.inubit.mcp.mcp.tools.DeployReleaseTool;
 import de.dadecker.inubit.mcp.mcp.tools.DownloadServerLogTool;
 import de.dadecker.inubit.mcp.mcp.tools.ImportArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.KillProcessTool;
+import de.dadecker.inubit.mcp.mcp.tools.ListClusterNodesTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListInventoryTool;
 import de.dadecker.inubit.mcp.mcp.tools.ReadKnowledgeTool;
 import de.dadecker.inubit.mcp.mcp.tools.RecordKnowledgeTool;
@@ -166,7 +168,8 @@ import java.util.function.Supplier;
  * some version, {@link ClientSelectionPort#anyCandidate}), and {@code check_artifacts};
  * feature 015: {@code export_archives} under the same condition as {@code export_artifacts};
  * feature 020: {@code read_queue_entry} only if {@link #anyQueueEntryReadNode()}; feature 021:
- * {@code download_server_log} only if {@link #anyServerLogNode()}).
+ * {@code download_server_log} only if {@link #anyServerLogNode()}; feature 024:
+ * {@code list_cluster_nodes} only if {@link #anyClusterNodesNode()}).
  * Feature 012 (research D-12): the read tools other than {@code list_nodes}, {@code get_health}
  * and {@code check_artifacts} are announced only if some node may run their capability
  * ({@link #possiblyCapable}).
@@ -222,6 +225,8 @@ final class Wiring implements AutoCloseable {
     private final CheckArtifactsTool checkArtifacts;
     /** Feature 021: built for every configuration; announced as {@link #anyServerLogNode()}. */
     private final DownloadServerLogTool downloadServerLog;
+    /** Feature 024: built for every configuration; announced as {@link #anyClusterNodesNode()}. */
+    private final ListClusterNodesTool listClusterNodes;
     /**
      * Feature 019 (research D-7): the credentials of every node of the profile; feature 021
      * (research D-11): also masked in the excerpt of {@code download_server_log}.
@@ -495,6 +500,11 @@ final class Wiring implements AutoCloseable {
             profileSecrets.timeout(), new ExcerptPermit(), new LogFileWriter(),
             new ServerLogAudit.Dependencies(audit, clock.clock(), profile.name(),
                 UUID::randomUUID), clock.clock(), System::nanoTime)::download);
+        // feature 024 (FR-010): the cluster's node list through the INUBIT client helper of the
+        // node's port set, within the node's cliTimeout
+        this.listClusterNodes = new ListClusterNodesTool(new ClusterNodeService(targets,
+            id -> byId.get(id).nodeStatusRead(), versionGate, gateways,
+            id -> byId.get(id).cliTimeout(), System::nanoTime)::list);
         ArtifactCheckService checks = new ArtifactCheckService(workspace,
             new WorkspaceInspector(), new SaxonXsltRunner(workspace), group -> servers.stream()
                 .map(EffectiveNodeConfig::id).filter(id -> id.group().equals(group)).findFirst(),
@@ -675,6 +685,9 @@ final class Wiring implements AutoCloseable {
         if (anyServerLogNode()) {
             handlers.add(downloadServerLog);
         }
+        if (anyClusterNodesNode()) {
+            handlers.add(listClusterNodes);
+        }
         if (anyPossiblyCapable(Capability.INVENTORY)) {
             handlers.add(new ListInventoryTool(inventory));
             handlers.add(new GetInventoryItemTool(inventory));
@@ -851,7 +864,9 @@ final class Wiring implements AutoCloseable {
      * where allowed, process control with write access; feature 020 (research D-15): reading
      * Queue Manager entries with the group's {@code unsupported.queueEntryRead} and the client;
      * feature 021 (research D-17): downloading the trace log with the client, the web service log
-     * with the client and the group's {@code unsupported.serverLogRead}.
+     * with the client and the group's {@code unsupported.serverLogRead}; feature 024 (research
+     * D-6): listing the cluster's nodes with the client and the group's
+     * {@code unsupported.nodeStatusRead}.
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
         Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
@@ -880,6 +895,9 @@ final class Wiring implements AutoCloseable {
         }
         if (withClient && server.serverLogRead()) {
             allowed.add(Capability.WEBSERVICE_LOG_READ);
+        }
+        if (withClient && server.nodeStatusRead()) {
+            allowed.add(Capability.CLUSTER_NODES_READ);
         }
         return allowed;
     }
@@ -915,6 +933,18 @@ final class Wiring implements AutoCloseable {
             && (possiblyCapable(server, Capability.TRACE_LOG_READ)
                 || server.serverLogRead()
                     && possiblyCapable(server, Capability.WEBSERVICE_LOG_READ)));
+    }
+
+    /**
+     * Feature 024 (FR-002, research D-6): true if a node of a group with
+     * {@code unsupported.nodeStatusRead} may list the cluster's nodes ({@link #possiblyCapable})
+     * and has a client home some version of it may use ({@link ClientSelectionPort#anyCandidate});
+     * independent of write access.
+     */
+    private boolean anyClusterNodesNode() {
+        return servers.stream().anyMatch(server -> server.nodeStatusRead()
+            && possiblyCapable(server, Capability.CLUSTER_NODES_READ)
+            && clientSelection.anyCandidate(server.id()));
     }
 
     /** True if some node may run {@code capability} ({@link #possiblyCapable}). */

@@ -320,7 +320,7 @@ the opt-in gets the list and one node's details; a group without it is refused b
   true)`, description of contracts), `src/main/resources/schemas/list_cluster_nodes.{input,output}.json`.
   Failing tests first in `mcp/tools/ListClusterNodesToolTest.java` (schema: group id, bad
   `nodeName`, extra property refused; output example of contracts validates; description key phrases)
-- [ ] T023 [US1] Wiring (FR-002, SC-005, D-6; after T022): `Wiring.java` service, adapter,
+- [X] T023 [US1] Wiring (FR-002, SC-005, D-6; after T022): `Wiring.java` service, adapter,
   announcement (opt-in + `possiblyCapable` + client candidate), `allowed()`
   (`CLUSTER_NODES_READ` with `withClient && nodeStatusRead`). Failing tests first in
   `ToolAnnouncementTest.java` (announced only with the opt-in and a client home; not for a node

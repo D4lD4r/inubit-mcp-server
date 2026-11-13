@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliSystem;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
+import de.dadecker.inubit.mcp.adapter.cli.node.CliClusterNodeAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61HealthAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61ProcessQueryAdapter;
@@ -31,6 +32,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
 import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -140,6 +142,41 @@ class PortSetRegistryTest {
                 PortSetRegistry.v81Default(host, null, LIMITER));
             assertThatNullPointerException().isThrownBy(() ->
                 PortSetRegistry.v81Default(host, processRun, null));
+        }
+    }
+
+    @Test
+    void theHelperPortSetListsTheClusterNodesOnEightOneAndNineZero() {
+        // feature 024 T023 (research D-24): the 8.1 port set with the helper also serves 9.0 (the
+        // helper picks its variant by version); the other node tools are not wired yet
+        SecretScrubber scrubber = new SecretScrubber();
+        try (CliResources resources = new CliResources("acme", PrivateFiles.forHost())) {
+            HelperInstallation.Host host = new HelperInstallation.Host(false, Map.of(),
+                new FixedSystem(new CliSystem.Unreadable("not Windows"), StandardCharsets.UTF_8),
+                ProcessContainment.Bound::new, resources, Path.of("helper-root").toAbsolutePath());
+            ProcessRun processRun = new ProcessRun(spec -> {
+                throw new AssertionError("nothing is launched: " + spec.command());
+            }, resources);
+            PortSetRegistry withHelper = PortSetRegistry.v81Default(host, processRun, LIMITER)
+                .withV90();
+            for (VersionSetting setting : List.of(VersionSetting.V8_1, VersionSetting.V9_0)) {
+                EffectiveNodeConfig server = TestNodeConfig.node().versionLine(setting).build();
+                try (InubitHttpClient client = new InubitHttpClient(server, Optional.empty(),
+                    Optional.empty(), MaintenanceProbe.NONE, scrubber)) {
+                    PortSet ports = withHelper.select(effective(setting)).factory().create(
+                        new PortSetRegistry.NodeResources(server, credentials(server),
+                            new CredentialGuard(server.secretLabels(), Clock.systemUTC()), client,
+                            noStartCli(), scrubber));
+
+                    assertThat(ports.clusterNodes()).as(setting.text())
+                        .isInstanceOf(CliClusterNodeAdapter.class);
+                    assertThatThrownBy(() -> ports.nodeConfig().values(
+                        List.of(NodeConfigName.CLUSTER_NAME), effective(setting).orElseThrow(),
+                        System.nanoTime())).as(setting.text())
+                        .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                            assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE));
+                }
+            }
         }
     }
 
