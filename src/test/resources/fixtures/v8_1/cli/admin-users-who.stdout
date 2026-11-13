@@ -1,0 +1,11 @@
+JAVA_HOME is set
+Password: 
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+SYSTEM-ID                                                       SYSTEM TYPE                   STATE     VERSION        IDLE
+jdbc:postgresql://inubit-db-01.example.test:5432/inubitlogdb    Log DB (PostgreSQL)                     42.7.7         271:16:42s
+jdbc:postgresql://inubit-db-01.example.test:5432/inubitcachedb  Repository DB (PostgreSQL)              42.7.7         271:16:42s
+jdbc:postgresql://inubit-db-01.example.test:5432/inubitcachedb  Cache DB (PostgreSQL)                   42.7.7         271:16:42s
+http://localhost:8181/                                          Portal (BPC)                                           271:16:42s
+                                                                Process User Server (inubit)                           271:16:42s
+workstation-1.example.test (jdoe)                               Toolset                       OK        8.1.17         0:00:01s
+

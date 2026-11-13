@@ -463,7 +463,7 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
 
   Neutralize into `fixtures/v8_1/{rest,cli}/admin-users-*` (personal fields replaced by
   `*.example.test` values). Record whether `msgread` marks the message as read.
-- [ ] T028a [LIVE] [OWNER] [US2] L-6 logins on 8.1 (added 2026-11-13 after T028: `-who`/`-nwho`
+- [X] T028a [LIVE] [OWNER] [US2] L-6 logins on 8.1 (added 2026-11-13 after T028: `-who`/`-nwho`
   are StartCLI client options, not session commands):
   - record `startcli.sh … --who <url>` and `startcli.sh … --nwho <url>` once each, read-only, on
     the T028 server (owner approval 2026-11-13);
@@ -486,11 +486,15 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   `FingerParser.java` (login, e-mail, roles, account state if shown), `WhoParser.java`,
   `MessageListParser.java`, `MessageReadParser.java`.
   - Failing tests first: one test class each, with reconstructed cases (recorded after T028).
+  - `WhoParser` reads the system table of `--who` (research "Live recording T028a"): only
+    `Toolset` rows become a `LoginEntry`, `since` stays empty on 8.1; `--nwho` counts all rows.
 - [ ] T032 [US2] `adapter/cli/admin/CliUserRunner.java` (after T012, T031):
   - one session per page with `user <login>` + `finger <login>` for ≤ 25 logins;
-  - `-who`/`-nwho`;
+  - logins: one client run per form, `startcli.sh … --who <url>` and `startcli.sh … --nwho <url>`
+    (T028a), not in the session and not with `--execCommand`;
   - `msglist`, `msgread <id>` (id pattern `^[0-9]{1,10}$`).
-  - `SESSION_OPTIONS` admits exactly these read forms.
+  - `SESSION_OPTIONS` admits exactly the session read forms above (`user`, `finger`, `msglist`,
+    `msgread`), without `-who`/`-nwho`; the coverage entries keep their keys `-who`/`-nwho`.
   - Failing tests first: `CliUserRunnerTest.java` (scripted session of 25 users; login names
     quoted; a block missing → that user's groups `unavailable`) and `CliSessionCommandTest`.
 - [ ] T033 [US2] Port and wiring:
@@ -509,6 +513,8 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   - an unknown login gives `NOT_FOUND` with the next step "list the users" (AS3);
   - personal fields appear only in `user` (FR-011);
   - `ActionSpec`s per view.
+  - `loggedIn` lists the `Toolset` rows of `--who` (research "Live recording T028a"), without a
+    login time on 8.1; the `--nwho` count of all systems is not reported as a user count.
   - `sources` per fact (FR-009): `logins` REST; `groups`, `roles`, `accountState`, `email`,
     `loggedIn`, `messages` CLI; asserted per view;
   - Failing tests first: `application/UserReadServiceTest.java` (AS1–AS6; a 500-user list gives

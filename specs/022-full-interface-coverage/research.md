@@ -517,13 +517,19 @@ values again.
   (D-7) runs `user <login>` (groups) and `finger <login>` (roles).
 - **One user**: the same session, plus `email` from `finger` / REST. An account state is reported
   only if INUBIT shows one (L-6).
-- **Logins**: `-who` (names, login time) and `-nwho`.
+- **Logins**: one client run per form, `startcli.sh … --who <url>` and `startcli.sh … --nwho
+  <url>`, each a StartCLI run of its own (T028a). They are not session commands: in the session
+  8.1 answers `Command not found.`, and `--execCommand -who` fails because the client takes `-who`
+  as its own option (T028). `CliSessionCommand.SESSION_OPTIONS` therefore admits neither form; the
+  coverage entries keep their keys `-who` / `-nwho`. `--who` shows no login time, only an idle
+  time per row (see "Live recording T028a").
 - **Messages**: `msglist`, then `msgread <id>`. The text is masked and limited to
   `ItemBounds.MAX_ITEM_CHARS`.
 
 The spec's "cursor" (US2 AS1) is the project's `nextOffset`, the paging form of every other tool.
 
 **Rationale**: REST has no groups or roles; one session per page keeps one JVM start per page.
+The logins cost one JVM start per form, because the 8.1 client offers them only as its own options.
 
 ## D-21 Model details and file-producing reads (US3, FR-012)
 
@@ -839,3 +845,42 @@ only.
 modes: only the header `ID   Subject … Sender … Date` (columns 5, 40 and 15 characters wide,
 CRLF) and an empty line. `msgread` was skipped, so whether it marks a message as read, and the
 row layout of `msglist`, are not recorded.
+
+## Live recording T028a (8.1, 2026-11-13)
+
+Read-only recordings on the same 8.1.17 development server and account as T028, approved by the
+owner on 2026-11-13: one client run each of `startcli.sh -u <user> --trustStoreFilePath <store>
+--disableHostNameVerification --who <cliUrl>` and the same with `--nwho`, the password on stdin.
+Fixtures: `fixtures/v8_1/cli/admin-users-who.*` and `admin-users-nwho.*` (neutralization in
+`fixtures/v8_1/cli/README.md`). 9.0 was not recorded.
+
+**L-6 (logins): answered for 8.1.**
+
+- Both forms ask for the password like script mode and print the script-mode preamble:
+  `JAVA_HOME is set`, `Password: ` followed by a line break, the hostname-verification warning
+  (LF). No `Connecting as` line and no `Connection to inubit Process Engine … established.` line.
+  stderr holds only the JVM's `Picked up JAVA_TOOL_OPTIONS` line. Exit code 0 for both.
+- `--who` prints a table, not a list of users: the header `SYSTEM-ID`, `SYSTEM TYPE`, `STATE`,
+  `VERSION`, `IDLE`, the first four columns 64, 30, 10 and 15 characters wide, the fifth, `IDLE`, unpadded, header
+  and rows ending in CRLF, then an empty line (LF). One row per connected system:
+  - the three database connections, `SYSTEM-ID` the JDBC URL, `SYSTEM TYPE` `Log DB
+    (PostgreSQL)`, `Repository DB (PostgreSQL)` or `Cache DB (PostgreSQL)`, `VERSION` the JDBC
+    driver version;
+  - `Portal (BPC)` with its URL, and `Process User Server (inubit)` with an empty `SYSTEM-ID`;
+  - one `Toolset` row for the client connection: `SYSTEM-ID` `<client host> (<login>)`, `STATE`
+    `OK`, `VERSION` the client's version `8.1.17`. Only this row had a `STATE`.
+- No login time and no session data (no session id, no start time). `IDLE` is a duration
+  `<hours>:<mm>:<ss>s`; the five system rows showed the same value of several days, the client
+  row 2 seconds.
+- The user's own login is listed: the run's own connection is the `Toolset` row, with the host the
+  client ran on and the profile account in parentheses. No other `Toolset` row appeared, so how
+  other Workbench or StartCLI connections look was not recorded. The profile account and the
+  operating-system user of the client host have the same name in this recording, so whether the
+  parentheses hold the INUBIT login or the client's operating-system user is not settled.
+- `--nwho` prints a bare number and a line break (LF): `6`, the number of rows `--who` listed,
+  systems included. It is therefore not the number of logged-in users.
+
+**Consequence.** D-20 "Logins" and T032 read the logins with one client run per form, not in the
+session; `CliSessionCommand.SESSION_OPTIONS` stays without `-who` / `-nwho`. The coverage entries
+keep their keys `-who` / `-nwho`. How `--who` rows become `LoginEntry` values (only `Toolset`
+rows, `since` empty) and what `--nwho` is reported as is left to T031 and T034.
