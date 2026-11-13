@@ -1704,12 +1704,13 @@ class MainTest {
             .isEqualTo(BuildInfo.version());
         // US1 (Phase 3), US2 (Phase 4), US3 (Phase 5) and check_artifacts (feature 003); no
         // write tool while write is disabled, no export without a CLI installation; feature 019
-        // read_knowledge always, record_knowledge with knowledge.recording on (the default)
+        // read_knowledge always, record_knowledge with knowledge.recording on (the default);
+        // feature 022 T025: get_server_settings on an 8.1 node, also without a CLI installation
         assertThat(tools.path("result").path("tools"))
             .extracting(tool -> tool.path("name").asString())
             .containsExactlyInAnyOrder("list_nodes", "get_health", "read_knowledge",
-                "record_knowledge", "find_processes", "query_logs", "list_inventory",
-                "get_inventory_item", "find_partners", "check_artifacts");
+                "record_knowledge", "find_processes", "query_logs", "get_server_settings",
+                "list_inventory", "get_inventory_item", "find_partners", "check_artifacts");
         JsonNode server = servers.path("result").path("structuredContent").path("groups").path(0)
             .path("nodes").path(0);
         assertThat(server.path("id").asString()).isEqualTo("dev/node1");
@@ -2279,12 +2280,13 @@ class MainTest {
 
     @Test
     void withoutAnOptInTheToolListIsUnchangedByFeature020() throws Exception {
-        // feature 021 T033: the 8.1 node with a client home also announces download_server_log
+        // feature 021 T033: the 8.1 node with a client home also announces download_server_log;
+        // feature 022 T025: and get_server_settings
         credentials();
         List<String> withoutFeature020 = List.of("list_nodes", "get_health",
             "read_knowledge", "record_knowledge", "find_processes", "query_logs",
-            "download_server_log", "list_inventory", "get_inventory_item", "find_partners",
-            "export_artifacts", "export_archives", "check_artifacts");
+            "download_server_log", "get_server_settings", "list_inventory", "get_inventory_item",
+            "find_partners", "export_artifacts", "export_archives", "check_artifacts");
 
         assertThat(announcedTools(configWithClientHome("")))
             .containsExactlyElementsOf(withoutFeature020);
@@ -2301,8 +2303,8 @@ class MainTest {
             "    unsupported:\n      queueEntryRead: true\n")))
             .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
                 "find_processes", "query_logs", "read_queue_entry", "download_server_log",
-                "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
-                "export_archives", "check_artifacts");
+                "get_server_settings", "list_inventory", "get_inventory_item", "find_partners",
+                "export_artifacts", "export_archives", "check_artifacts");
     }
 
     // --- feature 021 T031: download_server_log only once a version admits it (FR-002, SC-002) -
@@ -2311,11 +2313,12 @@ class MainTest {
     void sinceThe81TraceRecordingAnEightOneAndAnAutoNodeAnnounceTheDownload() throws Exception {
         // T033: the production matrix supports the trace log on 8.1, so an 8.1 node and an AUTO
         // node with a client home announce download_server_log; without a client home none does
+        // (feature 022 T025: both also announce get_server_settings)
         credentials();
         List<String> withDownload = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
-            "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
-            "export_archives", "check_artifacts");
+            "get_server_settings", "list_inventory", "get_inventory_item", "find_partners",
+            "export_artifacts", "export_archives", "check_artifacts");
 
         assertThat(announcedTools(configWithClientHome("")))
             .containsExactlyElementsOf(withDownload);

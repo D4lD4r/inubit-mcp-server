@@ -345,13 +345,13 @@ class WiringAuditTest {
         // feature 022 T020: the production 8.1 port set reads GET /license with the node's
         // credentials; reads are not audited (Constitution VII)
         inubit.stubFor(get(urlPathEqualTo("/ibis/rest/license"))
-            .willReturn(RestFixtures.response("admin-license-reconstructed", "xml")));
+            .willReturn(RestFixtures.response("admin-license", "xml")));
         startEnvironmentServer();
 
         LicenseFacts license = wiring.gateways().serverSettings(NodeId.parse("dev/node1"))
             .license();
 
-        assertThat(license.expiryDate()).contains(LocalDate.of(2027, 6, 30));
+        assertThat(license.expiryDate()).contains(LocalDate.of(2046, 10, 8));
         inubit.verify(1, getRequestedFor(urlPathEqualTo("/ibis/rest/license"))
             .withHeader("Authorization", matching("Basic .+")));
         List<String> records = new ArrayList<>();

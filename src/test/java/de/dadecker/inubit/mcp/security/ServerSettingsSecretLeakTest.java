@@ -113,10 +113,10 @@ import tools.jackson.databind.JsonNode;
  * carry no secret either.
  *
  * <ul>
- *   <li>REST: the reconstructed fixtures {@code admin-license-reconstructed} and
- *       {@code admin-configurations-reconstructed} with their planted values
- *       ({@link #REST_SECRETS}, see their READMEs), and error bodies (HTTP 403, 500, unreadable
- *       documents) made of them;
+ *   <li>REST: the recorded fixtures {@code admin-license} and {@code admin-configurations}
+ *       (T014) with the licensee and the planted values of the configuration
+ *       ({@link #REST_SECRETS}, see {@code fixtures/v8_1/cli/README.md}), and error bodies (HTTP
+ *       403, 500, unreadable documents) made of them;
  *   <li>StartCLI: the node's configured password ({@link #PASSWORD}, registered with the global
  *       scrubber as the production wiring does) echoed after the password prompt and printed as
  *       a workflow name, and unknown answers and a failing session carrying it and the
@@ -124,9 +124,11 @@ import tools.jackson.databind.JsonNode;
  * </ul>
  *
  * <p>The capability matrix supports every capability and the coverage list is a fixture whose US1
- * rows are reachable, so every part reaches the adapters; the production list keeps them
- * {@code planned} until the recordings (T025). The facts {@code get_health} reads come from a
- * fixed {@link MonitoringPort}, which carries no INUBIT text.
+ * rows are reachable, so every part reaches the adapters; the production list excludes
+ * {@code threads} and {@code privilegedWorkflows} (INUBIT root user only) and keeps 9.0
+ * {@code planned} (T025). The blocks of these two parts are the SYNTHETIC
+ * {@code *-reconstructed} cases, the others the recorded answers. The facts {@code get_health}
+ * reads come from a fixed {@link MonitoringPort}, which carries no INUBIT text.
  */
 @Timeout(60)
 class ServerSettingsSecretLeakTest {
@@ -142,18 +144,18 @@ class ServerSettingsSecretLeakTest {
     /** A secret value StartCLI prints under a secret name. */
     private static final String CLI_SECRET = "synthetic-secret-0231";
     /**
-     * The planted values of the reconstructed REST fixtures: the licensee (masked by
-     * {@code LicenseXmlParser}), {@code activationPassword} and {@code signature} of the license,
-     * and the configuration leaves masked by secret name, {@code encrypted} flag and key material.
+     * The secrets of the recorded REST fixtures: the licensee (masked by
+     * {@code LicenseXmlParser}) and the planted configuration leaves, masked by secret name
+     * ({@code ProxyPassword}, {@code SMTPProperties/ErrorPassword}) and by path
+     * ({@code ProcessUserServer/ProcessUserImTenantAdminCredentials/Value}).
      */
     private static final List<String> REST_SECRETS = List.of("Fictitious Licensee 0001",
-        "synthetic-secret-0201", "synthetic-secret-0202", "synthetic-secret-0301",
-        "synthetic-secret-0302", "synthetic-secret-0303", "MIIBsyntheticsecret0304");
+        "synthetic-secret-0401", "synthetic-secret-0402", "synthetic-secret-0403");
     private static final List<String> SECRETS = Stream.concat(REST_SECRETS.stream(),
         Stream.of(CLI_SECRET, PASSWORD)).toList();
     /** The configuration sections with a planted secret. */
     private static final List<String> SECRET_SECTIONS = List.of("ProcessUserServer",
-        "SMTPProperties", "LDAPProperties", "SystemProperties");
+        "SMTPProperties", "ProxyPassword");
 
     /** The US1 rows of interface-coverage.tsv, reachable on 8.1 and 9.0. */
     private static final String COVERAGE = """
@@ -177,9 +179,12 @@ class ServerSettingsSecretLeakTest {
         block("admin-settings-privileged-percentage-reconstructed");
     private static final List<String> LIST =
         block("admin-settings-privileged-list-reconstructed");
-    private static final List<String> TOLERANCE =
-        block("admin-settings-db-tolerance-reconstructed");
-    private static final List<String> DATE = block("admin-settings-date-reconstructed");
+    private static final List<String> TOLERANCE = answer("admin-settings-db-tolerance");
+    private static final List<String> DATE = answer("admin-settings-date");
+    /** The commands of the blocks of {@link #session}, in the order the runner sends them. */
+    private static final List<String> COMMANDS = List.of("threads showNumberOfWorkflowThreads",
+        "privilegedWorkflows showThreadsPercentage", "privilegedWorkflows showWorkflowList",
+        "dbconnectiontolerance show", "date");
     /** An answer no settings parser knows, with both StartCLI secrets. */
     private static final List<String> PLANTED = List.of("password=" + CLI_SECRET,
         "Unknown answer for " + PASSWORD);
@@ -302,8 +307,8 @@ class ServerSettingsSecretLeakTest {
 
     @Test
     void theFixturesCarryThePlantedSecrets() {
-        assertThat(RestFixtures.text("admin-license-reconstructed.xml")
-            + RestFixtures.text("admin-configurations-reconstructed.json"))
+        assertThat(RestFixtures.text("admin-license.xml")
+            + RestFixtures.text("admin-configurations.json"))
             .contains(REST_SECRETS);
     }
 
@@ -456,8 +461,8 @@ class ServerSettingsSecretLeakTest {
     }
 
     private void serveFixtures() {
-        stub(LICENSE, RestFixtures.response("admin-license-reconstructed", "xml"));
-        stub(CONFIGURATIONS, RestFixtures.response("admin-configurations-reconstructed", "json"));
+        stub(LICENSE, RestFixtures.response("admin-license", "xml"));
+        stub(CONFIGURATIONS, RestFixtures.response("admin-configurations", "json"));
     }
 
     private static void stub(String path, ResponseDefinitionBuilder answer) {
@@ -522,16 +527,17 @@ class ServerSettingsSecretLeakTest {
     }
 
     /**
-     * The session's stdout: the password prompt with the echoed password, one prompt per block,
-     * the prompt of exit.
+     * The session's stdout: the password prompt with the echoed password, then per block the
+     * prompt with the echoed command (as recorded, L-1) and the block, then the echoed exit.
      */
     @SafeVarargs
     private static String session(List<String>... blocks) {
         StringBuilder out = new StringBuilder("Password: " + PASSWORD + "\n");
-        for (List<String> block : blocks) {
-            out.append(PROMPT).append(String.join("\n", block)).append('\n');
+        for (int i = 0; i < blocks.length; i++) {
+            out.append(PROMPT).append(COMMANDS.get(i)).append('\n')
+                .append(String.join("\n", blocks[i])).append('\n');
         }
-        return out.append(PROMPT).toString();
+        return out.append(PROMPT).append("exit\n").toString();
     }
 
     private static List<String> append(List<String> block, String line) {
@@ -542,6 +548,12 @@ class ServerSettingsSecretLeakTest {
     private static List<String> block(String fixtureCase) {
         return FakeProcessLauncher.fixtureText(fixtureCase + ".stdout").lines()
             .map(line -> line.replace("\r", "")).filter(line -> !line.isBlank()).toList();
+    }
+
+    /** The answer of a recorded script-mode case: its lines after the client's 3 preamble lines. */
+    private static List<String> answer(String fixtureCase) {
+        List<String> lines = block(fixtureCase);
+        return lines.subList(3, lines.size());
     }
 
     private static CapabilityMatrix everythingSupported() {

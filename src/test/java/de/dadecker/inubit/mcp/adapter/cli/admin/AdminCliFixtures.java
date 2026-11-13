@@ -14,12 +14,15 @@ import java.util.List;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 
 /**
- * The {@code admin-settings-*} cases of {@code fixtures/v8_1/cli/} (each described in its own
- * {@code .README}) as one session block each, and the check of an unknown answer.
+ * The {@code admin-settings-*} cases of {@code fixtures/v8_1/cli/} (described in its
+ * {@code README.md}, a SYNTHETIC case also in its own {@code .README}) as one session block each,
+ * and the check of an unknown answer.
  */
 final class AdminCliFixtures {
 
     private static final String DIRECTORY = "/fixtures/v8_1/cli/";
+    private static final String PREAMBLE_WARNING = "SECURITY WARNING: Hostname verification is"
+        + " disabled. Your connection might not be secured!";
 
     private AdminCliFixtures() {
     }
@@ -41,6 +44,18 @@ final class AdminCliFixtures {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    /**
+     * The answer of a recorded script-mode case as a session block: the lines of {@link #block}
+     * after the client's preamble ({@code JAVA_HOME is set}, {@code Password: }, the hostname
+     * warning).
+     */
+    static List<String> answer(String fixtureCase) {
+        List<String> lines = block(fixtureCase);
+        assertThat(lines.subList(0, 3)).as("the preamble of " + fixtureCase)
+            .containsExactly("JAVA_HOME is set", "Password: ", PREAMBLE_WARNING);
+        return lines.subList(3, lines.size());
     }
 
     /** Asserts {@code UNEXPECTED_RESPONSE} with an excerpt and returns the error. */

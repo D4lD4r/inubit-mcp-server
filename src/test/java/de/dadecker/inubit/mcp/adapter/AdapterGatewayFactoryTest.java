@@ -540,7 +540,7 @@ class AdapterGatewayFactoryTest {
         // without helper host, behind the stale-reporting decorator: the REST parts on the
         // node's client, the StartCLI parts on the node's StartCLI runner
         wireMock.stubFor(get(urlPathEqualTo("/ibis/rest/license"))
-            .willReturn(RestFixtures.response("admin-license-reconstructed", "xml")));
+            .willReturn(RestFixtures.response("admin-license", "xml")));
         EffectiveNodeConfig on81 = server(DEV, VersionSetting.parse("8.1.17").orElseThrow());
         EffectiveNodeConfig on90 = server(ENT2, VersionSetting.parse("9.0.7").orElseThrow());
         try (CliResources resources = new CliResources("acme", PrivateFiles.forHost())) {
@@ -554,7 +554,7 @@ class AdapterGatewayFactoryTest {
                             .isSameAs(factory.forServer(node).serverSettings());
 
                         assertThat(port.license().expiryDate())
-                            .contains(LocalDate.of(2027, 6, 30));
+                            .contains(LocalDate.of(2046, 10, 8));
                         assertThat(codeOf(() ->
                             port.cliSettings(Set.of(UnavailablePart.THREADS))))
                             .as("no StartCLI client configured")

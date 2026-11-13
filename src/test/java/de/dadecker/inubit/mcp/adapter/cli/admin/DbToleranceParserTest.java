@@ -1,7 +1,6 @@
 package de.dadecker.inubit.mcp.adapter.cli.admin;
 
 import static de.dadecker.inubit.mcp.adapter.cli.admin.AdminCliFixtures.assertUnknown;
-import static de.dadecker.inubit.mcp.adapter.cli.admin.AdminCliFixtures.block;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.domain.model.DbConnectionTolerance;
@@ -9,9 +8,8 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * T018 (feature 022, US1): the answer of {@code dbconnectiontolerance show}. The case
- * {@code admin-settings-db-tolerance-reconstructed} is copied from the vendor example until T014
- * records the real one.
+ * T018, T025 (feature 022, US1): the answer of {@code dbconnectiontolerance show}, against the
+ * recorded case {@code admin-settings-db-tolerance} (T014: labels and values separated by tabs).
  */
 class DbToleranceParserTest {
 
@@ -22,8 +20,15 @@ class DbToleranceParserTest {
     }
 
     @Test
-    void theVendorExampleGivesThresholdRateAndInterval() {
-        assertThat(DbToleranceParser.parse(block("admin-settings-db-tolerance-reconstructed")))
+    void theRecordedAnswerGivesThresholdRateAndInterval() {
+        assertThat(DbToleranceParser.parse(
+            AdminCliFixtures.answer("admin-settings-db-tolerance")))
+            .isEqualTo(new DbConnectionTolerance(20, 5, 1800));
+    }
+
+    @Test
+    void theSingleSpaceOfTheVendorExampleIsAcceptedToo() {
+        assertThat(DbToleranceParser.parse(answer("0%", "25", "1%", "180 seconds")))
             .isEqualTo(new DbConnectionTolerance(25, 1, 180));
     }
 

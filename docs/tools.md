@@ -80,7 +80,7 @@ General rules:
 |---|---|---|---|
 | [`list_nodes`](#list_nodes) | which groups and nodes exist | read-only, idempotent, closed world | no (configuration only) |
 | [`get_health`](#get_health) | is a node up, ready, in maintenance; version and load | read-only, idempotent, open world | yes (REST) |
-| [`get_server_settings`](#get_server_settings) | license, workflow threads, privileged workflows, DB connection tolerance, server time and, on request, the server configuration of a node | read-only, idempotent, open world | yes (REST `license`, `configurations` and the calls of `get_health`; StartCLI session for the other settings) |
+| [`get_server_settings`](#get_server_settings) | license, workflow threads, privileged workflows (both need the INUBIT root user, so always `unavailable`), DB connection tolerance, server time and, on request, the server configuration of a node | read-only, idempotent, open world | yes (REST `license`, `configurations` and the calls of `get_health`; StartCLI session for the other settings) |
 | [`read_knowledge`](#read_knowledge) | list, search or read the notes of the profile's local knowledge | read-only, idempotent, closed world | no (local files only) |
 | [`record_knowledge`](#record_knowledge) | create a note, append a section or replace a note's content in the local knowledge | not read-only (writes local files), not destructive, non-idempotent, closed world | no (local files only) |
 | [`find_processes`](#find_processes) | failed, waiting or hanging process instances | read-only, idempotent, open world | yes (REST `queueLog`) |
@@ -130,8 +130,8 @@ log download (see [its section](#download_server_log)). It changes nothing on IN
 offered in read-only mode, independent of `write.*`, `archives.*` and the production opt-ins.
 
 `get_server_settings` is **offered only if** a node is not pinned to a version that refuses
-`server_settings`, with or without a StartCLI installation; while no INUBIT version is verified
-for it, it is not offered at all (see [its section](#get_server_settings)).
+`server_settings` (since its 8.1 recordings: a node pinned to 8.1 or `AUTO`), with or without a
+StartCLI installation (see [its section](#get_server_settings)).
 
 The development tools of feature 004 are **offered only if at least one node is a development
 stage** (`development.enabled: true`, never on production groups; see
@@ -158,7 +158,7 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 |---|---|---|---|---|---|---|
 | `list_nodes` | – | read | none | runs | runs (no INUBIT contact) | runs (no INUBIT contact) |
 | `get_health` | `monitoring` | read | REST; on 6.1 StartCLI | supported | runs with a warning; never refused | refused in this version (the report carries the refusal) |
-| `get_server_settings` | `server_settings` | read | REST + StartCLI | **refused until verified** per version, see [its section](#get_server_settings) | refused (no warning run) | refused |
+| `get_server_settings` | `server_settings` | read | REST + StartCLI | 8.1 supported; 9.0 **refused until verified**, see [its section](#get_server_settings) | refused (no warning run) | refused |
 | `find_processes` | `process_diagnosis` | read | REST; on 6.1 StartCLI | supported | runs with a warning | refused in this version; the input `tag` always |
 | `query_logs` | `log_diagnosis` | read | REST | supported | runs with a warning | refused |
 | `list_inventory` `DIAGRAM` | `inventory` | read | REST | supported | runs with a warning | refused |
@@ -337,8 +337,8 @@ client home for one of its possible versions and either is not pinned to a versi
 `trace_log_read` (6.1, a line other than 8.1 and 9.0), or its group has
 `unsupported.serverLogRead: true` and it is not pinned to a version that refuses
 `webservice_log_read`; write settings do not matter. Feature 022: `get_server_settings` is offered
-only if a node is not pinned to a version that refuses `server_settings`; a StartCLI installation
-is not needed. `AUTO` nodes count as possibly capable as long as some version supports the
+only if a node is not pinned to a version that refuses `server_settings` (8.1 and `AUTO` nodes
+since the 8.1 recordings); a StartCLI installation is not needed. `AUTO` nodes count as possibly capable as long as some version supports the
 capability; a later detection does not change the list, it leads to refusals.
 
 ### INUBIT 6.1 (feature 012)
@@ -839,20 +839,21 @@ of 10 s for a call for several nodes.
 ## `get_server_settings`
 
 > [acme] Read the settings of the INUBIT nodes: license (expiry date, licensed threads,
-> licensee), workflow threads, privileged workflows, DB connection tolerance and server time, and
-> on request the server configuration. `target` takes the id of one node (`<group>/<node>`) or of
+> licensee), workflow threads, privileged workflows, DB connection tolerance and the current time,
+> and on request the configuration. `target` takes the id of one node (`<group>/<node>`) or of
 > one group (one entry per node). `parts` picks what to read (default: all but
 > `configuration`). Without `configurationSection` the configuration is listed by section names;
 > with it, that section's values are shown, secrets masked. Version, memory share, blocking queue
 > size and maintenance mode are always included, from the same source as get_health. License and
 > configuration need the INUBIT role "System Administrator"; a part that cannot be read is listed
-> under `unavailable` with the reason, the other parts are returned. Reads only; changes nothing
-> on INUBIT.
+> under `unavailable` with the reason, the other parts are returned. Workflow threads and
+> privileged workflows need the INUBIT root user and are listed under `unavailable`. Reads only;
+> changes nothing on INUBIT.
 
 Feature 022 ([its delta](../specs/022-full-interface-coverage/contracts/mcp-tools-delta.md)).
 Reads the settings of one node, or of every node of a group (one entry per node, in configuration
 order). Nothing is changed on INUBIT. The tool is annotated `readOnlyHint: true`,
-`destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true` (title "Read INUBIT server
+`destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true` (title "Read INUBIT
 settings").
 
 **Versions.** Each part is read through documented INUBIT entries (StartCLI commands, REST
@@ -861,18 +862,21 @@ against a recorded, neutralized answer of that version. The entries and their st
 are listed in [interface-coverage.md](interface-coverage.md). The capability `server_settings`
 (`reading server settings` in messages) is declared per version:
 
-- INUBIT 8.1: not yet verified; refused with `UNSUPPORTED_VERSION` (`… reading server settings is
-  not yet verified for INUBIT 8.1`) until the recordings of a live 8.1 node are under contract
-  test.
-- INUBIT 9.0: not yet verified; refused the same way until the recordings of a live 9.0 node are
-  under contract test.
+- INUBIT 8.1: supported, verified against the recordings of an 8.1.17 node. The parts `threads`
+  and `privilegedWorkflows` are always listed in `unavailable`: StartCLI answers their commands
+  only to the INUBIT root user ("Only root user can use this command."), so their entries are
+  excluded (`UNSUPPORTED_VERSION: threads via CLI threads showNumberOfWorkflowThreads is excluded
+  for INUBIT 8.1: needs the INUBIT root user`) and never sent.
+- INUBIT 9.0: not yet verified; refused with `UNSUPPORTED_VERSION` (`… reading server settings is
+  not yet verified for INUBIT 9.0`) until the recordings of a live 9.0 node are under contract
+  test. `threads` and `privilegedWorkflows` are excluded on 9.0 as on 8.1.
 - INUBIT 6.1, any other line (9.1, `V9_X`) and an unknown version: refused (no warning run).
 
-While neither 8.1 nor 9.0 is verified, `get_server_settings` is not in `tools/list`, and
-`list_nodes` shows `server_settings` under `notUsable` of every 8.1 and 9.0 node with the reason
-`INUBIT 8.1 on test/node1: reading server settings is not yet verified for INUBIT 8.1`; such a
-node is therefore `partially_supported`. The tool is offered as soon as one version is verified
-(see [Tool announcement](#tool-announcement)).
+`get_server_settings` is in `tools/list` when a node may run 8.1 (see
+[Tool announcement](#tool-announcement)). Until 9.0 is verified, `list_nodes` shows
+`server_settings` under `notUsable` of every 9.0 node with the reason `INUBIT 9.0 on prod/node1:
+reading server settings is not yet verified for INUBIT 9.0`; such a node is therefore
+`partially_supported`.
 
 **Input** (`get_server_settings.input.json`):
 
@@ -887,8 +891,8 @@ The parts and where they come from:
 | Part | Result fields | Read through |
 |---|---|---|
 | `license` | `license`: `expiryDate` (ISO-8601 date), `licensedThreads`, `licensee` (always shown as `***`) | REST `GET /license`; `licensedThreads` from `/metrics` as in `get_health`, from `GET /license` only when `/metrics` is not licensed |
-| `threads` | `workflowThreads` | StartCLI `threads showNumberOfWorkflowThreads` |
-| `privilegedWorkflows` | `privilegedWorkflows`: `percentage`, `workflows` (at most 200 names), `truncated` | StartCLI `privilegedWorkflows showThreadsPercentage` and `privilegedWorkflows showWorkflowList` |
+| `threads` | `workflowThreads` | StartCLI `threads showNumberOfWorkflowThreads`; excluded on 8.1 and 9.0 (needs the INUBIT root user), so always `unavailable` |
+| `privilegedWorkflows` | `privilegedWorkflows`: `percentage`, `workflows` (at most 200 names), `truncated` | StartCLI `privilegedWorkflows showThreadsPercentage` and `privilegedWorkflows showWorkflowList`; excluded on 8.1 and 9.0 (needs the INUBIT root user), so always `unavailable` |
 | `dbConnectionTolerance` | `dbConnectionTolerance`: `faultThreshold`, `dropRatePercent`, `dropIntervalSeconds` | StartCLI `dbconnectiontolerance show` |
 | `serverTime` | `serverTime`, as the node shows it | StartCLI `date` |
 | `configuration` | `configuration` (see below) | REST `GET /configurations` |
@@ -898,7 +902,8 @@ The parts and where they come from:
   calls `get_health` makes; the StartCLI commands `-sv`, `-pctmem`, `getBlockingQueueSize` and
   `-maintenanceState` are never sent.
 - The StartCLI parts of one node run in one StartCLI session (the commands on stdin, ending with
-  `exit`), bounded by the node's `cliTimeout`. A node without a StartCLI client for its version
+  `exit`), bounded by the node's `cliTimeout`. A command StartCLI refuses in the session costs
+  only its own part. A node without a StartCLI client for its version
   gets the REST parts; its StartCLI parts are listed in `unavailable` with `CLI_UNAVAILABLE`.
   The same holds when the node's StartCLI client does not support its INUBIT version
   (`UNSUPPORTED_VERSION` for the StartCLI parts only).
@@ -915,16 +920,16 @@ ServerUpdate }` — one entry per resolved node, in configuration order; `server
 {"settings": [
   {"node": "test/node1",
    "license": {"expiryDate": "2027-03-31", "licensedThreads": 20, "licensee": "***"},
-   "workflowThreads": 16,
-   "privilegedWorkflows": {"percentage": 25, "workflows": ["ORDER_Import"], "truncated": false},
    "dbConnectionTolerance": {"faultThreshold": 5, "dropRatePercent": 1, "dropIntervalSeconds": 180},
    "blockingQueueSize": 1000, "version": "8.1.17", "memoryUsedPercent": 41.2,
    "maintenanceMode": false, "serverTime": "Wed Nov 11 08:15:30 CET 2026",
    "sources": {"blockingQueueSize": "REST", "dbConnectionTolerance": "CLI", "license": "REST",
      "licensedThreads": "REST", "maintenanceMode": "REST", "memoryUsedPercent": "REST",
-     "privilegedWorkflows": "CLI", "serverTime": "CLI", "version": "REST",
-     "workflowThreads": "CLI"},
-   "unavailable": [], "warnings": []}]}
+     "serverTime": "CLI", "version": "REST"},
+   "unavailable": [
+     {"part": "privilegedWorkflows", "reason": "UNSUPPORTED_VERSION: privilegedWorkflows via CLI privilegedWorkflows showThreadsPercentage is excluded for INUBIT 8.1: needs the INUBIT root user", "likelyCause": "…", "nextStep": "…"},
+     {"part": "threads", "reason": "UNSUPPORTED_VERSION: threads via CLI threads showNumberOfWorkflowThreads is excluded for INUBIT 8.1: needs the INUBIT root user", "likelyCause": "…", "nextStep": "…"}],
+   "warnings": []}]}
 ```
 
 | `ServerSettings` field | Meaning |
@@ -938,8 +943,8 @@ ServerUpdate }` — one entry per resolved node, in configuration order; `server
 | `error` | only for a node that could not be read at all (no asked part can be read on its version, its version is unknown, it did not answer within its budget); then the entry has only `node` and `error` |
 
 **The configuration.** Without `configurationSection`, `configuration` holds `sections`, the
-section names in document order (the keys below the root key `ServerConfiguration`, or
-`SeverConfiguration` as the vendor documents the GET answer), and `maskedCount` 0. With
+section names in document order (the keys below the root key `ServerConfiguration`, as 8.1
+answers, or `SeverConfiguration` as the vendor documents the GET answer), and `maskedCount` 0. With
 `configurationSection` it holds `section` (the name), `values`, `maskedCount` and `truncated`:
 
 - `values` are the section's scalar values, each with `path` and `value`; `path` is a JSON pointer
@@ -965,7 +970,7 @@ node's `error`:
 |---|---|
 | `INVALID_INPUT` | invalid arguments (an unknown part, an empty `parts`, a control character in `configurationSection`) are rejected by the input schema with a plain-text validation message; the service's own check for an unknown part is only a defensive fallback behind the schema |
 | `TARGET_UNKNOWN` | unknown id |
-| `UNSUPPORTED_VERSION` | the node's version is not verified for `server_settings` (see Versions); for one part: its entry is not verified for the node's version (`threads via CLI threads showNumberOfWorkflowThreads is not yet verified for INUBIT 9.0`) or the StartCLI client does not support the version; as the node's `error` when no asked part can be read (`… on test/node1: no requested part can be read: …; nothing was sent`) |
+| `UNSUPPORTED_VERSION` | the node's version is not verified for `server_settings` (see Versions); for one part: its entry is not verified for the node's version (`serverTime via CLI date is not yet verified for INUBIT 9.0`) or excluded on it (`threads via CLI threads showNumberOfWorkflowThreads is excluded for INUBIT 8.1: needs the INUBIT root user`), or the StartCLI client does not support the version; as the node's `error` when no asked part can be read (`… on test/node1: no requested part can be read: …; nothing was sent`) |
 | `CLI_UNAVAILABLE` | a StartCLI part on a node without a StartCLI client for its version (`threads is read through StartCLI, and no StartCLI client is installed for test/node1`); as the node's `error` when every asked part is a StartCLI part |
 | `FORBIDDEN` | `license`, `configuration`: the account lacks the role "System Administrator" (HTTP 403); the StartCLI parts: the account lacks the right "CLI login access" (not reported as a login failure) |
 | `NOT_FOUND` | `configuration`: no section named `configurationSection` |
@@ -979,8 +984,8 @@ node's `error`:
   parts: ["license"])`.
 - "Which configuration sections does test/node1 have?" → `get_server_settings(target:
   "test/node1", parts: ["configuration"])`; then `configurationSection` with one of the names.
-- "Compare the workflow threads of all nodes of test" → `get_server_settings(target: "test",
-  parts: ["threads"])`.
+- "Compare the DB connection tolerance of all nodes of test" → `get_server_settings(target:
+  "test", parts: ["dbConnectionTolerance"])`.
 
 ## `find_processes`
 

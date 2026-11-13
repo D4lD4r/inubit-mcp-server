@@ -9,7 +9,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * T018 (feature 022, US1): the answer of {@code threads showNumberOfWorkflowThreads}. The case
- * {@code admin-settings-threads-reconstructed} is SYNTHETIC until T014 records the real one.
+ * {@code admin-settings-threads-reconstructed} stays SYNTHETIC: T014 could record only the refusal
+ * for an account other than the INUBIT root user ({@code admin-settings-threads-refused}).
  */
 class ThreadsParserTest {
 

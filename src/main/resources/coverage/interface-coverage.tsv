@@ -13,14 +13,15 @@
 channel	entry	kind	area	story	v8_1	v9_0	waits
 
 # A. Server state and settings
-# license -td, license -ts: planned until covered:get_server_settings (US1) (research D-6 "Covered rows before their tool exists")
-CLI	license -td	READ	A	US1	planned	planned	L-5+9.0-pin
-CLI	license -ts	READ	A	US1	planned	planned	L-5+9.0-pin
-CLI	threads showNumberOfWorkflowThreads	READ	A	US1	planned	planned	L-1+L-5+9.0-pin
-CLI	privilegedWorkflows showThreadsPercentage	READ	A	US1	planned	planned	L-1+L-5+9.0-pin
-CLI	privilegedWorkflows showWorkflowList	READ	A	US1	planned	planned	L-1+L-5+9.0-pin
-CLI	dbconnectiontolerance show	READ	A	US1	planned	planned	L-1+L-5+9.0-pin
-CLI	date	READ	A	US1	planned	planned	L-1+L-5+9.0-pin
+# license -td, license -ts: covered:get_server_settings since the 8.1 recordings (T025), planned on 9.0 until T026 (research D-6 "Covered rows before their tool exists")
+# threads showNumberOfWorkflowThreads, privilegedWorkflows showThreadsPercentage|showWorkflowList: answer "Only root user can use this command." to the profile's account (recorded T014; owner decision 2026-11-13)
+CLI	license -td	READ	A	US1	covered:get_server_settings	planned	9.0-pin
+CLI	license -ts	READ	A	US1	covered:get_server_settings	planned	9.0-pin
+CLI	threads showNumberOfWorkflowThreads	READ	A	-	excluded:needs the INUBIT root user	excluded:needs the INUBIT root user	-
+CLI	privilegedWorkflows showThreadsPercentage	READ	A	-	excluded:needs the INUBIT root user	excluded:needs the INUBIT root user	-
+CLI	privilegedWorkflows showWorkflowList	READ	A	-	excluded:needs the INUBIT root user	excluded:needs the INUBIT root user	-
+CLI	dbconnectiontolerance show	READ	A	US1	reachable:get_server_settings/default	planned	9.0-pin
+CLI	date	READ	A	US1	reachable:get_server_settings/default	planned	9.0-pin
 CLI	getBlockingQueueSize	READ	A	-	covered:get_health	covered:get_health	-
 CLI	-sv	READ	A	-	covered:get_health	covered:get_health	-
 CLI	-pctmem	READ	A	-	covered:get_health	covered:get_health	-
@@ -52,8 +53,8 @@ REST	GET /healthcheck	READ	A	-	reachable:get_health/default	reachable:get_health
 REST	GET /metrics	READ	A	-	reachable:get_health/default	reachable:get_health/default	-
 REST	GET /system/info	READ	A	-	reachable:get_health/default	reachable:get_health/default	-
 REST	GET /ready	READ	A	-	reachable:get_health/default	reachable:get_health/default	-
-REST	GET /configurations	READ	A	US1	planned	planned	L-11+9.0-pin
-REST	GET /license	READ	A	US1	planned	planned	L-5+9.0-pin
+REST	GET /configurations	READ	A	US1	reachable:get_server_settings/default	planned	9.0-pin
+REST	GET /license	READ	A	US1	reachable:get_server_settings/default	planned	9.0-pin
 REST	POST /ready/{status}	WRITE	A	US4	planned	planned	-
 REST	PUT /license	WRITE	A	US6	planned	planned	-
 REST	PUT /configurations	WRITE	A	US6	planned	planned	-

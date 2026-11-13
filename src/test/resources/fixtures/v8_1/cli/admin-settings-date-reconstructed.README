@@ -1,7 +1,0 @@
-SYNTHETIC – reconstructed answer of `date` until T014 records the real one
-Hand-written fixture for ServerDateParser (tasks.md T018): one session block, the lines after the
-prompt as CliSessionParser hands them out (no .stderr/.exit: a block is not a run). The vendor
-page diagnosis-commands only says "Returns the Process Engine's date and time", so the form
-(Java's Date.toString(), "EEE MMM dd HH:mm:ss zzz yyyy") is an assumption, kept in
-ServerDateParser.FORM; the time is fictitious. Replace this case with the recording of T014
-(admin-settings-*) and align ServerDateParser (T025).

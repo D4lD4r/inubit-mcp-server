@@ -19,21 +19,23 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * T017 (feature 022, US1): the configuration of {@code GET /ibis/rest/configurations}, by section.
- * The fixture {@code admin-configurations-reconstructed.json} is shortened from the vendor example
- * with planted secrets until T014 records the real answer.
+ * T017, T025 (feature 022, US1): the configuration of {@code GET /ibis/rest/configurations}, by
+ * section, against the recording {@code admin-configurations.json} of an 8.1.17 server (T014, with
+ * three planted test secrets) and short documents for what the recording does not hold (an
+ * {@code encrypted} flag, key material, an empty section, {@code null}).
  */
 class ConfigurationJsonParserTest {
 
     private static final NodeId DEV = NodeId.parse("dev/node1");
     private static final int MAX_VALUES = 100;
     private static final int MAX_CHARS = 50_000;
-    private static final String[] PLANTED = {"synthetic-secret-0301", "synthetic-secret-0302",
-        "synthetic-secret-0303", "synthetic-secret-0304", "PRIVATE KEY", "(?=^.{8,255}$)"};
+    /** The planted secrets of the recording (fixtures/v8_1/cli/README.md). */
+    private static final String[] PLANTED = {"synthetic-secret-0401", "synthetic-secret-0402",
+        "synthetic-secret-0403"};
 
     private static ConfigurationView fixture(String section) {
         return ConfigurationJsonParser.parse(DEV,
-            RestFixtures.bytes("admin-configurations-reconstructed.json"),
+            RestFixtures.bytes("admin-configurations.json"),
             Optional.ofNullable(section), MAX_VALUES, MAX_CHARS);
     }
 
@@ -51,53 +53,59 @@ class ConfigurationJsonParserTest {
     void withoutASectionOnlyTheSectionNamesAreListedInDocumentOrder() {
         ConfigurationView view = fixture(null);
 
-        assertThat(view.sections()).containsExactly("JschConfigurationType", "GUIThreadsCount",
-            "NotifyWorkflow", "UserPasswordLimitPattern", "ProcessUserServer", "SMTPProperties",
-            "LDAPProperties", "SystemProperties", "MimetypesFileType", "TracingCustom");
+        assertThat(view.sections()).hasSize(101)
+            .startsWith("TracingMaxBackupIndex", "NotifyWorkflow", "AlarmSystem")
+            .endsWith("ProxyPort", "SchemaPoolSize", "ServerRepositoryHTTPDirList");
         assertThat(view.section()).isEmpty();
         assertThat(view.values()).isEmpty();
         assertThat(view.maskedCount()).isZero();
         assertThat(view.truncated()).isFalse();
         assertThat(ResultJson.mapper().writeValueAsString(view)).doesNotContain(PLANTED)
-            .doesNotContain("synthetic-login-0001", "example.invalid");
+            .doesNotContain("proxy-user-0001", "example.test");
     }
 
     @Test
-    void theRootKeyOfThePutBodyIsAcceptedToo() {
-        ConfigurationView view = parse("{\"ServerConfiguration\": {\"GUIThreadsCount\": 10,"
+    void theDocumentedRootKeyIsAcceptedToo() {
+        ConfigurationView view = parse("{\"SeverConfiguration\": {\"GUIThreadsCount\": 10,"
             + " \"SNMPProperties\": {\"SNMPPort\": \"162\"}}}", "SNMPProperties");
 
         assertThat(view.section()).contains("SNMPProperties");
         assertThat(view.values()).containsExactly(Leaf.shown("/SNMPPort", "162"));
-        assertThat(parse("{\"ServerConfiguration\": {\"GUIThreadsCount\": 10}}", null)
+        assertThat(parse("{\"SeverConfiguration\": {\"GUIThreadsCount\": 10}}", null)
             .sections()).containsExactly("GUIThreadsCount");
     }
 
     @Test
     void oneSectionIsFlattenedToItsLeavesWithArrayElementsByIndex() {
-        ConfigurationView view = fixture("JschConfigurationType");
+        ConfigurationView view = fixture("DeleteStaleData");
 
         assertThat(view.sections()).isEmpty();
-        assertThat(view.section()).contains("JschConfigurationType");
+        assertThat(view.section()).contains("DeleteStaleData");
         assertThat(view.values()).containsExactly(
-            Leaf.shown("/MaxAuthTries", "9"),
-            Leaf.shown("/PubkeyAcceptedAlgorithms/0", "ssh-ed25519"),
-            Leaf.shown("/PubkeyAcceptedAlgorithms/1", "rsa-sha2-512"),
-            Leaf.shown("/compression.s2c", "none"),
-            Leaf.shown("/enable_server_sig_algs", "true"));
+            Leaf.shown("/AutomaticStaleDataDeletion", "true"),
+            Leaf.shown("/StaleDataDeletionTimePeriod", "30"));
         assertThat(view.maskedCount()).isZero();
         assertThat(view.truncated()).isFalse();
+        assertThat(fixture("MailConnectorSupportedTLSversion").values()).containsExactly(
+            Leaf.shown("/0", "TLSv1"), Leaf.shown("/1", "TLSv1.1"), Leaf.shown("/2", "TLSv1.2"));
+        assertThat(fixture("JschConfigurationType").values()).startsWith(
+            Leaf.shown("/MaxAuthTries", "6"),
+            Leaf.shown("/prefer_known_host_key_types", "false"),
+            Leaf.shown("/dhgex_max", "8192"),
+            Leaf.shown("/PubkeyAcceptedAlgorithms/0", "ssh-ed25519"));
     }
 
     @Test
     void aScalarSectionIsOneLeafWithAnEmptyPath() {
-        assertThat(fixture("GUIThreadsCount").values()).containsExactly(Leaf.shown("", "10"));
+        assertThat(fixture("GUIThreadsCount").values()).containsExactly(Leaf.shown("", "25"));
         assertThat(fixture("NotifyWorkflow").values()).containsExactly(Leaf.shown("", ""));
     }
 
     @Test
     void anEmptySectionHasNoLeaves() {
-        ConfigurationView view = fixture("TracingCustom");
+        // the recording has no empty section (T014)
+        ConfigurationView view = parse("{\"ServerConfiguration\": {\"TracingCustom\": {}}}",
+            "TracingCustom");
 
         assertThat(view.section()).contains("TracingCustom");
         assertThat(view.values()).isEmpty();
@@ -106,14 +114,16 @@ class ConfigurationJsonParserTest {
 
     @Test
     void aKeyWithASlashIsEscapedInThePathAsInAJsonPointer() {
-        assertThat(fixture("MimetypesFileType").values()).containsExactly(
-            Leaf.shown("/application~1xml", "xml XML"), Leaf.shown("/text~1csv", "csv CSV"));
+        assertThat(fixture("MimetypesFileType").values()).startsWith(
+            Leaf.shown("/application~1xml", "xml XML pattern Pattern unittest UNITTEST report"
+                + " REPORT"), Leaf.shown("/image~1png", "png PNG"));
         assertThat(parse("{\"SeverConfiguration\": {\"S\": {\"a~b\": \"x\"}}}", "S").values())
             .containsExactly(Leaf.shown("/a~0b", "x"));
     }
 
     @Test
     void aJsonNullIsShownAsTheTextNullNeverAsMasked() {
+        // the recording has no null value (T014)
         ConfigurationView view = parse("{\"SeverConfiguration\": {\"Proxy\": {\"ProxyHost\":"
             + " null, \"ProxyPort\": \"\"}, \"ProxyUserName\": null}}", "Proxy");
 
@@ -126,59 +136,64 @@ class ConfigurationJsonParserTest {
     }
 
     @Test
-    void aSecretNameMasksTheLeafAndItsValueNeverLeaves() {
-        ConfigurationView view = fixture("ProcessUserServer");
-
-        assertThat(view.values()).containsExactly(
-            Leaf.shown("/Url", "http://process-user.example.invalid:8080"),
-            Leaf.shown("/Login", "synthetic-login-0001"),
-            Leaf.masked("/KeyCloakClientCredential"));
-        assertThat(view.maskedCount()).isOne();
-
+    void aSecretNameOnThePathMasksTheLeafAndItsValueNeverLeaves() {
         ConfigurationView smtp = fixture("SMTPProperties");
-        assertThat(smtp.values()).contains(Leaf.shown("/ErrorUser", "synthetic-user-0001"),
-            Leaf.masked("/ErrorPassword"));
+        assertThat(smtp.values()).contains(Leaf.shown("/ErrorUser", ""),
+            Leaf.masked("/ErrorPassword"), Leaf.shown("/ErrorPort", "25"));
         assertThat(smtp.maskedCount()).isOne();
+
+        ConfigurationView user = fixture("ProcessUserServer");
+        assertThat(user.values()).contains(Leaf.shown("/Login", "jdoe"),
+            Leaf.masked("/ProcessUserImTenantAdminCredentials/Value"));
+        assertThat(user.maskedCount()).isOne();
     }
 
     @Test
     void anEncryptedFlagMasksItsSiblingsAndTheFlagStays() {
-        ConfigurationView view = fixture("LDAPProperties");
+        // the recording has no encrypted flag (T014); the secret rules still apply (FR-010)
+        ConfigurationView view = parse("{\"ServerConfiguration\": {\"LDAPProperties\": {"
+            + "\"LDAPHost\": \"ldap.example.invalid\", \"BindValue\": {\"encrypted\": true,"
+            + " \"value\": \"synthetic-secret-0303\"}}}}", "LDAPProperties");
 
         assertThat(view.values()).containsExactly(
             Leaf.shown("/LDAPHost", "ldap.example.invalid"),
-            Leaf.shown("/LoginDN", "cn=Synthetic,dc=example,dc=invalid"),
             Leaf.shown("/BindValue/encrypted", "true"),
             Leaf.masked("/BindValue/value"));
         assertThat(view.maskedCount()).isOne();
+        assertThat(view.toString()).doesNotContain("synthetic-secret-0303");
     }
 
     @Test
     void keyMaterialIsMaskedWhateverItsName() {
-        ConfigurationView view = fixture("SystemProperties");
+        // the recording has no key material (T014); the secret rules still apply (FR-010)
+        ConfigurationView view = parse("{\"ServerConfiguration\": {\"SystemProperties\": {"
+            + "\"synthetic.timeout\": \"36000\", \"synthetic.trust.material\": \"-----BEGIN"
+            + " PRIVATE KEY-----\\nMIIBsyntheticsecret0304\\n-----END PRIVATE KEY-----\"}}}",
+            "SystemProperties");
 
         assertThat(view.values()).containsExactly(Leaf.shown("/synthetic.timeout", "36000"),
             Leaf.masked("/synthetic.trust.material"));
         assertThat(view.maskedCount()).isOne();
+        assertThat(view.toString()).doesNotContain("MIIBsyntheticsecret0304");
     }
 
     @Test
     void aSectionWithASecretNameIsMaskedAsAWhole() {
-        ConfigurationView view = fixture("UserPasswordLimitPattern");
-
-        assertThat(view.values()).containsExactly(Leaf.masked(""));
-        assertThat(view.maskedCount()).isOne();
+        assertThat(fixture("ProxyPassword").values()).containsExactly(Leaf.masked(""));
+        ConfigurationView pattern = fixture("UserPasswordLimitPattern");
+        assertThat(pattern.values()).containsExactly(Leaf.masked(""));
+        assertThat(pattern.maskedCount()).isOne();
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"JschConfigurationType", "GUIThreadsCount", "NotifyWorkflow",
-        "UserPasswordLimitPattern", "ProcessUserServer", "SMTPProperties", "LDAPProperties",
-        "SystemProperties", "MimetypesFileType", "TracingCustom"})
-    void noPlantedSecretLeavesInAnySection(String section) {
-        ConfigurationView view = fixture(section);
+    @Test
+    void noPlantedSecretLeavesInAnySection() {
+        for (String section : fixture(null).sections()) {
+            ConfigurationView view = fixture(section);
 
-        assertThat(ResultJson.mapper().writeValueAsString(view)).doesNotContain(PLANTED);
-        assertThat(view.toString()).doesNotContain(PLANTED);
+            assertThat(ResultJson.mapper().writeValueAsString(view)).as(section)
+                .doesNotContain(PLANTED);
+            assertThat(view.toString()).as(section).doesNotContain(PLANTED);
+        }
     }
 
     @Test

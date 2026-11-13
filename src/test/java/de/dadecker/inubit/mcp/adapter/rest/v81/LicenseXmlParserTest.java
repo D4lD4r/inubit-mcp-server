@@ -12,13 +12,14 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * T016 (feature 022, US1): the license facts of {@code GET /ibis/rest/license}. The fixture
- * {@code admin-license-reconstructed.xml} is reconstructed until T014 records the real answer.
+ * T016, T025 (feature 022, US1): the license facts of {@code GET /ibis/rest/license}, against the
+ * recording {@code admin-license.xml} of an 8.1.17 server (T014) and documents in its layout.
  */
 class LicenseXmlParserTest {
 
@@ -28,47 +29,49 @@ class LicenseXmlParserTest {
         return LicenseXmlParser.parse(DEV, xml.getBytes(StandardCharsets.UTF_8));
     }
 
-    @Test
-    void theFactsAreReadAndUnknownElementsAreIgnored() {
-        LicenseFacts facts = LicenseXmlParser.parse(DEV,
-            RestFixtures.bytes("admin-license-reconstructed.xml"));
+    /** A {@code <license>} in the recorded layout with {@code licenseType} as limits. */
+    private static String license(String licenseType, String licenseInformation) {
+        return "<license><LicenseInformation>" + licenseInformation + "</LicenseInformation>"
+            + "<inubit><LicenseType>" + licenseType + "</LicenseType></inubit></license>";
+    }
 
-        assertThat(facts.expiryDate()).contains(LocalDate.of(2027, 6, 30));
-        assertThat(facts.licensedThreads()).contains(32L);
-        assertThat(facts.licensee()).contains(Masked.MASK_TOKEN);
-        assertThat(facts.toString()).doesNotContain("Fictitious Licensee 0001",
-            "synthetic-secret-0201", "synthetic-secret-0202", "synthetic-edition",
-            "Synthetic-Module-0001");
+    private static String license(String licenseType) {
+        return license(licenseType, "");
+    }
+
+    @Test
+    void theRecordedLicenseGivesExactlyTheThreeFacts() {
+        LicenseFacts facts = LicenseXmlParser.parse(DEV, RestFixtures.bytes("admin-license.xml"));
+
+        assertThat(facts).isEqualTo(new LicenseFacts(Optional.of(LocalDate.of(2046, 10, 8)),
+            Optional.of(999_999L), Optional.of(Masked.MASK_TOKEN)));
     }
 
     @Test
     void theLicenseeIsAlwaysMaskedAndAbsentFactsStayEmpty() {
-        assertThat(parse("<license><expiryDate>2027-06-30</expiryDate>"
-            + "<licensee>Fictitious Licensee 0002</licensee></license>").licensee())
+        assertThat(parse(license("<ExpirationDate>2027-06-30</ExpirationDate>",
+            "<CompanyName>Fictitious Licensee 0002</CompanyName>")).licensee())
             .contains(Masked.MASK_TOKEN);
 
-        LicenseFacts bare = parse("<license><expiryDate>2027-06-30</expiryDate>"
-            + "<licensee> </licensee></license>");
+        LicenseFacts bare = parse(license("<ExpirationDate>2027-06-30</ExpirationDate>",
+            "<CompanyName> </CompanyName>"));
         assertThat(bare.licensee()).isEmpty();
         assertThat(bare.licensedThreads()).isEmpty();
     }
 
     @Test
     void anElementThatSecretRulesFlagIsNotReported() {
-        LicenseFacts facts = parse("<license><expiryDate>2027-06-30</expiryDate>"
-            + "<licensedThreads encrypted=' TRUE '>32</licensedThreads></license>");
-
-        assertThat(facts.licensedThreads()).isEmpty();
-        assertThat(parse("<license><expiryDate>2027-06-30</expiryDate>"
-            + "<licensedThreads type='password'>32</licensedThreads></license>")
-            .licensedThreads()).isEmpty();
+        assertThat(parse(license("<ExpirationDate>2027-06-30</ExpirationDate>"
+            + "<ThreadCount encrypted=' TRUE '>32</ThreadCount>")).licensedThreads()).isEmpty();
+        assertThat(parse(license("<ExpirationDate>2027-06-30</ExpirationDate>"
+            + "<ThreadCount type='password'>32</ThreadCount>")).licensedThreads()).isEmpty();
     }
 
     @Test
     void aDtdIsRefusedWithoutEchoingTheContent() {
         String xml = "<?xml version='1.0'?><!DOCTYPE license [<!ENTITY s"
-            + " 'synthetic-secret-0203'>]><license><expiryDate>2027-06-30</expiryDate>"
-            + "<licensee>&s;</licensee></license>";
+            + " 'synthetic-secret-0203'>]>" + license("<ExpirationDate>2027-06-30</ExpirationDate>",
+                "<CompanyName>&s;</CompanyName>");
 
         assertThatThrownBy(() -> parse(xml))
             .isInstanceOfSatisfying(ToolErrorException.class, e -> {
@@ -80,11 +83,16 @@ class LicenseXmlParserTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
-        "<license><licensedThreads>32</licensedThreads></license>",
-        "<license><expiryDate> </expiryDate></license>",
-        "<license><expiryDate>synthetic-secret-0204</expiryDate></license>",
-        "<license><expiryDate encrypted='true'>2027-06-30</expiryDate></license>",
-        "<license><modules><expiryDate>2027-06-30</expiryDate></modules></license>"})
+        "<license><inubit><LicenseType><ThreadCount>32</ThreadCount></LicenseType></inubit>"
+            + "</license>",
+        "<license><inubit><LicenseType><ExpirationDate> </ExpirationDate></LicenseType></inubit>"
+            + "</license>",
+        "<license><inubit><LicenseType><ExpirationDate>synthetic-secret-0204</ExpirationDate>"
+            + "</LicenseType></inubit></license>",
+        "<license><inubit><LicenseType><ExpirationDate encrypted='true'>2027-06-30"
+            + "</ExpirationDate></LicenseType></inubit></license>",
+        "<license><inubit><ExpirationDate>2027-06-30</ExpirationDate></inubit></license>",
+        "<license><expiryDate>2027-06-30</expiryDate></license>"})
     void withoutAReadableExpiryDateThePartIsUnavailable(String xml) {
         assertThatThrownBy(() -> parse(xml))
             .isInstanceOfSatisfying(ToolErrorException.class, e -> {
@@ -97,15 +105,16 @@ class LicenseXmlParserTest {
             });
     }
 
+    /** T025 (T016 review): the threads are only the /metrics fallback, so they alone go. */
     @ParameterizedTest
-    @ValueSource(strings = {"0", "-1", "unlimited", "32.5"})
-    void licensedThreadsThatAreNotAPositiveNumberAreAnUnexpectedResponse(String threads) {
-        assertThatThrownBy(() -> parse("<license><expiryDate>2027-06-30</expiryDate>"
-            + "<licensedThreads>" + threads + "</licensedThreads></license>"))
-            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
-                assertThat(e.error().code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
-                assertThat(e.error().message()).contains("licensed threads");
-            });
+    @ValueSource(strings = {"0", "-1", "unlimited", "32.5", "99999999999999999999"})
+    void licensedThreadsThatAreNotAPositiveNumberLeaveOnlyTheThreadsEmpty(String threads) {
+        LicenseFacts facts = parse(license("<ExpirationDate>2027-06-30</ExpirationDate>"
+            + "<ThreadCount>" + threads + "</ThreadCount>",
+            "<CompanyName>Fictitious Licensee 0002</CompanyName>"));
+
+        assertThat(facts).isEqualTo(new LicenseFacts(Optional.of(LocalDate.of(2027, 6, 30)),
+            Optional.empty(), Optional.of(Masked.MASK_TOKEN)));
     }
 
     @Test

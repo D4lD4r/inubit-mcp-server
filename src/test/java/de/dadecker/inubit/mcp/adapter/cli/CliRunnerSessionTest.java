@@ -46,7 +46,7 @@ class CliRunnerSessionTest {
     private static final CliSessionCommand WITH_SECRET = CliSessionCommand.command("passwd",
         Map.of("passwd", Set.of("--password"))).quoted("--password", CREDENTIAL_PAYLOAD_VALUE)
         .build();
-    /** The session as a client that echoes its input would print it. */
+    /** The session as the 8.1 client prints it: each command echoed after its prompt (L-1). */
     private static final String ECHOING_STDOUT = "Password: \n" + PROMPT + WITH_SECRET.text()
         + "\nPassword changed.\n" + PROMPT + "exit\n";
     private static final CliClientOptions OPTIONS =

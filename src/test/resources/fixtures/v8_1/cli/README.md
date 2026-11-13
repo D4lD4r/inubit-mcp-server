@@ -224,4 +224,9 @@ non-root account; raw outputs private, never committed):
   `ProcessUserServer/ProcessUserImTenantAdminCredentials/Value` (`synthetic-secret-0403`, by path;
   recorded as `{}`).
 
-The `*-reconstructed` cases stay until T025 switches the parsers to these recordings.
+T025 replaced the `*-reconstructed` cases of `dbconnectiontolerance show`, `date`, `GET /license`
+and `GET /configurations` by these recordings. The three `*-reconstructed` cases of the root-only
+reads (`admin-settings-threads-reconstructed`, `admin-settings-privileged-percentage-reconstructed`,
+`admin-settings-privileged-list-reconstructed`) stay SYNTHETIC: the profile's account could record
+only their refusal, and their coverage rows are `excluded:needs the INUBIT root user` (owner
+decision 2026-11-13).

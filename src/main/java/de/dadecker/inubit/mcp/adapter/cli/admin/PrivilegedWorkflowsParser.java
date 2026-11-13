@@ -12,8 +12,7 @@ import java.util.regex.Pattern;
  *
  * <p>ASSUMED FORMS (the vendor page {@code configuring-workflow-threads} shows no output; fixtures
  * {@code admin-settings-privileged-percentage-reconstructed} and
- * {@code admin-settings-privileged-list-reconstructed}, SYNTHETIC; T025 aligns {@code PERCENTAGE}
- * and {@code LIST_HEADER} with the recording of T014):
+ * {@code admin-settings-privileged-list-reconstructed}, SYNTHETIC):
  *
  * <ul>
  *   <li>percentage: one line
@@ -22,6 +21,15 @@ import java.util.regex.Pattern;
  *       an empty list). Without the header line the block is not taken for a list, so an error
  *       text never becomes a workflow name.
  * </ul>
+ *
+ * <p>Not recorded: on 8.1.17 both commands answer "Only root user can use this command." to any
+ * other account (T014, fixtures {@code admin-settings-privileged-*-refused}). Their coverage rows
+ * are {@code excluded:needs the INUBIT root user} on 8.1 and 9.0 (owner decision 2026-11-13), so
+ * the version gate reports the part {@code privilegedWorkflows} unavailable with that reason and
+ * never sends the commands. The parser stays with the part: the part and its coverage entries
+ * stay declared in {@code ServerSettingsService.SPEC}, which is where the gate's reason comes
+ * from, and {@link CliSettingsRunner} reads every declared StartCLI part a coverage list admits.
+ * A recording with the root user would confirm the forms and lift the exclusion.
  */
 public final class PrivilegedWorkflowsParser {
 

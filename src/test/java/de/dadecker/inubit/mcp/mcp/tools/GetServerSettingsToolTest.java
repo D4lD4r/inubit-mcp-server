@@ -51,7 +51,7 @@ class GetServerSettingsToolTest {
     /** contracts/mcp-tools-delta.md "Description", copied here to pin the wording. */
     private static final String CONTRACT_DESCRIPTION = "Read the settings of the INUBIT {nodes}:"
         + " license (expiry date, licensed threads, licensee), workflow threads, privileged"
-        + " workflows, DB connection tolerance and server time, and on request the server"
+        + " workflows, DB connection tolerance and the current time, and on request the"
         + " configuration. `target` takes the id of one {node} (`<{group}>/<{node}>`) or of one"
         + " {group} (one entry per {node}). `parts` picks what to read (default: all but"
         + " `configuration`). Without `configurationSection` the configuration is listed by"
@@ -59,7 +59,9 @@ class GetServerSettingsToolTest {
         + " memory share, blocking queue size and maintenance mode are always included, from the"
         + " same source as get_health. License and configuration need the INUBIT role \"System"
         + " Administrator\"; a part that cannot be read is listed under `unavailable` with the"
-        + " reason, the other parts are returned. Reads only; changes nothing on INUBIT.";
+        + " reason, the other parts are returned. Workflow threads and privileged workflows"
+        + " need the INUBIT root user and are listed under `unavailable`. Reads only; changes"
+        + " nothing on INUBIT.";
     private static final NodeId NODE1 = NodeId.parse("test/node1");
     private static final NodeId NODE2 = NodeId.parse("test/node2");
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -99,7 +101,7 @@ class GetServerSettingsToolTest {
         assertThat(tool.path("description").asString())
             .isEqualTo("[acme] " + Terminology.DEFAULT.render(CONTRACT_DESCRIPTION));
         JsonNode annotations = tool.path("annotations");
-        assertThat(annotations.path("title").asString()).isEqualTo("Read INUBIT server settings");
+        assertThat(annotations.path("title").asString()).isEqualTo("Read INUBIT settings");
         assertThat(annotations.path("readOnlyHint").asBoolean(false)).isTrue();
         assertThat(annotations.path("destructiveHint").asBoolean(true)).isFalse();
         assertThat(annotations.path("idempotentHint").asBoolean(false)).isTrue();

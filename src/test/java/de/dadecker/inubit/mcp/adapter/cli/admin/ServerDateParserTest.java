@@ -1,22 +1,21 @@
 package de.dadecker.inubit.mcp.adapter.cli.admin;
 
 import static de.dadecker.inubit.mcp.adapter.cli.admin.AdminCliFixtures.assertUnknown;
-import static de.dadecker.inubit.mcp.adapter.cli.admin.AdminCliFixtures.block;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * T018 (feature 022, US1): the answer of {@code date}. The case
- * {@code admin-settings-date-reconstructed} is SYNTHETIC until T014 records the real one.
+ * T018, T025 (feature 022, US1): the answer of {@code date}, against the recorded case
+ * {@code admin-settings-date} (T014).
  */
 class ServerDateParserTest {
 
     @Test
-    void theReconstructedAnswerIsTheServerTimeAsTheServerShowsIt() {
-        assertThat(ServerDateParser.parse(block("admin-settings-date-reconstructed")))
-            .isEqualTo("Thu Nov 12 14:03:27 CET 2026");
+    void theRecordedAnswerIsTheServerTimeAsTheServerShowsIt() {
+        assertThat(ServerDateParser.parse(AdminCliFixtures.answer("admin-settings-date")))
+            .isEqualTo("Fri Nov 13 05:52:06 CET 2026");
     }
 
     @Test

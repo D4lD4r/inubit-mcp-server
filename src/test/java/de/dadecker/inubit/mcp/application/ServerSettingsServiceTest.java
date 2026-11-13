@@ -399,6 +399,38 @@ class ServerSettingsServiceTest {
             UnavailablePart.PRIVILEGED_WORKFLOWS, UnavailablePart.DB_CONNECTION_TOLERANCE));
     }
 
+    /**
+     * T025 (owner decision 2026-11-13): with the production matrix and coverage list, an 8.1 node
+     * reports the root-only parts unavailable through the gate, and only the other StartCLI parts
+     * reach the session.
+     */
+    @Test
+    void onProduction81TheRootOnlyPartsAreUnavailableAndTheOthersAreRead() {
+        VersionGate production = new VersionGate(versions, gateways,
+            CapabilityMatrix.production(), (node, version, timeout) -> {
+                throw new AssertionError("no client probe expected for " + node);
+            }, TestClientSelection.of(withClient::contains), node -> Duration.ZERO,
+            Terminology.DEFAULT, false, InterfaceCoverage.production());
+        ServerSettingsService onProduction = new ServerSettingsService(gateways,
+            new TargetResolver(List.of(DEV1)), new FanOut(), limiter,
+            node -> Duration.ofSeconds(5), node -> Duration.ofSeconds(5), production,
+            SecretTiming.NONE);
+
+        ServerSettings settings = one(onProduction.read("dev/node1", Set.of(), Optional.empty()));
+
+        assertThat(settings.unavailable()).extracting(UnavailablePart::part)
+            .containsExactlyInAnyOrder(UnavailablePart.THREADS,
+                UnavailablePart.PRIVILEGED_WORKFLOWS);
+        assertThat(settings.unavailable()).allSatisfy(part -> assertThat(part.reason())
+            .startsWith("UNSUPPORTED_VERSION: ")
+            .contains("is excluded for INUBIT 8.1: needs the INUBIT root user"));
+        assertThat(cliCalls).containsExactly(Set.of(UnavailablePart.DB_CONNECTION_TOLERANCE,
+            UnavailablePart.SERVER_TIME));
+        assertThat(settings.license()).isPresent();
+        assertThat(settings.dbConnectionTolerance()).isPresent();
+        assertThat(settings.serverTime()).isPresent();
+    }
+
     @Test
     void aNodeWithoutAStartCliClientGetsTheRestPartsAndTheCliPartsUnavailable() {
         ServerSettings settings = one(service.read("qa/node1", Set.of(), Optional.of("smtp")));

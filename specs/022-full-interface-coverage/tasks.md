@@ -400,7 +400,7 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
   `fixtures/v9_0/{cli,rest}/admin-settings-*` with `.origin`. Blocked until the 9.0 server's
   certificate pin is renewed (feature 021 open point); record that state in `implementation.md`
   while waiting.
-- [ ] T025 [US1] Contracts and flip for 8.1 [BLOCKED: T014]:
+- [X] T025 [US1] Contracts and flip for 8.1 [BLOCKED: T014]:
   - `license -td` and `license -ts` change from `planned` to `covered:get_server_settings` for
     `v8_1` (research D-6), never to `reachable`;
   - `adapter/rest/v81/SettingsV81ContractTest.java` and

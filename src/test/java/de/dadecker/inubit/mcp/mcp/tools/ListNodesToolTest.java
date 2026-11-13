@@ -915,11 +915,12 @@ class ListNodesToolTest {
             JsonNode test = groups.path(1).path("nodes").path(0).path("version");
             assertThat(test.path("server").path("source").asString()).isEqualTo("pinned");
             assertThat(test.path("client").path("state").asString()).isEqualTo("not_available");
-            assertThat(test.path("status").asString()).as("feature 022: server settings not yet"
-                + " verified").isEqualTo("partially_supported");
+            assertThat(test.path("status").asString()).as("feature 022 T025: server settings"
+                + " supported on 8.1").isEqualTo("supported");
             assertThat(usable(test)).containsExactly("monitoring", "process_diagnosis",
-                "log_diagnosis", "inventory", "partner_management", "deployment");
-            assertThat(notUsable(test)).containsExactly("server_settings");
+                "log_diagnosis", "inventory", "partner_management", "deployment",
+                "server_settings");
+            assertThat(notUsable(test)).isEmpty();
         }
     }
 
@@ -994,14 +995,14 @@ class ListNodesToolTest {
             assertThat(usable(test)).as("feature 021 T033: the 8.1 trace log is recorded")
                 .containsExactly("monitoring", "process_diagnosis", "log_diagnosis", "inventory",
                     "partner_management", "workspace_export", "queue_entry_read",
-                    "trace_log_read");
-            assertThat(notUsable(test)).as("feature 022: server settings not yet verified")
-                .containsExactly("server_settings");
+                    "trace_log_read", "server_settings");
+            assertThat(notUsable(test)).as("feature 022 T025: server settings supported on 8.1")
+                .isEmpty();
             JsonNode prod = groups.path(1).path("nodes").path(0).path("version");
             assertThat(usable(prod)).as("SC-002: as without feature 020").containsExactly(
                 "monitoring", "process_diagnosis", "log_diagnosis", "inventory",
-                "partner_management", "workspace_export", "trace_log_read");
-            assertThat(notUsable(prod)).containsExactly("server_settings");
+                "partner_management", "workspace_export", "trace_log_read", "server_settings");
+            assertThat(notUsable(prod)).isEmpty();
             JsonNode lab = groups.path(2).path("nodes").path(0).path("version");
             assertThat(usable(lab)).doesNotContain("queue_entry_read");
             assertThat(notUsable(lab)).doesNotContain("queue_entry_read");
@@ -1045,10 +1046,10 @@ class ListNodesToolTest {
         // T033: the production matrix supports the recorded 8.1 trace log
         Map<String, JsonNode> production = traceVersions(config, CapabilityMatrix.production());
         assertThat(usable(production.get("test/node1"))).contains("trace_log_read");
-        assertThat(notUsable(production.get("test/node1"))).as("feature 022: not yet verified")
-            .containsExactly("server_settings");
+        assertThat(notUsable(production.get("test/node1"))).as("feature 022 T025: supported")
+            .isEmpty();
         assertThat(usable(production.get("prod/node1"))).doesNotContain("trace_log_read");
-        assertThat(notUsable(production.get("prod/node1"))).containsExactly("server_settings");
+        assertThat(notUsable(production.get("prod/node1"))).isEmpty();
 
         Map<String, JsonNode> recorded = traceVersions(config, TraceMatrix.admittingEightOne());
         assertThat(usable(recorded.get("test/node1"))).contains("trace_log_read");
@@ -1151,10 +1152,10 @@ class ListNodesToolTest {
         }
     }
 
-    // --- feature 022 T011: server_settings is not yet verified on 8.1 and 9.0 (D-1) ------------
+    // --- feature 022 T011, T025: server_settings usable on 8.1, not yet verified on 9.0 (D-1) ----
 
     @Test
-    void serverSettingsIsNotUsableOn81And90UntilVerified() {
+    void serverSettingsIsUsableOn81AndNotUsableOn90UntilVerified() {
         String baseUrl = "https://localhost:" + wireMock.httpsPort();
         String yaml = """
             profile:
@@ -1182,10 +1183,8 @@ class ListNodesToolTest {
         Map<String, JsonNode> versions = traceVersions(config, CapabilityMatrix.production());
 
         JsonNode test = versions.get("test/node1");
-        assertThat(usable(test)).doesNotContain("server_settings");
-        assertThat(notUsable(test)).containsExactly("server_settings");
-        assertThat(reason(test, "server_settings")).isEqualTo("INUBIT 8.1 on test/node1:"
-            + " reading server settings is not yet verified for INUBIT 8.1");
+        assertThat(usable(test)).contains("server_settings");
+        assertThat(notUsable(test)).isEmpty();
         JsonNode prod = versions.get("prod/node1");
         assertThat(usable(prod)).doesNotContain("server_settings");
         assertThat(notUsable(prod)).contains("server_settings");

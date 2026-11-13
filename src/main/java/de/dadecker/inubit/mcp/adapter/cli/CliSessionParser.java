@@ -15,34 +15,44 @@ import java.util.regex.Pattern;
  *
  * <ul>
  *   <li>the client prints its prompt at the start of a line before it reads each line after the
- *       password, and a command's output starts right after its prompt;
+ *       password, and a command's output follows its prompt;
  *   <li>so the output has one prompt per command plus one for {@code exit}, which
- *       {@code runSession} appends and which prints nothing;
- *   <li>everything before the first prompt (the password prompt) is ignored; lines end in
- *       {@code \n} or {@code \r\n}; blank lines are dropped.
+ *       {@code runSession} appends and after which nothing is printed;
+ *   <li>everything before the first prompt (the client's connection lines and the password
+ *       prompt) is ignored; lines end in {@code \n} or {@code \r\n}; blank lines and lines of
+ *       only {@code \r} are dropped.
  * </ul>
  *
- * <p>{@link #STANDARD} reads the prompt {@code CLI|<user>@<host>>} of the vendor documentation
- * (format to be confirmed by recording L-1); the 6.1 parser passes its own prompt.
+ * <p>{@link #STANDARD} reads the 8.1 form recorded by T014 (research "Live recording T014", L-1;
+ * {@code fixtures/v8_1/cli/admin-settings-session}): the prompt {@code CLI|<user>@<host>> }, where
+ * {@code <host>} is the server's host name, followed on the same line by the client's echo of the
+ * command it read, also of {@code exit}; the answer starts on the next line. The echo is no
+ * output and is dropped whatever it reads (an echoed secret is masked by then, so it is not
+ * compared with the command). A refused command does not end the session. The 6.1 parser passes
+ * its own prompt, after which the output starts on the same line ({@code echoed} false).
  */
 public final class CliSessionParser {
 
-    /** The documented prompt, e.g. {@code CLI|root@localhost> }, with one following space. */
+    /** The prompt, e.g. {@code CLI|root@localhost> }, with one following space. */
     public static final Pattern PROMPT = Pattern.compile("CLI\\|[^@\\s]+@\\S+> ?");
 
-    /** The parser for the documented prompt. */
-    public static final CliSessionParser STANDARD =
-        new CliSessionParser(PROMPT, "the documented format with the prompt CLI|<user>@<host>>");
+    /** The parser for the 8.1 prompt with the echoed command. */
+    public static final CliSessionParser STANDARD = new CliSessionParser(PROMPT, true,
+        "the recorded 8.1 format with the prompt CLI|<user>@<host>> and the echoed command");
 
     private final Pattern prompt;
+    private final boolean echoed;
     private final String format;
 
     /**
      * @param prompt matched at the start of a line; the match is removed from the line
+     * @param echoed whether the rest of a prompt line is the client's echo of the command, which
+     *     is dropped; otherwise it is the first line of the command's output
      * @param format names the expected format in the {@code UNEXPECTED_RESPONSE} cause
      */
-    public CliSessionParser(Pattern prompt, String format) {
+    public CliSessionParser(Pattern prompt, boolean echoed, String format) {
         this.prompt = Objects.requireNonNull(prompt, "prompt");
+        this.echoed = echoed;
         this.format = Objects.requireNonNull(format, "format");
     }
 
@@ -57,7 +67,7 @@ public final class CliSessionParser {
             Matcher matcher = prompt.matcher(line);
             if (matcher.lookingAt()) {
                 blocks.add(new ArrayList<>());
-                line = line.substring(matcher.end());
+                line = echoed ? "" : line.substring(matcher.end());
             }
             if (!blocks.isEmpty() && !line.isBlank()) {
                 blocks.getLast().add(line);

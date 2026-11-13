@@ -53,10 +53,12 @@ public final class CliOutputClassifier {
     /**
      * StartCLI's refusal of a user without the role System Administrator or the right "CLI login
      * access" (feature 022, spec edge case "missing right"): an INUBIT marker whose code or text
-     * names the right. SYNTHETIC: the vendor documents the right, not the refusal text; to be
-     * aligned with the recording of T014 (L-1). The only place that recognizes it. The pattern
-     * matches the right's name anywhere in any marker, also in a {@code LoginFailure} text for
-     * wrong credentials; T025 anchors it to the recorded refusal.
+     * names the right. SYNTHETIC: the vendor documents the right, not the refusal text, and T014
+     * recorded with an account that has the right, so the refusal is still not recorded. The only
+     * place that recognizes it. The pattern matches the right's name anywhere in any marker, also
+     * in a {@code LoginFailure} text; the recorded 8.1 text for wrong credentials
+     * ({@code The user does not exist or password does not match.}) does not name it, and neither
+     * does the recorded refusal of a root-only command (T014).
      */
     private static final String CLI_LOGIN_RIGHT = "CLI login access";
     private static final Pattern MISSING_CLI_RIGHT = Pattern.compile(
@@ -131,7 +133,7 @@ public final class CliOutputClassifier {
 
     /**
      * True if StartCLI refused the user for a missing role System Administrator or right "CLI
-     * login access" (feature 022, spec edge case "missing right"; form SYNTHETIC until T014);
+     * login access" (feature 022, spec edge case "missing right"; form SYNTHETIC, not recorded);
      * {@link #classify} reports it as {@code FORBIDDEN} naming the right, not {@code AUTH_FAILED}.
      */
     public static boolean isMissingCliRight(CliResult result) {

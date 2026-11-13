@@ -9,16 +9,19 @@ import java.util.regex.Pattern;
 /**
  * The answer of {@code dbconnectiontolerance show} (US1, part {@code dbConnectionTolerance}).
  *
- * <p>FORM of the vendor example ({@code diagnosis-commands}, "Displaying and Configuring the
- * Database Connection Tolerance"; fixture {@code admin-settings-db-tolerance-reconstructed}, not
- * yet recorded; T025 aligns {@code FORM} with the recording of T014): exactly these four lines in
- * this order, e.g.
+ * <p>FORM as recorded on 8.1.17 (T014, L-5; fixtures {@code admin-settings-session} and
+ * {@code admin-settings-db-tolerance}): exactly these four lines in this order, each label
+ * separated from its value by one or two tabs ({@code \t}); the vendor example uses a space, which
+ * is accepted too. The blank line after the error level and the trailing {@code \r} line of the
+ * session are dropped by the session parser. Recorded in English, which the server forces for
+ * every StartCLI run ({@code StartCliEnvironment.JAVA_TOOL_OPTIONS}); another locale was not
+ * recorded. E.g.
  *
  * <pre>
- * Error level: 0%
- * Fault threshold: 25
- * Drop rate: 1%
- * Drop interval (s): 180 seconds
+ * Error level:          0%
+ * Fault threshold:      20
+ * Drop rate:            5%
+ * Drop interval (s):    1800 seconds
  * </pre>
  *
  * <p>The error level is the current state, not a setting, and is not returned.
@@ -27,13 +30,12 @@ public final class DbToleranceParser {
 
     static final String COMMAND = "dbconnectiontolerance show";
 
-    private static final Pattern FORM = Pattern.compile("Error level: \\d{1,3}%\n"
-        + "Fault threshold: (\\d{1,9})\n"
-        + "Drop rate: (\\d{1,3})%\n"
-        + "Drop interval \\(s\\): (\\d{1,18}) seconds");
-    private static final String EXPECTED = "the vendor example with the lines 'Error level: <n>%',"
-        + " 'Fault threshold: <n>', 'Drop rate: <n>%' and 'Drop interval (s): <n> seconds'"
-        + " (not yet recorded)";
+    private static final Pattern FORM = Pattern.compile("Error level:[ \t]+\\d{1,3}%\n"
+        + "Fault threshold:[ \t]+(\\d{1,9})\n"
+        + "Drop rate:[ \t]+(\\d{1,3})%\n"
+        + "Drop interval \\(s\\):[ \t]+(\\d{1,18}) seconds");
+    private static final String EXPECTED = "the recorded form with the lines 'Error level: <n>%',"
+        + " 'Fault threshold: <n>', 'Drop rate: <n>%' and 'Drop interval (s): <n> seconds'";
 
     private DbToleranceParser() {
     }

@@ -19,10 +19,10 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Parses the 8.1 {@code GET /ibis/rest/configurations} answer into a {@link ConfigurationView}
- * (feature 022, US1). The configuration is the object below the root key: {@value #GET_ROOT}
- * (sic) in the documented GET answer, {@value #PUT_ROOT} in the PUT body; both are accepted
- * (research D-23). The fixture {@code admin-configurations-reconstructed.json} is shortened from
- * the vendor example until the recording of T014 confirms it.
+ * (feature 022, US1). The configuration is the object below the root key {@value #ROOT}, as the
+ * recording of an 8.1.17 server answers (T014, fixture {@code admin-configurations.json}) and the
+ * PUT body has it; {@value #DOCUMENTED_ROOT} (sic), the root key of the documented GET answer, is
+ * accepted too (research D-23, "Live recording T014").
  *
  * <ul>
  *   <li>The section names are the keys of that object, in document order.
@@ -35,8 +35,9 @@ import tools.jackson.databind.json.JsonMapper;
  *       marker after masking, so a leaf is masked by its full path.
  *   <li>The whole configuration is masked by {@link JsonLeafMasker} first, so a section name
  *       counts as part of the path. A leaf it masked is {@link Leaf#masked}; a value that already
- *       reads {@link Masked#MASK_TOKEN} is reported as masked too. The vendor example has no
- *       sibling type fields, so no {@code type} is passed to the secret rules.
+ *       reads {@link Masked#MASK_TOKEN} is reported as masked too. The 8.1 recording has no
+ *       sibling {@code type} or {@code encrypted} fields, so no {@code type} is passed to the
+ *       secret rules.
  *   <li>A value is cut to {@link ItemBounds#MAX_MESSAGE_CHARS} with the truncation marker. The
  *       leaves are bounded by the caller's result limits (its {@code ResultLimiter}'s
  *       {@code maxItems} and {@code maxChars}, by {@link ResultJson#size}); the view is
@@ -45,8 +46,8 @@ import tools.jackson.databind.json.JsonMapper;
  */
 final class ConfigurationJsonParser {
 
-    static final String GET_ROOT = "SeverConfiguration";
-    static final String PUT_ROOT = "ServerConfiguration";
+    static final String ROOT = "ServerConfiguration";
+    static final String DOCUMENTED_ROOT = "SeverConfiguration";
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -94,7 +95,7 @@ final class ConfigurationJsonParser {
         if (root == null || !root.isObject()) {
             throw unexpected(server);
         }
-        JsonNode configuration = root.has(GET_ROOT) ? root.get(GET_ROOT) : root.get(PUT_ROOT);
+        JsonNode configuration = root.has(ROOT) ? root.get(ROOT) : root.get(DOCUMENTED_ROOT);
         if (configuration == null || !configuration.isObject()) {
             throw unexpected(server);
         }
@@ -151,8 +152,8 @@ final class ConfigurationJsonParser {
 
     private static ToolErrorException unexpected(NodeId server) {
         return new ToolErrorException(ToolError.of(ErrorCode.UNEXPECTED_RESPONSE,
-            "The INUBIT configuration of " + server + " is not a JSON object below '" + GET_ROOT
-                + "' or '" + PUT_ROOT + "'",
+            "The INUBIT configuration of " + server + " is not a JSON object below '" + ROOT
+                + "' or '" + DOCUMENTED_ROOT + "'",
             "The endpoint answered with an unexpected document (another INUBIT version, a proxy"
                 + " page, or a configuration format this version does not know)",
             "Check the INUBIT version line of the server against the supported versions")

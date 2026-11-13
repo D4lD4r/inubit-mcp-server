@@ -52,11 +52,14 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * T019 (feature 022, US1, research D-7, FR-013): the StartCLI settings reads run in one stdin
- * session bounded by {@code cliTimeout}; each block goes to its parser, and a block that cannot
- * be read marks only its part unavailable. The session output is scripted from the reconstructed
- * {@code admin-settings-*} fixtures with the documented prompt ({@code CliSessionParser.STANDARD};
- * the recorded form follows with T014/T025).
+ * T019, T025 (feature 022, US1, research D-7, FR-013): the StartCLI settings reads run in one
+ * stdin session bounded by {@code cliTimeout}; each block goes to its parser, and a block that
+ * cannot be read marks only its part unavailable. The session output is scripted in the recorded
+ * form (prompt with the echoed command, L-1) from the {@code admin-settings-*} fixtures: the
+ * recorded answers of {@code dbconnectiontolerance show} and {@code date}, and the SYNTHETIC
+ * {@code *-reconstructed} answers of the three root-only reads, which the profile's account could
+ * not record (see {@code ThreadsParser}). {@link SettingsCliV81ContractTest} replays the recorded
+ * session itself.
  */
 @Timeout(30)
 class CliSettingsRunnerTest {
@@ -76,15 +79,19 @@ class CliSettingsRunnerTest {
     private static final List<String> LIST =
         AdminCliFixtures.block("admin-settings-privileged-list-reconstructed");
     private static final List<String> TOLERANCE =
-        AdminCliFixtures.block("admin-settings-db-tolerance-reconstructed");
-    private static final List<String> DATE =
-        AdminCliFixtures.block("admin-settings-date-reconstructed");
+        AdminCliFixtures.answer("admin-settings-db-tolerance");
+    private static final List<String> DATE = AdminCliFixtures.answer("admin-settings-date");
+    /** The commands of the blocks of {@link #session}, in the order the runner sends them. */
+    private static final List<String> COMMANDS = List.of("threads showNumberOfWorkflowThreads",
+        "privilegedWorkflows showThreadsPercentage", "privilegedWorkflows showWorkflowList",
+        "dbconnectiontolerance show", "date");
 
     /**
-     * SYNTHETIC (to be confirmed by T014, L-1): the vendor documents only that StartCLI needs the
-     * role System Administrator or the right "CLI login access" (docs/research/
-     * inubit-interfaces.md §2.1), not the refusal text. Reconstructed as a login failure whose
-     * text names the right, the form that would otherwise be taken for wrong credentials.
+     * SYNTHETIC (not recorded: T014 ran with an account that has the right): the vendor
+     * documents only that StartCLI needs the role System Administrator or the right "CLI login
+     * access" (docs/research/inubit-interfaces.md §2.1), not the refusal text. Reconstructed as a
+     * login failure whose text names the right, the form that would otherwise be taken for wrong
+     * credentials.
      */
     private static final String MISSING_CLI_RIGHT = "Password: \n"
         + "ERROR 08:00:01,234 [main] @Start@LoginFailure@@@The user jdoe has no CLI login access"
@@ -121,14 +128,29 @@ class CliSettingsRunnerTest {
             new CliOutputClassifier(new SecretScrubber(), storeLabels("INUBIT", DEV), false));
     }
 
-    /** The session's stdout: the password prompt, one prompt per block, the prompt of exit. */
+    /**
+     * The session's stdout: the password prompt, then per block the prompt with the echoed command
+     * ({@link #COMMANDS} from {@code first} on) and the block, then the echoed exit.
+     */
+    @SafeVarargs
+    private static String session(int first, List<String>... blocks) {
+        StringBuilder out = new StringBuilder("Password: \n");
+        for (int i = 0; i < blocks.length; i++) {
+            out.append(PROMPT).append(COMMANDS.get(first + i)).append('\n')
+                .append(String.join("\n", blocks[i])).append('\n');
+        }
+        return out.append(PROMPT).append("exit\n").toString();
+    }
+
+    /** {@link #session(int, List[])} of all five commands. */
     @SafeVarargs
     private static String session(List<String>... blocks) {
-        StringBuilder out = new StringBuilder("Password: \n");
-        for (List<String> block : blocks) {
-            out.append(PROMPT).append(String.join("\n", block)).append('\n');
-        }
-        return out.append(PROMPT).toString();
+        return session(0, blocks);
+    }
+
+    /** The session of {@code date} alone. */
+    private static String dateSession() {
+        return session(4, DATE);
     }
 
     private static String stdin(FakeProcessLauncher launcher) {
@@ -164,8 +186,8 @@ class CliSettingsRunnerTest {
         assertThat(settings.privilegedWorkflows()).contains(new PrivilegedWorkflows(20,
             List.of("Fictitious-Workflow-0001", "Fictitious Workflow 0002"), false));
         assertThat(settings.dbConnectionTolerance())
-            .contains(new DbConnectionTolerance(25, 1, 180));
-        assertThat(settings.serverTime()).contains("Thu Nov 12 14:03:27 CET 2026");
+            .contains(new DbConnectionTolerance(20, 5, 1800));
+        assertThat(settings.serverTime()).contains("Fri Nov 13 05:52:06 CET 2026");
         assertThat(settings.unavailable()).isEmpty();
         assertThat(launcher.launchCount()).isEqualTo(1);
         assertThat(stdin(launcher)).isEqualTo(PASSWORD + "\n"
@@ -181,12 +203,12 @@ class CliSettingsRunnerTest {
 
     @Test
     void onlyTheCommandsOfTheRequestedPartsAreSent() {
-        FakeProcessLauncher launcher = FakeProcessLauncher.of(session(DATE), "", 0);
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(dateSession(), "", 0);
 
         CliSettingsSnapshot settings = runner(launcher).read(Set.of(UnavailablePart.SERVER_TIME));
 
         assertThat(stdin(launcher)).isEqualTo(PASSWORD + "\ndate\nexit\n");
-        assertThat(settings.serverTime()).contains("Thu Nov 12 14:03:27 CET 2026");
+        assertThat(settings.serverTime()).contains("Fri Nov 13 05:52:06 CET 2026");
         assertThat(settings.workflowThreads()).isEmpty();
         assertThat(settings.privilegedWorkflows()).isEmpty();
         assertThat(settings.dbConnectionTolerance()).isEmpty();
@@ -249,8 +271,9 @@ class CliSettingsRunnerTest {
     /** Without one prompt per command the blocks cannot be told apart: the session fails. */
     @Test
     void aMissingPromptFailsTheSession() {
-        String stdout = "Password: \n" + PROMPT + String.join("\n", THREADS) + "\n"
-            + String.join("\n", DATE) + "\n" + PROMPT;
+        String stdout = "Password: \n" + PROMPT + COMMANDS.getFirst() + "\n"
+            + String.join("\n", THREADS) + "\n" + String.join("\n", DATE) + "\n" + PROMPT
+            + "exit\n";
         FakeProcessLauncher launcher = FakeProcessLauncher.of(stdout, "", 0);
 
         ToolError error = errorOf(() -> runner(launcher).read(
@@ -274,27 +297,69 @@ class CliSettingsRunnerTest {
         assertThat(error.message()).contains("CLI login access");
         assertThat(error.node()).contains(DEV);
 
-        FakeProcessLauncher next = FakeProcessLauncher.of(session(DATE), "", 0);
+        FakeProcessLauncher next = FakeProcessLauncher.of(dateSession(), "", 0);
         assertThat(runner(next).read(Set.of(UnavailablePart.SERVER_TIME)).serverTime())
             .isPresent();
         assertThat(next.launchCount()).isEqualTo(1);
     }
 
+    /**
+     * T025 (T019 review): the recorded 8.1 answer to wrong credentials ({@code login_failed}) stays
+     * a login failure, so the credential guard pauses the node: the next read starts no session.
+     */
     @Test
-    void wrongCredentialsStayALoginFailure() {
-        FakeProcessLauncher launcher = FakeProcessLauncher.of("Password: \nERROR 08:00:01,234"
-            + " [main] @Start@LoginFailure@@@The user does not exist or password does not"
-            + " match.@End@\n", "", 1);
+    void theRecordedWrongCredentialsStayALoginFailureAndPauseTheNode() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.replaying("login_failed");
 
         ToolError error = errorOf(() -> runner(launcher).read(ALL_PARTS));
 
         assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(error.message()).doesNotContain("CLI login access");
+        assertThat(error.node()).contains(DEV);
+
+        FakeProcessLauncher next = FakeProcessLauncher.of(dateSession(), "", 0);
+        assertThat(errorOf(() -> runner(next).read(Set.of(UnavailablePart.SERVER_TIME))).code())
+            .isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(next.launchCount()).isZero();
+    }
+
+    /**
+     * L-1 (recorded, T014): a command StartCLI refuses in the session answers
+     * {@code EXECUTION ERROR} and the reason, the session goes on and exits with 1; only the
+     * refused command's part is unavailable (FR-013).
+     */
+    @Test
+    void aRefusedCommandCostsOnlyItsPart() {
+        List<String> refused = List.of("EXECUTION ERROR", "Only root user can use this command.");
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(
+            session(THREADS, PERCENTAGE, LIST, refused, DATE), "", 1);
+
+        CliSettingsSnapshot settings = runner(launcher).read(ALL_PARTS);
+
+        assertThat(settings.unavailable()).singleElement().satisfies(part -> {
+            assertThat(part.part()).isEqualTo(UnavailablePart.DB_CONNECTION_TOLERANCE);
+            assertThat(part.reason()).startsWith("UNEXPECTED_RESPONSE: ");
+        });
+        assertThat(settings.workflowThreads()).contains(16L);
+        assertThat(settings.serverTime()).isPresent();
+    }
+
+    /** An exit code other than 0 without a refused block still fails the whole session. */
+    @Test
+    void aFailedExitWithoutARefusedBlockFailsTheSession() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(
+            session(THREADS, PERCENTAGE, LIST, TOLERANCE, List.of("Something went wrong")), "",
+            1);
+
+        ToolError error = errorOf(() -> runner(launcher).read(ALL_PARTS));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.node()).contains(DEV);
     }
 
     @Test
     void theSessionIsBoundedByCliTimeout() {
-        FakeProcessLauncher launcher = FakeProcessLauncher.of(session(DATE), "", 0).hanging();
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(dateSession(), "", 0).hanging();
         CliSettingsRunner runner = runner(node().cliTimeout(Duration.ofMillis(300)).build(),
             TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
                 new CliResources("acme", PrivateFiles.forHost())));
@@ -310,7 +375,7 @@ class CliSettingsRunnerTest {
     /** As in script mode (feature 014, R-15): a tls.pinPerServer stage checks the pin first. */
     @Test
     void aRefusedPinStartsNoSession() {
-        FakeProcessLauncher launcher = FakeProcessLauncher.of(session(DATE), "", 0);
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(dateSession(), "", 0);
         AtomicInteger checks = new AtomicInteger();
         StartCliPinProbe refusing = server -> {
             checks.incrementAndGet();
@@ -332,7 +397,7 @@ class CliSettingsRunnerTest {
     /** As in script mode (feature 017, D-4): the launch guard refuses before the pin probe. */
     @Test
     void anExcludedClientIsRefusedBeforeThePinProbe() {
-        FakeProcessLauncher launcher = FakeProcessLauncher.of(session(DATE), "", 0);
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(dateSession(), "", 0);
         AtomicInteger probes = new AtomicInteger();
         StartCliPinProbe counting = server -> probes.incrementAndGet();
         InubitVersion nine = InubitVersion.parse("9.0.7").orElseThrow();
@@ -358,7 +423,7 @@ class CliSettingsRunnerTest {
 
     @Test
     void missingCredentialsLaunchNothing() {
-        FakeProcessLauncher launcher = FakeProcessLauncher.of(session(DATE), "", 0);
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(dateSession(), "", 0);
         CliSettingsRunner runner = new CliSettingsRunner(node().build(),
             new NodeCredentials(DEV, Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty()),

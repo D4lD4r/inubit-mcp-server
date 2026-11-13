@@ -39,12 +39,14 @@ import java.util.function.Supplier;
  *   <li>{@code serverTime} — {@value ServerDateParser#COMMAND}.
  * </ul>
  *
- * <p>A block its parser cannot read marks only its part unavailable (FR-013). A failure of the
- * whole session (credentials, the pin of a {@code tls.pinPerServer} stage, launch, timeout, an
- * exit code other than 0, cut output, a refused login, a missing "CLI login access" right, or
- * not one prompt per command) is thrown with the node set, as no block can be told apart then.
- * The blocks are split with {@link CliSessionParser#STANDARD}; the recorded prompt and echo form
- * follows with T025 (L-1).
+ * <p>A block its parser cannot read marks only its part unavailable (FR-013). That includes a
+ * command StartCLI refuses: as recorded on 8.1.17 (T014, L-1), its block reads
+ * {@code EXECUTION ERROR} and the reason, the session goes on with the next command and ends with
+ * exit code 1. A failure of the whole session (credentials, the pin of a {@code tls.pinPerServer}
+ * stage, launch, timeout, an exit code other than 0 without such a block, cut output, a refused
+ * login, a missing "CLI login access" right, or not one prompt per command) is thrown with the
+ * node set, as no block can be told apart then. The blocks are split with
+ * {@link CliSessionParser#STANDARD}, the recorded prompt with the echoed command.
  */
 public final class CliSettingsRunner {
 
@@ -57,6 +59,9 @@ public final class CliSettingsRunner {
     static final CliSessionCommand DB_TOLERANCE =
         CliSessionCommand.command("dbconnectiontolerance").flag("show").build();
     static final CliSessionCommand DATE = CliSessionCommand.command("date").build();
+
+    /** The first line of a refused command's block in a session (recorded, L-1). */
+    private static final String EXECUTION_ERROR = "EXECUTION ERROR";
 
     /** The commands of each part, in the order they are sent. */
     private static final Map<String, List<CliSessionCommand>> COMMANDS = Map.of(
@@ -148,8 +153,8 @@ public final class CliSettingsRunner {
         } catch (ToolErrorException e) {
             throw failed(e.error());
         }
-        if (result.exitCode() != 0 || result.truncated()
-            || CliOutputClassifier.isLoginFailure(result)) {
+        if (result.exitCode() != 0 && !commandRefused(result.stdout(), commands)
+            || result.truncated() || CliOutputClassifier.isLoginFailure(result)) {
             // the session prints no n-OK message, so the classifier never calls this a success
             if (classifier.classify(result) instanceof CliOutcome.Failure failure) {
                 throw failed(failure.error());
@@ -159,6 +164,16 @@ public final class CliSettingsRunner {
             return CliSessionParser.STANDARD.blocks(result.stdout(), commands);
         } catch (ToolErrorException e) {
             throw failed(e.error());
+        }
+    }
+
+    /** Whether the session's blocks split and one of them is a refused command (L-1). */
+    private static boolean commandRefused(String stdout, List<CliSessionCommand> commands) {
+        try {
+            return CliSessionParser.STANDARD.blocks(stdout, commands).stream()
+                .anyMatch(block -> !block.isEmpty() && block.getFirst().equals(EXECUTION_ERROR));
+        } catch (ToolErrorException e) {
+            return false;
         }
     }
 

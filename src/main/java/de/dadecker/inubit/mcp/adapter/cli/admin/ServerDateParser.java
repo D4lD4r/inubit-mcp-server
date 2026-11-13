@@ -7,11 +7,10 @@ import java.util.regex.Pattern;
 /**
  * The answer of {@code date} (US1, part {@code serverTime}), kept as text as the server shows it.
  *
- * <p>ASSUMED FORM (the vendor page {@code diagnosis-commands} only says "Returns the Process
- * Engine's date and time"; fixture {@code admin-settings-date-reconstructed}, SYNTHETIC; T025
- * aligns {@code FORM} with the recording of T014): one line in the form of Java's
- * {@code Date.toString()}, {@code EEE MMM dd HH:mm:ss zzz yyyy}, e.g.
- * {@code Thu Nov 12 14:03:27 CET 2026}.
+ * <p>FORM as recorded on 8.1.17 (T014, L-5; fixtures {@code admin-settings-session} and
+ * {@code admin-settings-date}): one line in the form of Java's {@code Date.toString()},
+ * {@code EEE MMM dd HH:mm:ss zzz yyyy}, in the server's time zone, e.g.
+ * {@code Fri Nov 13 05:48:53 CET 2026}.
  */
 public final class ServerDateParser {
 
@@ -20,7 +19,7 @@ public final class ServerDateParser {
     private static final Pattern FORM = Pattern.compile(
         "[A-Z][a-z]{2} [A-Z][a-z]{2} \\d{2} \\d{2}:\\d{2}:\\d{2} \\S+ \\d{4}");
     private static final String EXPECTED =
-        "the assumed form 'EEE MMM dd HH:mm:ss zzz yyyy' (not yet recorded)";
+        "the recorded form 'EEE MMM dd HH:mm:ss zzz yyyy'";
 
     private ServerDateParser() {
     }
@@ -28,7 +27,7 @@ public final class ServerDateParser {
     /**
      * @param block the lines of the command's session block
      * @return the server time as the server shows it, without surrounding spaces
-     * @throws ToolErrorException {@code UNEXPECTED_RESPONSE} unless the block is the assumed form
+     * @throws ToolErrorException {@code UNEXPECTED_RESPONSE} unless the block is the recorded form
      */
     public static String parse(List<String> block) {
         if (block.size() == 1) {

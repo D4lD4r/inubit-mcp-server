@@ -15,24 +15,24 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 
 | State | 8.1 | 9.0 |
 | --- | ---: | ---: |
-| reachable | 34 | 34 |
-| covered | 36 | 36 |
-| planned | 117 | 116 |
+| reachable | 38 | 34 |
+| covered | 38 | 36 |
+| planned | 108 | 113 |
 | undocumented | 3 | 1 |
-| excluded | 60 | 63 |
+| excluded | 63 | 66 |
 | all entries | 250 | 250 |
 
 ## A. Server state and settings
 
 | Entry | Kind | Story | 8.1 | 9.0 |
 | --- | --- | --- | --- | --- |
-| CLI `license -td` | READ | US1 | planned, waits `L-5+9.0-pin` | planned, waits `L-5+9.0-pin` |
-| CLI `license -ts` | READ | US1 | planned, waits `L-5+9.0-pin` | planned, waits `L-5+9.0-pin` |
-| CLI `threads showNumberOfWorkflowThreads` | READ | US1 | planned, waits `L-1+L-5+9.0-pin` | planned, waits `L-1+L-5+9.0-pin` |
-| CLI `privilegedWorkflows showThreadsPercentage` | READ | US1 | planned, waits `L-1+L-5+9.0-pin` | planned, waits `L-1+L-5+9.0-pin` |
-| CLI `privilegedWorkflows showWorkflowList` | READ | US1 | planned, waits `L-1+L-5+9.0-pin` | planned, waits `L-1+L-5+9.0-pin` |
-| CLI `dbconnectiontolerance show` | READ | US1 | planned, waits `L-1+L-5+9.0-pin` | planned, waits `L-1+L-5+9.0-pin` |
-| CLI `date` | READ | US1 | planned, waits `L-1+L-5+9.0-pin` | planned, waits `L-1+L-5+9.0-pin` |
+| CLI `license -td` | READ | US1 | covered `get_server_settings` | planned, waits `9.0-pin` |
+| CLI `license -ts` | READ | US1 | covered `get_server_settings` | planned, waits `9.0-pin` |
+| CLI `threads showNumberOfWorkflowThreads` | READ | - | excluded: needs the INUBIT root user | excluded: needs the INUBIT root user |
+| CLI `privilegedWorkflows showThreadsPercentage` | READ | - | excluded: needs the INUBIT root user | excluded: needs the INUBIT root user |
+| CLI `privilegedWorkflows showWorkflowList` | READ | - | excluded: needs the INUBIT root user | excluded: needs the INUBIT root user |
+| CLI `dbconnectiontolerance show` | READ | US1 | reachable `get_server_settings/default` | planned, waits `9.0-pin` |
+| CLI `date` | READ | US1 | reachable `get_server_settings/default` | planned, waits `9.0-pin` |
 | CLI `getBlockingQueueSize` | READ | - | covered `get_health` | covered `get_health` |
 | CLI `-sv` | READ | - | covered `get_health` | covered `get_health` |
 | CLI `-pctmem` | READ | - | covered `get_health` | covered `get_health` |
@@ -64,8 +64,8 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | REST `GET /metrics` | READ | - | reachable `get_health/default` | reachable `get_health/default` |
 | REST `GET /system/info` | READ | - | reachable `get_health/default` | reachable `get_health/default` |
 | REST `GET /ready` | READ | - | reachable `get_health/default` | reachable `get_health/default` |
-| REST `GET /configurations` | READ | US1 | planned, waits `L-11+9.0-pin` | planned, waits `L-11+9.0-pin` |
-| REST `GET /license` | READ | US1 | planned, waits `L-5+9.0-pin` | planned, waits `L-5+9.0-pin` |
+| REST `GET /configurations` | READ | US1 | reachable `get_server_settings/default` | planned, waits `9.0-pin` |
+| REST `GET /license` | READ | US1 | reachable `get_server_settings/default` | planned, waits `9.0-pin` |
 | REST `POST /ready/{status}` | WRITE | US4 | planned | planned |
 | REST `PUT /license` | WRITE | US6 | planned | planned |
 | REST `PUT /configurations` | WRITE | US6 | planned | planned |

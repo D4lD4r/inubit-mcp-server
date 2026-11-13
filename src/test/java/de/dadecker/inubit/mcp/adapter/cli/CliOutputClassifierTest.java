@@ -198,6 +198,32 @@ class CliOutputClassifierTest {
         assertThat(error.nextStep()).isNotBlank();
     }
 
+    /**
+     * T025 (T019 review, spec edge case "missing right"): the recorded 8.1 answer to wrong
+     * credentials is a login failure and no missing "CLI login access" right, so the credential
+     * guard still pauses on it. The refusal for a missing right is not recorded (T014 ran with an
+     * account that has the right); its SYNTHETIC form names the right in a marker.
+     */
+    @Test
+    void theRecordedWrongCredentialsAreALoginFailureAndNoMissingCliRight() {
+        CliResult wrong = fixture("login_failed");
+
+        assertThat(CliOutputClassifier.isLoginFailure(wrong)).isTrue();
+        assertThat(CliOutputClassifier.isMissingCliRight(wrong)).isFalse();
+        assertThat(failure(wrong).code()).isEqualTo(ErrorCode.AUTH_FAILED);
+    }
+
+    @Test
+    void aMarkerNamingTheCliLoginRightIsForbidden() {
+        CliResult missing = result(1, PREAMBLE + "ERROR 08:00:01,234 [main] @Start@LoginFailure@@@"
+            + "The user jdoe has no CLI login access right.@End@\n");
+
+        assertThat(CliOutputClassifier.isMissingCliRight(missing)).isTrue();
+        ToolError error = failure(missing);
+        assertThat(error.code()).isEqualTo(ErrorCode.FORBIDDEN);
+        assertThat(error.message()).contains("\"CLI login access\"");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"processErrorStart_ok", "kill_ok", "export_history_sample",
         "export_modules_sample"})

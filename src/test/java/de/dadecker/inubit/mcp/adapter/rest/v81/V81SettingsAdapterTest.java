@@ -41,8 +41,8 @@ import org.junit.jupiter.api.Timeout;
 
 /**
  * T020 (feature 022, US1): the REST parts of the 8.1 settings port against WireMock with the
- * reconstructed fixtures {@code admin-license-reconstructed} and
- * {@code admin-configurations-reconstructed}; the StartCLI parts go to the given reader.
+ * recorded fixtures {@code admin-license} and {@code admin-configurations} (T014, T025); the
+ * StartCLI parts go to the given reader.
  */
 @Timeout(30)
 class V81SettingsAdapterTest {
@@ -116,14 +116,14 @@ class V81SettingsAdapterTest {
     // --- GET /license --------------------------------------------------------------------
 
     @Test
-    void theLicenseIsReadWithCredentialsFromTheReconstructedFixture() {
+    void theLicenseIsReadWithCredentialsFromTheRecordedFixture() {
         wireMock.stubFor(get(urlPathEqualTo(LICENSE))
-            .willReturn(RestFixtures.response("admin-license-reconstructed", "xml")));
+            .willReturn(RestFixtures.response("admin-license", "xml")));
 
         LicenseFacts facts = adapter().license();
 
-        assertThat(facts.expiryDate()).contains(LocalDate.of(2027, 6, 30));
-        assertThat(facts.licensedThreads()).contains(32L);
+        assertThat(facts.expiryDate()).contains(LocalDate.of(2046, 10, 8));
+        assertThat(facts.licensedThreads()).contains(999_999L);
         assertThat(facts.licensee()).contains(Masked.MASK_TOKEN);
         wireMock.verify(1, getRequestedFor(urlPathEqualTo(LICENSE))
             .withHeader("Authorization", matching("Basic .+"))
@@ -136,12 +136,12 @@ class V81SettingsAdapterTest {
     @Test
     void theConfigurationIsListedBySectionNames() {
         wireMock.stubFor(get(urlPathEqualTo(CONFIGURATIONS))
-            .willReturn(RestFixtures.response("admin-configurations-reconstructed", "json")));
+            .willReturn(RestFixtures.response("admin-configurations", "json")));
 
         ConfigurationView view = adapter().configuration(Optional.empty(), MAX_VALUES, MAX_CHARS);
 
-        assertThat(view.sections()).startsWith("JschConfigurationType", "GUIThreadsCount")
-            .hasSize(10);
+        assertThat(view.sections()).startsWith("TracingMaxBackupIndex", "NotifyWorkflow")
+            .hasSize(101);
         assertThat(view.values()).isEmpty();
         wireMock.verify(1, getRequestedFor(urlPathEqualTo(CONFIGURATIONS))
             .withHeader("Authorization", matching("Basic .+"))
@@ -151,7 +151,7 @@ class V81SettingsAdapterTest {
     @Test
     void oneSectionIsBoundedByTheLimitsOfTheCall() {
         wireMock.stubFor(get(urlPathEqualTo(CONFIGURATIONS))
-            .willReturn(RestFixtures.response("admin-configurations-reconstructed", "json")));
+            .willReturn(RestFixtures.response("admin-configurations", "json")));
 
         ConfigurationView all = adapter().configuration(Optional.of("JschConfigurationType"),
             MAX_VALUES, MAX_CHARS);
@@ -167,7 +167,7 @@ class V81SettingsAdapterTest {
     @Test
     void anUnknownSectionIsNotFound() {
         wireMock.stubFor(get(urlPathEqualTo(CONFIGURATIONS))
-            .willReturn(RestFixtures.response("admin-configurations-reconstructed", "json")));
+            .willReturn(RestFixtures.response("admin-configurations", "json")));
 
         assertError(() -> adapter().configuration(Optional.of("NoSuchSection"), MAX_VALUES,
             MAX_CHARS), error -> assertThat(error.code()).isEqualTo(ErrorCode.NOT_FOUND));

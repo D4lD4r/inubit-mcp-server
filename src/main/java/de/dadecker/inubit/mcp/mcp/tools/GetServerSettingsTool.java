@@ -34,7 +34,7 @@ public final class GetServerSettingsTool implements ToolHandler {
 
     static final String DESCRIPTION = "Read the settings of the INUBIT {nodes}: license (expiry"
         + " date, licensed threads, licensee), workflow threads, privileged workflows, DB"
-        + " connection tolerance and server time, and on request the server configuration."
+        + " connection tolerance and the current time, and on request the configuration."
         + " `target` takes the id of one {node} (`<{group}>/<{node}>`) or of one {group} (one"
         + " entry per {node}). `parts` picks what to read (default: all but `configuration`)."
         + " Without `configurationSection` the configuration is listed by section names; with"
@@ -42,7 +42,8 @@ public final class GetServerSettingsTool implements ToolHandler {
         + " queue size and maintenance mode are always included, from the same source as"
         + " get_health. License and configuration need the INUBIT role \"System Administrator\";"
         + " a part that cannot be read is listed under `unavailable` with the reason, the other"
-        + " parts are returned. Reads only; changes nothing on INUBIT.";
+        + " parts are returned. Workflow threads and privileged workflows need the INUBIT root"
+        + " user and are listed under `unavailable`. Reads only; changes nothing on INUBIT.";
 
     /** The read of {@code ServerSettingsService::read}. */
     @FunctionalInterface
@@ -72,7 +73,7 @@ public final class GetServerSettingsTool implements ToolHandler {
 
     @Override
     public ToolHints annotations() {
-        return ToolHints.readOnly("Read INUBIT server settings", true);
+        return ToolHints.readOnly("Read INUBIT settings", true);
     }
 
     /**

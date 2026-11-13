@@ -770,3 +770,17 @@ three root-only reads (`threads showNumberOfWorkflowThreads`, `privilegedWorkflo
 showThreadsPercentage`, `privilegedWorkflows showWorkflowList`) cannot be recorded with the
 profile account. T025 sets their coverage rows to `excluded:needs the INUBIT root user`, and
 `get_server_settings` reports those parts unavailable with that reason.
+
+**Applied in T025.** `CliSessionParser.STANDARD` drops the echoed command after each prompt and
+accepts the echoed `exit`; `CliSettingsRunner` reads a session that exits with 1 block by block
+when a block starts with `EXECUTION ERROR` (a refused command costs only its part); the
+`dbconnectiontolerance show` parser accepts the tabs; `LicenseXmlParser` reads
+`inubit/LicenseType/ExpirationDate`, `inubit/LicenseType/ThreadCount` and
+`LicenseInformation/CompanyName`; `ConfigurationJsonParser` takes `ServerConfiguration` first and
+still accepts `SeverConfiguration`. The parts `threads` and `privilegedWorkflows` and their
+parsers stay: the parts and their entries stay declared in `ServerSettingsService.SPEC`, which is
+where the gate's reason "excluded for INUBIT 8.1: needs the INUBIT root user" comes from, and the
+runner reads every declared StartCLI part a coverage list admits. Their `*-reconstructed` fixtures
+stay SYNTHETIC; the other `*-reconstructed` cases of US1 are replaced by the recordings. The
+refusal for a missing "CLI login access" right is still not recorded (the profile's account has
+the right), so `CliOutputClassifier.MISSING_CLI_RIGHT` stays SYNTHETIC.

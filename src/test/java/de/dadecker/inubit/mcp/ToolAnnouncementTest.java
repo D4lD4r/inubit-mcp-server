@@ -18,6 +18,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -165,11 +166,12 @@ class ToolAnnouncementTest {
 
     @Test
     void withoutAnOptInTheToolListIsUnchangedByFeature020() {
-        // feature 021 T033: an AUTO node with a client home also announces download_server_log
+        // feature 021 T033: an AUTO node with a client home also announces download_server_log;
+        // feature 022 T025: and get_server_settings, as it may run 8.1
         List<String> withoutFeature020 = List.of("list_nodes", "get_health",
             "read_knowledge", "record_knowledge", "find_processes", "query_logs",
-            "download_server_log", "list_inventory", "get_inventory_item", "find_partners",
-            "export_artifacts", "export_archives", "check_artifacts");
+            "download_server_log", "get_server_settings", "list_inventory", "get_inventory_item",
+            "find_partners", "export_artifacts", "export_archives", "check_artifacts");
 
         assertThat(queueEntryTools("AUTO", cliHome(), false))
             .containsExactlyElementsOf(withoutFeature020);
@@ -182,8 +184,8 @@ class ToolAnnouncementTest {
         assertThat(queueEntryTools("AUTO", optIn("true") + "\n" + cliHome(), false))
             .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
                 "find_processes", "query_logs", "read_queue_entry", "download_server_log",
-                "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
-                "export_archives", "check_artifacts");
+                "get_server_settings", "list_inventory", "get_inventory_item", "find_partners",
+                "export_artifacts", "export_archives", "check_artifacts");
     }
 
     @Test
@@ -338,18 +340,21 @@ class ToolAnnouncementTest {
 
     @Test
     void onTheProductionMatrixThe81And90RecordingsAnnounceTheDownload() {
-        // T033: 8.1 admits the trace log, so an 8.1 and an AUTO node with a client home run it
+        // T033: 8.1 admits the trace log, so an 8.1 and an AUTO node with a client home run it;
+        // feature 022 T025: 8.1 (and so an AUTO node) also admits the server settings
         List<String> withDownload = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
             "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
             "export_archives", "check_artifacts");
+        List<String> withSettings = new ArrayList<>(withDownload);
+        withSettings.add(withSettings.indexOf("list_inventory"), "get_server_settings");
         assertThat(groupTools("V8_1", cliHome(), false, CapabilityMatrix.production()))
-            .containsExactlyElementsOf(withDownload);
+            .containsExactlyElementsOf(withSettings);
         assertThat(groupTools("AUTO", cliHome(), false, CapabilityMatrix.production()))
-            .containsExactlyElementsOf(withDownload);
+            .containsExactlyElementsOf(withSettings);
         // T046: 8.1 also admits the web service log, which adds no tool for an opted-in node
         assertThat(groupTools("V8_1", serverLogOptIn("true") + "\n" + cliHome(), false,
-            CapabilityMatrix.production())).containsExactlyElementsOf(withDownload);
+            CapabilityMatrix.production())).containsExactlyElementsOf(withSettings);
         // T051: 9.0 admits the trace log, so a node pinned to 9.0 with a 9.0 client runs it
         assertThat(groupTools("V9_0", "", true, CapabilityMatrix.production()))
             .containsExactlyElementsOf(withDownload);
@@ -432,15 +437,20 @@ class ToolAnnouncementTest {
     // --- feature 022 T022: get_server_settings (contracts/mcp-tools-delta.md "Announcement") --
 
     @Test
-    void onTheProductionMatrixTheServerSettingsAreNotAnnouncedBeforeTheirRecordings() {
-        // 8.1 and 9.0 refuse SERVER_SETTINGS as "not yet verified" until T025 flips 8.1
+    void onTheProductionMatrixTheServerSettingsAreAnnouncedFor81Only() {
+        // T025 flipped 8.1; 9.0 refuses SERVER_SETTINGS as "not yet verified" until T026
         assertThat(groupTools("V8_1", cliHome(), false, CapabilityMatrix.production()))
-            .doesNotContain("get_server_settings");
+            .contains("get_server_settings");
+        assertThat(groupTools("V8_1", "", false, CapabilityMatrix.production()))
+            .as("research D-1: without a client the StartCLI parts are unavailable")
+            .contains("get_server_settings");
+        assertThat(groupTools("AUTO", cliHome(), false, CapabilityMatrix.production()))
+            .as("an AUTO node may run 8.1").contains("get_server_settings");
+        assertThat(toolNames("V6_1", "V8_1", CapabilityMatrix.production()))
+            .contains("get_server_settings");
         assertThat(groupTools("V9_0", "", true, CapabilityMatrix.production()))
             .doesNotContain("get_server_settings");
-        assertThat(groupTools("AUTO", cliHome(), false, CapabilityMatrix.production()))
-            .doesNotContain("get_server_settings");
-        assertThat(toolNames("V6_1", "V8_1", CapabilityMatrix.production()))
+        assertThat(toolNames("V6_1", "V6_1", CapabilityMatrix.production()))
             .doesNotContain("get_server_settings");
     }
 

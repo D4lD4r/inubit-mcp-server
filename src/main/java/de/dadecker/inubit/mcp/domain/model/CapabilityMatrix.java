@@ -78,13 +78,11 @@ public final class CapabilityMatrix {
     private static final String NOT_YET_VERIFIED = "not yet verified";
 
     /**
-     * 8.1: everything except reading the server settings of feature 022 (not yet verified); the
-     * server-log reads of feature 021 since their recordings (trace log T033, web service log T046).
+     * 8.1: everything; the server-log reads of feature 021 since their recordings (trace log T033,
+     * web service log T046), reading the server settings of feature 022 since its recordings
+     * (T014, contract tests T025).
      */
-    private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1),
-        with(ALL_SUPPORTED, Capability.SERVER_SETTINGS, SupportState.UNSUPPORTED),
-        Map.of(), false,
-        Map.of(Capability.SERVER_SETTINGS, NOT_YET_VERIFIED));
+    private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1), ALL_SUPPORTED);
 
     /**
      * 9.0: everything as on 8.1 except partner management, which runs with a warning until recorded
@@ -139,8 +137,9 @@ public final class CapabilityMatrix {
      * Queue Manager entries is supported on 8.1 and 9.0, on any other and on unknown versions
      * unsupported. Feature 021 (research D-6): downloading the trace log and the web service log
      * is supported on 8.1 (T033, T046) and 9.0 (T051, T052), on any other and on unknown versions
-     * unsupported. Feature 022 (research D-1): reading the server settings is unsupported
-     * everywhere, on 8.1 and 9.0 with the note "not yet verified" until T025 / T026.
+     * unsupported. Feature 022 (research D-1): reading the server settings is supported on 8.1
+     * since its contract tests (T025), unsupported on 9.0 with the note "not yet verified" until
+     * T026, and unsupported on every other and on unknown versions.
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;

@@ -31,7 +31,7 @@ public final class V61SessionParser {
     public static final String PROMPT = "cli> ";
 
     private static final CliSessionParser PARSER = new CliSessionParser(
-        Pattern.compile(Pattern.quote(PROMPT)), "the expected INUBIT 6.1 format");
+        Pattern.compile(Pattern.quote(PROMPT)), false, "the expected INUBIT 6.1 format");
 
     private V61SessionParser() {
     }

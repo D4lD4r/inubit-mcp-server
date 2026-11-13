@@ -493,20 +493,22 @@ class CapabilityMatrixTest {
         assertThat(Capability.SERVER_SETTINGS.label()).isEqualTo("reading server settings");
     }
 
-    /** Refused on 8.1 and 9.0 as "not yet verified" until its contract tests (T025, T026). */
+    /** Supported on 8.1 since its contract tests (T025); 9.0 "not yet verified" until T026. */
     @Test
-    void serverSettingsIsNotYetVerifiedOn81And90() {
-        for (Optional<InubitVersion> line : List.of(version("8.1.17"), version("9.0.7"))) {
-            assertThat(production.state(line, Capability.SERVER_SETTINGS)).as("%s", line)
-                .isEqualTo(SupportState.UNSUPPORTED);
-            assertThat(production.note(line, Capability.SERVER_SETTINGS)).as("%s", line)
-                .contains("not yet verified");
-        }
-        assertThat(production.stateOfLine(8, OptionalInt.of(1), Capability.SERVER_SETTINGS))
+    void serverSettingsIsSupportedOn81AndNotYetVerifiedOn90() {
+        assertThat(production.state(version("8.1.17"), Capability.SERVER_SETTINGS))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.note(version("8.1.17"), Capability.SERVER_SETTINGS)).isEmpty();
+        assertThat(production.state(version("9.0.7"), Capability.SERVER_SETTINGS))
             .isEqualTo(SupportState.UNSUPPORTED);
+        assertThat(production.note(version("9.0.7"), Capability.SERVER_SETTINGS))
+            .contains("not yet verified");
+        assertThat(production.stateOfLine(8, OptionalInt.of(1), Capability.SERVER_SETTINGS))
+            .isEqualTo(SupportState.SUPPORTED);
         assertThat(production.stateOfLine(9, OptionalInt.of(0), Capability.SERVER_SETTINGS))
             .isEqualTo(SupportState.UNSUPPORTED);
         assertThat(production.lines(Capability.SERVER_SETTINGS)).containsExactly("8.1", "9.0");
+        assertThat(production.possiblySupported(Capability.SERVER_SETTINGS)).isTrue();
     }
 
     /**
@@ -524,7 +526,6 @@ class CapabilityMatrixTest {
         }
         assertThat(production.stateOfLine(9, OptionalInt.empty(), Capability.SERVER_SETTINGS))
             .isEqualTo(SupportState.UNSUPPORTED);
-        assertThat(production.possiblySupported(Capability.SERVER_SETTINGS)).isFalse();
     }
 
     private static SupportState notBaseline(Capability capability) {
