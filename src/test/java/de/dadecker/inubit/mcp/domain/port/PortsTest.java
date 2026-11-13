@@ -188,6 +188,31 @@ class PortsTest {
     }
 
     @Test
+    void aGatewayWithoutUserAdapterRefusesUserReadsAsUnsupportedForItsNode() {
+        // feature 022 T033: adapter lines without a user directory adapter
+        assertThatThrownBy(() -> new PreviousGateway().userDirectory())
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+                assertThat(e.error().node()).contains(NODE);
+                assertThat(e.error().message()).contains("User reads", "dev/node1");
+            });
+        GatewayFactory factory = (GatewayFactory) Proxy.newProxyInstance(
+            GatewayFactory.class.getClassLoader(), new Class<?>[] {GatewayFactory.class},
+            (proxy, method, args) -> {
+                if (method.isDefault()) {
+                    return InvocationHandler.invokeDefault(proxy, method, args);
+                }
+                if (method.getName().equals("forServer")) {
+                    return new PreviousGateway();
+                }
+                throw new AssertionError(method + " was not expected");
+            });
+        assertThatThrownBy(() -> factory.userDirectory(NODE))
+            .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION));
+    }
+
+    @Test
     void anXsltRequestCopiesItsParameters() {
         Map<String, String> params = new HashMap<>(Map.of("lang", "de"));
         XsltRequest request = new XsltRequest(Path.of("a.xsl"), Path.of("in.xml"), params,

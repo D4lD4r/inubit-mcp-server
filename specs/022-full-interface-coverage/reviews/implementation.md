@@ -101,6 +101,13 @@ a pinned 8.1 node reports `partially_supported`. This is accepted knowingly: pha
 one PR (US1), so no release from this branch shows the capability without its tool; plan.md's
 "capabilities per story" holds per PR. Later stories add their capability in their port task.
 
+## T033 – `user_directory` before its tool (2026-11-13)
+
+As for T011: T033 adds `USER_DIRECTORY` before `read_users` exists (T035). Until T037 flips it,
+every 8.1 and 9.0 node lists `user_directory` under `notUsable` ("not yet verified"), and a pinned
+8.1 node reports `partially_supported`. Accepted on the same terms: US2 ships as one PR, and T037
+flips the capability before that PR is opened.
+
 ## Rebase onto main after the 021 merge (2026-11-12, after T021)
 
 PR #84 (feature 021) was squash-merged as `913fdf93`. This branch was moved with

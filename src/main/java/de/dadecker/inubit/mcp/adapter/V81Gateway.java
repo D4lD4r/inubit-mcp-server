@@ -15,6 +15,7 @@ import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
+import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -133,6 +134,11 @@ final class V81Gateway implements Gateway {
     @Override
     public ServerSettingsPort serverSettings() {
         return ports.get().serverSettings();
+    }
+
+    @Override
+    public UserDirectoryPort userDirectory() {
+        return ports.get().userDirectory();
     }
 
     /** The credential guard of this server, for its CLI calls (US3/US4). */

@@ -876,12 +876,13 @@ final class Wiring implements AutoCloseable {
      * feature 021 (research D-17): downloading the trace log with the client, the web service log
      * with the client and the group's {@code unsupported.serverLogRead}; feature 022 (research
      * D-1): reading the server settings, allowed without a client; its StartCLI parts are then
-     * reported unavailable per part (research D-2).
+     * reported unavailable per part (research D-2); reading the users (US2), allowed without a
+     * client as well, since its login list comes over REST.
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
         Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
             Capability.PROCESS_DIAGNOSIS, Capability.LOG_DIAGNOSIS, Capability.INVENTORY,
-            Capability.PARTNER_MANAGEMENT, Capability.SERVER_SETTINGS);
+            Capability.PARTNER_MANAGEMENT, Capability.SERVER_SETTINGS, Capability.USER_DIRECTORY);
         if (withClient) {
             allowed.add(Capability.WORKSPACE_EXPORT);
         }

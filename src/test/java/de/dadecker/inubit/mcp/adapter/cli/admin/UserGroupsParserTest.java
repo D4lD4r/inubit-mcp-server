@@ -3,7 +3,7 @@ package de.dadecker.inubit.mcp.adapter.cli.admin;
 import static de.dadecker.inubit.mcp.adapter.cli.admin.AdminCliFixtures.assertUnknown;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import de.dadecker.inubit.mcp.adapter.cli.admin.UserGroupsParser.UserGroups;
+import de.dadecker.inubit.mcp.domain.model.UserFacts.UserGroups;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 

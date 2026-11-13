@@ -10,7 +10,9 @@ import de.dadecker.inubit.mcp.domain.model.EntryPart;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LicenseFacts;
+import de.dadecker.inubit.mcp.domain.model.ListedUser;
 import de.dadecker.inubit.mcp.domain.model.LogPresence;
+import de.dadecker.inubit.mcp.domain.model.LoginEntry;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
@@ -19,6 +21,7 @@ import de.dadecker.inubit.mcp.domain.model.RawEntryContent.PartResult;
 import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.UserFacts;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.DownloadedLog;
@@ -33,6 +36,7 @@ import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
+import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
 import de.dadecker.inubit.mcp.testing.TestPermits;
 import java.lang.reflect.InvocationTargetException;
@@ -351,6 +355,74 @@ class StaleReportingPortsTest {
         return new PortSet(others.processes(), others.logs(), others.inventory(),
             others.processControl(), others.artifacts(), others.imports(), others.tags(),
             others.partners(), others.queueEntryContent(), others.serverLogs(), serverSettings);
+    }
+
+    @Test
+    void userReadsAreForwardedAndAnUnexpectedResponseMarksTheNodeStale() throws Exception {
+        // feature 022 T033: the user directory port is wrapped like every other port
+        List<ListedUser> users = List.of(new ListedUser("jdoe", "ProcessEngineUser"));
+        List<UserFacts> facts = List.of();
+        List<LoginEntry> logins = List.of(new LoginEntry("jdoe", Optional.empty()));
+        List<Object> asked = new ArrayList<>();
+        UserDirectoryPort answering = new UserDirectoryPort() {
+            @Override
+            public List<ListedUser> listUsers() {
+                return users;
+            }
+
+            @Override
+            public List<UserFacts> readUsers(List<String> page) {
+                asked.add(page);
+                return facts;
+            }
+
+            @Override
+            public List<LoginEntry> loggedIn() {
+                return logins;
+            }
+
+            @Override
+            public int connectedSystems() {
+                return 3;
+            }
+        };
+
+        UserDirectoryPort wrapped = stale.ports(withUserDirectory(answering)).userDirectory();
+        assertThat(wrapped).isInstanceOf(StaleReportingPorts.UserDirectory.class);
+        assertThat(wrapped.listUsers()).isSameAs(users);
+        assertThat(wrapped.readUsers(List.of("jdoe"))).isSameAs(facts);
+        assertThat(wrapped.loggedIn()).isSameAs(logins);
+        assertThat(wrapped.connectedSystems()).isEqualTo(3);
+        assertThat(asked).containsExactly(List.of("jdoe"));
+        assertThat(versions.events()).isEmpty();
+
+        for (RuntimeException other : List.of(failure(ErrorCode.NOT_FOUND),
+            failure(ErrorCode.FORBIDDEN), new IllegalStateException("bug"))) {
+            UserDirectoryPort port = stale.ports(withUserDirectory(throwing(
+                UserDirectoryPort.class, other))).userDirectory();
+            for (Method method : UserDirectoryPort.class.getMethods()) {
+                assertThat(thrownBy(method, port)).as(method.toString()).isSameAs(other);
+            }
+        }
+        assertThat(versions.events()).isEmpty();
+
+        ToolErrorException unexpected = failure(ErrorCode.UNEXPECTED_RESPONSE);
+        UserDirectoryPort port = stale.ports(withUserDirectory(throwing(
+            UserDirectoryPort.class, unexpected))).userDirectory();
+        for (Method method : UserDirectoryPort.class.getMethods()) {
+            assertThat(thrownBy(method, port)).as(method.toString()).isSameAs(unexpected);
+        }
+        assertThat(versions.events()).containsExactly("stale dev/node1", "stale dev/node1",
+            "stale dev/node1", "stale dev/node1");
+    }
+
+    /** A port set of throwing ports whose user directory port is {@code userDirectory}. */
+    private static PortSet withUserDirectory(UserDirectoryPort userDirectory) {
+        PortSet others = throwingPorts(failure(ErrorCode.NOT_FOUND));
+        return new PortSet(others.processes(), others.logs(), others.inventory(),
+            others.processControl(), others.artifacts(), others.imports(), others.tags(),
+            others.partners(), others.queueEntryContent(), others.serverLogs(),
+            others.serverSettings(), userDirectory);
     }
 
     @Test

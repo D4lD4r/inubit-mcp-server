@@ -2,13 +2,13 @@ package de.dadecker.inubit.mcp.adapter.rest.v81;
 
 import de.dadecker.inubit.mcp.adapter.rest.XmlSupport;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.ListedUser;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamException;
@@ -40,18 +40,6 @@ final class UserListXmlParser {
     private static final String TYPE = "type";
 
     private UserListXmlParser() {
-    }
-
-    /**
-     * One user of the list: its login ({@code id}) and INUBIT's user type ({@code type}, empty
-     * if the list gives none). It has no other field.
-     */
-    record ListedUser(String login, String type) {
-
-        ListedUser {
-            Objects.requireNonNull(login, "login");
-            Objects.requireNonNull(type, "type");
-        }
     }
 
     /**

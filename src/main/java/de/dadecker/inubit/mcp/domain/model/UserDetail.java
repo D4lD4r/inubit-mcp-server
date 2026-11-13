@@ -6,8 +6,9 @@ import java.util.Optional;
 
 /**
  * One named user (data-model.md → UserDetail, US2 AS2): the {@link UserSummary} plus the
- * personal fields INUBIT reports for that user. Only this record carries personal data (FR-011),
- * and its string form names none of it.
+ * personal fields INUBIT reports for that user. Only this record carries personal data into a tool
+ * result (FR-011; {@link UserFacts.Finger} brings it from the adapter), and its string form names
+ * none of it.
  *
  * @param summary  login, groups, roles and account state
  * @param email    the e-mail address; empty if INUBIT reports none

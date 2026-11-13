@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matching;
@@ -21,6 +22,7 @@ import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.domain.model.LicenseFacts;
+import de.dadecker.inubit.mcp.domain.model.ListedUser;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -354,6 +356,29 @@ class WiringAuditTest {
         assertThat(license.expiryDate()).contains(LocalDate.of(2046, 10, 8));
         inubit.verify(1, getRequestedFor(urlPathEqualTo("/ibis/rest/license"))
             .withHeader("Authorization", matching("Basic .+")));
+        assertThat(auditRecords()).as("audit records").isEmpty();
+    }
+
+    @Test
+    void aUserListThroughTheProductionWiringWritesNoAuditRecord() throws IOException {
+        // feature 022 T033: the production 8.1 port set lists the users over GET /user/users
+        // with the node's credentials; reads are not audited (Constitution VII)
+        inubit.stubFor(get(urlPathEqualTo("/ibis/rest/user/users"))
+            .willReturn(RestFixtures.response("admin-users", "xml")));
+        startEnvironmentServer();
+
+        List<ListedUser> users = wiring.gateways().userDirectory(NodeId.parse("dev/node1"))
+            .listUsers();
+
+        assertThat(users).hasSize(58);
+        inubit.verify(1, getRequestedFor(urlPathEqualTo("/ibis/rest/user/users"))
+            .withQueryParam("type", equalTo("processEngineUser"))
+            .withHeader("Authorization", matching("Basic .+")));
+        assertThat(auditRecords()).as("audit records").isEmpty();
+    }
+
+    /** Every line of every file in the audit directory. */
+    private List<String> auditRecords() throws IOException {
         List<String> records = new ArrayList<>();
         if (Files.isDirectory(temp.resolve("audit"))) {
             try (Stream<Path> files = Files.list(temp.resolve("audit"))) {
@@ -362,7 +387,7 @@ class WiringAuditTest {
                 }
             }
         }
-        assertThat(records).as("audit records").isEmpty();
+        return records;
     }
 
     @Test

@@ -1,8 +1,8 @@
 package de.dadecker.inubit.mcp.adapter.cli.admin;
 
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.UserFacts.UserGroups;
 import java.util.List;
-import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -56,17 +56,5 @@ public final class UserGroupsParser {
             return new UserGroups(matcher.group(2), matcher.group(3));
         }
         throw UnknownOutput.paddedLabelsOnly(COMMAND, EXPECTED, block, KNOWN_ROW);
-    }
-
-    /**
-     * @param group      the user's group ({@code User group})
-     * @param superGroup the parent of that group ({@code Super group})
-     */
-    public record UserGroups(String group, String superGroup) {
-
-        public UserGroups {
-            Objects.requireNonNull(group, "group");
-            Objects.requireNonNull(superGroup, "superGroup");
-        }
     }
 }

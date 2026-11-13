@@ -2,10 +2,10 @@ package de.dadecker.inubit.mcp.adapter.cli.admin;
 
 import de.dadecker.inubit.mcp.domain.model.SecretRules;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.UserFacts.Finger;
 import de.dadecker.inubit.mcp.domain.model.UserDetail.PersonalField;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -90,32 +90,5 @@ public final class FingerParser {
     private static PersonalField personalField(String name, String value) {
         return SecretRules.masks(name, Optional.empty(), false, value)
             ? PersonalField.masked(name) : PersonalField.shown(name, value);
-    }
-
-    /**
-     * What {@code finger} shows of one user.
-     *
-     * @param login    the login
-     * @param roles    the roles, in the order shown
-     * @param email    the e-mail address; empty if the line has none
-     * @param personal the other personal fields (the name), masked by {@link SecretRules}
-     */
-    public record Finger(String login, List<String> roles, Optional<String> email,
-        List<PersonalField> personal) {
-
-        public Finger {
-            Objects.requireNonNull(login, "login");
-            roles = List.copyOf(roles);
-            Objects.requireNonNull(email, "email");
-            personal = List.copyOf(personal);
-        }
-
-        /** The login and the roles, never a personal value. */
-        @Override
-        public String toString() {
-            return "Finger[" + login + ", roles " + roles + ", email "
-                + (email.isPresent() ? "present" : "absent") + ", " + personal.size()
-                + " personal field(s)]";
-        }
     }
 }

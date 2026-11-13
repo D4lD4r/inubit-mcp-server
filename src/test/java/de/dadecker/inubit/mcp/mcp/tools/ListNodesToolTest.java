@@ -909,18 +909,20 @@ class ListNodesToolTest {
             assertThat(usable(dev)).containsExactly("monitoring", "process_diagnosis",
                 "log_diagnosis", "inventory", "partner_management", "workspace_export");
             assertThat(notUsable(dev)).as("no write access: no process control; feature 021:"
-                + " no version admits the trace log yet; feature 022: server settings not yet"
-                + " verified").containsExactly("development_writes", "trace_log_read",
-                "server_settings");
+                + " no version admits the trace log yet; feature 022: server settings and users"
+                + " not yet verified").containsExactly("development_writes", "trace_log_read",
+                "server_settings", "user_directory");
             JsonNode test = groups.path(1).path("nodes").path(0).path("version");
             assertThat(test.path("server").path("source").asString()).isEqualTo("pinned");
             assertThat(test.path("client").path("state").asString()).isEqualTo("not_available");
             assertThat(test.path("status").asString()).as("feature 022 T025: server settings"
-                + " supported on 8.1").isEqualTo("supported");
+                + " supported on 8.1; T033: users not yet verified")
+                .isEqualTo("partially_supported");
             assertThat(usable(test)).containsExactly("monitoring", "process_diagnosis",
                 "log_diagnosis", "inventory", "partner_management", "deployment",
                 "server_settings");
-            assertThat(notUsable(test)).isEmpty();
+            assertThat(notUsable(test)).as("feature 022 T033: users not yet verified")
+                .containsExactly("user_directory");
         }
     }
 
@@ -996,13 +998,13 @@ class ListNodesToolTest {
                 .containsExactly("monitoring", "process_diagnosis", "log_diagnosis", "inventory",
                     "partner_management", "workspace_export", "queue_entry_read",
                     "trace_log_read", "server_settings");
-            assertThat(notUsable(test)).as("feature 022 T025: server settings supported on 8.1")
-                .isEmpty();
+            assertThat(notUsable(test)).as("feature 022 T025: server settings supported on 8.1;"
+                + " T033: users not yet verified").containsExactly("user_directory");
             JsonNode prod = groups.path(1).path("nodes").path(0).path("version");
             assertThat(usable(prod)).as("SC-002: as without feature 020").containsExactly(
                 "monitoring", "process_diagnosis", "log_diagnosis", "inventory",
                 "partner_management", "workspace_export", "trace_log_read", "server_settings");
-            assertThat(notUsable(prod)).isEmpty();
+            assertThat(notUsable(prod)).containsExactly("user_directory");
             JsonNode lab = groups.path(2).path("nodes").path(0).path("version");
             assertThat(usable(lab)).doesNotContain("queue_entry_read");
             assertThat(notUsable(lab)).doesNotContain("queue_entry_read");
@@ -1046,10 +1048,10 @@ class ListNodesToolTest {
         // T033: the production matrix supports the recorded 8.1 trace log
         Map<String, JsonNode> production = traceVersions(config, CapabilityMatrix.production());
         assertThat(usable(production.get("test/node1"))).contains("trace_log_read");
-        assertThat(notUsable(production.get("test/node1"))).as("feature 022 T025: supported")
-            .isEmpty();
+        assertThat(notUsable(production.get("test/node1"))).as("feature 022 T025: supported;"
+            + " T033: users not yet verified").containsExactly("user_directory");
         assertThat(usable(production.get("prod/node1"))).doesNotContain("trace_log_read");
-        assertThat(notUsable(production.get("prod/node1"))).isEmpty();
+        assertThat(notUsable(production.get("prod/node1"))).containsExactly("user_directory");
 
         Map<String, JsonNode> recorded = traceVersions(config, TraceMatrix.admittingEightOne());
         assertThat(usable(recorded.get("test/node1"))).contains("trace_log_read");
@@ -1184,12 +1186,52 @@ class ListNodesToolTest {
 
         JsonNode test = versions.get("test/node1");
         assertThat(usable(test)).contains("server_settings");
-        assertThat(notUsable(test)).isEmpty();
+        assertThat(notUsable(test)).doesNotContain("server_settings");
         JsonNode prod = versions.get("prod/node1");
         assertThat(usable(prod)).doesNotContain("server_settings");
         assertThat(notUsable(prod)).contains("server_settings");
         assertThat(reason(prod, "server_settings"))
             .endsWith("reading server settings is not yet verified for INUBIT 9.0");
+    }
+
+    // --- feature 022 T033: user_directory not yet verified on 8.1 and 9.0 (D-1) ----------------
+
+    @Test
+    void userDirectoryIsNotUsableOn81And90UntilVerified() {
+        String baseUrl = "https://localhost:" + wireMock.httpsPort();
+        String yaml = """
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            groups:
+              - name: test
+                versionLine: V8_1
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+              - name: prod
+                versionLine: V9_0
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+            """.formatted(temp.resolve("audit"), temp.resolve("workspace"), CLI_HOME, baseUrl,
+            baseUrl);
+        ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
+            .parse(yaml, temp.resolve("config.yaml")).config();
+
+        Map<String, JsonNode> versions = traceVersions(config, CapabilityMatrix.production());
+
+        for (Map.Entry<String, String> node : Map.of("test/node1", "8.1", "prod/node1", "9.0")
+            .entrySet()) {
+            JsonNode version = versions.get(node.getKey());
+            assertThat(usable(version)).as(node.getKey()).doesNotContain("user_directory");
+            assertThat(notUsable(version)).as(node.getKey()).contains("user_directory");
+            assertThat(reason(version, "user_directory")).as(node.getKey())
+                .endsWith("reading users is not yet verified for INUBIT " + node.getValue());
+        }
     }
 
     @Test

@@ -8,8 +8,6 @@ import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner.ClientOption;
 import de.dadecker.inubit.mcp.adapter.cli.CliSessionCommand;
 import de.dadecker.inubit.mcp.adapter.cli.CliSessionParser;
-import de.dadecker.inubit.mcp.adapter.cli.admin.FingerParser.Finger;
-import de.dadecker.inubit.mcp.adapter.cli.admin.UserGroupsParser.UserGroups;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
@@ -18,6 +16,8 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.LoginEntry;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.UserFacts;
+import de.dadecker.inubit.mcp.domain.model.UserFacts.Block;
 import de.dadecker.inubit.mcp.infra.Secret;
 import java.util.ArrayList;
 import java.util.List;
@@ -258,40 +258,5 @@ public final class CliUserRunner {
     public String toString() {
         return "CliUserRunner[" + server.id() + ", timeout "
             + Durations.human(server.cliTimeout()) + "]";
-    }
-
-    /**
-     * What the session read of one login.
-     *
-     * @param login  the login as given
-     * @param groups the answer of {@code user '<login>'}
-     * @param finger the answer of {@code finger '<login>'}: roles, e-mail and the masked personal
-     *               fields
-     */
-    public record UserFacts(String login, Block<UserGroups> groups, Block<Finger> finger) {
-
-        public UserFacts {
-            Objects.requireNonNull(login, "login");
-            Objects.requireNonNull(groups, "groups");
-            Objects.requireNonNull(finger, "finger");
-        }
-    }
-
-    /** One command's answer: parsed, or unavailable with the reason. */
-    public sealed interface Block<T> {
-
-        record Parsed<T>(T value) implements Block<T> {
-
-            public Parsed {
-                Objects.requireNonNull(value, "value");
-            }
-        }
-
-        record Unavailable<T>(ToolError error) implements Block<T> {
-
-            public Unavailable {
-                Objects.requireNonNull(error, "error");
-            }
-        }
     }
 }

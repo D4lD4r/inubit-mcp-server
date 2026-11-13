@@ -501,7 +501,7 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
     `-who`/`-nwho`.
   - Failing tests first: `CliUserRunnerTest.java` (scripted session of 25 users; login names
     quoted; a block missing → that user's groups `unavailable`) and `CliSessionCommandTest`.
-- [ ] T033 [US2] Port and wiring:
+- [X] T033 [US2] Port and wiring:
   - `domain/port/UserDirectoryPort.java`;
   - `adapter/rest/v81/V81UserAdapter.java`, `RestEndpoint` + `GET /user/users`;
   - the full `Gateway`/`PortSet` wiring set as in T020.

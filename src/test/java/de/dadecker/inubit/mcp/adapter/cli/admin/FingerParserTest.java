@@ -3,8 +3,8 @@ package de.dadecker.inubit.mcp.adapter.cli.admin;
 import static de.dadecker.inubit.mcp.adapter.cli.admin.AdminCliFixtures.assertUnknown;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import de.dadecker.inubit.mcp.adapter.cli.admin.FingerParser.Finger;
 import de.dadecker.inubit.mcp.domain.model.UserDetail.PersonalField;
+import de.dadecker.inubit.mcp.domain.model.UserFacts.Finger;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;

@@ -1045,6 +1045,8 @@ class VersionGateTest {
             + " 8.1, 9.0; download the log in the Workbench (Administration, Server Log)");
         // feature 022 (T011)
         expected.put(Capability.SERVER_SETTINGS, "reading server settings; " + other);
+        // feature 022 (T033)
+        expected.put(Capability.USER_DIRECTORY, "reading users; " + other);
 
         for (Capability capability : Capability.values()) {
             ToolError error = refusal(() -> gate().admit(V6_1, capability, capability.kind(),
