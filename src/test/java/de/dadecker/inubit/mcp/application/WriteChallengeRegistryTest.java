@@ -304,5 +304,68 @@ class WriteChallengeRegistryTest {
             groupCode.code(), Operation.IMPORT_ARTIFACTS, node, "inputs")).error().code())
             .isEqualTo(ErrorCode.CONFIRMATION_INVALID);
     }
-}
 
+    // --- feature 024 (T047, research D-19): the log-level tools, keyed by tool and node -------
+
+    private static final String SET = "set_temporary_log_level";
+    private static final String RESET = "reset_temporary_log_level";
+
+    @Test
+    void aToolCodeConfirmsExactlyItsToolNodeAndInputsOnce() {
+        WriteChallengeRegistry.Issued issued = registry.issue(SET, DEV, INPUTS, STATE, TTL);
+
+        assertThat(issued.code()).matches("^[A-Za-z0-9_-]{22}$");
+        assertThat(issued.expiresAt()).isEqualTo(NOW.plus(TTL));
+        assertThat(registry.redeem(issued.code(), SET, DEV, INPUTS)).isEqualTo(STATE);
+        ToolError second = errorOf(() -> registry.redeem(issued.code(), SET, DEV, INPUTS));
+        assertThat(second.code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
+        assertThat(second.node()).contains(DEV);
+        assertThat(second.nextStep()).contains(SET, "without confirmationCode");
+    }
+
+    @Test
+    void aToolCodeDoesNotConfirmAnotherToolNodeOrInputs() {
+        String wrongTool = registry.issue(SET, DEV, INPUTS, STATE, TTL).code();
+        String wrongNode = registry.issue(SET, DEV, INPUTS, STATE, TTL).code();
+        String wrongInputs = registry.issue(SET, DEV, INPUTS, STATE, TTL).code();
+
+        ToolError tool = errorOf(() -> registry.redeem(wrongTool, RESET, DEV, INPUTS));
+        ToolError node = errorOf(() -> registry.redeem(wrongNode, SET, QA, INPUTS));
+        ToolError inputs = errorOf(() -> registry.redeem(wrongInputs, SET, DEV,
+            "sha256:inputs-2"));
+
+        assertThat(List.of(tool.code(), node.code(), inputs.code()))
+            .containsOnly(ErrorCode.CONFIRMATION_INVALID);
+        assertThat(tool.message()).contains("another tool");
+        assertThat(inputs.message()).contains("other inputs");
+        // every mismatch used the code up
+        for (String code : List.of(wrongTool, wrongNode, wrongInputs)) {
+            assertThat(errorOf(() -> registry.redeem(code, SET, DEV, INPUTS)).message())
+                .contains("unknown or was already used");
+        }
+    }
+
+    @Test
+    void aToolCodeAndAnOperationCodeNeverConfirmEachOther() {
+        String toolCode = registry.issue(SET, DEV, INPUTS, STATE, TTL).code();
+        String operationCode = issue();
+
+        assertThat(errorOf(() -> registry.redeem(toolCode, Operation.IMPORT_ARTIFACTS, DEV,
+            INPUTS)).code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
+        assertThat(errorOf(() -> registry.redeem(operationCode, SET, DEV, INPUTS)).code())
+            .isEqualTo(ErrorCode.CONFIRMATION_INVALID);
+    }
+
+    @Test
+    void aToolCodeExpiresAfterItsTtl() {
+        String valid = registry.issue(SET, DEV, INPUTS, STATE, TTL).code();
+        String expired = registry.issue(SET, DEV, INPUTS, STATE, TTL).code();
+
+        clock.advance(TTL);
+        assertThat(registry.redeem(valid, SET, DEV, INPUTS)).isEqualTo(STATE);
+        clock.advance(Duration.ofSeconds(1));
+        assertThat(errorOf(() -> registry.redeem(expired, SET, DEV, INPUTS)).code())
+            .isEqualTo(ErrorCode.CONFIRMATION_INVALID);
+        assertThat(registry.pending()).isZero();
+    }
+}

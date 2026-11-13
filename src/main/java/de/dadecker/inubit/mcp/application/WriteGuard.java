@@ -13,6 +13,7 @@ import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * The configuration checks of the write tools, before anything is read from INUBIT
@@ -36,6 +37,10 @@ import java.util.function.Function;
  *   <li>The server's process control port must be usable without launching anything
  *       ({@code CLI_UNAVAILABLE}, or {@code AUTH_FAILED} without credentials).
  * </ol>
+ *
+ * <p>Feature 024 (research D-15, D-18): the log-level tools pass the same checks with texts
+ * naming the tool, and between {@code write.enabled} and the version gate their group's opt-in
+ * ({@code NOT_CONFIGURED}); {@link #admitWithoutContact} stops after the opt-in.
  */
 public final class WriteGuard {
 
@@ -67,12 +72,82 @@ public final class WriteGuard {
     public WritePolicy admit(String node, ProcessAction action) {
         Objects.requireNonNull(action, "action");
         NodeId id = targets.resolveSingleServer(node);
+        WritePolicy policy = writeChecks(id, "restart and kill are",
+            "restart_process and kill_process");
+        // the state read is REST, the action StartCLI
+        return contact(id, policy, action.capability(), Capability.PROCESS_CONTROL,
+            Set.of(Channel.CLI, Channel.REST));
+    }
+
+    /**
+     * Feature 024 (research D-18): the policy of the server {@code tool} may change: the checks
+     * of {@link #admit(String, ProcessAction)} with texts naming {@code tool}, and after the
+     * write checks the group's opt-in ({@code NOT_CONFIGURED} naming {@code optInKey}), before
+     * the version gate and the client check (StartCLI, the channel of the log-level tools).
+     *
+     * @param optIn    whether the server's group has set {@code optInKey}
+     * @param optInKey the opt-in setting, e.g. {@code unsupported.logLevelWrite}
+     * @throws ToolErrorException as {@link #admit(String, ProcessAction)}, and
+     *     {@code NOT_CONFIGURED}
+     */
+    public WritePolicy admit(String node, String tool, Capability capability,
+        Set<Channel> channels, Predicate<NodeId> optIn, String optInKey) {
+        Objects.requireNonNull(capability, "capability");
+        Objects.requireNonNull(channels, "channels");
+        NodeId id = targets.resolveSingleServer(node);
+        return contact(id, configured(id, tool, optIn, optInKey), tool, capability, channels);
+    }
+
+    /**
+     * Feature 024 (research D-15): the configuration checks of {@link #admit(String, String,
+     * Capability, Set, Predicate, String)} up to the opt-in only, for a call that sends nothing
+     * (forgetting a lease): no version gate and no client check, so neither the gate nor the
+     * gateways are asked.
+     *
+     * @throws ToolErrorException {@code INVALID_INPUT}, {@code TARGET_UNKNOWN},
+     *     {@code PRODUCTION_PROTECTED}, {@code WRITE_DISABLED} or {@code NOT_CONFIGURED}
+     */
+    public WritePolicy admitWithoutContact(String node, String tool, Predicate<NodeId> optIn,
+        String optInKey) {
+        return configured(targets.resolveSingleServer(node), tool, optIn, optInKey);
+    }
+
+    /** The write checks naming {@code tool}, then the opt-in. */
+    private WritePolicy configured(NodeId id, String tool, Predicate<NodeId> optIn,
+        String optInKey) {
+        Objects.requireNonNull(tool, "tool");
+        Objects.requireNonNull(optIn, "optIn");
+        Objects.requireNonNull(optInKey, "optInKey");
+        WritePolicy policy = writeChecks(id, tool + " is", tool);
+        if (!optIn.test(id)) {
+            Terminology terms = targets.terms();
+            String group = terms.render("{group} ") + id.group();
+            throw refused(ErrorCode.NOT_CONFIGURED, id,
+                tool + " is not enabled for " + group + ": " + optInKey + " is not set",
+                tool + terms.render(" uses an unsupported, undocumented INUBIT interface and is"
+                    + " off unless the {group} opts in"),
+                "Set " + optInKey + ": true on " + group + " and restart the MCP client"
+                    + " (unsupported INUBIT functionality, see docs/setup.md \"Unsupported"
+                    + " functions\")");
+        }
+        return policy;
+    }
+
+    /**
+     * The production lock, {@code CLIENT} on production and {@code write.enabled}.
+     *
+     * @param refusedSubject what the production refusals say is refused, e.g. {@code
+     *                       "restart and kill are"}
+     * @param allowed        what {@code write.enabled} would allow, e.g. {@code
+     *                       "restart_process and kill_process"}
+     */
+    private WritePolicy writeChecks(NodeId id, String refusedSubject, String allowed) {
         Terminology terms = targets.terms();
         WritePolicy policy = policies.apply(id);
         if (policy != null && policy.production() && !policy.productionOptIn()) {
             throw refused(ErrorCode.PRODUCTION_PROTECTED, id,
                 id + terms.render(" belongs to the production {group} ") + id.group()
-                    + "; restart and kill are refused there",
+                    + "; " + refusedSubject + " refused there",
                 terms.render("The {group} is classified production: true and"
                     + " write.productionOptIn is not set for this {node} (write.enabled alone"
                     + " never unlocks production)"),
@@ -85,7 +160,7 @@ public final class WriteGuard {
             // defense in depth (review W4): ConfigValidator already rejects this at startup
             throw refused(ErrorCode.PRODUCTION_PROTECTED, id,
                 id + terms.render(" belongs to the production {group} ") + id.group()
-                    + " and is configured with client-side confirmation; restart and kill are"
+                    + " and is configured with client-side confirmation; " + refusedSubject
                     + " refused there",
                 terms.render("write.confirmation: CLIENT is not allowed on production {groups}"
                     + " (FR-022)"),
@@ -96,16 +171,21 @@ public final class WriteGuard {
             throw refused(ErrorCode.WRITE_DISABLED, id,
                 "Write access is disabled for " + id + "; nothing was changed",
                 terms.render("The {node} is read-only: write.enabled is false (the default)"),
-                terms.render("To allow restart_process and kill_process on this {node}, set"
+                "To allow " + allowed + terms.render(" on this {node}, set"
                     + " write.enabled: true for its {group} or {node} in the configuration file"
                     + " and restart the MCP client (see docs/setup.md, write settings)"));
         }
-        // the state read is REST, the action StartCLI
-        VersionGate.Admission admission = gate.admit(action.capability(), id,
-            Capability.PROCESS_CONTROL, Capability.Kind.WRITE, Set.of(Channel.CLI, Channel.REST));
+        return policy;
+    }
+
+    /** The version gate for {@code tool}, then the StartCLI client check. */
+    private WritePolicy contact(NodeId id, WritePolicy policy, String tool,
+        Capability capability, Set<Channel> channels) {
+        VersionGate.Admission admission = gate.admit(tool, id, capability,
+            Capability.Kind.WRITE, channels);
         gateways.processControl(id).checkAvailable();
         return policy.withWarnings(admission.warnings())
-            .withPermit(admission.permit(id, Capability.PROCESS_CONTROL));
+            .withPermit(admission.permit(id, capability));
     }
 
     private static ToolErrorException refused(ErrorCode code, NodeId server, String message,
