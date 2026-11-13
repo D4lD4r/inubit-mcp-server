@@ -10,12 +10,14 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.TargetResolver;
+import de.dadecker.inubit.mcp.domain.model.BinarySignature;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.QueueEntryBounds;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -34,9 +36,15 @@ import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.GitFreeTempDir;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -49,20 +57,27 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 
 /**
- * Feature 024 T028 (FR-020, research D-8, D-22; contracts/mcp-tools-delta.md "read_io_log" and
- * "Common rules"): the listing of {@link IoLogService} — the input checks, the one server, the
- * opt-in, the version gate with detection, the call deadline ({@code cliTimeout}) and the server's
- * login credentials, the port's listing, the {@code module} filter, the 500-entry cap with
- * {@code total}, {@code matching} and {@code truncated}, the hints, and the one INFO line. Fakes of
- * the {@link IoLogPort} (recording calls and the deadline) and the {@link GatewayFactory}
- * (recording the {@code prepareCredentials} bound); the real
- * {@link de.dadecker.inubit.mcp.application.VersionGate} over a scripted detection.
+ * Feature 024 T028 and T029 (FR-020 … FR-023, research D-8, D-9, D-22;
+ * contracts/mcp-tools-delta.md "read_io_log" and "Common rules"): the listing of
+ * {@link IoLogService} — the input checks, the one server, the opt-in, the version gate with
+ * detection, the call deadline ({@code cliTimeout}) and the server's login credentials, the port's
+ * listing, the {@code module} filter, the 500-entry cap with {@code total}, {@code matching} and
+ * {@code truncated}, the hints, and the one INFO line — and the message read: the deadline
+ * {@code cliExportTimeout}, a ref the listing does not have, the content shaped by the 020 rules
+ * (masked before the cut, UTF-8 or ISO-8859-1, binary, empty, over 10 MiB) and the read closed on
+ * every path. Fakes of the {@link IoLogPort} (recording calls and the deadline; a read answers a
+ * file in a temporary directory) and the {@link GatewayFactory} (recording the
+ * {@code prepareCredentials} bound); the real
+ * {@link de.dadecker.inubit.mcp.application.VersionGate} over a scripted detection; the real
+ * {@link SecretScrubber} holding the configured password of {@code prod/node1}, another server
+ * than the one read.
  *
  * <p>The port is the adapter's contract: it returns every entry of the requested process parsed
  * with {@link IoLogEntry#parse} (an entry of another process is already its
@@ -77,6 +92,7 @@ class IoLogServiceTest {
     private static final NodeId AUTO = NodeId.parse("test/auto");
     private static final Instant NOW = Instant.parse("2026-11-13T10:00:00Z");
     private static final Duration CLI_TIMEOUT = Duration.ofSeconds(30);
+    private static final Duration EXPORT_TIMEOUT = Duration.ofSeconds(120);
     private static final long START = 7_000_000_000L;
     private static final InubitVersion V8_1_17 = InubitVersion.parse("8.1.17").orElseThrow();
     private static final String WORKFLOW = "Orders-Inbound";
@@ -86,6 +102,8 @@ class IoLogServiceTest {
     private static final String EMPTY_HINT = "No logged message for this run: input/output"
         + " logging may be off for the process or its modules, the messages may already be"
         + " removed, or the run may have executed on another cluster node";
+    private static final String EMPTY_MESSAGE_HINT = "The message is empty or no longer available";
+    private static final String BINARY_HINT = "Binary content is not returned";
     private static final String RAW_MODULE_HINT =
         "Some entries have an unexpected form; they are listed with their raw module part";
 
@@ -116,6 +134,15 @@ class IoLogServiceTest {
     private long tick;
     private final List<ToolError> errors = new ArrayList<>();
     private final List<IoLogResult> results = new ArrayList<>();
+    /** The credentials of every configured server; here the password of prod/node1. */
+    private final SecretScrubber scrubber = new SecretScrubber();
+
+    {
+        scrubber.register(TestSecrets.CONFIGURED_PASSWORD);
+    }
+
+    @TempDir(factory = GitFreeTempDir.class)
+    Path dir;
 
     private final Logger logger = (Logger) LoggerFactory.getLogger("de.dadecker.inubit");
     private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
@@ -417,20 +444,6 @@ class IoLogServiceTest {
         assertNothingSent();
     }
 
-    /**
-     * The message read is T029; until then a valid {@code message} passes the input checks and is
-     * refused before anything is sent (the tool is wired only in T030).
-     */
-    @Test
-    void aValidMessageRefIsNotReadYetAndNothingIsSent() {
-        Throwable thrown = catchThrowable(() -> listed(new IoLogRequest(TEST.value(), WORKFLOW,
-            PROCESS, Optional.of("Q2Fh7tZk1oVYbP3x9w-aAA"), Optional.empty(),
-            OptionalInt.empty())));
-
-        assertThat(thrown).isInstanceOf(UnsupportedOperationException.class);
-        assertNothingSent();
-    }
-
     /** A credential in refused input is never echoed (the leak check runs after the test). */
     @Test
     void aCredentialInRefusedInputIsNotEchoed() {
@@ -607,13 +620,284 @@ class IoLogServiceTest {
                 .doesNotContain("Order Connector").doesNotContain("Module-0003"));
     }
 
+    // --- US2-2, FR-021, FR-022: the message read ----------------------------------------------
+
+    @Test
+    void aListedRefIsReadMaskedWithTheListingAndTheContractFields() throws IOException {
+        String text = "<order><customer>acme</customer><password>"
+            + TestSecrets.CREDENTIAL_PAYLOAD_VALUE + "</password><note>"
+            + TestSecrets.CONFIGURED_PASSWORD + "</note></order>";
+        String masked = "<order><customer>acme</customer><password>${secret:data.password}"
+            + "</password><note>***</note></order>";
+        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        port.readAnswer = message(CONNECTOR_IN, bytes);
+
+        IoLogResult result = listed(readRequest(CONNECTOR_IN, OptionalInt.empty()));
+
+        IoLogResult.Message message = result.message().orElseThrow();
+        assertThat(message.entry()).isEqualTo(CONNECTOR_IN);
+        assertThat(message.kind()).isEqualTo("text");
+        assertThat(message.charset()).contains("UTF-8");
+        assertThat(message.sizeBytes()).isEqualTo(bytes.length);
+        assertThat(message.textChars()).contains(masked.length());
+        assertThat(message.text()).contains(masked);
+        assertThat(message.cut()).contains(false);
+        assertThat(message.detected()).isEmpty();
+        // the listing fields of the same call
+        assertThat(result.entries()).containsExactly(CONNECTOR_IN, CONNECTOR_OUT, AUDIT_IN,
+            AUDIT_OUT);
+        assertThat(result.total()).isEqualTo(4);
+        assertThat(result.matching()).isEqualTo(4);
+        assertThat(result.hints()).isEmpty();
+        assertThat(result.warnings()).containsExactly(WARNING);
+        // one read within cliExportTimeout, no separate listing; the read is closed
+        assertThat(port.reads).containsExactly(new ReadCall(PROCESS, WORKFLOW, CONNECTOR_IN.ref(),
+            V8_1_17, START + EXPORT_TIMEOUT.toNanos()));
+        assertThat(port.calls).isEmpty();
+        assertThat(gateways.bounds).containsExactly(EXPORT_TIMEOUT);
+        assertThat(port.closes).isEqualTo(1);
+    }
+
+    @Test
+    void thePasswordElementIsMaskedBeforeTheCut() throws IOException {
+        String text = "<order><password>" + TestSecrets.CREDENTIAL_PAYLOAD_VALUE
+            + "</password></order>";
+        int maxChars = "<order><password>".length() + 10;
+        port.readAnswer = message(CONNECTOR_IN, text.getBytes(StandardCharsets.UTF_8));
+
+        IoLogResult.Message message = listed(readRequest(CONNECTOR_IN, OptionalInt.of(maxChars)))
+            .message().orElseThrow();
+
+        assertThat(message.text().orElseThrow()).hasSize(maxChars)
+            .startsWith("<order><password>${secret:")
+            .doesNotContain(TestSecrets.CREDENTIAL_PAYLOAD_VALUE.substring(0, 4));
+        assertThat(message.textChars())
+            .contains("<order><password>${secret:data.password}</password></order>".length());
+        assertThat(message.cut()).contains(true);
+    }
+
+    /** The scrubber holds the password configured for prod/node1; test/node1 is read. */
+    @Test
+    void aConfiguredPasswordOfAnotherServerIsReplacedBeforeTheCut() throws IOException {
+        String text = "x".repeat(10) + TestSecrets.CONFIGURED_PASSWORD + "tail";
+        port.readAnswer = message(CONNECTOR_IN, text.getBytes(StandardCharsets.UTF_8));
+
+        IoLogResult.Message message = listed(readRequest(CONNECTOR_IN, OptionalInt.of(15)))
+            .message().orElseThrow();
+
+        assertThat(message.text()).contains("x".repeat(10) + "***ta");
+        assertThat(message.textChars()).contains(10 + 3 + 4);
+        assertThat(message.cut()).contains(true);
+    }
+
+    @Test
+    void aLatin1MessageIsDecodedAndItsCharsetNamed() throws IOException {
+        byte[] latin1 = "Grüße an Order-0001".getBytes(StandardCharsets.ISO_8859_1);
+        port.readAnswer = message(AUDIT_OUT, latin1);
+
+        IoLogResult.Message message = listed(readRequest(AUDIT_OUT, OptionalInt.empty()))
+            .message().orElseThrow();
+
+        assertThat(message.entry()).isEqualTo(AUDIT_OUT);
+        assertThat(message.kind()).isEqualTo("text");
+        assertThat(message.charset()).contains("ISO-8859-1");
+        assertThat(message.text()).contains("Grüße an Order-0001");
+        assertThat(message.sizeBytes()).isEqualTo(latin1.length);
+    }
+
+    @Test
+    void aBinaryMessageIsOnlySizeAndDetectedTypeWithTheHint() throws IOException {
+        byte[] zip = {0x50, 0x4B, 0x03, 0x04, 'a', 'b', 'c', 'd', 'e', 'f'};
+        port.readAnswer = message(CONNECTOR_OUT, zip);
+
+        IoLogResult result = listed(readRequest(CONNECTOR_OUT, OptionalInt.empty()));
+
+        IoLogResult.Message message = result.message().orElseThrow();
+        assertThat(message.kind()).isEqualTo("binary");
+        assertThat(message.sizeBytes()).isEqualTo(10);
+        assertThat(message.detected()).contains(BinarySignature.ZIP);
+        assertThat(message.text()).isEmpty();
+        assertThat(message.textChars()).isEmpty();
+        assertThat(message.charset()).isEmpty();
+        assertThat(result.hints()).containsExactly(BINARY_HINT);
+        assertThat(port.closes).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 100_000})
+    void theMaskedTextIsCutAtMaxCharsWithItsFullLength(int maxChars) throws IOException {
+        port.readAnswer = message(CONNECTOR_IN,
+            "a".repeat(100_001).getBytes(StandardCharsets.UTF_8));
+
+        IoLogResult.Message message = listed(readRequest(CONNECTOR_IN,
+            OptionalInt.of(maxChars))).message().orElseThrow();
+
+        assertThat(message.text()).contains("a".repeat(maxChars));
+        assertThat(message.textChars()).contains(100_001);
+        assertThat(message.sizeBytes()).isEqualTo(100_001);
+        assertThat(message.cut()).contains(true);
+    }
+
+    @Test
+    void theTextIsCutAt20000WithoutMaxChars() throws IOException {
+        port.readAnswer = message(CONNECTOR_IN,
+            "a".repeat(20_001).getBytes(StandardCharsets.UTF_8));
+
+        IoLogResult.Message message = listed(readRequest(CONNECTOR_IN, OptionalInt.empty()))
+            .message().orElseThrow();
+
+        assertThat(message.text().orElseThrow()).hasSize(20_000);
+        assertThat(message.cut()).contains(true);
+    }
+
+    /** D-9: over 10 MiB nothing of the file is shown; the read is closed (the file deleted). */
+    @Test
+    void aMessageOver10MiBIsTooLargeWithItsSizeAndTheHint() throws IOException {
+        long size = QueueEntryBounds.MAX_DATA_BYTES + 1;
+        byte[] big = "a".repeat((int) size).getBytes(StandardCharsets.UTF_8);
+        port.readAnswer = message(CONNECTOR_IN, big);
+
+        IoLogResult result = listed(readRequest(CONNECTOR_IN, OptionalInt.empty()));
+
+        IoLogResult.Message message = result.message().orElseThrow();
+        assertThat(message.kind()).isEqualTo("tooLarge");
+        assertThat(message.sizeBytes()).isEqualTo(size);
+        assertThat(message.text()).isEmpty();
+        assertThat(message.textChars()).isEmpty();
+        assertThat(message.charset()).isEmpty();
+        assertThat(message.cut()).isEmpty();
+        assertThat(result.hints()).containsExactly("The message has 10485761 bytes and is too"
+            + " large to show (limit 10 MiB)");
+        assertThat(port.closes).isEqualTo(1);
+    }
+
+    @Test
+    void aMessageOfExactly10MiBIsShown() throws IOException {
+        int size = (int) QueueEntryBounds.MAX_DATA_BYTES;
+        port.readAnswer = message(CONNECTOR_IN,
+            "a".repeat(size).getBytes(StandardCharsets.UTF_8));
+
+        IoLogResult.Message message = listed(readRequest(CONNECTOR_IN, OptionalInt.of(5)))
+            .message().orElseThrow();
+
+        assertThat(message.kind()).isEqualTo("text");
+        assertThat(message.sizeBytes()).isEqualTo(size);
+        assertThat(message.text()).contains("aaaaa");
+        assertThat(message.textChars()).contains(size);
+    }
+
+    // --- US2-5, FR-023: an empty answer --------------------------------------------------------
+
+    @Test
+    void anEmptyMessageIsKindEmptyWithTheHintAndNotAnError() throws IOException {
+        port.readAnswer = message(CONNECTOR_IN, new byte[0]);
+
+        IoLogResult result = listed(readRequest(CONNECTOR_IN, OptionalInt.empty()));
+
+        IoLogResult.Message message = result.message().orElseThrow();
+        assertThat(message.kind()).isEqualTo("empty");
+        assertThat(message.sizeBytes()).isZero();
+        assertThat(message.text()).isEmpty();
+        assertThat(result.hints()).containsExactly(EMPTY_MESSAGE_HINT);
+        assertThat(port.closes).isEqualTo(1);
+        assertThat(infoLines()).containsExactly("read_io_log on test/node1: process 4711,"
+            + " listing 4, message " + CONNECTOR_IN.ref().value() + ", size 0, outcome OK");
+    }
+
+    // --- US2-3, FR-021: a ref the listing does not have ----------------------------------------
+
+    @Test
+    void aRefNotInTheListingIsInvalidInputWithTheContractText() {
+        port.readAnswer = new IoLogPort.IoLogRead.NoMatch(LISTING);
+        String ref = "Q2Fh7tZk1oVYbP3x9w-aAA";
+
+        ToolError error = errorOf(() -> listed(new IoLogRequest(TEST.value(), WORKFLOW, PROCESS,
+            Optional.of(ref), Optional.empty(), OptionalInt.empty())));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(error.message()).isEqualTo("Message Q2Fh7tZk1oVYbP3x9w-aAA is not in the"
+            + " input/output logging of process 4711 of Orders-Inbound on test/node1");
+        assertThat(error.nextStep()).isEqualTo("Call read_io_log without message and use a"
+            + " listed ref");
+        assertThat(error.node()).contains(TEST);
+        assertThat(port.reads).extracting(ReadCall::ref).containsExactly(new IoMessageRef(ref));
+        // no message: no result, and no private copy whose close could be counted
+        assertThat(results).isEmpty();
+        assertThat(port.closes).isZero();
+        assertThat(infoLines()).containsExactly("read_io_log on test/node1: process 4711,"
+            + " listing 4, message Q2Fh7tZk1oVYbP3x9w-aAA, size -, outcome INVALID_INPUT");
+    }
+
+    // --- the read's failures -------------------------------------------------------------------
+
+    @Test
+    void credentialsNotReadInTimeForAReadAreTimeoutNamingCliExportTimeout() {
+        gateways.state = CredentialState.PENDING;
+
+        ToolError error = errorOf(() -> listed(readRequest(CONNECTOR_IN, OptionalInt.empty())));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(error.message()).isEqualTo("read_io_log on test/node1 did not finish within"
+            + " cliExportTimeout (120 s): the login credentials of test/node1 were not read in"
+            + " time");
+        assertThat(error.nextStep()).contains("cliExportTimeout of test/node1");
+        assertThat(port.reads).isEmpty();
+    }
+
+    @Test
+    void aReadFailureOfThePortPassesThroughNamingTheServer() {
+        port.failure = new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
+            "No INUBIT client", "cause", "next"));
+
+        ToolError error = errorOf(() -> listed(readRequest(CONNECTOR_IN, OptionalInt.empty())));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(error.node()).contains(TEST);
+        assertThat(infoLines()).containsExactly("read_io_log on test/node1: process 4711,"
+            + " listing -, message " + CONNECTOR_IN.ref().value() + ", size -, outcome"
+            + " CLI_UNAVAILABLE");
+    }
+
+    @Test
+    void anUnreadablePrivateCopyIsInternalAndTheReadIsClosed() {
+        port.readAnswer = new IoLogPort.IoLogRead.Message(LISTING, CONNECTOR_IN,
+            dir.resolve("missing.bin"), 12, () -> port.closes++);
+
+        ToolError error = errorOf(() -> listed(readRequest(CONNECTOR_IN, OptionalInt.empty())));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INTERNAL);
+        assertThat(error.node()).contains(TEST);
+        assertThat(port.closes).isEqualTo(1);
+    }
+
+    /** D-22: the ref and the size only; never the text, a name or the workflow. */
+    @Test
+    void aReadLogsOneInfoLineWithTheRefAndTheSizeOnly() throws IOException {
+        byte[] bytes = ("<order><password>" + TestSecrets.CREDENTIAL_PAYLOAD_VALUE
+            + "</password>" + TestSecrets.CONFIGURED_PASSWORD + "</order>")
+            .getBytes(StandardCharsets.UTF_8);
+        port.readAnswer = message(CONNECTOR_IN, bytes);
+
+        listed(readRequest(CONNECTOR_IN, OptionalInt.empty()));
+
+        assertThat(infoLines()).containsExactly("read_io_log on test/node1: process 4711,"
+            + " listing 4, message " + CONNECTOR_IN.ref().value() + ", size " + bytes.length
+            + ", outcome OK");
+        assertThat(appender.list).filteredOn(event -> event.getLoggerName()
+                .equals(IoLogService.class.getName()))
+            .allSatisfy(event -> assertThat(event.getFormattedMessage())
+                .doesNotContain(WORKFLOW).doesNotContain("Order Connector")
+                .doesNotContain("Module-0003").doesNotContain("<order>"));
+    }
+
     // --- helpers -----------------------------------------------------------------------------
 
     private IoLogService service() {
         return new IoLogService(new TargetResolver(List.of(TEST, PROD, NEW, AUTO)),
             node -> !node.group().value().equals("prod"),
             FakeVersionDetection.gateWithoutClients(versions, detection, MATRIX), gateways,
-            node -> CLI_TIMEOUT, () -> nanoTime.getAndAdd(tick));
+            node -> CLI_TIMEOUT, node -> EXPORT_TIMEOUT, scrubber::scrub,
+            () -> nanoTime.getAndAdd(tick));
     }
 
     private static IoLogEntry entry(String afterProcess) {
@@ -627,6 +911,18 @@ class IoLogServiceTest {
     private static IoLogRequest request(String target, Optional<String> module) {
         return new IoLogRequest(target, WORKFLOW, PROCESS, Optional.empty(), module,
             OptionalInt.empty());
+    }
+
+    private static IoLogRequest readRequest(IoLogEntry entry, OptionalInt maxChars) {
+        return new IoLogRequest(TEST.value(), WORKFLOW, PROCESS, Optional.of(entry.ref().value()),
+            Optional.empty(), maxChars);
+    }
+
+    /** A read of {@code entry} whose private copy holds {@code bytes}; its close is counted. */
+    private IoLogPort.IoLogRead message(IoLogEntry entry, byte[] bytes) throws IOException {
+        Path file = Files.write(dir.resolve("io-message.bin"), bytes);
+        return new IoLogPort.IoLogRead.Message(LISTING, entry, file, bytes.length,
+            () -> port.closes++);
     }
 
     /** Calls the service and keeps the result for the leak check. */
@@ -663,18 +959,29 @@ class IoLogServiceTest {
         assertThat(detection.requests()).isEmpty();
         assertThat(gateways.calls).isEmpty();
         assertThat(port.calls).isEmpty();
+        assertThat(port.reads).isEmpty();
+    }
+
+    private record ReadCall(String processId, String workflow, IoMessageRef ref,
+        InubitVersion version, long deadlineNanos) {
     }
 
     private record Call(String processId, String workflow, InubitVersion version,
         long deadlineNanos) {
     }
 
-    /** Records each listing; answers {@code answer} or throws {@code failure}. */
+    /**
+     * Records each listing and read; answers {@code answer} or {@code readAnswer}, or throws
+     * {@code failure}; counts the closes of the reads it answered.
+     */
     private static final class FakePort implements IoLogPort {
 
         final List<Call> calls = new ArrayList<>();
+        final List<ReadCall> reads = new ArrayList<>();
         IoLogListing answer = LISTING;
+        IoLogRead readAnswer;
         ToolErrorException failure;
+        int closes;
 
         @Override
         public IoLogListing list(String processId, String workflow, InubitVersion version,
@@ -689,7 +996,11 @@ class IoLogServiceTest {
         @Override
         public IoLogRead read(String processId, String workflow, IoMessageRef ref,
             InubitVersion version, long deadlineNanos) {
-            throw new AssertionError("not expected");
+            reads.add(new ReadCall(processId, workflow, ref, version, deadlineNanos));
+            if (failure != null) {
+                throw failure;
+            }
+            return readAnswer;
         }
     }
 

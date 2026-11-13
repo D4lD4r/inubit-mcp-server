@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.application.nodetools;
 
+import de.dadecker.inubit.mcp.application.EntryText;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.application.VersionGate;
 import de.dadecker.inubit.mcp.domain.model.Capability;
@@ -18,24 +19,30 @@ import de.dadecker.inubit.mcp.domain.model.node.IoLogListing;
 import de.dadecker.inubit.mcp.domain.model.node.IoLogResult;
 import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
+import de.dadecker.inubit.mcp.domain.port.IoLogPort.IoLogRead;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The use case behind {@code read_io_log} (feature 024, FR-020, research D-8, D-22; decision flow
- * and texts per contracts/mcp-tools-delta.md). The listing of a run; one call, nothing sent before
- * step 4:
+ * The use case behind {@code read_io_log} (feature 024, FR-020 … FR-023, research D-8, D-9, D-22;
+ * decision flow and texts per contracts/mcp-tools-delta.md). The listing of a run, or with
+ * {@code message} one of its messages; one call, nothing sent before step 4:
  * <ol>
  *   <li>The inputs: {@code workflow} 1–200 characters without control characters, {@code @@@} or
  *       {@code ###}; {@code processId} 1–64 of {@code [0-9A-Za-z_-]}; {@code module} 1–200
@@ -46,19 +53,28 @@ import org.slf4j.LoggerFactory;
  *       (no detection, no helper).</li>
  *   <li>{@link VersionGate#admitWithDetection} for {@code IO_LOG_READ} over StartCLI's client:
  *       {@code UNSUPPORTED_VERSION} or the detection's error.</li>
- *   <li>The call deadline, now + the server's {@code cliTimeout}; within it the server's login
- *       credentials ({@link GatewayFactory#prepareCredentials}); still being read →
- *       {@code TIMEOUT} naming {@code cliTimeout}.</li>
- *   <li>One {@link de.dadecker.inubit.mcp.domain.port.IoLogPort#list} run with the deadline; its
- *       errors pass through (one without a node names the server).</li>
+ *   <li>The call deadline, now + the server's {@code cliTimeout} for a listing or its
+ *       {@code cliExportTimeout} with {@code message}; within it the server's login credentials
+ *       ({@link GatewayFactory#prepareCredentials}); still being read → {@code TIMEOUT} naming
+ *       that setting.</li>
+ *   <li>One {@link de.dadecker.inubit.mcp.domain.port.IoLogPort#list} run, or with
+ *       {@code message} one {@link de.dadecker.inubit.mcp.domain.port.IoLogPort#read} run, with
+ *       the deadline; its errors pass through (one without a node names the server). A ref the
+ *       run's listing does not have ({@link IoLogRead.NoMatch}) → {@code INVALID_INPUT}. The
+ *       {@link IoLogRead} is closed on every path, which deletes its private directory.</li>
+ *   <li>The message's content (D-9): over {@link QueueEntryBounds#MAX_DATA_BYTES} only its size
+ *       ({@code tooLarge}, the file unread); else {@link EntryText}: {@code empty},
+ *       {@code binary} with the detected signature, or the text (UTF-8, else ISO-8859-1) cleared
+ *       of the configured credentials, masked and then cut at {@code maxChars} (default
+ *       {@value QueueEntryBounds#DEFAULT_MAX_CHARS}); the hint of a binary, empty or too large
+ *       message.</li>
  *   <li>The {@code module} filter ({@link IoLogListing#filter}), the first
  *       {@value IoLogBounds#MAX_LISTED} matching entries with {@code total}, {@code matching} and
  *       {@code truncated}, the hints of an empty run and of entries listed with their raw module
- *       part, and one INFO line with the server, the process ID, the entry count and the outcome;
- *       never a name or other value.</li>
+ *       part, and one INFO line with the server, the process ID, the entry count, with
+ *       {@code message} the ref and the message's size, and the outcome; never a name, a text or
+ *       other value.</li>
  * </ol>
- * The message read ({@code message} set) is not implemented yet: a valid {@code message} is
- * refused with {@link UnsupportedOperationException} after step 1, before anything is sent.
  *
  * <p>Thread-safe; it keeps no state of its own.
  */
@@ -69,6 +85,8 @@ public final class IoLogService {
 
     private static final Logger LOG = LoggerFactory.getLogger(IoLogService.class);
     private static final String UNKNOWN = "-";
+    private static final String LIST_BUDGET = "cliTimeout";
+    private static final String READ_BUDGET = "cliExportTimeout";
     /** The {@code processId} rule of {@code query_logs}. */
     private static final Pattern PROCESS_ID = Pattern.compile("[0-9A-Za-z_-]{1,64}");
 
@@ -77,27 +95,36 @@ public final class IoLogService {
     private final VersionGate gate;
     private final GatewayFactory gateways;
     private final Function<NodeId, Duration> cliTimeouts;
+    private final Function<NodeId, Duration> exportTimeouts;
+    private final EntryText entryText;
     private final LongSupplier nanoTime;
 
     /**
-     * @param optedIn     whether the node's group sets {@code unsupported.ioLogRead: true}
-     * @param gateways    the server's credentials and its I/O log port
-     * @param cliTimeouts the {@code cliTimeout} of a node, the listing's budget
-     * @param nanoTime    the clock of the call deadline ({@link System#nanoTime()})
+     * @param optedIn        whether the node's group sets {@code unsupported.ioLogRead: true}
+     * @param gateways       the server's credentials and its I/O log port
+     * @param cliTimeouts    the {@code cliTimeout} of a node, the listing's budget
+     * @param exportTimeouts the {@code cliExportTimeout} of a node, the message read's budget
+     * @param knownSecrets   replaces the configured credentials in a text (the
+     *                       {@code SecretScrubber}); applied before masking and cutting
+     * @param nanoTime       the clock of the call deadline ({@link System#nanoTime()})
      */
     public IoLogService(TargetResolver targets, Predicate<NodeId> optedIn, VersionGate gate,
-        GatewayFactory gateways, Function<NodeId, Duration> cliTimeouts, LongSupplier nanoTime) {
+        GatewayFactory gateways, Function<NodeId, Duration> cliTimeouts,
+        Function<NodeId, Duration> exportTimeouts, UnaryOperator<String> knownSecrets,
+        LongSupplier nanoTime) {
         this.targets = Objects.requireNonNull(targets, "targets");
         this.optedIn = Objects.requireNonNull(optedIn, "optedIn");
         this.gate = Objects.requireNonNull(gate, "gate");
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.cliTimeouts = Objects.requireNonNull(cliTimeouts, "cliTimeouts");
+        this.exportTimeouts = Objects.requireNonNull(exportTimeouts, "exportTimeouts");
+        this.entryText = new EntryText(Objects.requireNonNull(knownSecrets, "knownSecrets"));
         this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
     }
 
     /**
-     * Lists the run's logged messages as the class description says; logs one INFO line either
-     * way.
+     * Lists the run's logged messages or reads one of them as the class description says; logs
+     * one INFO line either way.
      *
      * @throws ToolErrorException as described in the class description
      */
@@ -105,20 +132,46 @@ public final class IoLogService {
         Objects.requireNonNull(request, "request");
         NodeId node = null;
         IoLogListing listing = null;
+        OptionalLong size = OptionalLong.empty();
         String outcome = ErrorCode.INTERNAL.name();
         try {
             validate(request);
-            if (request.message().isPresent()) {
-                throw new UnsupportedOperationException(TOOL + " with message is not implemented");
-            }
             node = targets.resolveSingleServer(request.target());
             if (!optedIn.test(node)) {
                 throw notConfigured(node);
             }
             VersionGate.Admission admission = gate.admitWithDetection(TOOL, node,
                 Capability.IO_LOG_READ, Capability.Kind.READ, Set.of(Channel.CLI));
-            listing = list(node, admission, request);
-            IoLogResult result = result(node, request, listing, admission);
+            // the gate admits IO_LOG_READ only on a known major.minor
+            NodeId server = node;
+            InubitVersion version = admission.version().orElseThrow(() ->
+                new IllegalStateException(TOOL + " on " + server + " was admitted without a"
+                    + " version"));
+            IoLogResult result;
+            if (request.message().isEmpty()) {
+                listing = onServer(node, () -> {
+                    long deadlineNanos = deadline(server, LIST_BUDGET, cliTimeouts.apply(server));
+                    return gateways.ioLog(server).list(request.processId(), request.workflow(),
+                        version, deadlineNanos);
+                });
+                result = result(node, request, listing, Optional.empty(), admission);
+            } else {
+                IoMessageRef ref = new IoMessageRef(request.message().get());
+                try (IoLogRead read = onServer(node, () -> {
+                    long deadlineNanos = deadline(server, READ_BUDGET,
+                        exportTimeouts.apply(server));
+                    return gateways.ioLog(server).read(request.processId(), request.workflow(),
+                        ref, version, deadlineNanos);
+                })) {
+                    listing = read.listing();
+                    if (!(read instanceof IoLogRead.Message message)) {
+                        throw notListed(node, request);
+                    }
+                    size = OptionalLong.of(message.size());
+                    result = result(node, request, listing,
+                        Optional.of(content(node, message, request.maxChars())), admission);
+                }
+            }
             outcome = "OK";
             return result;
         } catch (ToolErrorException e) {
@@ -128,41 +181,76 @@ public final class IoLogService {
             outcome = e.error().code().name();
             throw e;
         } finally {
-            log(node, request.processId(), listing, outcome);
+            log(node, request, listing, size, outcome);
         }
     }
 
-    /** Steps 5 and 6: the call deadline, the server's login credentials, the port. */
-    private IoLogListing list(NodeId node, VersionGate.Admission admission,
-        IoLogRequest request) {
-        // the gate admits IO_LOG_READ only on a known major.minor
-        InubitVersion version = admission.version().orElseThrow(() -> new IllegalStateException(
-            TOOL + " on " + node + " was admitted without a version"));
-        Duration budget = cliTimeouts.apply(node);
+    /**
+     * Step 5: the call deadline, now + {@code budget} (the setting {@code budgetName}), and the
+     * server's login credentials within it.
+     */
+    private long deadline(NodeId node, String budgetName, Duration budget) {
         long deadlineNanos = nanoTime.getAsLong() + budget.toNanos();
+        if (gateways.prepareCredentials(node, remaining(deadlineNanos))
+            == CredentialState.PENDING) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT, TOOL + " on " + node
+                    + " did not finish within " + budgetName + " (" + Durations.human(budget)
+                    + "): the login credentials of " + node + " were not read in time",
+                "The first read of the login credentials from their store took longer than "
+                    + budgetName + "; it continues, so a later call finds them",
+                "Retry in a moment; raise " + budgetName + " of " + node + " if the credential"
+                    + " store is just slow").withNode(node));
+        }
+        return deadlineNanos;
+    }
+
+    /**
+     * Steps 5 and 6: the credentials and the port's call; an error without a node names the
+     * server.
+     */
+    private static <T> T onServer(NodeId node, Supplier<T> call) {
         try {
-            if (gateways.prepareCredentials(node, remaining(deadlineNanos))
-                == CredentialState.PENDING) {
-                throw new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT, TOOL + " on " + node
-                        + " did not finish within cliTimeout (" + Durations.human(budget)
-                        + "): the login credentials of " + node + " were not read in time",
-                    "The first read of the login credentials from their store took longer than"
-                        + " cliTimeout; it continues, so a later call finds them",
-                    "Retry in a moment; raise cliTimeout of " + node + " if the credential store"
-                        + " is just slow").withNode(node));
-            }
-            return gateways.ioLog(node).list(request.processId(), request.workflow(), version,
-                deadlineNanos);
+            return call.get();
         } catch (ToolErrorException e) {
-            // an adapter error without a node (e.g. the PortSet's CLI_UNAVAILABLE) names the server
+            // e.g. the PortSet's CLI_UNAVAILABLE
             throw e.error().node().isPresent() ? e
                 : new ToolErrorException(e.error().withNode(node));
         }
     }
 
-    /** Step 7: filter, cap, hints and warnings. */
+    /** Step 7: the message's content, its private copy read only within the size limit. */
+    private IoLogResult.Message content(NodeId node, IoLogRead.Message message,
+        OptionalInt maxChars) {
+        if (message.size() > QueueEntryBounds.MAX_DATA_BYTES) {
+            return IoLogResult.Message.tooLarge(message.entry(), message.size());
+        }
+        byte[] bytes;
+        try {
+            bytes = Files.readAllBytes(message.file());
+        } catch (IOException e) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.INTERNAL, "The message "
+                    + message.entry().ref().value() + " read from " + node + " could not be read"
+                    + " from its private copy (" + e.getClass().getSimpleName() + ")",
+                "The private copy was removed or the file system reported an error",
+                "Retry the call").withNode(node));
+        }
+        return IoLogResult.Message.of(message.entry(), entryText.data(bytes,
+            maxChars.orElse(QueueEntryBounds.DEFAULT_MAX_CHARS)));
+    }
+
+    /** US2-3: the ref is not in the run's listing; nothing was downloaded. */
+    private static ToolErrorException notListed(NodeId node, IoLogRequest request) {
+        return new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT, "Message "
+                + request.message().orElseThrow() + " is not in the input/output logging of"
+                + " process " + request.processId() + " of " + request.workflow() + " on " + node,
+            "The ref is not one of this run's listed entries: a typo, a ref of another run or a"
+                + " built name",
+            "Call read_io_log without message and use a listed ref").withNode(node));
+    }
+
+    /** Step 8: filter, cap, hints and warnings. */
     private static IoLogResult result(NodeId node, IoLogRequest request, IoLogListing listing,
-        VersionGate.Admission admission) {
+        Optional<IoLogResult.Message> message, VersionGate.Admission admission) {
         List<IoLogEntry> matching = listing.filter(request.module());
         List<IoLogEntry> listed = matching.size() > IoLogBounds.MAX_LISTED
             ? matching.subList(0, IoLogBounds.MAX_LISTED) : matching;
@@ -173,24 +261,31 @@ public final class IoLogService {
         if (listed.stream().anyMatch(entry -> !entry.moduleParsed())) {
             hints.add(IoLogResult.RAW_MODULE_HINT);
         }
+        message.flatMap(IoLogResult.Message::hint).ifPresent(hints::add);
         List<String> warnings = new ArrayList<>();
         warnings.add(IoLogResult.WARNING);
         warnings.addAll(admission.warnings());
         return new IoLogResult(node, listing.answeringNode(), request.workflow(),
             request.processId(), listing.entries().size(), matching.size(), listed,
-            listed.size() < matching.size(), hints, warnings);
+            listed.size() < matching.size(), message, hints, warnings);
     }
 
     /**
      * The one INFO line of a call (D-22): the server once known, the process ID once valid, the
-     * entry count once listed; never a name or other value.
+     * entry count once listed, with {@code message} the ref once valid and the size once
+     * downloaded; never a name, a text or other value.
      */
-    private static void log(NodeId node, String processId, IoLogListing listing,
-        String outcome) {
-        LOG.info("{} on {}: process {}, listing {}, outcome {}", TOOL,
+    private static void log(NodeId node, IoLogRequest request, IoLogListing listing,
+        OptionalLong size, String outcome) {
+        String processId = request.processId();
+        String message = request.message().map(ref -> ", message "
+            + (IoMessageRef.isValid(ref) ? ref : UNKNOWN) + ", size "
+            + (size.isPresent() ? String.valueOf(size.getAsLong()) : UNKNOWN)).orElse("");
+        LOG.info("{} on {}: process {}, listing {}{}, outcome {}", TOOL,
             node == null ? UNKNOWN : node.toString(),
             PROCESS_ID.matcher(processId).matches() ? processId : UNKNOWN,
-            listing == null ? UNKNOWN : String.valueOf(listing.entries().size()), outcome);
+            listing == null ? UNKNOWN : String.valueOf(listing.entries().size()), message,
+            outcome);
     }
 
     /** What is left of the call deadline, never negative. */

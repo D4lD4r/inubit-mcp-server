@@ -384,7 +384,7 @@ message is read masked and bounded; an unlisted reference is refused before any 
   `truncated`, hints (empty listing text of contracts; unparsable entries) → INFO line. Failing
   tests first in `application/nodetools/IoLogServiceTest.java` (US2-1, US2-4, US2-6, US2-7; filter by
   name and by id; 501 entries → 500 + `truncated`; every input refusal → nothing sent; leak check)
-- [ ] T029 [US2] `IoLogService` message read (FR-021 … FR-023, D-9; after T028): with `message`:
+- [X] T029 [US2] `IoLogService` message read (FR-021 … FR-023, D-9; after T028): with `message`:
   deadline `cliExportTimeout`, port `read`; `NoMatch` → `INVALID_INPUT` (contracts text, US2-3);
   `Message` → `EntryText` (> 10 MiB → `tooLarge`, binary → `detected`, text UTF-8 / ISO-8859-1,
   masked, cut at `maxChars`, `textChars`), 0 bytes → `kind: empty` + hint (US2-5); result fields of
