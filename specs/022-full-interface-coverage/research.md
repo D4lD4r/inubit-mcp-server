@@ -784,3 +784,58 @@ runner reads every declared StartCLI part a coverage list admits. Their `*-recon
 stay SYNTHETIC; the other `*-reconstructed` cases of US1 are replaced by the recordings. The
 refusal for a missing "CLI login access" right is still not recorded (the profile's account has
 the right), so `CliOutputClassifier.MISSING_CLI_RIGHT` stays SYNTHETIC.
+
+## Live recording T028 (8.1, 2026-11-13)
+
+Read-only recordings on the same 8.1.17 development server and account as T014: `GET
+/user/users?type=processEngineUser`, one stdin session with `user '<login>'` and `finger '<login>'`
+for three logins of that list (the profile's account, the first other login with a hyphen, the
+first other login with an underscore), `-who`, `-nwho`, `msglist` and `exit`, and the same commands
+once each in script mode. Script-mode `msglist` ran first: the session's input is written up
+front, so the message id had to be known before the session. Fixtures:
+`fixtures/v8_1/cli/admin-users-*` and `fixtures/v8_1/rest/admin-users.*` (neutralization in
+`fixtures/v8_1/cli/README.md`). 9.0 was not recorded: the approval covered the 8.1 server
+only.
+
+**L-6 (fields, account state): no account state anywhere.**
+
+- `GET /user/users`: `200`, `application/xml;charset=UTF-8`, one line without a trailing line
+  break. Root `UserList` in the default namespace `inubit.com/ibis/external/user`, with an unused
+  `xmlns:ns2="inubit.com/ibis/external/base"`; the feature-004 recording of the same endpoint had
+  `ns2:UserList` with `ns2` bound to the user namespace. Same namespace URI, different prefixes:
+  only a namespace-aware reader (local name plus URI) reads both. Each `User` has `id`, `email`,
+  `type="ProcessEngineUser"` and, for 26 of 58, `firstName` and `lastName`; no state, group or
+  role attribute. The list is not sorted by `id`.
+- `user '<login>'`: three rows, `User name`, `User group` (one group) and `Super group` (the
+  parent group). Labels are padded to 13 characters, values to the longest value plus one space.
+  No row for additional groups appeared; whether one appears for a user with additional groups
+  was not recorded (none of the three has one, or the command does not show them). No roles.
+- `finger '<login>'`: `Login: ` with the login padded to 15 characters, then `Name: <last name>,
+  <first name>` only if the user has both names (the user without names in the REST list has no
+  `Name:`); `Email: ` (the same value as the REST `email`); `Role: <role>`, one line per user in
+  all three recordings. Whether several roles give several lines was not recorded. Neither
+  `finger` nor `user` shows a locked, disabled or directory-managed state (L-13 not answered).
+- Single-quoted logins with a hyphen or an underscore work in both modes.
+- Line ends: in the session every answer line ends in CRLF and the `user` block ends with an
+  empty `\r` line; in script mode the last line of `finger` ends in LF only and the `user` block
+  ends with an empty LF line.
+
+**`-who`, `-nwho`: not session commands on 8.1.**
+
+- In the session both answer `Command not found.` (CRLF); the session goes on, and its exit code
+  is 1 although no other command failed: an unknown command counts as a failure like a refused
+  one (T014).
+- In script mode `--execCommand -who` (and `-nwho`) fails before connecting: the client's option
+  parser takes `-who` as its own option, so `--execCommand` has no argument: `EXECUTION ERROR`,
+  `Missing argument for option: execCommand`, exit 1, no `Password:` line.
+- The client's help, `startcli.sh -h` (no server contact), lists `--who` ("List logged in
+  users") and `--nwho` ("Number logged in users") as options of the client itself, beside `--maintenance` and `-x`. The logins are
+  therefore read with `startcli.sh … --who <url>` as a run of its own, neither in the session nor
+  with `--execCommand`. That form was not part of the approval and was not run: L-6 stays open
+  for the logins (the output of `--who` and `--nwho` is unknown), and D-20's "logins: `-who`" in
+  the session does not work as planned on 8.1.
+
+**L-17 (`msgread`): still open.** `msglist` showed no message for the profile's account in both
+modes: only the header `ID   Subject … Sender … Date` (columns 5, 40 and 15 characters wide,
+CRLF) and an empty line. `msgread` was skipped, so whether it marks a message as read, and the
+row layout of `msglist`, are not recorded.

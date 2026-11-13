@@ -199,6 +199,17 @@ cases come from T014 (below).
 | `admin-settings-license-seconds` | recorded | CLI `license -ts` | script mode: a bare number, the seconds until the license expires (`630699804`, 196 less than in the session run a few minutes earlier); exit 0 |
 | `../rest/admin-license` | recorded | REST `GET /license` | `200`, `text/xml;charset=UTF-8` (Accept XML): `<license>` with `LicenseInformation` (edition, customer number, company, contact, key type, request and key ids, generation date `dd.MM.yyyy`, system id), `inubit` (`AllowedIPs`, `AllowedMACs/MAC`, `LicenseType` with `ExpirationDate` `yyyy-MM-dd`, version, counts, flags; `Features` with `Plugins type="…"`) and an XML-DSig `Signature` |
 | `../rest/admin-configurations` | recorded | REST `GET /configurations` | `200`, `application/json;charset=UTF-8` (Accept JSON): one compact line, root key `ServerConfiguration`, no `type` or `encrypted` fields; three planted test secrets (see below) |
+| `admin-users-session` | recorded | the US2 CLI reads below | one stdin session (`.stdin`): `user '<login>'` and `finger '<login>'` for `jdoe`, `batch-user` and `qa_robot`, then `-who`, `-nwho`, `msglist`, `exit`. Preamble and echo as in `admin-settings-session`. `-who` and `-nwho` answer `Command not found.` and the session goes on; `msglist` answers only its header line; exit 1 |
+| `admin-users-user` | recorded | CLI `user <name>` | script mode, `user 'jdoe'`: three rows `User name`, `User group`, `Super group`; labels padded to 13 characters, values padded to the longest value plus one space; each row ends in CRLF, then an empty line (LF); exit 0 |
+| `admin-users-user-hyphen` | recorded | CLI `user <name>` | as `admin-users-user`, login with a hyphen (`batch-user`) |
+| `admin-users-user-underscore` | recorded | CLI `user <name>` | as `admin-users-user`, login with an underscore (`qa_robot`) |
+| `admin-users-finger` | recorded | CLI `finger <login>` | script mode, `finger 'jdoe'`: `Login: ` with the login padded to 15 characters, `Name: Doe, John` (last name, first name), `Email: john.doe@example.test`, `Role: Platform Administrator`; no account state; the last line ends in LF only (CRLF in the session); exit 0 |
+| `admin-users-finger-hyphen` | recorded | CLI `finger <login>` | as `admin-users-finger` for `batch-user` (`Name: Service, Batch`) |
+| `admin-users-finger-no-name` | recorded | CLI `finger <login>` | as `admin-users-finger` for `qa_robot`, a user without first and last name: the `Login:` line holds only the padded login, no `Name:`; e-mail with a `+` tag; a customer role `XYZ_operator` |
+| `admin-users-who-missing-argument` | recorded | CLI `-who` | script mode, `--execCommand -who`: the client takes `-who` as its own option, not as the command: `EXECUTION ERROR`, `Missing argument for option: execCommand`, no connection; exit 1 |
+| `admin-users-nwho-missing-argument` | recorded | CLI `-nwho` | as `admin-users-who-missing-argument` for `--execCommand -nwho` |
+| `admin-users-msglist-empty` | recorded | CLI `msglist` | script mode, the profile account has no message: only the header `ID   Subject … Sender … Date` (CRLF) and an empty line; exit 0 |
+| `../rest/admin-users` | recorded | REST `GET /user/users` | `GET /user/users?type=processEngineUser`, `200`, `application/xml;charset=UTF-8` (Accept XML): one line without a trailing line break, root `UserList` in the default namespace `inubit.com/ibis/external/user` (plus an unused `ns2` prefix), 58 `User` elements with `id`, `email`, `type="ProcessEngineUser"` and, for 26 of them, `firstName` and `lastName`; not sorted by `id`; no account state |
 
 Neutralization of the T014 cases (recorded 2026-11-13 on an 8.1.17 development server with a
 non-root account; raw outputs private, never committed):
@@ -230,3 +241,21 @@ reads (`admin-settings-threads-reconstructed`, `admin-settings-privileged-percen
 `admin-settings-privileged-list-reconstructed`) stay SYNTHETIC: the profile's account could record
 only their refusal, and their coverage rows are `excluded:needs the INUBIT root user` (owner
 decision 2026-11-13).
+
+Neutralization of the T028 cases (recorded 2026-11-13 on the same server and account; raw outputs
+private, never committed). Every value was replaced in one pass, the same way in every file:
+
+- the profile account → `jdoe` (`Doe, John`, `john.doe@example.test`), the other two logins →
+  `batch-user` (`Service, Batch`, `batch.service@external.example.test`) and `qa_robot`
+  (`qa.robot+qa_inubit@corp.example.test`, no name, as recorded); the hyphen, the underscore, the
+  `+` tag and the missing name are kept from the recorded logins;
+- the other 55 users of the REST list → `User<nn>` / `user<nn>` (`<nn>` = position in the list;
+  lower case where the recorded login starts lower case), `user<nn>@<domain>`, `First<nn>` /
+  `Last<nn>` where the recording has names; the two non-ASCII names keep one non-ASCII character
+  (`Läst<nn>`); the six recorded e-mail domains → six fictitious `*.example.test` domains, one to
+  one; entry count, attribute sets and order are unchanged;
+- the user group → `OPS`, the super group → `headoffice`, INUBIT's role `System Administrator` →
+  `Platform Administrator`, the customer role → `XYZ_operator`;
+- the server host and URL, the account in the echo and the trust-store path as in T014;
+- the column padding of the `user` rows and of the `finger` login was rebuilt for the new values
+  with the rules the three recordings show (labels 13, values longest plus one; login 15).

@@ -455,7 +455,7 @@ messages (US2).
 **Independent test**: with recorded outputs, a page of users with groups and roles, one user with
 e-mail, the logins and a message, each bounded (US2 AS1–AS6).
 
-- [ ] T028 [LIVE] [OWNER] [US2] L-6, L-17 on 8.1 (and 9.0 when possible):
+- [X] T028 [LIVE] [OWNER] [US2] L-6, L-17 on 8.1 (and 9.0 when possible):
   - `GET /user/users?type=processEngineUser`;
   - a session with `user <login>` and `finger <login>` for three fictitious-named test users;
   - `-who`, `-nwho`;
