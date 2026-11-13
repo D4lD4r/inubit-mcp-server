@@ -359,7 +359,7 @@ groups with `unsupported.ioLogRead` (FR-020 … FR-023).
 **Independent test**: with a fake INUBIT client, a run with logged messages is listed and one
 message is read masked and bounded; an unlisted reference is refused before any download.
 
-- [ ] T026 [US2] Reconstructed io-log fixtures (D-26; after T013, T019):
+- [X] T026 [US2] Reconstructed io-log fixtures (D-26; after T013, T019):
   `src/test/resources/fixtures/node-tools/v8_1/io-log/{listing,empty_listing,read_text,read_latin1,read_binary,read_empty,no_match,foreign_process,list_error}.{frames,exit,list,message,origin}`
   (fictitious workflow `Orders-Inbound`, process `4711`, modules `Order Connector(Module-0003)`,
   `Audit Logger(Module-0007)`; `read_text.message` with a `<password>` element and an

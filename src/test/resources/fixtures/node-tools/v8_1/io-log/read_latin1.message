@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<audit order="A-1001">
+  <entry>Bestellung für Müller &amp; Söhne geprüft</entry>
+  <note>Größe: 42 · Menge: 3 · Preis: 19,99 EUR</note>
+</audit>

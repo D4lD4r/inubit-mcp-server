@@ -5,11 +5,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Detail;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.DetailsOk;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.IoListError;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.IoListOk;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.IoMatch;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Member;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.MembersOk;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.PartOk;
+import de.dadecker.inubit.mcp.domain.model.BinarySignature;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ContentKind;
+import de.dadecker.inubit.mcp.domain.model.EntryContentClassifier;
+import de.dadecker.inubit.mcp.domain.model.EntryContentClassifier.Classified;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
+import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -18,6 +27,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
@@ -41,7 +51,7 @@ import org.junit.jupiter.params.provider.CsvSource;
  * matrix says {@code SUPPORTED} exactly when all cases D-27 requires for it are recorded and have
  * their data files: {@code ok} for the cluster nodes, {@code listing} and {@code read_text} for the
  * I/O log, {@code all} for the node configuration, {@code set_ok} and {@code reset_ok} for the log
- * level. The 8.1 cluster-nodes cases parse as the helper protocol
+ * level. The 8.1 cluster-nodes and io-log cases parse as the helper protocol
  * (contracts/helper-protocol-delta.md) and as their names say.
  */
 class NodeToolsFixtureCatalogueTest {
@@ -93,7 +103,10 @@ class NodeToolsFixtureCatalogueTest {
             "v8_1/cluster-nodes/details", "v8_1/cluster-nodes/details_truncated",
             "v8_1/cluster-nodes/details_unknown", "v8_1/cluster-nodes/details_error",
             "v8_1/cluster-nodes/unknown_status", "v8_1/cluster-nodes/api_missing",
-            "v8_1/cluster-nodes/garbage");
+            "v8_1/cluster-nodes/garbage", "v8_1/io-log/listing", "v8_1/io-log/empty_listing",
+            "v8_1/io-log/read_text", "v8_1/io-log/read_latin1", "v8_1/io-log/read_binary",
+            "v8_1/io-log/read_empty", "v8_1/io-log/no_match", "v8_1/io-log/foreign_process",
+            "v8_1/io-log/list_error");
     }
 
     @Test
@@ -158,6 +171,140 @@ class NodeToolsFixtureCatalogueTest {
                 ROOT.resolve("v8_1/cluster-nodes/details_truncated.frames"),
                 StandardCharsets.UTF_8)).frames())
             .contains(new DetailsOk(500, true));
+    }
+
+    /**
+     * Each 8.1 io-log case: its exit code, its frames, the parse problem and its data files (the
+     * files the helper writes: {@code .list} after a listing, {@code .message} after a download).
+     * An {@code io list ok} count is the number of lines of {@code .list}, an {@code io match}
+     * names a line of it, and a {@code part message ok} byte count is the size of
+     * {@code .message}.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "listing | 0 | Start LoginOk NodeOk IoListOk End | - | .exit .frames .list",
+        "empty_listing | 0 | Start LoginOk NodeOk IoListOk End | - | .exit .frames .list",
+        "read_text | 0 | Start LoginOk NodeOk IoListOk IoMatch PartOk End | -"
+            + " | .exit .frames .list .message",
+        "read_latin1 | 0 | Start LoginOk NodeOk IoListOk IoMatch PartOk End | -"
+            + " | .exit .frames .list .message",
+        "read_binary | 0 | Start LoginOk NodeOk IoListOk IoMatch PartOk End | -"
+            + " | .exit .frames .list .message",
+        "read_empty | 0 | Start LoginOk NodeOk IoListOk IoMatch PartOk End | -"
+            + " | .exit .frames .list .message",
+        "no_match | 0 | Start LoginOk NodeOk IoListOk IoMatch End | - | .exit .frames .list",
+        "foreign_process | 0 | Start LoginOk NodeOk IoListOk End | - | .exit .frames .list",
+        "list_error | 0 | Start LoginOk NodeOk IoListError End | - | .exit .frames"})
+    void anIoLogCaseParsesAsItsNameSays(String name, int exit, String summary, String problem,
+        String files) throws IOException {
+        Path dir = ROOT.resolve("v8_1/io-log");
+        HelperFrames frames = ioFrames(name);
+
+        assertThat(Integer.parseInt(firstLine(dir.resolve(name + ".exit")))).isEqualTo(exit);
+        assertThat(summary(frames.frames()) + " | "
+            + frames.problem().map(Enum::name).orElse("-")).isEqualTo(summary + " | " + problem);
+        assertThat(String.join(" ", new TreeSet<>(filesByCase(ROOT, new ArrayList<>())
+            .get("v8_1/io-log/" + name)).stream().filter(suffix -> !suffix.equals(".origin"))
+            .toList())).isEqualTo(files);
+        for (HelperFrames.Frame frame : frames.frames()) {
+            switch (frame) {
+                case IoListOk ok -> assertThat(listing(name)).as("io list ok")
+                    .hasSize(ok.count());
+                case IoMatch(Optional<String> entry) when entry.isPresent() ->
+                    assertThat(listing(name)).as("io match").contains(entry.get());
+                case PartOk ok -> assertThat(Files.size(dir.resolve(name + ".message")))
+                    .as("part message ok").isEqualTo(ok.bytes());
+                default -> { }
+            }
+        }
+    }
+
+    /**
+     * Every listing is of process 4711 (the request of every case), but {@code foreign_process},
+     * whose first entry is of 4711 and the others of another process; the {@code .origin} of a
+     * read case names the reference it requests, the reference of its matched entry, and that of
+     * {@code no_match} is the reference of no listed entry.
+     */
+    @Test
+    void theIoLogCasesListProcess4711AndNameTheReferenceTheyRequest() throws IOException {
+        for (String name : List.of("listing", "read_text", "read_latin1", "read_binary",
+            "read_empty", "no_match")) {
+            assertThat(listing(name)).as(name).isNotEmpty().allMatch(e -> e.startsWith("4711@@@"));
+        }
+        assertThat(listing("empty_listing")).isEmpty();
+        List<String> foreign = listing("foreign_process");
+        assertThat(foreign).hasSizeGreaterThan(1);
+        assertThat(foreign.get(0)).startsWith("4711@@@");
+        assertThat(foreign.subList(1, foreign.size())).noneMatch(e -> e.startsWith("4711@@@"));
+
+        for (String name : List.of("read_text", "read_latin1", "read_binary", "read_empty")) {
+            String entry = ioFrames(name).frames().stream().filter(IoMatch.class::isInstance)
+                .map(IoMatch.class::cast).findFirst().orElseThrow().entry().orElseThrow();
+            assertThat(requestedRef(name)).as(name).isEqualTo(IoMessageRef.of(entry).value());
+        }
+        assertThat(listing("no_match")).extracting(entry -> IoMessageRef.of(entry).value())
+            .doesNotContain(requestedRef("no_match"));
+        assertThat(ioFrames("no_match").frames()).contains(new IoMatch(Optional.empty()));
+    }
+
+    /**
+     * The messages are of the kinds their names say: UTF-8 text with a {@code <password>} element
+     * and an {@code Authorization: Basic} line (masking, D-9), ISO-8859-1 text, GZIP and empty.
+     */
+    @Test
+    void theIoLogMessagesAreOfTheKindsTheirNamesSay() throws IOException {
+        Classified text = classify("read_text");
+        assertThat(text.kind()).isEqualTo(ContentKind.TEXT);
+        assertThat(text.charset()).contains(StandardCharsets.UTF_8);
+        assertThat(text.text().orElseThrow()).contains("<password>")
+            .containsPattern("(?m)^Authorization: Basic \\S+$");
+
+        Classified latin1 = classify("read_latin1");
+        assertThat(latin1.kind()).isEqualTo(ContentKind.TEXT);
+        assertThat(latin1.charset()).contains(StandardCharsets.ISO_8859_1);
+        assertThat(latin1.text().orElseThrow()).containsPattern("[\\u00A0-\\u00FF]");
+
+        Classified binary = classify("read_binary");
+        assertThat(binary.kind()).isEqualTo(ContentKind.BINARY);
+        assertThat(binary.detected()).contains(BinarySignature.GZIP);
+
+        assertThat(classify("read_empty").kind()).isEqualTo(ContentKind.EMPTY);
+    }
+
+    /**
+     * {@code list_error} has the shape of every 8.1.17 listing of the T018 spike (research.md
+     * "Spike findings"): an account without the needed right, here the fictitious {@code jdoe}.
+     */
+    @Test
+    void theListErrorIsTheNotAllowedAccessAnswerOf8_1() throws IOException {
+        assertThat(ioFrames("list_error").frames()).contains(new IoListError(
+            List.of("com.inubit.ibis.utils.InubitException"), "Exception from service object:"
+                + " @Start@NotAllowedAccess@@@The user \"jdoe\" is not allowed to access the"
+                + " requested data.@@@jdoe@End@"));
+    }
+
+    private static HelperFrames ioFrames(String name) throws IOException {
+        return HelperFrames.parse(NONCE, Files.readString(
+            ROOT.resolve("v8_1/io-log/" + name + ".frames"), StandardCharsets.UTF_8));
+    }
+
+    /** The entries of the {@code .list} of an io-log case, one per line. */
+    private static List<String> listing(String name) throws IOException {
+        return Files.readAllLines(ROOT.resolve("v8_1/io-log/" + name + ".list"),
+            StandardCharsets.UTF_8);
+    }
+
+    /** The {@code ref=<reference>} on the first line of the {@code .origin} of an io-log case. */
+    private static String requestedRef(String name) {
+        Matcher ref = Pattern.compile(" ref=([A-Za-z0-9_-]{22})(?![A-Za-z0-9_-])")
+            .matcher(firstLine(ROOT.resolve("v8_1/io-log/" + name + ".origin")));
+        assertThat(ref.find()).as(name + ".origin names ref=<reference>").isTrue();
+        return ref.group(1);
+    }
+
+    private static Classified classify(String name) throws IOException {
+        return EntryContentClassifier.classify(
+            Files.readAllBytes(ROOT.resolve("v8_1/io-log/" + name + ".message")));
     }
 
     private static List<Detail> details(String name) throws IOException {
