@@ -377,7 +377,7 @@ message is read masked and bounded; an unlisted reference is refused before any 
   the request never contains a caller-provided entry text, only `ref`; budget `cliTimeout` for a
   listing and `cliExportTimeout` for a read; private directory deleted after close, failure,
   timeout; leak check)
-- [ ] T028 [US2] `application/nodetools/IoLogService.java` listing (FR-020, D-8; after T017, T027):
+- [X] T028 [US2] `application/nodetools/IoLogService.java` listing (FR-020, D-8; after T017, T027):
   validate (`workflow` rule incl. `@@@`/`###`, `processId`, `module`, `maxChars`, `message`) →
   server → opt-in `ioLogRead` → `admitWithDetection(…, IO_LOG_READ, READ, {CLI})` → deadline
   `cliTimeout` → credentials → port `list` → `module` filter → ≤ 500 entries, `total`, `matching`,
