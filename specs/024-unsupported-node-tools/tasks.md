@@ -401,7 +401,7 @@ message is read masked and bounded; an unlisted reference is refused before any 
   "business and personal data" and "a right of the configured user" (T018 spike: the listing is refused without it; the outdated "no right beyond the login" statements for `read_io_log` in spec, research D-25, contracts are corrected in this task)), `ToolAnnouncementTest.java`, new
   `ReadIoLogWiringTest.java` (no opt-in → nothing sent), `MainTest.java` (unchanged without
   opt-ins; runs after T023 — same file)
-- [ ] T031 [US2] Contract test (after T030): `NodeToolsV81ContractTest` `+` every `v8_1/io-log` case
+- [X] T031 [US2] Contract test (after T030): `NodeToolsV81ContractTest` `+` every `v8_1/io-log` case
   (listing shape, empty-listing hint, text masked and cut, Latin-1, binary, empty, `no_match` →
   `INVALID_INPUT`, foreign process → `UNEXPECTED_RESPONSE`, `list_error`)
 - [ ] T032 [US2] **[OWNER]** **[BLOCKED: T018]** Enable 8.1 `io_log_read` in **one commit**: as
