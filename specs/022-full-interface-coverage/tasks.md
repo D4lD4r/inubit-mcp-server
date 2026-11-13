@@ -400,6 +400,9 @@ as a typed field with its source, and missing parts with their reason (US1 AS1�
   `fixtures/v9_0/{cli,rest}/admin-settings-*` with `.origin`. Blocked until the 9.0 server's
   certificate pin is renewed (feature 021 open point); record that state in `implementation.md`
   while waiting.
+  - Unblocked 2026-11-13: the owner confirmed the new certificate of the 9.0 test server as
+    legitimate; its pin was renewed with `inubit-cert-check` and every dependent 9.0 step was
+    approved (owner, 2026-11-13).
 - [X] T025 [US1] Contracts and flip for 8.1 [BLOCKED: T014]:
   - `license -td` and `license -ts` change from `planned` to `covered:get_server_settings` for
     `v8_1` (research D-6), never to `reachable`;
@@ -560,6 +563,17 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   - `delivered-stories: US1, US2`, with `waits` set on every US2 row still `planned`.
 
   Then open the US2 PR.
+
+- [ ] T028b [LIVE] [OWNER] [US2] The T028/T028a recordings on the 9.0 test server (added
+  2026-11-13 after the pin renewal, owner approval): `GET /user/users?type=processEngineUser`,
+  a session with `user`/`finger` for three logins, `--who`, `--nwho`, `msglist` (and `msgread`
+  for one message if the account has one, L-17), into `fixtures/v9_0/{cli,rest}/admin-users-*`
+  with `.origin`.
+- [ ] T037a [US2] 9.0 contracts and flip (after T028b): `UsersV90ContractTest` (REST and CLI), the
+  `v9_0` column of the US2 rows (`-nwho` `covered:read_users`), `USER_DIRECTORY` on 9.0, catalogue
+  entries, `waits`.
+- [ ] T038a [US1] [US2] Docs and PR for 9.0 (after T026, T037a): `docs/tools.md`, `CHANGELOG.md`,
+  coverage page; then open the PR.
 
 ## Phase 5: User Story 3 – Processes, run-time data and model details (P2)
 
