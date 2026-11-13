@@ -235,7 +235,11 @@ public final class CliOutputClassifier {
      * the server's marker {@code AccessDenied} is a refused change ({@code FORBIDDEN}). The
      * confirmation of {@code CommandResult("OK")} is taken as an {@code n-OK} message until the
      * write spike T039 records it, so a success is {@link #classify(CliResult)}'s success without
-     * any marker and without an exception line in the log records; anything else, and cut output, is classified as by {@link #classify(CliResult)}.
+     * any marker and without an exception line in the log records; exit code 0 without any
+     * {@code n-OK}/{@code n-NOK} message and without a marker is {@code UNEXPECTED_RESPONSE}
+     * "StartCLI did not confirm the log level change" (contract "StartCLI without the
+     * confirmation"); anything else, and cut output, is classified as by
+     * {@link #classify(CliResult)}.
      */
     public CliOutcome classifyTraceLevel(CliResult result) {
         if (result.truncated()) {
@@ -256,6 +260,14 @@ public final class CliOutputClassifier {
                 "StartCLI did not take the level of the trace command; the INUBIT client may"
                     + " name its options differently",
                 "Reset with reset_temporary_log_level; report the INUBIT version"));
+        }
+        if (result.exitCode() == 0 && output.okMessages().isEmpty()
+            && output.nokMessages().isEmpty() && output.markers().isEmpty()) {
+            return new CliOutcome.Failure(error(ErrorCode.UNEXPECTED_RESPONSE,
+                "StartCLI did not confirm the log level change",
+                "StartCLI ended without its confirmation, so the change may not have been made",
+                "Reset with reset_temporary_log_level; report the INUBIT version")
+                .withExcerpt(scrubber.scrub(excerpt(output))));
         }
         CliOutcome outcome = classify(result);
         if (outcome instanceof CliOutcome.Success && (!output.markers().isEmpty()
@@ -360,19 +372,22 @@ public final class CliOutputClassifier {
     }
 
     private ToolError unexpected(CliResult result, CliOutput output) {
-        // the command's own output first, then the log records without stack frames
+        return error(ErrorCode.UNEXPECTED_RESPONSE,
+            "Unrecognized StartCLI output (exit code " + result.exitCode() + ")",
+            "StartCLI reported a result this MCP server does not know how to interpret",
+            "See the excerpt; check the INUBIT system log for the time of the call")
+            .withExcerpt(scrubber.scrub(excerpt(output)));
+    }
+
+    /** The command's own output first, then the log records without stack frames. */
+    private static String excerpt(CliOutput output) {
         List<String> relevant = new ArrayList<>(output.outputLines());
         for (String line : output.logLines()) {
             if (!STACK_LINE.matcher(line).find()) {
                 relevant.add(line);
             }
         }
-        String excerpt = String.join("\n", relevant);
-        return error(ErrorCode.UNEXPECTED_RESPONSE,
-            "Unrecognized StartCLI output (exit code " + result.exitCode() + ")",
-            "StartCLI reported a result this MCP server does not know how to interpret",
-            "See the excerpt; check the INUBIT system log for the time of the call")
-            .withExcerpt(scrubber.scrub(excerpt));
+        return String.join("\n", relevant);
     }
 
     /** @param nine whether the client was chosen for INUBIT 9 or later */

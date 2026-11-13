@@ -650,7 +650,22 @@ class CliOutputClassifierTest {
         ToolError error = traceLevelFailure(classifier, traceFixture("ok"));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
-        assertThat(error).isEqualTo(failure(traceFixture("ok")));
+        assertThat(error.message()).isEqualTo("StartCLI did not confirm the log level change");
+        assertThat(error.nextStep())
+            .isEqualTo("Reset with reset_temporary_log_level; report the INUBIT version");
+        assertThat(error.excerpt()).isEqualTo(failure(traceFixture("ok")).excerpt());
+    }
+
+    @Test
+    void theExcerptOfAnUnconfirmedLevelChangeIsScrubbed() {
+        scrubber.register("hunter2-secret");
+        CliResult result = result(0, PREAMBLE + "level set for hunter2-secret\n");
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(error.message()).isEqualTo("StartCLI did not confirm the log level change");
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
+            .contains("level set for").doesNotContain("hunter2-secret"));
     }
 
     @Test

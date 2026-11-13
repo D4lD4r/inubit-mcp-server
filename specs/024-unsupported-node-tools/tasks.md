@@ -498,7 +498,7 @@ the other just changed.
   (reconstructed); `NodeToolsFixtureCatalogueTest` extended (after T033, same test file). Failing
   tests first in `adapter/cli/CliOutputClassifierTest.java` (each case; the export and
   trace-download contexts unchanged; leak check)
-- [ ] T042 [US4] `adapter/cli/node/CliLogLevelAdapter.java` (D-1, D-3, D-11; after T016, T040,
+- [X] T042 [US4] `adapter/cli/node/CliLogLevelAdapter.java` (D-1, D-3, D-11; after T016, T040,
   T041): `implements LogLevelPort`: `answeringNode` via `NodeHelperRunner` (`op=ownNode`), `raise`
   and `resetAll` via `CliRunner.run(…, CliCommand.traceNodeLevel/traceReset, timeout, "cliTimeout",
   guard)` (017 client choice, pin probe, password on stdin) + `classifyTraceLevel`. Failing tests
