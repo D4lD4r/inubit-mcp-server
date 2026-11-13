@@ -492,7 +492,8 @@ public final class BackupStore {
         @SuppressWarnings("unchecked")
         private static List<String> texts(Map<String, Object> object, String name) {
             List<Object> values = (List<Object>) Objects.requireNonNull(object.get(name), name);
-            return values.stream().map(String.class::cast).toList();
+            return values.stream().map(value -> (String) Objects.requireNonNull(value, name))
+                .toList();
         }
 
         @SuppressWarnings("unchecked")
@@ -500,7 +501,8 @@ public final class BackupStore {
             Map<String, Object> values = (Map<String, Object>) Objects.requireNonNull(
                 object.get(name), name);
             Map<String, String> result = new LinkedHashMap<>();
-            values.forEach((key, value) -> result.put(key, (String) value));
+            values.forEach((key, value) ->
+                result.put(key, (String) Objects.requireNonNull(value, name)));
             return result;
         }
     }

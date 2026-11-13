@@ -523,7 +523,7 @@ the other just changed.
   in new `application/OwnerOnlyFileLockTest.java` (two threads; two independent instances on the
   same path serialize; a held lock times out with the caller's error; a symlink at the lock path
   refused; owner-only mode); `application/knowledge/KnowledgeLockTest.java` unchanged and green
-- [ ] T045 [US4] `application/nodetools/LeaseStore.java` and `NodeLogLevelLocks.java` (D-12; after
+- [X] T045 [US4] `application/nodetools/LeaseStore.java` and `NodeLogLevelLocks.java` (D-12; after
   T043, T044): store JSON format 1 (with `generation`) at
   `<home>/.inubit-mcp/<profile>/log-levels/leases.json`, store lock `OwnerOnlyFileLock` on
   `log-levels/.lock`, owner-only through `PrivateFileSystem`, temporary file + atomic move, links
