@@ -436,7 +436,7 @@ the list is refused before any request; the fake records that only listed names 
   requested → `UNEXPECTED_RESPONSE`. Failing tests first in
   `adapter/cli/node/CliNodeConfigAdapterTest.java` (every v8_1 case; the request's `names` equals
   the requested enum values; leak check)
-- [ ] T035 [US3] `application/nodetools/NodeConfigService.java` (FR-030 … FR-032; after T017,
+- [X] T035 [US3] `application/nodetools/NodeConfigService.java` (FR-030 … FR-032; after T017,
   T034): validate names (unknown → `INVALID_INPUT` listing the allowed names, the refused text never
   echoed; duplicates refused) → server → opt-in `nodeConfigRead` → `admitWithDetection(…,
   NODE_CONFIG_READ, READ, {CLI})` → deadline `cliTimeout` → credentials → port (values already masked and cut to 2,000 with
