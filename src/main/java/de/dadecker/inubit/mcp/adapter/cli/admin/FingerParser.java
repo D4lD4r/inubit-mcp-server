@@ -1,9 +1,9 @@
 package de.dadecker.inubit.mcp.adapter.cli.admin;
 
+import de.dadecker.inubit.mcp.domain.model.PersonalField;
 import de.dadecker.inubit.mcp.domain.model.SecretRules;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.UserFacts.Finger;
-import de.dadecker.inubit.mcp.domain.model.UserDetail.PersonalField;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;

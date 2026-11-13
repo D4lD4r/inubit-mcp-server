@@ -1,13 +1,13 @@
 package de.dadecker.inubit.mcp.domain.model;
 
-import de.dadecker.inubit.mcp.domain.model.UserDetail.PersonalField;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
 /**
- * What the StartCLI session of a page read gives for one login (feature 022, US2, research D-20): its
- * groups ({@code user <login>}) and its roles, e-mail and personal fields ({@code finger <login>}).
+ * What the StartCLI session of a page read gives for one login (feature 022, US2, research
+ * D-20): its groups ({@code user <login>}) and its roles, e-mail and personal fields
+ * ({@code finger <login>}).
  * Each of the two answers is read or unavailable with the reason on its own, so one unreadable
  * answer costs only that part of that user (FR-013).
  *

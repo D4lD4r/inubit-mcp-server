@@ -196,7 +196,7 @@ src/main/java/de/dadecker/inubit/mcp/
 │                        # ConfigLoader, ConfigValidator, ConfigSummary, EffectiveNodeConfig,
 │                        # CredentialNames/ParameterNames (entry namespace)
 ├── domain/model/        # InterfaceCoverage, CoverageEntry, CoverageState, SecretRules, ServerSettings,
-│                        # ConfigurationView, UserSummary, UserDetail, LoginEntry, Message*, ModuleDetail,
+│                        # ConfigurationView, UserFacts, PersonalField, LoginEntry, Message*, ModuleDetail,
 │                        # ProcessMetadata, LibraryEntry, IsConnectorCheck, ChangePreview, ChangeResult,
 │                        # ExportCondition, ExportFilter, Runtime* (new); Capability, CapabilityMatrix
 ├── domain/port/         # ServerSettingsPort, UserDirectoryPort, ModelDetailPort, ServerOperationPort,

@@ -158,13 +158,24 @@ One per server:
   `ResultLimiter`, with `truncated`;
 - `maskedCount`.
 
-### UserSummary (new, US2)
+### UserSummary, UserDetail (new, US2)
 
-`login`, `group`, `additionalGroups[]`, `roles[]`, `accountState` (optional). It has no personal
-field by construction.
+The shapes of `read_users` (T035), each user flat (`user.login`):
 
-`UserDetail` = `UserSummary` + `email` (optional) + `personal` (the other fields INUBIT reports,
-masked).
+- `UserSummary` (view `users`): `login`, `group` (optional), `roles[]` (optional),
+  `unavailable[]`. It has no personal field: its schema admits no other property.
+- `UserDetail` (view `user`): `login`, `group` and `superGroup` (optional together), `roles[]`
+  (optional), `email` (optional), `personal[]` (optional; `PersonalField` `{name, value}` or
+  `{name, masked: true}`, masked by `SecretRules`), `unavailable[]`.
+- `unavailable[]`: `{part, reason, likelyCause?, nextStep?}` as in `get_server_settings`
+  (FR-013). An answer that could not be read leaves out its fields and names its parts: `groups`
+  (`group`, `superGroup`; from `user <login>`), `roles` (from `finger <login>`), and in
+  `UserDetail` also `email` and `personal` (from the same `finger` answer). The user stays in the
+  listing.
+- `additionalGroups` and `accountState` are not shown (research "Live recording T028", L-6): no
+  row for additional groups was recorded on 8.1, and a `user` answer with another row makes
+  `groups` unavailable instead of dropping it; no account state shows anywhere on 8.1. Both are
+  added once a recording shows them.
 
 `LoginEntry`: `login`, `since` (optional).
 

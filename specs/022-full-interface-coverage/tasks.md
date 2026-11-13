@@ -477,6 +477,8 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   construction), `UserDetail.java`, `LoginEntry.java`, `MessageSummary.java`, `MessageText.java`
   (`ItemBounds.MAX_ITEM_CHARS`, `truncated`).
   - Failing tests first: `domain/model/UserRecordsTest.java`.
+  - Replaced in T035: `UserSummary` and `UserDetail` were removed; the tool maps `UserFacts` to the
+    flat user of data-model.md, and `PersonalField` has its own file.
 - [X] T030 [US2] `adapter/rest/v81/UserListXmlParser.java` (after T029): reads only `id` and `type`.
   `email`, `firstName`, `lastName` and unknown attributes are never read into any object. XML is
   hardened.
@@ -524,7 +526,7 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
     `loggedIn` CLI (`messages` CLI after L-17); asserted per view;
   - Failing tests first: `application/UserReadServiceTest.java` (AS1–AS6; a 500-user list gives
     pages; AS5 no e-mail in a listing).
-- [ ] T035 [US2] Tool `mcp/tools/ReadUsersTool.java`:
+- [X] T035 [US2] Tool `mcp/tools/ReadUsersTool.java`:
   - schemas `read_users.{input,output}.json`;
   - read-only, idempotent;
   - the description names the `msgread` side effect (FR-008) once an L-17 recording shows it;

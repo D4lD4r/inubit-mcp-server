@@ -4,78 +4,32 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
-import java.lang.reflect.RecordComponent;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class UserRecordsTest {
 
-    private static final String EMAIL = "jane.roe@mail.example.test";
     private static final String PHONE = "+49 30 5550123";
 
-    private static UserSummary summary() {
-        return new UserSummary("jroe", "Operators", List.of("Auditors"), List.of("Monitor"),
-            Optional.of("locked"));
-    }
-
     @Test
-    void aUserSummaryHasNoPersonalFieldByConstruction() {
-        List<String> components = Arrays.stream(UserSummary.class.getRecordComponents())
-            .map(RecordComponent::getName).toList();
+    void aPersonalFieldIsShownOrMasked() {
+        PersonalField phone = PersonalField.shown("phone", PHONE);
+        PersonalField hash = PersonalField.masked("passwordHash");
 
-        assertThat(components)
-            .containsExactly("login", "group", "additionalGroups", "roles", "accountState");
-    }
-
-    @Test
-    void aUserSummaryKeepsItsListsAsGiven() {
-        List<String> roles = new ArrayList<>(List.of("Monitor"));
-        UserSummary user = new UserSummary("jroe", "Operators", List.of(), roles, null);
-        roles.add("System Administrator");
-
-        assertThat(user.roles()).containsExactly("Monitor");
-        assertThat(user.accountState()).isEmpty();
-        assertThatNullPointerException().isThrownBy(
-            () -> new UserSummary(null, "Operators", List.of(), List.of(), Optional.empty()));
-        assertThatNullPointerException().isThrownBy(
-            () -> new UserSummary("jroe", null, List.of(), List.of(), Optional.empty()));
-    }
-
-    @Test
-    void aUserDetailAddsTheEmailAndTheOtherPersonalFields() {
-        UserDetail detail = new UserDetail(summary(), Optional.of(EMAIL),
-            List.of(UserDetail.PersonalField.shown("phone", PHONE),
-                UserDetail.PersonalField.masked("passwordHash")));
-
-        assertThat(detail.summary()).isEqualTo(summary());
-        assertThat(detail.email()).contains(EMAIL);
-        assertThat(detail.personal()).extracting(UserDetail.PersonalField::name)
-            .containsExactly("phone", "passwordHash");
-        assertThat(detail.personal()).extracting(UserDetail.PersonalField::masked)
-            .containsExactly(false, true);
-        assertThat(detail.personal().get(1).value()).isEmpty();
-    }
-
-    @Test
-    void aUserDetailWithoutEmailHasAnEmptyEmail() {
-        UserDetail detail = new UserDetail(summary(), null, List.of());
-
-        assertThat(detail.email()).isEmpty();
+        assertThat(phone.value()).contains(PHONE);
+        assertThat(phone.masked()).isFalse();
+        assertThat(hash.value()).isEmpty();
+        assertThat(hash.masked()).isTrue();
         assertThatNullPointerException()
-            .isThrownBy(() -> new UserDetail(null, Optional.empty(), List.of()));
+            .isThrownBy(() -> new PersonalField(null, Optional.empty()));
     }
 
     @Test
-    void theStringFormOfAUserDetailHasNoPersonalValue() {
-        UserDetail.PersonalField phone = UserDetail.PersonalField.shown("phone", PHONE);
-        UserDetail detail = new UserDetail(summary(), Optional.of(EMAIL), List.of(phone));
+    void theStringFormOfAPersonalFieldHasNoValue() {
+        PersonalField phone = PersonalField.shown("phone", PHONE);
 
-        assertThat(detail.toString()).contains("jroe").doesNotContain(EMAIL)
-            .doesNotContain(PHONE);
         assertThat(phone.toString()).contains("phone").doesNotContain(PHONE);
+        assertThat(PersonalField.masked("passwordHash").toString()).contains("masked");
     }
 
     @Test

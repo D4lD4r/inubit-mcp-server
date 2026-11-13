@@ -61,14 +61,25 @@ each tool's test, as for the existing tools. Types and validation: [data-model.m
   - `login` (for `user`);
   - `messageId` (for `message`);
   - `offset` (0–9999), `limit` (1–25, default 25).
+
+  `messages`, `message` and `messageId` are offered once L-17 is recorded (owner decision
+  2026-11-13).
 - **Output**: `{ node, view, sources, page?: Page<UserSummary | LoginEntry | MessageSummary>,
-  user?: UserDetail, message?: MessageText }`. `sources` maps each fact to its channel (FR-009):
+  user?: UserDetail, message?: MessageText, warnings }`. `sources` maps each fact to its channel
+  (FR-009):
   - `logins`: REST (`GET /user/users`);
-  - `groups`, `roles`, `accountState`, `email`, `loggedIn`, `messages`: CLI.
+  - `groups`, `roles`, `email`, `personal`, `loggedIn`: CLI;
+  - `accountState` once a recording shows one (L-6), `messages` once L-17 is recorded: CLI.
+
+  The user shapes are in data-model.md "UserSummary, UserDetail": flat (`user.login`), without
+  `additionalGroups` and `accountState` on 8.1. A user whose group or roles could not be read is
+  still listed; the missing part is under its `unavailable` (`{part, reason}`, as in
+  `get_server_settings`; FR-013).
 - **Rules**:
   - `users` never contains `email` or other personal fields (FR-011, AS5);
   - an unknown login gives `NOT_FOUND`, with the next step "list the users" (AS3);
-  - the description names the `msgread` side effect found by L-17.
+  - the description names the `msgread` side effect found by L-17 once the message views are
+    offered; until then it says that the messages are not offered yet.
 
 ## `read_model_details` (US3)
 
