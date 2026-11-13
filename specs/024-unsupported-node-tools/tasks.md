@@ -424,11 +424,15 @@ the list is refused before any request; the fake records that only listed names 
 - [ ] T033 [US3] Reconstructed node-config fixtures (D-26; after T012, T026 — same catalogue test):
   `src/test/resources/fixtures/node-tools/v8_1/node-config/{all,absent,one_error,api_missing}.{frames,exit,origin}`
   (fictitious values: `CLUSTER`, `acme-cluster`, `zone-a`, `node1`, `java:/comp/env/jdbc/IBISDB`, …;
-  `absent` for `noOfRetries`/`retryInterval` as on 8.1; one value containing a credential-looking
+  `absent` in the form 8.1.17 really answers a property the node lacks (T018 spike: `config <name> error
+  com.inubit.ibis.utils.InubitException` wrapping `Cannot invoke "Object.getClass()" because "o" is null`;
+  `noOfRetries`/`retryInterval` exist on 8.1); one value containing a credential-looking
   text to prove the defence-in-depth masking); `NodeToolsFixtureCatalogueTest` extended
 - [ ] T034 [US3] `adapter/cli/node/CliNodeConfigAdapter.java` + config rules in
   `NodeFramesClassifier` (D-10; after T027 — same `NodeFramesClassifier` — and T033): `implements NodeConfigPort`; request `names` only
-  from `NodeConfigName`; frames → `NodeConfigValue` in request order; a frame for a name not
+  from `NodeConfigName`; frames → `NodeConfigValue` in request order; a `config <name> error` with exactly the 8.1.17
+  missing-property shape (InubitException wrapping the `"o" is null` NPE; T018) → `Absent`, any other
+  `config error` → the per-name failure; research D-10 updated in this task; a frame for a name not
   requested → `UNEXPECTED_RESPONSE`. Failing tests first in
   `adapter/cli/node/CliNodeConfigAdapterTest.java` (every v8_1 case; the request's `names` equals
   the requested enum values; leak check)
@@ -449,7 +453,7 @@ the list is refused before any request; the fake records that only listed names 
   non-listed name fails the schema; description lists the 20 names), `ToolAnnouncementTest.java`,
   new `GetNodeConfigWiringTest.java` (no opt-in → nothing sent), `MainTest.java` (after T030)
 - [ ] T037 [US3] Contract test (after T036): `NodeToolsV81ContractTest` `+` every
-  `v8_1/node-config` case (`all` → 18 present + 2 absent; `absent`; `one_error`; `api_missing`)
+  `v8_1/node-config` case (`all` reconstructed until T038; `absent` in the 8.1.17 NPE form → absent; `one_error`; `api_missing`)
 - [ ] T038 [US3] **[OWNER]** **[BLOCKED: T018]** Enable 8.1 `node_config_read` in **one commit**:
   as T025 for the T018 `nodeConfig` output (values replaced by fictitious ones of the same type;
   display names, descriptions and categories kept only if they are generic vendor texts, else
