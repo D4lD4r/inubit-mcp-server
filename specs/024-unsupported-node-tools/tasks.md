@@ -711,6 +711,9 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
 - [ ] T060 [US5] **[LIVE] [OWNER]** 9.0 read spike (as T018 against the non-production 9.0 test
   server with the 9.0 client on Java 21; the throw-away runner compares the version get_health
   reported just before with 9.0 and refuses a mismatch); findings appended to "Spike findings"
+  *Status 2026-11-13*: cluster nodes (+ details) and configuration values done on 9.0.10 (research.md
+  "Spike findings" T060); I/O logging not tried (same account question as T018). Neutralized drafts for
+  T062/T064 are in the session scratchpad (t062-out, t064-out), not in the repository.
 - [ ] T061 [US5] **[LIVE] [OWNER]** 9.0 log-level write spike (as T039 for 9.0; the owner approves
   exactly that action)
 - [ ] T062 [US5] **[OWNER]** **[BLOCKED: T060]** Enable 9.0 `cluster_nodes_read` in **one commit**:

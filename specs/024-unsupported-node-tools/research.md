@@ -807,3 +807,14 @@ Raw output stays owner-only outside every repository. Neutral facts only:
 - **ioLog listing** (three real runs of the last hour, by the log's process ID and by the global process ID, plus a workflow name that does not exist): every call answered `io list error com.inubit.ibis.utils.InubitException` with the message `Exception from service object: @Start@NotAllowedAccess@@@The user "<user>" is not allowed to access the requested data.@@@<user>@End@`, for the non-existing workflow as well. **Deviation from D-2/D-8**: the listing is checked against a right of the account (not per workflow); the configured account of the test node lacks it. Which right is not known from the client. Not determined therefore: the `getModuleNameAndId` form, whether the listing keys on the Queue Manager id or the log's process id, the 0-byte case, the download.
 - The configured account's `Configuration` right was not checked separately (no account without it was provided).
 - stderr of every run: one JVM notice line about the project's own `JAVA_TOOL_OPTIONS`; stdout had only frames.
+
+### T060 – 9.0 read spike (2026-11-13, non-production 9.0.10 test node, REST_90 helper of this branch)
+
+Raw output stays owner-only outside every repository. Neutral facts only; I/O logging was not tried on 9.0 (the account question of T018 applies the same way).
+
+- **ownNode**: `start REST_90`, `login ok`, `node ok <name>`, `end`; exit 0; about 2.1 s.
+- **Vendor lines on stdout (9.0 only)**: the REST client writes log4j2 lines to **stdout** besides the frames: at every start one `ERROR Unable to load … fallback to system defaults …` line about a missing native DNS resolver library, and in `nodeConfig` one `ERROR WebClient call failed: statusCode=500, reason=Internal Server Error, uri=https://<host>/…` line per failed name. These lines name the server's host, so a recording keeps them only neutralized; the frame parser ignores them.
+- **clusterNodes**: 18 `member` frames, `members ok 18`; 1 `ACTIVE` (the answering node, version = the detected version, uptime > 0) and 17 `OFFLINE` (version `-`, uptime `0`); zone and node ID `-` for every member — the same shape as 8.1.
+- **clusterNodes with `details`**: the same 23 keys as on 8.1, `details ok 23 false`, no value cut; `InternalNodeAddress` and `ZoneName` are `-`, `ServerLibraryPath` has a value on this node (a path).
+- **nodeConfig**: the same split as 8.1 — the same 11 names answer `ok` with the same types and flags; the same 9 names fail with `com.inubit.ibis.utils.InubitException`, here without the `Exception from service object: ` prefix: `@Start@IError@@@Internal INUBIT error!@End@Cannot invoke "Object.getClass()" because "o" is null` (on the REST side an HTTP 500 per name). The adapter's missing-property rule (chain exactly `InubitException`, message containing the `"o" is null` text) matches both forms.
+- stderr: the same one-line JVM notice about the project's own `JAVA_TOOL_OPTIONS` as on 8.1.
