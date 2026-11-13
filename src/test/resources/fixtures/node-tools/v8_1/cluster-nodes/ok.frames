@@ -1,9 +1,17 @@
-log4j:WARN No appenders could be found for logger (com.inubit.ibis.soap.IBISSoapClient).
-log4j:WARN Please initialize the log4j system properly.
 #QE1:0123456789abcdef0123456789abcdef start SOAP_81
 #QE1:0123456789abcdef0123456789abcdef login ok
 #QE1:0123456789abcdef0123456789abcdef node ok node1
-#QE1:0123456789abcdef0123456789abcdef member node1 ACTIVE 8.1.17 zone-a 10.0.0.11%3A7800 345600000
-#QE1:0123456789abcdef0123456789abcdef member node2 - - zone-a - -
-#QE1:0123456789abcdef0123456789abcdef members ok 2
+#QE1:0123456789abcdef0123456789abcdef member node1 ACTIVE 8.1.17 - - 86400000
+#QE1:0123456789abcdef0123456789abcdef member node2 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node3 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node4 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node5 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node6 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node7 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node8 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node9 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node10 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node11 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node12 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef members ok 12
 #QE1:0123456789abcdef0123456789abcdef end

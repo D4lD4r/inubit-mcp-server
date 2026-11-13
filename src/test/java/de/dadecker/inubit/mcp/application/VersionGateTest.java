@@ -1469,23 +1469,41 @@ class VersionGateTest {
         Capability.NODE_CONFIG_READ, "get_node_config",
         Capability.LOG_LEVEL_WRITE, "set_temporary_log_level");
 
-    /** Until its recording each node tool is refused on 8.1 and 9.0 with the matrix note. */
+    /**
+     * Until its recording each node tool is refused with the matrix note: on 9.0 every one, on
+     * 8.1 every one but the cluster's node list (recorded in T025, below).
+     */
     @Test
-    void aNodeToolIsNotYetVerifiedOn81And90() {
+    void aNodeToolIsNotYetVerifiedUntilItsRecording() {
         NODE_TOOLS.forEach((capability, tool) -> {
-            ToolError v81 = refusal(() -> gate().admit(tool, PINNED, capability,
-                capability.kind(), CLI));
             ToolError v90 = refusal(() -> gate().admit(tool, V9_0, capability,
                 capability.kind(), CLI));
-
-            assertThat(v81.message()).isEqualTo(tool + ": INUBIT 8.1.17 on prod/node1: "
-                + capability.label() + " is not yet verified for INUBIT 8.1; nothing was sent");
             assertThat(v90.message()).isEqualTo(tool + ": INUBIT 9.0 on prod/node4: "
                 + capability.label() + " is not yet verified for INUBIT 9.0; nothing was sent");
-            assertNoLeak(v81, v90);
+            assertNoLeak(v90);
+            if (capability != Capability.CLUSTER_NODES_READ) {
+                ToolError v81 = refusal(() -> gate().admit(tool, PINNED, capability,
+                    capability.kind(), CLI));
+                assertThat(v81.message()).isEqualTo(tool + ": INUBIT 8.1.17 on prod/node1: "
+                    + capability.label() + " is not yet verified for INUBIT 8.1; nothing was"
+                    + " sent");
+                assertNoLeak(v81);
+            }
         });
         assertThat(probe.calls).as("no StartCLI run").isEmpty();
-        assertThat(appender.list).hasSize(2 * NODE_TOOLS.size());
+        assertThat(appender.list).hasSize(2 * NODE_TOOLS.size() - 1);
+    }
+
+    /** T025: the recorded 8.1 cluster-nodes case admits the cluster's node list without warning. */
+    @Test
+    void theClusterNodeListIsAdmittedOn81SinceItsRecording() {
+        Admission v81 = gate().admit("list_cluster_nodes", PINNED, Capability.CLUSTER_NODES_READ,
+            Kind.READ, CLI);
+
+        assertThat(v81.warnings()).isEmpty();
+        assertThat(v81.version()).contains(version("8.1.17"));
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+        assertThat(appender.list).isEmpty();
     }
 
     @Test

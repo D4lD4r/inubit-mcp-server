@@ -290,7 +290,7 @@ the opt-in gets the list and one node's details; a group without it is refused b
   findings" T018); the ioLog part is blocked: the configured account gets `NotAllowedAccess` for every
   listing – needs an account with the right or the owner naming one.
 - [X] T019 [US1] Reconstructed cluster-nodes fixtures and catalogue (D-26, D-27; after T011):
-  `src/test/resources/fixtures/node-tools/v8_1/cluster-nodes/{ok,single,details,details_truncated,details_unknown,details_error,unknown_status,api_missing,garbage}.{frames,exit,origin}`
+  `src/test/resources/fixtures/node-tools/v8_1/cluster-nodes/{ok,single,details,details_truncated,details_unknown,details_error,unknown_status,api_missing,garbage}.{frames,exit,origin}` (T025: `ok` recorded, the former `ok` kept as `no_answer`)
   (all `reconstructed <source>`, fictitious `node1`/`node2`, `zone-a`, `/opt/inubit/…`,
   `10.0.0.11:7800`); new `tools/NodeToolsFixtureCatalogueTest.java`: every case has a valid
   `.origin`, every file belongs to a case, and for every (version, capability):
@@ -335,7 +335,7 @@ the opt-in gets the list and one node's details; a group without it is refused b
   → `INVALID_INPUT`; `details_error` → `available: false`; `unknown_status` → `UNKNOWN` + raw;
   `api_missing` → `CLI_UNAVAILABLE`; `garbage` → `UNEXPECTED_RESPONSE`; edge cases maintenance
   (detection), credentials missing (nothing launched), TLS failure
-- [ ] T025 [US1] **[OWNER]** **[BLOCKED: T018]** Enable 8.1 `cluster_nodes_read` in **one commit**
+- [X] T025 [US1] **[OWNER]** **[BLOCKED: T018]** Enable 8.1 `cluster_nodes_read` in **one commit**
   (FR-005, D-26, D-27): the agent neutralizes the T018 `clusterNodes` output in the private
   directory (every name, address, path, version string, id → fictitious; `tools/neutralize.py --map
   <private>/.synthetic-map` plus the private `neutralize-map`; `NoCustomerIdentifiersTest` with the

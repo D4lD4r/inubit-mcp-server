@@ -89,10 +89,11 @@ class NodeToolsFixtureCatalogueTest {
     void everyFileBelongsToACaseWithAValidOrigin() throws IOException {
         assertThat(violations(ROOT)).isEmpty();
         assertThat(cases(ROOT)).as("cases").contains("v8_1/cluster-nodes/ok",
-            "v8_1/cluster-nodes/single", "v8_1/cluster-nodes/details",
-            "v8_1/cluster-nodes/details_truncated", "v8_1/cluster-nodes/details_unknown",
-            "v8_1/cluster-nodes/details_error", "v8_1/cluster-nodes/unknown_status",
-            "v8_1/cluster-nodes/api_missing", "v8_1/cluster-nodes/garbage");
+            "v8_1/cluster-nodes/no_answer", "v8_1/cluster-nodes/single",
+            "v8_1/cluster-nodes/details", "v8_1/cluster-nodes/details_truncated",
+            "v8_1/cluster-nodes/details_unknown", "v8_1/cluster-nodes/details_error",
+            "v8_1/cluster-nodes/unknown_status", "v8_1/cluster-nodes/api_missing",
+            "v8_1/cluster-nodes/garbage");
     }
 
     @Test
@@ -107,7 +108,8 @@ class NodeToolsFixtureCatalogueTest {
      */
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
-        "ok | 0 | Start LoginOk NodeOk Member*2 MembersOk End | -",
+        "ok | 0 | Start LoginOk NodeOk Member*12 MembersOk End | -",
+        "no_answer | 0 | Start LoginOk NodeOk Member*2 MembersOk End | -",
         "single | 0 | Start LoginOk NodeOk Member MembersOk End | -",
         "details | 0 | Start LoginOk NodeOk Member*2 MembersOk Detail*9 DetailsOk End | -",
         "details_truncated | 0 | Start LoginOk NodeOk Member*2 MembersOk Detail*500 DetailsOk"
@@ -211,15 +213,8 @@ class NodeToolsFixtureCatalogueTest {
 
     @Test
     void theMatrixRuleFailsInBothDirections(@TempDir Path temp) throws IOException {
+        // T025: v8_1/cluster-nodes/ok is recorded
         Path copy = copy(ROOT, temp.resolve("node-tools"));
-        assertThat(matrixViolation(copy, "v8_1", "cluster-nodes", SupportState.SUPPORTED))
-            .isEqualTo("8.1 is SUPPORTED for CLUSTER_NODES_READ, but these required cases are not"
-                + " recorded: v8_1/cluster-nodes/ok");
-        assertThat(matrixViolation(copy, "v8_1", "cluster-nodes", SupportState.UNSUPPORTED))
-            .isNull();
-
-        Files.writeString(copy.resolve("v8_1/cluster-nodes/ok.origin"),
-            "recorded 2026-11-12 8.1.17 neutralized\n");
         assertThat(matrixViolation(copy, "v8_1", "cluster-nodes", SupportState.SUPPORTED))
             .isNull();
         assertThat(matrixViolation(copy, "v8_1", "cluster-nodes", SupportState.UNSUPPORTED))
@@ -228,6 +223,13 @@ class NodeToolsFixtureCatalogueTest {
                 + " same change");
         assertThat(matrixViolation(copy, "v8_1", "cluster-nodes", SupportState.UNVERIFIED))
             .startsWith("8.1 is UNVERIFIED for CLUSTER_NODES_READ, but its required cases");
+
+        Files.writeString(copy.resolve("v8_1/cluster-nodes/ok.origin"), "reconstructed x\n");
+        assertThat(matrixViolation(copy, "v8_1", "cluster-nodes", SupportState.SUPPORTED))
+            .isEqualTo("8.1 is SUPPORTED for CLUSTER_NODES_READ, but these required cases are not"
+                + " recorded: v8_1/cluster-nodes/ok");
+        assertThat(matrixViolation(copy, "v8_1", "cluster-nodes", SupportState.UNSUPPORTED))
+            .isNull();
 
         // the log level needs both of its cases recorded; the other cases of a tool do not count
         Files.createDirectories(copy.resolve("v9_0/log-level"));
@@ -257,8 +259,6 @@ class NodeToolsFixtureCatalogueTest {
     void aRecordedRequiredCaseWithoutItsDataFilesDoesNotCount(@TempDir Path temp)
         throws IOException {
         Path copy = copy(ROOT, temp.resolve("node-tools"));
-        Files.writeString(copy.resolve("v8_1/cluster-nodes/ok.origin"),
-            "recorded 2026-11-12 8.1.17 neutralized\n");
         Files.delete(copy.resolve("v8_1/cluster-nodes/ok.frames"));
 
         assertThat(matrixViolation(copy, "v8_1", "cluster-nodes", SupportState.SUPPORTED))

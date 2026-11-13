@@ -48,10 +48,9 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * Feature 024 T023 (FR-002, FR-010, research D-6): {@code list_cluster_nodes} through the
  * production wiring with {@link TraceMatrix#admittingEightOne()}, a test matrix that admits the
- * cluster's node list on 8.1 (the production matrix does not before T025). A group without
- * {@code unsupported.nodeStatusRead} is refused before any request or launch; an opted-in group
- * lists the cluster through the INUBIT client helper, a fake replaying the
- * {@code node-tools/v8_1/cluster-nodes/ok} case.
+ * cluster's node list on 8.1. A group without {@code unsupported.nodeStatusRead} is refused
+ * before any request or launch; an opted-in group lists the cluster through the INUBIT client
+ * helper, a fake replaying the {@code node-tools/v8_1/cluster-nodes/no_answer} case.
  */
 @Timeout(60)
 class ListClusterNodesWiringTest {
@@ -217,8 +216,8 @@ class ListClusterNodesWiringTest {
             String nonce = fields.get("nonce");
             fields.remove("password");
             requests.add(fields);
-            return new FakeProcessLauncher.Answer(fixture("ok.frames").replace(FIXTURE_NONCE,
-                nonce), Integer.parseInt(fixture("ok.exit").strip()));
+            return new FakeProcessLauncher.Answer(fixture("no_answer.frames").replace(
+                FIXTURE_NONCE, nonce), Integer.parseInt(fixture("no_answer.exit").strip()));
         });
         return spec -> spec.command().getLast().equals(HelperInstallation.MAIN_CLASS)
             ? helper.launch(spec) : FakeProcessLauncher.replaying("version").launch(spec);

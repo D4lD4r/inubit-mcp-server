@@ -130,8 +130,8 @@ class CliClusterNodeAdapterTest {
     // --- the reconstructed cases (T019) -------------------------------------------------------
 
     @Test
-    void theOkCaseListsBothMembersAndTheRequestAsksForNoDetails() throws IOException {
-        launcher = replaying("ok");
+    void theNoAnswerCaseListsBothMembersAndTheRequestAsksForNoDetails() throws IOException {
+        launcher = replaying("no_answer");
         EffectiveNodeConfig server = http().build();
 
         ClusterNodes nodes = adapter(server).nodes(Optional.empty(), V81, deadline());

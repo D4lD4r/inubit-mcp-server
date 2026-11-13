@@ -698,9 +698,9 @@ with `README.md` and per case `<case>.origin` (`recorded <date> <version> neutra
 `reconstructed <source>`), checked by `NodeToolsFixtureCatalogueTest`.
 - Helper cases: `<case>.frames`, `<case>.exit`, for `io-log` also `<case>.list` and
   `<case>.message`. StartCLI cases (log level): `<case>.stdout`, `<case>.stderr`, `<case>.exit`.
-- Cases: cluster-nodes `ok` (two members, one without answer), `single`, `details`,
-  `details_truncated`, `details_unknown`, `details_error`, `unknown_status`, `api_missing`,
-  `garbage`; io-log `listing`, `empty_listing`, `read_text`, `read_latin1`, `read_binary`,
+- Cases: cluster-nodes `ok` (recorded in T025: one `ACTIVE`, eleven `OFFLINE`), `no_answer` (two
+  members, one without answer), `single`, `details`, `details_truncated`, `details_unknown`,
+  `details_error`, `unknown_status`, `api_missing`, `garbage`; io-log `listing`, `empty_listing`, `read_text`, `read_latin1`, `read_binary`,
   `read_empty`, `no_match`, `foreign_process`, `list_error`; node-config `all`, `absent`,
   `one_error`, `api_missing`; log-level `set_ok`, `reset_ok`, `missing_level`, `login_failure`,
   `forbidden`.

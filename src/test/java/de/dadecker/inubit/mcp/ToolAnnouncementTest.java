@@ -501,14 +501,22 @@ class ToolAnnouncementTest {
     }
 
     @Test
-    void onTheProductionMatrixListClusterNodesIsNotAnnouncedBeforeTheFlip() {
-        // until T025 the production matrix declares CLUSTER_NODES_READ unsupported on 8.1 and 9.0
+    void onTheProductionMatrixListClusterNodesIsAnnouncedForAnOptedInEightOneOrAutoNode() {
+        // since T025 the production matrix supports CLUSTER_NODES_READ on 8.1; 9.0 still not
         CapabilityMatrix production = CapabilityMatrix.production();
+        List<String> withClusterNodes = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "list_cluster_nodes", "list_inventory", "get_inventory_item", "find_partners",
+            "export_artifacts", "export_archives", "check_artifacts");
         assertThat(groupTools("V8_1", nodeStatusOptIn("true") + "\n" + cliHome(), false,
-            production)).containsExactlyElementsOf(REFERENCE);
+            production)).containsExactlyElementsOf(withClusterNodes);
         assertThat(groupTools("AUTO", nodeStatusOptIn("true") + "\n" + cliHome(), false,
-            production)).containsExactlyElementsOf(REFERENCE);
+            production)).containsExactlyElementsOf(withClusterNodes);
         assertThat(groupTools("V9_0", nodeStatusOptIn("true"), true, production))
+            .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V8_1", cliHome(), false, production))
+            .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("AUTO", cliHome(), false, production))
             .containsExactlyElementsOf(REFERENCE);
     }
 }

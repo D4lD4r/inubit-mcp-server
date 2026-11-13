@@ -83,10 +83,12 @@ import org.junit.jupiter.params.provider.CsvSource;
  * replays the case's {@code .frames}/{@code .exit} with the request's nonce. No process, no
  * network (the TLS edge case talks to a local test server only). Test matrix declaration:
  * {@link TraceMatrix#admittingEightOne()}, so the contract does not depend on the production
- * declaration (8.1 {@code CLUSTER_NODES_READ} stays unverified there until T025).
+ * declaration.
  *
- * <p>{@code ok} is asserted against what its frames say (answering node, members in order,
- * total), so that the recorded fixture of T025 can replace the reconstructed one. Every result,
+ * <p>{@code ok} is the recording of spike T018 (T025): the answering node {@code ACTIVE} with its
+ * version and uptime, every other member {@code OFFLINE} without version and uptime; its names and
+ * total are asserted against what its frames say. {@code no_answer} keeps the reconstructed case
+ * of a member without a status. Every result,
  * error and log line is checked for leaks; the {@code details} case checks end to end that the
  * credential-like value of the fixture is masked in the service's result.
  */
@@ -94,8 +96,9 @@ import org.junit.jupiter.params.provider.CsvSource;
 class NodeToolsV81ContractTest {
 
     /** The cases; exactly the {@code v8_1/cluster-nodes/*.frames} on disk. */
-    static final List<String> CASES = List.of("ok", "single", "details", "details_truncated",
-        "details_unknown", "details_error", "unknown_status", "api_missing", "garbage");
+    static final List<String> CASES = List.of("ok", "no_answer", "single", "details",
+        "details_truncated", "details_unknown", "details_error", "unknown_status", "api_missing",
+        "garbage");
 
     private static final CapabilityMatrix MATRIX = TraceMatrix.admittingEightOne();
     private static final Path DIRECTORY =
@@ -174,15 +177,12 @@ class NodeToolsV81ContractTest {
     // --- the list (US1-1, US1-2, US1-5) -------------------------------------------------------
 
     @Test
-    void okListsTheMembersOfItsFramesNamesTheAnsweringNodeAndKeepsASilentMemberUnknown()
+    void okListsTheRecordedMembersTheAnsweringNodeActiveAndTheOthersOfflineWithoutUptime()
         throws IOException {
         List<String> frames = frames("ok");
         String answering = token(frames, "node ok ");
         List<String[]> members = frames.stream().filter(frame -> frame.startsWith("member "))
             .map(frame -> frame.split(" ")).toList();
-        List<String> silent = members.stream().filter(member -> member[2].equals("-"))
-            .map(member -> decode(member[1])).toList();
-        assertThat(silent).as("ok has a member without a status").isNotEmpty();
         launcher = replaying("ok");
 
         ClusterNodesResult result = service(http().build(), credentials()).list(request());
@@ -193,23 +193,45 @@ class NodeToolsV81ContractTest {
         assertThat(cluster.nodes()).extracting(ClusterNode::name).containsExactlyElementsOf(
             members.stream().map(member -> decode(member[1])).toList());
         assertThat(cluster.total()).isEqualTo(Integer.parseInt(token(frames, "members ok ")))
-            .isEqualTo(members.size());
+            .isEqualTo(members.size()).isEqualTo(12);
         assertThat(cluster.truncated()).isFalse();
         assertThat(cluster.details()).isEmpty();
         assertThat(cluster.nodes()).filteredOn(node -> node.name().equals(answering))
-            .singleElement().satisfies(node -> assertThat(node.status())
-                .as("the answering node has a status").isNotEqualTo(NodeStatus.UNKNOWN));
-        assertThat(cluster.nodes()).filteredOn(node -> silent.contains(node.name()))
-            .hasSameSizeAs(silent).allSatisfy(node -> {
-                assertThat(node.status()).isEqualTo(NodeStatus.UNKNOWN);
+            .singleElement().satisfies(node -> {
+                assertThat(node.status()).isEqualTo(NodeStatus.ACTIVE);
+                assertThat(node.version()).contains("8.1.17");
+                assertThat(node.uptime()).isPresent();
+            });
+        assertThat(cluster.nodes()).filteredOn(node -> !node.name().equals(answering))
+            .hasSize(11).allSatisfy(node -> {
+                assertThat(node.status()).isEqualTo(NodeStatus.OFFLINE);
                 assertThat(node.rawStatus()).isEmpty();
                 assertThat(node.version()).isEmpty();
-                assertThat(node.uptime()).isEmpty();
+                assertThat(node.uptime()).as("an OFFLINE member's uptime 0 is absent").isEmpty();
             });
         assertThat(result.warnings()).containsExactly(ClusterNodesResult.WARNING);
         assertThat(result.hints()).isEmpty();
         assertThat(requestLines()).contains("op=clusterNodes", "details=");
         assertThat(launcher.launchCount()).isEqualTo(1);
+        assertNoLeak(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void noAnswerKeepsAMemberWithoutAStatusUnknown() throws IOException {
+        launcher = replaying("no_answer");
+
+        ClusterNodesResult result = service(http().build(), credentials()).list(request());
+
+        assertThat(result.cluster().answeringNode()).isEqualTo("node1");
+        assertThat(result.cluster().nodes()).extracting(ClusterNode::name)
+            .containsExactly("node1", "node2");
+        assertThat(result.cluster().nodes().get(0).status()).isEqualTo(NodeStatus.ACTIVE);
+        assertThat(result.cluster().nodes().get(1)).isEqualTo(new ClusterNode("node2",
+            NodeStatus.UNKNOWN, Optional.empty(), Optional.empty(), Optional.of("zone-a"),
+            Optional.empty(), Optional.empty()));
+        assertThat(result.cluster().total()).isEqualTo(2);
+        assertThat(result.warnings()).containsExactly(ClusterNodesResult.WARNING);
         assertNoLeak(result);
         assertTempRootEmpty();
     }
