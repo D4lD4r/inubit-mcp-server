@@ -540,7 +540,7 @@ the other just changed.
   `NodeLogLevelLocksTest.java` (two instances on one directory exclude each other per node, not
   across nodes; wait bound; the node lock is always taken before the store lock — a test holding
   the store lock never waits for a node lock)
-- [ ] T046 [P] [US4] `application/nodetools/ProcessLiveness.java` (+ `SystemProcessLiveness`) (D-13):
+- [X] T046 [P] [US4] `application/nodetools/ProcessLiveness.java` (+ `SystemProcessLiveness`) (D-13):
   `self()` from `ProcessHandle.current()`; `alive(owner)` per D-13 (pid alive and start instants
   equal within 1 s when both known). Failing tests first in
   `application/nodetools/ProcessLivenessTest.java` (self alive; a finished child process not alive;

@@ -183,7 +183,7 @@ src/main/java/de/dadecker/inubit/mcp/
 │                        # NodeTextMasking, NodeLogLevelLocks (cross-process, per node)
 ├── adapter/             # PortSet, V81PortSet, V81Gateway, AdapterGatewayFactory, StaleReportingPorts,
 │                        # RefusingPorts (+4 ports)
-├── adapter/cli/         # CliCommand (trace --nodelevel/--package, --reset), CliOutputClassifier
+├── adapter/cli/         # CliCommand (trace --nodelevel/--package, --reset), CliOutputClassifier SystemProcessLiveness (new, D-13)
 │                        # (classifyTraceLevel)
 ├── adapter/cli/helper/  # HelperRequest (+4 operations), HelperFrames (+frame types)
 ├── adapter/cli/node/    # new: NodeHelperRunner, NodeFramesClassifier, CliClusterNodeAdapter,
