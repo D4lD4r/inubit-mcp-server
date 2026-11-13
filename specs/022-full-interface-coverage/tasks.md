@@ -463,7 +463,7 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
 
   Neutralize into `fixtures/v8_1/{rest,cli}/admin-users-*` (personal fields replaced by
   `*.example.test` values). Record whether `msgread` marks the message as read.
-- [ ] T029 [P] [US2] Domain records: `domain/model/UserSummary.java` (no personal field by
+- [X] T029 [P] [US2] Domain records: `domain/model/UserSummary.java` (no personal field by
   construction), `UserDetail.java`, `LoginEntry.java`, `MessageSummary.java`, `MessageText.java`
   (`ItemBounds.MAX_ITEM_CHARS`, `truncated`).
   - Failing tests first: `domain/model/UserRecordsTest.java`.
@@ -508,6 +508,10 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   - read-only, idempotent;
   - the description names the `msgread` side effect from T028 (FR-008);
   - announcement when `anyPossiblyCapable(USER_DIRECTORY)`.
+  - From the T029 review: `UserDetail` nests its `UserSummary`; the output schema shows a user
+    flat (`user.login`, not `user.summary.login`), mapped in the tool layer.
+  - From the T029 notes: if a user's groups can be `unavailable` (missing session block), decide
+    whether `UserSummary.group` becomes optional or the user is listed with its groups unavailable.
   - Failing tests first: `ReadUsersToolTest.java`, the output schema test,
     `ToolAnnouncementTest`.
 - [ ] T036 [US2] `security/ReadUsersSecretLeakTest.java`: planted e-mails never appear in `users`,
