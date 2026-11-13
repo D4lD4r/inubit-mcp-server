@@ -261,7 +261,7 @@ tolerance, configuration (by section) and server time per server (US1).
 **Independent test**: with recorded StartCLI outputs and REST responses, one call gives each fact
 as a typed field with its source, and missing parts with their reason (US1 AS1–AS7).
 
-- [ ] T014 [LIVE] [OWNER] [US1] Read recordings for US1 and the session check (L-1, L-5, the read part
+- [X] T014 [LIVE] [OWNER] [US1] Read recordings for US1 and the session check (L-1, L-5, the read part
   of L-11) on the 8.1 test server:
   - a stdin session running `threads showNumberOfWorkflowThreads`,
     `privilegedWorkflows showThreadsPercentage`, `privilegedWorkflows showWorkflowList`,

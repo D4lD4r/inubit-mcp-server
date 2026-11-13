@@ -688,3 +688,85 @@ check marked (W) changes the server and runs only after the operator's approval 
 | L-16 | `--backupFile`, `--backupRepository` usage text | entries excluded (documented by name only) |
 | L-17 | `msgread`: does it mark the message as read? | named in the tool description (FR-008) |
 | L-18 (W) | `create -cu` without `--password`: what INUBIT sets | named in the tool description (US7 AS1) |
+
+## Live recording T014 (8.1, 2026-11-13)
+
+Read-only recordings on an 8.1.17 development server with the profile's account, which is not the
+INUBIT root user: one stdin session with the seven US1 reads and `exit`, the same seven reads once
+each in script mode, `GET /license` and `GET /configurations`. Fixtures:
+`fixtures/v8_1/cli/admin-settings-*` and `fixtures/v8_1/rest/admin-license.*`,
+`admin-configurations.*` (neutralization in `fixtures/v8_1/cli/README.md`).
+
+**L-1 (stdin session on 8.1): works.**
+
+- Without `--execCommand`, the 8.1 client reads the password line from stdin and then one command
+  per line; the whole input can be written up front (as `CliRunner.stdinBytes` does).
+- Before the first command, stdout holds the client's lines: `JAVA_HOME is set`,
+  `Connecting as '<user>' to <cliUrl> with hostname verification OFF` (session only, script mode
+  does not print it), `Password: ` followed by a line break (LF, no CR), the hostname-verification warning, an
+  empty line, `Connection to inubit Process Engine 8.1.17 established.`, `<TAB> shows command
+  list` and `[COMMAND] with option -h or --help shows help for this command` (CRLF).
+- Each command is echoed as `CLI|<user>@<host>> <command>` (LF), where `<host>` is the server's
+  host name, not the node name of the profile. The answer follows up to the next echo; most
+  answer lines end in CRLF. The echo is the only block separator.
+- The session was ended with `exit`; its echo `CLI|<user>@<host>> exit` is the last line. A
+  session without `exit` was not tried; the runner always ends the session with
+  `CliSessionCommand.EXIT`, so the question does not affect the design.
+- A refused command does not end the session: the session answers `EXECUTION ERROR` and the
+  reason (no stack trace, unlike script mode) and goes on with the next command; the exit code
+  of the whole session is then 1. stderr holds only the JVM's `Picked up JAVA_TOOL_OPTIONS` line.
+- The output was English with `-Duser.language=en -Duser.country=US`; another locale was not
+  recorded.
+
+**L-5 (output forms).**
+
+| Command | Answer (script mode; the session block is the same unless noted) |
+|---|---|
+| `threads showNumberOfWorkflowThreads` | refused for a non-root account (below) |
+| `privilegedWorkflows showThreadsPercentage` | refused for a non-root account |
+| `privilegedWorkflows showWorkflowList` | refused for a non-root account |
+| `dbconnectiontolerance show` | `Error level: \t\t<n>%`, an empty line, `Fault threshold: \t<n>`, `Drop rate: \t\t<n>%`, `Drop interval (s): \t<n> seconds`; label and value are separated by tabs (one or two), not by a single space as in the reconstructed case. Script mode ends with an empty line, the session block with a line holding only `\r` |
+| `date` | `Fri Nov 13 05:52:06 CET 2026`: Java `Date.toString` in the server's time zone |
+| `license -td` | a bare integer: the days until the license expires |
+| `license -ts` | a bare integer: the seconds until the license expires (it fell by about the elapsed time between the session and the script run) |
+
+- Refusal in script mode: an `ERROR <time> [main] CLI ERROR` record, the line
+  `com.inubit.ibis.utils.InubitException: @Start@IError@@@Internal INUBIT error!@End@@Start@Only
+  root user can use this command.@@@Only root user can use this command.@End@`, the stack trace,
+  then `EXECUTION ERROR`, `Internal INUBIT error!`, `Only root user can use this command.`; exit 1.
+- The days of `license -td` (rounded up from `license -ts`) count to a date exactly one month
+  after the `ExpirationDate` of `GET /license`. The cause is not known (a month offset in the
+  client's calculation is possible); the fixtures keep this relation.
+
+**L-11, read part (`GET /configurations`).**
+
+- The root key is `ServerConfiguration`. The vendor documentation (and the reconstructed case)
+  spell it `SeverConfiguration`.
+- No leaf has a sibling `type` or `encrypted` field, and the answer holds no secret leaf at all:
+  no password field of the proxy, SMTP, LDAP or portal sections appears, and
+  `ProcessUserImTenantAdminCredentials` is an empty object. The secret rules still apply; the
+  fixture plants three test secrets (two by name, one by path).
+- The body is one compact JSON line without a trailing line break. Values mix types: some numbers
+  are JSON numbers, others strings (`"25"`, `"100MB"`); lists occur (`ClusterKnownNodes`, SSH
+  algorithm lists).
+- Some values are Java `toString` output rather than data (`org.dom4j.tree.DefaultElement@…
+  [Element: <Tasklists …/>]`, dates as `Sat Oct 31 00:00:00 CET 2026`).
+- `NodeMaintenanceModeMap` uses the cluster node names as keys and `ClusterKnownNodes` lists host
+  names, so both are server identifiers.
+- The answer's content type is `application/json;charset=UTF-8`.
+
+**`GET /license`.** `200` with `text/xml;charset=UTF-8` (not `application/xml`). Root `<license>`
+with `LicenseInformation` (`Version` = edition, `CustomerNumber`, `CompanyName`, `ContactPerson`,
+`Comment`, `keytype`, `RequestID`, `KeyID`, `LicenseGenerationDate` as `dd.MM.yyyy`,
+`SystemID`), `inubit` (`AllowedIPs`, `AllowedMACs/MAC`, `LicenseType` with `ExpirationDate` as
+`yyyy-MM-dd`, `Version`, `ConnectorsCount`, `MaxUserCount`, `ConcurrentPortalUser`,
+`ThreadCount`, `RuntimeLicense`, `ServiceContract`, `ClientServerMode`; `Features` with
+`UserManagement` and `Plugins type="…"` lists of `Plugin`) and an XML-DSig `Signature` whose
+base64 values are broken by `&#xD;` and a line break. None of the element names of the
+reconstructed case (`licensee`, `expiryDate`, `licensedThreads`) exist.
+
+**Owner decision (2026-11-13).** The profile account is kept; only the refusal is recorded. The
+three root-only reads (`threads showNumberOfWorkflowThreads`, `privilegedWorkflows
+showThreadsPercentage`, `privilegedWorkflows showWorkflowList`) cannot be recorded with the
+profile account. T025 sets their coverage rows to `excluded:needs the INUBIT root user`, and
+`get_server_settings` reports those parts unavailable with that reason.

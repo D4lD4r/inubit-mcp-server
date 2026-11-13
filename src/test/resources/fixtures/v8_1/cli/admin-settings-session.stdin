@@ -1,0 +1,9 @@
+<password>
+threads showNumberOfWorkflowThreads
+privilegedWorkflows showThreadsPercentage
+privilegedWorkflows showWorkflowList
+dbconnectiontolerance show
+date
+license -td
+license -ts
+exit
