@@ -21,11 +21,11 @@ class CapabilityMatrixTest {
 
     /**
      * Feature 021: the server-log reads are supported since their 8.1 recordings (trace T033, web
-     * service T046); feature 022: the server settings (T025) and the users (T037); the model
-     * details (US3) not yet verified (below).
+     * service T046); feature 022: the server settings (T025), the users (T037) and the model
+     * details (T046).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"MODEL_DETAILS"}, mode = Mode.EXCLUDE)
+    @EnumSource(Capability.class)
     void everyCapabilityIsSupportedOn81(Capability capability) {
         assertThat(production.state(version("8.1.17"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -432,10 +432,10 @@ class CapabilityMatrixTest {
      * T031 (feature 021, FR-002): a version not yet known (an {@code AUTO} node) may run a
      * capability only if some range or the unknown versions admit it; since their 8.1 recordings
      * (T033, T046) 8.1 admits both server-log reads, and since their contract tests the server
-     * settings (T025) and the users (T037); not yet the model details (US3).
+     * settings (T025), the users (T037) and the model details (feature 022 T046).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"MODEL_DETAILS"}, mode = Mode.EXCLUDE)
+    @EnumSource(Capability.class)
     void everyCapabilityIsPossiblySupportedOnTheProductionMatrix(Capability capability) {
         assertThat(production.possiblySupported(capability)).isTrue();
     }
@@ -588,22 +588,26 @@ class CapabilityMatrixTest {
         assertThat(Capability.MODEL_DETAILS.admittedPerChannel()).isFalse();
     }
 
-    /** Refused on 8.1 and 9.0 as "not yet verified" until its contract tests (T046, T046a). */
+    /**
+     * Supported on 8.1 since its contract tests (T046); refused on 9.0 as "not yet verified"
+     * until T046a.
+     */
     @Test
-    void modelDetailsIsNotYetVerifiedOn81And90() {
-        for (Optional<InubitVersion> version : List.of(version("8.1.17"), version("9.0.7"))) {
-            assertThat(production.state(version, Capability.MODEL_DETAILS)).as("%s", version)
-                .isEqualTo(SupportState.UNSUPPORTED);
-            assertThat(production.note(version, Capability.MODEL_DETAILS)).as("%s", version)
-                .contains("not yet verified");
-        }
-        assertThat(production.stateOfLine(8, OptionalInt.of(1), Capability.MODEL_DETAILS))
+    void modelDetailsIsSupportedOn81AndNotYetVerifiedOn90() {
+        assertThat(production.state(version("8.1.17"), Capability.MODEL_DETAILS))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.note(version("8.1.17"), Capability.MODEL_DETAILS)).isEmpty();
+        assertThat(production.state(version("9.0.7"), Capability.MODEL_DETAILS))
             .isEqualTo(SupportState.UNSUPPORTED);
+        assertThat(production.note(version("9.0.7"), Capability.MODEL_DETAILS))
+            .contains("not yet verified");
+        assertThat(production.stateOfLine(8, OptionalInt.of(1), Capability.MODEL_DETAILS))
+            .isEqualTo(SupportState.SUPPORTED);
         assertThat(production.stateOfLine(9, OptionalInt.of(0), Capability.MODEL_DETAILS))
             .isEqualTo(SupportState.UNSUPPORTED);
         assertThat(production.lines(Capability.MODEL_DETAILS)).containsExactly("8.1", "9.0");
         assertThat(production.possiblySupported(Capability.MODEL_DETAILS))
-            .as("no version runs it yet, so read_model_details is not announced").isFalse();
+            .as("8.1 runs it, so read_model_details is announced").isTrue();
     }
 
     /** As the users: 6.1, other and unknown versions refuse it without a note. */

@@ -743,7 +743,7 @@ offered).
     warnings with `UNSUPPORTED_VERSION`, and its processes are still listed; 9.0 or 6.1 alone
     refused; without `userColumn` unchanged); `ModelDetailsSecretLeakTest` with planted values in
     `userDefined<i>`.
-- [ ] T046 [US3] Contracts and flips: `ModelDetailsV81ContractTest.java`,
+- [X] T046 [US3] Contracts and flips: `ModelDetailsV81ContractTest.java`,
   `ExportContentV81ContractTest.java`, only from the T039 fixtures (`admin-model-node-by-model*`,
   `admin-model-library-*`, `admin-model-session`, `admin-model-export-*`), and a `userColumn`
   case on the recorded `fixtures/v8_1/rest/log_queueLog.json` (beside `QueueEntryRowsContractTest`);

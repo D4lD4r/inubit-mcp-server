@@ -81,12 +81,10 @@ public final class CapabilityMatrix {
      * 8.1: everything; the server-log reads of feature 021 since their recordings (trace log T033,
      * web service log T046), reading the server settings of feature 022 since its recordings
      * (T014, contract tests T025), reading the users of feature 022 since its recordings (T028,
-     * contract tests T037); reading model details (feature 022, US3) not yet verified.
+     * contract tests T037), reading the model details of feature 022 since its recordings (T039,
+     * contract tests T046).
      */
-    private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1),
-        with(ALL_SUPPORTED, Capability.MODEL_DETAILS, SupportState.UNSUPPORTED),
-        Map.of(), false,
-        Map.of(Capability.MODEL_DETAILS, NOT_YET_VERIFIED));
+    private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1), ALL_SUPPORTED);
 
     /**
      * 9.0: everything as on 8.1 except partner management, which runs with a warning until recorded
@@ -150,8 +148,9 @@ public final class CapabilityMatrix {
      * and 9.0 since their contract tests (T025, T026), and unsupported on every other and on
      * unknown versions; reading the users (US2) is supported on 8.1 and 9.0 since their contract
      * tests (T037, T037a), and unsupported on every other and on unknown versions; reading the
-     * model details (US3) is refused on 8.1 and 9.0 as not yet verified until its contract tests,
-     * and unsupported on every other and on unknown versions.
+     * model details (US3) is supported on 8.1 since its contract tests (T046), unsupported on 9.0
+     * with the note "not yet verified" until T046a, and unsupported on every other and on unknown
+     * versions.
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;
