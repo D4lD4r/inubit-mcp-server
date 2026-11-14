@@ -69,13 +69,15 @@ class ReadUsersToolTest {
     /** The tool description, pinned word for word. */
     private static final String CONTRACT_DESCRIPTION = "Read the users of one INUBIT {node}."
         + " `target` takes the id of exactly one {node} (`<{group}>/<{node}>`). `view` picks what"
-        + " to read: `users` lists the users by login, each with its user group and roles, without"
-        + " e-mail or other personal fields; `user` shows the one user named in `login` with its"
-        + " user group, the parent of that user group, roles, e-mail and the other personal fields"
-        + " INUBIT shows (e-mail and personal fields come only for one named user); `logins` lists"
-        + " the users logged in with a client (the `Toolset` connections of StartCLI `--who`, this"
-        + " call's own connection included), without a login time on INUBIT 8.1. `users` and"
-        + " `logins` are sorted by login and paged with `offset` and `limit` (at most 25);"
+        + " to read: `users` lists the users by login, each with its user group, additional user"
+        + " groups and roles, without e-mail or other personal fields; `user` shows the one user"
+        + " named in `login` with its user group, the parent of that user group, additional user"
+        + " groups, roles, e-mail and the other personal fields INUBIT shows (e-mail and personal"
+        + " fields come only for one named user); `logins` lists the users logged in with a client"
+        + " (the `Toolset` connections of StartCLI `--who`, this call's own connection included),"
+        + " without a login time on INUBIT 8.1; on INUBIT 9.0 `--who` lists no client connection,"
+        + " so `logins` is refused there. `users` and `logins` are sorted by login and paged with"
+        + " `offset` and `limit` (at most 25);"
         + " `nextOffset` gives the next page. The logins come from the INUBIT user list; the user"
         + " group, roles, e-mail and personal fields are read with StartCLI. A part that cannot be"
         + " read is listed under the user's `unavailable` with the reason, the other users and"
@@ -167,7 +169,7 @@ class ReadUsersToolTest {
         assertThat(description).contains("reads only", "changes nothing",
             "without e-mail or other personal fields", "only for one named user", "`--who`",
             "without a login time", "not_found", "`unavailable`", "messages",
-            "not offered yet");
+            "not offered yet", "additional user groups", "refused there");
     }
 
     // --- input schema -------------------------------------------------------------------------
@@ -340,6 +342,25 @@ class ReadUsersToolTest {
             .containsExactly("roles", "email", "personal");
     }
 
+    /** T037a (FR-011): the 9.0 row {@code Additional user group}, in both views. */
+    @Test
+    void theAdditionalUserGroupsAreShownInTheListingAndForOneUser() {
+        directory.users = users(1);
+        directory.additionalGroups = List.of("Portal-Group");
+
+        JsonNode item = call(Map.of("target", "dev/node1", "view", "users")).path("page")
+            .path("items").get(0);
+        JsonNode user = call(Map.of("target", "dev/node1", "view", "user", "login", "user-000"))
+            .path("user");
+
+        assertThat(item).isEqualTo(json("""
+            {"login": "user-000", "group": "Group-user-000", "additionalGroups": ["Portal-Group"],
+             "roles": ["Role-user-000"], "unavailable": []}"""));
+        assertThat(user.propertyNames()).containsExactly("login", "group", "superGroup",
+            "additionalGroups", "roles", "email", "personal", "unavailable");
+        assertThat(user.path("additionalGroups")).isEqualTo(json("[\"Portal-Group\"]"));
+    }
+
     @Test
     void anUnknownLoginIsNotFoundWithTheListingAsNextStep() {
         // AS3
@@ -408,6 +429,7 @@ class ReadUsersToolTest {
         volatile List<ListedUser> users = List.of();
         volatile List<LoginEntry> loggedIn = List.of();
         volatile List<PersonalField> personal = List.of(PersonalField.shown("Name", "Doe"));
+        volatile List<String> additionalGroups = List.of();
         final Set<String> groupsUnreadable = new HashSet<>();
         final Set<String> fingerUnreadable = new HashSet<>();
         volatile ToolErrorException sessionFailure;
@@ -431,7 +453,8 @@ class ReadUsersToolTest {
             for (String login : logins) {
                 Block<UserGroups> groups = groupsUnreadable.contains(login)
                     ? new Block.Unavailable<>(BLOCK_UNREADABLE)
-                    : new Block.Parsed<>(new UserGroups("Group-" + login, "Super-Group"));
+                    : new Block.Parsed<>(new UserGroups("Group-" + login, "Super-Group",
+                        additionalGroups));
                 Block<Finger> finger = fingerUnreadable.contains(login)
                     ? new Block.Unavailable<>(BLOCK_UNREADABLE)
                     : new Block.Parsed<>(new Finger(login, List.of("Role-" + login),

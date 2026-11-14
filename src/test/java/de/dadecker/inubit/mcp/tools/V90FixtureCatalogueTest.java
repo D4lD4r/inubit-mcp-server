@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -24,27 +25,46 @@ import org.junit.jupiter.api.io.TempDir;
  * cases of {@code fixtures/v9_0/NOT_RECORDABLE.txt} together are exactly the fixture cases on
  * disk, each with its {@code .origin}, and exactly the cases the 9.0 contract tests load through
  * {@link V90Cases}, in both directions. The non-recordable set is asserted exactly, so no exemption
- * can be added silently.
+ * can be added silently; its feature-022 administration cases must be recorded and neutralized.
  */
 class V90FixtureCatalogueTest {
 
     static final Path ROOT = Path.of("src/test/resources/fixtures/v9_0");
 
     /** The exemptions of research D-10: write successes and REST 403/500/503. */
-    private static final Set<String> NOT_RECORDABLE = Set.of("import_created", "tag_ok",
+    private static final Set<String> D10_EXEMPTIONS = Set.of("import_created", "tag_ok",
         "processErrorStart_ok", "kill_ok", "rest_forbidden", "rest_internal_error",
         "rest_unavailable");
+
+    /**
+     * The feature-022 administration recordings (research D-26; T024, T028b): recorded once by
+     * their live task, not by the recorder, and neutralized.
+     */
+    private static final Set<String> ADMINISTRATION = Set.of("admin-license",
+        "admin-configurations", "admin-users", "admin-settings-session",
+        "admin-settings-threads-refused", "admin-settings-privileged-percentage-refused",
+        "admin-settings-privileged-list-refused", "admin-settings-db-tolerance",
+        "admin-settings-date", "admin-settings-license-days", "admin-settings-license-seconds",
+        "admin-users-session", "admin-users-user", "admin-users-finger",
+        "admin-users-user-capitalized", "admin-users-finger-capitalized",
+        "admin-users-user-underscore", "admin-users-finger-no-name", "admin-users-msglist-empty",
+        "admin-users-who", "admin-users-nwho");
+
+    private static final Set<String> NOT_RECORDABLE = Stream.concat(D10_EXEMPTIONS.stream(),
+        ADMINISTRATION.stream()).collect(Collectors.toUnmodifiableSet());
 
     /** The only files of the fixture root that are not a case. */
     private static final Set<String> ROOT_FILES = Set.of("README.md", "NOT_RECORDABLE.txt");
 
     @Test
-    void theNotRecordableCasesAreExactlyTheExemptionsOfD10AndEachHasAReason() throws IOException {
+    void theNotRecordableCasesAreTheD10ExemptionsAndTheAdminRecordings() throws IOException {
         Map<String, String> reasons = notRecordable(ROOT);
 
         assertThat(reasons.keySet()).containsExactlyInAnyOrderElementsOf(NOT_RECORDABLE);
         assertThat(reasons).allSatisfy((name, reason) ->
             assertThat(reason).as(name).hasSizeGreaterThan(20));
+        ADMINISTRATION.forEach(name -> assertThat(V90Cases.origin(name)).as(name)
+            .matches("recorded \\d{4}-\\d{2}-\\d{2} 9\\.0\\.\\d+ neutralized"));
     }
 
     @Test

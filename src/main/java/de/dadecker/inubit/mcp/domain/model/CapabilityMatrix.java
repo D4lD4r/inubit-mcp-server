@@ -72,12 +72,6 @@ public final class CapabilityMatrix {
         true);
 
     /**
-     * Feature 022 (research D-1, D-12): each capability is refused on 8.1 and 9.0 with this note
-     * until its contract tests flip it.
-     */
-    private static final String NOT_YET_VERIFIED = "not yet verified";
-
-    /**
      * 8.1: everything; the server-log reads of feature 021 since their recordings (trace log T033,
      * web service log T046), reading the server settings of feature 022 since its recordings
      * (T014, contract tests T025), reading the users of feature 022 since its recordings (T028,
@@ -90,16 +84,11 @@ public final class CapabilityMatrix {
      * 9.0 responses are under contract test (feature 018, FR-016, research D-7); reading Queue
      * Manager entries included since its recorded 9.0 error entry (feature 020, FR-019, research
      * D-20); the server-log reads of feature 021 since their recordings (trace log T051, web
-     * service log T052); reading the server settings and the users of feature 022 not yet
-     * verified.
+     * service log T052); reading the server settings and the users of feature 022 since their
+     * recordings (T024, T028b; contract tests T026, T037a).
      */
     private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0),
-        with(with(with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED),
-            Capability.SERVER_SETTINGS, SupportState.UNSUPPORTED),
-            Capability.USER_DIRECTORY, SupportState.UNSUPPORTED),
-        Map.of(), false,
-        Map.of(Capability.SERVER_SETTINGS, NOT_YET_VERIFIED,
-            Capability.USER_DIRECTORY, NOT_YET_VERIFIED));
+        with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED));
 
     /**
      * Unknown versions: reading Queue Manager entries, the server logs, the server settings and
@@ -144,10 +133,9 @@ public final class CapabilityMatrix {
      * unsupported. Feature 021 (research D-6): downloading the trace log and the web service log
      * is supported on 8.1 (T033, T046) and 9.0 (T051, T052), on any other and on unknown versions
      * unsupported. Feature 022 (research D-1): reading the server settings is supported on 8.1
-     * since its contract tests (T025), unsupported on 9.0 with the note "not yet verified" until
-     * T026, and unsupported on every other and on unknown versions; reading the users (US2) is
-     * supported on 8.1 since its contract tests (T037), unsupported on 9.0 with the note "not yet
-     * verified", and unsupported on every other and on unknown versions.
+     * and 9.0 since their contract tests (T025, T026), and unsupported on every other and on
+     * unknown versions; reading the users (US2) is supported on 8.1 and 9.0 since their contract
+     * tests (T037, T037a), and unsupported on every other and on unknown versions.
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;

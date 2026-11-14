@@ -59,7 +59,7 @@ import org.junit.jupiter.params.provider.CsvSource;
  * FR-013): the views {@code users}, {@code user} and {@code logins} of {@code read_users}. The
  * capability matrix supports {@code USER_DIRECTORY} and the coverage list is a fixture whose US2
  * rows are reachable on 8.1 ({@code -nwho} covered) and {@code planned} on 9.0, as in the
- * production list since T037. The message views wait for an L-17 recording (owner decision
+ * production list until T037a. The message views wait for an L-17 recording (owner decision
  * 2026-11-13).
  */
 @Timeout(30)
@@ -128,7 +128,8 @@ class UserReadServiceTest {
         assertThat(page.nextOffset()).isEqualTo(OptionalInt.of(25));
         // one session for the page's logins, in page order
         assertThat(directory.sessions).containsExactly(logins(0, 25));
-        assertThat(page.items().get(0).group()).isEqualTo(new Block.Parsed<>("Group-user-000"));
+        assertThat(page.items().get(0).groups())
+            .isEqualTo(new Block.Parsed<>(new UserGroups("Group-user-000", "Super-Group")));
         assertThat(page.items().get(0).roles())
             .isEqualTo(new Block.Parsed<>(List.of("Role-user-000")));
 
@@ -163,7 +164,7 @@ class UserReadServiceTest {
         ViewResult<Page<UserEntry>> result = service.users("dev/node1", 0, OptionalInt.empty());
 
         assertThat(Arrays.stream(UserEntry.class.getRecordComponents())
-            .map(RecordComponent::getName)).containsExactly("login", "group", "roles");
+            .map(RecordComponent::getName)).containsExactly("login", "groups", "roles");
         assertThat(result.toString()).doesNotContain("@", "example.test", "Doe");
         assertThat(result.sources()).isEqualTo(Map.of("logins", Channel.REST,
             "groups", Channel.CLI, "roles", Channel.CLI));
@@ -283,10 +284,11 @@ class UserReadServiceTest {
 
         assertThat(items).extracting(UserEntry::login)
             .containsExactly("user-000", "user-001", "user-002");
-        assertThat(items.get(1).group()).isEqualTo(new Block.Unavailable<>(BLOCK_UNREADABLE));
+        assertThat(items.get(1).groups()).isEqualTo(new Block.Unavailable<>(BLOCK_UNREADABLE));
         assertThat(items.get(1).roles())
             .isEqualTo(new Block.Parsed<>(List.of("Role-user-001")));
-        assertThat(items.get(0).group()).isEqualTo(new Block.Parsed<>("Group-user-000"));
+        assertThat(items.get(0).groups())
+            .isEqualTo(new Block.Parsed<>(new UserGroups("Group-user-000", "Super-Group")));
     }
 
     @Test
@@ -299,7 +301,7 @@ class UserReadServiceTest {
         assertThat(result.value().items()).extracting(UserEntry::login)
             .containsExactly("user-000", "user-001", "user-002");
         assertThat(result.value().items()).allSatisfy(entry -> {
-            assertThat(entry.group()).isEqualTo(new Block.Unavailable<>(SESSION_FAILED));
+            assertThat(entry.groups()).isEqualTo(new Block.Unavailable<>(SESSION_FAILED));
             assertThat(entry.roles()).isEqualTo(new Block.Unavailable<>(SESSION_FAILED));
         });
         assertThat(result.sources()).isEqualTo(Map.of("logins", Channel.REST));
@@ -355,6 +357,42 @@ class UserReadServiceTest {
         assertThat(directory.listCalls).isZero();
         assertThat(directory.sessions).isEmpty();
         assertThat(directory.loginReads).isZero();
+    }
+
+    /**
+     * T037a (owner decision 2026-11-14): the production list excludes {@code -who} on 9.0, whose
+     * {@code --who} lists no client connection (research "Live recording T024/T028b"). The view
+     * {@code logins} is refused there with that reason before anything runs, never answered with
+     * an empty page; the views {@code users} and {@code user} are admitted, and 8.1 still reads
+     * the logins.
+     */
+    @Test
+    void onTheProductionListTheLoginsAreRefusedOn90WithTheReasonAndStillReadOn81() {
+        VersionGate productionGate = new VersionGate(versions,
+            new FakeVersionDetection(versions), userDirectorySupported(),
+            (node, version, timeout) -> {
+                throw new AssertionError("no client probe expected for " + node);
+            }, TestClientSelection.of(withClient::contains), node -> Duration.ZERO,
+            Terminology.DEFAULT, false, InterfaceCoverage.production());
+        UserReadService onProduction = new UserReadService(
+            new TargetResolver(List.of(DEV1, TEST1)), productionGate, node -> directory);
+        directory.users = shuffledUsers(2);
+        directory.loggedIn = List.of(new LoginEntry("jdoe", Optional.empty()));
+
+        ToolErrorException e = catchThrowableOfType(ToolErrorException.class,
+            () -> onProduction.logins("test/node1", 0, OptionalInt.empty()));
+
+        assertThat(e).isNotNull();
+        assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+        assertThat(e.error().message()).contains("logins via CLI -who is excluded for INUBIT"
+            + " 9.0: the 9.0 listing has no Toolset row");
+        assertThat(directory.loginReads).isZero();
+        assertThat(onProduction.users("test/node1", 0, OptionalInt.empty()).value().items())
+            .extracting(UserEntry::login).containsExactly("user-000", "user-001");
+        assertThat(onProduction.user("test/node1", "user-001").value().login())
+            .isEqualTo("user-001");
+        assertThat(onProduction.logins("dev/node1", 0, OptionalInt.empty()).value().items())
+            .containsExactly(new LoginEntry("jdoe", Optional.empty()));
     }
 
     // --- helpers -------------------------------------------------------------------------------

@@ -74,6 +74,11 @@
       "properties": {
         "login": { "type": "string" },
         "group": { "type": "string" },
+        "additionalGroups": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The additional user groups; absent if INUBIT shows none"
+        },
         "roles": { "type": "array", "items": { "type": "string" } },
         "unavailable": {
           "type": "array",
@@ -96,6 +101,11 @@
         "login": { "type": "string" },
         "group": { "type": "string" },
         "superGroup": { "type": "string", "description": "The parent of the user group" },
+        "additionalGroups": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The additional user groups; absent if INUBIT shows none"
+        },
         "roles": { "type": "array", "items": { "type": "string" } },
         "email": { "type": "string", "description": "Absent if INUBIT shows none" },
         "personal": {

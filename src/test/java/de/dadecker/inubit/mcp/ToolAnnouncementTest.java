@@ -346,7 +346,7 @@ class ToolAnnouncementTest {
     void onTheProductionMatrixThe81And90RecordingsAnnounceTheDownload() {
         // T033: 8.1 admits the trace log, so an 8.1 and an AUTO node with a client home run it;
         // feature 022 T025, T037: 8.1 (and so an AUTO node) also admits the server settings and
-        // the users
+        // the users; T026, T037a: 9.0 admits the server settings and the users
         List<String> withDownload = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
             "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
@@ -363,10 +363,10 @@ class ToolAnnouncementTest {
             CapabilityMatrix.production())).containsExactlyElementsOf(withSettings);
         // T051: 9.0 admits the trace log, so a node pinned to 9.0 with a 9.0 client runs it
         assertThat(groupTools("V9_0", "", true, CapabilityMatrix.production()))
-            .containsExactlyElementsOf(withDownload);
+            .containsExactlyElementsOf(withSettings);
         // T052: 9.0 also admits the web service log, which adds no tool for an opted-in node
         assertThat(groupTools("V9_0", serverLogOptIn("true"), true,
-            CapabilityMatrix.production())).containsExactlyElementsOf(withDownload);
+            CapabilityMatrix.production())).containsExactlyElementsOf(withSettings);
     }
 
     // --- feature 021 T043: the web service branch of download_server_log (FR-002, D-17) ----
@@ -444,8 +444,8 @@ class ToolAnnouncementTest {
     // --- feature 022 T022: get_server_settings (contracts/mcp-tools-delta.md "Announcement") --
 
     @Test
-    void onTheProductionMatrixTheServerSettingsAreAnnouncedFor81Only() {
-        // T025 flipped 8.1; 9.0 refuses SERVER_SETTINGS as "not yet verified" until T026
+    void onTheProductionMatrixTheServerSettingsAreAnnouncedFor81And90() {
+        // T025 flipped 8.1, T026 flipped 9.0
         assertThat(groupTools("V8_1", cliHome(), false, CapabilityMatrix.production()))
             .contains("get_server_settings");
         assertThat(groupTools("V8_1", "", false, CapabilityMatrix.production()))
@@ -456,7 +456,7 @@ class ToolAnnouncementTest {
         assertThat(toolNames("V6_1", "V8_1", CapabilityMatrix.production()))
             .contains("get_server_settings");
         assertThat(groupTools("V9_0", "", true, CapabilityMatrix.production()))
-            .doesNotContain("get_server_settings");
+            .contains("get_server_settings");
         assertThat(toolNames("V6_1", "V6_1", CapabilityMatrix.production()))
             .doesNotContain("get_server_settings");
     }
@@ -510,8 +510,8 @@ class ToolAnnouncementTest {
     }
 
     @Test
-    void onTheProductionMatrixReadUsersIsAnnouncedFor81Only() {
-        // T037 flipped 8.1; 9.0 refuses USER_DIRECTORY as "not yet verified"
+    void onTheProductionMatrixReadUsersIsAnnouncedFor81And90() {
+        // T037 flipped 8.1, T037a flipped 9.0
         assertThat(groupTools("V8_1", cliHome(), false, CapabilityMatrix.production()))
             .contains("read_users");
         assertThat(groupTools("V8_1", "", false, CapabilityMatrix.production()))
@@ -521,7 +521,7 @@ class ToolAnnouncementTest {
         assertThat(toolNames("V6_1", "V8_1", CapabilityMatrix.production()))
             .contains("read_users");
         assertThat(groupTools("V9_0", "", true, CapabilityMatrix.production()))
-            .doesNotContain("read_users");
+            .contains("read_users");
         assertThat(toolNames("V6_1", "V6_1", CapabilityMatrix.production()))
             .doesNotContain("read_users");
     }

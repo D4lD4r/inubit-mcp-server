@@ -28,7 +28,8 @@ import java.util.regex.Pattern;
  * {@code <host>} is the server's host name, followed on the same line by the client's echo of the
  * command it read, also of {@code exit}; the answer starts on the next line. The echo is no
  * output and is dropped whatever it reads (an echoed secret is masked by then, so it is not
- * compared with the command). A refused command does not end the session. The 6.1 parser passes
+ * compared with the command). A refused command does not end the session. 9.0 prints the same
+ * prompt and echo (T024, {@code fixtures/v9_0/cli/admin-settings-session}). The 6.1 parser passes
  * its own prompt, after which the output starts on the same line ({@code echoed} false).
  */
 public final class CliSessionParser {

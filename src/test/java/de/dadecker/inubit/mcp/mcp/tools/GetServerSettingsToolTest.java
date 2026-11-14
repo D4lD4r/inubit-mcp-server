@@ -295,8 +295,10 @@ class GetServerSettingsToolTest {
     void aStageGivesOneEntryPerServerAndAFailedServerOnlyItsError() {
         // AS5: one entry per server, in the order of the read; FR-013: a refused server
         ToolError refused = ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
-            "get_server_settings: INUBIT 9.0 on test/node2 is not yet verified",
-            "The coverage list has no verified entry", "Use another node");
+            "INUBIT 6.1 on test/node2 does not support reading server settings;"
+                + " use the Workbench",
+            "This server declares reading server settings unsupported for that version",
+            "Use another node");
         results = List.of(NodeResult.success(NODE1, new NodeSettings(full(NODE1), List.of())),
             NodeResult.failure(NODE2, refused));
 
@@ -309,7 +311,8 @@ class GetServerSettingsToolTest {
         assertThat(settings.get(1).path("error").path("code").asString())
             .isEqualTo("UNSUPPORTED_VERSION");
         assertThat(settings.get(1).path("error").path("message").asString())
-            .isEqualTo("get_server_settings: INUBIT 9.0 on test/node2 is not yet verified");
+            .isEqualTo("INUBIT 6.1 on test/node2 does not support reading server settings;"
+                + " use the Workbench");
     }
 
     @Test

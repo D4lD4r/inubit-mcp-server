@@ -100,13 +100,10 @@ class UsersV81ContractTest {
         }
     }
 
+    /** 9.0: {@code UsersV90ContractTest} (T037a). */
     @Test
-    void theListIsReachableForTheUsersViewOn81AndPlannedOn90() {
-        InterfaceCoverage coverage = InterfaceCoverage.production();
-
-        assertThat(coverage.state(Channel.REST, "GET /user/users", new MajorMinor(8, 1)))
-            .contains(new CoverageState.Reachable("read_users", "users"));
-        assertThat(coverage.state(Channel.REST, "GET /user/users", new MajorMinor(9, 0)))
-            .contains(new CoverageState.Planned());
+    void theListIsReachableForTheUsersViewOn81() {
+        assertThat(InterfaceCoverage.production().state(Channel.REST, "GET /user/users",
+            new MajorMinor(8, 1))).contains(new CoverageState.Reachable("read_users", "users"));
     }
 }

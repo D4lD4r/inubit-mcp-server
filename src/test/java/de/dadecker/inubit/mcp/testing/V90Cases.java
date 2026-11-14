@@ -29,7 +29,7 @@ import java.util.function.Function;
  * <p>REST cases: {@code <case>.http} ({@code status:}, {@code content-type:}) and one body file
  * {@code <case>.<json|xml|zip|html|txt>} (POST cases also {@code <case>.request.xml}). CLI cases:
  * {@code <case>.stdout}, {@code <case>.stderr}, {@code <case>.exit} (export cases also
- * {@code <case>.zip}).
+ * {@code <case>.zip}, cases that send stdin lines also {@code <case>.stdin}).
  */
 public final class V90Cases {
 
@@ -82,6 +82,20 @@ public final class V90Cases {
             "unknown_command", "login_failed", "unreachable", "ps_all", "export_history_sample",
             "export_modules_sample", "import_created", "tag_ok", "processErrorStart_ok",
             "kill_ok")) {
+            cases.put(cli, Kind.CLI);
+        }
+        // feature 022 (T024, T028b): administration recordings, see NOT_RECORDABLE.txt
+        for (String rest : List.of("admin-license", "admin-configurations", "admin-users")) {
+            cases.put(rest, Kind.REST);
+        }
+        for (String cli : List.of("admin-settings-session", "admin-settings-threads-refused",
+            "admin-settings-privileged-percentage-refused",
+            "admin-settings-privileged-list-refused", "admin-settings-db-tolerance",
+            "admin-settings-date", "admin-settings-license-days", "admin-settings-license-seconds",
+            "admin-users-session", "admin-users-user", "admin-users-finger",
+            "admin-users-user-capitalized", "admin-users-finger-capitalized",
+            "admin-users-user-underscore", "admin-users-finger-no-name",
+            "admin-users-msglist-empty", "admin-users-who", "admin-users-nwho")) {
             cases.put(cli, Kind.CLI);
         }
         return Collections.unmodifiableMap(cases);

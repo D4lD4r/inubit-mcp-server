@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ns2:UserList xmlns:ns2="inubit.com/ibis/external/user" xmlns:ns1="inubit.com/ibis/external/base">
+    <ns2:User id="User01" email="user01@corp.example.test" type="ProcessEngineUser" firstName="First01" lastName="Last01"/>
+    <ns2:User id="User02" email="user02@corp.example.test" type="ProcessEngineUser" firstName="First02" lastName="Last02"/>
+    <ns2:User id="User03" email="user03@corp.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="Ops_viewer" email="ops.viewer@corp.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User04" email="user04@corp.example.test" type="ProcessEngineUser" firstName="First04" lastName="Last04"/>
+    <ns2:User id="User07" email="user07@corp.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User06" email="user06@corp.example.test" type="ProcessEngineUser" firstName="First06" lastName="Last06"/>
+    <ns2:User id="User09" email="user09@partner.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User10" email="user10@partner.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User11" email="user11@corp.example.test" type="ProcessEngineUser" firstName="First11" lastName="Last11"/>
+    <ns2:User id="User12" email="user12@corp.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User13" email="user13@corp.example.test" type="ProcessEngineUser" firstName="First13" lastName="Last13"/>
+    <ns2:User id="User15" email="user15@corp.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User17" email="user17@corp.example.test" type="ProcessEngineUser" firstName="First17" lastName="Last17"/>
+    <ns2:User id="User18" email="user18@corp.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User19" email="user19@partner.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="jdoe" email="john.doe@example.test" type="ProcessEngineUser" firstName="John" lastName="Doe"/>
+    <ns2:User id="User22" email="user22@corp.example.test" type="ProcessEngineUser" firstName="First22" lastName="Last22"/>
+    <ns2:User id="User23" email="user23@corp.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User60" email="user60@corp.example.test" type="ProcessEngineUser" firstName="First60" lastName="Last60"/>
+    <ns2:User id="User24" email="user24@corp.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User25" email="user25@partner.example.test" type="ProcessEngineUser" firstName="First25" lastName="Last25"/>
+    <ns2:User id="User26" email="ops.viewer@corp.example.test" type="ProcessEngineUser" firstName="First26" lastName="Last26"/>
+    <ns2:User id="User27" email="user27@corp.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User28" email="user28@corp.example.test" type="ProcessEngineUser" firstName="First28" lastName="Last28"/>
+    <ns2:User id="User30" email="user30@mail.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User32" email="user32@corp.example.test" type="ProcessEngineUser" firstName="First32" lastName="Läst32"/>
+    <ns2:User id="User34" email="user34@mail.example.test" type="ProcessEngineUser" firstName="First34" lastName="Last34"/>
+    <ns2:User id="User35" email="user35@corp.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User36" email="user36@partner.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User37" email="user37@corp.example.test" type="ProcessEngineUser" firstName="First37" lastName="Last37"/>
+    <ns2:User id="User61" email="user61@corp.example.test" type="ProcessEngineUser" firstName="Färst61" lastName="Last61"/>
+    <ns2:User id="User38" email="user38@mail.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User39" email="user39@partner.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User40" email="user40@corp.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User41" email="user41@corp.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="user42" email="user42@example.test" type="ProcessEngineUser" firstName="First42" lastName="Last42"/>
+    <ns2:User id="User43" email="user43@corp.example.test" type="ProcessEngineUser" firstName="First43" lastName="Last43"/>
+    <ns2:User id="User44" email="user44@partner.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User45" email="user45@partner.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User46" email="user46@corp.example.test" type="ProcessEngineUser" firstName="Färst46" lastName="Last46"/>
+    <ns2:User id="user47" email="user47@example.test" type="ProcessEngineUser" firstName="First47" lastName="Läst47"/>
+    <ns2:User id="User48" email="user48@corp.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User49" email="user49@mail.example.test" type="ProcessEngineUser" firstName="First49" lastName="Last49"/>
+    <ns2:User id="User51" email="user51@corp.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User50" email="user50@corp.example.test" type="ProcessEngineUser" firstName="First50" lastName="Last50"/>
+    <ns2:User id="User52" email="user52@corp.example.test" type="ProcessEngineUser" firstName="First52" lastName="Last52"/>
+    <ns2:User id="User62" email="user62@corp.example.test" type="ProcessEngineUser" firstName="First62" lastName="Last62"/>
+    <ns2:User id="User53" email="user53@corp.example.test" type="ProcessEngineUser" firstName="First53" lastName="Last53"/>
+    <ns2:User id="user54" email="user54@test-mail.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User55" email="user55@corp.example.test" type="ProcessEngineUser" firstName="First55" lastName="Last55"/>
+    <ns2:User id="User63" email="user63@corp.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="qa_robot" email="qa.robot+qa_inubit@corp.example.test" type="ProcessEngineUser"/>
+    <ns2:User id="User57" email="user57@corp.example.test" type="ProcessEngineUser" firstName="First57" lastName="Last57"/>
+    <ns2:User id="User58" email="user58@corp.example.test" type="ProcessEngineUser" firstName="First58" lastName="Last58"/>
+</ns2:UserList>

@@ -80,7 +80,7 @@ import org.junit.jupiter.api.io.TempDir;
  * T021 (feature 022, US1, research D-2 "Gate per call", D-6, FR-002, FR-009, FR-013): the reads of
  * {@code get_server_settings}. The capability matrix supports {@code SERVER_SETTINGS} on 8.1 and
  * 9.0 and the coverage list is a fixture whose US1 rows are reachable, so the parts reach the
- * ports; the production list keeps them {@code planned} until the recordings (T025/T026).
+ * ports, independent of the production list (reachable on 8.1 and 9.0 since T025, T026).
  */
 @Timeout(30)
 class ServerSettingsServiceTest {
