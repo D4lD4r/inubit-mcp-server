@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
  * T031 (feature 022, US2): the answer of {@code user <login>}, against the recorded cases
  * {@code admin-users-user*} and {@code admin-users-session} (T028: three rows {@code User name},
  * {@code User group}, {@code Super group}, labels padded to 13 characters, values padded with
- * trailing spaces).
+ * trailing spaces); T037a: the fourth row {@code Additional user group} of 9.0 (T028b).
  */
 class UserGroupsParserTest {
 
@@ -41,6 +41,31 @@ class UserGroupsParserTest {
         assertThat(UserGroupsParser.parse("jdoe", List.of("User name    jdoe          ",
             "User group   Ops Team      ", "Super group  Head Office   ")))
             .isEqualTo(new UserGroups("Ops Team", "Head Office"));
+    }
+
+    /** T037a: 9.0 adds this row for a user with an additional group, labels padded to 23. */
+    @Test
+    void theAdditionalUserGroupRowGivesTheAdditionalGroup() {
+        assertThat(UserGroupsParser.parse("jdoe", List.of("User name              jdoe          ",
+            "User group             OPS           ", "Super group            headoffice    ",
+            "Additional user group  Process Portal")))
+            .isEqualTo(new UserGroups("OPS", "headoffice", List.of("Process Portal")));
+        assertThat(OPS.additionalGroups()).as("the three-row answer").isEmpty();
+    }
+
+    @Test
+    void anAdditionalUserGroupRowOutOfPlaceTwiceOrWithoutValueIsUnknown() {
+        String user = "User name              jdoe ";
+        String group = "User group             OPS  ";
+        String superGroup = "Super group            headoffice ";
+        String additional = "Additional user group  QA   ";
+
+        assertUnknown(() -> UserGroupsParser.parse("jdoe", List.of(user, group, additional,
+            superGroup)));
+        assertUnknown(() -> UserGroupsParser.parse("jdoe", List.of(user, group, superGroup,
+            additional, additional)));
+        assertUnknown(() -> UserGroupsParser.parse("jdoe", List.of(user, group, superGroup,
+            "Additional user group  ")));
     }
 
     @Test

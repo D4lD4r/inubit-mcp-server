@@ -569,7 +569,7 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
   a session with `user`/`finger` for three logins, `--who`, `--nwho`, `msglist` (and `msgread`
   for one message if the account has one, L-17), into `fixtures/v9_0/{cli,rest}/admin-users-*`
   with `.origin`.
-- [ ] T037a [US2] 9.0 contracts and flip (after T028b): `UsersV90ContractTest` (REST and CLI), the
+- [X] T037a [US2] 9.0 contracts and flip (after T028b): `UsersV90ContractTest` (REST and CLI), the
   `v9_0` column of the US2 rows (`-nwho` `covered:read_users`), `USER_DIRECTORY` on 9.0, catalogue
   entries, `waits`.
 - [ ] T038a [US1] [US2] Docs and PR for 9.0 (after T026, T037a): `docs/tools.md`, `CHANGELOG.md`,

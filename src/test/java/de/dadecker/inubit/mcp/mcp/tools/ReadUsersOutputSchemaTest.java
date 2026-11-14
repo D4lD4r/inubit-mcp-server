@@ -123,7 +123,8 @@ class ReadUsersOutputSchemaTest {
 
     private static Map<String, Object> users() {
         return json(ReadUsersTool.Result.users(new ViewResult<>(NODE,
-            page(new UserEntry("a", new Block.Parsed<>("Group-a"),
+            page(new UserEntry("a",
+                new Block.Parsed<>(new UserGroups("Group-a", "Super", List.of("Extra-a"))),
                 new Block.Parsed<>(List.of("Role-a")))),
             Map.of("logins", Channel.REST, "groups", Channel.CLI, "roles", Channel.CLI),
             List.of("a warning"))));
@@ -131,7 +132,7 @@ class ReadUsersOutputSchemaTest {
 
     private static Map<String, Object> user() {
         return json(ReadUsersTool.Result.user(new ViewResult<>(NODE, new UserFacts("a",
-            new Block.Parsed<>(new UserGroups("Group-a", "Super")),
+            new Block.Parsed<>(new UserGroups("Group-a", "Super", List.of("Extra-a"))),
             new Block.Parsed<>(new Finger("a", List.of("Role-a"), Optional.of("a@example.test"),
                 List.of(PersonalField.shown("Name", "Doe"), PersonalField.masked("Token"))))),
             Map.of("logins", Channel.REST, "groups", Channel.CLI, "roles", Channel.CLI,

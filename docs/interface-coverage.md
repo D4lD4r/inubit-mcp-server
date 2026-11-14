@@ -15,11 +15,11 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 
 | State | 8.1 | 9.0 |
 | --- | ---: | ---: |
-| reachable | 42 | 38 |
-| covered | 39 | 38 |
-| planned | 103 | 107 |
+| reachable | 42 | 41 |
+| covered | 39 | 39 |
+| planned | 103 | 102 |
 | undocumented | 3 | 1 |
-| excluded | 63 | 66 |
+| excluded | 63 | 67 |
 | all entries | 250 | 250 |
 
 ## A. Server state and settings
@@ -75,12 +75,12 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 
 | Entry | Kind | Story | 8.1 | 9.0 |
 | --- | --- | --- | --- | --- |
-| CLI `finger` | READ | US2 | reachable `read_users/users` | planned, waits `9.0-pin` |
-| CLI `user` | READ | US2 | reachable `read_users/users` | planned, waits `9.0-pin` |
-| CLI `-who` | READ | US2 | reachable `read_users/logins` | planned, waits `9.0-pin` |
-| CLI `-nwho` | READ | US2 | covered `read_users` | planned, waits `9.0-pin` |
-| CLI `msglist` | READ | US2 | planned, waits `L-17+9.0-pin` | planned, waits `L-17+9.0-pin` |
-| CLI `msgread` | READ | US2 | planned, waits `L-17+9.0-pin` | planned, waits `L-17+9.0-pin` |
+| CLI `finger` | READ | US2 | reachable `read_users/users` | reachable `read_users/users` |
+| CLI `user` | READ | US2 | reachable `read_users/users` | reachable `read_users/users` |
+| CLI `-who` | READ | US2 | reachable `read_users/logins` | excluded: the 9.0 listing has no Toolset row, not even for StartCLI's own connection, so no login can be read |
+| CLI `-nwho` | READ | US2 | covered `read_users` | covered `read_users` |
+| CLI `msglist` | READ | US2 | planned, waits `L-17` | planned, waits `L-17` |
+| CLI `msgread` | READ | US2 | planned, waits `L-17` | planned, waits `L-17` |
 | CLI `create -cu` | WRITE | US7 | planned | planned |
 | CLI `create -cug` | WRITE | US7 | planned | planned |
 | CLI `create -cur` | WRITE | US7 | planned | planned |
@@ -110,7 +110,7 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | CLI `msgdel` | WRITE | US7 | planned | planned |
 | CLI `msgdel -a` | WRITE | US7 | planned | planned |
 | REST `DELETE /user/users/{name}` | WRITE | US7 | planned | planned |
-| REST `GET /user/users` | READ | US2 | reachable `read_users/users` | planned, waits `9.0-pin` |
+| REST `GET /user/users` | READ | US2 | reachable `read_users/users` | reachable `read_users/users` |
 
 ## C. Libraries, plug-ins, EDI rules, keys
 

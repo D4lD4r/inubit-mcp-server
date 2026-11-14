@@ -977,3 +977,11 @@ recordings (`WhoParser` assumes fixed columns of 64, 30, 10 and 15). The contrac
 the 9.0 license shape (`application/xml`, new `LicenseName` and `Environment`, 3-space indent),
 the `/user/users` form (XML declaration, `ns2:UserList`, one user per line; the parsers match
 local names) and the 21 configuration leaves 9.0 no longer has.
+
+**Decided in T037a (owner decision 2026-11-14).** On 9.0 the `logins` view is refused, not
+answered with an empty page: `--who` lists no `Toolset` row, so the row `-who` is
+`excluded:<reason>` for 9.0 (a live check that failed, data-model "Transitions") and the gate
+refuses the view with that reason before `--who` runs; `WhoParser` keeps its 8.1 columns. `-nwho`
+is `covered:read_users` on 9.0 as on 8.1. The `Additional user group` row is read into
+`additionalGroups` (one group per row). `msglist` and `msgread` stay `planned`, waiting for L-17
+only.

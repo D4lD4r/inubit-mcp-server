@@ -49,7 +49,8 @@ import java.util.function.Function;
  *   <li>{@code logins}: the {@code Toolset} rows of {@code --who}, sorted by login and paged as
  *       above, without a login time on 8.1 (research "Live recording T028a"). The page total is
  *       the number of these rows; {@code --nwho} counts every connected system, databases
- *       included, so it is not read and never reported as a number of users.
+ *       included, so it is not read and never reported as a number of users. On 9.0 the view
+ *       is refused (row {@code -who} excluded): {@code --who} lists no client connection there.
  *   <li>{@code sources} names the channel of each fact that was read (FR-009): {@code logins} REST;
  *       {@code groups}, {@code roles}, {@code email}, {@code personal} and {@code loggedIn} CLI.
  *       {@code accountState} is not in it: neither {@code user} nor {@code finger} shows one on 8.1
@@ -95,23 +96,23 @@ public final class UserReadService {
     }
 
     /**
-     * One user of the {@code users} view: its login from the REST list and its group and roles
+     * One user of the {@code users} view: its login from the REST list and its groups and roles
      * from the session, each read or unavailable with the reason (FR-013). It has no personal
      * field by construction (FR-011, AS5).
      *
-     * @param group the user's group ({@code user <login>})
-     * @param roles the user's roles ({@code finger <login>})
+     * @param groups the user's groups ({@code user <login>})
+     * @param roles  the user's roles ({@code finger <login>})
      */
-    public record UserEntry(String login, Block<String> group, Block<List<String>> roles) {
+    public record UserEntry(String login, Block<UserGroups> groups, Block<List<String>> roles) {
 
         public UserEntry {
             Objects.requireNonNull(login, "login");
-            Objects.requireNonNull(group, "group");
+            Objects.requireNonNull(groups, "groups");
             Objects.requireNonNull(roles, "roles");
         }
 
         static UserEntry of(UserFacts facts) {
-            return new UserEntry(facts.login(), map(facts.groups(), UserGroups::group),
+            return new UserEntry(facts.login(), facts.groups(),
                 map(facts.finger(), Finger::roles));
         }
     }
@@ -145,7 +146,7 @@ public final class UserReadService {
             .toList();
         Map<String, Channel> sources = new HashMap<>();
         sources.put("logins", Channel.REST);
-        if (entries.stream().anyMatch(entry -> entry.group() instanceof Block.Parsed)) {
+        if (entries.stream().anyMatch(entry -> entry.groups() instanceof Block.Parsed)) {
             sources.put("groups", Channel.CLI);
         }
         if (entries.stream().anyMatch(entry -> entry.roles() instanceof Block.Parsed)) {
@@ -191,7 +192,9 @@ public final class UserReadService {
     }
 
     /**
-     * A page of the logged-in users of {@code target}, sorted by login (AS4).
+     * A page of the logged-in users of {@code target}, sorted by login (AS4). On 9.0 the gate
+     * refuses the view with the reason of the excluded row {@code -who}: the 9.0 {@code --who}
+     * lists no client connection (owner decision 2026-11-14).
      *
      * @throws ToolErrorException as {@link #users}, or the error of {@code --who}
      */

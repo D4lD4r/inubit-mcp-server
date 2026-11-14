@@ -162,20 +162,24 @@ One per server:
 
 The shapes of `read_users` (T035), each user flat (`user.login`):
 
-- `UserSummary` (view `users`): `login`, `group` (optional), `roles[]` (optional),
-  `unavailable[]`. It has no personal field: its schema admits no other property.
-- `UserDetail` (view `user`): `login`, `group` and `superGroup` (optional together), `roles[]`
-  (optional), `email` (optional), `personal[]` (optional; `PersonalField` `{name, value}` or
-  `{name, masked: true}`, masked by `SecretRules`), `unavailable[]`.
+- `UserSummary` (view `users`): `login`, `group` (optional), `additionalGroups[]` (optional),
+  `roles[]` (optional), `unavailable[]`. It has no personal field: its schema admits no other
+  property.
+- `UserDetail` (view `user`): `login`, `group` and `superGroup` (optional together),
+  `additionalGroups[]` (optional), `roles[]` (optional), `email` (optional), `personal[]`
+  (optional; `PersonalField` `{name, value}` or `{name, masked: true}`, masked by `SecretRules`),
+  `unavailable[]`.
 - `unavailable[]`: `{part, reason, likelyCause?, nextStep?}` as in `get_server_settings`
   (FR-013). An answer that could not be read leaves out its fields and names its parts: `groups`
-  (`group`, `superGroup`; from `user <login>`), `roles` (from `finger <login>`), and in
+  (`group`, `superGroup`, `additionalGroups`; from `user <login>`), `roles` (from `finger <login>`), and in
   `UserDetail` also `email` and `personal` (from the same `finger` answer). The user stays in the
   listing.
-- `additionalGroups` and `accountState` are not shown (research "Live recording T028", L-6): no
-  row for additional groups was recorded on 8.1, and a `user` answer with another row makes
-  `groups` unavailable instead of dropping it; no account state shows anywhere on 8.1. Both are
-  added once a recording shows them.
+- `additionalGroups` (T037a, research "Live recording T024/T028b"): the 9.0 row `Additional user
+  group` of `user <login>`, one group per row (only one additional group was recorded); absent
+  when the answer has no such row. No 8.1 recording showed it. A `user` answer with any other row
+  makes `groups` unavailable instead of dropping it.
+- `accountState` is not shown (research "Live recording T028", L-6): no account state shows
+  anywhere on 8.1 or 9.0. It is added once a recording shows one.
 
 `LoginEntry`: `login`, `since` (optional).
 

@@ -43,8 +43,10 @@ class TerminologyRenderingTest {
         "diagram/module group",
         "diagram group",
         "module group",
-        // a Workbench user group that owns diagrams and modules (inventory.owner)
+        // a Workbench user group that owns diagrams and modules (inventory.owner); feature 022
+        // T037a: the additional user groups of a user (read_users)
         "user group",
+        "user groups",
         // the elements of an INUBIT workflow that reference a module
         "workflow nodes");
 

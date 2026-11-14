@@ -38,11 +38,12 @@ class CapabilityMatrixTest {
      * Feature 017 (T004, research D-9): 9.0 is declared like 8.1, REST and CLI; partner
      * management is the exception of feature 018 (below); feature 020 (T038): reading Queue
      * Manager entries included since its 9.0 recording; feature 021: the server-log reads
-     * included since their 9.0 recordings (T051, T052).
+     * included since their 9.0 recordings (T051, T052); feature 022: the server settings and
+     * the users included since their 9.0 contract tests (T026, T037a).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"PARTNER_MANAGEMENT", "SERVER_SETTINGS",
-        "USER_DIRECTORY"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"PARTNER_MANAGEMENT"},
+        mode = EnumSource.Mode.EXCLUDE)
     void everyCapabilityIsSupportedOn90LikeOn81(Capability capability) {
         assertThat(production.state(version("9.0.7"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -344,11 +345,8 @@ class CapabilityMatrixTest {
         assertThat(production.stateOfLine(9, OptionalInt.of(0), Capability.QUEUE_ENTRY_READ))
             .isEqualTo(SupportState.SUPPORTED);
         for (Capability capability : Capability.values()) {
-            if (capability != Capability.SERVER_SETTINGS
-                && capability != Capability.USER_DIRECTORY) {
-                assertThat(production.note(version("9.0.7"), capability)).as("%s", capability)
-                    .isEmpty();
-            }
+            assertThat(production.note(version("9.0.7"), capability)).as("%s", capability)
+                .isEmpty();
         }
         assertThat(production.channels(version("9.0.7"), Capability.QUEUE_ENTRY_READ))
             .isEqualTo(Capability.QUEUE_ENTRY_READ.channels());
@@ -539,20 +537,19 @@ class CapabilityMatrixTest {
         assertThat(Capability.USER_DIRECTORY.label()).isEqualTo("reading users");
     }
 
-    /** Supported on 8.1 since its contract tests (T037); 9.0 "not yet verified". */
+    /** Supported on 8.1 and 9.0 since their contract tests (T037, T037a). */
     @Test
-    void userDirectoryIsSupportedOn81AndNotYetVerifiedOn90() {
+    void userDirectoryIsSupportedOn81And90() {
         assertThat(production.state(version("8.1.17"), Capability.USER_DIRECTORY))
             .isEqualTo(SupportState.SUPPORTED);
         assertThat(production.note(version("8.1.17"), Capability.USER_DIRECTORY)).isEmpty();
-        assertThat(production.state(version("9.0.7"), Capability.USER_DIRECTORY))
-            .isEqualTo(SupportState.UNSUPPORTED);
-        assertThat(production.note(version("9.0.7"), Capability.USER_DIRECTORY))
-            .contains("not yet verified");
+        assertThat(production.state(version("9.0.10"), Capability.USER_DIRECTORY))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.note(version("9.0.10"), Capability.USER_DIRECTORY)).isEmpty();
         assertThat(production.stateOfLine(8, OptionalInt.of(1), Capability.USER_DIRECTORY))
             .isEqualTo(SupportState.SUPPORTED);
         assertThat(production.stateOfLine(9, OptionalInt.of(0), Capability.USER_DIRECTORY))
-            .isEqualTo(SupportState.UNSUPPORTED);
+            .isEqualTo(SupportState.SUPPORTED);
         assertThat(production.lines(Capability.USER_DIRECTORY)).containsExactly("8.1", "9.0");
         assertThat(production.possiblySupported(Capability.USER_DIRECTORY)).isTrue();
     }

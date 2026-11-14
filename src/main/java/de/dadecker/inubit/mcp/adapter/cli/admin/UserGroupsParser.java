@@ -20,9 +20,12 @@ import java.util.regex.Pattern;
  * Super group  headoffice
  * </pre>
  *
- * <p>The super group is the parent of the user group, not an additional group. A row for
- * additional groups was not recorded (none of the recorded users has one), so any other row makes
- * the block unknown. The answer shows no roles and no account state.
+ * <p>The super group is the parent of the user group, not an additional group. On 9.0.10 (T028b,
+ * fixtures {@code v9_0/cli/admin-users-session} and {@code admin-users-user}) a user with an
+ * additional group has a fourth row, {@code Additional user group <group>}, and every label is
+ * padded to 23 characters. Its value is read as one group: only a user with one additional group
+ * was recorded, so how several are shown is not known. On 8.1 no recorded user had one. Any other
+ * row makes the block unknown. The answer shows no roles and no account state.
  *
  * <p>The error for an unknown block shows the recorded rows in full and of any other row only its
  * label ({@link UnknownOutput#paddedLabelsOnly}): such a row might hold a personal value, and the
@@ -34,11 +37,13 @@ public final class UserGroupsParser {
 
     private static final Pattern FORM = Pattern.compile("User name +(\\S.*)\n"
         + "User group +(\\S.*)\n"
-        + "Super group +(\\S.*)");
+        + "Super group +(\\S.*)"
+        + "(?:\nAdditional user group +(\\S.*))?");
     private static final Pattern KNOWN_ROW = Pattern.compile(
-        "(?:User name|User group|Super group) +\\S.*");
+        "(?:User name|User group|Super group|Additional user group) +\\S.*");
     private static final String EXPECTED = "the recorded form with the rows 'User name <login>',"
-        + " 'User group <group>' and 'Super group <group>'";
+        + " 'User group <group>', 'Super group <group>' and optionally"
+        + " 'Additional user group <group>'";
 
     private UserGroupsParser() {
     }
@@ -53,7 +58,8 @@ public final class UserGroupsParser {
         Matcher matcher = FORM.matcher(String.join("\n", block.stream().map(String::strip)
             .toList()));
         if (matcher.matches() && matcher.group(1).equals(login)) {
-            return new UserGroups(matcher.group(2), matcher.group(3));
+            return new UserGroups(matcher.group(2), matcher.group(3),
+                matcher.group(4) == null ? List.of() : List.of(matcher.group(4)));
         }
         throw UnknownOutput.paddedLabelsOnly(COMMAND, EXPECTED, block, KNOWN_ROW);
     }

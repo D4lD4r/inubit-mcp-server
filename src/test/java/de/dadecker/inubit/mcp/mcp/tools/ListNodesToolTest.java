@@ -1191,10 +1191,10 @@ class ListNodesToolTest {
         assertThat(notUsable(prod)).doesNotContain("server_settings");
     }
 
-    // --- feature 022 T033, T037: user_directory usable on 8.1, not yet verified on 9.0 (D-1) ----
+    // --- feature 022 T033, T037, T037a: user_directory usable on 8.1 and 9.0 (D-1) -------------
 
     @Test
-    void userDirectoryIsUsableOn81AndNotUsableOn90UntilVerified() {
+    void userDirectoryIsUsableOn81And90() {
         String baseUrl = "https://localhost:" + wireMock.httpsPort();
         String yaml = """
             profile:
@@ -1225,10 +1225,8 @@ class ListNodesToolTest {
         assertThat(usable(test)).contains("user_directory");
         assertThat(notUsable(test)).doesNotContain("user_directory");
         JsonNode prod = versions.get("prod/node1");
-        assertThat(usable(prod)).doesNotContain("user_directory");
-        assertThat(notUsable(prod)).contains("user_directory");
-        assertThat(reason(prod, "user_directory"))
-            .endsWith("reading users is not yet verified for INUBIT 9.0");
+        assertThat(usable(prod)).contains("user_directory");
+        assertThat(notUsable(prod)).doesNotContain("user_directory");
     }
 
     @Test

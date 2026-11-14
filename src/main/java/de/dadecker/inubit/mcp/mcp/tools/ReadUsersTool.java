@@ -38,15 +38,17 @@ public final class ReadUsersTool implements ToolHandler {
 
     static final String DESCRIPTION = "Read the users of one INUBIT {node}. `target` takes the id"
         + " of exactly one {node} (`<{group}>/<{node}>`). `view` picks what to read: `users` lists"
-        + " the users by login, each with its user group and roles, without e-mail or other"
-        + " personal fields; `user` shows the one user named in `login` with its user group, the"
-        + " parent of that user group, roles, e-mail and the other personal fields INUBIT shows"
-        + " (e-mail and personal fields come only for one named user); `logins` lists the users"
-        + " logged in with a client (the `Toolset` connections of StartCLI `--who`, this call's own"
-        + " connection included), without a login time on INUBIT 8.1. `users` and `logins` are"
-        + " sorted by login and paged with `offset` and `limit` (at most 25); `nextOffset` gives"
-        + " the next page. The logins come from the INUBIT user list; the user group, roles,"
-        + " e-mail and personal fields are read with StartCLI. A part that cannot be read is"
+        + " the users by login, each with its user group, additional user groups and roles,"
+        + " without e-mail or other personal fields; `user` shows the one user named in `login`"
+        + " with its user group, the parent of that user group, additional user groups, roles,"
+        + " e-mail and the other personal fields INUBIT shows (e-mail and personal fields come only"
+        + " for one named user); `logins` lists the users logged in with a client (the `Toolset`"
+        + " connections of StartCLI `--who`, this call's own connection included), without a login"
+        + " time on INUBIT 8.1; on INUBIT 9.0 `--who` lists no client connection, so `logins` is"
+        + " refused there. `users` and `logins` are sorted by login and paged with `offset` and"
+        + " `limit` (at most 25); `nextOffset` gives the next page. The logins come from the"
+        + " INUBIT user list; the user group, roles, e-mail and personal fields are read with"
+        + " StartCLI. A part that cannot be read is"
         + " listed under the user's `unavailable` with the reason, the other users and parts are"
         + " returned. An unknown login gives NOT_FOUND: list the users first. The messages of the"
         + " INUBIT message box are not offered yet. Reads only; changes nothing on INUBIT.";
@@ -121,22 +123,24 @@ public final class ReadUsersTool implements ToolHandler {
     }
 
     /** One user of the view {@code users}: no e-mail or other personal field (FR-011, AS5). */
-    record Summary(String login, Optional<String> group, Optional<List<String>> roles,
-        List<UnavailablePart> unavailable) {
+    record Summary(String login, Optional<String> group, Optional<List<String>> additionalGroups,
+        Optional<List<String>> roles, List<UnavailablePart> unavailable) {
 
         static Summary of(UserEntry entry) {
             List<UnavailablePart> unavailable = new ArrayList<>();
-            Optional<String> group = read(entry.group(), List.of(UnavailablePart.GROUPS),
+            Optional<UserGroups> groups = read(entry.groups(), List.of(UnavailablePart.GROUPS),
                 unavailable);
             Optional<List<String>> roles = read(entry.roles(), List.of(UnavailablePart.ROLES),
                 unavailable);
-            return new Summary(entry.login(), group, roles, unavailable);
+            return new Summary(entry.login(), groups.map(UserGroups::group),
+                additionalOf(groups), roles, unavailable);
         }
     }
 
     /** The one user of the view {@code user}, with its personal fields (FR-011, AS2). */
     record Detail(String login, Optional<String> group, Optional<String> superGroup,
-        Optional<List<String>> roles, Optional<String> email, Optional<List<Personal>> personal,
+        Optional<List<String>> additionalGroups, Optional<List<String>> roles,
+        Optional<String> email, Optional<List<Personal>> personal,
         List<UnavailablePart> unavailable) {
 
         static Detail of(UserFacts facts) {
@@ -146,7 +150,8 @@ public final class ReadUsersTool implements ToolHandler {
             Optional<Finger> finger = read(facts.finger(), List.of(UnavailablePart.ROLES,
                 UnavailablePart.EMAIL, UnavailablePart.PERSONAL), unavailable);
             return new Detail(facts.login(), groups.map(UserGroups::group),
-                groups.map(UserGroups::superGroup), finger.map(Finger::roles),
+                groups.map(UserGroups::superGroup), additionalOf(groups),
+                finger.map(Finger::roles),
                 finger.flatMap(Finger::email),
                 finger.map(read -> read.personal().stream().map(Personal::of).toList()),
                 unavailable);
@@ -160,6 +165,11 @@ public final class ReadUsersTool implements ToolHandler {
             return new Personal(field.name(), field.value(),
                 field.masked() ? Optional.of(true) : Optional.empty());
         }
+    }
+
+    /** The additional user groups, absent if the answer showed none or could not be read. */
+    private static Optional<List<String>> additionalOf(Optional<UserGroups> groups) {
+        return groups.map(UserGroups::additionalGroups).filter(names -> !names.isEmpty());
     }
 
     /**

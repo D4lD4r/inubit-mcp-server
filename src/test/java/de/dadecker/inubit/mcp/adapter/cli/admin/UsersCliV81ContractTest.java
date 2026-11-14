@@ -238,8 +238,9 @@ class UsersCliV81ContractTest {
 
     // --- coverage --------------------------------------------------------------------------
 
+    /** 9.0: {@code UsersV90ContractTest} (T037a). */
     @Test
-    void theCliRowsAreReachableByTheirViewsOn81AndPlannedOn90() {
+    void theCliRowsAreReachableByTheirViewsOn81() {
         InterfaceCoverage coverage = InterfaceCoverage.production();
 
         assertThat(coverage.state(Channel.CLI, "user", V8_1))
@@ -248,10 +249,6 @@ class UsersCliV81ContractTest {
             .contains(new CoverageState.Reachable("read_users", "users"));
         assertThat(coverage.state(Channel.CLI, "-who", V8_1))
             .contains(new CoverageState.Reachable("read_users", "logins"));
-        for (String entry : List.of("user", "finger", "-who", "-nwho", "msglist", "msgread")) {
-            assertThat(coverage.state(Channel.CLI, entry, new MajorMinor(9, 0))).as(entry)
-                .contains(new CoverageState.Planned());
-        }
         assertThat(coverage.state(Channel.CLI, "msglist", V8_1)).as("waits for L-17")
             .contains(new CoverageState.Planned());
         assertThat(coverage.state(Channel.CLI, "msgread", V8_1)).as("waits for L-17")

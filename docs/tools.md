@@ -135,8 +135,8 @@ offered in read-only mode, independent of `write.*`, `archives.*` and the produc
 or without a StartCLI installation (see [its section](#get_server_settings)).
 
 `read_users` is **offered only if** a node is not pinned to a version that refuses
-`user_directory` (since its 8.1 recordings: a node pinned to 8.1 or `AUTO`), with or without a
-StartCLI installation (see [its section](#read_users)).
+`user_directory` (since its 8.1 and 9.0 recordings: a node pinned to 8.1, 9.0 or `AUTO`), with
+or without a StartCLI installation (see [its section](#read_users)).
 
 The development tools of feature 004 are **offered only if at least one node is a development
 stage** (`development.enabled: true`, never on production groups; see
@@ -164,7 +164,7 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 | `list_nodes` | – | read | none | runs | runs (no INUBIT contact) | runs (no INUBIT contact) |
 | `get_health` | `monitoring` | read | REST; on 6.1 StartCLI | supported | runs with a warning; never refused | refused in this version (the report carries the refusal) |
 | `get_server_settings` | `server_settings` | read | REST + StartCLI | 8.1 and 9.0 supported, see [its section](#get_server_settings) | refused (no warning run) | refused |
-| `read_users` | `user_directory` | read | REST + StartCLI | 8.1 supported; 9.0 **refused until verified**, see [its section](#read_users) | refused (no warning run) | refused |
+| `read_users` | `user_directory` | read | REST + StartCLI | 8.1 and 9.0 supported (view `logins` refused on 9.0), see [its section](#read_users) | refused (no warning run) | refused |
 | `find_processes` | `process_diagnosis` | read | REST; on 6.1 StartCLI | supported | runs with a warning | refused in this version; the input `tag` always |
 | `query_logs` | `log_diagnosis` | read | REST | supported | runs with a warning | refused |
 | `list_inventory` `DIAGRAM` | `inventory` | read | REST | supported | runs with a warning | refused |
@@ -345,9 +345,9 @@ client home for one of its possible versions and either is not pinned to a versi
 `webservice_log_read`; write settings do not matter. Feature 022: `get_server_settings` is offered
 only if a node is not pinned to a version that refuses `server_settings` (8.1, 9.0 and `AUTO`
 nodes since the 8.1 and 9.0 recordings); a StartCLI installation is not needed. The same holds for
-`read_users` and `user_directory` (8.1 and `AUTO` nodes since the 8.1 recordings). `AUTO` nodes
-count as possibly capable as long as some version supports the capability; a later detection does
-not change the list, it leads to refusals.
+`read_users` and `user_directory` (8.1, 9.0 and `AUTO` nodes since the 8.1 and 9.0
+recordings). `AUTO` nodes count as possibly capable as long as some version supports the
+capability; a later detection does not change the list, it leads to refusals.
 
 ### INUBIT 6.1 (feature 012)
 
@@ -995,17 +995,18 @@ node's `error`:
 
 > [acme] Read the users of one INUBIT node. `target` takes the id of exactly one node
 > (`<group>/<node>`). `view` picks what to read: `users` lists the users by login, each with its
-> user group and roles, without e-mail or other personal fields; `user` shows the one user named
-> in `login` with its user group, the parent of that user group, roles, e-mail and the other
-> personal fields INUBIT shows (e-mail and personal fields come only for one named user); `logins`
-> lists the users logged in with a client (the `Toolset` connections of StartCLI `--who`, this
-> call's own connection included), without a login time on INUBIT 8.1. `users` and `logins` are
-> sorted by login and paged with `offset` and `limit` (at most 25); `nextOffset` gives the next
-> page. The logins come from the INUBIT user list; the user group, roles, e-mail and personal
-> fields are read with StartCLI. A part that cannot be read is listed under the user's
-> `unavailable` with the reason, the other users and parts are returned. An unknown login gives
-> NOT_FOUND: list the users first. The messages of the INUBIT message box are not offered yet.
-> Reads only; changes nothing on INUBIT.
+> user group, additional user groups and roles, without e-mail or other personal fields; `user`
+> shows the one user named in `login` with its user group, the parent of that user group, additional
+> user groups, roles, e-mail and the other personal fields INUBIT shows (e-mail and personal fields
+> come only for one named user); `logins` lists the users logged in with a client (the `Toolset`
+> connections of StartCLI `--who`, this call's own connection included), without a login time on
+> INUBIT 8.1; on INUBIT 9.0 `--who` lists no client connection, so `logins` is refused there.
+> `users` and `logins` are sorted by login and paged with `offset` and `limit` (at most 25);
+> `nextOffset` gives the next page. The logins come from the INUBIT user list; the user group,
+> roles, e-mail and personal fields are read with StartCLI. A part that cannot be read is listed
+> under the user's `unavailable` with the reason, the other users and parts are returned. An unknown
+> login gives NOT_FOUND: list the users first. The messages of the INUBIT message box are not
+> offered yet. Reads only; changes nothing on INUBIT.
 
 Feature 022 ([its delta](../specs/022-full-interface-coverage/contracts/mcp-tools-delta.md)).
 Reads the users of ONE node: a page of users, one user with its personal fields, or the users
@@ -1019,14 +1020,15 @@ their state per version are listed in [interface-coverage.md](interface-coverage
 capability `user_directory` (`reading users` in messages) is declared per version:
 
 - INUBIT 8.1: supported, verified against the recordings of an 8.1.17 node.
-- INUBIT 9.0: not yet verified; refused with `UNSUPPORTED_VERSION` (`… reading users is not yet
-  verified for INUBIT 9.0`) until the recordings of a live 9.0 node are under contract test.
+- INUBIT 9.0: supported, verified against the recordings of a 9.0.10 node. The view `logins` is
+  refused: the 9.0 `--who` listing has no `Toolset` row, not even for the call's own connection,
+  so its entry is excluded (`UNSUPPORTED_VERSION: … logins via CLI -who is excluded for INUBIT
+  9.0: …`) and `--who` is never run. A user with an additional user group shows it under
+  `additionalGroups`.
 - INUBIT 6.1, any other line (9.1, `V9_X`) and an unknown version: refused (no warning run).
 
-`read_users` is in `tools/list` when a node may run 8.1 (see
-[Tool announcement](#tool-announcement)). Until 9.0 is verified, `list_nodes` shows
-`user_directory` under `notUsable` of every 9.0 node with the reason `INUBIT 9.0 on prod/node1:
-reading users is not yet verified for INUBIT 9.0`; such a node is therefore `partially_supported`.
+`read_users` is in `tools/list` when a node may run 8.1 or 9.0 (see
+[Tool announcement](#tool-announcement)).
 
 **Input** (`read_users.input.json`):
 
@@ -1042,9 +1044,9 @@ The views and where their facts come from:
 
 | View | Result | Read through |
 |---|---|---|
-| `users` | `page` of users sorted by login, at most 25 per page: `login`, `group` (the user group), `roles`, `unavailable` | the logins from REST `GET /user/users?type=processEngineUser`; for the logins of the page one StartCLI session with `user '<login>'` (user group) and `finger '<login>'` (roles) per login |
-| `user` | `user`: `login`, `group`, `superGroup` (the parent of the user group), `roles`, `email`, `personal`, `unavailable` | the login is looked up in the REST list first; then the same StartCLI session for this one login |
-| `logins` | `page` of the users logged in with a client, sorted by login, at most 25 per page: `login`, `since` (absent on 8.1) | one StartCLI client run `startcli.sh … --who <url>` |
+| `users` | `page` of users sorted by login, at most 25 per page: `login`, `group` (the user group), `additionalGroups`, `roles`, `unavailable` | the logins from REST `GET /user/users?type=processEngineUser`; for the logins of the page one StartCLI session with `user '<login>'` (user group) and `finger '<login>'` (roles) per login |
+| `user` | `user`: `login`, `group`, `superGroup` (the parent of the user group), `additionalGroups`, `roles`, `email`, `personal`, `unavailable` | the login is looked up in the REST list first; then the same StartCLI session for this one login |
+| `logins` | `page` of the users logged in with a client, sorted by login, at most 25 per page: `login`, `since` (absent on 8.1); refused on 9.0 | one StartCLI client run `startcli.sh … --who <url>` |
 
 - **Personal fields only in the view `user`** (FR-011). The REST list carries the e-mail and the
   names of every user, but only `id` and `type` are read from it; `users` never contains an
@@ -1059,8 +1061,11 @@ The views and where their facts come from:
   client) lists `groups` and `roles` (in `user` also `email` and `personal`) of every user of the
   call as unavailable; the logins of the REST list are still returned. A login that cannot be passed
   to StartCLI safely is never sent; its user is listed with both parts unavailable. Neither `user`
-  nor `finger` shows an account state on 8.1, so no user has one; additional user groups are not
-  shown either.
+  nor `finger` shows an account state on 8.1 or 9.0, so no user has one.
+- **Additional user groups.** On 9.0 `user '<login>'` shows a row `Additional user group` for a
+  user with an additional group; its value is returned in `additionalGroups` (absent when the
+  answer has no such row). Only a user with one additional group was recorded, so the row is read
+  as one group. No 8.1 recording showed the row.
 - **Logins.** `--who` is an option of the StartCLI client, not a session command: on 8.1 it is
   answered only as a run of its own. It lists every system connected to the node (databases, portal,
   process user server) and one `Toolset` row per client connection, with the login in parentheses
@@ -1069,7 +1074,9 @@ The views and where their facts come from:
   entries, so this call's own connection is always among them. The table shows an idle time but no
   login time, so `since` is absent on 8.1. The page's `total` is the number of these rows. `--nwho`
   is not run: it prints the number of all connected systems, not of logged-in users, and is covered
-  by `logins`.
+  by `logins`. On 9.0 the `--who` listing has no `Toolset` row, not even for the call's own
+  connection, so no login can be read from it: `logins` is refused there with `UNSUPPORTED_VERSION`
+  and the reason, and `--who` is not run.
 - **Messages.** The INUBIT message box (`msglist`, `msgread`) is not offered yet: its listing
   and whether `msgread` marks a message as read have not been recorded (live check L-17). The
   view list will gain `messages` and `message` once they are.
@@ -1090,7 +1097,7 @@ The views and where their facts come from:
 | `view` | the view that was read |
 | `sources` | the channel of each fact that was read (FR-009): `logins` `REST`; `groups`, `roles`, `email`, `personal` and `loggedIn` `CLI`; a fact that was not read for any user is left out |
 | `page` | `users` and `logins`: a [Page](#common-shapes-page-and-toolerror) whose `items` are the users of the page, `nextOffset` only when there is a next page |
-| `user` | `user`: the one user; `email` is absent when INUBIT shows none, `personal` lists the other fields, each with `name` and `value`, or `name` and `masked` (`true`) |
+| `user` | `user`: the one user; `email` is absent when INUBIT shows none, `personal` lists the other fields, each with `name` and `value`, or `name` and `masked` (`true`); `additionalGroups` (also in the `items` of `users`) is absent when INUBIT shows none |
 | `unavailable` | per user (in `items` and in `user`): the parts that could not be read, each with `part` (`groups`, `roles`, `email`, `personal`), `reason` (starting with a code) and, when known, `likelyCause` and `nextStep` |
 | `warnings` | the version and client warnings of the version check (texts in [the warnings table](#inubit-versions-and-capabilities-feature-009)) |
 
@@ -1128,7 +1135,7 @@ user is reported in that user's `unavailable` instead, as described above:
 |---|---|
 | `INVALID_INPUT` | invalid arguments (a group id, `login` missing for `user` or given with another view, `offset` or `limit` with `user` or out of range, a control character in `login`) are rejected by the input schema with a plain-text validation message |
 | `TARGET_UNKNOWN` | unknown id |
-| `UNSUPPORTED_VERSION` | the node's version is not verified for `user_directory` (see Versions), or its StartCLI client does not support the version |
+| `UNSUPPORTED_VERSION` | the node's version is not verified for `user_directory` (see Versions), `logins` on 9.0 (its entry `-who` is excluded there), or its StartCLI client does not support the version |
 | `CLI_UNAVAILABLE` | `logins` on a node without a StartCLI client for its version; for `users` and `user` only in `unavailable` |
 | `FORBIDDEN` | the REST user list answers HTTP 403; the account lacks the right "CLI login access" (for `logins`; otherwise in `unavailable`) |
 | `NOT_FOUND` | `user`: the REST list has no user with this `login` (`No user 'nobody' on test/node1`), next step `List the users with view users and use a login of the list`; no StartCLI session is started |

@@ -63,13 +63,14 @@ REST	POST /configurations	WRITE	A	US6	planned	planned	-
 
 # B. Users and groups
 # finger, user, GET /user/users: sent by the read_users views users and user; the row names users (one state per version)
-CLI	finger	READ	B	US2	reachable:read_users/users	planned	9.0-pin
-CLI	user	READ	B	US2	reachable:read_users/users	planned	9.0-pin
-CLI	-who	READ	B	US2	reachable:read_users/logins	planned	9.0-pin
-# -nwho: covered:read_users on 8.1 (owner decision 2026-11-13): it counts every connected system; the logins page total counts the logged-in users
-CLI	-nwho	READ	B	US2	covered:read_users	planned	9.0-pin
-CLI	msglist	READ	B	US2	planned	planned	L-17+9.0-pin
-CLI	msgread	READ	B	US2	planned	planned	L-17+9.0-pin
+CLI	finger	READ	B	US2	reachable:read_users/users	reachable:read_users/users	-
+CLI	user	READ	B	US2	reachable:read_users/users	reachable:read_users/users	-
+# -who: excluded on 9.0 (recorded T028b, owner decision 2026-11-14): the logins view is refused there with this reason
+CLI	-who	READ	B	US2	reachable:read_users/logins	excluded:the 9.0 listing has no Toolset row, not even for StartCLI's own connection, so no login can be read	-
+# -nwho: covered:read_users on 8.1 and 9.0 (owner decision 2026-11-13): it counts every connected system; the logins page total counts the logged-in users
+CLI	-nwho	READ	B	US2	covered:read_users	covered:read_users	-
+CLI	msglist	READ	B	US2	planned	planned	L-17
+CLI	msgread	READ	B	US2	planned	planned	L-17
 CLI	create -cu	WRITE	B	US7	planned	planned	-
 CLI	create -cug	WRITE	B	US7	planned	planned	-
 CLI	create -cur	WRITE	B	US7	planned	planned	-
@@ -100,7 +101,7 @@ CLI	msgsend -f	WRITE	B	US7	planned	planned	-
 CLI	msgdel	WRITE	B	US7	planned	planned	-
 CLI	msgdel -a	WRITE	B	US7	planned	planned	-
 REST	DELETE /user/users/{name}	WRITE	B	US7	planned	planned	-
-REST	GET /user/users	READ	B	US2	reachable:read_users/users	planned	9.0-pin
+REST	GET /user/users	READ	B	US2	reachable:read_users/users	reachable:read_users/users	-
 
 # C. Libraries, plug-ins, EDI rules, keys
 CLI	library --list	READ	C	US3	planned	planned	-

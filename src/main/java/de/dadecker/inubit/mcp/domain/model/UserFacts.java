@@ -42,14 +42,23 @@ public record UserFacts(String login, Block<UserGroups> groups, Block<Finger> fi
     }
 
     /**
-     * @param group      the user's group ({@code User group})
-     * @param superGroup the parent of that group ({@code Super group}), not an additional group
+     * @param group            the user's group ({@code User group})
+     * @param superGroup       the parent of that group ({@code Super group}), not an additional
+     *     group
+     * @param additionalGroups the additional groups ({@code Additional user group}, recorded on
+     *     9.0 only); empty if the answer has no such row
      */
-    public record UserGroups(String group, String superGroup) {
+    public record UserGroups(String group, String superGroup, List<String> additionalGroups) {
 
         public UserGroups {
             Objects.requireNonNull(group, "group");
             Objects.requireNonNull(superGroup, "superGroup");
+            additionalGroups = List.copyOf(additionalGroups);
+        }
+
+        /** An answer without the row {@code Additional user group}. */
+        public UserGroups(String group, String superGroup) {
+            this(group, superGroup, List.of());
         }
     }
 
