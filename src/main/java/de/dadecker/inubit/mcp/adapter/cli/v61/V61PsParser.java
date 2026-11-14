@@ -193,6 +193,6 @@ public final class V61PsParser {
             Optional.of(values.get(MODULE)).filter(module -> !module.isEmpty()),
             Optional.empty(), Optional.empty(),
             Optional.of(inubitNode).filter(name -> !name.equals(NOT_ASSIGNED)),
-            Optional.of(values.get(UID)), Optional.of(values.get(PRIO)));
+            Optional.of(values.get(UID)), Optional.of(values.get(PRIO)), Optional.empty());
     }
 }

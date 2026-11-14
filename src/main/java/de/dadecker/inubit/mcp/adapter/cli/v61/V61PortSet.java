@@ -34,7 +34,8 @@ public final class V61PortSet {
             RefusingPorts refusing = new RefusingPorts(node.server().id());
             return new PortSet(new V61ProcessQueryAdapter(node.server().id(),
                 connection(node, probe, limiter), classifier(node)), refusing, refusing, refusing,
-                refusing, refusing, refusing, refusing, refusing, refusing, refusing, refusing);
+                refusing, refusing, refusing, refusing, refusing, refusing, refusing, refusing,
+                refusing);
         };
     }
 

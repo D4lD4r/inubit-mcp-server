@@ -212,6 +212,27 @@ cases come from T014 (below).
 | `admin-users-nwho` | recorded | CLI `-nwho` | as `admin-users-who` for `--nwho`: the same three preamble lines, then a bare number, `6` (the number of rows `--who` lists), LF; exit 0 |
 | `admin-users-msglist-empty` | recorded | CLI `msglist` | script mode, the profile account has no message: only the header `ID   Subject … Sender … Date` (CRLF) and an empty line; exit 0 |
 | `../rest/admin-users` | recorded | REST `GET /user/users` | `GET /user/users?type=processEngineUser`, `200`, `application/xml;charset=UTF-8` (Accept XML): one line without a trailing line break, root `UserList` in the default namespace `inubit.com/ibis/external/user` (plus an unused `ns2` prefix), 58 `User` elements with `id`, `email`, `type="ProcessEngineUser"` and, for 26 of them, `firstName` and `lastName`; not sorted by `id`; no account state |
+| `../rest/admin-model-node-by-model` | recorded | REST `GET /model/nodeByModel/{d}/{id}` | a Database Connector module: `200`, `application/xml;charset=UTF-8` with Accept JSON **and** Accept XML (identical bodies, so JSON is not offered): one line without a trailing line break, root `ns4:Node` (`name`, `type="twDatabaseConnector"`, `id`; namespaces `ns2` base, `ns4` model, `ns3` organigram) with one `ns4:Connection targetId= id=` and `ns2:Properties` of `ns2:Property name= type=` (`Boolean`, `Integer`, `String`, `Password`); planted values (see below) |
+| `../rest/admin-model-node-by-model-is-connector` | recorded | REST `GET /model/nodeByModel/{d}/{id}` | an IS Connector module (`type="twinubitISConfiguration"`, with a `parentId` attribute), one `ErrorSuppression` property; `200`, `application/xml;charset=UTF-8` |
+| `../rest/admin-model-node-by-model-missing` | recorded | REST `GET /model/nodeByModel/{d}/{id}` | unknown module id `999999`: `500`, `text/html;charset=UTF-8`, the Tomcat status page with `@Start@The module with the id &apos;999999&apos; in the model &apos;Workflow-0301&apos;could not be found!@@@…@End@` (no space before `could`, as recorded) |
+| `../rest/admin-model-node-by-name-not-found` | recorded | REST `GET /model/nodeByName/{d}/{m}` | `404`, `text/html;charset=UTF-8`, the status page "Not Found" / "The server has not found anything matching the request URI" (also with `?user=`): the endpoint does not exist on 8.1.17 |
+| `../rest/admin-model-metadata-not-found` | recorded | REST `GET /process/metadata/{wf}` | `500`, `text/html;charset=UTF-8`, the status page with `@Start@Workflow details not found for Workflow-0301@@@…@End@`; the same with Accept JSON and Accept XML and for every workflow tried (the server's metadata registry is empty, `admin-model-export-metadata.zip`), so no positive answer is recorded |
+| `../rest/admin-model-isconnector-refused` | recorded | REST `GET /isconnector?…type=validateWorkflow` | `401`, `text/plain;charset=UTF-8`, `Authentication failed. Please check the username and password.` without a line break and without `WWW-Authenticate`, for the Basic auth every other REST call accepts; the same for an IS Connector module and for another module |
+| `admin-model-library-driver` | recorded | CLI `library --list --type driver` | script mode: the preamble, then one empty line (no library uploaded); exit 0 |
+| `admin-model-library-plugin` | recorded | CLI `library --list --type plugin` | as `admin-model-library-driver` |
+| `admin-model-ps-user-column` | recorded | CLI `ps -u` | script mode, `ps -a -l 3 -u 1`: the table gains one column `USER_DEFINED_1` after `TAG`; every column but the last is its longest value (or header) plus two characters wide, the last header has one trailing space, its values none; both recorded values were cut to 13 characters plus `..` (the cut length of shorter or longer values is not recorded); three `Error` rows, `Total: 3`, all CRLF, then an empty line (LF); exit 0 |
+| `admin-model-ps-user-column-empty` | recorded | CLI `ps -u` | script mode, `ps -l 5 -u 1` without `-a`: only the header, columns separated by one space (no rows), `USER_DEFINED_1 `, `Total: 0`; exit 0 |
+| `admin-model-ps-user-column-blank-refused` | recorded | CLI `ps -u` | script mode, `ps -l 5 -u` (index left blank, which the help says shows all columns): `ERROR … CLI` record, `InubitException: …@Start@cli.process.option.filter.argument.expression.invalidFilterExpression@@@Invalid filter expression!@End@`, stack trace, `EXECUTION ERROR`, `Internal INUBIT error!`, `Invalid filter expression!`; exit 1 |
+| `admin-model-ps-user-column-list-refused` | recorded | CLI `ps -u` | as `admin-model-ps-user-column-blank-refused` for `ps -a -l 3 -u 1,2` |
+| `admin-model-fetchxslt-not-found` | recorded | CLI `fetchXSLT1.0 -ef` | script mode, `fetchXSLT1.0 -ef xslt10-report.txt`: `ERROR … CLI` record, `InubitException: @Start@IError@@@Internal INUBIT error!@End@Command not found.`, stack trace, `EXECUTION ERROR`, `Internal INUBIT error!`, `Command not found.`; exit 1; no file written |
+| `admin-model-export-metadata` | recorded | CLI `export --exportMetadata` | `export --exportMetadata --exportFile '<zip>'`: `1-OK: Metadata exported successfully.`, exit 0 |
+| `admin-model-export-metadata.zip` | recorded | CLI `export --exportMetadata` | the archive of that run: `MetadataRegistry.xml` and `MetadataAllocations.xml`, each an XML declaration, an empty line and an empty root element with `version="4.1"` (the registry was empty); the ZIP comment is a properties text (`#<date>`, `Type=MetadataExport`, `User=<login>`, `Version=6.0.0`, `Date=…`) |
+| `admin-model-export-metadata-names` | recorded | CLI `export --exportMetadataNames` | `export --exportMetadata --exportMetadataNames Example1,Example2 --exportFile '<zip>'`: `1-OK: Metadata Names exported successfully.`, exit 0 |
+| `admin-model-export-metadata-names.zip` | recorded | CLI `export --exportMetadataNames` | the archive of that run, the same two empty files and comment as `admin-model-export-metadata.zip` (the names exist nowhere on the server) |
+| `admin-model-export-group-exclude-missing-option` | recorded | CLI `export --exportWorkflowGroupExclude` | `--exportWorkflowUser`, `--exportWorkflowGroupExclude` and `--exportFile` only: `ERROR … CLI` record, `InubitException: …@Start@2-NOK: Missing export option.@@@…`, stack trace, `EXECUTION ERROR`, `Internal INUBIT error!`, `2-NOK: Missing export option.`; exit 1 |
+| `admin-model-export-group-exclude` | recorded | CLI `export --exportWorkflowGroupExclude` | `--exportWorkflowUser '<owner>' --exportWorkflowType 'technical' --exportWorkflowGroup '' --exportWorkflowGroupExclude '<g1,…,g6>' --exportFile '<zip>'`: `1-OK: Workflow group exported successfully.`, exit 0. The archive is not committed (it holds clear-text module secrets); research "Live recording T039" describes its layout |
+| `admin-model-session` | recorded | the US3 CLI reads | one stdin session (`.stdin`): `library --list --type driver`, `library --list --type plugin`, `ps -a -l 3 -u 1`, `fetchXSLT1.0 -ef xslt10-report.txt`, `exit`. Preamble and echo as in `admin-settings-session`. Each `library` block is one `\r` line; the `ps` block is the table of `admin-model-ps-user-column` and a `\r` line; `fetchXSLT1.0` answers `Command not found.` and the session goes on; exit 1 |
+| `admin-model-help-session` | recorded | help texts of `export`, `library`, `ps` | one stdin session (`.stdin`): `export -h`, `library -h`, `ps -h`, `fetchXSLT1.0 -h`, `exit`. `export -h` names `--exportMetadata` "Export metadata registry" and `--exportMetadataNames <arg>` "Metadata names to export, comma separated"; `ps -h` names `-u <index>` "Show specified user defined column(s) as well. Leave blank to show all. Possible indices: 1..5" and `-csv`; `fetchXSLT1.0 -h` answers `Command not found.`; help lines LF; exit 1 |
 
 Neutralization of the T014 cases (recorded 2026-11-13 on an 8.1.17 development server with a
 non-root account; raw outputs private, never committed):
@@ -274,3 +295,34 @@ the same server and account, one run each; raw outputs private, never committed)
   versions are kept;
 - the `IDLE` values → fictitious (`271:16:42s` for the five systems, `0:00:01s` for the client);
 - the trust-store path as in T014; the `nwho` count is kept.
+
+Neutralization of the T039 cases (`admin-model-*` here and in `../rest/`; recorded 2026-11-14 on
+an 8.1.17 non-production server with the profile's account, which is not the INUBIT root user, one
+run each; raw outputs private, never committed):
+
+- the account, the server host and URL and the trust-store path as in T014; `User=` in the comment
+  of the two metadata archives → `jdoe` (the archives were rebuilt with the recorded entries,
+  entry dates and comment otherwise unchanged);
+- the `ps` rows (session and script mode the same): the owner → `OPS`, process ids, dates,
+  workflows (`Workflow-0301`, `Workflow-0302`), modules (`Module-0035(169)`,
+  `Module-0036@@@Begin(34)`; the `@@@Begin` form and the ids in parentheses are kept), the node →
+  `ip-192-0-2-1` and the two user-defined values (`SyntheticValu..`, `OrderRejected..`) →
+  fictitious; the padding was rebuilt with the rule the recording shows (every column but the
+  last its longest value plus two);
+- module and workflow names in the REST answers → `Demo-DB-Probe`,
+  `Demo-IS-Probe`, `Workflow-0301`; the ids, property names, types, order and the
+  boolean and integer values are kept; the `staticQuery` text → `select version from
+  demo_versions`;
+- the `export` options: the owner and the six excluded groups are named only as placeholders
+  (`<owner>`, `<g1,…,g6>`) in the table above; `Example1,Example2` are the names the recording
+  used;
+- planted values in `../rest/admin-model-node-by-model.xml` (the recorded module, which uses the
+  IS log database, had `Password`, `dbURL`, `driverClass` and `user` empty):
+  `Password` (type `Password`) → `synthetic-secret-3901`; one added property `proxyPassword`
+  (type `String`, in the recorded alphabetical order before `staticQuery`) →
+  `synthetic-secret-3902`, a secret found only by its name; `dbURL` →
+  `jdbc:postgresql://inubit-db-01.example.test:5432/demodb`, `driverClass` →
+  `org.postgresql.Driver`, `user` → `demo_reader` (no secrets). Whether INUBIT sends a set
+  password in clear text, encrypted or not at all is not recorded; the plant assumes clear text.
+  No metadata could be planted: the server has no metadata, and no positive answer of `GET
+  /process/metadata` exists to plant into.

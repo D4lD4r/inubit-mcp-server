@@ -33,6 +33,8 @@ import tools.jackson.databind.JsonNode;
  *       sends no request.
  *   <li>{@code workflowName EQUAL}, {@code tag EQUAL}, {@code startTime BETWEEN}/{@code GREATER}/
  *       {@code LESSER} (epoch ms), sorted {@code startTime DESCENDING}.
+ *   <li>{@code userColumn} (T045b, research D-21): read from the {@code userDefined<i>} of the
+ *       same rows; no other request.
  * </ul>
  */
 public final class V81ProcessQueryAdapter implements ProcessQueryPort {
@@ -71,7 +73,7 @@ public final class V81ProcessQueryAdapter implements ProcessQueryPort {
         boolean cut = false;
         for (JsonNode row : window.rows()) {
             Bounded<ProcessInstance> instance = QueueLogRowParser.parse(server, row,
-                query.now(), query.hangingThreshold());
+                query.now(), query.hangingThreshold(), query.userColumn());
             instances.add(instance.value());
             cut |= instance.cut();
         }
@@ -92,7 +94,8 @@ public final class V81ProcessQueryAdapter implements ProcessQueryPort {
         Duration hangingThreshold) {
         Window<JsonNode> window = rowsOf(processId);
         List<ProcessInstance> rows = window.rows().stream()
-            .map(row -> QueueLogRowParser.parse(server, row, now, hangingThreshold).value())
+            .map(row -> QueueLogRowParser.parse(server, row, now, hangingThreshold,
+                Optional.empty()).value())
             .toList();
         return new ProcessRows(rows, Math.max(window.total(), rows.size()));
     }

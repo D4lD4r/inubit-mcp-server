@@ -288,6 +288,7 @@ public final class NodeOverview {
             case WEBSERVICE_LOG_READ -> "webservice_log_read";
             case SERVER_SETTINGS -> "server_settings";
             case USER_DIRECTORY -> "user_directory";
+            case MODEL_DETAILS -> "model_details";
         };
     }
 }

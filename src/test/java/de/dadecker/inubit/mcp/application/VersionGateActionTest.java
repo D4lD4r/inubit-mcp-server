@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import de.dadecker.inubit.mcp.application.VersionGate.Admission;
@@ -37,7 +38,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Feature 022 (T010, research D-2 "Gate per call", D-12 step 5): the coverage gate of
- * {@link VersionGate#admitCall} and {@link VersionGate#admitParts}. The capability matrix supports
+ * {@link VersionGate#admitCall} and {@link VersionGate#admitParts}, and of an option through
+ * {@link VersionGate#admitOption} (T045, research D-21). The capability matrix supports
  * every capability on every version, so only the coverage list (a fixture) and the StartCLI client
  * decide.
  */
@@ -60,6 +62,7 @@ class VersionGateActionTest {
     private static final CoverageKey LLS = new CoverageKey(Channel.CLI, "lls");
     private static final CoverageKey THREADS =
         new CoverageKey(Channel.CLI, "threads showNumberOfWorkflowThreads");
+    private static final CoverageKey PS_U = new CoverageKey(Channel.CLI, "ps -u");
 
     private static final String LLS_REASON = "lists the local directory of the StartCLI client";
 
@@ -72,6 +75,7 @@ class VersionGateActionTest {
         REST\tGET /configurations\tREAD\tA\tUS1\treachable:get_server_settings/default\treachable:get_server_settings/default\t-
         CLI\tlls\tREAD\tA\t-\texcluded:%1$s\texcluded:%1$s\t-
         CLI\tthreads showNumberOfWorkflowThreads\tREAD\tA\tUS1\treachable:get_server_settings/default\treachable:get_server_settings/default\t-
+        CLI\tps -u\tREAD\tD\tUS3\tcovered:find_processes\tplanned\t-
         """.formatted(LLS_REASON);
 
     private static final Part LICENSE_PART =
@@ -92,11 +96,7 @@ class VersionGateActionTest {
     private final FakeVersionDetection detection =
         new FakeVersionDetection(versions).fail(UNDETECTED, ErrorCode.TIMEOUT);
 
-    private final VersionGate gate = new VersionGate(versions, detection,
-        everythingSupported(), (node, version, timeout) -> {
-            throw new AssertionError("no client probe expected for " + node);
-        }, TestClientSelection.of(withClient::contains), node -> Duration.ZERO,
-        Terminology.DEFAULT, false, InterfaceCoverage.load(new StringReader(LIST)));
+    private final VersionGate gate = gate(LIST);
 
     /** One action with two variants: by {@code moduleId} or by {@code moduleName}. */
     private static final ActionSpec MODULE = new ActionSpec(TOOL, "module",
@@ -270,7 +270,90 @@ class VersionGateActionTest {
             .endsWith("; nothing was sent");
     }
 
+    // --- admitOption (T045, research D-21) ----------------------------------------------------
+
+    @Test
+    void anOptionWhoseEntryTheToolCoversIsAdmittedOn81() {
+        gate.admitOption("find_processes", V8_1, PS_U);
+    }
+
+    @Test
+    void anOptionWhoseEntryIsPlannedIsRefusedAsNotYetVerified() {
+        ToolError error = refusal(() -> gate.admitOption("find_processes", V9_0, PS_U));
+
+        assertThat(error.message()).isEqualTo("find_processes: INUBIT 9.0 on " + V9_0
+            + ": CLI ps -u is not yet verified for INUBIT 9.0; nothing was sent");
+        assertThat(error.node()).contains(V9_0);
+    }
+
+    @Test
+    void anOptionOnALineWithoutStateIsRefusedAsNotYetVerified() {
+        ToolError error = refusal(() -> gate.admitOption("find_processes", V6_1, PS_U));
+
+        assertThat(error.message()).startsWith("find_processes: INUBIT 6.1 on " + V6_1)
+            .contains("CLI ps -u is not yet verified for INUBIT 6.1");
+    }
+
+    @Test
+    void theFlippedRowAdmitsTheOptionOn90WithoutACodeChange() {
+        VersionGate flipped = gate(LIST.replace("covered:find_processes\tplanned",
+            "covered:find_processes\tcovered:find_processes"));
+
+        flipped.admitOption("find_processes", V9_0, PS_U);
+    }
+
+    @Test
+    void anOptionWhoseEntryIsExcludedIsRefusedWithItsReason() {
+        ToolError error = refusal(() -> gate.admitOption("find_processes", V8_1, LLS));
+
+        assertThat(error.message()).contains("CLI lls is excluded for INUBIT 8.1: " + LLS_REASON);
+    }
+
+    @Test
+    void anOptionWhoseEntryAnotherToolServesIsRefused() {
+        ToolError covered = refusal(() -> gate.admitOption("get_server_settings", V8_1, PS_U));
+        assertThat(covered.message()).contains("CLI ps -u is not sent by this server on INUBIT"
+            + " 8.1 (find_processes reads it through another entry)");
+
+        ToolError reachable = refusal(() -> gate.admitOption("find_processes", V8_1,
+            CONFIGURATIONS));
+        assertThat(reachable.message()).contains("REST GET /configurations is sent by"
+            + " get_server_settings, not by find_processes, on INUBIT 8.1");
+    }
+
+    @Test
+    void anOptionWhoseEntryIsNotInTheListIsAProgrammingError() {
+        CoverageKey unlisted = new CoverageKey(Channel.CLI, "ps -x");
+
+        assertThatIllegalArgumentException()
+            .isThrownBy(() -> gate.admitOption("find_processes", V8_1, unlisted))
+            .withMessage("The entry CLI ps -x of find_processes is not in the coverage list");
+    }
+
+    @Test
+    void anOptionOnANodeWithoutAMajorMinorIsRefused() {
+        ToolError line = refusal(() -> gate.admitOption("find_processes", V9_X, PS_U));
+        assertThat(line.message()).contains("INUBIT 9.x (versionLine V9_X) on " + V9_X)
+            .contains("names no major.minor");
+
+        ToolError undetected = refusal(() -> gate.admitOption("find_processes", UNDETECTED,
+            PS_U));
+        assertThat(undetected.message()).startsWith("find_processes: CLI ps -u refused: the"
+            + " INUBIT version of " + UNDETECTED + " is unknown (TIMEOUT at ");
+        assertThat(detection.requests()).containsExactly(UNDETECTED);
+    }
+
     // --- helpers ------------------------------------------------------------------------------
+
+    /** A gate on the coverage list {@code list}. */
+    private VersionGate gate(String list) {
+        return new VersionGate(versions, detection, everythingSupported(),
+            (node, version, timeout) -> {
+                throw new AssertionError("no client probe expected for " + node);
+            }, TestClientSelection.of(withClient::contains), node -> Duration.ZERO,
+            Terminology.DEFAULT, false, InterfaceCoverage.load(new StringReader(list)));
+    }
+
 
     /** A single-variant action that sends {@code entry}. */
     private static ActionSpec spec(CoverageKey entry) {

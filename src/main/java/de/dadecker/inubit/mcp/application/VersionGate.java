@@ -80,7 +80,8 @@ import org.slf4j.LoggerFactory;
  * <p>Feature 022 (research D-2 "Gate per call", D-12 step 5): {@link #admitCall} and
  * {@link #admitParts} run the capability admission of an {@link ActionSpec}, then admit only the
  * coverage entries that are {@code reachable} for the node's major.minor in the
- * {@link InterfaceCoverage} the gate is given.
+ * {@link InterfaceCoverage} the gate is given; {@link #admitOption} admits an option of a tool
+ * whose entry that tool serves (T045, research D-21).
  *
  * <p>Thread-safe; it keeps no state of its own. Concurrent admissions on the same node may both
  * detect or both probe the client (the check and the detection or probe are not atomic);
@@ -197,7 +198,8 @@ public final class VersionGate {
 
     /**
      * A gate of a profile without {@code defaults.cliClients}, with an empty coverage list
-     * ({@link #admitCall} and {@link #admitParts} refuse every entry).
+     * ({@link #admitCall} and {@link #admitParts} refuse every entry, {@link #admitOption}
+     * throws for every entry).
      */
     public VersionGate(NodeVersions versions, GatewayFactory gateways, CapabilityMatrix matrix,
         ClientVersionPort clients, ClientSelectionPort selection,
@@ -205,7 +207,9 @@ public final class VersionGate {
         this(versions, gateways, matrix, clients, selection, cliTimeouts, terms, false);
     }
 
-    /** As below, with an empty coverage list. */
+    /**
+     * As below, with an empty coverage list ({@link #admitOption} throws for every entry).
+     */
     public VersionGate(NodeVersions versions, GatewayFactory gateways, CapabilityMatrix matrix,
         ClientVersionPort clients, ClientSelectionPort selection,
         Function<NodeId, Duration> cliTimeouts, Terminology terms,
@@ -221,8 +225,8 @@ public final class VersionGate {
      * @param terms       the profile's terminology of the messages
      * @param cliClientsConfigured whether the profile sets {@code defaults.cliClients}: the
      *     refusal of a client names the entry of the version then (feature 017, research D-8)
-     * @param coverage    the coverage list of {@link #admitCall} and {@link #admitParts}
-     *     (feature 022)
+     * @param coverage    the coverage list of {@link #admitCall}, {@link #admitParts} and
+     *     {@link #admitOption} (feature 022)
      */
     public VersionGate(NodeVersions versions, GatewayFactory gateways, CapabilityMatrix matrix,
         ClientVersionPort clients, ClientSelectionPort selection,
@@ -572,6 +576,54 @@ public final class VersionGate {
         });
     }
 
+    /**
+     * Admits an option of {@code tool} whose data {@code entry} names (T045, research D-21), e.g.
+     * {@code find_processes} {@code userColumn} for {@code CLI ps -u}: admitted when the entry is
+     * {@code covered} or {@code reachable} by {@code tool} for the node's major.minor
+     * ({@link InterfaceCoverage#servedBy}). It detects the version when due, like {@link #admit};
+     * the capability admission is the tool call's own. Unlike {@link #admitCall}, a
+     * {@code covered} entry admits.
+     *
+     * @throws ToolErrorException {@code UNSUPPORTED_VERSION} naming the entry: "not yet verified"
+     *     for a {@code planned} entry or a line without a state (6.1), "not documented for this
+     *     version", the exclusion reason, or the tool that serves it instead; also when the node
+     *     has no known major.minor
+     * @throws IllegalArgumentException if {@code entry} is not in the coverage list (a
+     *     programming error, as an entry outside the variants of {@link #admitCall})
+     */
+    public void admitOption(String tool, NodeId node, CoverageKey entry) {
+        Objects.requireNonNull(tool, "tool");
+        Objects.requireNonNull(node, "node");
+        Objects.requireNonNull(entry, "entry");
+        if (coverage.entries().stream().noneMatch(row -> row.key().equals(entry))) {
+            throw new IllegalArgumentException("The entry " + entry.channel() + " "
+                + entry.entry() + " of " + tool + " is not in the coverage list");
+        }
+        named(tool, () -> {
+            if (versions.needsDetection(node, Capability.Kind.READ)) {
+                detect(node, false);
+            }
+            NodeVersionState state = versions.state(node);
+            Optional<InubitVersion> version = state.effectiveVersion();
+            String subject = entry.channel() + " " + entry.entry();
+            if (version.isEmpty()) {
+                throw noMajorMinor(node, tool, subject);
+            }
+            MajorMinor line = MajorMinor.of(version.get());
+            if (!coverage.servedBy(entry, line, tool)) {
+                // the listed entry has no state for this line (6.1): not yet verified (D-21)
+                CoverageState found = coverage.state(entry.channel(), entry.entry(), line)
+                    .orElseGet(CoverageState.Planned::new);
+                String reason = found instanceof CoverageState.Reachable other
+                    ? "sent by " + other.tool() + ", not by " + tool + ", on INUBIT " + line.text()
+                    : why(Optional.of(found), line);
+                throw refuse(node, tool, name(state, version).orElseThrow() + " on " + node + ": "
+                    + subject + " is " + reason, COVERAGE_CAUSE, coverageStep());
+            }
+            return null;
+        });
+    }
+
     private String coverageStep() {
         return terms.render("Use another variant of the call if there is one, or another {node}"
             + " whose INUBIT version offers it (docs/interface-coverage.md lists the entries per"
@@ -592,19 +644,28 @@ public final class VersionGate {
             Optional.empty());
         Admission admission = admission(spec.capability(), evaluation);
         if (evaluation.version().isEmpty()) {
-            NodeVersionState state = versions.state(node);
-            throw refuse(node, spec.capability(), name(state, Optional.empty())
-                    .map(line -> line + " on " + node + " names no major.minor; "
-                        + spec.action() + " is offered per INUBIT major.minor")
-                    .orElseGet(() -> spec.action() + " refused: "
-                        + unknown(node, state)),
-                "This server lists the entries it sends per INUBIT major.minor",
-                terms.render("Let get_health detect the version of the {node}, or set versionLine"
-                    + " of ") + node + " to a line with minor (such as V9_0) and restart the"
-                    + " server");
+            throw noMajorMinor(node, spec.capability().name(), spec.action());
         }
         return new ActionAdmission(admission, evaluation.versionName(),
             MajorMinor.of(evaluation.version().get()));
+    }
+
+    /**
+     * The refusal of {@code what} on a node without a known major.minor: a major-only line, or a
+     * version that is not detected.
+     *
+     * @param subject the capability or tool of the log line
+     */
+    private Refusal noMajorMinor(NodeId node, String subject, String what) {
+        NodeVersionState state = versions.state(node);
+        return refuse(node, subject, name(state, Optional.empty())
+                .map(line -> line + " on " + node + " names no major.minor; "
+                    + what + " is offered per INUBIT major.minor")
+                .orElseGet(() -> what + " refused: " + unknown(node, state)),
+            "This server lists the entries it sends per INUBIT major.minor",
+            terms.render("Let get_health detect the version of the {node}, or set versionLine"
+                + " of ") + node + " to a line with minor (such as V9_0) and restart the"
+                + " server");
     }
 
     /** The channels of {@code entries}. */
@@ -864,7 +925,7 @@ public final class VersionGate {
             case LOG_DIAGNOSIS -> "read the logs of INUBIT " + release + " in the Workbench";
             case WORKSPACE_EXPORT -> "use the Workbench export";
             case MONITORING, PROCESS_DIAGNOSIS, INVENTORY, PARTNER_MANAGEMENT, SERVER_SETTINGS,
-                USER_DIRECTORY ->
+                USER_DIRECTORY, MODEL_DETAILS ->
                 terms.render("use the Workbench, or another {node} with a different INUBIT"
                     + " version");
             case DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL -> "use the Workbench";
@@ -892,8 +953,14 @@ public final class VersionGate {
     /** @param cause the message without its closing "; nothing was sent" */
     private static Refusal refuse(NodeId node, Capability capability, String cause,
         String likelyCause, String nextStep) {
+        return refuse(node, capability.name(), cause, likelyCause, nextStep);
+    }
+
+    /** @param subject the capability or tool of the log line */
+    private static Refusal refuse(NodeId node, String subject, String cause,
+        String likelyCause, String nextStep) {
         String message = cause + NOTHING_SENT;
-        LOG.info("{} on {}: REFUSED ({}): {}", capability, node, ErrorCode.UNSUPPORTED_VERSION,
+        LOG.info("{} on {}: REFUSED ({}): {}", subject, node, ErrorCode.UNSUPPORTED_VERSION,
             message);
         return new Refusal(ToolError.of(ErrorCode.UNSUPPORTED_VERSION, message, likelyCause,
             nextStep).withNode(node), cause);

@@ -18,7 +18,7 @@ everything else is reused or extended.
 | `area` | `A`…`E` \| `PORTAL` \| `START` | |
 | `story` | `US1`…`US7` \| none | none only for `covered`, `excluded` or `undocumented` rows |
 | `states` | `Map<MajorMinor, CoverageState>` (the existing version-line type) | exactly 8.1 and 9.0 |
-| `waits` | `-`, or one or more of `L-n` and `9.0-pin` joined by `+` (e.g. `L-1+9.0-pin`) | what a `planned` row of a delivered story waits for, one item per reason; `-` on every other row |
+| `waits` | `-`, or one or more of `L-n`, `9.0-pin` and `9.0-followup` joined by `+` (e.g. `L-1+9.0-pin`) | what a `planned` row of a delivered story waits for, one item per reason; `-` on every other row |
 
 Unique key: (`channel`, `entry`).
 
@@ -45,6 +45,10 @@ Loaded from `coverage/interface-coverage.tsv`:
   one part (D-2, "gate per call").
 - `refusal(Set<CoverageKey> entries, line)`: the first entry that is not `Reachable`, with its
   state, for the error text.
+- `servedBy(CoverageKey entry, line, tool)` (US3, T045): true when the entry is `Covered(tool)`
+  or `Reachable(tool, …)` for that line; false for a missing line, `Planned`, `Undocumented`,
+  `Excluded` or another tool. `VersionGate.admitOption` uses it for an option of an existing tool
+  that a covered entry serves (`find_processes` `userColumn`, `CLI ps -u`).
 
 Parsing fails at start on:
 
@@ -186,13 +190,37 @@ The shapes of `read_users` (T035), each user flat (`user.login`):
 `MessageSummary`: `id`, `sender`, `time`, `subject`. `MessageText`: `id`, `text` (masked,
 bounded), `truncated`.
 
-### ModuleDetail, ProcessMetadata, LibraryEntry, IsConnectorCheck (new, US3)
+### ModuleDetail, LibraryEntry (new, US3) and the `userColumn` view
 
-- `ModuleDetail`: `diagram`, `moduleId` or `moduleName`, `type`, `properties` (`{name, value |
-  masked}`), `maskedCount`.
-- `ProcessMetadata`: `workflow`, `entries` (`{name, value | masked}`), `maskedCount`.
-- `LibraryEntry`: `file`, `type` (`driver` / `plugin`).
-- `IsConnectorCheck`: `workflow`, `module`, `valid`, `message` (masked, ≤ 2,000 characters).
+The shapes follow the 8.1 recordings of T039 (research "Live recording T039", D-21).
+
+- `ModuleDetail` (from the XML `ns4:Node`):
+  - `diagram`, `moduleId`, `name`, `type` (INUBIT's module type, for example
+    `twDatabaseConnector`), `parentId` (optional);
+  - `connections[]`: `{id, targetId}` per outgoing connection;
+  - `properties[]`: `{name, type, value}` or `{name, type, masked: true}` in INUBIT's order, each
+    value ≤ `ItemBounds.MAX_ITEM_CHARS` with `truncated`. A property is masked when
+    `SecretRules` matches its name, when its `type` is `Password` (also when the value is empty)
+    or when its value is key material (D-19);
+  - `maskedCount`.
+- `LibraryEntry`: `file`, `type` (`driver` / `plugin`). The page that holds them carries
+  `rowFormatVerified` (boolean): `false` while only the empty answer is recorded (L-21); each
+  non-empty line of the answer is then one `file`. A line over 255 characters or with a control
+  character makes the answer `UNEXPECTED_RESPONSE`.
+- The `userColumn` view (`find_processes` with `userColumn`, `ps -u`) is an output view of
+  `find_processes`, not a domain record of its own: `ProcessQuery` carries the optional `userColumn`
+  and `ProcessInstance` the optional `userColumnValue` (T040a). The output has `userColumn: {index}`
+  (1–5) and per process of the page `userColumnValue` (optional; absent when blank), read from the
+  REST `queueLog` field `userDefined<index>` of the row `find_processes` already reads (not cut to
+  the 15 characters StartCLI shows), bounded like the row's other texts by `QueueLogRowParser` and
+  masked (FR-010).
+
+Parked until their live check (not built in US3; owner decision 2026-11-14):
+
+- `ProcessMetadata` (`GET /process/metadata/{name}`, L-19): the shape follows the first positive
+  recording; masked by D-19.
+- `IsConnectorCheck` (`GET /isconnector?…type=validateWorkflow`, L-20): `workflow`, `module`,
+  `valid`, `message` (masked, ≤ 2,000 characters), once the authentication is known.
 
 ## Changes
 
@@ -274,6 +302,10 @@ upload by path, size and SHA-256. Outcomes:
 | message text | 1 … 1,000 characters, no control characters |
 | subject | 1 … 200 characters, no control characters or `'` |
 | process ids | `CliCommand.PROCESS_ID` |
+| module id (`read_model_details` `module`) | `^[0-9]{1,10}$` (the `id` of `ns4:Node`, T039) |
+| user-defined column (`find_processes` `userColumn`) | integer 1 … 5 (`userDefined1..5` of the `queueLog` row) |
+| metadata names (`export_archives` `metadataNames`) | 1 … 50 names, each `^[A-Za-z0-9_.][A-Za-z0-9_.\- ]{0,199}$`, joined with commas |
+| excluded diagram groups (`excludeGroups`) | 1 … 20 group names (the name pattern), joined with commas |
 | operation id | UUID |
 | archive file name | D-4 |
 | configuration path | `^[A-Za-z][A-Za-z0-9_.]{0,199}(/[A-Za-z0-9_.]{1,200}){0,9}$` (JSON path of the leaf) |

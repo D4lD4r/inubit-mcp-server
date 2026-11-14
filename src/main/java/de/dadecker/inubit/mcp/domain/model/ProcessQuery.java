@@ -17,6 +17,8 @@ import java.util.Set;
  * @param since            lower bound of {@code since} (inclusive)
  * @param until            upper bound of {@code since} (inclusive)
  * @param now              the reference time of {@code timeInState} and {@code hanging}
+ * @param userColumn       the user-defined Queue Manager column {@code 1..5} to show
+ *                         ({@code userDefined<i>}, research D-21); empty = none
  */
 public record ProcessQuery(
     Set<ProcessState> states,
@@ -28,7 +30,8 @@ public record ProcessQuery(
     Optional<Instant> until,
     int offset,
     int limit,
-    Instant now) {
+    Instant now,
+    Optional<Integer> userColumn) {
 
     public ProcessQuery {
         states = states.isEmpty() ? Set.of() : Set.copyOf(EnumSet.copyOf(states));
@@ -40,6 +43,10 @@ public record ProcessQuery(
         Objects.requireNonNull(now, "now");
         if (offset < 0 || limit < 1) {
             throw new IllegalArgumentException("offset >= 0 and limit >= 1 required");
+        }
+        userColumn = userColumn == null ? Optional.empty() : userColumn;
+        if (userColumn.filter(column -> column < 1 || column > 5).isPresent()) {
+            throw new IllegalArgumentException("userColumn 1..5 required: " + userColumn.get());
         }
     }
 

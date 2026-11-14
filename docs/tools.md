@@ -36,9 +36,9 @@ INUBIT 6.1 nodes of feature 012
 [its delta](../specs/020-queue-entry-read/contracts/mcp-tools-delta.md),
 `download_server_log` of feature 021
 [its delta](../specs/021-server-log-download/contracts/mcp-tools-delta.md), and
-`get_server_settings` and `read_users` of feature 022
+`get_server_settings`, `read_users` and `read_model_details` of feature 022
 [their delta](../specs/022-full-interface-coverage/contracts/mcp-tools-delta.md).
-All twenty-four tools are described here; each section quotes the description the server
+All twenty-five tools are described here; each section quotes the description the server
 announces in `tools/list` for a profile `acme` without description and with the default
 terminology (Group/Node).
 
@@ -82,6 +82,7 @@ General rules:
 | [`get_health`](#get_health) | is a node up, ready, in maintenance; version and load | read-only, idempotent, open world | yes (REST) |
 | [`get_server_settings`](#get_server_settings) | license, workflow threads, privileged workflows (both need the INUBIT root user, so always `unavailable`), DB connection tolerance, server time and, on request, the server configuration of a node | read-only, idempotent, open world | yes (REST `license`, `configurations` and the calls of `get_health`; StartCLI session for the other settings) |
 | [`read_users`](#read_users) | the users of ONE node (login, user group, roles; e-mail and personal fields only for one named user) and the users logged in with a client | read-only, idempotent, open world | yes (REST `user/users` for the logins; StartCLI session for user groups and roles, StartCLI `--who` for the logged-in users) |
+| [`read_model_details`](#read_model_details) | ONE module of a diagram (type, parent, connections, properties with secrets masked) or the uploaded libraries (drivers, plug-ins) of ONE node | read-only, idempotent, open world | yes (REST `model/nodeByModel` for the module; StartCLI `library --list` for the libraries) |
 | [`read_knowledge`](#read_knowledge) | list, search or read the notes of the profile's local knowledge | read-only, idempotent, closed world | no (local files only) |
 | [`record_knowledge`](#record_knowledge) | create a note, append a section or replace a note's content in the local knowledge | not read-only (writes local files), not destructive, non-idempotent, closed world | no (local files only) |
 | [`find_processes`](#find_processes) | failed, waiting or hanging process instances | read-only, idempotent, open world | yes (REST `queueLog`) |
@@ -95,7 +96,7 @@ General rules:
 | [`kill_process`](#restart_process--kill_process) | delete ONE process instance on ONE node | **destructive**, non-idempotent, open world | yes (REST state read + StartCLI `kill`) |
 | [`export_artifacts`](#export_artifacts) | export technical workflows, modules or repository files into the local workspace and its history | read-only for INUBIT, non-idempotent (records a history entry), open world | yes (StartCLI `export`, read-only) |
 | [`check_artifacts`](#check_artifacts) | check workspace files offline: structure, a stylesheet run, XML/XSD | read-only, idempotent, open world | only to look up modules missing in the workspace (module list) |
-| [`export_archives`](#export_archives) | export the technical workflows of ONE diagram group as Workbench-importable archives, one per workflow, into a local folder — **secrets in clear text** | not read-only (writes local files; read-only for INUBIT), not destructive, non-idempotent, open world | yes (StartCLI `export`, read-only) |
+| [`export_archives`](#export_archives) | export the technical workflows of ONE diagram group as Workbench-importable archives, one per workflow, into a local folder — **secrets in clear text**; or one archive of the owner's technical workflows without some diagram groups, or of the metadata registry | not read-only (writes local files; read-only for INUBIT), not destructive, non-idempotent, open world | yes (StartCLI `export`, read-only) |
 | [`import_artifacts`](#import_artifacts) | import the changed workflows of ONE diagram group (with their changed or new modules), changed modules, or new and changed repository files, into ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`restore_backup`](#restore_backup) | re-import the backup of an earlier development call or of a deployment on one node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
 | [`set_active`](#set_active) | activate or deactivate ONE workflow on ONE development node | **destructive**, non-idempotent, open world | yes (StartCLI `export` and `import`) |
@@ -138,6 +139,10 @@ or without a StartCLI installation (see [its section](#get_server_settings)).
 `user_directory` (since its 8.1 and 9.0 recordings: a node pinned to 8.1, 9.0 or `AUTO`), with
 or without a StartCLI installation (see [its section](#read_users)).
 
+`read_model_details` is **offered only if** a node is not pinned to a version that refuses
+`model_details` (since its 8.1 recordings: a node pinned to 8.1 or `AUTO`), with or without a
+StartCLI installation (see [its section](#read_model_details)).
+
 The development tools of feature 004 are **offered only if at least one node is a development
 stage** (`development.enabled: true`, never on production groups; see
 [setup.md](setup.md#development-settings)); `run_e2e_test` only if, in addition, such a node's
@@ -165,12 +170,13 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 | `get_health` | `monitoring` | read | REST; on 6.1 StartCLI | supported | runs with a warning; never refused | refused in this version (the report carries the refusal) |
 | `get_server_settings` | `server_settings` | read | REST + StartCLI | 8.1 and 9.0 supported, see [its section](#get_server_settings) | refused (no warning run) | refused |
 | `read_users` | `user_directory` | read | REST + StartCLI | 8.1 and 9.0 supported (view `logins` refused on 9.0), see [its section](#read_users) | refused (no warning run) | refused |
-| `find_processes` | `process_diagnosis` | read | REST; on 6.1 StartCLI | supported | runs with a warning | refused in this version; the input `tag` always |
+| `read_model_details` | `model_details` | read | REST + StartCLI | 8.1 supported; 9.0 **refused until verified**, see [its section](#read_model_details) | refused (no warning run) | refused |
+| `find_processes` | `process_diagnosis` | read | REST; on 6.1 StartCLI | supported (input `userColumn` not yet verified on 9.0) | runs with a warning | refused in this version; the input `tag` always |
 | `query_logs` | `log_diagnosis` | read | REST | supported | runs with a warning | refused |
 | `list_inventory` `DIAGRAM` | `inventory` | read | REST | supported | runs with a warning | refused |
 | `list_inventory` `MODULE`, `get_inventory_item` (diagram details via REST; the module list and every version history via StartCLI) | `inventory` | read | REST + StartCLI | supported | the REST part runs with a warning; the StartCLI part also needs the client check | refused |
 | `find_partners`, the partner usage of `get_inventory_item` (feature 018) | `partner_management` | read | REST | 8.1: supported; 9.0: **runs with a warning** (not verified on 9.0) | runs with a warning | refused |
-| `export_artifacts`, `export_archives` | `workspace_export` | read on INUBIT | StartCLI | supported | runs with a warning if the client check passes (refused on 9.1 with an 8.1 client) | refused |
+| `export_artifacts`, `export_archives` | `workspace_export` | read on INUBIT | StartCLI | supported (the `export_archives` forms `ownerWithoutGroups` and `metadata` not yet verified on 9.0) | runs with a warning if the client check passes (refused on 9.1 with an 8.1 client) | refused |
 | `check_artifacts` | – (its optional module lookup: `inventory` over StartCLI) | read | none, optional module lookup | runs | runs; the module lookup as `inventory` | runs; the module lookup is skipped |
 | `read_queue_entry` | `queue_entry_read` | read (unsupported vendor interface) | REST lookup + helper on the INUBIT client | supported (8.1 and 9.0) | refused (no warning run) | refused |
 | `download_server_log` `log: trace` | `trace_log_read` | read on INUBIT, writes a local file | StartCLI | supported (8.1 and 9.0) | refused (no warning run) | refused |
@@ -185,7 +191,8 @@ A deployment backup restored on a node that is also a development stage is check
 warning texts name the capability in words: `monitoring`, `process diagnosis`, `log diagnosis`,
 `inventory`, `partner management`, `workspace export`, `development writes`, `deployment`,
 `end-to-end test`, `process control`, `reading Queue Manager entries`, `downloading the trace
-log`, `downloading the web service log`, `reading server settings`, `reading users`. Before
+log`, `downloading the web service log`, `reading server settings`, `reading users`,
+`reading model details`. Before
 feature 012, `find_processes` and `query_logs` shared the capability `diagnosis`; `list_nodes` and
 `--check-config` now show the two capabilities instead, with the same states on every version
 other than 6.1.
@@ -195,8 +202,9 @@ the "not verified" warning — except `partner_management` (feature 018): the Pa
 export has been checked on INUBIT 8.1 only, so on 9.0 `find_partners` and the partner usage of
 `get_inventory_item` run with the warning `INUBIT 9.0.3 on qa/node1 is not verified for partner
 management; results may be incomplete`, and `list_nodes` shows a 9.0 node as
-`partially_supported`. Its StartCLI-backed parts need a StartCLI client whose declared range
-includes 9.0 (the INUBIT 9.0 client, on Java 21, usually configured as
+`partially_supported`. Feature 022: `model_details` is refused on 9.0 until it is verified (see
+[`read_model_details`](#read_model_details)). Its StartCLI-backed parts need a StartCLI client
+whose declared range includes 9.0 (the INUBIT 9.0 client, on Java 21, usually configured as
 `defaults.cliClients."9.0"`, see
 [setup.md](setup.md#startcli-client-per-inubit-version-defaultscliclients)); with an 8.1 client
 they are refused like on any version outside the client's range. The 9.0 support is derived from
@@ -346,6 +354,7 @@ client home for one of its possible versions and either is not pinned to a versi
 only if a node is not pinned to a version that refuses `server_settings` (8.1, 9.0 and `AUTO`
 nodes since the 8.1 and 9.0 recordings); a StartCLI installation is not needed. The same holds for
 `read_users` and `user_directory` (8.1, 9.0 and `AUTO` nodes since the 8.1 and 9.0
+recordings), and for `read_model_details` and `model_details` (8.1 and `AUTO` nodes since the 8.1
 recordings). `AUTO` nodes count as possibly capable as long as some version supports the
 capability; a later detection does not change the list, it leads to refusals.
 
@@ -1153,11 +1162,148 @@ user is reported in that user's `unavailable` instead, as described above:
 - "Who is logged in on prod/node1 right now?" → `read_users(target: "prod/node1", view:
   "logins")`.
 
+## `read_model_details`
+
+> [acme] Read the model details of one INUBIT node. `target` takes the id of exactly one node
+> (`<group>/<node>`). `action` picks what to read: `module` reads the one module `moduleId` (the
+> module's numeric id) of the diagram `diagram` over REST, with its type, parent, outgoing
+> connections and properties in INUBIT's order; secret values are masked: a property whose name is
+> a secret name, whose type is `Password` or whose value is key material is shown as `masked` and
+> counted in `maskedCount`, and a credential inside a value (such as the password of a database
+> URL) is replaced by a placeholder. An unknown module id gives NOT_FOUND. `libraries` lists the
+> uploaded library files with StartCLI, `libraryType` `driver` or `plugin`, or both without it
+> (one StartCLI run per type, drivers first), paged with `offset` and `limit` (at most 100);
+> `nextOffset` gives the next page. Until a listed library is recorded, each line of the answer is
+> read as one file name and `rowFormatVerified` is false. Reads only; changes nothing on INUBIT.
+
+Feature 022 ([its delta](../specs/022-full-interface-coverage/contracts/mcp-tools-delta.md),
+research D-21). Reads ONE module of a diagram, or the uploaded libraries of ONE node. Nothing is
+changed on INUBIT. The tool is annotated `readOnlyHint: true`, `destructiveHint: false`,
+`idempotentHint: true`, `openWorldHint: true` (title "Read INUBIT model details").
+
+**Versions.** Each action is sent only through documented INUBIT entries that have been verified
+for the node's version against a recorded, neutralized answer of that version; the entries and
+their state per version are listed in [interface-coverage.md](interface-coverage.md). The
+capability `model_details` (`reading model details` in messages) is declared per version:
+
+- INUBIT 8.1: supported, verified against the recordings of an 8.1.17 node.
+- INUBIT 9.0: not yet verified; refused with `UNSUPPORTED_VERSION` (`… reading model details is not
+  yet verified for INUBIT 9.0`) until the recordings of a live 9.0 node are under contract test.
+- INUBIT 6.1, any other line (9.1, `V9_X`) and an unknown version: refused (no warning run).
+
+`read_model_details` is in `tools/list` when a node may run 8.1 (see
+[Tool announcement](#tool-announcement)). Until 9.0 is verified, `list_nodes` shows
+`model_details` under `notUsable` of every 9.0 node with the reason `INUBIT 9.0 on prod/node1:
+reading model details is not yet verified for INUBIT 9.0`; such a node is therefore
+`partially_supported`.
+
+**Input** (`read_model_details.input.json`):
+
+| Property | Type | Default | Meaning |
+|---|---|---|---|
+| `target` | string, required | – | the id of exactly one node (`<group>/<node>`); a group id is rejected |
+| `action` | `module` or `libraries`, required | – | what to read (see below) |
+| `diagram` | string, 1–200 characters (letters, digits, `_ . -` and spaces, not starting with `-` or a space) | – | the diagram (workflow) that holds the module; required for and only allowed with `module` |
+| `moduleId` | string of 1–10 digits | – | the numeric id of the module in its diagram; required for and only allowed with `module` |
+| `libraryType` | `driver` or `plugin` | both, drivers first | only the libraries of this type; only with `libraries` |
+| `offset` | integer 0–9999 | 0 | position of the first library of the page, e.g. the `nextOffset` of the last page; only with `libraries` |
+| `limit` | integer 1–100 | 100 | libraries of one page; only with `libraries` |
+
+The actions and where their facts come from:
+
+| Action | Result | Read through |
+|---|---|---|
+| `module` | `module`: `diagram`, `moduleId`, `name`, `type` (INUBIT's module type, e.g. `twDatabaseConnector`), `parentId` (absent without a parent), `connections` (the outgoing connections, each `id` and `targetId`), `properties` (INUBIT's order) and `maskedCount` | REST `GET /model/nodeByModel/{diagram}/{moduleId}`, read as XML (INUBIT answers XML also for `Accept: application/json`) |
+| `libraries` | `page` of the library files, each `file` and `type` (`driver` or `plugin`), in the order of the answers, at most 100 per page; `rowFormatVerified` | one StartCLI run `library --list --type driver` and one `library --list --type plugin` (only the one of `libraryType` when it is given) |
+
+- **Masking** (research D-19, the rules of [`find_partners`](#find_partners)). A property whose
+  name is a secret name, whose type is `Password` (also with an empty value) or whose value is key
+  material is shown as `{name, type, masked: true}` without a value and counted in `maskedCount`.
+  In a value that is shown, a credential inside the text (e.g. the password of a database URL) is
+  replaced by a placeholder; such a property is not masked as a whole and does not count. A value
+  over 4,000 characters is cut (after masking) and carries `truncated: true`.
+- **Unknown module.** INUBIT answers an id the diagram does not have with an HTTP 500 page whose
+  message says that the module could not be found: `NOT_FOUND`. Any other answer that is not the
+  recorded XML is `UNEXPECTED_RESPONSE` with a masked, bounded excerpt.
+- **No module name.** There is no `moduleName` input: `GET /model/nodeByName/{diagram}/{module}`
+  answers HTTP 404 on INUBIT 8.1.17 (its 8.1 entry is excluded) and is not documented for 9.0.
+- **Library rows** (live check L-21). Only the empty answer has been recorded, so the format of a
+  listed library is not known: each non-empty line of the answer is read as one file name (a line
+  over 255 characters or with a control character fails the call with `UNEXPECTED_RESPONSE`), a
+  credential inside it is masked, and `rowFormatVerified` is `false` until a listed library is
+  recorded. A failed run of either type fails the call; there is no partial list.
+- **Not offered** (owner decision 2026-11-14). The process metadata of a workflow
+  (`GET /process/metadata/{name}`) and the IS Connector check (`GET /isconnector`) are not
+  actions: the metadata read gave no positive answer to record on 8.1.17 (live check L-19), and
+  `/isconnector` refuses the REST login of the profile (live check L-20). Their entries stay
+  planned on the coverage page until these checks are settled.
+- The module read is bounded by the node's `timeout`, each library run by its `cliTimeout`. A
+  node without a StartCLI client for its version still reads modules; `libraries` then fails with
+  `CLI_UNAVAILABLE`. The StartCLI runs need the right "CLI login access" for the configured account
+  (see [setup.md](setup.md#1-prerequisites)).
+
+**Output** (`read_model_details.output.json`): `{ "node", "action", "source", "module"? | "page"?,
+"rowFormatVerified"?, "warnings" }`.
+
+| Field | Meaning |
+|---|---|
+| `node` | the node id |
+| `action` | the action that was read |
+| `source` | the channel the result came from (FR-009): `REST` for `module`, `CLI` for `libraries` |
+| `module` | `module`: the module as described above; a property has `name`, `type` and `value` (with `truncated` (`true`) when the value was cut), or `name`, `type` and `masked` (`true`) |
+| `page` | `libraries`: a [Page](#common-shapes-page-and-toolerror) whose `items` are the library files of the page, `total` all of them, `nextOffset` only when there is a next page |
+| `rowFormatVerified` | `libraries`: `false` while each line of the StartCLI answer is read as one file name (L-21) |
+| `warnings` | the version and client warnings of the version check (texts in [the warnings table](#inubit-versions-and-capabilities-feature-009)) |
+
+```json
+{"node": "test/node1", "action": "module", "source": "REST",
+ "module": {"diagram": "Demo-Workflow", "moduleId": "100", "name": "Demo-DB-Probe",
+   "type": "twDatabaseConnector", "connections": [{"id": "22", "targetId": "1"}],
+   "properties": [{"name": "RetryNumber", "type": "Integer", "value": "0"},
+                  {"name": "Password", "type": "Password", "masked": true}],
+   "maskedCount": 1},
+ "warnings": []}
+```
+
+```json
+{"node": "test/node1", "action": "libraries", "source": "CLI",
+ "page": {"items": [{"file": "demo-driver.jar", "type": "driver"}], "offset": 0, "limit": 100,
+  "total": 1, "totalIsLowerBound": false, "truncated": false},
+ "rowFormatVerified": false, "warnings": []}
+```
+
+**Errors** (as `ToolError`, see [Common shapes](#common-shapes-page-and-toolerror)):
+
+| Code | When |
+|---|---|
+| `INVALID_INPUT` | invalid arguments (a group id, `diagram` or `moduleId` missing for `module` or given with `libraries`, `libraryType`, `offset` or `limit` with `module` or out of range) are rejected by the input schema with a plain-text validation message |
+| `TARGET_UNKNOWN` | unknown id |
+| `UNSUPPORTED_VERSION` | the node's version does not support `model_details` (see Versions; e.g. `INUBIT 6.1.… on test/node1 does not support reading model details; use the Workbench, or another node with a different INUBIT version`), or the StartCLI client does not support the version |
+| `CLI_UNAVAILABLE` | `libraries` on a node without a StartCLI client for its version |
+| `NOT_FOUND` | `module`: the diagram has no module with this id (the HTTP 500 "could not be found" page) |
+| `FORBIDDEN` | the REST module read answers HTTP 403 |
+| `AUTH_FAILED`, `TLS_ERROR`, `UNREACHABLE`, `TIMEOUT` | the login was rejected (with the account-lockout protection of [`get_health`](#get_health)), TLS check, connection; `TIMEOUT` of a library run after `cliTimeout` |
+| `MAINTENANCE_MODE` | the REST module read while the node is in maintenance mode (HTTP 503) |
+| `UNEXPECTED_RESPONSE` | an answer the server cannot read: a module answer that is not the recorded XML (with a masked excerpt), a library line that cannot be a file name |
+
+A failed library run (exit code other than 0, cut output, refused StartCLI login, an `n-NOK`
+message) fails the call with the code of the failure and a masked excerpt, as the other StartCLI
+reads do.
+
+**Example prompts**:
+
+- "Show the properties of module 100 in Demo-Workflow on test/node1" →
+  `read_model_details(target: "test/node1", action: "module", diagram: "Demo-Workflow",
+  moduleId: "100")`.
+- "Which JDBC drivers are uploaded on test/node1?" → `read_model_details(target: "test/node1",
+  action: "libraries", libraryType: "driver")`.
+
 ## `find_processes`
 
 > [acme] Find process instances on INUBIT nodes, e.g. failed (ERROR) or hanging ones, filtered by
 > workflow, state, and time. Use the returned processId and time range with `query_logs` to find
-> the cause.
+> the cause. userColumn (1 to 5) adds that user-defined Queue Manager column to each process: the
+> field userDefined<i> of the REST queueLog row, the data of StartCLI `ps -u`.
 
 Finds process instances in the INUBIT Queue Manager: failed (`ERROR`), waiting, queued or
 processing ones, optionally only the hanging ones, filtered by workflow, tag and time. Backed by
@@ -1177,8 +1323,9 @@ the REST Queue Manager view `POST /ibis/rest/log/queueLog` (research R-8; the sa
 | `since`, `until` | string | — | ISO-8601 with offset (`2026-10-01T08:00:00Z`, `…+02:00`) or a duration back from now (`PT24H`, `P7D`); both bounds inclusive |
 | `offset` | integer 0–9999 | 0 | paging; `offset + limit` ≤ 10,000 |
 | `limit` | integer 1–100 | 50 | page size (capped by `resultLimits.maxItems`) |
+| `userColumn` | integer 1–5 | — | show this user-defined Queue Manager column per process (feature 022, see below) |
 
-**Output**: `{ "results": [ { "node", "page"?: Page<ProcessInstance>, "warnings"?: string[],
+**Output**: `{ "userColumn"?, "results": [ { "node", "page"?: Page<ProcessInstance>, "warnings"?: string[],
 "error"?: ToolError } ] }` — one entry per resolved server in configuration order; a server that
 fails (e.g. `UNREACHABLE`, `AUTH_FAILED`) has only `error`, the others are still reported. Items
 are sorted by `since`, newest first. `warnings` (feature 009, only when non-empty) carries the
@@ -1195,6 +1342,7 @@ node's version warning, e.g. on INUBIT 9.1 or an unknown version (see
 | `timeInState` | ISO-8601 duration `now − since` (e.g. `PT2H5M`) |
 | `hanging` | see below |
 | `workflow`, `module`, `moduleType`, `tag`, `inubitNode`, `owner`, `priority` | the Queue Manager columns (absent when empty); `inubitNode` is the Queue Manager column `node` |
+| `userColumnValue` | only with `userColumn`: the requested user-defined column (absent when blank) |
 
 The same `processId` can occur in several rows (one per workflow/module of a process that called
 sub-workflows); the rows stay separate.
@@ -1224,6 +1372,19 @@ fetches the first `offset + limit` rows; they are merged newest first and sliced
 the sum of the totals. `offset + limit > 10000` → `INVALID_INPUT`. The page is further bounded by
 the result size limit (`truncated`, `nextOffset`).
 
+**User-defined column** (feature 022, research D-21). With `userColumn: <i>` the result carries
+`userColumn` (the index `<i>`), and each process carries `userColumnValue`: the field `userDefined<i>` of
+its row in the `queueLog` answer the search reads anyway (no further request, no StartCLI run).
+StartCLI `ps -u <i>` shows the same column cut to 15 characters, so its entry is covered by
+`find_processes` on the [coverage page](interface-coverage.md); the value here is not cut to 15
+characters but bounded and masked like the row's other texts (200 characters with the truncation
+marker). Without `userColumn` the result is unchanged. The column is offered per node when the
+entry `ps -u` is covered for the node's version: on INUBIT 8.1 (verified against the recordings of
+an 8.1.17 node); on 9.0 it is not yet verified, and 6.1 does not offer it. A node whose version is not
+admitted is searched without the column, and its `warnings` say why (`userColumn unavailable
+(UNSUPPORTED_VERSION): find_processes: INUBIT 9.0.… on prod/node1: CLI ps -u is not yet verified
+for INUBIT 9.0; …`); when it is the only node of the call, this refusal is its `error`.
+
 **INUBIT 6.1 nodes** (feature 012, [INUBIT 6.1](#inubit-61-feature-012)): in this version
 process diagnosis is not supported on 6.1, so a 6.1 node's entry is the refusal
 `find_processes: INUBIT 6.1 (versionLine V6_1) on legacy/node1 does not support process
@@ -1243,6 +1404,8 @@ above without `tag`, `moduleType` and `globalProcessId`, and carry the warning `
   `find_processes(target: "qa", hangingOnly: true, hangingThresholdMinutes: 120)`.
 - "Why did process 110219899 fail?" → `find_processes` for module and `since`, then
   `query_logs(target: "dev/node1", logType: "systemLog", processId: "110219899")`.
+- "Show the failed processes on dev/node1 with their order number in user column 1" →
+  `find_processes(target: "dev/node1", states: ["ERROR"], userColumn: 1)`.
 
 ## `query_logs`
 
@@ -2486,6 +2649,11 @@ input: "inputs/order.xml"})`.
 > true only when the user wants that. The folder must be an absolute path outside the workspace,
 > the server's directories (including its configuration directory), git working trees and network
 > paths; existing files are never replaced. Read-only for INUBIT; does not touch the workspace.
+> With content ownerWithoutGroups: one archive of the owner's technical workflows only, without
+> the diagram groups excludeGroups (also IN CLEAR TEXT). With content metadata: one archive of the
+> metadata registry, whole or only the registry entries metadataNames (metadata names, not
+> workflow names; names that do not exist are accepted); no acknowledgement needed. Every export
+> runs StartCLI, and INUBIT appends a trace to the check-in comments of the exported workflows.
 
 Feature 015 ([its delta](../specs/015-workbench-archives/contracts/mcp-tools-delta.md)). Runs one
 StartCLI `export` of the diagram group (as `export_artifacts`, `--exportWorkflowType 'technical'`,
@@ -2509,12 +2677,42 @@ intent; it does not replace that confirmation. The tool is offered under the con
 | Property | Rules |
 |---|---|
 | `target` (required) | id of one group (its first node is used and named in the result) or one node |
-| `owner` | INUBIT user or user group owning the workflows; default `inventory.owner` of the node |
-| `diagramGroup` (required) | one diagram group name (letters, digits, `_ . -` and spaces, 1–200) |
-| `workflows` | 1–50 unique workflow names (1–200 characters, no control characters), matched case-sensitively; default: every technical workflow of the diagram group, at most 50 |
+| `owner` | INUBIT user or user group owning the workflows; default `inventory.owner` of the node; not with `metadata` |
+| `content` | `workflows` (default), `ownerWithoutGroups` or `metadata` (feature 022, see below) |
+| `diagramGroup` (required for `workflows`) | one diagram group name (letters, digits, `_ . -` and spaces, 1–200); only with `workflows` |
+| `workflows` | 1–50 unique workflow names (1–200 characters, no control characters), matched case-sensitively; default: every technical workflow of the diagram group, at most 50; only with `workflows` |
+| `excludeGroups` (required for `ownerWithoutGroups`) | 1–20 unique diagram group names (as `diagramGroup`) left out; only with `ownerWithoutGroups` |
+| `metadataNames` | 1–50 unique metadata names (as `diagramGroup`); default: the whole registry; only with `metadata` |
 | `targetFolder` (required) | absolute path of the local folder for the archives (1–4096 characters); see the folder rules below; created owner-only if missing |
-| `acknowledgeClearTextSecrets` | must be `true` (checked by the tool, not the schema, so that a missing acknowledgement is audited and explained) |
+| `acknowledgeClearTextSecrets` | must be `true` for `workflows` and `ownerWithoutGroups` (checked by the tool, not the schema, so that a missing acknowledgement is audited and explained) |
 | `reason` | one line, 1–500 characters; stored in the audit log |
+
+**Content forms** (feature 022, research D-21). `ownerWithoutGroups` runs `export
+--exportWorkflowUser '<owner>' --exportWorkflowType 'technical' --exportWorkflowGroup ''
+--exportWorkflowGroupExclude '<g1>,<g2>,…'` and writes the export as it is, one archive
+`<owner>.workflows.zip` (the owner's technical workflows only, module secrets in clear text).
+`metadata` runs `export --exportMetadata`, with `--exportMetadataNames '<n1>,<n2>,…'` for
+`metadataNames`, and writes one archive `metadata-registry.zip`; it needs no owner and no
+acknowledgement. Their one file name is known in advance, so an existing file of the same name
+is refused (`INVALID_INPUT`, audited `REFUSED`) before StartCLI runs; such a refusal leaves no
+check-in comment trace. Both are listed in `archives` under `workflow` with the owner or
+`metadata registry`, and with empty module and repository lists. Each is admitted per call by the
+coverage list (`UNSUPPORTED_VERSION` "not yet verified" until its rows are reachable for the
+node's version): on INUBIT 8.1 both are verified against the recordings of an 8.1.17 node; on 9.0
+they are not yet verified.
+
+- `ownerWithoutGroups` exports **technical workflows only** (owner decision 2026-11-14); without
+  `--exportWorkflowType` and the empty `--exportWorkflowGroup` INUBIT refuses the export (`2-NOK:
+  Missing export option.`).
+- `metadata` exports the **metadata registry** (`MetadataRegistry.xml`,
+  `MetadataAllocations.xml`), not the metadata of workflows. `metadataNames` are names of registry
+  entries, not workflow names, and INUBIT accepts names that do not exist anywhere. The names
+  are sent as one single-quoted, comma-separated argument, like every other value
+  (`--exportMetadataNames 'Example1,Example2'`); the recording has the list unquoted
+  (`Example1,Example2`), so the quoted form is to be confirmed at the next live recording of the
+  metadata export (research D-21).
+- The XSLT 1.0 report (`fetchXSLT1.0`) is not offered: the command is not found on INUBIT
+  8.1.17 (research D-21, live check L-7).
 
 **Archive files.** `<file name>.diagram.zip` per workflow, the file name derived from the
 workflow name, in this order: each of `< > : " / \ | ? *` and each control character becomes `_`,
@@ -2605,15 +2803,16 @@ the rule and the folder, never a file's content.
 
 | Field | Meaning |
 |---|---|
-| `node`, `owner`, `diagramGroup` | where the workflows came from (a group target: its first node) |
+| `node`, `owner`, `diagramGroup` | where the workflows came from (a group target: its first node); `diagramGroup` only for `workflows`, no `owner` for `metadata` |
 | `targetFolder` | the absolute path of the folder |
 | `auditId` | the id of the call's audit records |
-| `clearTextSecrets` | always: "The archives contain the secrets of these workflows (passwords, keys, certificates, saved test messages) in clear text. Do not share, attach or commit them as they are; delete them when no longer needed." |
+| `clearTextSecrets` | always except for `metadata`: "The archives contain the secrets of these workflows (passwords, keys, certificates, saved test messages) in clear text. Do not share, attach or commit them as they are; delete them when no longer needed." |
 | `archives` | the archives written completely, in write order (see below) |
 | `failed` | `[{workflow, code, message}]`, at most one entry: the archive the writes stopped at (`INTERNAL`) |
 | `notWritten` | the workflows not attempted after the failure |
 | `truncated` | `true` if `modules`, `missingModules` or `repositoryPaths` were cut: over all archives together they hold at most `resultLimits.maxItems` items, filled archive by archive (per archive modules, then missing modules, then repository paths); counts, archives and warnings are never cut, and the full lists are not written anywhere |
 | `warnings` | call-level: the version warnings of the node (feature 009), the cloud-sync warning, a file of the call that could not be deleted (a temporary `.part` file, or a file of the failed archive; it holds the same secrets), an audit outcome that could not be written (naming the `auditId`) |
+| `source` | `CLI`: the archives came from StartCLI (feature 022) |
 
 Per archive: `workflow`, `file` (the name in `targetFolder`), `path` (absolute), `size` (bytes),
 `moduleCount` and `modules` (`[{name, pluginType}]`), `missingModuleCount` and `missingModules`
@@ -2646,14 +2845,26 @@ export-dependent check), `FAILED` (StartCLI, slicing, an unexpected failure), an
 **`PARTIALLY_COMPLETED` for every write failure** — `failed` not empty, however many archives
 were written, also when no archive was written (the target folder could not be created, or the
 first archive failed). Inputs: `owner`, `diagramGroup`, `targetFolder`, `workflow.<n>`,
-`file.<n>`, `acknowledgeClearTextSecrets`, `reason`; names, counts and codes only, never file
-content or secret values. Calls that violate the input schema are not audited.
+`file.<n>`, `acknowledgeClearTextSecrets`, `reason`, and for the forms of feature 022 `content`
+with `excludeGroup.<n>` or `metadataName.<n>`; names, counts and codes only, never file content
+or secret values. Calls that violate the input schema are not audited.
 
 **Example prompt**: "Export Workflow-0001 of diagram group GRP-01 from dev as a Workbench archive
 into /Users/jdoe/archives; I know it contains the passwords in clear text" →
 `export_archives(target: "dev", diagramGroup: "GRP-01", workflows: ["Workflow-0001"],
 targetFolder: "/Users/jdoe/archives", acknowledgeClearTextSecrets: true, reason: "hand over to
 the Workbench")`. Delete the archives when they are no longer needed.
+
+More example prompts (feature 022):
+
+- "Export all technical workflows of OWNERS on dev except the groups GRP-02 and GRP-03 into
+  /Users/jdoe/archives; I know the passwords are in clear text" → `export_archives(target: "dev",
+  content: "ownerWithoutGroups", owner: "OWNERS", excludeGroups: ["GRP-02", "GRP-03"],
+  targetFolder: "/Users/jdoe/archives", acknowledgeClearTextSecrets: true, reason: "full owner
+  backup")`.
+- "Export the metadata registry of dev/node1 into /Users/jdoe/archives" →
+  `export_archives(target: "dev/node1", content: "metadata", targetFolder:
+  "/Users/jdoe/archives", reason: "registry backup")`.
 
 ## Development on a development stage (feature 004)
 

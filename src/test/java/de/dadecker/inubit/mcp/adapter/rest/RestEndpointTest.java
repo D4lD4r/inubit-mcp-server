@@ -24,7 +24,8 @@ class RestEndpointTest {
                 "GET /model/export/{name}",
                 "GET /license",
                 "GET /configurations",
-                "GET /user/users");
+                "GET /user/users",
+                "GET /model/nodeByModel/{model}/{node}");
     }
 
     @Test
@@ -39,6 +40,13 @@ class RestEndpointTest {
     void theUserListEndpointOfFeature022() {
         assertThat(RestEndpoint.USERS.path()).isEqualTo("/ibis/rest/user/users");
         assertThat(RestEndpoint.USERS.method()).isEqualTo(Method.GET);
+    }
+
+    @Test
+    void theModuleDetailEndpointOfFeature022EncodesDiagramAndModuleIdAsTwoSegments() {
+        assertThat(RestEndpoint.NODE_BY_MODEL.path("Order Flow/2", "100"))
+            .isEqualTo("/ibis/rest/model/nodeByModel/Order%20Flow%2F2/100");
+        assertThat(RestEndpoint.NODE_BY_MODEL.method()).isEqualTo(Method.GET);
     }
 
     @Test

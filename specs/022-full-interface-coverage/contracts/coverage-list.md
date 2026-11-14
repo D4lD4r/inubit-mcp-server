@@ -14,7 +14,7 @@ channel	entry	kind	area	story	v8_1	v9_0	waits
 REST	GET /license	READ	A	US1	reachable:get_server_settings/default	planned	9.0-pin
 CLI	license -td	READ	A	-	covered:get_server_settings	covered:get_server_settings	-
 CLI	lls	READ	A	-	excluded:lists the local directory of the StartCLI client	excluded:lists the local directory of the StartCLI client	-
-REST	GET /model/nodeByName/{diagram}/{module}	READ	E	US3	planned	undocumented	-
+REST	GET /model/nodeByName/{diagram}/{module}	READ	E	-	excluded:absent on INUBIT 8.1.17 (404)	undocumented	-
 REST	GET /process/processes/{group}	READ	PORTAL	-	excluded:portal function	excluded:portal function	-
 CLI	tag --tagDiagram	WRITE	E	-	excluded:ignored by INUBIT, tags every diagram of the owner	excluded:ignored by INUBIT, tags every diagram of the owner	-
 CLI	export --exportWorkflowGroup	EXPORT	E	-	reachable:export_archives/default	reachable:export_archives/default	-
@@ -33,9 +33,11 @@ its rows then change to `workflows`.
     parameters left out (`DELETE /modules` for `?moduleName=`).
 - **Scope**: all documented entries, including those the server already sends (features
   001–021) and the excluded portal entries. Today's entries are `reachable` with their tool.
-- **`waits`**: `-`, or one or more of `L-1` … `L-18` and `9.0-pin` joined by `+` (for example
-  `L-1+9.0-pin` when 8.1 waits on L-1 and 9.0 on the pin); set only on `planned` rows of a
-  delivered story (check 5), `-` everywhere else.
+- **`waits`**: `-`, or one or more of `L-1` … `L-21`, `9.0-pin` and `9.0-followup` joined by `+`
+  (for example `L-1+9.0-pin` when 8.1 waits on L-1 and 9.0 on the pin); set only on `planned`
+  rows of a delivered story (check 5), `-` everywhere else. `9.0-followup`: the story's PR
+  delivered 8.1, and its 9.0 recordings and flips come in the story's 9.0 follow-up PR (US3 on,
+  research "Decided after T039").
 - **States**: as in [data-model.md](../data-model.md) (`CoverageState`). An excluded row's reason
   is one line of at most 120 characters.
 
@@ -61,8 +63,9 @@ message names the command that rewrites the page (`mvn -q -Dcoverage.write=true 
    free-text `content`, as in `record_knowledge`, does not count).
 4. Every row has both version states; `story` is set for every `planned` row.
 5. A row of a story in `delivered-stories` that is still `planned` for a version must carry a
-   `waits` value: `L-n` (a live check) or `9.0-pin` (the 9.0 recordings wait for the test
-   server's certificate pin). A row without `planned` must carry `-`. The list thus shows what is
+   `waits` value: `L-n` (a live check), `9.0-pin` (the 9.0 recordings wait for the test
+   server's certificate pin) or `9.0-followup` (the 9.0 part comes in the story's follow-up
+   PR). A row without `planned` must carry `-`. The list thus shows what is
    open and why (FR-004). Once all seven stories are delivered, no `planned` row and no `waits`
    value other than `-` is left: every row is `reachable`, `covered`, `undocumented` or
    `excluded` (SC-001).

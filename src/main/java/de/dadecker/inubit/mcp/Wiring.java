@@ -55,6 +55,7 @@ import de.dadecker.inubit.mcp.application.ImportService;
 import de.dadecker.inubit.mcp.application.InventoryCache;
 import de.dadecker.inubit.mcp.application.InventoryService;
 import de.dadecker.inubit.mcp.application.LogFileWriter;
+import de.dadecker.inubit.mcp.application.ModelDetailService;
 import de.dadecker.inubit.mcp.application.NodeDeployer;
 import de.dadecker.inubit.mcp.application.NodeOverview;
 import de.dadecker.inubit.mcp.application.NodeVersions;
@@ -139,6 +140,7 @@ import de.dadecker.inubit.mcp.mcp.tools.RecordKnowledgeTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
 import de.dadecker.inubit.mcp.mcp.tools.ReadQueueEntryTool;
+import de.dadecker.inubit.mcp.mcp.tools.ReadModelDetailsTool;
 import de.dadecker.inubit.mcp.mcp.tools.ReadUsersTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestoreBackupTool;
 import de.dadecker.inubit.mcp.mcp.tools.SetActiveTool;
@@ -224,8 +226,10 @@ final class Wiring implements AutoCloseable {
     private final ReadQueueEntryTool readQueueEntry;
     private final ClientSelectionPort clientSelection;
     /** Feature 022 (research D-2): the tool actions of the coverage gate; stories add theirs. */
-    private final ActionCatalog actions = new ActionCatalog(Stream.concat(
-        Stream.of(ServerSettingsService.SPEC), UserReadService.SPECS.stream()).toList());
+    private final ActionCatalog actions = new ActionCatalog(Stream.of(
+        Stream.of(ServerSettingsService.SPEC), UserReadService.SPECS.stream(),
+        ModelDetailService.SPECS.stream(), ArchiveExportService.SPECS.stream())
+        .flatMap(specs -> specs).toList());
     private final ExportArtifactsTool exportArtifacts;
     /** Feature 015: offered under the condition of {@code export_artifacts} (research R-16). */
     private final ExportArchivesTool exportArchives;
@@ -236,6 +240,8 @@ final class Wiring implements AutoCloseable {
     private final GetServerSettingsTool getServerSettings;
     /** Feature 022 (US2): announced where some node may read the user directory. */
     private final ReadUsersTool readUsers;
+    /** Feature 022 (US3): announced where some node may read the model details. */
+    private final ReadModelDetailsTool readModelDetails;
     /**
      * Feature 019 (research D-7): the credentials of every node of the profile; feature 021
      * (research D-11): also masked in the excerpt of {@code download_server_log}.
@@ -447,6 +453,9 @@ final class Wiring implements AutoCloseable {
         // feature 022 (US2): the user reads of one server, gated per view by the coverage list
         this.readUsers = new ReadUsersTool(new UserReadService(targets, versionGate,
             gateways::userDirectory));
+        // feature 022 (US3): one module or the libraries of one server, gated per action
+        this.readModelDetails = new ReadModelDetailsTool(new ModelDetailService(targets,
+            versionGate, gateways::modelDetails));
         // feature 020 (FR-011): the configured credentials are replaced before the masking
         this.readQueueEntry = new ReadQueueEntryTool(new QueueEntryService(targets,
             id -> byId.get(id).queueEntryRead(), versionGate, gateways::processes,
@@ -705,6 +714,9 @@ final class Wiring implements AutoCloseable {
         if (anyPossiblyCapable(Capability.USER_DIRECTORY)) {
             handlers.add(readUsers);
         }
+        if (anyPossiblyCapable(Capability.MODEL_DETAILS)) {
+            handlers.add(readModelDetails);
+        }
         if (anyPossiblyCapable(Capability.INVENTORY)) {
             handlers.add(new ListInventoryTool(inventory));
             handlers.add(new GetInventoryItemTool(inventory));
@@ -889,12 +901,14 @@ final class Wiring implements AutoCloseable {
      * with the client and the group's {@code unsupported.serverLogRead}; feature 022 (research
      * D-1): reading the server settings, allowed without a client; its StartCLI parts are then
      * reported unavailable per part (research D-2); reading the users (US2), allowed without a
-     * client as well, since its login list comes over REST.
+     * client as well, since its login list comes over REST; reading the model details (US3),
+     * allowed without a client too, since a module is read over REST.
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
         Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
             Capability.PROCESS_DIAGNOSIS, Capability.LOG_DIAGNOSIS, Capability.INVENTORY,
-            Capability.PARTNER_MANAGEMENT, Capability.SERVER_SETTINGS, Capability.USER_DIRECTORY);
+            Capability.PARTNER_MANAGEMENT, Capability.SERVER_SETTINGS, Capability.USER_DIRECTORY,
+            Capability.MODEL_DETAILS);
         if (withClient) {
             allowed.add(Capability.WORKSPACE_EXPORT);
         }

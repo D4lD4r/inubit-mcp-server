@@ -607,7 +607,7 @@ V13 (production refusal) needs no server contact: a call on a `production: true`
 
 ## Recording administration commands (feature 022)
 
-The live checks L-1 … L-18 of feature 022 (`specs/022-full-interface-coverage/research.md`,
+The live checks L-1 … L-21 of feature 022 (`specs/022-full-interface-coverage/research.md`,
 "Live checks") record administration commands on non-production servers of 8.1 and 9.0. Tasks
 marked [LIVE] run against such a server; [LIVE-W] marks a command that changes it.
 

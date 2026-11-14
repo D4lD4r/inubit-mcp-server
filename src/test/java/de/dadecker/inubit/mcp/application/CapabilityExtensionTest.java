@@ -235,7 +235,8 @@ class CapabilityExtensionTest {
             // capabilities of the US3 version extension only
             (id, withClient) -> EnumSet.complementOf(EnumSet.of(Capability.QUEUE_ENTRY_READ,
                 Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ,
-                Capability.SERVER_SETTINGS, Capability.USER_DIRECTORY)),
+                Capability.SERVER_SETTINGS, Capability.USER_DIRECTORY,
+                Capability.MODEL_DETAILS)),
             TestClientSelection.of(id -> true));
         client = McpTestClient.start(List.of(
             new ListNodesTool(McpTestClient.TEST_PROFILE, overview::nodes),
@@ -285,7 +286,8 @@ class CapabilityExtensionTest {
         ProcessInstance failed = new ProcessInstance(NODE_79, PROCESS_ID, Optional.empty(),
             ProcessState.ERROR, "Error", Instant.parse("2026-10-01T08:00:00Z"), Duration.ZERO,
             false, Optional.of("Workflow-79"), Optional.empty(), Optional.empty(),
-            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+            Optional.empty());
         ProcessQueryPort processes = new ProcessQueryPort() {
             @Override
             public void validate(ProcessQuery query) {

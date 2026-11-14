@@ -15,8 +15,8 @@ import java.util.Optional;
  * {@link #inventory()} (US3), {@link #processControl()} (US4), feature 003 adds
  * {@link #artifacts()}, feature 004 {@link #imports()} and {@link #tags()}, feature 018
  * {@link #partners()}, feature 020 {@link #queueEntryContent()}, feature 021
- * {@link #serverLogs()} and feature 022 {@link #serverSettings()} and {@link #userDirectory()},
- * implemented by the version-specific adapters.
+ * {@link #serverLogs()} and feature 022 {@link #serverSettings()}, {@link #userDirectory()} and
+ * {@link #modelDetails()}, implemented by the version-specific adapters.
  * Application services obtain gateways only through {@link GatewayFactory}, so supporting 9.x is an
  * adapter change, not a change of the tool logic.
  */
@@ -161,6 +161,20 @@ public interface Gateway {
         throw new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
             "User reads are not available for this INUBIT version on " + node(),
             "This adapter line has no user directory adapter",
+            "Call list_nodes for what this node supports").withNode(node()));
+    }
+
+    /**
+     * The model details of this server, a module over REST and the libraries over StartCLI
+     * (feature 022, US3). The default is for gateways without a model detail adapter.
+     *
+     * @throws ToolErrorException {@code UNSUPPORTED_VERSION} with the server id, unless the
+     *     version-specific gateway provides an adapter
+     */
+    default ModelDetailPort modelDetails() {
+        throw new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
+            "Model details are not available for this INUBIT version on " + node(),
+            "This adapter line has no model detail adapter",
             "Call list_nodes for what this node supports").withNode(node()));
     }
 }

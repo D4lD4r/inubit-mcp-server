@@ -15,11 +15,11 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 
 | State | 8.1 | 9.0 |
 | --- | ---: | ---: |
-| reachable | 42 | 41 |
-| covered | 39 | 39 |
-| planned | 103 | 102 |
+| reachable | 48 | 41 |
+| covered | 40 | 39 |
+| planned | 93 | 102 |
 | undocumented | 3 | 1 |
-| excluded | 63 | 67 |
+| excluded | 66 | 67 |
 | all entries | 250 | 250 |
 
 ## A. Server state and settings
@@ -116,8 +116,8 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 
 | Entry | Kind | Story | 8.1 | 9.0 |
 | --- | --- | --- | --- | --- |
-| CLI `library --list` | READ | US3 | planned | planned |
-| CLI `library --type` | READ | US3 | planned | planned |
+| CLI `library --list` | READ | US3 | reachable `read_model_details/libraries` | planned, waits `9.0-followup` |
+| CLI `library --type` | READ | US3 | reachable `read_model_details/libraries` | planned, waits `9.0-followup` |
 | CLI `library --upload` | WRITE | US6 | planned | planned |
 | CLI `library --delete` | WRITE | US6 | planned | planned |
 | CLI `library --deleteAll` | WRITE | US6 | planned | planned |
@@ -151,7 +151,7 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | CLI `-nx` | READ | - | covered `get_health` | covered `get_health` |
 | CLI `-nw` | READ | - | covered `get_health` | covered `get_health` |
 | CLI `-nq` | READ | - | covered `get_health` | covered `get_health` |
-| CLI `ps -u` | READ | US3 | planned | planned |
+| CLI `ps -u` | READ | US3 | covered `find_processes` | planned, waits `9.0-followup` |
 | CLI `processErrorStart` | WRITE | - | reachable `restart_process/default` | reachable `restart_process/default` |
 | CLI `kill` | WRITE | - | reachable `kill_process/default` | reachable `kill_process/default` |
 | CLI `processdelete error` | WRITE | US4 | planned | planned |
@@ -174,21 +174,21 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 
 | Entry | Kind | Story | 8.1 | 9.0 |
 | --- | --- | --- | --- | --- |
-| CLI `export --exportWorkflowUser` | EXPORT | - | reachable `export_archives/default` | reachable `export_archives/default` |
-| CLI `export --exportWorkflowType` | EXPORT | - | reachable `export_archives/default` | reachable `export_archives/default` |
-| CLI `export --exportWorkflowGroup` | EXPORT | - | reachable `export_archives/default` | reachable `export_archives/default` |
-| CLI `export --exportFile` | EXPORT | - | reachable `export_archives/default` | reachable `export_archives/default` |
+| CLI `export --exportWorkflowUser` | EXPORT | - | reachable `export_archives/workflows` | reachable `export_archives/workflows` |
+| CLI `export --exportWorkflowType` | EXPORT | - | reachable `export_archives/workflows` | reachable `export_archives/workflows` |
+| CLI `export --exportWorkflowGroup` | EXPORT | - | reachable `export_archives/workflows` | reachable `export_archives/workflows` |
+| CLI `export --exportFile` | EXPORT | - | reachable `export_archives/workflows` | reachable `export_archives/workflows` |
 | CLI `export --includeHistory` | EXPORT | - | reachable `get_inventory_item/default` | reachable `get_inventory_item/default` |
 | CLI `export --exportModule` | EXPORT | - | reachable `export_artifacts/default` | reachable `export_artifacts/default` |
 | CLI `export --exportModuleGroup` | EXPORT | - | reachable `export_artifacts/default` | reachable `export_artifacts/default` |
 | CLI `export --exportModuleUser` | EXPORT | - | reachable `export_artifacts/default` | reachable `export_artifacts/default` |
 | CLI `export --exportRepositoryPath` | EXPORT | - | reachable `export_artifacts/default` | reachable `export_artifacts/default` |
 | CLI `export --exportTag` | EXPORT | - | reachable `deploy_release/default` | reachable `deploy_release/default` |
-| CLI `export --exportWorkflowGroupExclude` | EXPORT | US3 | planned | planned |
-| CLI `export --exportMetadata` | EXPORT | US3 | planned | planned |
-| CLI `export --exportMetadataNames` | EXPORT | US3 | planned | planned |
-| CLI `fetchXSLT1.0` | EXPORT | US3 | planned | planned |
-| CLI `fetchXSLT1.0 --exportFilename` | EXPORT | US3 | planned | planned |
+| CLI `export --exportWorkflowGroupExclude` | EXPORT | US3 | reachable `export_archives/ownerWithoutGroups` | planned, waits `9.0-followup` |
+| CLI `export --exportMetadata` | EXPORT | US3 | reachable `export_archives/metadata` | planned, waits `9.0-followup` |
+| CLI `export --exportMetadataNames` | EXPORT | US3 | reachable `export_archives/metadata` | planned, waits `9.0-followup` |
+| CLI `fetchXSLT1.0` | EXPORT | US3 | excluded: command not found on INUBIT 8.1.17 | planned, waits `9.0-followup` |
+| CLI `fetchXSLT1.0 --exportFilename` | EXPORT | US3 | excluded: command not found on INUBIT 8.1.17 | planned, waits `9.0-followup` |
 | CLI `import --importFile` | WRITE | - | reachable `import_artifacts/default` | reachable `import_artifacts/default` |
 | CLI `import --importWorkflow` | WRITE | - | reachable `import_artifacts/default` | reachable `import_artifacts/default` |
 | CLI `import --importWorkflowActive` | WRITE | - | reachable `import_artifacts/default` | reachable `import_artifacts/default` |
@@ -223,7 +223,7 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | CLI `rename --renameFile` | WRITE | US6 | planned | planned |
 | CLI `rename --renameDirectory` | WRITE | US6 | planned | planned |
 | CLI `rename --renameTo` | WRITE | US6 | planned | planned |
-| REST `GET /process/metadata/{name}` | READ | US3 | planned | planned |
+| REST `GET /process/metadata/{name}` | READ | US3 | planned, waits `L-19+9.0-followup` | planned, waits `L-19+9.0-followup` |
 | REST `DELETE /diagrams/{name}` | WRITE | US6 | planned | planned |
 | REST `DELETE /diagrams/{name}/version/{version}` | WRITE | US6 | planned | planned |
 | REST `DELETE /modules/{id}` | WRITE | US6 | planned | planned |
@@ -231,13 +231,13 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | REST `DELETE /modules/{id}/version/{version}` | WRITE | US6 | planned | planned |
 | REST `GET /model/models` | READ | - | reachable `list_inventory/default` | reachable `list_inventory/default` |
 | REST `GET /model/modelByName/{name}` | READ | - | reachable `get_inventory_item/default` | reachable `get_inventory_item/default` |
-| REST `GET /model/nodeByModel/{model}/{node}` | READ | US3 | planned | planned |
+| REST `GET /model/nodeByModel/{model}/{node}` | READ | US3 | reachable `read_model_details/module` | planned, waits `9.0-followup` |
 | REST `GET /model/export/{name}` | EXPORT | - | reachable `get_inventory_item/default` | reachable `get_inventory_item/default` |
-| REST `GET /model/nodeByName/{diagram}/{module}` | READ | US3 | planned | undocumented |
+| REST `GET /model/nodeByName/{diagram}/{module}` | READ | - | excluded: absent on INUBIT 8.1.17 (404) | undocumented |
 | REST `PUT /model/import` | WRITE | - | covered `import_artifacts` | covered `import_artifacts` |
 | REST `DELETE /repository` | WRITE | US6 | planned | planned |
 | REST `GET /task/formProxyServlet` | READ | - | covered `export_archives` | covered `export_archives` |
-| REST `GET /isconnector` | READ | US3 | planned | planned |
+| REST `GET /isconnector` | READ | US3 | planned, waits `L-20+9.0-followup` | planned, waits `L-20+9.0-followup` |
 | REST `POST /isconnector` | WRITE | US6 | planned | planned |
 
 ## Portal functions

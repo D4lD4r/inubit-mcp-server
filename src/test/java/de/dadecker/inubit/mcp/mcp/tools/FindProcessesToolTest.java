@@ -27,6 +27,7 @@ import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.InterfaceCoverage;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
@@ -35,6 +36,7 @@ import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.testing.TestValidators;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.StringReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -66,7 +68,9 @@ class FindProcessesToolTest {
 
     private static final String DESCRIPTION = "[acme] Find process instances on INUBIT nodes, e.g."
         + " failed (ERROR) or hanging ones, filtered by workflow, state, and time. Use the"
-        + " returned processId and time range with `query_logs` to find the cause.";
+        + " returned processId and time range with `query_logs` to find the cause. userColumn"
+        + " (1 to 5) adds that user-defined Queue Manager column to each process: the field"
+        + " userDefined<i> of the REST queueLog row, the data of StartCLI `ps -u`.";
     private static final String QUEUE_LOG = "/ibis/rest/log/queueLog";
     private static WireMockServer dev;
     private static WireMockServer integration;
@@ -141,7 +145,11 @@ class FindProcessesToolTest {
             .containsExactly("target");
         assertThat(input.path("properties").propertyNames()).containsExactlyInAnyOrder(
             "target", "states", "hangingOnly", "hangingThresholdMinutes", "workflow", "tag",
-            "since", "until", "offset", "limit");
+            "since", "until", "offset", "limit", "userColumn");
+        assertThat(input.path("properties").path("userColumn").path("minimum").asInt())
+            .isEqualTo(1);
+        assertThat(input.path("properties").path("userColumn").path("maximum").asInt())
+            .isEqualTo(5);
         assertThat(input.path("properties").path("limit").path("minimum").asInt()).isEqualTo(1);
         assertThat(input.path("properties").path("limit").path("maximum").asInt())
             .isEqualTo(100);
@@ -248,6 +256,8 @@ class FindProcessesToolTest {
             Map.of("target", "dev", "hangingThresholdMinutes", 0),
             Map.of("target", "dev", "offset", 4_294_967_296L),
             Map.of("target", "dev", "offset", 10_000),
+            Map.of("target", "dev", "userColumn", 0),
+            Map.of("target", "dev", "userColumn", 6),
             Map.of("states", List.of("ERROR")));
 
         for (Map<String, Object> arguments : invalid) {
@@ -275,6 +285,60 @@ class FindProcessesToolTest {
         assertThat(control.path("code").asString()).isEqualTo("INVALID_INPUT");
         assertThat(control.has("node")).as("review D8").isFalse();
         assertThat(dev.findAll(anyRequestedFor(anyUrl()))).isEmpty();
+    }
+
+    // --- T045b: userColumn (research D-21) ----------------------------------------------------
+
+    @Test
+    void theUserColumnIsShownFromTheRecordedQueueLogRowsWithoutAnotherRequest() {
+        JsonNode result = call(Map.of("target", "dev/node1", "limit", 5, "userColumn", 2));
+
+        assertMatchesOutputSchema("find_processes", result);
+        JsonNode content = result.path("structuredContent");
+        assertThat(content.path("userColumn").asInt()).isEqualTo(2);
+        JsonNode entry = content.path("results").get(0);
+        assertThat(entry.has("warnings")).isFalse();
+        // userDefined2 of the five recorded rows, newest first
+        assertThat(entry.path("page").path("items")).extracting(
+            item -> item.path("userColumnValue").asString()).containsExactly("<message 1>",
+            "<message 1>", "<message 1>", "<message 5>", "<message 3>");
+        assertThat(dev.findAll(postRequestedFor(urlPathEqualTo(QUEUE_LOG)))).hasSize(1);
+        assertThat(dev.findAll(anyRequestedFor(anyUrl()))).hasSize(1);
+    }
+
+    @Test
+    void withoutTheUserColumnTheResultHasNoColumn() {
+        JsonNode result = call(Map.of("target", "dev/node1", "limit", 5));
+
+        assertMatchesOutputSchema("find_processes", result);
+        JsonNode content = result.path("structuredContent");
+        assertThat(content.propertyNames()).containsExactly("results");
+        assertThat(content.path("results").get(0).path("page").path("items")).hasSize(5)
+            .allSatisfy(item -> assertThat(item.has("userColumnValue")).isFalse());
+    }
+
+    @Test
+    void aSingle90NodeAskedForTheUserColumnIsRefusedWithoutARequest() {
+        // pinned, so that the 9.0 flip of the production row (T046a) leaves this test as it is
+        InterfaceCoverage planned90 = InterfaceCoverage.load(new StringReader("""
+            # delivered-stories:
+            channel\tentry\tkind\tarea\tstory\tv8_1\tv9_0\twaits
+            CLI\tps -u\tREAD\tD\tUS3\tcovered:find_processes\tplanned\t-
+            """));
+        fixture.close();
+        fixture = new DiagnosisToolFixture(dev, integration, FindProcessesTool::new,
+            VersionSetting.V9_0, planned90);
+
+        JsonNode result = call(Map.of("target", "dev/node1", "userColumn", 1));
+
+        assertMatchesOutputSchema("find_processes", result);
+        JsonNode entry = result.path("structuredContent").path("results").get(0);
+        assertThat(entry.has("page")).isFalse();
+        assertThat(entry.path("error").path("code").asString())
+            .isEqualTo("UNSUPPORTED_VERSION");
+        assertThat(entry.path("error").path("message").asString())
+            .contains("CLI ps -u is not yet verified for INUBIT 9.0");
+        assertThat(dev.findAll(postRequestedFor(urlPathEqualTo(QUEUE_LOG)))).isEmpty();
     }
 
     @Test

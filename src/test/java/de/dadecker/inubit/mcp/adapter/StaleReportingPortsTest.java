@@ -9,10 +9,12 @@ import de.dadecker.inubit.mcp.domain.model.ConfigurationView;
 import de.dadecker.inubit.mcp.domain.model.EntryPart;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.LibraryEntry;
 import de.dadecker.inubit.mcp.domain.model.LicenseFacts;
 import de.dadecker.inubit.mcp.domain.model.ListedUser;
 import de.dadecker.inubit.mcp.domain.model.LogPresence;
 import de.dadecker.inubit.mcp.domain.model.LoginEntry;
+import de.dadecker.inubit.mcp.domain.model.ModuleDetail;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
@@ -28,6 +30,7 @@ import de.dadecker.inubit.mcp.domain.port.DownloadedLog;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
+import de.dadecker.inubit.mcp.domain.port.ModelDetailPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
@@ -417,6 +420,63 @@ class StaleReportingPortsTest {
             others.processControl(), others.artifacts(), others.imports(), others.tags(),
             others.partners(), others.queueEntryContent(), others.serverLogs(),
             others.serverSettings(), userDirectory);
+    }
+
+    @Test
+    void modelDetailReadsAreForwardedAndAnUnexpectedResponseMarksTheNodeStale()
+        throws Exception {
+        // feature 022 T042: the model detail port is wrapped like every other port
+        ModuleDetail module = new ModuleDetail("Workflow-0301", "100", "Demo-DB-Probe",
+            "twDatabaseConnector", Optional.empty(), List.of(), List.of(), 0);
+        LibraryEntry.Listing libraries = new LibraryEntry.Listing(List.of(), false);
+        List<Object> asked = new ArrayList<>();
+        ModelDetailPort answering = new ModelDetailPort() {
+            @Override
+            public ModuleDetail module(String diagram, String moduleId) {
+                asked.add(diagram + "/" + moduleId);
+                return module;
+            }
+
+            @Override
+            public LibraryEntry.Listing libraries(String type) {
+                asked.add(type);
+                return libraries;
+            }
+        };
+
+        ModelDetailPort wrapped = stale.ports(withModelDetails(answering)).modelDetails();
+        assertThat(wrapped).isInstanceOf(StaleReportingPorts.ModelDetails.class);
+        assertThat(wrapped.module("Workflow-0301", "100")).isSameAs(module);
+        assertThat(wrapped.libraries("plugin")).isSameAs(libraries);
+        assertThat(asked).containsExactly("Workflow-0301/100", "plugin");
+        assertThat(versions.events()).isEmpty();
+
+        for (RuntimeException other : List.of(failure(ErrorCode.NOT_FOUND),
+            failure(ErrorCode.FORBIDDEN), new IllegalStateException("bug"))) {
+            ModelDetailPort port = stale.ports(withModelDetails(throwing(
+                ModelDetailPort.class, other))).modelDetails();
+            for (Method method : ModelDetailPort.class.getMethods()) {
+                assertThat(thrownBy(method, port)).as(method.toString()).isSameAs(other);
+            }
+        }
+        assertThat(versions.events()).isEmpty();
+
+        ToolErrorException unexpected = failure(ErrorCode.UNEXPECTED_RESPONSE);
+        ModelDetailPort port = stale.ports(withModelDetails(throwing(
+            ModelDetailPort.class, unexpected))).modelDetails();
+        for (Method method : ModelDetailPort.class.getMethods()) {
+            assertThat(thrownBy(method, port)).as(method.toString()).isSameAs(unexpected);
+        }
+        assertThat(versions.events()).containsExactly("stale dev/node1", "stale dev/node1");
+    }
+
+    /** A port set of throwing ports whose model detail port is {@code modelDetails}. */
+    private static PortSet withModelDetails(ModelDetailPort modelDetails) {
+        PortSet others = throwingPorts(failure(ErrorCode.NOT_FOUND));
+        return new PortSet(others.processes(), others.logs(), others.inventory(),
+            others.processControl(), others.artifacts(), others.imports(), others.tags(),
+            others.partners(), others.queueEntryContent(), others.serverLogs(),
+            others.serverSettings(), others.userDirectory(), modelDetails);
     }
 
     @Test

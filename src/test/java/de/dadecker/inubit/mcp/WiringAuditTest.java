@@ -23,6 +23,7 @@ import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.domain.model.LicenseFacts;
 import de.dadecker.inubit.mcp.domain.model.ListedUser;
+import de.dadecker.inubit.mcp.domain.model.ModuleDetail;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
@@ -373,6 +374,25 @@ class WiringAuditTest {
         assertThat(users).hasSize(58);
         inubit.verify(1, getRequestedFor(urlPathEqualTo("/ibis/rest/user/users"))
             .withQueryParam("type", equalTo("processEngineUser"))
+            .withHeader("Authorization", matching("Basic .+")));
+        assertThat(auditRecords()).as("audit records").isEmpty();
+    }
+
+    @Test
+    void aModuleReadThroughTheProductionWiringWritesNoAuditRecord() throws IOException {
+        // feature 022 T042: the production 8.1 port set reads a module over
+        // GET /model/nodeByModel as XML with the node's credentials; reads are not audited
+        String module = "/ibis/rest/model/nodeByModel/Workflow-0301/100";
+        inubit.stubFor(get(urlPathEqualTo(module))
+            .willReturn(RestFixtures.response("admin-model-node-by-model", "xml")));
+        startEnvironmentServer();
+
+        ModuleDetail detail = wiring.gateways().modelDetails(NodeId.parse("dev/node1"))
+            .module("Workflow-0301", "100");
+
+        assertThat(detail.name()).isEqualTo("Demo-DB-Probe");
+        inubit.verify(1, getRequestedFor(urlPathEqualTo(module))
+            .withHeader("Accept", equalTo("application/xml, */*;q=0.1"))
             .withHeader("Authorization", matching("Basic .+")));
         assertThat(auditRecords()).as("audit records").isEmpty();
     }

@@ -1,5 +1,7 @@
 package de.dadecker.inubit.mcp.domain.port;
 
+import java.util.List;
+
 /**
  * Read-only exports of artifacts from one INUBIT server (feature 003, research D-8; 8.1:
  * StartCLI {@code export}). Only technical workflows are exported (clarification 2). The archive
@@ -9,6 +11,11 @@ package de.dadecker.inubit.mcp.domain.port;
  * {@link de.dadecker.inubit.mcp.domain.model.ToolErrorException} with the server id.
  */
 public interface ArtifactPort {
+
+    /** The most diagram groups {@link #exportOwnerWithoutGroups} leaves out (research D-21). */
+    int MAX_EXCLUDED_GROUPS = 20;
+    /** The most registry entries {@link #exportMetadata} names (research D-21). */
+    int MAX_METADATA_NAMES = 50;
 
     /**
      * The export archive of the technical workflows of diagram group {@code diagramGroup} owned
@@ -50,4 +57,34 @@ public interface ArtifactPort {
      *     otherwise as {@link #exportWorkflowGroup}
      */
     byte[] exportRepository(String path);
+
+    /**
+     * The export archive of the technical workflows of {@code owner} without the diagram groups
+     * {@code excludeGroups} (1–{@value #MAX_EXCLUDED_GROUPS}; feature 022, research D-21, owner
+     * decision 2026-11-14).
+     *
+     * <p>The default refuses: an adapter that offers the form overrides it (the test doubles of
+     * feature 015 do not).
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException {@code INVALID_INPUT} for a
+     *     group list StartCLI cannot take or a name its quoting cannot carry; otherwise as
+     *     {@link #exportWorkflowGroup}
+     */
+    default byte[] exportOwnerWithoutGroups(String owner, List<String> excludeGroups) {
+        throw new UnsupportedOperationException("exportOwnerWithoutGroups");
+    }
+
+    /**
+     * The export archive of the metadata registry (feature 022, research D-21): the whole
+     * registry for an empty {@code metadataNames}, otherwise only these entries (at most
+     * {@value #MAX_METADATA_NAMES}; INUBIT accepts names that do not exist).
+     *
+     * <p>The default refuses, as {@link #exportOwnerWithoutGroups}.
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException as
+     *     {@link #exportOwnerWithoutGroups}
+     */
+    default byte[] exportMetadata(List<String> metadataNames) {
+        throw new UnsupportedOperationException("exportMetadata");
+    }
 }

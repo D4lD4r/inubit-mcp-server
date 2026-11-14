@@ -4,6 +4,12 @@
     "results"
   ],
   "properties": {
+    "userColumn": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5,
+      "description": "The requested user-defined column; absent without userColumn"
+    },
     "results": {
       "type": "array",
       "description": "One entry per resolved {node}, in config order; a failed {node} has only an error",
@@ -149,6 +155,10 @@
         },
         "priority": {
           "type": "string"
+        },
+        "userColumnValue": {
+          "type": "string",
+          "description": "The requested user-defined column (userDefined<i> of the queueLog row); absent when blank or not requested"
         }
       },
       "additionalProperties": false

@@ -81,7 +81,7 @@ class V61PsParserTest {
             Duration.ofDays(2).plusMinutes(44).plusSeconds(18), false,
             Optional.of("OrderImport"), Optional.of("Mapping(10234)"), Optional.empty(),
             Optional.empty(), Optional.of("node1"), Optional.of("jdoe"),
-            Optional.of("normal")));
+            Optional.of("normal"), Optional.empty()));
     }
 
     @Test

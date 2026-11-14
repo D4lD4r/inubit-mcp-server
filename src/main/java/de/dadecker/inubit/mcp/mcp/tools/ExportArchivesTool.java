@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.mcp.tools;
 
 import de.dadecker.inubit.mcp.application.ArchiveExportRequest;
+import de.dadecker.inubit.mcp.application.ArchiveExportRequest.Content;
 import de.dadecker.inubit.mcp.application.ArchiveExportService;
 import de.dadecker.inubit.mcp.mcp.CallContext;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
@@ -14,7 +15,9 @@ import java.util.Objects;
  * workflow into a local folder ({@link ArchiveExportService}). A group target uses its first
  * server in config order. The archives carry the workflows' secrets in clear text; the service
  * checks the acknowledgement and the folder and audits every call that passed the input schema.
- * Writes local files only: read-only for INUBIT, the workspace is not touched.
+ * Writes local files only: read-only for INUBIT, the workspace is not touched. Feature 022
+ * (research D-21) adds the {@code content} forms {@code ownerWithoutGroups} and {@code metadata},
+ * one archive each.
  */
 public final class ExportArchivesTool implements ToolHandler {
 
@@ -25,7 +28,12 @@ public final class ExportArchivesTool implements ToolHandler {
         + " the user wants that. The folder must be an absolute path outside the workspace, the"
         + " server's directories (including its configuration directory), git working trees and"
         + " network paths; existing files are never replaced. Read-only for INUBIT; does not"
-        + " touch the workspace.";
+        + " touch the workspace. With content ownerWithoutGroups: one archive of the owner's"
+        + " technical workflows only, without the diagram groups excludeGroups (also IN CLEAR"
+        + " TEXT). With content metadata: one archive of the metadata registry, whole or only the"
+        + " registry entries metadataNames (metadata names, not workflow names; names that do"
+        + " not exist are accepted); no acknowledgement needed. Every export runs StartCLI, and"
+        + " INUBIT appends a trace to the check-in comments of the exported workflows.";
 
     private final ArchiveExportService service;
 
@@ -60,7 +68,10 @@ public final class ExportArchivesTool implements ToolHandler {
     public Object handle(Map<String, Object> arguments, CallContext context) {
         ToolArguments args = new ToolArguments(arguments);
         return service.export(new ArchiveExportRequest(args.string("target"),
-            args.optionalString("owner"), args.string("diagramGroup"), args.strings("workflows"),
+            args.optionalString("owner"),
+            Content.of(args.optionalString("content").orElse(Content.WORKFLOWS.key())),
+            args.optionalString("diagramGroup").orElse(null), args.strings("workflows"),
+            args.strings("excludeGroups"), args.strings("metadataNames"),
             args.string("targetFolder"), args.flag("acknowledgeClearTextSecrets"),
             args.optionalString("reason"), context.client()));
     }

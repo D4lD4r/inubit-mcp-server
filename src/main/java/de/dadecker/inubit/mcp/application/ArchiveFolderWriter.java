@@ -86,15 +86,22 @@ public final class ArchiveFolderWriter {
     /**
      * One archive to place.
      *
-     * @param workflow the workflow name; the file name is {@link ArchiveFileNames#fileName} of it
+     * @param workflow the workflow name
+     * @param file     the file name in the target folder
      * @param content  the archive bytes, built on demand right before the archive is placed (one
      *     archive in memory at a time); an exception stops the writes at this archive
      */
-    public record Archive(String workflow, Supplier<byte[]> content) {
+    public record Archive(String workflow, String file, Supplier<byte[]> content) {
 
         public Archive {
             Objects.requireNonNull(workflow, "workflow");
+            Objects.requireNonNull(file, "file");
             Objects.requireNonNull(content, "content");
+        }
+
+        /** The archive of {@code workflow}, named {@link ArchiveFileNames#fileName} of it. */
+        public Archive(String workflow, Supplier<byte[]> content) {
+            this(workflow, ArchiveFileNames.fileName(workflow), content);
         }
     }
 
@@ -193,7 +200,7 @@ public final class ArchiveFolderWriter {
         }
         for (int i = 0; i < archives.size(); i++) {
             Archive archive = archives.get(i);
-            String file = ArchiveFileNames.fileName(archive.workflow());
+            String file = archive.file();
             byte[] content;
             try {
                 content = archive.content().get();
@@ -323,8 +330,8 @@ public final class ArchiveFolderWriter {
     private static Result stopped(List<Written> written, List<String> warnings,
         List<Archive> archives, int index, String message) {
         Archive archive = archives.get(index);
-        Failed failed = new Failed(archive.workflow(),
-            ArchiveFileNames.fileName(archive.workflow()), ErrorCode.INTERNAL, message);
+        Failed failed = new Failed(archive.workflow(), archive.file(), ErrorCode.INTERNAL,
+            message);
         List<String> notWritten = archives.subList(index + 1, archives.size()).stream()
             .map(Archive::workflow).toList();
         return new Result(written, List.of(failed), notWritten, warnings);

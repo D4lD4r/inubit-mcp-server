@@ -8,6 +8,8 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.testing.Platform;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -369,6 +371,214 @@ class CliCommandTest {
             .path("--download", file("/tmp/x/trace.log"), WINDOWS));
         assertInvalidInput(() -> CliCommand.command("import")
             .path("--download", file("/tmp/x/trace.log"), WINDOWS));
+    }
+
+    // --- feature 022 (T041, research D-21): the read forms recorded in T039 -------------------
+
+    @Test
+    void libraryListIsTheRecordedFormPerType() {
+        assertThat(CliCommand.libraryList("driver").commandLine())
+            .isEqualTo("library --list --type driver");
+        assertThat(CliCommand.libraryList("plugin").commandLine())
+            .isEqualTo("library --list --type plugin");
+        assertThat(CliCommand.libraryList("plugin").name()).isEqualTo("library");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "Driver", "driver ", "jar", "driver;kill 1", "'driver'"})
+    void libraryListRefusesOtherTypes(String type) {
+        assertInvalidInput(() -> CliCommand.libraryList(type));
+    }
+
+    @Test
+    void libraryIsOnlyTheListFormAndNeverDeletes() {
+        assertInvalidInput(() -> CliCommand.libraryList(null));
+        assertInvalidInput(() -> CliCommand.command("library").build());
+        assertInvalidInput(() -> CliCommand.command("library").flag("--delete"));
+        assertInvalidInput(() -> CliCommand.command("library").flag("--deleteAll"));
+        assertInvalidInput(() -> CliCommand.command("library").quoted("--delete", "x.jar"));
+        assertInvalidInput(() -> CliCommand.command("library").quoted("--upload", "x.jar"));
+        assertInvalidInput(() -> CliCommand.command("library").quoted("--type", "driver")
+            .build());
+    }
+
+    @Test
+    void theOwnerExportWithoutGroupsIsTheRecordedForm() {
+        assertThat(CliCommand.command("export").quoted("--exportWorkflowUser", "jdoe")
+            .quoted("--exportWorkflowType", "technical").emptyQuoted("--exportWorkflowGroup")
+            .quotedList("--exportWorkflowGroupExclude", List.of("Group A", "g-2", "g_3.x"))
+            .path("--exportFile", file("/tmp/x/owner.zip"), WINDOWS)
+            .build().commandLine()).isEqualTo("export --exportWorkflowUser 'jdoe'"
+                + " --exportWorkflowType 'technical' --exportWorkflowGroup ''"
+                + " --exportWorkflowGroupExclude 'Group A,g-2,g_3.x'"
+                + " --exportFile '" + DRIVE + "/tmp/x/owner.zip'");
+    }
+
+    @Test
+    void theGroupExcludeNeedsTheTypeAndTheEmptyGroupList() {
+        // recorded in T039: without them INUBIT answers "2-NOK: Missing export option."
+        assertInvalidInput(() -> CliCommand.command("export").quoted("--exportWorkflowUser", "jdoe")
+            .quotedList("--exportWorkflowGroupExclude", List.of("g1"))
+            .path("--exportFile", file("/tmp/x/a.zip"), WINDOWS).build());
+        assertInvalidInput(() -> CliCommand.command("export").quoted("--exportWorkflowUser", "jdoe")
+            .emptyQuoted("--exportWorkflowGroup")
+            .quotedList("--exportWorkflowGroupExclude", List.of("g1"))
+            .path("--exportFile", file("/tmp/x/a.zip"), WINDOWS).build());
+        assertInvalidInput(() -> CliCommand.command("export").quoted("--exportWorkflowUser", "jdoe")
+            .quoted("--exportWorkflowType", "technical")
+            .quotedList("--exportWorkflowGroupExclude", List.of("g1"))
+            .path("--exportFile", file("/tmp/x/a.zip"), WINDOWS).build());
+        assertInvalidInput(() -> CliCommand.command("export").quoted("--exportWorkflowUser", "jdoe")
+            .quoted("--exportWorkflowType", "technical").quoted("--exportWorkflowGroup", "g0")
+            .quotedList("--exportWorkflowGroupExclude", List.of("g1"))
+            .path("--exportFile", file("/tmp/x/a.zip"), WINDOWS).build());
+    }
+
+    /** The recorded owner export without groups up to the exclude list, without the file. */
+    private static CliCommand.Builder ownerWithoutGroups() {
+        return CliCommand.command("export").quoted("--exportWorkflowUser", "jdoe")
+            .quoted("--exportWorkflowType", "technical").emptyQuoted("--exportWorkflowGroup")
+            .quotedList("--exportWorkflowGroupExclude", List.of("g1"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "all", "Technical", "business", "technical "})
+    void theGroupExcludeTakesTheTechnicalTypeOnly(String type) {
+        // owner decision 2026-11-14 (research D-21): technical workflows only
+        assertInvalidInput(() -> CliCommand.command("export").quoted("--exportWorkflowUser", "jdoe")
+            .emptyQuoted("--exportWorkflowGroup")
+            .quotedList("--exportWorkflowGroupExclude", List.of("g1"))
+            .quoted("--exportWorkflowType", type)
+            .path("--exportFile", file("/tmp/x/a.zip"), WINDOWS).build());
+    }
+
+    @Test
+    void theGroupExcludeRefusesTheEmptyType() {
+        assertInvalidInput(() -> CliCommand.command("export").quoted("--exportWorkflowUser", "jdoe")
+            .emptyQuoted("--exportWorkflowType").emptyQuoted("--exportWorkflowGroup")
+            .quotedList("--exportWorkflowGroupExclude", List.of("g1"))
+            .path("--exportFile", file("/tmp/x/a.zip"), WINDOWS).build());
+    }
+
+    @Test
+    void theGroupExcludeTakesNoOtherExportOption() {
+        assertThat(ownerWithoutGroups().path("--exportFile", file("/tmp/x/a.zip"), WINDOWS)
+            .build().name()).isEqualTo("export");
+        assertInvalidInput(() -> ownerWithoutGroups().quoted("--exportTag", "TAG-01").build());
+        assertInvalidInput(() -> ownerWithoutGroups().quoted("--exportModule", "m1").build());
+        assertInvalidInput(() -> ownerWithoutGroups().quoted("--exportModuleGroup", "mg").build());
+        assertInvalidInput(() -> ownerWithoutGroups().quoted("--exportModuleUser", "jdoe")
+            .build());
+        assertInvalidInput(() -> ownerWithoutGroups().flag("--includeHistory").build());
+        assertInvalidInput(() -> ownerWithoutGroups()
+            .repositoryPath("--exportRepositoryPath", "/Root/jdoe").build());
+        assertInvalidInput(() -> ownerWithoutGroups().flag("--exportMetadata").build());
+    }
+
+    @Test
+    void theGroupExcludeTakesEachOptionOnce() {
+        assertInvalidInput(() -> ownerWithoutGroups().quoted("--exportWorkflowType", "business")
+            .build());
+        assertInvalidInput(() -> ownerWithoutGroups().quoted("--exportWorkflowGroup", "g0")
+            .build());
+        assertInvalidInput(() -> ownerWithoutGroups().emptyQuoted("--exportWorkflowGroup")
+            .build());
+        assertInvalidInput(() -> ownerWithoutGroups()
+            .quotedList("--exportWorkflowGroupExclude", List.of("g2")).build());
+        assertInvalidInput(() -> ownerWithoutGroups().quoted("--exportWorkflowUser", "other")
+            .build());
+        assertInvalidInput(() -> ownerWithoutGroups()
+            .path("--exportFile", file("/tmp/x/a.zip"), WINDOWS)
+            .path("--exportFile", file("/tmp/x/b.zip"), WINDOWS).build());
+    }
+
+    @Test
+    void theGroupExcludeTakesOneToTwentyGroupsPerValue() {
+        List<String> twenty = IntStream.rangeClosed(1, 20).mapToObj(i -> "g" + i).toList();
+        assertThat(CliCommand.command("export").quoted("--exportWorkflowType", "technical")
+            .emptyQuoted("--exportWorkflowGroup")
+            .quotedList("--exportWorkflowGroupExclude", twenty).build().commandLine())
+            .endsWith(" --exportWorkflowGroupExclude '" + String.join(",", twenty) + "'");
+        List<String> twentyOne = IntStream.rangeClosed(1, 21).mapToObj(i -> "g" + i).toList();
+        assertInvalidInput(() -> CliCommand.command("export")
+            .quotedList("--exportWorkflowGroupExclude", twentyOne));
+        assertInvalidInput(() -> CliCommand.command("export")
+            .quotedList("--exportWorkflowGroupExclude", List.of()));
+        assertInvalidInput(() -> CliCommand.command("export")
+            .quotedList("--exportWorkflowGroupExclude", null));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "a,b", "it's", "-g", " g", "a;b", "$(id)", "a\nb"})
+    void listValuesFailingTheValueRuleAreRejected(String value) {
+        assertInvalidInput(() -> CliCommand.command("export")
+            .quotedList("--exportWorkflowGroupExclude", List.of("g1", value)));
+        assertInvalidInput(() -> CliCommand.command("export")
+            .quotedList("--exportMetadataNames", List.of(value)));
+    }
+
+    @Test
+    void listOptionsTakeAListOnlyAndOtherOptionsNoList() {
+        assertInvalidInput(() -> CliCommand.command("export")
+            .quoted("--exportWorkflowGroupExclude", "g1"));
+        assertInvalidInput(() -> CliCommand.command("export")
+            .emptyQuoted("--exportWorkflowGroupExclude"));
+        assertInvalidInput(() -> CliCommand.command("export").flag("--exportMetadataNames"));
+        assertInvalidInput(() -> CliCommand.command("export")
+            .quoted("--exportMetadataNames", "Example1"));
+        assertInvalidInput(() -> CliCommand.command("export")
+            .path("--exportMetadataNames", file("/tmp/x/a.zip"), WINDOWS));
+        assertInvalidInput(() -> CliCommand.command("export")
+            .quotedList("--exportWorkflowGroup", List.of("g1")));
+        assertInvalidInput(() -> CliCommand.command("import")
+            .quotedList("--exportWorkflowGroupExclude", List.of("g1")));
+    }
+
+    @Test
+    void theMetadataExportIsTheRecordedFormWithOptionalNames() {
+        assertThat(CliCommand.command("export").flag("--exportMetadata")
+            .path("--exportFile", file("/tmp/x/metadata.zip"), WINDOWS).build().commandLine())
+            .isEqualTo("export --exportMetadata --exportFile '" + DRIVE + "/tmp/x/metadata.zip'");
+        assertThat(CliCommand.command("export").flag("--exportMetadata")
+            .quotedList("--exportMetadataNames", List.of("Example1", "Example2"))
+            .path("--exportFile", file("/tmp/x/metadata.zip"), WINDOWS).build().commandLine())
+            .isEqualTo("export --exportMetadata --exportMetadataNames 'Example1,Example2'"
+                + " --exportFile '" + DRIVE + "/tmp/x/metadata.zip'");
+        assertInvalidInput(() -> CliCommand.command("export").quoted("--exportMetadata", "x"));
+    }
+
+    @Test
+    void theMetadataNamesTakeOneToFiftyNames() {
+        List<String> fifty = IntStream.rangeClosed(1, 50).mapToObj(i -> "n" + i).toList();
+        assertThat(CliCommand.command("export").flag("--exportMetadata")
+            .quotedList("--exportMetadataNames", fifty).build().commandLine())
+            .endsWith("'" + String.join(",", fifty) + "'");
+        List<String> fiftyOne = IntStream.rangeClosed(1, 51).mapToObj(i -> "n" + i).toList();
+        assertInvalidInput(() -> CliCommand.command("export")
+            .quotedList("--exportMetadataNames", fiftyOne));
+        assertInvalidInput(() -> CliCommand.command("export")
+            .quotedList("--exportMetadataNames", List.of()));
+    }
+
+    @Test
+    void theMetadataExportTakesNoWorkflowOptionsAndNamesNeedIt() {
+        assertInvalidInput(() -> CliCommand.command("export")
+            .quotedList("--exportMetadataNames", List.of("Example1"))
+            .path("--exportFile", file("/tmp/x/a.zip"), WINDOWS).build());
+        assertInvalidInput(() -> CliCommand.command("export").flag("--exportMetadata")
+            .quoted("--exportWorkflowUser", "jdoe")
+            .path("--exportFile", file("/tmp/x/a.zip"), WINDOWS).build());
+        assertInvalidInput(() -> CliCommand.command("export").flag("--exportMetadata")
+            .flag("--includeHistory").build());
+        assertInvalidInput(() -> CliCommand.command("export").flag("--exportMetadata")
+            .quoted("--exportModule", "m1").build());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ps", "fetchXSLT1.0", "fetchXSLT", "library --list"})
+    void unrecordedReadCommandsStayRefused(String name) {
+        // ps -u: the user column comes from REST (D-21); fetchXSLT1.0: not found on 8.1.17 (L-7)
+        assertInvalidInput(() -> CliCommand.command(name));
     }
 }
 
