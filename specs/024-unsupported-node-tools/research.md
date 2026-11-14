@@ -631,7 +631,9 @@ text appears in a log line or audit record.
   tool name, steps `PREVIEW` (`CHALLENGE_ISSUED`, `REFUSED`) and `EXECUTE` (`PENDING` →
   `EXECUTED`/`FAILED`, `REFUSED`); inputs in fixed order `node`/`leaseId`, `loggers` (names and
   levels), `durationMinutes`, `forget`, `confirmationCode` (SHA-256 prefix); details `leaseId`,
-  `inubitNode`, `expiresAt`, `leaseOpen`.
+  `inubitNode`, `expiresAt`, `leaseOpen`. The details give the lease's state after the call
+  (`leaseOpen: false` once a reset ended it); a reset result's `leaseOpen` instead says whether a
+  lease was open when the call ran.
 - Automatic resets: capability `reset_temporary_log_level`, inputs `trigger`
   (`expiry`|`retry`|`takeover`|`startup`|`shutdown`|`forget-after-7-days`), `leaseId`; `PENDING`
   before anything is sent, then `EXECUTED`/`FAILED`/`REFUSED` (other node) with the reason.

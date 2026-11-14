@@ -35,7 +35,9 @@ import org.slf4j.LoggerFactory;
  * Inputs in the fixed order {@code node}, {@code leaseId}, {@code loggers} (names and levels
  * only; without loggers the requested {@code level} alone), {@code durationMinutes}, {@code forget}, {@code confirmationCode} (the audit log stores
  * every confirmation code only as a SHA-256 prefix); details {@code leaseId}, {@code inubitNode},
- * {@code expiresAt}, {@code leaseOpen}, each once known.
+ * {@code expiresAt}, {@code leaseOpen}, each once known. The details describe the lease as it is
+ * after the call: {@code leaseOpen} is its state then (false after a reset ended it), unlike the
+ * {@code leaseOpen} of a reset result, which says whether a lease was open when the call ran.
  *
  * <p>{@link AutomaticReset}: one reset of a lease without a tool call, capability
  * {@value #RESET_TOOL}, inputs {@code trigger} and {@code leaseId}. Fail closed: a record that

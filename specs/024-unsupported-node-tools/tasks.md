@@ -585,7 +585,7 @@ the other just changed.
   sent; a failed 2nd run → reset at once, lease `RESET`, `FAILED`; store update failure after the
   change → reset at once, `INTERNAL`; `PENDING` unwritable → `INTERNAL`, nothing sent; write-ahead
   failure → nothing sent; leak check)
-- [ ] T050 [US4] `LogLevelService.reset` and forget (FR-044, D-15; after T049): `node` form (write
+- [X] T050 [US4] `LogLevelService.reset` and forget (FR-044, D-15; after T049): `node` form (write
   guard, node lock, own-node lookup, other-node refusal, confirmation, `PENDING`, `trace --reset`,
   lease `RESET`, result with `leaseOpen`), `leaseId` + `forget` form through
   `WriteGuard.admitWithoutContact` (no request; state must be `RESET_FAILED`; unconfigured server

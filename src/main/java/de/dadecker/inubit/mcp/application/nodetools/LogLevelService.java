@@ -24,6 +24,7 @@ import de.dadecker.inubit.mcp.domain.model.node.LogLevelResult;
 import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
 import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
+import de.dadecker.inubit.mcp.domain.port.LeaseView;
 import de.dadecker.inubit.mcp.domain.port.LogLevelPort;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -31,6 +32,8 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -52,8 +55,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Raises temporary log levels on one INUBIT node (feature 024, FR-040 … FR-043, FR-045,
- * research D-14, D-19, D-20, D-22). Nothing is sent to StartCLI before the {@code PENDING}
+ * Raises temporary log levels on one INUBIT node and resets them (feature 024, FR-040 … FR-045,
+ * research D-14, D-15, D-19, D-20, D-22). Nothing is sent to StartCLI before the {@code PENDING}
  * audit record and the write-ahead lease are written:
  *
  * <ol>
@@ -77,20 +80,28 @@ import org.slf4j.LoggerFactory;
  *   <li>The final audit record and the result.
  * </ol>
  *
+ * <p>{@link #reset} resets the node or forgets a failed lease (D-15), with the same write guard,
+ * node lock, own-node lookup and confirmation.
+ *
  * <p>Every refusal before {@code PENDING} is one {@code REFUSED} audit record.
  */
 public final class LogLevelService {
 
     static final String SET_TOOL = LogLevelAudit.SET_TOOL;
+    static final String RESET_TOOL = LogLevelAudit.RESET_TOOL;
     static final String OPT_IN_KEY = "unsupported.logLevelWrite";
     /** The default of {@code durationMinutes}. */
     static final int DEFAULT_MINUTES = 10;
     static final int MAX_MINUTES = 60;
     /** How long a lease update waits for the store lock (short: held only to read and write). */
     static final Duration STORE_WAIT = Duration.ofSeconds(2);
+    /** A lease of a server no longer configured ends this long after its expiry (FR-044). */
+    static final Duration UNCONFIGURED_FORGET_AFTER = Duration.ofDays(7);
 
     private static final Logger LOG = LoggerFactory.getLogger(LogLevelService.class);
     private static final Pattern CODE = Pattern.compile("[A-Za-z0-9_-]{22}");
+    private static final Pattern LEASE_ID =
+        Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
     private static final String LEVELS = "TRACE, DEBUG, INFO, WARN or ERROR";
 
     private final WriteGuard guard;
@@ -154,10 +165,10 @@ public final class LogLevelService {
             policy = guard.admit(request.node(), SET_TOOL, Capability.LOG_LEVEL_WRITE,
                 Set.of(Channel.CLI), optedIn, OPT_IN_KEY);
             call.node(policy.node(), policy.account());
-            prepareCredentials(policy.node());
+            prepareCredentials(SET_TOOL, policy.node());
             port = gateways.logLevel(policy.node());
         } catch (ToolErrorException e) {
-            throw refuse(call, request, Optional.ofNullable(policy), e);
+            throw refuse(call, request.confirmationCode(), Optional.ofNullable(policy), e);
         }
         NodeId node = policy.node();
         Optional<WritePolicy> admitted = Optional.of(policy);
@@ -165,7 +176,7 @@ public final class LogLevelService {
         try {
             held = locks.acquire(node, cliTimeouts.apply(node));
         } catch (ToolErrorException e) {
-            throw refuse(call, request, admitted, e);
+            throw refuse(call, request.confirmationCode(), admitted, e);
         }
         try (held) {
             Observed observed;
@@ -174,10 +185,11 @@ public final class LogLevelService {
                 requireRoom(node, observed.open(), checked);
                 if (policy.confirmation() == WritePolicy.Confirmation.SERVER
                     && request.confirmationCode().isPresent()) {
-                    confirm(request.confirmationCode().get(), node, checked, observed);
+                    confirm(SET_TOOL, request.confirmationCode().get(), node,
+                        fingerprint(node, checked), observed.state());
                 }
             } catch (ToolErrorException e) {
-                throw refuse(call, request, admitted, e);
+                throw refuse(call, request.confirmationCode(), admitted, e);
             }
             if (policy.confirmation() == WritePolicy.Confirmation.SERVER
                 && request.confirmationCode().isEmpty()) {
@@ -185,6 +197,48 @@ public final class LogLevelService {
             }
             return execute(call, policy, port, checked, observed);
         }
+    }
+
+    /**
+     * {@code reset_temporary_log_level} (FR-044, research D-15). With {@code node}: the write
+     * guard and the server's credentials, the node lock, the server's open lease (an unreadable
+     * store does not stop the reset, no lease is updated then), the own-node lookup (an open lease
+     * naming another node refuses, US4-6), the confirmation, {@code PENDING}, {@code trace
+     * --reset}; the lease ends ({@code RESET}) or records the failed attempt. With {@code leaseId}
+     * and {@code forget: true}: a {@code RESET_FAILED} lease of a configured server, admitted by
+     * {@link WriteGuard#admitWithoutContact}, ends as {@code FORGOTTEN} without contacting INUBIT,
+     * after the confirmation under the node lock and only if it still has the generation the
+     * confirmation saw. Every other combination of inputs is {@code INVALID_INPUT}.
+     *
+     * @return the challenge of a preview, or the outcome ({@code EXECUTED}, or {@code FAILED}
+     *     when StartCLI's reset failed)
+     * @throws ToolErrorException a refusal before anything was sent or changed; {@code INTERNAL}
+     *     if the {@code PENDING} record could not be written (nothing sent or changed)
+     */
+    public LogLevelResult reset(ResetLevelRequest request) {
+        Objects.requireNonNull(request, "request");
+        LogLevelAudit.ToolCall call = audit.toolCall(RESET_TOOL, LogLevelAudit.Inputs.reset(
+            request.node(), request.leaseId(), request.forget(), request.confirmationCode()),
+            request.mcpClient());
+        Optional<String> code = request.confirmationCode();
+        boolean nodeForm = request.node().isPresent() && request.leaseId().isEmpty()
+            && request.forget().isEmpty();
+        boolean forgetForm = request.node().isEmpty() && request.leaseId().isPresent()
+            && request.forget().equals(Optional.of(true));
+        try {
+            if (!nodeForm && !forgetForm) {
+                throw invalidReset(
+                    "Invalid input: expected either node, or leaseId with forget: true");
+            }
+            if (code.isPresent() && !CODE.matcher(code.get()).matches()) {
+                throw invalidReset(
+                    "Invalid confirmationCode: expected the 22-character code of a preview");
+            }
+        } catch (ToolErrorException e) {
+            throw refuse(call, code, Optional.empty(), e);
+        }
+        return nodeForm ? resetNode(call, request.node().get(), code)
+            : forget(call, request.leaseId().get(), code);
     }
 
     // ---- steps 1 to 6 ----------------------------------------------------------------------
@@ -258,10 +312,10 @@ public final class LogLevelService {
     }
 
     /** Step 2, last check: the login credentials, read within {@code cliTimeout}. */
-    private void prepareCredentials(NodeId node) {
+    private void prepareCredentials(String tool, NodeId node) {
         Duration budget = cliTimeouts.apply(node);
         if (gateways.prepareCredentials(node, budget) == CredentialState.PENDING) {
-            throw new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT, SET_TOOL + " on " + node
+            throw new ToolErrorException(ToolError.of(ErrorCode.TIMEOUT, tool + " on " + node
                     + " did not finish within cliTimeout (" + Durations.human(budget)
                     + "): the login credentials of " + node + " were not read in time",
                 "The first read of the login credentials from their store took longer than"
@@ -277,6 +331,17 @@ public final class LogLevelService {
         NodeId node = policy.node();
         Optional<Lease> open = openLease(store.read(), node);
         call.lease(open);
+        String inubitNode = answeringNode(call, policy, port);
+        open.ifPresent(lease -> requireSameNode(node, inubitNode, lease, "Address the cluster"
+            + " node directly in the configuration, or wait until the lease " + lease.leaseId()
+            + " ends at " + lease.expiresAt()));
+        return new Observed(open, inubitNode);
+    }
+
+    /** The own-node lookup within {@code cliTimeout}; its error names the server. */
+    private String answeringNode(LogLevelAudit.ToolCall call, WritePolicy policy,
+        LogLevelPort port) {
+        NodeId node = policy.node();
         Duration budget = cliTimeouts.apply(node);
         String inubitNode;
         try {
@@ -287,17 +352,27 @@ public final class LogLevelService {
                 : new ToolErrorException(e.error().withNode(node));
         }
         call.inubitNode(inubitNode);
-        if (open.isPresent() && !open.get().inubitNode().equals(inubitNode)) {
+        return inubitNode;
+    }
+
+    /** US4-6: the node that answers must be the node the open lease was set on. */
+    private static void requireSameNode(NodeId node, String inubitNode, Lease open,
+        String nextStep) {
+        if (!open.inubitNode().equals(inubitNode)) {
             throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
                 "INUBIT node " + inubitNode + " answers for " + node + ", but the open lease was"
-                    + " set on " + open.get().inubitNode(),
+                    + " set on " + open.inubitNode(),
                 node + " is not reached on one node directly (a load balancer, or another node"
                     + " took over); the lease's reset would not reach the raised node",
-                "Address the cluster node directly in the configuration, or wait until the lease "
-                    + open.get().leaseId() + " ends at " + open.get().expiresAt())
-                .withNode(node));
+                nextStep).withNode(node));
         }
-        return new Observed(open, inubitNode);
+    }
+
+    /** The open ({@code ACTIVE} or {@code RESET_FAILED}) lease of {@code node}, if any. */
+    private static Optional<Lease> open(List<Lease> leases, NodeId node) {
+        return leases.stream()
+            .filter(lease -> lease.server().equals(node) && lease.state().open())
+            .findFirst();
     }
 
     /**
@@ -306,9 +381,7 @@ public final class LogLevelService {
      * @throws ToolErrorException {@code PRECONDITION_FAILED} if it is {@code RESET_FAILED} (US4-11)
      */
     private static Optional<Lease> openLease(List<Lease> leases, NodeId node) {
-        Optional<Lease> open = leases.stream()
-            .filter(lease -> lease.server().equals(node) && lease.state().open())
-            .findFirst();
+        Optional<Lease> open = open(leases, node);
         if (open.isPresent() && open.get().state() == LeaseState.RESET_FAILED) {
             Lease failed = open.get();
             LeaseAttempt attempt = failed.lastAttempt().orElseThrow();
@@ -343,15 +416,16 @@ public final class LogLevelService {
     }
 
     /** Step 6 with a code: redeemed for these inputs, and the node's state as previewed. */
-    private void confirm(String code, NodeId node, Checked checked, Observed observed) {
-        String previewed = challenges.redeem(code, SET_TOOL, node, fingerprint(node, checked));
-        if (!previewed.equals(observed.state())) {
+    private void confirm(String tool, String code, NodeId node, String fingerprint,
+        String state) {
+        String previewed = challenges.redeem(code, tool, node, fingerprint);
+        if (!previewed.equals(state)) {
             throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
                 "The state of " + node + " changed since the preview (preview: " + previewed
-                    + "; now: " + observed.state() + "); nothing was changed",
+                    + "; now: " + state + "); nothing was changed",
                 "Another node answers now, or another set, reset or MCP server instance changed"
                     + " the lease since the preview",
-                "Call " + SET_TOOL + " again without confirmationCode for a new preview")
+                "Call " + tool + " again without confirmationCode for a new preview")
                 .withNode(node));
         }
     }
@@ -383,11 +457,15 @@ public final class LogLevelService {
     private static String fingerprint(NodeId node, Checked checked) {
         String loggers = checked.loggers().stream().map(LoggerName::value).sorted()
             .map(name -> name + "=" + checked.level()).collect(Collectors.joining(","));
+        return sha256(SET_TOOL, node.value(), loggers,
+            Integer.toString(checked.durationMinutes()));
+    }
+
+    /** The hex SHA-256 of {@code parts}, one per line. */
+    private static String sha256(String... parts) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(
-                String.join("\n", SET_TOOL, node.value(), loggers,
-                    Integer.toString(checked.durationMinutes()))
-                    .getBytes(StandardCharsets.UTF_8)));
+                String.join("\n", parts).getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }
@@ -405,7 +483,7 @@ public final class LogLevelService {
         } catch (RuntimeException e) {
             ToolError error = ToolError.of(ErrorCode.INTERNAL, "The lease of " + node
                     + " could not be recorded before the change ("
-                    + text(failure(e, node, "The lease store"))
+                    + text(failure(e, SET_TOOL, node, "The lease store"))
                     + "); nothing was sent to INUBIT",
                 "The lease store is not writable, or another MCP server process of the profile"
                     + " held its lock beyond the wait",
@@ -419,7 +497,8 @@ public final class LogLevelService {
             try {
                 port.raise(checked.level(), logger, version, timeout);
             } catch (RuntimeException e) {
-                return failedRun(call, policy, observed, ahead, failure(e, node, "StartCLI"), port);
+                return failedRun(call, policy, observed, ahead,
+                    failure(e, SET_TOOL, node, "StartCLI"), port);
             }
         }
         Instant changed = clock.instant();
@@ -486,8 +565,8 @@ public final class LogLevelService {
     private LogLevelResult failedRun(LogLevelAudit.ToolCall call, WritePolicy policy,
         Observed observed, Lease ahead, ToolError failure, LogLevelPort port) {
         NodeId node = policy.node();
-        Optional<ToolError> resetFailure = resetAll(port, node, policy.permit().admitted(),
-            cliTimeouts.apply(node));
+        Optional<ToolError> resetFailure = resetAll(SET_TOOL, port, node,
+            policy.permit().admitted(), cliTimeouts.apply(node));
         Lease lease = recordReset(ahead, resetFailure).orElse(ahead);
         boolean open = lease.state().open();
         String inubitNode = ahead.inubitNode();
@@ -528,7 +607,7 @@ public final class LogLevelService {
      */
     private ToolErrorException unrecorded(LogLevelAudit.ToolCall call, NodeId node, Lease ahead,
         RuntimeException cause, LogLevelPort port, InubitVersion version, Duration timeout) {
-        Optional<ToolError> resetFailure = resetAll(port, node, version, timeout);
+        Optional<ToolError> resetFailure = resetAll(SET_TOOL, port, node, version, timeout);
         call.lease(Optional.of(recordReset(ahead, resetFailure).orElse(ahead)));
         String why = cause instanceof ToolErrorException failure ? failure.error().message()
             : cause.getClass().getSimpleName();
@@ -549,13 +628,13 @@ public final class LogLevelService {
     }
 
     /** {@code trace --reset}; the failure, if any. */
-    private static Optional<ToolError> resetAll(LogLevelPort port, NodeId node,
+    private static Optional<ToolError> resetAll(String tool, LogLevelPort port, NodeId node,
         InubitVersion version, Duration timeout) {
         try {
             port.resetAll(version, timeout);
             return Optional.empty();
         } catch (RuntimeException e) {
-            return Optional.of(failure(e, node, "StartCLI"));
+            return Optional.of(failure(e, tool, node, "StartCLI"));
         }
     }
 
@@ -564,11 +643,11 @@ public final class LogLevelService {
      *
      * @param what what failed, e.g. {@code StartCLI} or {@code The lease store}
      */
-    private static ToolError failure(RuntimeException e, NodeId node, String what) {
+    private static ToolError failure(RuntimeException e, String tool, NodeId node, String what) {
         if (e instanceof ToolErrorException known) {
             return known.error();
         }
-        LOG.error("Unexpected failure of {} on {}", SET_TOOL, node, e);
+        LOG.error("Unexpected failure of {} on {}", tool, node, e);
         return ToolError.of(ErrorCode.INTERNAL, what + " failed unexpectedly ("
                 + e.getClass().getSimpleName() + ")", "An internal error of the INUBIT MCP server",
             "Check the MCP server log on stderr and report the problem").withNode(node);
@@ -581,17 +660,31 @@ public final class LogLevelService {
      */
     private Optional<Lease> recordReset(Lease ahead, Optional<ToolError> resetFailure) {
         Instant at = clock.instant();
+        return record(ahead, lease -> resetFailure
+            .map(failure -> lease.failed(attempt(at, failure)))
+            .orElseGet(() -> lease.reset(at)), "the reset after a failed set");
+    }
+
+    /**
+     * {@code lease} changed by {@code change}; best effort: if the store cannot record it, the
+     * lease stays as it is stored and the failure is logged.
+     *
+     * @param what what is recorded, for the log line
+     */
+    private Optional<Lease> record(Lease lease, UnaryOperator<Lease> change, String what) {
         try {
-            return Optional.of(replace(ahead.leaseId(), lease -> resetFailure
-                .map(failure -> lease.failed(new LeaseAttempt(at, AuditOutcome.FAILED,
-                    Optional.of(failure.code()), Optional.of(reason(failure.code())))))
-                .orElseGet(() -> lease.reset(at))));
+            return Optional.of(replace(lease.leaseId(), change));
         } catch (RuntimeException e) {
-            LOG.error("Lease {} of {} could not record the reset after a failed set ({}); it stays"
-                + " as written before the change", ahead.leaseId(), ahead.server(),
-                e.getClass().getSimpleName());
+            LOG.error("Lease {} of {} could not record {} ({}); it stays as it was",
+                lease.leaseId(), lease.server(), what, e.getClass().getSimpleName());
             return Optional.empty();
         }
+    }
+
+    /** A failed reset attempt at {@code at}. */
+    private static LeaseAttempt attempt(Instant at, ToolError failure) {
+        return new LeaseAttempt(at, AuditOutcome.FAILED, Optional.of(failure.code()),
+            Optional.of(reason(failure.code())));
     }
 
     private static LeaseReason reason(ErrorCode code) {
@@ -605,6 +698,274 @@ public final class LogLevelService {
             .toList();
     }
 
+    // ---- reset and forget (D-15) -----------------------------------------------------------
+
+    /** The {@code node} form: nothing is sent before {@code PENDING} but the own-node lookup. */
+    private LogLevelResult resetNode(LogLevelAudit.ToolCall call, String requested,
+        Optional<String> code) {
+        WritePolicy policy = null;
+        LogLevelPort port;
+        try {
+            policy = guard.admit(requested, RESET_TOOL, Capability.LOG_LEVEL_WRITE,
+                Set.of(Channel.CLI), optedIn, OPT_IN_KEY);
+            call.node(policy.node(), policy.account());
+            prepareCredentials(RESET_TOOL, policy.node());
+            port = gateways.logLevel(policy.node());
+        } catch (ToolErrorException e) {
+            throw refuse(call, code, Optional.ofNullable(policy), e);
+        }
+        NodeId node = policy.node();
+        Optional<WritePolicy> admitted = Optional.of(policy);
+        OwnerOnlyFileLock.Held held;
+        try {
+            held = locks.acquire(node, cliTimeouts.apply(node));
+        } catch (ToolErrorException e) {
+            throw refuse(call, code, admitted, e);
+        }
+        try (held) {
+            LeaseView.Snapshot snapshot = store.leases();
+            Optional<String> unreadable = snapshot instanceof LeaseView.Snapshot.Unreadable failed
+                ? Optional.of(failed.reason()) : Optional.empty();
+            Observed observed;
+            try {
+                Optional<Lease> open = snapshot instanceof LeaseView.Snapshot.Leases stored
+                    ? open(stored.leases(), node) : Optional.empty();
+                call.lease(open);
+                String inubitNode = answeringNode(call, policy, port);
+                open.ifPresent(lease -> requireSameNode(node, inubitNode, lease, "Address the"
+                    + " cluster node directly in the configuration; once the reset of lease "
+                    + lease.leaseId() + " failed, it can be forgotten with its leaseId and"
+                    + " forget: true"));
+                observed = new Observed(open, inubitNode);
+                if (policy.confirmation() == WritePolicy.Confirmation.SERVER
+                    && code.isPresent()) {
+                    confirm(RESET_TOOL, code.get(), node, sha256(RESET_TOOL, node.value()),
+                        observed.state());
+                }
+            } catch (ToolErrorException e) {
+                throw refuse(call, code, admitted, e);
+            }
+            if (policy.confirmation() == WritePolicy.Confirmation.SERVER && code.isEmpty()) {
+                return resetChallenge(call, policy, sha256(RESET_TOOL, node.value()), observed,
+                    "to reset every temporary log level on INUBIT node " + observed.inubitNode()
+                        + ", also other users'; " + observed.open()
+                        .map(lease -> "lease " + lease.leaseId() + " ends")
+                        .or(() -> unreadable.map(reason -> "no lease can be updated: the lease"
+                            + " store cannot be read (" + reason + ")"))
+                        .orElse("no lease is open for " + node));
+            }
+            return executeReset(call, policy, port, observed, unreadable);
+        }
+    }
+
+    /** {@code PENDING}, {@code trace --reset}, then the lease ends or records the attempt. */
+    private LogLevelResult executeReset(LogLevelAudit.ToolCall call, WritePolicy policy,
+        LogLevelPort port, Observed observed, Optional<String> unreadable) {
+        NodeId node = policy.node();
+        String inubitNode = observed.inubitNode();
+        Optional<Lease> open = observed.open();
+        call.pending();
+        Optional<ToolError> failure = resetAll(RESET_TOOL, port, node,
+            policy.permit().admitted(), cliTimeouts.apply(node));
+        Instant at = clock.instant();
+        Optional<Lease> recorded = open.flatMap(lease -> record(lease, stored -> failure
+                .map(failed -> stored.attempted(attempt(at, failed)))
+                .orElseGet(() -> stored.reset(at)),
+            failure.isEmpty() ? "the reset" : "the failed reset"));
+        Optional<Lease> current = recorded.or(() -> open);
+        boolean stillOpen = current.map(lease -> lease.state().open()).orElse(false);
+        String noLease = unreadable
+            .map(reason -> "no lease could be updated: the lease store cannot be read (" + reason
+                + ")")
+            .orElse("no lease was open for " + node);
+        String message;
+        if (failure.isEmpty()) {
+            String done = "temporary log level on INUBIT node " + inubitNode
+                + " was reset, also other users'";
+            if (current.isEmpty() && unreadable.isEmpty()) {
+                message = "No lease was open for " + node + "; every " + done;
+            } else if (current.isEmpty()) {
+                message = "Every " + done + "; " + noLease;
+            } else if (!stillOpen) {
+                message = "Every " + done + "; the lease ended";
+            } else {
+                message = "Every " + done + ", but lease " + current.get().leaseId()
+                    + " could not record the end and stays open: the MCP server "
+                    + retry(current.get());
+            }
+        } else {
+            message = "Resetting the temporary log levels on INUBIT node " + inubitNode
+                + " failed (" + text(failure.get()) + "); the levels may stay raised: "
+                + current.map(lease -> "lease " + lease.leaseId() + " stays open and the MCP"
+                    + " server " + retry(lease))
+                .orElse(noLease + (unreadable.isPresent() ? ""
+                    : ", so the MCP server does not retry"));
+        }
+        call.lease(current);
+        List<String> warnings = new ArrayList<>(policy.warnings());
+        call.outcome(failure.isEmpty() ? AuditOutcome.EXECUTED : AuditOutcome.FAILED,
+            failure.map(LogLevelService::text).orElse(message)).ifPresent(warnings::add);
+        return new LogLevelResult.Outcome(node, inubitNode,
+            failure.isEmpty() ? LogLevelResult.Status.EXECUTED : LogLevelResult.Status.FAILED,
+            open.map(Lease::leaseId), current.map(LogLevelService::loggers).orElse(List.of()),
+            stillOpen ? current.map(Lease::expiresAt) : Optional.empty(), open.isPresent(),
+            message, call.auditId(), warnings);
+    }
+
+    /** When the MCP server resets the node of an open lease by itself (D-16). */
+    private static String retry(Lease lease) {
+        return lease.state() == LeaseState.ACTIVE
+            ? "resets " + lease.inubitNode() + " at its expiry (" + lease.expiresAt() + ")"
+            : "retries the reset of " + lease.inubitNode() + " at least every minute";
+    }
+
+    /** The {@code leaseId} + {@code forget} form: nothing is sent to INUBIT. */
+    private LogLevelResult forget(LogLevelAudit.ToolCall call, String requested,
+        Optional<String> code) {
+        WritePolicy policy = null;
+        Lease lease;
+        try {
+            if (!LEASE_ID.matcher(requested).matches()) {
+                throw invalidReset(
+                    "Invalid leaseId: expected the id of a lease (a lowercase UUID)");
+            }
+            UUID id = UUID.fromString(requested);
+            lease = store.read().stream().filter(stored -> stored.leaseId().equals(id))
+                .findFirst()
+                .orElseThrow(() -> invalidReset("No lease with id " + id + " is stored"));
+            call.node(lease.server(), Optional.empty());
+            call.lease(Optional.of(lease));
+            policy = admitForget(lease);
+            call.node(policy.node(), policy.account());
+            if (lease.state() != LeaseState.RESET_FAILED) {
+                throw invalidReset("Lease " + id + " is " + lease.state()
+                    + "; only a lease whose reset failed can be forgotten");
+            }
+            if (policy.confirmation() == WritePolicy.Confirmation.SERVER && code.isPresent()) {
+                confirm(RESET_TOOL, code.get(), lease.server(), forgetFingerprint(lease),
+                    new Observed(Optional.of(lease), lease.inubitNode()).state());
+            }
+        } catch (ToolErrorException e) {
+            throw refuse(call, code, Optional.ofNullable(policy), e);
+        }
+        String inubitNode = lease.inubitNode();
+        if (policy.confirmation() == WritePolicy.Confirmation.SERVER && code.isEmpty()) {
+            return resetChallenge(call, policy, forgetFingerprint(lease),
+                new Observed(Optional.of(lease), inubitNode), "to end lease " + lease.leaseId()
+                    + " as FORGOTTEN without contacting INUBIT; the level may still be raised on "
+                    + inubitNode + " until its restart");
+        }
+        NodeId node = policy.node();
+        OwnerOnlyFileLock.Held held;
+        try {
+            held = locks.acquire(node, cliTimeouts.apply(node));
+        } catch (ToolErrorException e) {
+            throw refuse(call, code, Optional.of(policy), e);
+        }
+        try (held) {
+            call.pending();
+            Lease forgotten;
+            try {
+                forgotten = forgetStored(lease, clock.instant());
+            } catch (RuntimeException e) {
+                ToolError error = failure(e, RESET_TOOL, node, "The lease store");
+                ToolError named = error.node().isPresent() ? error : error.withNode(node);
+                call.outcome(error.code() == ErrorCode.PRECONDITION_FAILED
+                    ? AuditOutcome.REFUSED : AuditOutcome.FAILED, text(named));
+                throw new ToolErrorException(named);
+            }
+            call.lease(Optional.of(forgotten));
+            List<String> warnings = new ArrayList<>(policy.warnings());
+            warnings.add("The temporary log level may still be raised on INUBIT node "
+                + inubitNode + " until its restart");
+            String message = "Lease " + lease.leaseId() + " ended as FORGOTTEN without contacting"
+                + " INUBIT; the level may still be raised on " + inubitNode + " until its restart";
+            call.outcome(AuditOutcome.EXECUTED, message).ifPresent(warnings::add);
+            return new LogLevelResult.Outcome(node, inubitNode, LogLevelResult.Status.EXECUTED,
+                Optional.of(lease.leaseId()), loggers(forgotten), Optional.empty(), true,
+                message, call.auditId(), warnings);
+        }
+    }
+
+    /**
+     * The checks of FR-040 against the lease's server without contacting it.
+     *
+     * @throws ToolErrorException {@code INVALID_INPUT} if the server is no longer configured, or
+     *     the guard's refusal
+     */
+    private WritePolicy admitForget(Lease lease) {
+        try {
+            return guard.admitWithoutContact(lease.server().value(), RESET_TOOL, optedIn,
+                OPT_IN_KEY);
+        } catch (ToolErrorException e) {
+            if (e.error().code() != ErrorCode.TARGET_UNKNOWN) {
+                throw e;
+            }
+            LocalDate end = lease.expiresAt().plus(UNCONFIGURED_FORGET_AFTER)
+                .atZone(ZoneOffset.UTC).toLocalDate();
+            throw invalidReset("Lease " + lease.leaseId() + " of " + lease.server() + " cannot"
+                + " be forgotten: " + lease.server() + " is no longer configured; the lease ends"
+                + " automatically 7 days after its expiry, on " + end);
+        }
+    }
+
+    /** D-19: the inputs of a forget. */
+    private static String forgetFingerprint(Lease lease) {
+        return sha256(RESET_TOOL, lease.leaseId().toString(), "forget");
+    }
+
+    /**
+     * Under the store lock: the lease ends as {@code FORGOTTEN} if it still has the generation
+     * the confirmation saw.
+     *
+     * @throws ToolErrorException {@code PRECONDITION_FAILED} if it changed meanwhile (nothing
+     *     forgotten), or the store's own errors
+     */
+    private Lease forgetStored(Lease confirmed, Instant at) {
+        List<Lease> stored = store.update(leases -> {
+            Lease now = leases.stream()
+                .filter(lease -> lease.leaseId().equals(confirmed.leaseId())).findFirst()
+                .orElseThrow(() -> changed(confirmed, "no longer stored"));
+            if (!now.sameGeneration(confirmed)) {
+                throw changed(confirmed, "generation " + confirmed.generation() + ", now "
+                    + now.generation());
+            }
+            return leases.stream().map(lease -> lease == now ? lease.forgotten(at) : lease)
+                .toList();
+        }, STORE_WAIT);
+        return stored.stream().filter(lease -> lease.leaseId().equals(confirmed.leaseId()))
+            .findFirst().orElseThrow();
+    }
+
+    private static ToolErrorException changed(Lease confirmed, String how) {
+        return new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+            "Lease " + confirmed.leaseId() + " changed since the confirmation (" + how
+                + "); nothing was forgotten",
+            "Another MCP server instance of the profile took the lease over or reset it meanwhile",
+            "Check the lease with get_health; forget it again if it is still RESET_FAILED")
+            .withNode(confirmed.server()));
+    }
+
+    /** A challenge of a reset or a forget, bound to the inputs and the previewed state. */
+    private LogLevelResult resetChallenge(LogLevelAudit.ToolCall call, WritePolicy policy,
+        String fingerprint, Observed observed, String action) {
+        NodeId node = policy.node();
+        WriteChallengeRegistry.Issued issued = challenges.issue(RESET_TOOL, node, fingerprint,
+            observed.state(), policy.confirmationTtl());
+        try {
+            call.challengeIssued(issued.code(), "Preview " + action + "; code valid until "
+                + issued.expiresAt());
+        } catch (ToolErrorException e) {
+            challenges.discard(issued.code());
+            throw e;
+        }
+        return new LogLevelResult.Challenge(issued.code(), issued.expiresAt(),
+            new LogLevelResult.ResetPreview(node, observed.inubitNode(),
+                observed.open().map(LeaseSummary::of)),
+            "Nothing was changed. Call " + RESET_TOOL + " again with confirmationCode before "
+                + issued.expiresAt() + " " + action);
+    }
+
     // ---- refusals --------------------------------------------------------------------------
 
     /**
@@ -612,14 +973,21 @@ public final class LogLevelService {
      *
      * @param policy the admitted policy, once known (decides {@code PREVIEW} or {@code EXECUTE})
      */
-    private ToolErrorException refuse(LogLevelAudit.ToolCall call, SetLevelRequest request,
+    private ToolErrorException refuse(LogLevelAudit.ToolCall call, Optional<String> code,
         Optional<WritePolicy> policy, ToolErrorException e) {
-        request.confirmationCode().ifPresent(challenges::discard);
-        boolean execute = request.confirmationCode().isPresent() || policy
+        code.ifPresent(challenges::discard);
+        boolean execute = code.isPresent() || policy
             .map(admitted -> admitted.confirmation() == WritePolicy.Confirmation.CLIENT)
             .orElse(false);
         return call.refused(execute ? AuditRecord.Step.EXECUTE : AuditRecord.Step.PREVIEW,
             e.error());
+    }
+
+    private static ToolErrorException invalidReset(String message) {
+        return new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT, message,
+            RESET_TOOL + " takes either node, or the leaseId of a lease whose reset failed with"
+                + " forget: true, and the confirmationCode of a preview",
+            "Fix the input and call again"));
     }
 
     private static ToolErrorException invalid(String message) {
