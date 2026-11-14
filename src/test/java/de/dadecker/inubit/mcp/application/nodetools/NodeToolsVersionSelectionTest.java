@@ -585,7 +585,7 @@ class NodeToolsVersionSelectionTest {
         });
     }
 
-    /** StartCLI confirming a log-level change ({@code log-level/set_ok}). */
+    /** StartCLI answering a log-level change ({@code log-level/set_ok}, recorded in T039). */
     private static FakeProcessLauncher startCli() {
         return FakeProcessLauncher.of(text("log-level/set_ok.stdout"),
             text("log-level/set_ok.stderr"),

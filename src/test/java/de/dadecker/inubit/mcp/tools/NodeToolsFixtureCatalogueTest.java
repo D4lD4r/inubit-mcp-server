@@ -411,15 +411,12 @@ class NodeToolsFixtureCatalogueTest {
     }
 
     /**
-     * Each 8.1 log-level case (StartCLI, research D-11): its exit code, the trace form its
-     * {@code .origin} names on the first line, and the line of its stdout that says what it is.
-     * The reset is the only {@code --reset} form; every other case names a {@code --package} below
-     * {@code com.inubit.ibis}.
+     * Each reconstructed 8.1 log-level case (StartCLI, research D-11): its exit code, the trace
+     * form its {@code .origin} names on the first line, and the line of its stdout that says what
+     * it is. Every one names a {@code --package} below {@code com.inubit.ibis}.
      */
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
-        "set_ok | 0 | trace --nodelevel DEBUG --package 'com.inubit.ibis.acme' | 1-OK: OK",
-        "reset_ok | 0 | trace --reset | 1-OK: OK",
         "missing_level | 1 | trace --package 'com.inubit.ibis.acme' without --nodelevel"
             + " | Missing log level.",
         "login_failure | 1 | trace --nodelevel DEBUG --package 'com.inubit.ibis.acme'"
@@ -428,8 +425,8 @@ class NodeToolsFixtureCatalogueTest {
         "forbidden | 1 | trace --nodelevel DEBUG --package 'com.inubit.ibis.acme'"
             + " | com.inubit.ibis.utils.InubitException: @Start@AccessDenied@@@Access"
             + " denied!@End@The user jdoe has no right to change log levels."})
-    void aLogLevelCaseIsTheStartCliAnswerItsNameSays(String name, int exit, String form,
-        String line) throws IOException {
+    void aReconstructedLogLevelCaseIsTheStartCliAnswerItsNameSays(String name, int exit,
+        String form, String line) throws IOException {
         Path base = ROOT.resolve("v8_1/log-level/" + name);
 
         assertThat(Integer.parseInt(firstLine(Path.of(base + ".exit")))).isEqualTo(exit);
@@ -437,8 +434,32 @@ class NodeToolsFixtureCatalogueTest {
             .contains(" for " + form + ";");
         assertThat(Files.readAllLines(Path.of(base + ".stdout"), StandardCharsets.UTF_8))
             .startsWith("JAVA_HOME is set", "Password: ").contains(line);
-        assertThat(Files.readString(Path.of(base + ".stdout"), StandardCharsets.UTF_8)
-            .contains("-OK: ")).isEqualTo(exit == 0);
+        assertThat(Files.readString(Path.of(base + ".stdout"), StandardCharsets.UTF_8))
+            .doesNotContain("-OK: ");
+    }
+
+    /**
+     * {@code set_ok} and {@code reset_ok} are the recordings of the T039 spike on 8.1.17 (T058):
+     * the {@code .origin} names the trace form on its second line; exit code 0, stdout only the
+     * client preamble without a confirmation line, stderr only the JVM notice.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "set_ok | trace --nodelevel INFO --package 'com.inubit.ibis.acme'",
+        "reset_ok | trace --reset"})
+    void aRecordedLogLevelCaseIsTheSilentSuccessOfThe8_1Spike(String name, String form)
+        throws IOException {
+        Path base = ROOT.resolve("v8_1/log-level/" + name);
+
+        assertThat(Integer.parseInt(firstLine(Path.of(base + ".exit")))).isZero();
+        List<String> origin = Files.readAllLines(Path.of(base + ".origin"), StandardCharsets.UTF_8);
+        assertThat(origin.get(0)).isEqualTo("recorded 2026-11-14 8.1.17 neutralized");
+        assertThat(origin.get(1)).contains("StartCLI " + form + " on a non-production 8.1.17 node");
+        assertThat(Files.readAllLines(Path.of(base + ".stdout"), StandardCharsets.UTF_8))
+            .containsExactly("JAVA_HOME is set", "Password: ", "SECURITY WARNING: Hostname"
+                + " verification is disabled. Your connection might not be secured!", "");
+        assertThat(Files.readAllLines(Path.of(base + ".stderr"), StandardCharsets.UTF_8))
+            .singleElement().asString().startsWith("Picked up JAVA_TOOL_OPTIONS: ");
     }
 
     private static ConfigError propertyMissing(String name) {

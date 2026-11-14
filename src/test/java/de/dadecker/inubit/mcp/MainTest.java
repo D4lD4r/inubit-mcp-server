@@ -2439,28 +2439,31 @@ class MainTest {
             .containsExactlyElementsOf(withNodeConfig);
     }
 
-    // --- feature 024 T054: the log-level tools only with write access and their opt-in
+    // --- feature 024 T054, T058: the log-level tools only with write access and their opt-in
     // (FR-002, FR-040, SC-005, D-6)
 
     @Test
-    void aWriteEnabledNodeDoesNotAnnounceTheLogLevelToolsBeforeTheirRecording() throws Exception {
-        // the production matrix keeps LOG_LEVEL_WRITE unsupported on 8.1 and 9.0 until its flip
-        // (T058, T065): with write access and the opt-in only restart_process and kill_process
-        // are added to the reference
+    void aWriteEnabledOptedInEightOneOrAutoNodeAnnouncesTheLogLevelTools() throws Exception {
+        // T058: the production matrix supports LOG_LEVEL_WRITE on 8.1 since its recording; with
+        // write access and without the opt-in only restart_process and kill_process are added to
+        // the reference
         credentials();
         List<String> withWrite = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
             "get_server_settings", "read_users", "list_inventory", "get_inventory_item",
             "find_partners", "export_artifacts", "export_archives", "check_artifacts",
             "restart_process", "kill_process");
+        List<String> withLogLevel = new ArrayList<>(withWrite);
+        withLogLevel.addAll(List.of("set_temporary_log_level", "reset_temporary_log_level"));
 
         for (String optIn : List.of("true", "false")) {
+            List<String> expected = optIn.equals("true") ? withLogLevel : withWrite;
             Path file = configWithClientHome("    write:\n      enabled: true\n"
                 + "    unsupported:\n      logLevelWrite: " + optIn + "\n");
-            assertThat(announcedTools(file)).as(optIn).containsExactlyElementsOf(withWrite);
+            assertThat(announcedTools(file)).as(optIn).containsExactlyElementsOf(expected);
             assertThat(announcedTools(config(Files.readString(file)
                 .replace("versionLine: V8_1", "versionLine: AUTO"))))
-                .as(optIn).containsExactlyElementsOf(withWrite);
+                .as(optIn).containsExactlyElementsOf(expected);
         }
     }
 

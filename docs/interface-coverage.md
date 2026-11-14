@@ -15,9 +15,9 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 
 | State | 8.1 | 9.0 |
 | --- | ---: | ---: |
-| reachable | 42 | 41 |
+| reachable | 45 | 41 |
 | covered | 39 | 39 |
-| planned | 106 | 105 |
+| planned | 103 | 105 |
 | undocumented | 3 | 1 |
 | excluded | 64 | 68 |
 | all entries | 254 | 254 |
@@ -60,9 +60,9 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | CLI `validateMigrationBackup` | READ | - | excluded: interactive only | excluded: interactive only |
 | CLI `lls` | READ | - | excluded: lists the local directory of the StartCLI client | excluded: lists the local directory of the StartCLI client |
 | CLI `trace --download` | EXPORT | - | reachable `download_server_log/default` | reachable `download_server_log/default` |
-| CLI `trace --nodelevel` | WRITE | US4 | planned | planned |
-| CLI `trace --package` | WRITE | US4 | planned | planned |
-| CLI `trace --reset` | WRITE | US4 | planned | planned |
+| CLI `trace --nodelevel` | WRITE | US4 | reachable `set_temporary_log_level/default` | planned |
+| CLI `trace --package` | WRITE | US4 | reachable `set_temporary_log_level/default` | planned |
+| CLI `trace --reset` | WRITE | US4 | reachable `reset_temporary_log_level/default` | planned |
 | CLI `cachemode nodelist` | READ | - | excluded: not used; the answering node comes from the helper on the INUBIT client | excluded: not used; the answering node comes from the helper on the INUBIT client |
 | REST `GET /healthcheck` | READ | - | reachable `get_health/default` | reachable `get_health/default` |
 | REST `GET /metrics` | READ | - | reachable `get_health/default` | reachable `get_health/default` |

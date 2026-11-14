@@ -1473,10 +1473,11 @@ class VersionGateTest {
         Capability.NODE_CONFIG_READ, "get_node_config",
         Capability.LOG_LEVEL_WRITE, "set_temporary_log_level");
 
-    /** The node-tool capabilities admitted on 8.1 since their recordings (T025, T038). */
+    /** The node-tool capabilities admitted on 8.1 since their recordings (T025, T038, T058). */
     private static final Map<Capability, String> RECORDED_ON_81 = Map.of(
         Capability.CLUSTER_NODES_READ, "list_cluster_nodes",
-        Capability.NODE_CONFIG_READ, "get_node_config");
+        Capability.NODE_CONFIG_READ, "get_node_config",
+        Capability.LOG_LEVEL_WRITE, "set_temporary_log_level");
 
     /**
      * Until its recording each node tool is refused with the matrix note: on 9.0 every one, on
@@ -1504,13 +1505,13 @@ class VersionGateTest {
     }
 
     /**
-     * T025, T038: the recorded 8.1 cluster-nodes and node-config cases admit the cluster's node
-     * list and the node configuration without warning.
+     * T025, T038, T058: the recorded 8.1 cluster-nodes, node-config and log-level cases admit the
+     * cluster's node list, the node configuration and the temporary log levels without warning.
      */
     @Test
     void aRecordedNodeToolIsAdmittedOn81SinceItsRecording() {
         RECORDED_ON_81.forEach((capability, tool) -> {
-            Admission v81 = gate().admit(tool, PINNED, capability, Kind.READ, CLI);
+            Admission v81 = gate().admit(tool, PINNED, capability, capability.kind(), CLI);
 
             assertThat(v81.warnings()).as(tool).isEmpty();
             assertThat(v81.version()).as(tool).contains(version("8.1.17"));

@@ -76,8 +76,7 @@ public final class CapabilityMatrix {
      * Feature 024 (FR-005, research D-4, D-27): the node tools refused on 8.1 with the note "not
      * yet verified"; the commit that adds the recording of one removes it here.
      */
-    private static final Set<Capability> V8_1_NOT_YET_VERIFIED = Set.of(
-        Capability.IO_LOG_READ, Capability.LOG_LEVEL_WRITE);
+    private static final Set<Capability> V8_1_NOT_YET_VERIFIED = Set.of(Capability.IO_LOG_READ);
 
     /** Feature 024: the same for 9.0. */
     private static final Set<Capability> V9_0_NOT_YET_VERIFIED = Set.of(
@@ -88,8 +87,9 @@ public final class CapabilityMatrix {
      * 8.1: everything; the server-log reads of feature 021 since their recordings (trace log T033,
      * web service log T046), reading the server settings of feature 022 since its recordings
      * (T014, contract tests T025), reading the users of feature 022 since its recordings (T028,
-     * contract tests T037); of the node tools of feature 024 the cluster's node list and the node
-     * configuration since their recordings (T025, T038), the others not yet verified.
+     * contract tests T037); of the node tools of feature 024 the cluster's node list, the node
+     * configuration and the temporary log levels since their recordings (T025, T038, T058), the
+     * I/O log not yet verified.
      */
     private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1),
         unsupported(ALL_SUPPORTED, V8_1_NOT_YET_VERIFIED), Map.of(), false,

@@ -236,14 +236,15 @@ class CliLogLevelAdapterTest {
     }
 
     @Test
-    void aRunWithoutTheConfirmationIsAnUnexpectedResponse() {
-        // exit code 0 without the n-OK confirmation (D-11)
-        cli.expect(RESET).replying("Password: \n", "", 0);
+    void aRunWithAnUnexpectedLineIsAnUnexpectedResponse() {
+        // exit code 0, but a line after the preamble where the success prints none (T039)
+        cli.expect(RESET).replying("Password: \nlevel changed\n", "", 0);
 
         ToolError error = failure(() -> adapter(http().build()).resetAll(V81, BUDGET));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
-        assertThat(error.message()).isEqualTo("StartCLI did not confirm the log level change");
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
         assertThat(error.nextStep())
             .isEqualTo("Reset with reset_temporary_log_level; report the INUBIT version");
     }

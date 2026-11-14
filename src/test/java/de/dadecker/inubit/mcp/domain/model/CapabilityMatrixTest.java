@@ -26,12 +26,11 @@ class CapabilityMatrixTest {
     /**
      * Feature 021: the server-log reads are supported since their 8.1 recordings (trace T033, web
      * service T046); feature 022: the server settings (T025) and the users (T037); feature 024:
-     * the cluster's node list and the node configuration since their 8.1 recordings (T025, T038),
-     * the other node tools wait for their recordings (below).
+     * the cluster's node list, the node configuration and the temporary log levels since their
+     * 8.1 recordings (T025, T038, T058), the I/O log waits for its recording (below).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"IO_LOG_READ", "LOG_LEVEL_WRITE"},
-        mode = Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"IO_LOG_READ"}, mode = Mode.EXCLUDE)
     void everyCapabilityIsSupportedOn81(Capability capability) {
         assertThat(production.state(version("8.1.17"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -442,13 +441,12 @@ class CapabilityMatrixTest {
      * T031 (feature 021, FR-002): a version not yet known (an {@code AUTO} node) may run a
      * capability only if some range or the unknown versions admit it; since their 8.1 recordings
      * (T033, T046) 8.1 admits both server-log reads, and since their contract tests the server
-     * settings (T025) and the users (T037); feature 024: since their 8.1 recordings (T025, T038)
-     * the cluster's node list and the node configuration, the other node tools not before their
-     * recordings (below).
+     * settings (T025) and the users (T037); feature 024: since their 8.1 recordings (T025, T038,
+     * T058) the cluster's node list, the node configuration and the temporary log levels, the I/O
+     * log not before its recording (below).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"IO_LOG_READ", "LOG_LEVEL_WRITE"},
-        mode = Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"IO_LOG_READ"}, mode = Mode.EXCLUDE)
     void everyCapabilityIsPossiblySupportedOnTheProductionMatrix(Capability capability) {
         assertThat(production.possiblySupported(capability)).isTrue();
     }
@@ -610,12 +608,14 @@ class CapabilityMatrixTest {
     }
 
     /**
-     * T025, T038 (FR-005, D-27): the recorded 8.1 cluster-nodes and node-config cases enabled the
-     * cluster's node list and the node configuration on 8.1; their notes are gone there. 9.0 still
-     * refuses them as "not yet verified" (until T062, T064).
+     * T025, T038, T058 (FR-005, D-27): the recorded 8.1 cluster-nodes, node-config and log-level
+     * cases enabled the cluster's node list, the node configuration and the temporary log levels
+     * on 8.1; their notes are gone there. 9.0 still refuses them as "not yet verified" (until T062,
+     * T064, T065).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"CLUSTER_NODES_READ", "NODE_CONFIG_READ"})
+    @EnumSource(value = Capability.class, names = {"CLUSTER_NODES_READ", "NODE_CONFIG_READ",
+        "LOG_LEVEL_WRITE"})
     void aRecordedNodeToolIsSupportedOn81WithoutNoteAndNotYetVerifiedOn90(Capability capability) {
         assertThat(production.state(version("8.1.17"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -634,11 +634,11 @@ class CapabilityMatrixTest {
     }
 
     /**
-     * Until its recording (T032, T058, T063, T065) each other node tool is refused on 8.1 and 9.0
-     * as "not yet verified", and no version may run it.
+     * Until its recording (T032, T063) the I/O log is refused on 8.1 and 9.0 as "not yet
+     * verified", and no version may run it.
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"IO_LOG_READ", "LOG_LEVEL_WRITE"})
+    @EnumSource(value = Capability.class, names = {"IO_LOG_READ"})
     void aNodeToolIsNotYetVerifiedOn81And90(Capability capability) {
         for (Optional<InubitVersion> verified : List.of(version("8.1.17"), version("9.0.7"))) {
             assertThat(production.state(verified, capability)).as("%s", verified)

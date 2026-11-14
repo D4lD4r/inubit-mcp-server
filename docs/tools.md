@@ -198,7 +198,7 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 | `restore_backup` of a deployment backup, `deploy_release` | `deployment` | write | StartCLI + REST | supported; `deploy_release` only within one minor version (8.1 → 8.1, 9.0 → 9.0) | refused; `deploy_release` also only within one minor version | refused |
 | `run_e2e_test` | `e2e_test` | write | SOAP + REST | supported | refused | refused |
 | `restart_process`, `kill_process` | `process_control` | write | REST + StartCLI | supported | refused | refused |
-| `set_temporary_log_level`, `reset_temporary_log_level` (feature 024) | `log_level_write` | write | StartCLI + helper on the INUBIT client (answering node) | 8.1: refused (not yet verified); 9.0: refused (not yet verified) | refused | refused |
+| `set_temporary_log_level`, `reset_temporary_log_level` (feature 024) | `log_level_write` | write | StartCLI + helper on the INUBIT client (answering node) | 8.1: supported; 9.0: refused (not yet verified) | refused | refused |
 
 A deployment backup restored on a node that is also a development stage is checked as
 `development_writes`; both capabilities have the same states in this version. Refusal and
@@ -2220,13 +2220,12 @@ confirmation; the audit record `PENDING`; the lease, recorded before StartCLI ru
 runs; the lease update and the audit record `EXECUTED` or `FAILED`. If the lease cannot be updated
 after the change, the node is reset at once (`INTERNAL`).
 
-**Versions.** `log_level_write` is not yet verified for INUBIT 8.1. `log_level_write` is not yet
-verified for INUBIT 9.0. Until a recorded change and reset of that version are under contract test,
-both are refused with `UNSUPPORTED_VERSION` (`set_temporary_log_level: INUBIT 8.1.17 on test/node1:
-changing temporary log levels is not yet verified for INUBIT 8.1; nothing was sent`), as are INUBIT
-6.1, any other line and an undeclared version. As long as `log_level_write` is supported on no
-INUBIT version, `set_temporary_log_level` is not offered (see
-[Tool announcement](#tool-announcement)).
+**Versions.** `log_level_write` is supported on INUBIT 8.1, verified against a recorded,
+neutralized change and reset of an 8.1 node. `log_level_write` is not yet verified for INUBIT 9.0:
+a 9.0 node is refused with `UNSUPPORTED_VERSION` (`set_temporary_log_level: INUBIT 9.0.10 on
+test/node1: changing temporary log levels is not yet verified for INUBIT 9.0; nothing was sent`)
+until a recorded 9.0 change and reset are under contract test. INUBIT 6.1, any other line and an
+undeclared version are refused as well.
 
 **Errors** (as `ToolError`, see [Common shapes](#common-shapes-page-and-toolerror)):
 
@@ -2240,7 +2239,7 @@ INUBIT version, `set_temporary_log_level` is not offered (see
 | `PRECONDITION_FAILED` | the last automatic reset failed (`The last reset of test/node1 failed (lease 3f2b…, 2026-11-12T08:26:01Z: node unreachable); retry reset_temporary_log_level first`); another node answers than the open lease names (`INUBIT node node2 answers for test/node1, but the open lease was set on node1`); another log-level change for the node is running; the lease store cannot be read; the merged lease would hold more than 50 loggers; the state changed since the preview |
 | `CONFIRMATION_INVALID` | the code is unknown, used, expired or for other inputs; next step `Call again without confirmationCode` |
 | `CLI_UNAVAILABLE`, `AUTH_FAILED`, `TLS_ERROR`, `UNREACHABLE`, `FORBIDDEN`, `TIMEOUT` | as the read tools (helper lookup) and StartCLI; each StartCLI run and the lookup within `cliTimeout` |
-| `UNEXPECTED_RESPONSE` | the answering-node lookup answered unexpectedly, or StartCLI did not confirm the change (`… StartCLI did not confirm the log level change`), next step `Reset with reset_temporary_log_level; report the INUBIT version` |
+| `UNEXPECTED_RESPONSE` | the answering-node lookup answered unexpectedly, or StartCLI printed unexpected output after its preamble, where a change prints nothing more (`… StartCLI printed unexpected output for the log level change`), next step `Reset with reset_temporary_log_level; report the INUBIT version` |
 | `INTERNAL` | the audit record `PENDING` or the lease could not be written before the change (nothing sent); the lease could not be updated after the change: `The levels were raised but the lease could not be recorded; the node was reset` |
 
 **Audit.** `capability: set_temporary_log_level`, steps `PREVIEW` (`CHALLENGE_ISSUED`, `REFUSED`)
@@ -2324,10 +2323,9 @@ EXECUTED`, `Lease 3f2b… ended as FORGOTTEN without contacting INUBIT; the leve
 raised on node1 until its restart` and the warning `The temporary log level may still be raised on
 INUBIT node node1 until its restart`.
 
-**Versions.** `log_level_write` is not yet verified for INUBIT 8.1. `log_level_write` is not yet
-verified for INUBIT 9.0. The `node` form is refused there with `UNSUPPORTED_VERSION`, as for a set
-(the forget form checks no version). As long as `log_level_write` is supported on no INUBIT
-version, `reset_temporary_log_level` is not offered (see [Tool announcement](#tool-announcement)).
+**Versions.** `log_level_write` is supported on INUBIT 8.1, verified against a recorded,
+neutralized reset of an 8.1 node. `log_level_write` is not yet verified for INUBIT 9.0: the `node`
+form is refused there with `UNSUPPORTED_VERSION`, as for a set (the forget form checks no version).
 
 **Errors**: as [`set_temporary_log_level`](#set_temporary_log_level), plus `INVALID_INPUT` for an
 input combination other than the two forms (`Invalid input: expected either node, or leaseId with

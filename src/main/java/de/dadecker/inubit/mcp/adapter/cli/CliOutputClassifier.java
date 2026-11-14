@@ -256,14 +256,14 @@ public final class CliOutputClassifier {
      * Classifies a {@code trace --nodelevel … --package …} or {@code trace --reset} run (feature
      * 024, research D-11, D-20). StartCLI's text for an option form without a level,
      * {@code Missing log level.}, is {@code UNEXPECTED_RESPONSE} whatever its prefix or exit code;
-     * the server's marker {@code AccessDenied} is a refused change ({@code FORBIDDEN}). The
-     * confirmation of {@code CommandResult("OK")} is taken as an {@code n-OK} message until the
-     * write spike T039 records it, so a success is {@link #classify(CliResult)}'s success without
-     * any marker and without an exception line in the log records; exit code 0 without any
-     * {@code n-OK}/{@code n-NOK} message and without a marker is {@code UNEXPECTED_RESPONSE}
-     * "StartCLI did not confirm the log level change" (contract "StartCLI without the
-     * confirmation"); anything else, and cut output, is classified as by
-     * {@link #classify(CliResult)}.
+     * the server's marker {@code AccessDenied} is a refused change ({@code FORBIDDEN}). StartCLI
+     * prints no confirmation for either form (write spike T039, 8.1.17: stdout only the
+     * preamble), so with exit code 0, no marker and no {@code n-NOK} message a success is nothing
+     * after the preamble on stdout and stderr but {@code n-OK} messages; any other line or log
+     * record is {@code UNEXPECTED_RESPONSE} "StartCLI printed unexpected output for the log level
+     * change" (contract "unexpected StartCLI output"). Cut output, a non-zero exit code, an
+     * {@code n-NOK} message and any other marker are classified as by
+     * {@link #classify(CliResult)}, except that a marker is never a success here.
      */
     public CliOutcome classifyTraceLevel(CliResult result) {
         if (result.truncated()) {
@@ -285,17 +285,22 @@ public final class CliOutputClassifier {
                     + " name its options differently",
                 "Reset with reset_temporary_log_level; report the INUBIT version"));
         }
-        if (result.exitCode() == 0 && output.okMessages().isEmpty()
-            && output.nokMessages().isEmpty() && output.markers().isEmpty()) {
+        if (result.exitCode() == 0 && output.nokMessages().isEmpty()
+            && output.markers().isEmpty()) {
+            if (output.logLines().isEmpty()
+                && output.outputLines().size() == output.okMessages().size()) {
+                return new CliOutcome.Success(output);
+            }
             return new CliOutcome.Failure(error(ErrorCode.UNEXPECTED_RESPONSE,
-                "StartCLI did not confirm the log level change",
-                "StartCLI ended without its confirmation, so the change may not have been made",
+                "StartCLI printed unexpected output for the log level change",
+                "StartCLI printed text where a change prints none, so the change may not have been"
+                    + " made",
                 "Reset with reset_temporary_log_level; report the INUBIT version")
                 .withExcerpt(scrubber.scrub(excerpt(output))));
         }
         CliOutcome outcome = classify(result);
-        if (outcome instanceof CliOutcome.Success && (!output.markers().isEmpty()
-            || output.logLines().stream().anyMatch(line -> EXCEPTION_LINE.matcher(line).find()))) {
+        if (outcome instanceof CliOutcome.Success) {
+            // only exit code 0 with an n-OK message and a marker gets here
             return new CliOutcome.Failure(unexpected(result, output));
         }
         return outcome;

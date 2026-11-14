@@ -340,10 +340,11 @@ and shutdown (`CliResources` reservation, as 020).
   `-p`, `-r`, decided test-first before the flip).
 - One StartCLI run per logger (commons-cli keeps one `-p` value), sequential, each bounded by the
   node's `cliTimeout`; a reset is one run.
-- Success = exit code 0, no error marker or classification of
-  `CliOutputClassifier.classifyTraceLevel` **and** the confirmation form pinned by the recording
-  (the `CommandResult("OK")` output; reconstructed as `1-OK:` until the write spike T039 records it, as 021's T023
-  did). `Missing log level.`, any `Exception`/error marker → `UNEXPECTED_RESPONSE` naming StartCLI.
+- Success = exit code 0 and nothing after the client preamble but `n-OK` lines, no log record and
+  no marker (`CliOutputClassifier.classifyTraceLevel`; the write spike T039 recorded that StartCLI
+  prints no confirmation for either form, see "Spike findings"). Any other line →
+  `UNEXPECTED_RESPONSE` "StartCLI printed unexpected output for the log level change";
+  `Missing log level.`, any `Exception`/error marker → `UNEXPECTED_RESPONSE` naming StartCLI.
 
 ## D-12 Lease store and locks (FR-043, FR-045)
 
@@ -605,7 +606,7 @@ Queue Manager row).
 | no client home, `ibis.jar`/JDK missing, launch failure, vendor API missing (`api missing`) | `CLI_UNAVAILABLE` |
 | login, TLS, network, 403 (`HelperFailures`; StartCLI classifier) | `AUTH_FAILED`, `TLS_ERROR`, `UNREACHABLE`, `FORBIDDEN` |
 | `io list error` whose message is INUBIT's `NotAllowedAccess` (`@Start@NotAllowedAccess@…`; spike T018: the listing checks a right of the account) | `FORBIDDEN` "<node> refused the input/output logging for the configured user" (INUBIT's text, which names the user, is not repeated) |
-| `node error`, `members error`, another `io list error`, `part message error`, garbage frames, exit code ≠ frames, invalid node name, unexpected entry format, StartCLI without the confirmation | `UNEXPECTED_RESPONSE` "… the unsupported INUBIT interface may have changed after an INUBIT update" (scrubbed excerpt ≤ 200 chars) |
+| `node error`, `members error`, another `io list error`, `part message error`, garbage frames, exit code ≠ frames, invalid node name, unexpected entry format, unexpected StartCLI output after the preamble | `UNEXPECTED_RESPONSE` "… the unsupported INUBIT interface may have changed after an INUBIT update" (scrubbed excerpt ≤ 200 chars) |
 | `cliTimeout` / `cliExportTimeout` exceeded | `TIMEOUT` naming the setting |
 | `RESET_FAILED` lease on set; other node answers; another change running; lease store unreadable; preview state changed | `PRECONDITION_FAILED` |
 | invalid/expired confirmation code | `CONFIRMATION_INVALID` |

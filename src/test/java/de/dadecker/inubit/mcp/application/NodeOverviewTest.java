@@ -100,9 +100,9 @@ class NodeOverviewTest {
 
     /**
      * Feature 024 (T004, D-4): the names in {@code list_nodes}, refused until recorded (8.1
-     * cluster nodes since T025, 8.1 node configuration since T038); listed only where the
-     * configuration allows them, which Wiring ties to the group's opt-in and a client home (T023,
-     * T030, T036, T054).
+     * cluster nodes since T025, 8.1 node configuration since T038, 8.1 temporary log levels since
+     * T058); listed only where the configuration allows them, which Wiring ties to the group's
+     * opt-in and a client home (T023, T030, T036, T054).
      */
     @Test
     void theNodeToolsAreListedByTheirNamesOnlyWhereAllowedAndRefusedBeforeTheirRecordings() {
@@ -124,15 +124,14 @@ class NodeOverviewTest {
 
         assertThat(withoutClient.usable()).isEmpty();
         assertThat(withoutClient.notUsable()).as("not allowed, so not listed").isEmpty();
-        assertThat(withClient.usable()).containsExactly("cluster_nodes_read", "node_config_read");
+        assertThat(withClient.usable())
+            .containsExactly("cluster_nodes_read", "node_config_read", "log_level_write");
         assertThat(withClient.notUsable()).extracting(NodeSummary.NotUsable::capability)
-            .containsExactly("io_log_read", "log_level_write");
+            .containsExactly("io_log_read");
         assertThat(withClient.notUsable()).extracting(NodeSummary.NotUsable::reason)
             .containsExactly(
                 "INUBIT 8.1 on dev/node1: reading module input/output logging is not yet verified"
-                    + " for INUBIT 8.1",
-                "INUBIT 8.1 on dev/node1: changing temporary log levels is not yet verified for"
-                    + " INUBIT 8.1");
+                    + " for INUBIT 8.1");
     }
 
     @Test

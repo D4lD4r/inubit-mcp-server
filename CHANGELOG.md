@@ -33,9 +33,10 @@ marks it as read have not been recorded.
 Feature 024: five tools for one INUBIT node through **unsupported INUBIT functionality**, each off
 unless a group opts in: the cluster's node list, the input/output logging of modules, node
 configuration values, and a temporary log level with an automatic reset. Verified on INUBIT 8.1
-against recorded, neutralized answers of a live non-production node: `list_cluster_nodes` and
-`get_node_config`. Not yet verified, and refused there with `UNSUPPORTED_VERSION` ("not yet
-verified"): `read_io_log` and the log-level tools on INUBIT 8.1, all five tools on INUBIT 9.0.
+against recorded, neutralized answers of a live non-production node: `list_cluster_nodes`,
+`get_node_config` and the log-level tools. Not yet verified, and refused there with
+`UNSUPPORTED_VERSION` ("not yet verified"): `read_io_log` on INUBIT 8.1, all five tools on
+INUBIT 9.0.
 
 ### Added
 
@@ -179,8 +180,8 @@ verified"): `read_io_log` and the log-level tools on INUBIT 8.1, all five tools 
   store is a warning, never an error.
 - The capabilities `cluster_nodes_read`, `io_log_read`, `node_config_read` and `log_level_write`
   in `list_nodes` (each only for nodes of groups with its opt-in and an INUBIT client home,
-  `log_level_write` also only with write access): on INUBIT 8.1 `cluster_nodes_read` and
-  `node_config_read` supported, `io_log_read` and `log_level_write` refused as not yet verified;
+  `log_level_write` also only with write access): on INUBIT 8.1 `cluster_nodes_read`,
+  `node_config_read` and `log_level_write` supported, `io_log_read` refused as not yet verified;
   on INUBIT 9.0 all four refused as not yet verified; refused on 6.1, on other lines (9.1,
   `V9_X`) and on undeclared versions. An 8.1 node with such a capability is listed
   `partially_supported` instead of `supported` (9.0 nodes already are). The `--check-config`

@@ -14,7 +14,7 @@
 # the vendor's `trace -nl`, `-p` and `-r`, written as the server sends them (feature 024). They stay
 # `planned` (in the story of the area's writes) until `log_level_write` is verified on a line: the
 # commit with that recording makes them reachable by `set_temporary_log_level` and
-# `reset_temporary_log_level` there.
+# `reset_temporary_log_level` there (8.1 since T058).
 channel	entry	kind	area	story	v8_1	v9_0	waits
 
 # A. Server state and settings
@@ -54,9 +54,9 @@ CLI	cache mode	WRITE	A	-	excluded:reserved for the vendor's support, which calls
 CLI	validateMigrationBackup	READ	A	-	excluded:interactive only	excluded:interactive only	-
 CLI	lls	READ	A	-	excluded:lists the local directory of the StartCLI client	excluded:lists the local directory of the StartCLI client	-
 CLI	trace --download	EXPORT	A	-	reachable:download_server_log/default	reachable:download_server_log/default	-
-CLI	trace --nodelevel	WRITE	A	US4	planned	planned	-
-CLI	trace --package	WRITE	A	US4	planned	planned	-
-CLI	trace --reset	WRITE	A	US4	planned	planned	-
+CLI	trace --nodelevel	WRITE	A	US4	reachable:set_temporary_log_level/default	planned	-
+CLI	trace --package	WRITE	A	US4	reachable:set_temporary_log_level/default	planned	-
+CLI	trace --reset	WRITE	A	US4	reachable:reset_temporary_log_level/default	planned	-
 CLI	cachemode nodelist	READ	A	-	excluded:not used; the answering node comes from the helper on the INUBIT client	excluded:not used; the answering node comes from the helper on the INUBIT client	-
 REST	GET /healthcheck	READ	A	-	reachable:get_health/default	reachable:get_health/default	-
 REST	GET /metrics	READ	A	-	reachable:get_health/default	reachable:get_health/default	-

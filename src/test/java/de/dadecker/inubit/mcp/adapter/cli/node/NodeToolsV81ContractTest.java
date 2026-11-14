@@ -167,7 +167,9 @@ import org.junit.jupiter.params.provider.CsvSource;
  * fixed clock and confirmation {@code CLIENT}; the client helper's own-node lookup answers
  * {@code node1}. A failed raise is the call's {@code FAILED} outcome naming the code, followed by
  * the reset at once of D-14 step 11. The result, the audit records, the lease store and the
- * StartCLI arguments and environments are checked for leaks.
+ * StartCLI arguments and environments are checked for leaks. {@code set_ok} and {@code reset_ok}
+ * are the neutralized recordings of spike T039 (T058): exit code 0 and nothing after the client
+ * preamble, StartCLI's silent success.
  */
 @Timeout(60)
 class NodeToolsV81ContractTest {

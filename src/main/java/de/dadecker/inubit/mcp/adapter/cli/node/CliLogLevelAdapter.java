@@ -35,7 +35,8 @@ import java.util.Objects;
  *       {@link CliCommand#traceNodeLevel} for one logger or {@link CliCommand#traceReset},
  *       through {@link CliRunner#run} with the node's {@link CredentialGuard} (client choice of
  *       feature 017, pin check, password on stdin) and judged by
- *       {@link CliOutputClassifier#classifyTraceLevel}: a success needs StartCLI's confirmation.
+ *       {@link CliOutputClassifier#classifyTraceLevel}: a success is exit code 0 with nothing
+ *       after the client preamble (T039).
  * </ul>
  *
  * <p>The lookup and a StartCLI run are separate logins; behind a load balancer they may reach

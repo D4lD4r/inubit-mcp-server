@@ -333,7 +333,7 @@ at once (the message says so and that a merged lease ended), `leaseId` of the en
 | `PRECONDITION_FAILED` | `RESET_FAILED` lease (US4-11); another node answers than the open lease names (US4-6); another change for the node is running; lease store unreadable; preview state changed | `The last reset of test/node1 failed (lease 3f2b…, 2026-11-12T08:26:01Z: node unreachable); retry reset_temporary_log_level first` / `INUBIT node node2 answers for test/node1, but the open lease was set on node1` | as named |
 | `CONFIRMATION_INVALID` | unknown, used, expired or foreign code | existing text | `Call again without confirmationCode` |
 | `CLI_UNAVAILABLE` / `AUTH_FAILED` / `TLS_ERROR` / `UNREACHABLE` / `FORBIDDEN` / `TIMEOUT` (`cliTimeout`) | as the read tools and StartCLI | existing texts | — |
-| `UNEXPECTED_RESPONSE` | own-node lookup frames; StartCLI without the confirmation | `… StartCLI did not confirm the log level change` | `Reset with reset_temporary_log_level; report the INUBIT version` |
+| `UNEXPECTED_RESPONSE` | own-node lookup frames; unexpected StartCLI output after the preamble (StartCLI prints nothing more on success, T039) | `… StartCLI printed unexpected output for the log level change` | `Reset with reset_temporary_log_level; report the INUBIT version` |
 | `INTERNAL` | audit `PENDING` / write-ahead lease not writable (nothing sent); lease update failed after the change (node reset at once) | `The levels were raised but the lease could not be recorded; the node was reset` | — |
 
 ---

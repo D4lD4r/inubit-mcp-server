@@ -694,7 +694,7 @@ the other just changed.
   case through `CliLogLevelAdapter` + `LogLevelService` (test matrix): `set_ok` → lease and result;
   `reset_ok`; `missing_level` → `UNEXPECTED_RESPONSE` and an immediate reset; `login_failure` →
   `AUTH_FAILED`; `forbidden` → `FORBIDDEN`
-- [ ] T058 [US4] **[OWNER]** **[BLOCKED: T039, T025]** Enable 8.1 `log_level_write` in **one
+- [X] T058 [US4] **[OWNER]** **[BLOCKED: T039, T025]** Enable 8.1 `log_level_write` in **one
   commit**: neutralize the T039 StartCLI outputs (paths, host names, logger → `com.inubit.ibis.acme`)
   into `v8_1/log-level/set_ok.*` and `reset_ok.*` (`recorded …`); if the confirmation form or the
   long option names differ from T040/T041, fix them test-first before the flip; the own-node lookup

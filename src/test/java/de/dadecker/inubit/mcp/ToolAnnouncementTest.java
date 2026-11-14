@@ -742,12 +742,14 @@ class ToolAnnouncementTest {
     }
 
     @Test
-    void onTheProductionMatrixTheLogLevelToolsAreNotAnnouncedBeforeTheirRecording() {
-        // LOG_LEVEL_WRITE stays unsupported on 8.1 and 9.0 until its flip (T058, T065)
+    void onTheProductionMatrixTheLogLevelToolsAreAnnouncedForAnOptedInEightOneOrAutoNode() {
+        // since T058 the production matrix supports LOG_LEVEL_WRITE on 8.1; 9.0 still not (T065)
         CapabilityMatrix production = CapabilityMatrix.production();
         for (String line : List.of("V8_1", "AUTO")) {
             assertThat(groupTools(line, writeEnabled(true) + logLevelOptIn("true") + cliHome(),
-                false, production)).as(line).doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+                false, production)).as(line).containsAll(LOG_LEVEL_TOOLS);
+            assertThat(groupTools(line, writeEnabled(true) + cliHome(), false, production))
+                .as(line + " without the opt-in").doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
         }
         assertThat(groupTools("V9_0", writeEnabled(true) + logLevelOptIn("true"), true,
             production)).doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);

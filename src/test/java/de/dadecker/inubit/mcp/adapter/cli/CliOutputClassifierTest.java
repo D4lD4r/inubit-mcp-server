@@ -647,7 +647,10 @@ class CliOutputClassifierTest {
 
     // --- trace log level (feature 024, research D-11, D-20) ----------------------------------
 
-    /** {@code fixtures/node-tools/v8_1/log-level/<fixtureCase>.*} (T041, reconstructed). */
+    /**
+     * {@code fixtures/node-tools/v8_1/log-level/<fixtureCase>.*} ({@code set_ok} and
+     * {@code reset_ok} recorded in T039, the others reconstructed in T041).
+     */
     private static CliResult logLevelFixture(String fixtureCase) {
         String base = "node-tools/v8_1/log-level/" + fixtureCase;
         return new CliResult(
@@ -663,33 +666,85 @@ class CliOutputClassifierTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"set_ok", "reset_ok"})
-    void theReconstructedConfirmationIsASuccessInTheTraceLevelContext(String fixtureCase) {
+    void theRecordedSilentAnswerIsASuccessInTheTraceLevelContext(String fixtureCase) {
+        // T039: exit code 0, only the client preamble on stdout and the JVM notice on stderr
         CliOutcome outcome = classifier.classifyTraceLevel(logLevelFixture(fixtureCase));
+
+        assertThat(outcome).isInstanceOfSatisfying(CliOutcome.Success.class, success -> {
+            assertThat(success.output().outputLines()).isEmpty();
+            assertThat(success.output().logLines()).isEmpty();
+        });
+    }
+
+    @Test
+    void anOkConfirmationAfterThePreambleIsStillASuccess() {
+        CliOutcome outcome = classifier.classifyTraceLevel(result(0, PREAMBLE + "1-OK: OK\n"));
 
         assertThat(outcome).isInstanceOfSatisfying(CliOutcome.Success.class, success ->
             assertThat(success.output().okMessages()).containsExactly("OK"));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"level changed\n", "1-OK: OK\nlevel changed\n"})
+    void anUnexpectedLineAfterThePreambleIsNoSuccess(String rest) {
+        ToolError error = traceLevelFailure(classifier, result(0, PREAMBLE + rest));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt ->
+            assertThat(excerpt).contains("level changed"));
+    }
+
+    @Test
+    void anUnexpectedStderrLineAfterTheNoticeIsNoSuccess() {
+        CliResult result = new CliResult(0, PREAMBLE, PICKED_UP + "level changed\n",
+            Duration.ofSeconds(1), false, CliRunner.MAX_OUTPUT_BYTES);
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "1-OK: OK\n"})
+    void aLogRecordAfterThePreambleIsNoSuccess(String confirmation) {
+        // with or without an n-OK message: the silent success prints no log record (T039)
+        CliResult result = result(0, PREAMBLE
+            + "WARN 10:00:00,000 [main      ] CLI                       trace\n" + confirmation);
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
+            .contains("WARN 10:00:00,000"));
+    }
+
     @Test
     void theTraceDownloadConfirmationIsNoLevelConfirmation() {
-        // exit code 0 without an n-OK message: not the confirmation form (D-11)
+        // exit code 0 with a line after the preamble: not the silent success of T039
         ToolError error = traceLevelFailure(classifier, traceFixture("ok"));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
-        assertThat(error.message()).isEqualTo("StartCLI did not confirm the log level change");
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
         assertThat(error.nextStep())
             .isEqualTo("Reset with reset_temporary_log_level; report the INUBIT version");
         assertThat(error.excerpt()).isEqualTo(failure(traceFixture("ok")).excerpt());
     }
 
     @Test
-    void theExcerptOfAnUnconfirmedLevelChangeIsScrubbed() {
+    void theExcerptOfUnexpectedLevelChangeOutputIsScrubbed() {
         scrubber.register("hunter2-secret");
         CliResult result = result(0, PREAMBLE + "level set for hunter2-secret\n");
 
         ToolError error = traceLevelFailure(classifier, result);
 
-        assertThat(error.message()).isEqualTo("StartCLI did not confirm the log level change");
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
         assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
             .contains("level set for").doesNotContain("hunter2-secret"));
     }
@@ -747,7 +802,8 @@ class CliOutputClassifierTest {
 
         assertThat(classifier.classify(result)).isInstanceOf(CliOutcome.Success.class);
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
-        assertThat(error.message()).isEqualTo("Unrecognized StartCLI output (exit code 0)");
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
         assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
             .contains("java.lang.IllegalStateException").doesNotContain("hunter2-secret"));
         assertThat(String.join("\n", error.message(), error.likelyCause(), error.nextStep()))
@@ -787,7 +843,10 @@ class CliOutputClassifierTest {
 
     @Test
     void theOtherLogLevelCasesKeepTheirExportAndTraceDownloadClassification() {
-        assertThat(classifier.classify(logLevelFixture("set_ok")))
+        // without an n-OK message the silent success is none for the commands that print one
+        assertThat(failure(logLevelFixture("set_ok")).message())
+            .isEqualTo("Unrecognized StartCLI output (exit code 0)");
+        assertThat(classifier.classifyTraceDownload(logLevelFixture("set_ok")))
             .isInstanceOf(CliOutcome.Success.class);
         assertThat(failure(logLevelFixture("missing_level")).message())
             .isEqualTo("Unrecognized StartCLI output (exit code 1)");
