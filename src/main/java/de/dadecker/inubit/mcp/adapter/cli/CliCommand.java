@@ -30,6 +30,15 @@ import java.util.regex.Pattern;
  *       {@code trace --download '<path>'} ({@link #traceDownload}): exactly one
  *       {@code --download}, given through {@link Builder#path} only, and nothing else, so the
  *       trace state is never switched or changed.
+ *   <li>Feature 022 (research D-21), only the forms recorded in T039: {@code library} only as
+ *       {@code library --list --type driver|plugin} ({@link #libraryList}, never
+ *       {@code --upload}, {@code --delete} or {@code --deleteAll}); the owner export without
+ *       groups with {@code --exportWorkflowGroupExclude}, which needs
+ *       {@code --exportWorkflowType 'technical'} and the empty {@code --exportWorkflowGroup ''}
+ *       and takes no option but the owner and {@code --exportFile}; the
+ *       metadata export {@code export --exportMetadata} with the optional
+ *       {@code --exportMetadataNames} and {@code --exportFile} only. The two lists are given
+ *       through {@link Builder#quotedList} only. No {@code ps} and no {@code fetchXSLT1.0}.
  *   <li>Process ids are 1–19 decimal digits without leading zero ({@code ^[1-9][0-9]{0,18}$}).
  *   <li>Every other value (workflow, type, group, owner) must match
  *       {@link #VALUE} (no leading {@code -}) and is wrapped in single quotes; a value with
@@ -67,23 +76,42 @@ public final class CliCommand {
             "--includeHistory", "--exportFile",
             "--exportModule", "--exportModuleGroup", "--exportModuleUser",
             // feature 005 (research D-1, D-4)
-            "--exportTag", "--exportRepositoryPath"),
+            "--exportTag", "--exportRepositoryPath",
+            // feature 022 (research D-21)
+            "--exportWorkflowGroupExclude", "--exportMetadata", "--exportMetadataNames"),
         // feature 004 (research D-8): no metadata; feature 005 (D-1): the repository mode
         "import", Set.of("--importFile", "--importWorkflow", "--importWorkflowActive",
             "--importWorkflowInactive", "--importModule", "--importUser", "--returnProtocol",
             "--importRepositoryPath"),
         "tag", Set.of("--tagMove", "--tagWorkflowGroup", "--tagWorkflowType", "--tagUser"),
         // feature 021 (research D-1): never on, off, -l, -nl, -p, -r
-        "trace", Set.of("--download"));
+        "trace", Set.of("--download"),
+        // feature 022 (research D-21): built through libraryList() only
+        "library", Set.of("--list", "--type"));
     /** The options without value ({@link Builder#flag}); every other option takes one. */
     private static final Set<String> FLAGS = Set.of("--includeHistory", "--importWorkflow",
         "--importWorkflowActive", "--importWorkflowInactive", "--importModule",
-        "--returnProtocol");
+        "--returnProtocol", "--exportMetadata");
     /** The options that take a repository path ({@link Builder#repositoryPath}) only. */
     private static final Set<String> REPOSITORY_OPTIONS =
         Set.of("--exportRepositoryPath", "--importRepositoryPath");
     /** The options that take a file path ({@link Builder#path}) only (feature 021, D-1). */
     private static final Set<String> PATH_OPTIONS = Set.of("--download");
+    /**
+     * The options that take a comma-separated list ({@link Builder#quotedList}) only, with the
+     * most values each takes (feature 022, research D-21).
+     */
+    private static final Map<String, Integer> LIST_OPTIONS =
+        Map.of("--exportWorkflowGroupExclude", 20, "--exportMetadataNames", 50);
+    /** The only options of the metadata export (feature 022, research D-21). */
+    private static final Set<String> METADATA_OPTIONS =
+        Set.of("--exportMetadata", "--exportMetadataNames", "--exportFile");
+    /** The only options of the owner export without groups (feature 022, research D-21). */
+    private static final Set<String> EXCLUDE_OPTIONS = Set.of("--exportWorkflowUser",
+        "--exportWorkflowType", "--exportWorkflowGroup", "--exportWorkflowGroupExclude",
+        "--exportFile");
+    /** The types of {@code library --list --type} (feature 022, research D-21). */
+    private static final Set<String> LIBRARY_TYPES = Set.of("driver", "plugin");
     /** Commands that take exactly one process id and nothing else. */
     private static final Set<String> PROCESS_COMMANDS = Set.of("processErrorStart", "kill");
 
@@ -119,6 +147,19 @@ public final class CliCommand {
      */
     public static CliCommand traceDownload(Path file, boolean windows) {
         return command("trace").path("--download", file, windows).build();
+    }
+
+    /**
+     * {@code library --list --type <type>}: the file names of the uploaded libraries of
+     * {@code type} ({@code driver} or {@code plugin}), in the form recorded in T039 (feature 022,
+     * research D-21). The type is one of these two literals and therefore passed unquoted.
+     */
+    public static CliCommand libraryList(String type) {
+        if (type == null || !LIBRARY_TYPES.contains(type)) {
+            throw invalid("The library type is not supported",
+                "Only driver and plugin libraries are listed");
+        }
+        return new CliCommand(List.of("library", "--list", "--type", type));
     }
 
     /** The command name, e.g. {@code export}. */
@@ -267,6 +308,35 @@ public final class CliCommand {
             return this;
         }
 
+        /**
+         * {@code <option> '<v1>,<v2>,…'} for {@code --exportWorkflowGroupExclude} (1–20 groups)
+         * and {@code --exportMetadataNames} (1–50 names), feature 022 (research D-21): every
+         * value must match {@link #VALUE}, which has no comma, so the joined list is unambiguous.
+         */
+        public Builder quotedList(String option, List<String> values) {
+            String checked = option(option);
+            Integer max = LIST_OPTIONS.get(checked);
+            if (max == null) {
+                throw invalid("The StartCLI option " + checked + " takes no list",
+                    "Only --exportWorkflowGroupExclude and --exportMetadataNames take one");
+            }
+            if (values == null || values.isEmpty() || values.size() > max) {
+                throw invalid("The list for " + checked + " needs 1 to " + max + " values",
+                    "An empty or longer list cannot be passed to StartCLI");
+            }
+            for (String value : values) {
+                if (value == null || !VALUE.matcher(value).matches()) {
+                    throw invalid("A value for " + checked + " cannot be passed to StartCLI"
+                            + " safely",
+                        "Each must match " + VALUE.pattern() + " (no quotes or commas, at most"
+                            + " 200 chars)");
+                }
+            }
+            tokens.add(checked);
+            tokens.add("'" + String.join(",", values) + "'");
+            return this;
+        }
+
         /** A bare process id of 1–19 decimal digits (the Queue Manager id, research S-4). */
         public Builder processId(String processId) {
             if (!PROCESS_COMMANDS.contains(name) || processIds > 0) {
@@ -295,12 +365,74 @@ public final class CliCommand {
                     "Only the trace download is supported; every other trace form switches or"
                         + " shows the trace state (research D-1)");
             }
-            if (emptyGroupList && !tagged) {
-                throw invalid("The empty diagram group list is only allowed in a tag export",
-                    "StartCLI exports every diagram group of the owner for --exportWorkflowGroup"
-                        + " '' (research D-4); only the release export narrows it by --exportTag");
+            if (name.equals("library")) {
+                throw invalid("The StartCLI command library is only the library list",
+                    "Use the list form (library --list --type driver|plugin); uploading and"
+                        + " deleting libraries is not offered (research D-21)");
             }
+            boolean excluded = tokens.contains("--exportWorkflowGroupExclude");
+            if (excluded) {
+                checkOwnerExportWithoutGroups();
+            }
+            if (emptyGroupList && !tagged && !excluded) {
+                throw invalid("The empty diagram group list is only allowed in a tag export or"
+                        + " with --exportWorkflowGroupExclude",
+                    "StartCLI exports every diagram group of the owner for --exportWorkflowGroup"
+                        + " '' (research D-4); only --exportTag or the excluded groups narrow it"
+                        + " (research D-21)");
+            }
+            checkMetadataExport();
             return new CliCommand(tokens);
+        }
+
+        /**
+         * {@code --exportWorkflowGroupExclude} only in the recorded form: the type
+         * {@code 'technical'} (owner decision 2026-11-14), the empty {@code --exportWorkflowGroup
+         * ''}, no option but the owner and {@code --exportFile}, and each option once (feature
+         * 022, research D-21).
+         */
+        private void checkOwnerExportWithoutGroups() {
+            List<String> options = tokens.stream().filter(token -> token.startsWith("--"))
+                .toList();
+            if (!EXCLUDE_OPTIONS.containsAll(options)) {
+                throw invalid("--exportWorkflowGroupExclude takes only --exportWorkflowUser,"
+                        + " --exportWorkflowType, --exportWorkflowGroup and --exportFile",
+                    "The owner export without groups cannot be combined with tag, module,"
+                        + " history, repository or metadata options");
+            }
+            if (options.size() != Set.copyOf(options).size()) {
+                throw invalid("--exportWorkflowGroupExclude takes each option once",
+                    "A repeated option could change the type or the groups of the export");
+            }
+            int type = tokens.indexOf("--exportWorkflowType");
+            int group = tokens.indexOf("--exportWorkflowGroup");
+            if (type < 0 || group < 0 || !tokens.get(group + 1).equals("''")) {
+                throw invalid("--exportWorkflowGroupExclude needs --exportWorkflowType and the"
+                        + " empty --exportWorkflowGroup",
+                    "Without them INUBIT answers 2-NOK: Missing export option. (research D-21)");
+            }
+            if (!tokens.get(type + 1).equals("'technical'")) {
+                throw invalid("--exportWorkflowGroupExclude takes the workflow type technical only",
+                    "The owner export without groups exports technical workflows (research D-21)");
+            }
+        }
+
+        /**
+         * {@code --exportMetadataNames} only with {@code --exportMetadata}, which takes no option
+         * but the names and {@code --exportFile} (feature 022, research D-21).
+         */
+        private void checkMetadataExport() {
+            boolean metadata = tokens.contains("--exportMetadata");
+            if (!metadata && tokens.contains("--exportMetadataNames")) {
+                throw invalid("--exportMetadataNames needs --exportMetadata",
+                    "The names select entries of the metadata export only");
+            }
+            if (metadata && tokens.stream().filter(token -> token.startsWith("--"))
+                .anyMatch(token -> !METADATA_OPTIONS.contains(token))) {
+                throw invalid("The metadata export takes only --exportMetadataNames and"
+                        + " --exportFile",
+                    "export --exportMetadata cannot be combined with workflow or module options");
+            }
         }
 
         private String option(String option) {
@@ -327,6 +459,10 @@ public final class CliCommand {
             if (FLAGS.contains(checked)) {
                 throw invalid("The StartCLI option " + checked + " takes no value",
                     "Pass it with flag()");
+            }
+            if (LIST_OPTIONS.containsKey(checked)) {
+                throw invalid("The StartCLI option " + checked + " takes a list",
+                    "Pass it with quotedList()");
             }
             return checked;
         }

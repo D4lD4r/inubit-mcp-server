@@ -633,7 +633,7 @@ offered).
     `fixtures/v8_1/rest/log_queueLog.json`, a blank value absent, a long value cut, the row bound
     kept; without a column the rows unchanged), `ProcessQuery` validation (0 and 6 refused), with
     a leak check.
-- [ ] T041 [US3] `CliCommand` read forms (only the forms recorded in T039):
+- [X] T041 [US3] `CliCommand` read forms (only the forms recorded in T039):
   - `library --list --type driver|plugin`;
   - `export --exportWorkflowUser <owner> --exportWorkflowType 'technical' --exportWorkflowGroup ''
     --exportWorkflowGroupExclude <g1,…> --exportFile <zip>` (each group name per `VALUE`, 1–20,
