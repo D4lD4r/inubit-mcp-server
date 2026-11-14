@@ -88,28 +88,69 @@ each tool's test, as for the existing tools. Types and validation: [data-model.m
 
 - **Input**:
   - `target` (one server);
-  - `action`: `module` | `metadata` | `libraries` | `checkIsConnector`;
+  - `action`: `module` | `libraries`;
   - fields per action:
-    - `module`: `diagram` + (`moduleId` | `moduleName`);
-    - `metadata`: `workflow`;
-    - `libraries`: `libraryType`;
-    - `checkIsConnector`: `workflow` + `module`.
-- **Output**: one of `ModuleDetail`, `ProcessMetadata`, `Page<LibraryEntry>`, `IsConnectorCheck`,
-  with `node` and `source`.
-- **Rules**: `moduleName` on 9.0 gives `UNSUPPORTED_VERSION` (`undocumented`).
+    - `module`: `diagram` + `moduleId` (`^[0-9]{1,10}$`);
+    - `libraries`: `libraryType` (optional, `driver` | `plugin`; without it both types are listed
+      in one stdin session), `offset` (0–9999), `limit` (1–100, default 100).
+- **Output**: `ModuleDetail` or `Page<LibraryEntry>` with `rowFormatVerified`, with `node` and
+  `source` (`REST` for `module`, `CLI` for `libraries`).
+- **Rules** (research D-21, "Live recording T039"):
+  - `module` reads `GET /model/nodeByModel/{diagram}/{moduleId}` as XML; an unknown id gives
+    `NOT_FOUND` (the `500` page with the "could not be found" message), any other answer
+    `UNEXPECTED_RESPONSE` with a masked excerpt;
+  - there is no `moduleName` input: `GET /model/nodeByName` is absent on 8.1.17 (`excluded:`)
+    and `undocumented` on 9.0;
+  - `libraries` carries `rowFormatVerified: false` until L-21 records a listed library; the
+    description says that each line is read as one file name until then.
+- **Planned, not offered in US3** (owner decision 2026-11-14): `metadata` (`workflow`;
+  `GET /process/metadata/{name}`, L-19) and `checkIsConnector` (`workflow` + `module`;
+  `GET /isconnector?…type=validateWorkflow`, L-20). If their live check records a working form,
+  T046b / T046c add them to the `action` enum with their output shapes (`ProcessMetadata`,
+  `IsConnectorCheck`); otherwise their rows are excluded in T104 with the FR-002 reasons
+  "cannot be built from the documentation: answer form not recordable" and "…: authentication
+  not documented".
 
 ## `export_archives` (extended, US3)
 
 - **New optional input**: `content`:
   - `workflows` (default, unchanged behaviour);
-  - `ownerWithoutGroups` (`excludeGroups[1..20]`, `diagramGroup` not allowed);
-  - `metadata` (`workflows[1..50]` required);
-  - `xslt10Report` (no further field).
+  - `ownerWithoutGroups` (`excludeGroups[1..20]` required, `diagramGroup` not allowed): the
+    owner's technical workflows only (owner decision 2026-11-14), without the named groups
+    (`--exportWorkflowType 'technical' --exportWorkflowGroup '' --exportWorkflowGroupExclude
+    '<g1,…>'`);
+  - `metadata` (`metadataNames[1..50]` optional, `diagramGroup` not allowed): the metadata
+    registry, whole or only the named registry entries (`--exportMetadataNames`, comma
+    separated). The names are metadata names, not workflow names.
 - **Unchanged**: `targetFolder`, the folder rules, `archives.productionOptIn` and
   `acknowledgeClearTextSecrets` (required for `workflows` and `ownerWithoutGroups`).
-- **Output**: the existing archive list, plus `source: "CLI"` (FR-009; all four forms use
-  StartCLI). For `xslt10Report` it is one `.xlsx` file entry.
-- **Description**: adds the three forms and the check-in comment trace (FR-008).
+- **Output**: the existing archive list, plus `source: "CLI"` (FR-009; all three forms use
+  StartCLI).
+- **Description**: adds the two forms, that `ownerWithoutGroups` exports technical workflows only,
+  that `metadata` exports registry entries and accepts unknown names, and the check-in comment
+  trace (FR-008).
+- **Not offered**: `xslt10Report` (`fetchXSLT1.0 -ef`): the command is not found on INUBIT
+  8.1.17 (L-7 fallback, T039); 9.0 is open until recorded (T039a), and T046d adds it for 9.0
+  only if the command exists there and the owner decides so.
+
+## `find_processes` (extended, US3)
+
+- **New optional input**: `userColumn` (integer 1–5): show that one user-defined Queue Manager
+  column (the data of `ps -u <index>`; owner decisions 2026-11-14).
+- **Output**: unchanged without `userColumn`. With it, `userColumn: {index}` and per process
+  `userColumnValue` (optional; absent when blank): the REST `queueLog` field
+  `userDefined<index>` of the row, not cut to StartCLI's 15 characters, bounded like the row's
+  other texts and masked (FR-010).
+- **Rules**:
+  - 8.1: no extra call; the value comes from the `POST /log/queueLog` rows the search already
+    reads (REST first, D-6). `ps -u` is `covered:find_processes`;
+  - the gate is `VersionGate.admitOption("find_processes", node, CLI ps -u)`: admitted when the
+    row is `Covered("find_processes")` or `Reachable` for the node's line; a missing line (6.1)
+    or a `planned` row (9.0 until the US3 9.0 follow-up) gives `UNSUPPORTED_VERSION` "not yet
+    verified", an `excluded` row its reason. A server that is not admitted gets `userColumn`
+    reported unavailable in the warnings with that error; a call for one such server alone is
+    refused with it. Flipping the 9.0 row admits 9.0 without a code change;
+  - the annotation (read-only) and every other input are unchanged (SC-009).
 
 ## `operate_server` (US4)
 
@@ -198,7 +239,9 @@ each tool's test, as for the existing tools. Types and validation: [data-model.m
     inventory reads them);
   - `backup` per D-15;
   - uploads name the file, its size and SHA-256;
-  - `deleteAllLibraries` lists every file (AS4).
+  - `deleteAllLibraries` lists every file (AS4); while L-21 is open (`rowFormatVerified:
+    false`) it shows the count only, with the sentence that the format of the library list is
+    not verified (D-14).
 - **Result**: `ChangeResult` with `restartNeeded` for libraries.
 
 ## `change_server_settings` (US6, area settings)

@@ -16,7 +16,7 @@ reason. It is delivered in seven increments, one per user story:
   version. It produces `docs/interface-coverage.md`, is checked by tests against everything the
   server can send (FR-003), and gates each tool action at run time. An action is offered for a
   version only once its entries are recorded there (FR-025).
-- **9 new tools plus `export_archives` extended** (D-1, ≤ 10 per FR-006):
+- **9 new tools plus `export_archives` and `find_processes` extended** (D-1, ≤ 10 per FR-006):
   - three reads: `get_server_settings`, `read_users`, `read_model_details`;
   - two operational changes: `operate_server`, `manage_tags`;
   - `transfer_runtime_data`;
@@ -93,7 +93,7 @@ touched).
 
 **Constraints**:
 
-- FR-006/SC-007: at most 10 tools; the plan uses 9 new tools and 1 extension.
+- FR-006/SC-007: at most 10 tools; the plan uses 9 new tools and 2 extensions.
 - FR-008: reads send only read forms. `CliCommand` and `CliSessionCommand` admit only the options
   the coverage list names (`CliCommandTest`).
 - FR-014/SC-003/SC-004: every change goes through `ChangeGuard`; production needs its opt-in;
@@ -108,8 +108,8 @@ touched).
 
 **Scale/Scope**:
 
-- 9 new tools, `export_archives` extended;
-- 18 new schemas, and changed schemas for `export_archives` and `list_nodes`;
+- 9 new tools, `export_archives` and `find_processes` extended;
+- 18 new schemas, and changed schemas for `export_archives`, `find_processes` and `list_nodes`;
 - about 70 new production types:
   - domain ≈ 20 (coverage, settings, users, model details, change preview and result, export
     filter, secret rules);
@@ -131,6 +131,8 @@ touched).
 - `NodeSecrets` (`entry`), `CredentialNames` / `ParameterNames` (entry namespace);
 - `PartnerSecretRules` (delegates to `SecretRules`);
 - `ExportArchivesTool` and its service;
+- `FindProcessesTool`, `DiagnosisService`, `ProcessQuery`/`ProcessInstance`, `QueueLogRowParser`
+  and the `find_processes` schemas (`userColumn` from the REST `queueLog` rows, D-21);
 - `GroupConfig`, `ProfileConfig`, `Defaults`, `ConfigLoader`, `ConfigValidator`, `ConfigSummary`,
   `EffectiveNodeConfig`;
 - `Wiring`;
@@ -146,7 +148,7 @@ touched).
 | II. Secrets Stay Out | ⚠️ Password and key commands; configuration, module properties and user records contain secrets. | ✅ <ul><li>Secrets only by `secretEntry` name, in their own namespace, so the login entries cannot be named (D-10).</li><li>StartCLI password commands only in the stdin session, never in argv (D-7). If L-1 fails they are excluded.</li><li>`PUT /keys` gets the key password in the TLS body.</li><li>Configuration, module and user values are masked with the one 018 rule set moved to `SecretRules` (D-19). `ResultMapper` scrubs again, and entry values are registered with `SecretScrubber` first.</li><li>Personal fields are dropped while parsing user listings (FR-011).</li><li>Upload content never enters results, logs or audit (D-11).</li><li>Secret-leak tests per tool.</li></ul> |
 | III. Test-First | ✅ | ✅ Every increment starts with failing tests (quickstart table). Safety and scrubbing rules have dedicated tests. Unit tests are offline with fakes and WireMock. Contract tests per version come from recordings. The live test is opt-in and refused on production. |
 | IV. Use-Case-Oriented Tools | ⚠️ "All methods" invites one tool per command. | ✅ Nine task tools with `action` enums, one per story and protection, plus one extension. Each has a description, a typed schema and an output shape (contracts). The tool count stays ≤ 10 (FR-006). Every tool states its use case in the spec. |
-| V. Adapter Isolation & Version Compatibility | ⚠️ About 200 entries, none recorded yet; 9.0 differs from 8.1 in places (`nodeByName`). | ✅ <ul><li>REST first, StartCLI only without a REST form (D-6).</li><li>New ports behind `GatewayFactory` and `PortSet`; tool logic has no HTTP or process details.</li><li>Version differences live in the coverage list and the adapters, never in tool logic (D-2).</li><li>An entry is offered for a version only after its recording; 6.1 gets nothing new.</li><li>CLI: argument arrays, explicit timeouts, exit code and `n-OK` evaluation, tested parsers. The session form needs L-1.</li></ul> |
+| V. Adapter Isolation & Version Compatibility | ⚠️ About 200 entries, none recorded yet; 9.0 differs from 8.1 in places (`--who`), and some documented entries are absent on 8.1.17 (`nodeByName`, `fetchXSLT1.0`, T039). | ✅ <ul><li>REST first, StartCLI only without a REST form (D-6).</li><li>New ports behind `GatewayFactory` and `PortSet`; tool logic has no HTTP or process details.</li><li>Version differences live in the coverage list and the adapters, never in tool logic (D-2).</li><li>An entry is offered for a version only after its recording; 6.1 gets nothing new.</li><li>CLI: argument arrays, explicit timeouts, exit code and `n-OK` evaluation, tested parsers. The session form needs L-1.</li></ul> |
 | VI. Bounded, Structured Output | ✅ | ✅ Paged lists (`offset`/`nextOffset`, ≤ 25 users, ≤ 100 items); configuration by section; texts ≤ `ItemBounds`; previews list ≤ 50 ids with a count; files through `export_archives`. Errors use `ToolError` with cause and next step. |
 | VII. Observability & Auditability | ✅ | ✅ Every change, executed or refused, and the run-time data reads are audited: `REFUSED`, `CHALLENGE_ISSUED`, `PENDING` (forced before sending), then `EXECUTED`/`FAILED`. Inputs are sanitized; secret entries appear by name and uploads by path, size and hash (FR-023). |
 | Tech constraints: TLS, pins | ✅ | ✅ No certificate pin is changed by this feature (FR-019). `PUT /keys` goes to module keystores only. StartCLI TLS handling (feature 017) is unchanged. |
@@ -168,6 +170,9 @@ Tracking).
    offered within `deleteWorkflow` / `deleteModule` (D-24).
    - Default: offered, under the objects opt-in and with a backup.
    - Alternative: excluded.
+4. **Source of the `find_processes` `userColumn` values** (D-21, research "Decided after T039"):
+   decided and applied (owner, 2026-11-14): the REST `queueLog` field `userDefined<i>` of the
+   rows `find_processes` already reads (REST first, D-6), not a StartCLI `ps -u` run.
 
 ## Project Structure
 
@@ -176,7 +181,7 @@ Tracking).
 ```text
 specs/022-full-interface-coverage/
 ├── plan.md
-├── research.md                 # D-1…D-27, live checks L-1…L-18
+├── research.md                 # D-1…D-27, live checks L-1…L-21
 ├── data-model.md
 ├── quickstart.md               # offline table per increment, live checks, smoke, validation record
 ├── contracts/
@@ -197,8 +202,9 @@ src/main/java/de/dadecker/inubit/mcp/
 │                        # CredentialNames/ParameterNames (entry namespace)
 ├── domain/model/        # InterfaceCoverage, CoverageEntry, CoverageState, SecretRules, ServerSettings,
 │                        # ConfigurationView, UserFacts, PersonalField, LoginEntry, Message*, ModuleDetail,
-│                        # ProcessMetadata, LibraryEntry, IsConnectorCheck, ChangePreview, ChangeResult,
-│                        # ExportCondition, ExportFilter, Runtime* (new); Capability, CapabilityMatrix
+│                        # LibraryEntry, ChangePreview, ChangeResult, ExportCondition, ExportFilter,
+│                        # Runtime* (new; ProcessMetadata, IsConnectorCheck after L-19/L-20);
+│                        # Capability, CapabilityMatrix, ProcessQuery and ProcessInstance (`userColumn`)
 ├── domain/port/         # ServerSettingsPort, UserDirectoryPort, ModelDetailPort, ServerOperationPort,
 │                        # TagAdministrationPort, RuntimeTransferPort, ObjectAdministrationPort,
 │                        # SettingsAdministrationPort, UserAdministrationPort (new); Gateway, GatewayFactory
@@ -216,21 +222,24 @@ src/main/java/de/dadecker/inubit/mcp/
 │                        # V81ObjectAdministrationAdapter, V81LibraryAdministrationAdapter,
 │                        # V81SettingsAdministrationAdapter, V81UserAdministrationAdapter + parsers
 │                        # (LicenseXmlParser, ConfigurationJsonParser, UserListXmlParser,
-│                        # ModuleDetailJsonParser, ProcessMetadataParser, IsConnectorCheckParser,
-│                        # JsonLeafMasker) (new)
+│                        # ModuleDetailXmlParser, JsonLeafMasker) (new); ProcessMetadataParser and
+│                        # IsConnectorCheckParser after L-19/L-20; QueueLogRowParser (`userDefined<i>`)
 ├── adapter/cli/         # CliCommand (+commands), CliSessionCommand (version-neutral), CliRunner,
 │                        # CliSessionParser (from V61SessionParser), CliOutputClassifier (new forms)
 ├── adapter/cli/admin/   # new: CliSettingsRunner, CliUserRunner, CliOperationRunner, CliTagAdminRunner,
 │                        # CliRuntimeTransferRunner, CliLibraryRunner, CliObjectRunner,
 │                        # CliUserAdministrationRunner + parsers (Threads, Privileged, UserImportFile,
-│                        # DbTolerance, Finger, UserGroups, Who, MsgList, RuntimeExportAnswer, BlockedList)
+│                        # DbTolerance, Finger, UserGroups, Who, MsgList, LibraryList,
+│                        # RuntimeExportAnswer, BlockedList)
 ├── adapter/archive/v81/ # PartnerSecretRules delegates to SecretRules
 ├── mcp/tools/           # GetServerSettingsTool, ReadUsersTool, ReadModelDetailsTool, OperateServerTool,
 │                        # ManageTagsTool, TransferRuntimeDataTool, AdministerObjectsTool,
-│                        # ChangeServerSettingsTool, AdministerUsersTool (new); ExportArchivesTool
+│                        # ChangeServerSettingsTool, AdministerUsersTool (new); ExportArchivesTool,
+│                        # FindProcessesTool
 └── Wiring.java          # services, ports, announcement conditions
 src/main/resources/coverage/interface-coverage.tsv (new)
-src/main/resources/schemas/<9 new tools>.{input,output}.json, export_archives.input.json, list_nodes.output.json
+src/main/resources/schemas/<9 new tools>.{input,output}.json, export_archives.input.json,
+    find_processes.{input,output}.json, list_nodes.output.json
 src/test/java/…          # tests per quickstart; live/AdministrationLiveTest
 src/test/resources/fixtures/{v8_1,v9_0}/{cli,rest}/   # admin-* cases, .origin for 9.0
 docs/interface-coverage.md (generated), docs/tools.md, docs/setup.md, docs/research/inubit-interfaces.md,
@@ -255,7 +264,18 @@ their live check is open, with the action not offered, as FR-004 allows.
    - L-1, L-5, L-11 (read part) recordings.
 2. **Increment 2 – US2**: `read_users` (REST list without personal fields, session per page,
    logins, messages); L-6, L-17.
-3. **Increment 3 – US3**: `read_model_details`, the `export_archives` `content` forms; L-7, L-8.
+3. **Increment 3 – US3** (after the 8.1 recording T039, research D-21):
+   - `read_model_details` with `module` (XML, by `moduleId`) and `libraries`; `metadata` and
+     `checkIsConnector` stay planned (L-19, L-20, owner decision 2026-11-14);
+   - the `export_archives` `content` forms `ownerWithoutGroups` (technical workflows only) and
+     `metadata` (registry);
+     `xslt10Report` dropped (L-7: `fetchXSLT1.0` not found on 8.1.17);
+   - `find_processes` `userColumn` from the REST `queueLog` field `userDefined<i>` (`ps -u`
+     covered, L-8);
+   - the PR delivers 8.1; 9.0 stays "not yet verified" (`waits` `9.0-followup`) and follows in a
+     separate 9.0 PR (T039a, T046a, T047a), as for US1 and US2, with T046b–T046d only where
+     L-19, L-20 or L-7 on 9.0 record a working form; L-21 is recorded in T079 (US6), after the
+     test upload.
 4. **Increment 4 – US4**:
    - `ChangeGuard`, `ChangeLocks`, `ChangePreview`/`ChangeResult`, `ChangeAudit`, preview-state
      helpers, `BackupStore.Kind.ADMINISTRATION` (tag lists);

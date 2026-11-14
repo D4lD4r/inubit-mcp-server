@@ -23,7 +23,7 @@ failing (Principle III).
 |---|---|---|
 | 1 (US1) | `InterfaceCoverageTest` (domain), `InterfaceCoverageResourceTest`, `InterfaceCoverageCheckTest`, `VersionGateActionTest`, `InterfaceCoverageDocsTest`, `RestEndpointRegistryTest`, `CliSessionCommandTest` (8.1 commands), `ServerSettingsServiceTest`, `GetServerSettingsToolTest`, `ConfigurationJsonParserTest`, `JsonLeafMaskerTest`, `SecretRulesTest`, `LicenseXmlParserTest`, settings contract tests 8.1 (9.0 once its recording exists, T024/T026), `ServerSettingsSecretLeakTest` | FR-001–FR-003, US1 AS1–AS7, FR-010, SC-005 for US1 |
 | 2 (US2) | `UserListXmlParserTest` (personal fields dropped), `CliUserRunnerTest`, `UserReadServiceTest`, `ReadUsersToolTest`, `ReadUsersSecretLeakTest`, contract tests | US2 AS1–AS6, FR-011 |
-| 3 (US3) | `ReadModelDetailsToolTest`, `ModuleDetailJsonParserTest`, `ModelDetailsSecretLeakTest`, `ExportArchivesContentTest` (three new forms, folder rules unchanged), `ArchiveToolReferenceTest` update, contract tests | US3 AS1–AS8, FR-012 |
+| 3 (US3) | `ModuleDetailXmlParserTest` (masking by name and by `type="Password"`, not-found page), `LibraryListParserTest`, `QueueLogRowParserTest` (`userDefined<i>`), `InterfaceCoverageTest` (`servedBy`, `waits` tokens), `VersionGateActionTest` (`admitOption`), `DiagnosisServiceTest` (`userColumn`), `InterfaceCoverageResourceTest` (`ps -u` covered), `CliCommandTest` (US3 forms; no `fetchXSLT1.0`), `ModelDetailServiceTest`, `ReadModelDetailsToolTest`, `FindProcessesToolTest` (`userColumn`), `ModelDetailsSecretLeakTest`, `ExportArchivesContentTest` (two new forms, folder rules unchanged), `ArchiveToolReferenceTest` update, contract tests from the T039 fixtures (8.1; 9.0 in the follow-up PR) | US3 AS1–AS8 (AS6 export part; the planned parts of AS6 and AS8 not offered), FR-012 |
 | 4 (US4) | `ChangeGuardTest` (order of refusals, every code), `ChangeLocksTest`, `OperateServerToolTest`, `ManageTagsToolTest` (scope required; `--tagDiagram` never sent), `CliCommandTest` (new `trace`/`tag` options, rejected forms), `WriteRaceToolsTest` (+2 tools), `ChangeToolsProductionRefusalTest` (+2), audit tests | US4 AS1–AS14, FR-014, FR-015, FR-017, FR-019a, SC-003, SC-004 |
 | 5 (US5) | `ConfigLoaderTest`, `ConfigValidatorTest`, `EffectiveNodeConfigTest`, `ConfigSummaryTest` (the `administration` block), `ExportFilterTest` (grammar, rejected characters), `TransferRuntimeDataToolTest` (export is a change; reads need the opt-in only), `RuntimeExportAnswerParserTest`, `RuntimeTransferServiceTest`, contract tests | US5 AS1–AS7, FR-016a, FR-020 |
 | 6 (US6) | `UploadFilesTest` (link, outside folder, too large, swap after check), `SecretEntryNameTest`, `NodeSecretsEntryTest` (reserved names and suffixes, collision with a login entry, AWS node refused, missing entry), `UploadsConfigTest`, `AdministerObjectsToolTest`, `ChangeServerSettingsToolTest`, `AdministrationBackupsTest` (backup before change, nothing sent when backup fails), `RestoreBackupAdministrationTest`, `AdministrationSecretLeakTest` | US6 AS1–AS17, FR-016, FR-018, FR-021, FR-022 |
@@ -42,7 +42,7 @@ Every increment also passes the following:
 
 ## Live checks (operator)
 
-The checks are L-1 … L-18 in [research.md](research.md#live-checks).
+The checks are L-1 … L-21 in [research.md](research.md#live-checks).
 
 **Steps**:
 
@@ -72,18 +72,27 @@ These steps run through an MCP client (Claude Code) against the test profile.
    - a second call with one section shows `maskedCount > 0` for a section with passwords.
 2. **US2**: `read_users view=users limit=5`. Expected: five users with groups and roles, no
    `email`; `nextOffset` set.
-3. **US4**: `operate_server setTraceLevel` on a stage without write enablement. Expected:
+3. **US3**: on the 8.1 test server, `read_model_details action=module` for a Database Connector
+   module, `read_model_details action=libraries`, `find_processes userColumn=1`, and
+   `export_archives` with `content=ownerWithoutGroups` (one excluded group) and `content=metadata`
+   into a test folder. Expected:
+   - the module's properties, with the `Password` property masked and `maskedCount > 0`;
+   - the library list (empty if none is uploaded) with `rowFormatVerified: false`;
+   - a `userColumnValue` for each process whose `userDefined1` is set, as stored in INUBIT;
+   - two new archives in the folder: the owner's technical workflows without the excluded group,
+     and the metadata registry (`MetadataRegistry.xml`, `MetadataAllocations.xml`).
+4. **US4**: `operate_server setTraceLevel` on a stage without write enablement. Expected:
    `WRITE_DISABLED`.
-4. **US4**: with write enabled, the same call. Expected: the preview first; with the code, the
+5. **US4**: with write enabled, the same call. Expected: the preview first; with the code, the
    level before and after. Then set the level back.
-5. **US5**: `transfer_runtime_data listBlocked` without `administration.runtimeData`. Expected:
+6. **US5**: `transfer_runtime_data listBlocked` without `administration.runtimeData`. Expected:
    `NOT_CONFIGURED`.
-6. **US6**: `administer_objects deleteWorkflow` of a throw-away workflow on the test server.
+7. **US6**: `administer_objects deleteWorkflow` of a throw-away workflow on the test server.
    Expected:
    - the preview names its versions;
    - after confirmation, a backup path, and the workflow is gone in `list_inventory`;
    - `restore_backup` brings it back on a development node.
-7. **US7**: `administer_users setPassword` for a test user with `secretEntry`. Expected:
+8. **US7**: `administer_users setPassword` for a test user with `secretEntry`. Expected:
    - the result has no password;
    - `ps -ef` during the call shows no entry value;
    - the audit record names the entry.

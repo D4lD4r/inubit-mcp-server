@@ -89,6 +89,25 @@ override), details in `research.md` (D-3, D-4, D-5):
 - `lls` lists the local directory of the StartCLI client, which is the MCP server's own machine,
   not the server's log files; it is excluded.
 
+### Live recording T039, 2026-11-14
+
+Facts from the 8.1 recordings of User Story 3 and the owner's decisions, details in `research.md`
+("Live recording T039", "Decided after T039", D-21):
+
+- The owner decided: the user-defined Queue Manager columns of `ps -u` are shown by the process
+  search, one column per call, from the REST rows it already reads (`covered`); the export of an
+  owner without some groups holds technical workflows only; the 9.0 part of User Story 3 comes
+  in a follow-up pull request; reading a workflow's metadata and the IS Connector check are not
+  built until a check on a test system records a working form; the library list is built from
+  the empty answer and says that its row format is not verified.
+- The owner decided: if those two checks are not settled before the end of the feature, their
+  entries are excluded with the FR-002 reasons "cannot be built from the documentation: answer
+  form not recordable" (workflow metadata) and "cannot be built from the documentation:
+  authentication not documented" (IS Connector check), so that no entry stays planned
+  (SC-001).
+- `GET /model/nodeByName` and `fetchXSLT1.0` do not exist on 8.1.17; they are excluded on 8.1.
+  The module detail is XML; `export --exportMetadata` exports the metadata registry.
+
 **Input**: User description: "I would like to add all missing methods of StartCLI and REST, both
 reading and writing, to the MCP."
 
@@ -118,7 +137,7 @@ exactly one user story.
 | D. Processes and run-time data | read | `process listBlocked`, `process validateExport` | US5 | run-time data opt-in (FR-016a) |
 | D. Processes and run-time data | write | `processdelete error` | US4 | write enablement |
 | D. Processes and run-time data | write | `process export [--excludeModel] [--filterExpression]`, `process import\|resume\|deleteBlocked` | US5 | write enablement + run-time data opt-in |
-| E. Diagrams, modules, repository, tags | read | `GET /model/nodeByModel/…`, `GET /model/nodeByName/…` (8.1 only), `export --exportMetadata\|--exportMetadataNames`, `export --exportWorkflowGroupExclude`, `GET /process/metadata/{name}`, `GET /isconnector?…type=validateWorkflow`, `fetchXSLT1.0` | US3 | none (read); files under the export rules (FR-012) |
+| E. Diagrams, modules, repository, tags | read | `GET /model/nodeByModel/…`, `GET /model/nodeByName/…` (documented for 8.1 only; absent on 8.1.17, T039), `export --exportMetadata\|--exportMetadataNames`, `export --exportWorkflowGroupExclude`, `GET /process/metadata/{name}`, `GET /isconnector?…type=validateWorkflow`, `fetchXSLT1.0` (absent on 8.1.17, T039) | US3 | none (read); files under the export rules (FR-012) |
 | E. Diagrams, modules, repository, tags | write | `tag --tagSetActive\|--tagRemoveActive`, `tag --tagDelete\|--tagRemove` with `--tagWorkflowGroup`/`--tagWorkflowType` or `--tagRepositoryPath` (removal only if FR-019a's check allows it) | US4 | write enablement |
 | E. Diagrams, modules, repository, tags | write | `delete --deleteWorkflow\|--deleteModule`, `DELETE /diagrams/…`, `DELETE /modules/…`, `DELETE /repository`, `rename --renameWorkflow\|--renameModule\|--renameMetadata\|--renameFile\|--renameDirectory`, `import --importMetadata`, `POST /isconnector` | US6 | write enablement + objects opt-in |
 | Start options | write | `--backupFile`, `--backupRepository` (documented by name only) | US6 | write enablement + settings opt-in |
@@ -238,10 +257,11 @@ the logins: the results are bounded pages with stable fields. Testable offline.
 ### User Story 3 - Read processes, run-time data and model details (Priority: P2)
 
 An operator wants to filter the running processes of an 8.1 or 9.0 server by workflow and tag as
-the Queue Manager does, count them by state, read one module of a diagram without exporting the
-whole diagram, read or export process metadata, export diagrams while leaving out some groups,
-check an IS Connector, list the installed drivers and plug-ins, and get the list of XSLT 1.0
-usages.
+the Queue Manager does and see one of its user-defined columns, count them by state, read one
+module of a diagram without exporting the whole diagram, export the metadata registry, export
+diagrams while leaving out some groups, and list the installed drivers and plug-ins. Reading a
+workflow's metadata and checking an IS Connector wait for a check on a test system; the list of
+XSLT 1.0 usages does not exist on 8.1.17 (T039).
 
 **Why this priority**: read only, but each item serves a narrower question than User Stories 1
 and 2, and several overlap with existing tools.
@@ -255,26 +275,35 @@ an existing tool can answer is reached through that tool. Testable offline.
    with a workflow name and a tag, **Then** only the matching processes are returned, with the
    same fields as the existing process search.
 2. **Given** a diagram and the id of one of its modules, **When** that module is read, **Then** the
-   result contains the module's properties with secret values masked.
+   result contains the module's type and properties with secret values masked, by secret name and
+   by the property type `Password`; an unknown id gives an error that says the module was not
+   found (T039).
 3. **Given** a server with installed drivers and plug-ins, **When** the libraries are listed,
-   **Then** the result names each file with its type.
-4. **Given** a target folder, **When** the XSLT 1.0 usage is requested, **Then** the vendor's
-   report file is written into that folder as a new file and the result names its path and size.
+   **Then** the result names each file with its type; without libraries the list is empty. Until
+   a listed library is recorded, each line is read as one file name and the result says that the
+   row format is not verified (T039).
+4. **Given** an 8.1 server, **When** the XSLT 1.0 usage is asked for, **Then** no tool offers it,
+   and the coverage list names `fetchXSLT1.0` excluded on 8.1 because the command is not found on
+   INUBIT 8.1.17; 9.0 is decided by its recording (T039).
 5. **Given** an 8.1 or 9.0 server, **When** the process counts are requested, **Then** the result
    names the number of processes in error, executing, waiting and queued state; counts that the
-   existing process search or `get_health` already returns come from there (FR-002). The output
-   of `ps -u` (documented only by its argument, an index or a filter expression) is recorded on a
-   test system; the entry is then reached through the process search or excluded with the
-   reason found (FR-002).
-6. **Given** a workflow name, **When** its metadata is requested, **Then** the result contains
-   the metadata with secret values masked; an export of the metadata of several workflows is
-   written as a new file into a folder the caller names (FR-012).
+   existing process search or `get_health` already returns come from there (FR-002). The process
+   search takes one user-defined column index (1–5) and shows that column for each process from
+   the same REST source it already reads; `ps -u` is covered by the process search (T039).
+6. **Given** a server's metadata registry, **When** it is exported, whole or limited to named
+   metadata entries, **Then** the archive is written as a new file into a folder the caller names
+   (FR-012). Reading the metadata of one workflow is not offered: its entry stays planned until
+   its check records a positive answer, otherwise it is excluded at the end of the feature
+   (Clarifications, T039).
 7. **Given** an owner with five diagram groups, **When** diagrams are exported while two groups
-   are left out, **Then** the archive holds only the other three groups and is written under the
-   rules of `export_archives`, including `archives.productionOptIn` (FR-012).
+   are left out, **Then** the archive holds the technical workflows of the other three groups only
+   and is written under the rules of `export_archives`, including `archives.productionOptIn`
+   (FR-012; technical workflows only, T039).
 8. **Given** a workflow with an IS Connector module, **When** the connector is checked, **Then**
    the result says whether INUBIT considers the workflow valid for remote calls, with INUBIT's
-   message.
+   message. Not offered until the authentication of `/isconnector` is known (INUBIT 8.1.17
+   refuses the profile's REST login there, `401`): the entry stays planned until its check,
+   otherwise it is excluded at the end of the feature (Clarifications, T039).
 
 ---
 
@@ -426,7 +455,9 @@ before the deletion. Testable offline.
    process engine is needed for it to take effect.
 4. **Given** all libraries of one type are to be deleted, **When** the preview is requested,
    **Then** it lists every file that will be deleted; the confirmation is valid only for that
-   list.
+   list. Until the format of the library list is recorded with libraries present, the preview
+   names only their number and says that the list format is not verified, and the confirmation
+   is valid only for that number (FR-017).
 5. **Given** the number of workflow threads is 20 and the license allows 50, **When** it is to be
    set to 80, **Then** the call is refused before any change, with the licensed number in the
    message.
@@ -523,8 +554,10 @@ offline.
 ### Edge Cases
 
 - A command exists in 8.1 but not in 9.0 or the other way round (`/model/nodeByName` is gone
-  from the 9.0 documentation): the capability is offered only for the versions that have it, and a call for
-  another version is refused with the existing version error.
+  from the 9.0 documentation), or is documented but absent on a recorded server
+  (`/model/nodeByName` and `fetchXSLT1.0` on 8.1.17, T039): the capability is offered only for
+  the versions that have it; an absent entry is excluded for that version with the reason found,
+  and a call for another version is refused with the existing version error.
 - INUBIT 6.1: no new write access. New read access on 6.1 is not part of this feature.
 - The login user lacks the role "System Administrator" or the right "CLI login access": the
   refusal names the missing role and is not reported as a login failure.
@@ -608,7 +641,7 @@ offline.
 - **FR-011**: User listings MUST return login name, group, additional groups, roles and the
   account state INUBIT reports only. E-mail addresses and other personal fields are returned only when the caller asks for one
   named user.
-- **FR-012**: A read that produces a file (XSLT 1.0 report, metadata export, diagram export with
+- **FR-012**: A read that produces a file (metadata registry export, diagram export with
   excluded groups) MUST write it as a new file into a folder the caller names, under the folder
   rules of `export_archives` including `archives.productionOptIn`, and return path and size.
 - **FR-013**: When a read item is not available (missing role, missing license, command unknown

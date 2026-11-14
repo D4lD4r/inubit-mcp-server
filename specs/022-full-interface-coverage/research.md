@@ -8,19 +8,20 @@ and the code at the base of this branch (0.9.1 + feature 021). Class names refer
 `src/main/java/de/dadecker/inubit/mcp/`.
 
 Every decision has the form Decision / Rationale / Alternatives. The open points that only a test
-system can settle are collected as live checks L-1 … L-18 at the end; each names what happens if
+system can settle are collected as live checks L-1 … L-21 at the end; each names what happens if
 the check fails.
 
 ## D-1 Tool set (FR-005, FR-006, SC-007)
 
-**Decision**: 9 new tools and 1 extended tool:
+**Decision**: 9 new tools and 2 extended tools:
 
 | Tool | Story | Kind | Annotation | Replaces / covers |
 |---|---|---|---|---|
 | `get_server_settings` | US1 | read | readOnly, idempotent | license, threads, privileged workflows, DB connection tolerance, configuration, server time |
 | `read_users` | US2 | read | readOnly, idempotent | users, one user, logins, messages |
-| `read_model_details` | US3 | read | readOnly, idempotent | module properties, process metadata, library list, IS Connector check |
-| `export_archives` (extended) | US3 | read producing files | localWrite (unchanged) | diagrams of an owner without some groups, metadata export, XSLT 1.0 report |
+| `read_model_details` | US3 | read | readOnly, idempotent | module properties, library list (process metadata and the IS Connector check wait for L-19, L-20; D-21) |
+| `export_archives` (extended) | US3 | read producing files | localWrite (unchanged) | diagrams of an owner without some groups, metadata registry export |
+| `find_processes` (extended) | US3 | read | readOnly (unchanged) | one user-defined Queue Manager column (`ps -u`, D-21) |
 | `operate_server` | US4 | write | destructive | maintenance, readiness, trace, debug, midnight task, deleting processes in error |
 | `manage_tags` | US4 | write | destructive | active tag of a user, tag removal/deletion in a group or path |
 | `transfer_runtime_data` | US5 | write + reads | destructive | export, validate, import, list, resume, delete blocked |
@@ -33,7 +34,7 @@ Each tool takes an `action` enumeration; every action belongs to the tool's stor
 
 **Rationale**: one tool per task, and one tool per protection, so a model reads one description
 per decision. The run-time data reads stay with the tool of the flow they serve (FR-016a). The
-three file-producing reads go to `export_archives`, which already has the folder rules,
+file-producing reads go to `export_archives`, which already has the folder rules,
 `archives.productionOptIn`, the local-write annotation and the audit they need (FR-012), so no
 second tool repeats those rules.
 
@@ -66,14 +67,15 @@ When US3 adds `content`, its rows change from `export_archives/default` to
 
 **Gate per call** (plan review round 2): an action does not have one fixed entry set. Its
 `ActionSpec` gives `entries(input)`, the coverage entries a concrete call sends. These depend on
-the variant: `moduleId` or `moduleName`, with or without `version`, the `rename` kind,
-`setGroup` and/or `setAdditionalGroups`, with or without `secretEntry`.
+the variant: with or without `version`, the `rename` kind, `setGroup` and/or
+`setAdditionalGroups`, with or without `secretEntry`, the `content` of `export_archives` and
+whether `metadataNames` is given.
 
 - **A call** is admitted only when every entry of `entries(input)` is `reachable` for the node's
   version. Otherwise it is refused with `UNSUPPORTED_VERSION`, naming the variant and either
   "not yet verified", "not documented for this version" or the exclusion reason. A sibling
   variant whose entries are reachable stays offered. Examples:
-  - `module` by `moduleId` works on 9.0 while `moduleName` is `undocumented`;
+  - `deleteModule` without `version` works when `/modules/{id}/version/{n}` is excluded;
   - `createUser` without a password works when `create -cu --password` is excluded.
 - **Multi-part reads** (`get_server_settings`; `read_users` per view) are not refused for one
   part. Each part has its own entries and channel. A part whose entries are not reachable, or
@@ -90,8 +92,9 @@ Tests (FR-003):
   `CliSessionCommand`, and every `RestEndpoint` value appears in the list. Every
   `reachable` / `covered` tool exists in `Wiring.toolHandlers()`. Every row has a state for both
   versions. A `planned` row of a story listed in the `delivered-stories` line carries a `waits`
-  value naming what it waits for (`L-n` or `9.0-pin`); no other row carries one. When all stories
-  are delivered, no row is `planned` and no `waits` value is left (plan review round 3).
+  value naming what it waits for (`L-n`, `9.0-pin` or `9.0-followup`); no other row carries one.
+  When all stories are delivered, no row is `planned` and no `waits` value is left (plan review
+  round 3).
 - `InterfaceCoverageDocsTest`: the generated docs page matches.
 
 **Rationale**: one source for docs, tests and the runtime gate. A recording commit flips one row,
@@ -158,7 +161,7 @@ separators. Structured fields keep free text off the command line.
 | `getBlockingQueueSize`, `-sv`, `-pctmem`, `-maintenanceState` | covered | `get_health` (`/metrics`, `/system/info`, maintenance probe); `get_server_settings` takes these facts from the same `MonitoringPort` calls |
 | `-ne`, `-nx`, `-nw`, `-nq` | covered | `get_health` (`processCounts`) |
 | `ps -f 'workflow=… AND tag=…'` | covered | `find_processes` (`POST /log/queueLog` filters `workflow`, `tag`) |
-| `ps -u` | planned → L-8 | — |
+| `ps -u` | covered (8.1; 9.0 once recorded) | `find_processes` `userColumn` (`POST /log/queueLog` field `userDefined<i>`; L-8, owner decisions 2026-11-14, D-21) |
 | `delete --deleteWorkflow` | covered | `DELETE /diagrams/{name}` |
 | `delete --deleteModule` | covered | `DELETE /modules?moduleName=` |
 | `delete --deleteUser` | covered | `DELETE /user/users/{name}` |
@@ -410,7 +413,10 @@ to process ids.
   value;
 - a bulk set: the sorted id list (`processdelete error`: the process ids in state `ERROR` from
   `POST /log/queueLog`; libraries of a type: the file names from `library --list`; blocked
-  processes: the ids from `process listBlocked`); where INUBIT gives no ids, the count.
+  processes: the ids from `process listBlocked`); where INUBIT gives no ids, the count. While
+  L-21 is open (`rowFormatVerified: false`, D-21), `deleteAllLibraries` uses the count of listed
+  lines, and its preview shows the count only, with the sentence that the format of the library
+  list is not verified.
 
 On redeem, the server reads the state again right before sending. A different state is
 `CONFLICT` with a new preview and a new code in the error details. After execution the affected
@@ -427,7 +433,8 @@ name) and the audit id.
 | Change | Backup |
 |---|---|
 | delete, rename, delete a version of a workflow or module | StartCLI export (`CliExportRunner.exportWorkflowGroup` / `exportModule`, history included) |
-| metadata import, metadata rename | `export --exportMetadata` of the named workflows |
+| metadata import | `export --exportMetadata` (the whole metadata registry; T039) |
+| metadata rename | `export --exportMetadata --exportMetadataNames <name>` (the named registry entry; T039) |
 | repository file or directory delete or rename, EDI rule overwrite | `export --exportRepositoryPath` |
 | keystore to a module | export of the module |
 | tag removal or deletion | JSON list of the objects and versions carrying the tag (from the version history, `VersionHistoryParser`) |
@@ -536,28 +543,71 @@ The logins cost one JVM start per form, because the 8.1 client offers them only 
 
 ## D-21 Model details and file-producing reads (US3, FR-012)
 
-**Decision**:
+**Decision** (after the 8.1 recording T039; see "Live recording T039" and "Decided after T039"):
 
 - **`read_model_details` actions**:
-  - `module`: `GET /model/nodeByModel/{diagram}/{moduleId}` on 8.1 and 9.0, and
-    `GET /model/nodeByName/{diagram}/{module}` on 8.1 only (9.0: `undocumented`).
-  - `metadata`: `GET /process/metadata/{name}`.
-  - `libraries`: `library --list --type driver|plugin`.
-  - `checkIsConnector`: `GET /isconnector?workflowName&moduleName&type=validateWorkflow`.
-  - Properties and metadata are masked by D-19.
+  - `module`: `GET /model/nodeByModel/{diagram}/{moduleId}` on 8.1 and 9.0.
+    - The answer is XML, also for Accept JSON: root `ns4:Node` (`name`, `type`, `id`, optional
+      `parentId`), `ns4:Connection targetId= id=` per outgoing connection, then
+      `ns2:Properties` with `ns2:Property name= type=` and the value as text.
+      `ModuleDetailXmlParser` reads it with the hardening of `XmlSupport`.
+    - A property is masked by D-19 when its name is a secret name or its `type` is `Password`
+      (also when its value is empty); key material is masked by value.
+    - An unknown id is a `500` `text/html` status page whose `@Start@…@End@` message says that
+      the module could not be found: `NOT_FOUND`. Any other answer is `UNEXPECTED_RESPONSE` with
+      a masked, bounded excerpt.
+  - `GET /model/nodeByName/{diagram}/{module}` is not offered: `404` on 8.1.17 (row
+    `excluded:` on 8.1), `undocumented` on 9.0. There is no `moduleName` input.
+  - `libraries`: `library --list --type driver|plugin`. Only the empty answer is recorded; each
+    non-empty line is read as one file name, and the result says that the row format is not
+    verified (`rowFormatVerified: false`) until L-21 records a listed library (T079, after the
+    test upload; the parser follows in T091).
+  - Not built in US3 (owner decision 2026-11-14); the rows stay `planned`:
+    - `metadata` (`GET /process/metadata/{name}`): no positive answer recorded, L-19;
+    - `checkIsConnector` (`GET /isconnector?…type=validateWorkflow`): the profile's Basic auth
+      gets `401`, L-20.
+
+    If L-19 or L-20 records a working form, T046b / T046c build the action; otherwise T104
+    applies the fallback.
 - **`export_archives` new optional `content`**:
   - `workflows` is the default and today's behaviour.
-  - `ownerWithoutGroups` with `excludeGroups[1..20]` (`export --exportWorkflowGroupExclude`) gives
-    one archive for the owner. It needs `acknowledgeClearTextSecrets` like today.
-  - `metadata` with `workflows[1..50]` (`export --exportMetadata`; `--exportMetadataNames` lists
-    the names first).
-  - `xslt10Report` (`fetchXSLT1.0 -ef`).
+  - `ownerWithoutGroups` with `excludeGroups[1..20]` gives one archive of the owner's technical
+    workflows only (owner decision 2026-11-14): `export --exportWorkflowUser '<owner>'
+    --exportWorkflowType 'technical' --exportWorkflowGroup '' --exportWorkflowGroupExclude
+    '<g1,…>' --exportFile '<zip>'`.
+    Without the type and the empty group INUBIT answers `2-NOK: Missing export option.` It needs
+    `acknowledgeClearTextSecrets` like today (the module files hold clear-text secrets).
+  - `metadata` exports the metadata registry: `export --exportMetadata`, and with the optional
+    `metadataNames[1..50]` also `--exportMetadataNames <n1,…>` (comma separated) for the named
+    registry entries only. The names are metadata names, not workflow names; INUBIT accepts names
+    that do not exist.
   - The schema uses `if`/`then` per `content`; `diagramGroup` is required only for `workflows`.
   - The check-in comment trace of StartCLI exports is named in the description (FR-008).
-- Where `fetchXSLT1.0 -ef` writes its file is checked by L-7. If the file is written on the
-  INUBIT host, the entry becomes `excluded:file-written-on-the-inubit-host`.
-- The 8.1 recording (T039) contradicts parts of this decision (`nodeByName`, the JSON module
-  detail, `metadata`, `checkIsConnector`, `xslt10Report`); see "Live recording T039".
+- **`xslt10Report` is not offered** (L-7 fallback): `fetchXSLT1.0` does not exist on 8.1.17
+  (`Command not found.`). Its rows are `excluded:command not found on INUBIT 8.1.17` on 8.1; 9.0
+  stays open until a 9.0 recording (T039a, US3 9.0 follow-up); T046d offers it on 9.0 only if
+  the command exists there and the owner decides so.
+- **`find_processes` `userColumn`** (`ps -u`, L-8, owner decisions 2026-11-14):
+  - optional integer `1..5`; the result shows that one user-defined Queue Manager column;
+  - the values come from the REST `queueLog` rows that `find_processes` already reads: the field
+    `userDefined<i>` of each row (as `read_queue_entry` reads `userDefined1..5` through
+    `QueueEntryRowParser`). No StartCLI run and no join: StartCLI `ps -u` shows the same data cut
+    to 15 characters, so its row is `covered:find_processes` (REST first, D-6, Principle V);
+  - the value is not cut to StartCLI's 15 characters; it is bounded and masked like the other
+    texts of the row (`QueueLogRowParser`: 200 characters with the truncation marker, then the
+    row size bound; FR-010);
+  - the T039 `ps -u` fixtures stay as the recording that justifies the coverage state;
+  - the gate: `VersionGate.admitOption` admits `userColumn` when the row `CLI ps -u` is
+    `Covered("find_processes")` or `Reachable` for the node's line (`InterfaceCoverage.servedBy`);
+    a missing line (6.1) or `planned` gives `UNSUPPORTED_VERSION` "not yet verified". The
+    existing `admitCall` treats `Covered` as "not sent by this server" and is not used here;
+  - the row `ps -u` is `covered:find_processes` on 8.1; 9.0 stays `planned` ("not yet
+    verified") until the US3 9.0 follow-up flips it (T046a, on the recorded 9.0 row
+    `fixtures/queue-entry/v9_0/error_entry.rows.json`); the flip admits 9.0 without a code
+    change. 6.1 gets nothing new.
+
+**Rationale**: the recording settles the answer forms; only recorded forms are parsed (FR-025).
+The two REST reads without a working form stay planned rather than guessed.
 
 ## D-22 Operating a server (US4)
 
@@ -687,18 +737,21 @@ check marked (W) changes the server and runs only after the operator's approval 
 | L-4 (W) | `tag --tagRemove/--tagDelete` with a group or path scope: is another group's tag kept? | `removeTag` / `deleteTag` excluded (acts on the whole owner) |
 | L-5 | Output of `threads`, `privilegedWorkflows`, `dbconnectiontolerance show`, `license -td`, `date` | parser per recorded form |
 | L-6 | `user <name>`, `finger`, `-who`, `GET /user/users`: fields, account state | no account state in the result |
-| L-7 | `fetchXSLT1.0 -ef`: where the file is written | entry excluded (file on the INUBIT host) |
-| L-8 | `ps -u` output | `covered` by `find_processes`, or excluded |
+| L-7 | `fetchXSLT1.0 -ef`: where the file is written (8.1: the command does not exist, T039; 9.0 open, T039a) | entry excluded (file on the INUBIT host, or command not found) |
+| L-8 | `ps -u` output (8.1: answered by T039, covered through the REST `queueLog` field `userDefined<i>`; 9.0 open, T039a) | `covered` by `find_processes`, or excluded |
 | L-9 | Can the number of processes a run-time export filter matches be read before the export? | preview without a count, with the sentence that the count is unknown |
 | L-10 (W) | `process export <name>`, `validateExport`, `import` with a bare file name | absolute path from the export answer only |
 | L-11 (W) | `GET`/`PUT /configurations`: root key, partial document, restart notice | full-document PUT only |
 | L-12 | Format of user, group and role import files | imports excluded if the login user cannot be found reliably |
 | L-13 | How `finger` / `user` mark a directory-managed user | `syncLdapUsers` always refused |
-| L-14 (W) | `POST /isconnector` payload from the documentation | entry excluded (FR-002) |
+| L-14 (W) | `POST /isconnector` payload from the documentation, with the authentication L-20 finds | entry excluded (FR-002) |
 | L-15 | Whether a role change can remove "CLI login access" through these commands | the rule is documented as not reachable |
 | L-16 | `--backupFile`, `--backupRepository` usage text | entries excluded (documented by name only) |
 | L-17 | `msgread`: does it mark the message as read? | named in the tool description (FR-008) |
 | L-18 (W) | `create -cu` without `--password`: what INUBIT sets | named in the tool description (US7 AS1) |
+| L-19 | `GET /process/metadata/{name}` for a workflow that has metadata (positive answer: media type, shape, secret values) | `metadata` not offered; the row `excluded:cannot be built from the documentation: answer form not recordable` (FR-002); applied in Phase 10 (T104) at the latest; a working form is built in T046b |
+| L-20 | Authentication of `GET /isconnector`: which user store or credential form INUBIT accepts (the profile's Basic auth gets `401` on 8.1.17) | `checkIsConnector` not offered; the row `excluded:cannot be built from the documentation: authentication not documented` (FR-002); applied in Phase 10 (T104) at the latest; a working form is built in T046c |
+| L-21 | `library --list --type driver\|plugin` on a server with an uploaded driver and plug-in: the row format (recorded in T079 after `PUT /libraries`) | the result keeps `rowFormatVerified: false` and reads one file name per line; `deleteAllLibraries` previews the count only (D-14) |
 
 ## Live recording T014 (8.1, 2026-11-13)
 
@@ -1107,7 +1160,7 @@ written cannot be answered on 8.1.17.
   groups are absent, the owner's other groups present. Module files hold clear-text secrets, so
   `acknowledgeClearTextSecrets` stays required.
 
-**Consequences for the plan (not applied here; owner decision needed).**
+**Consequences for the plan (decided and applied 2026-11-14, see below).**
 
 | Point | Planned | Recorded on 8.1.17 | Consequence |
 |---|---|---|---|
@@ -1120,3 +1173,41 @@ written cannot be answered on 8.1.17.
 | `export_archives` `metadata` | `workflows[1..50]`, `--exportMetadata` per workflow | a registry export, `--exportMetadataNames` names registry entries | the input becomes optional metadata names, not workflows |
 | `ownerWithoutGroups` | `excludeGroups[1..20]` | needs `--exportWorkflowType` and `--exportWorkflowGroup ''` as well | the builder adds both |
 | `libraries` | `LibraryListParser` | empty answer only | the row format is unrecorded; the parser knows only "no libraries" |
+
+**Decided after T039 (owner, 2026-11-14).**
+
+1. `ps -u`: `find_processes` gets an optional input `userColumn` (integer `1..5`); the result
+   shows that one user-defined column. The values come from the REST `queueLog` field
+   `userDefined<i>` (second answer of the same day, below). The row `ps -u` becomes
+   `covered:find_processes` on 8.1; 9.0 follows the 9.0 rules (`planned` until recorded).
+2. `read_model_details` `metadata` (`GET /process/metadata/{name}`) is not built in US3. The row
+   stays `planned` and waits for L-19 (a server where a workflow has metadata). The action stays
+   documented as planned.
+3. `checkIsConnector` (`GET /isconnector`) is not built in US3. The row stays `planned` and waits
+   for L-20 (the authentication of `/isconnector`).
+4. `libraries` (`library --list --type driver|plugin`) is built. The empty answer is recorded;
+   non-empty lines are read as one file name per line, and the result marks the row format as not
+   verified (`rowFormatVerified: false`) until L-21 records a listed library.
+
+The other rows of the table are applied without a decision: `ModuleDetailXmlParser` (masking by
+secret name and by `type="Password"`), no `moduleName` input and the 8.1 row of
+`GET /model/nodeByName` `excluded:` (9.0 stays `undocumented`), `xslt10Report` dropped (L-7
+fallback, 9.0 open), `metadata` export of the registry with optional metadata names, and
+`ownerWithoutGroups` with `--exportWorkflowType 'technical'` and `--exportWorkflowGroup ''`.
+Spec, plan, data model, contracts, quickstart, D-21 and tasks T040–T047 follow these points.
+
+Decided on the open points found while applying (owner, 2026-11-14, second answer):
+
+5. The `userColumn` values come from the REST `queueLog` field `userDefined<i>`, which the rows
+   `find_processes` reads on 8.1 already carry uncut (`fixtures/v8_1/rest/log_queueLog.json`;
+   `read_queue_entry` reads them). No StartCLI run, no join by process id; `ps -u` is
+   `covered:find_processes` because REST brings the same data (REST first, D-6, Principle V).
+6. The 9.0 part of US3 is a follow-up PR after the US3 PR, as for US1 and US2: the US3 PR
+   delivers 8.1, and 9.0 stays "not yet verified". Its `planned` 9.0 rows carry the `waits`
+   value `9.0-followup` until then (`contracts/coverage-list.md`).
+7. `ownerWithoutGroups` exports the owner's technical workflows only
+   (`--exportWorkflowType 'technical'`), as recorded.
+8. If L-19 or L-20 is not settled before Phase 10, its fallback applies (the row `excluded:`
+   with the FR-002 reason "cannot be built from the documentation: answer form not recordable"
+   or "…: authentication not documented"), so that no row stays `planned` (SC-001); a working
+   form is built in T046b / T046c.

@@ -1,7 +1,7 @@
 # Tasks: Full Coverage of the StartCLI and REST Interfaces
 
 **Input**: Design documents from `specs/022-full-interface-coverage/`: spec, plan, research
-D-1…D-27 and L-1…L-18, data-model, `contracts/mcp-tools-delta.md`,
+D-1…D-27 and L-1…L-21, data-model, `contracts/mcp-tools-delta.md`,
 `contracts/configuration-delta.md`, `contracts/coverage-list.md`, quickstart, reviews/.
 
 ## Conventions
@@ -577,12 +577,17 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
 
 ## Phase 5: User Story 3 – Processes, run-time data and model details (P2)
 
-**Goal**: `read_model_details` (module, metadata, libraries, IS Connector check). `export_archives`
-gains `ownerWithoutGroups`, `metadata` and `xslt10Report`. `ps -f` and the counts are confirmed
-`covered` (US3).
+**Goal**: `read_model_details` (module, libraries). `export_archives` gains `ownerWithoutGroups`
+(technical workflows only) and `metadata` (the metadata registry). `find_processes` gains
+`userColumn` from the REST `queueLog` rows (`ps -u` covered). `ps -f` and the counts are
+confirmed `covered`. Process metadata and the IS Connector check stay `planned` (L-19, L-20);
+`xslt10Report` is not offered (L-7). Research D-21 and "Decided after T039" (owner, 2026-11-14).
+The US3 PR delivers 8.1; 9.0 stays "not yet verified" and follows in a separate PR (T039a,
+T046a, T047a), as for US1 and US2.
 
-**Independent test**: each action returns its documented shape from recordings; the new export
-forms write files under the unchanged folder rules (US3 AS1–AS8).
+**Independent test**: each action returns the shape recorded in T039; the new export forms write
+files under the unchanged folder rules (US3 AS1–AS8; the planned parts of AS6 and AS8 are not
+offered).
 
 - [X] T039 [LIVE] [OWNER] [US3] L-7, L-8 and read recordings on 8.1:
   - `GET /model/nodeByModel/{d}/{id}`, `GET /model/nodeByName/{d}/{m}`;
@@ -595,82 +600,253 @@ forms write files under the unchanged folder rules (US3 AS1–AS8).
 
   Neutralize into `fixtures/v8_1/{rest,cli}/admin-model-*` with planted secrets in module
   properties and metadata.
-- [ ] T040 [P] [US3] Parsers `adapter/rest/v81/ModuleDetailJsonParser.java`,
-  `ProcessMetadataParser.java`, `IsConnectorCheckParser.java` (masking through `JsonLeafMasker`;
-  message ≤ 2,000 characters) and `adapter/cli/admin/LibraryListParser.java`.
-  - Domain records `ModuleDetail`, `ProcessMetadata`, `LibraryEntry`, `IsConnectorCheck`.
-  - Failing tests first: one test class each, with a leak check.
-- [ ] T041 [US3] `CliCommand` read forms:
+- [ ] T040 [P] [US3] Parsers (research D-21, "Live recording T039"):
+  - `adapter/rest/v81/ModuleDetailXmlParser.java`: `ns4:Node` (`name`, `type`, `id`,
+    `parentId`), `ns4:Connection` (`id`, `targetId`), `ns2:Properties/ns2:Property name= type=`
+    with the value as text, hardened through `XmlSupport`. A property is masked through
+    `SecretRules` by its name, by `type="Password"` (also when empty) and by key-material values
+    (D-19); `maskedCount`; values ≤ `ItemBounds.MAX_ITEM_CHARS`. The `500` `text/html` page
+    with `@Start@The module with the id '<id>' … could not be found!@…@End@` (HTML-escaped
+    quotes) is `NOT_FOUND`; any other body `UNEXPECTED_RESPONSE` with a masked excerpt.
+  - `adapter/cli/admin/LibraryListParser.java`: the answer after the preamble; blank and
+    `\r`-only lines are skipped, every other line is one file name; a line over 255 characters
+    or with a control character is `UNEXPECTED_RESPONSE`. The parsed list carries
+    `rowFormatVerified = false` (L-21).
+  - Domain records `ModuleDetail`, `LibraryEntry` (data-model). No `ProcessMetadata` or
+    `IsConnectorCheck` (parked until L-19, L-20).
+  - Failing tests first: `ModuleDetailXmlParserTest.java` (the recorded Database Connector and
+    IS Connector modules, the planted clear-text password and the secret found only by its
+    name, the not-found page, an Accept-JSON request answered with XML), `LibraryListParserTest`
+    (the recorded empty answers in script and session form; reconstructed non-empty lines),
+    each with a leak check.
+- [ ] T040a [P] [US3] The user column in the process rows (research D-21; files apart from T040
+  and T041):
+  - `domain/model/ProcessQuery.java` gains the optional `userColumn` (1–5),
+    `domain/model/ProcessInstance.java` the optional `userColumnValue`;
+  - `adapter/rest/v81/QueueLogRowParser.java`: with a requested user column `i`, also reads
+    `userDefined<i>` of the row (blank → absent) into `ProcessInstance`, as one more optional
+    text under the existing bounds (200 characters with the truncation marker, then the row size
+    bound) and the existing masking; without a requested column the row is parsed as today.
+    `QueueEntryRowParser` (`read_queue_entry`, `userDefined1..5`) is the model and stays
+    unchanged.
+  - Failing tests first: `QueueLogRowParserTest` (`userDefined1` of
+    `fixtures/v8_1/rest/log_queueLog.json`, a blank value absent, a long value cut, the row bound
+    kept; without a column the rows unchanged), `ProcessQuery` validation (0 and 6 refused), with
+    a leak check.
+- [ ] T041 [US3] `CliCommand` read forms (only the forms recorded in T039):
   - `library --list --type driver|plugin`;
-  - `export --exportWorkflowGroupExclude <g1,g2>` (each group name per `VALUE`, ≤ 20, joined as
-    the vendor documents);
-  - `export --exportMetadata`, `--exportMetadataNames`;
-  - `fetchXSLT1.0 -ef <file>` (the file name is generated by the server, never from the caller).
-  - Failing tests first in `adapter/cli/CliCommandTest.java`: allowed forms; `library --delete`
-    and `library --deleteAll` still rejected.
+  - `export --exportWorkflowUser <owner> --exportWorkflowType 'technical' --exportWorkflowGroup ''
+    --exportWorkflowGroupExclude <g1,…> --exportFile <zip>` (each group name per `VALUE`, 1–20,
+    joined with commas into one argument);
+  - `export --exportMetadata --exportFile <zip>`, optionally with `--exportMetadataNames
+    <n1,…>` (1–50 names per `VALUE`, joined with commas);
+  - no `fetchXSLT1.0` form (not found on 8.1.17, L-7).
+  - Failing tests first in `adapter/cli/CliCommandTest.java`: the allowed forms;
+    `--exportWorkflowGroupExclude` without `--exportWorkflowType` and `--exportWorkflowGroup`
+    rejected; `ps` (no `ps` form: `userColumn` comes from REST), `fetchXSLT1.0`, `library
+    --delete` and `library --deleteAll` still rejected.
 - [ ] T042 [US3] Port and wiring:
-  - `domain/port/ModelDetailPort.java`;
-  - `adapter/rest/v81/V81ModelDetailAdapter.java` (REST) plus `adapter/cli/admin/CliLibraryRunner.java`
-    (list);
-  - `RestEndpoint` + `GET /model/nodeByModel/{d}/{id}`, `GET /model/nodeByName/{d}/{m}`,
-    `GET /process/metadata/{name}`, `GET /isconnector`;
+  - `domain/port/ModelDetailPort.java` (`module`, `libraries`);
+  - `adapter/rest/v81/V81ModelDetailAdapter.java` (REST, `Accept: application/xml`) plus
+    `adapter/cli/admin/CliLibraryRunner.java` (list: one script-mode run per type, or one stdin
+    session for both types);
+  - `RestEndpoint` + `GET /model/nodeByModel/{d}/{id}` only (no `nodeByName`,
+    `/process/metadata`, `/isconnector`);
   - the `Gateway`/`PortSet` set.
   - adds the capability `MODEL_DETAILS` the way T011 added `SERVER_SETTINGS` (label, matrix "not yet
     verified", `NodeOverview`, `list_nodes` enum), with `CapabilityMatrixTest` and `ListNodesToolTest`;
-  - Failing tests first: adapter tests with WireMock and scripted StartCLI.
+  - Failing tests first: adapter tests with WireMock (the T039 bodies and media types) and
+    scripted StartCLI (the T039 outputs).
 - [ ] T043 [US3] `application/ModelDetailService.java` and tool `mcp/tools/ReadModelDetailsTool.java`:
   - schemas `read_model_details.{input,output}.json`;
-  - actions `module` (`moduleId` | `moduleName`), `metadata`, `libraries` (paged),
-    `checkIsConnector`; each call is admitted with `VersionGate.admitCall` and its own entries:
-    `moduleName` on 9.0 gives `UNSUPPORTED_VERSION` (row `undocumented`), while `moduleId` on 9.0
-    is admitted (test);
+  - actions `module` (`diagram` + `moduleId`) and `libraries` (`libraryType` optional, paged);
+    no `moduleName`, `metadata` or `checkIsConnector` (owner decision 2026-11-14); each call is
+    admitted with `VersionGate.admitCall` and its own entries (`module` on 9.0 refused "not yet
+    verified" until T046a);
+  - `libraries` returns `rowFormatVerified: false`, and the description says that each line is
+    read as one file name until a listed library is recorded (L-21);
   - read-only, idempotent;
   - announcement on `MODEL_DETAILS`.
-  - Failing tests first: `ModelDetailServiceTest.java` (AS2, AS3, AS6 read part, AS8),
-    `ReadModelDetailsToolTest.java`, `ToolAnnouncementTest`.
-  - Also `security/ModelDetailsSecretLeakTest.java`: planted secrets in module properties,
-    metadata and the IS Connector message never appear in results, errors, logs or audit. The
-    new `export_archives` forms are added to it in T044.
+  - Failing tests first: `ModelDetailServiceTest.java` (AS2, AS3; an unknown module id gives
+    `NOT_FOUND`), `ReadModelDetailsToolTest.java` (the action enum has exactly `module` and
+    `libraries`), `ToolAnnouncementTest`.
+  - Also `security/ModelDetailsSecretLeakTest.java`: planted secrets in module properties (by
+    name and by `type="Password"`) never appear in results, errors, logs or audit. The new
+    `export_archives` forms are added to it in T044, the user column in T045b.
 - [ ] T044 [US3] `export_archives` `content` forms (D-21):
   - `src/main/resources/schemas/export_archives.input.json`:
-    - `content` enum, default `workflows`;
+    - `content` enum `workflows` | `ownerWithoutGroups` | `metadata`, default `workflows`;
     - `if/then`: `diagramGroup` required only for `workflows`;
-    - `excludeGroups[1..20]` only for `ownerWithoutGroups`;
-    - `workflows[1..50]` required for `metadata`;
+    - `excludeGroups[1..20]` required for `ownerWithoutGroups`, allowed only there;
+    - `metadataNames[1..50]` optional for `metadata`, allowed only there;
     - `acknowledgeClearTextSecrets` required for `workflows` and `ownerWithoutGroups`.
-  - The export archives service (`application/ArchiveExportService.java` or its current name):
-    - the three forms through `adapter/cli/CliExportRunner.java` (new methods
-      `exportOwnerWithoutGroups`, `exportMetadata`, `fetchXslt10Report`);
+  - The export archives service (`application/ArchiveExportService.java`):
+    - the two forms through `adapter/cli/CliExportRunner.java` (new methods
+      `exportOwnerWithoutGroups` with `--exportWorkflowType 'technical'` and
+      `--exportWorkflowGroup ''`, and `exportMetadata` with optional names);
     - the same `TargetFolderRules`, `ArchiveFolderWriter`, `archives.productionOptIn` and audit;
-    - an `.xlsx` entry for the report;
-    - the description names the check-in comment trace (FR-008);
+    - the description names the check-in comment trace (FR-008), that `ownerWithoutGroups`
+      exports the owner's technical workflows only (owner decision 2026-11-14), and that
+      `metadata` exports registry entries and accepts names that do not exist;
     - the output carries `source: "CLI"` (FR-009).
   - In the coverage list, the existing `export_archives` rows change from `default` to
-    `workflows`, and the new rows are named `ownerWithoutGroups`, `metadata` and `xslt10Report`
-    (research D-2, action key).
-  - If T039 showed that `fetchXSLT1.0` writes on the INUBIT host, drop `xslt10Report` and set its
-    row to `excluded:file written on the INUBIT host`.
+    `workflows`, and the new rows are named `ownerWithoutGroups` and `metadata` (research D-2,
+    action key); `fetchXSLT1.0` and `fetchXSLT1.0 --exportFilename` become
+    `excluded:command not found on INUBIT 8.1.17` on 8.1 (L-7 fallback); their 9.0 states stay
+    `planned` until T046a.
   - Failing tests first:
-    - `ExportArchivesContentTest.java` (each form, folder rules unchanged, production opt-in);
+    - `ExportArchivesContentTest.java` (each form with the T039 answers `1-OK: Workflow group
+      exported successfully.`, `1-OK: Metadata exported successfully.`, `1-OK: Metadata Names
+      exported successfully.`, and `2-NOK: Missing export option.`; folder rules unchanged;
+      production opt-in);
     - `ExportArchivesToolTest` description;
     - `ArchiveToolReferenceTest`;
     - every existing `export_archives` test unchanged (SC-009);
-    - `ModelDetailsSecretLeakTest` extended with the three forms (errors, logs, audit).
-- [ ] T045 [US3] Coverage decisions for D:
+    - `ModelDetailsSecretLeakTest` extended with the two forms (errors, logs, audit).
+- [ ] T045 [P] [US3] The `userColumn` gate (research D-21; owner decisions 2026-11-14):
+  - `domain/model/InterfaceCoverage.servedBy(CoverageKey, MajorMinor, String tool)`: true when
+    the row is `Covered(tool)` or `Reachable(tool, …)` for that line;
+  - `application/VersionGate.admitOption(String tool, NodeId, CoverageKey)`: admits `userColumn`
+    when the row `CLI ps -u` is `Covered("find_processes")` or `Reachable` for the node's line. A
+    missing line (6.1) or a `planned` row gives `UNSUPPORTED_VERSION` "not yet verified";
+    `excluded` gives its reason. `admitCall`/`refusal` stay as they are (they treat `Covered` as
+    "not sent by this server"). No version check in `DiagnosisService` (Principle V); T046a's row
+    flip is enough to admit 9.0.
+  - Failing tests first: `InterfaceCoverageTest` (`servedBy`: covered by the named tool,
+    reachable, covered by another tool, planned, missing line); `VersionGateActionTest`
+    (`admitOption` with a test coverage file: 8.1 admitted, 9.0 `planned` refused "not yet
+    verified", 6.1 refused, and the 9.0 row flipped to `covered:find_processes` admits 9.0).
+- [ ] T045a [US3] `waits` tokens (FR-004): `domain/model/CoverageEntry.WAITS_ITEM` admits
+  `L-1` … `L-21`, `9.0-pin` and the new `9.0-followup` (`contracts/coverage-list.md`).
+  - Failing test first in `InterfaceCoverageTest`: `L-21` and `9.0-followup` accepted, `L-22`
+    and an unknown token refused.
+- [ ] T045b [US3] `ps -u` through `find_processes` `userColumn` (after T040a and T045; owner
+  decisions 2026-11-14: the values come from the REST `queueLog` field `userDefined<i>`, no
+  StartCLI run) and the coverage decisions for D:
+  - `src/main/resources/schemas/find_processes.{input,output}.json`: `userColumn` (integer 1–5);
+    output `userColumn: {index}` and `userColumnValue` per process;
+  - `application/DiagnosisService.java` and `adapter/rest/v81/V81ProcessQueryAdapter.java`: per
+    server, `admitOption` (T045) first; an admitted server's requested column goes with the
+    `ProcessQuery` to the `queueLog` read the search already makes (T040a): no extra call, no
+    StartCLI run, no join. A server that is not admitted gets `userColumn` reported unavailable
+    in the warnings with that error (a call for that server alone is refused);
+  - `FindProcessesTool` description names the column and its REST source; every other input and
+    the annotation unchanged (SC-009);
   - `ps -f` (`covered:find_processes`) and `-ne/-nx/-nw/-nq` (`covered:get_health`) are already
     set by T007; add assertions for them to `InterfaceCoverageResourceTest`;
-  - set `ps -u` per T039 (`covered:find_processes` or `excluded:<reason>`).
-  - Failing first: the `ps -u` assertion in `InterfaceCoverageResourceTest` (red while the row is
-    `planned`).
-- [ ] T046 [US3] Contracts and flips [BLOCKED: T039]: `ModelDetailsV81ContractTest.java`,
-  `ExportContentV81ContractTest.java`; rows, matrix, docs page; 9.0 when recorded.
-- [ ] T047 [US3] Docs and PR:
-  - `docs/tools.md` sections `read_model_details` and `export_archives` (new forms);
-  - `docs/research/inubit-interfaces.md`;
+  - set `ps -u` to `covered:find_processes` on 8.1 (the same data comes through REST; the T039
+    `ps -u` fixtures are the recording behind this state); 9.0 stays `planned` until T046a.
+  - Failing tests first: the `ps -u` assertion in `InterfaceCoverageResourceTest` (red while the
+    row is `planned`); `FindProcessesToolTest` / `DiagnosisServiceTest` (`userColumn` shown from
+    the recorded `queueLog` rows; a stage with an 8.1 and a 9.0 server (and one with a 6.1
+    server): the 8.1 processes carry the column, the other server's `userColumn` is in the
+    warnings with `UNSUPPORTED_VERSION`, and its processes are still listed; 9.0 or 6.1 alone
+    refused; without `userColumn` unchanged); `ModelDetailsSecretLeakTest` with planted values in
+    `userDefined<i>`.
+- [ ] T046 [US3] Contracts and flips: `ModelDetailsV81ContractTest.java`,
+  `ExportContentV81ContractTest.java`, only from the T039 fixtures (`admin-model-node-by-model*`,
+  `admin-model-library-*`, `admin-model-session`, `admin-model-export-*`), and a `userColumn`
+  case on the recorded `fixtures/v8_1/rest/log_queueLog.json` (beside `QueueEntryRowsContractTest`);
+  rows, matrix, docs page (8.1 only; 9.0 in the follow-up):
+  - 8.1 `reachable:read_model_details/module` (`GET /model/nodeByModel/{model}/{node}`),
+    `reachable:read_model_details/libraries` (`library --list`, `library --type`),
+    `reachable:export_archives/ownerWithoutGroups` (`export --exportWorkflowGroupExclude`),
+    `reachable:export_archives/metadata` (`export --exportMetadata`,
+    `export --exportMetadataNames`);
+  - 8.1 `GET /model/nodeByName/{diagram}/{module}`: `excluded:absent on INUBIT 8.1.17 (404)`; 9.0
+    stays `undocumented`;
+  - `GET /process/metadata/{name}` and `GET /isconnector` stay `planned` (story US3).
+- [ ] T047 [US3] Docs and PR (after T045a, T045b and T046; not after T039a or T046a):
+  - `docs/tools.md` sections `read_model_details`, `export_archives` (new forms) and
+    `find_processes` (`userColumn`);
+  - `docs/research/inubit-interfaces.md` (`nodeByName` and `fetchXSLT1.0` absent on 8.1.17, the
+    metadata registry export, `/isconnector` refusing the REST login, `ps -u` covered through the
+    `queueLog` field `userDefined<i>`);
   - `CHANGELOG.md`;
-  - `delivered-stories` + US3, with `waits` set on every US3 row still `planned`.
+  - `delivered-stories` + US3, with `waits` set on every US3 row still `planned`:
+    `GET /process/metadata/{name}` `L-19`, `GET /isconnector` `L-20`, and `9.0-followup` on
+    every 9.0 state still `planned` (joined with `+`, e.g. `L-19+9.0-followup`).
+  - L-19 and L-20: a working form is built in T046b/T046c; if they are not settled before
+    Phase 10, their fallbacks apply in T104 (rows `excluded:` with the FR-002 reasons named
+    there), so that no row stays `planned` (SC-001).
 
   Then open the US3 PR.
+
+### US3 9.0 follow-up (separate PR after the US3 PR, as for US1 and US2)
+
+- [ ] T039a [LIVE] [OWNER] [US3] The T039 reads on the 9.0 test server, after the US3 PR (owner
+  approval; the pin is current since T028b), into `fixtures/v9_0/{rest,cli}/admin-model-*` with
+  `.origin` and `V90Cases` entries:
+  - `GET /model/nodeByModel/{d}/{id}` (a module with a password property, and an unknown id);
+  - `library --list --type driver|plugin`;
+  - no new `queueLog` recording for L-8 on 9.0: the recorded 9.0 row with `userDefined1` set
+    (`fixtures/queue-entry/v9_0/error_entry.rows.json`, with `.origin`) serves the `userColumn`
+    case;
+  - `export --exportMetadata` (with and without `--exportMetadataNames`) and
+    `export --exportWorkflowUser … --exportWorkflowType 'technical' --exportWorkflowGroup ''
+    --exportWorkflowGroupExclude …` (the archive stays private: clear-text secrets);
+  - `fetchXSLT1.0 -h` (L-7 on 9.0: does the command exist?);
+  - if a workflow with metadata or another `/isconnector` login is at hand: L-19, L-20.
+
+  Research section "Live recording T039a". If `fetchXSLT1.0` exists on 9.0, the owner decides
+  whether `xslt10Report` comes back for 9.0 (T046d). The 9.0 rows of `fetchXSLT1.0` and
+  `fetchXSLT1.0 --exportFilename` otherwise get, in T046a:
+  - command absent: `excluded:command not found on INUBIT <recorded 9.0 version>`;
+  - command present but writing on the INUBIT host: `excluded:file written on the INUBIT host`;
+  - command usable but the owner declines: `excluded:` with the owner's reason (for example
+    `not offered by owner decision <date>`).
+- [ ] T046a [US3] 9.0 contracts and flips (after T039a): `ModelDetailsV90ContractTest`,
+  `ExportContentV90ContractTest` from the 9.0 fixtures and the `userColumn` case on
+  `fixtures/queue-entry/v9_0/error_entry.rows.json`; the `v9_0` column of the US3 rows (`ps -u`
+  `covered:find_processes`, which admits `userColumn` on 9.0 through T045's `admitOption`
+  without a code change; `fetchXSLT1.0` per T039a and T046d), `MODEL_DETAILS` on 9.0,
+  catalogue entries, and `9.0-followup` removed from every US3 `waits` value.
+- [ ] T046b [LIVE] [OWNER] [US3] `metadata` (`GET /process/metadata/{name}`), only if L-19
+  records a working form (owner approval of the recording as usual); otherwise the fallback in
+  T104 applies:
+  - neutralized fixtures `fixtures/{v8_1,v9_0}/rest/admin-model-metadata*` with planted secrets;
+  - `adapter/rest/v81/ProcessMetadataParser.java` and the record `ProcessMetadata` per the
+    recorded shape (masked by D-19); `RestEndpoint` + `GET /process/metadata/{name}`;
+    `ModelDetailPort.metadata`; the action `metadata` (`workflow`) in
+    `read_model_details.{input,output}.json` and `ModelDetailService`;
+  - the row flipped to `reachable:read_model_details/metadata` with its `waits` cleared.
+  - Failing tests first: `ProcessMetadataParserTest`, `ModelDetailServiceTest`,
+    `ReadModelDetailsToolTest` (enum), `ModelDetailsSecretLeakTest` (planted metadata values),
+    the contract test of the version recorded.
+- [ ] T046c [LIVE] [OWNER] [US3] `checkIsConnector` (`GET /isconnector?…type=validateWorkflow`),
+  only if L-20 records a working authentication and answer (owner approval of the recording as
+  usual); otherwise the fallback in T104 applies:
+  - neutralized fixtures `fixtures/{v8_1,v9_0}/rest/admin-model-isconnector*`;
+  - the credential form L-20 found (configuration, if any, per `contracts/configuration-delta.md`),
+    `adapter/rest/v81/IsConnectorCheckParser.java` and the record `IsConnectorCheck` (message
+    masked, ≤ 2,000 characters); `RestEndpoint` + `GET /isconnector`;
+    `ModelDetailPort.checkIsConnector`; the action `checkIsConnector` (`workflow`, `module`) in
+    the schemas and `ModelDetailService`;
+  - the row flipped to `reachable:read_model_details/checkIsConnector` with its `waits` cleared;
+    T079 (L-14) uses the same authentication.
+  - Failing tests first: `IsConnectorCheckParserTest`, adapter test (the authentication sent),
+    `ModelDetailServiceTest`, `ReadModelDetailsToolTest` (enum), `ModelDetailsSecretLeakTest`
+    (planted message and credential), the contract test.
+- [ ] T046d [OWNER] [US3] `xslt10Report` on 9.0, only if T039a (L-7 on 9.0) shows that
+  `fetchXSLT1.0` exists and writes its file where the MCP server can read it, and the owner
+  decides to offer it; otherwise its 9.0 rows are excluded in T046a with the reasons named in
+  T039a:
+  - neutralized fixtures `fixtures/v9_0/cli/admin-model-fetchxslt*` with `.origin`;
+  - `CliCommand` `fetchXSLT1.0 -ef <file>` (the file name generated by the server);
+    `CliExportRunner.fetchXslt10Report`; `content: xslt10Report` in
+    `export_archives.input.json` (no further field), offered on 9.0 only through its row;
+  - the 9.0 rows flipped to `reachable:export_archives/xslt10Report`.
+  - Failing tests first: `CliCommandTest`, `ExportArchivesContentTest` (the report file, folder
+    rules, production opt-in), `ModelDetailsSecretLeakTest`, the 9.0 contract test.
+- [ ] T047a [US3] Docs and PR for 9.0 (after T046a and, where it applies, T046d):
+  - `docs/tools.md`, `CHANGELOG.md`, coverage page;
+  - `docs/research/inubit-interfaces.md`: the 9.0 facts of T039a (module detail form, library
+    list, the metadata registry export, `fetchXSLT1.0` on 9.0 and its row state);
+  - T046b / T046c are part of this PR only if their recording exists when T046a is done.
+    Otherwise each ships later in its own PR with its own `docs/tools.md` and `CHANGELOG.md`
+    step, or its row falls back in T104.
+
+  Then open the PR.
 
 ## Phase 6: User Story 4 – Operate a server (P2)
 
@@ -1035,15 +1211,16 @@ fails (US6 AS1–AS17).
 
 ### Live checks for US6
 
-- [ ] T079 [LIVE-W] [OWNER] [US6] L-11 (write), L-14, L-16 and the recordings of the US6 changes on the
-  8.1 test server, each approved, against throw-away fictitious objects:
+- [ ] T079 [LIVE-W] [OWNER] [US6] L-11 (write), L-14, L-16, L-21 and the recordings of the US6
+  changes on the 8.1 test server, each approved, against throw-away fictitious objects:
   - `DELETE /diagrams/{n}` and `…/version/{v}`, `DELETE /modules?moduleName=` and
     `…/{id}/version/{v}`, `DELETE /repository`;
   - `rename --renameWorkflow|--renameModule|--renameMetadata|--renameFile|--renameDirectory`
     (are references updated?);
   - `import --importMetadata`;
-  - `PUT /libraries`, `DELETE /libraries/{n}`, `library --deleteAll --type plugin` (only a test
-    plug-in present);
+  - `PUT /libraries`, then `library --list --type driver|plugin` with the uploaded test driver
+    and plug-in present (L-21: the row format), then `DELETE /libraries/{n}`,
+    `library --deleteAll --type plugin` (only a test plug-in present);
   - `plugin --register|--deregister` (usage text first);
   - `PUT /edirules`;
   - `PUT /keys` (test keystore, test module);
@@ -1052,7 +1229,8 @@ fails (US6 AS1–AS17).
   - `dbconnectiontolerance set` (usage, ranges);
   - `PUT /configurations` (one harmless value, set back; partial document accepted?);
   - `PUT /license` only if a test license file exists;
-  - `POST /isconnector` (L-14);
+  - `POST /isconnector` (L-14), with the authentication L-20 found (T039: the profile's REST
+    login gets `401` on `/isconnector`);
   - `--backupFile`/`--backupRepository` usage text (L-16).
 
   Neutralize into `fixtures/v8_1/{cli,rest}/admin-objects-*`, `admin-libraries-*`,
@@ -1091,7 +1269,8 @@ fails (US6 AS1–AS17).
   - `application/AdministrationBackups.java` takes the backup before every delete, rename or
     replace:
     - workflow and module through `CliExportRunner` with history;
-    - metadata through `export --exportMetadata`;
+    - metadata through `export --exportMetadata` (the registry; for a rename limited to the
+      named entry with `--exportMetadataNames`, T039);
     - repository path, EDI overwrite (only if the target file exists) and the module for a
       keystore through `export --exportRepositoryPath` or the module export;
   - on failure the change is not sent (`FAILED`, nothing sent).
@@ -1127,7 +1306,9 @@ fails (US6 AS1–AS17).
   - previews:
     - upload name, size and SHA-256 (AS3);
     - `deleteAllLibraries` lists every file, and the confirmation is valid only for that list
-      (AS4, FR-017);
+      (AS4, FR-017); while L-21 is open (`rowFormatVerified: false`) it shows the count only, as
+      D-14 does where INUBIT gives no ids, with the sentence that the list format is not
+      verified, and the confirmation is bound to that count;
     - keys: module, owner and alias, with the key password from `secretEntry` (AS8); the module is
       backed up first (T083, FR-018), and nothing is sent if that fails (test);
     - an EDI target that exists is backed up first (AS15);
@@ -1138,6 +1319,7 @@ fails (US6 AS1–AS17).
     - AS3, AS4, AS8, AS14, AS15;
     - the area of each action (objects opt-in alone does not admit them);
     - a changed library list → `CONFLICT`;
+    - with `rowFormatVerified: false` the preview names the count and the sentence, no file names;
     - a second call on the same key → `PRECONDITION_FAILED`;
     - leak check (key password).
 - [ ] T086 [US6] Tool `mcp/tools/AdministerObjectsTool.java`:
@@ -1194,6 +1376,10 @@ fails (US6 AS1–AS17).
     `reachable`;
   - `ObjectsV81ContractTest.java`, `LibrariesV81ContractTest.java`,
     `SettingsChangeV81ContractTest.java`;
+  - L-21 (from T079): `LibraryListParser` and its tests follow the recorded row format, the
+    `admin-libraries-list-*` fixtures join the empty T039 ones, and `rowFormatVerified` becomes
+    `true` (the `read_model_details` description and the `deleteAllLibraries` preview then list
+    the file names); failing first: `LibraryListParserTest` on the recorded non-empty list;
   - rows (excluded per T079 where the check failed; `startIsConnector` and `setBackupStartOption`
     flipped to `reachable:<tool>/<action>` with their contract tests where L-14 or L-16
     succeeded), matrix, docs page;
@@ -1344,15 +1530,18 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
 ## Phase 10: Polish & cross-cutting concerns
 
 - [ ] T103 9.0 recordings for US2–US7 [LIVE] [OWNER] (after the 9.0 pin is renewed):
-  - run the read checks of T028, T039 and the approved write checks of T054, T055, T069, T079,
-    T092 on the 9.0 test server;
+  - run the read checks of T028 and the approved write checks of T054, T055, T069, T079, T092 on
+    the 9.0 test server (US3 9.0: T039a, T046a, unless already done in the US3 follow-up PR);
   - fixtures with `.origin`, catalogue entries;
   - `*V90ContractTest` per story;
   - the `v9_0` rows flipped.
-- [ ] T104 Coverage completion (SC-001, FR-027): `InterfaceCoverageCheckTest` with all seven
-  stories delivered. No `planned` row and no `waits` value other than `-` are left: every row is
-  `reachable`, `covered`, `undocumented` or `excluded`. Remove the backlog entry "Further read
-  access to INUBIT" from `docs/backlog.md`.
+- [ ] T104 Coverage completion (SC-001, FR-027): `InterfaceCoverageCheckTest` with all seven stories
+  delivered. No `planned` row and no `waits` value other than `-` are left: every row is
+  `reachable`, `covered`, `undocumented` or `excluded`. A live check still open here gets its
+  fallback from research "Live checks" (L-19 and L-20: the rows `GET /process/metadata/{name}` and
+  `GET /isconnector` become `excluded:cannot be built from the documentation: answer form not
+  recordable` and `excluded:cannot be built from the documentation: authentication not documented`,
+  FR-002). Remove the backlog entry "Further read access to INUBIT" from `docs/backlog.md`.
 - [ ] T105 [P] `live/AdministrationLiveTest.java` (`@Tag("live")`, opt-in, refused for production
   groups):
   - reads of US1–US3;
@@ -1362,7 +1551,7 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
   protections (areas, uploads, secret entries, own-access rule).
 - [ ] T107 Final validation:
   - all quickstart tests green;
-  - the smoke steps 1–7 of `quickstart.md` run on the test servers and noted in its validation
+  - the smoke steps 1–8 of `quickstart.md` run on the test servers and noted in its validation
     record;
   - the SC-001…SC-009 checklist written into `reviews/implementation.md`;
   - the tool count compared with the T001 reference (+9, SC-007).
@@ -1378,9 +1567,10 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
   - US6 introduces uploads (T075–T076, including the private copy for StartCLI uploads), secret entries (T077) and the REST write methods (T078),
     used by US7 (imports, passwords);
   - US7 needs `CliUserRunner` (T032) from US2.
-- **Live tasks**: T014, T028, T039, T054, T055, T069, T079, T092 and T024/T103 can run as soon as
-  the operator approves them, in parallel with the offline tasks. Only the contract and flip tasks
-  (T025, T026, T037, T046, T066, T074, T091, T102, T103) wait for them.
+- **Live tasks**: T014, T028, T039, T039a, T046b, T046c, T054, T055, T069, T079, T092 and T024/T103
+  can run as soon as the operator approves them, in parallel with the offline tasks. Only the
+  contract and flip tasks (T025, T026, T037, T046, T046a–T046d, T066, T074, T091, T102, T103) wait
+  for them.
 - **PR merges**: a PR may merge with rows still `planned` while its live check is open (the
   action is then not offered). Phase 10 needs all of them.
 
@@ -1391,7 +1581,10 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
 - **US1**: T015 first; then T016, T017 and T018 side by side (different files, all use T015's
   records); T014 (live) at any time.
 - **US2**: T029 first; then T030 and T031 side by side.
-- **US3**: T040 [P] beside T041.
+- **US3**: T040, T040a and T045 [P] beside T041 (separate files: the module and library parsers;
+  `ProcessQuery`, `ProcessInstance`, `QueueLogRowParser`; `InterfaceCoverage`, `VersionGate`;
+  `CliCommand`). T045a not beside T045 (both change `InterfaceCoverageTest`). T045b after T040a
+  and T045.
 - **US4**: T048, T050 [P]. Then `operate_server` (T056–T061) and `manage_tags` (T062–T064)
   after T049–T053, with serial points: T062 after T056 (`CliCommand.java`, `CliCommandTest.java`)
   and T063 after T058 (the `Gateway`/`PortSet` set).
