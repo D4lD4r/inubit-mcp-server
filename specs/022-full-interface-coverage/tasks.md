@@ -720,7 +720,7 @@ offered).
   `L-1` … `L-21`, `9.0-pin` and the new `9.0-followup` (`contracts/coverage-list.md`).
   - Failing test first in `InterfaceCoverageTest`: `L-21` and `9.0-followup` accepted, `L-22`
     and an unknown token refused.
-- [ ] T045b [US3] `ps -u` through `find_processes` `userColumn` (after T040a and T045; owner
+- [X] T045b [US3] `ps -u` through `find_processes` `userColumn` (after T040a and T045; owner
   decisions 2026-11-14: the values come from the REST `queueLog` field `userDefined<i>`, no
   StartCLI run) and the coverage decisions for D:
   - `src/main/resources/schemas/find_processes.{input,output}.json`: `userColumn` (integer 1–5);

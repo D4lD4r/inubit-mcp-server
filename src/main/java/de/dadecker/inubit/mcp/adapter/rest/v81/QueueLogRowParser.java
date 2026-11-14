@@ -42,17 +42,11 @@ final class QueueLogRowParser {
     private QueueLogRowParser() {
     }
 
-    /** {@link #parse(NodeId, JsonNode, Instant, Duration, Optional)} without a user column. */
-    static Bounded<ProcessInstance> parse(NodeId server, JsonNode row, Instant now,
-        Duration threshold) {
-        return parse(server, row, now, threshold, Optional.empty());
-    }
-
     /**
      * @param now        the reference time of {@code timeInState} and {@code hanging}
      * @param threshold  the hanging threshold
      * @param userColumn the user-defined column {@code 1..5} to read, as validated by
-     *                   {@code ProcessQuery}
+     *                   {@code ProcessQuery}; empty = none
      * @throws ToolErrorException {@code UNEXPECTED_RESPONSE} for a row without
      *     {@code workflowId} or {@code startTime}
      */

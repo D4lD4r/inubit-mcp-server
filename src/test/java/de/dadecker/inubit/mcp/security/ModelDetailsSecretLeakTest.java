@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.security;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,12 +31,16 @@ import de.dadecker.inubit.mcp.adapter.rest.MaintenanceProbe;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81ModelDetailAdapter;
+import de.dadecker.inubit.mcp.adapter.rest.v81.V81ProcessQueryAdapter;
 import de.dadecker.inubit.mcp.application.ArchiveExportAudit;
 import de.dadecker.inubit.mcp.application.ArchiveExportService;
 import de.dadecker.inubit.mcp.application.ArchiveFolderWriter;
+import de.dadecker.inubit.mcp.application.DiagnosisService;
+import de.dadecker.inubit.mcp.application.FanOut;
 import de.dadecker.inubit.mcp.application.ModelDetailService;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.ResultLimiter;
+import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.TargetFolderRules;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.application.VersionGate;
@@ -58,10 +63,19 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.AuditPort;
+import de.dadecker.inubit.mcp.domain.port.Gateway;
+import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
+import de.dadecker.inubit.mcp.domain.port.InventoryPort;
+import de.dadecker.inubit.mcp.domain.port.LogPort;
+import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
+import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
+import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.infra.ResultJson;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.tools.ExportArchivesTool;
+import de.dadecker.inubit.mcp.mcp.tools.FindProcessesTool;
 import de.dadecker.inubit.mcp.mcp.tools.ReadModelDetailsTool;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
@@ -130,7 +144,12 @@ import tools.jackson.databind.JsonNode;
  * module file holds {@link #ARCHIVE_SECRET} in clear text (as INUBIT exports it) is written to the
  * folder, but the secret appears in no result, error, log line or audit record, also when a
  * second call is refused (an existing file of the same name, before any StartCLI run); failed
- * StartCLI runs of both forms echo the password and a secret-named value. The user column follows in T045b.
+ * StartCLI runs of both forms echo the password and a secret-named value.
+ *
+ * <p>T045b adds {@code find_processes userColumn} on the real {@link DiagnosisService} and
+ * {@link V81ProcessQueryAdapter}: the node's password planted in the {@code userDefined<i>}
+ * fields of a {@code queueLog} row is masked in the shown column, and a failed read whose answer
+ * repeats the row carries it in no error or log line either.
  */
 @Timeout(60)
 class ModelDetailsSecretLeakTest {
@@ -139,6 +158,7 @@ class ModelDetailsSecretLeakTest {
     private static final String USER = "jdoe";
     private static final String DIAGRAM = "Workflow-0301";
     private static final String MODULE_PATH = "/ibis/rest/model/nodeByModel/" + DIAGRAM + "/100";
+    private static final String QUEUE_LOG = "/ibis/rest/log/queueLog";
 
     /** The node's configured password (INUBIT login over REST and StartCLI). */
     private static final String PASSWORD = "model-leak-password-0431";
@@ -178,6 +198,7 @@ class ModelDetailsSecretLeakTest {
         CLI\texport --exportWorkflowGroupExclude\tEXPORT\tE\tUS3\treachable:export_archives/ownerWithoutGroups\tplanned\t-
         CLI\texport --exportMetadata\tEXPORT\tE\tUS3\treachable:export_archives/metadata\tplanned\t-
         CLI\texport --exportMetadataNames\tEXPORT\tE\tUS3\treachable:export_archives/metadata\tplanned\t-
+        CLI\tps -u\tREAD\tD\tUS3\tcovered:find_processes\tplanned\t-
         """;
 
     private static WireMockServer wireMock;
@@ -443,7 +464,102 @@ class ModelDetailsSecretLeakTest {
         assertNoSecret(results, audit.stream().map(AuditRecord::toString).toList());
     }
 
+    /**
+     * T045b: the node's password in every {@code userDefined<i>} of a {@code queueLog} row is
+     * masked in the shown column; a {@code 500} answer that repeats the row and the password
+     * gives an error without it.
+     */
+    @Test
+    void theUserColumnShowsNoSecretInResultsErrorsOrLogs() {
+        String row = """
+            {"queueLog":{"total":1,"success":true,"count":1,"row":[{"workflowId":110219899,
+            "globalPId":110219899,"workflowName":"W","moduleName":"M","startTime":1790861373734,
+            "status":{"level":0,"content":"Error"},"userDefined1":"order 4711 pw %1$s",
+            "userDefined2":"%1$s","userDefined3":"","userDefined4":"user=jdoe;password=%1$s",
+            "userDefined5":"Basic %1$s"}]}}""".formatted(PASSWORD);
+        List<JsonNode> results = new ArrayList<>();
+        try (McpTestClient processes = McpTestClient.start(
+            List.of(new FindProcessesTool(diagnosis())), scrubber)) {
+            processes.initialize();
+            wireMock.stubFor(post(urlPathEqualTo(QUEUE_LOG)).willReturn(aResponse()
+                .withStatus(200).withHeader("Content-Type", "application/json").withBody(row)));
+            for (int column : List.of(1, 2, 4, 5)) {
+                JsonNode result = processes.callTool("find_processes", Map.of("target",
+                    "dev/node1", "userColumn", column));
+                assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
+                assertThat(result.path("structuredContent").path("results").get(0)
+                    .path("page").path("items").get(0).path("userColumnValue").asString())
+                    .as("column " + column).contains(SecretScrubber.MASK);
+                results.add(result);
+            }
+
+            wireMock.stubFor(post(urlPathEqualTo(QUEUE_LOG)).willReturn(aResponse()
+                .withStatus(500).withHeader("Content-Type", "text/plain")
+                .withBody(row + " " + PASSWORD)));
+            JsonNode failed = processes.callTool("find_processes", Map.of("target",
+                "dev/node1", "userColumn", 2));
+            assertThat(failed.path("structuredContent").path("results").get(0).has("error"))
+                .as(failed.toString()).isTrue();
+            results.add(failed);
+        }
+
+        assertNoSecret(results, List.of());
+    }
+
     // --- support -------------------------------------------------------------------------------
+
+    /**
+     * {@code find_processes} on the real service and 8.1 adapter of the node (T045b); the other
+     * ports are not used.
+     */
+    private DiagnosisService diagnosis() {
+        ProcessQueryPort processes = new V81ProcessQueryAdapter(DEV1, http());
+        GatewayFactory gateways = new GatewayFactory() {
+            @Override
+            public Gateway forServer(NodeId server) {
+                throw new AssertionError("not used by find_processes");
+            }
+
+            @Override
+            public InubitVersion detect(NodeId server) {
+                throw new AssertionError("not used by find_processes");
+            }
+
+            @Override
+            public MonitoringPort monitoring(NodeId server) {
+                throw new AssertionError("not used by find_processes");
+            }
+
+            @Override
+            public ProcessQueryPort processes(NodeId server) {
+                return processes;
+            }
+
+            @Override
+            public LogPort logs(NodeId server) {
+                throw new AssertionError("not used by find_processes");
+            }
+
+            @Override
+            public InventoryPort inventory(NodeId server) {
+                throw new AssertionError("not used by find_processes");
+            }
+
+            @Override
+            public ProcessControlPort processControl(NodeId server) {
+                throw new AssertionError("not used by find_processes");
+            }
+
+            @Override
+            public Optional<Gateway> knownGateway(NodeId server) {
+                return Optional.empty();
+            }
+        };
+        return new DiagnosisService(gateways, new TargetResolver(List.of(DEV1)), new FanOut(),
+            ResultLimiter.withDefaults(), node -> Duration.ofSeconds(10),
+            node -> Duration.ofSeconds(10), node -> null, Clock.systemUTC(), ResultJson::size,
+            gate, SecretTiming.NONE);
+    }
 
     /** {@code export_archives} on the real service, adapter and runner of the node (T044). */
     private ArchiveExportService exportService() {
@@ -540,13 +656,17 @@ class ModelDetailsSecretLeakTest {
 
     /** The production composition of {@code V81PortSet}: REST client and library runner. */
     private V81ModelDetailAdapter adapter() {
+        return new V81ModelDetailAdapter(DEV1, http(), runner()::list);
+    }
+
+    private InubitHttpClient http() {
         InubitHttpClient http = new InubitHttpClient(server(),
             Optional.of(new InubitHttpClient.Credentials(USER, scrubber.register(PASSWORD))),
             Optional.empty(), MaintenanceProbe.NONE, scrubber);
         synchronized (clients) {
             clients.add(http);
         }
-        return new V81ModelDetailAdapter(DEV1, http, runner()::list);
+        return http;
     }
 
     private CliLibraryRunner runner() {

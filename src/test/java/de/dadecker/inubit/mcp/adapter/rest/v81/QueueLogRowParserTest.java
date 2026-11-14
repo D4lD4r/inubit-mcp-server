@@ -43,7 +43,7 @@ class QueueLogRowParserTest {
     }
 
     private static Bounded<ProcessInstance> parse(JsonNode row) {
-        return QueueLogRowParser.parse(ID, row, NOW, THRESHOLD);
+        return QueueLogRowParser.parse(ID, row, NOW, THRESHOLD, Optional.empty());
     }
 
     private static JsonNode row(String status, long startTime) {
@@ -267,8 +267,6 @@ class QueueLogRowParserTest {
             ProcessInstance plain = parse(row).value();
 
             assertThat(plain.userColumnValue()).isEmpty();
-            assertThat(QueueLogRowParser.parse(ID, row, NOW, THRESHOLD, Optional.empty()))
-                .isEqualTo(parse(row));
             assertThat(parse(row, 1).value()).usingRecursiveComparison()
                 .ignoringFields("userColumnValue").isEqualTo(plain);
         }

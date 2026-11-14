@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.application;
 
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.CoverageKey;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
 import de.dadecker.inubit.mcp.domain.model.LogQuery;
@@ -32,6 +33,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.ToIntFunction;
 import java.util.regex.Pattern;
@@ -74,6 +76,11 @@ import java.util.regex.Pattern;
  *   <li>Items are sorted newest first and each server's page is bounded with
  *       {@link ResultLimiter#share(int) share(n)}; a page whose items were cut by the adapter
  *       stays {@code truncated}.
+ *   <li>T045b (research D-21): a requested {@code userColumn} is admitted per server with
+ *       {@link VersionGate#admitOption} on {@link #USER_COLUMN} before the capability
+ *       admission; an admitted server's query carries it to the read it makes anyway. A server
+ *       that is not admitted is queried without it, and its warnings say why; when it is the
+ *       only resolved server, the refusal is its {@code error}.
  * </ul>
  */
 public final class DiagnosisService {
@@ -83,6 +90,9 @@ public final class DiagnosisService {
     /** Upper bound of {@code offset + limit} (research R-9). */
     public static final int MAX_WINDOW = 10_000;
     static final Duration FAN_OUT_GRACE = Duration.ofSeconds(1);
+
+    /** The coverage entry whose data {@code userColumn} shows (research D-21). */
+    static final CoverageKey USER_COLUMN = new CoverageKey(Channel.CLI, "ps -u");
 
     private static final Pattern PROCESS_ID = Pattern.compile("^[0-9A-Za-z_-]{1,64}$");
     private static final String TIME_FORMATS = "an ISO-8601 timestamp with offset, e.g."
@@ -101,11 +111,14 @@ public final class DiagnosisService {
         }
     }
 
-    /** The arguments of {@code find_processes} (contracts/mcp-tools.md §3). */
+    /**
+     * The arguments of {@code find_processes} (contracts/mcp-tools.md §3; {@code userColumn}:
+     * T045b, contracts/mcp-tools-delta.md).
+     */
     public record ProcessRequest(String target, Set<ProcessState> states, boolean hangingOnly,
         Optional<Integer> hangingThresholdMinutes, Optional<String> workflow,
         Optional<String> tag, Optional<String> since, Optional<String> until, int offset,
-        int limit) {
+        int limit, Optional<Integer> userColumn) {
 
         public ProcessRequest {
             Objects.requireNonNull(target, "target");
@@ -116,6 +129,7 @@ public final class DiagnosisService {
             tag = tag == null ? Optional.empty() : tag;
             since = since == null ? Optional.empty() : since;
             until = until == null ? Optional.empty() : until;
+            userColumn = userColumn == null ? Optional.empty() : userColumn;
         }
     }
 
@@ -188,16 +202,17 @@ public final class DiagnosisService {
         Optional<Instant> until = time("until", request.until(), now);
         checkRange(since, until);
         checkPaging(request.offset(), request.limit());
-        Function<NodeId, ProcessQuery> queryOf = server -> new ProcessQuery(request.states(),
-            request.hangingOnly(), threshold(request, server), request.workflow(),
-            request.tag(), since, until, request.offset(), request.limit(), now,
-            Optional.empty());
+        BiFunction<NodeId, Optional<Integer>, ProcessQuery> queryOf = (server, column) ->
+            new ProcessQuery(request.states(), request.hangingOnly(), threshold(request, server),
+                request.workflow(), request.tag(), since, until, request.offset(),
+                request.limit(), now, column);
         // feature 011 (review T013-T014 r1): checked for every node without its credentials;
         // feature 012 (research D-10): an input the node's version cannot serve (tag on 6.1)
         // becomes that node's entry
         Map<NodeId, ToolErrorException> refused = new HashMap<>();
         servers.forEach(server -> validate(
-            () -> gateways.queryRules(server).validate(queryOf.apply(server)))
+            () -> gateways.queryRules(server).validate(queryOf.apply(server,
+                request.userColumn())))
             .ifPresent(refusal -> refused.put(server,
                 new ToolErrorException(refusal.error().withNode(server)))));
         ResultLimiter shared = limiter.share(servers.size());
@@ -210,8 +225,13 @@ public final class DiagnosisService {
             if (refusal != null) {
                 throw refusal;
             }
+            Optional<ToolErrorException> noColumn = request.userColumn().isEmpty()
+                ? Optional.empty() : admitUserColumn(server, servers.size() == 1);
             List<String> warnings = admit("find_processes", Capability.PROCESS_DIAGNOSIS, server);
-            ProcessQuery query = queryOf.apply(server);
+            noColumn.ifPresent(e -> warnings.add("userColumn unavailable (" + e.error().code()
+                + "): " + e.error().message()));
+            ProcessQuery query = queryOf.apply(server,
+                noColumn.isEmpty() ? request.userColumn() : Optional.empty());
             Duration threshold = query.hangingThreshold();
             if (query.matchesNothing()) {
                 return new NodePage<>(empty(request.offset(), request.limit()), warnings);
@@ -279,6 +299,22 @@ public final class DiagnosisService {
         List<String> warnings = new ArrayList<>(admission.warnings());
         warnings.addAll(admission.notes());
         return warnings;
+    }
+
+    /**
+     * The version gate's admission of {@code userColumn} on {@code server} (T045b): empty if
+     * admitted, else the refusal, which is thrown instead when the server is the only one.
+     */
+    private Optional<ToolErrorException> admitUserColumn(NodeId server, boolean alone) {
+        try {
+            gate.admitOption("find_processes", server, USER_COLUMN);
+            return Optional.empty();
+        } catch (ToolErrorException e) {
+            if (alone) {
+                throw e;
+            }
+            return Optional.of(e);
+        }
     }
 
     /**

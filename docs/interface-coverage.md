@@ -16,8 +16,8 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | State | 8.1 | 9.0 |
 | --- | ---: | ---: |
 | reachable | 42 | 41 |
-| covered | 39 | 39 |
-| planned | 101 | 102 |
+| covered | 40 | 39 |
+| planned | 100 | 102 |
 | undocumented | 3 | 1 |
 | excluded | 65 | 67 |
 | all entries | 250 | 250 |
@@ -151,7 +151,7 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | CLI `-nx` | READ | - | covered `get_health` | covered `get_health` |
 | CLI `-nw` | READ | - | covered `get_health` | covered `get_health` |
 | CLI `-nq` | READ | - | covered `get_health` | covered `get_health` |
-| CLI `ps -u` | READ | US3 | planned | planned |
+| CLI `ps -u` | READ | US3 | covered `find_processes` | planned |
 | CLI `processErrorStart` | WRITE | - | reachable `restart_process/default` | reachable `restart_process/default` |
 | CLI `kill` | WRITE | - | reachable `kill_process/default` | reachable `kill_process/default` |
 | CLI `processdelete error` | WRITE | US4 | planned | planned |

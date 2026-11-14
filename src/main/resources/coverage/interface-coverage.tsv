@@ -126,6 +126,7 @@ REST	PUT /libraries	WRITE	C	US6	planned	planned	-
 REST	PUT /keys	WRITE	C	US6	planned	planned	-
 
 # D. Processes and run-time data
+# ps -u: covered:find_processes on 8.1: find_processes userColumn reads userDefined<i> of the REST queueLog rows, the data ps -u shows (T039 recordings; owner decisions 2026-11-14, research D-21); 9.0 planned until the US3 9.0 follow-up (T046a)
 CLI	ps -f	READ	D	-	covered:find_processes	covered:find_processes	-
 CLI	ps -a	READ	D	-	covered:find_processes	covered:find_processes	-
 CLI	ps -e	READ	D	-	covered:find_processes	covered:find_processes	-
@@ -139,7 +140,7 @@ CLI	-ne	READ	D	-	covered:get_health	covered:get_health	-
 CLI	-nx	READ	D	-	covered:get_health	covered:get_health	-
 CLI	-nw	READ	D	-	covered:get_health	covered:get_health	-
 CLI	-nq	READ	D	-	covered:get_health	covered:get_health	-
-CLI	ps -u	READ	D	US3	planned	planned	-
+CLI	ps -u	READ	D	US3	covered:find_processes	planned	-
 CLI	processErrorStart	WRITE	D	-	reachable:restart_process/default	reachable:restart_process/default	-
 CLI	kill	WRITE	D	-	reachable:kill_process/default	reachable:kill_process/default	-
 CLI	processdelete error	WRITE	D	US4	planned	planned	-

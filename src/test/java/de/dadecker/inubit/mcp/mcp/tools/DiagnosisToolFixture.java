@@ -18,6 +18,7 @@ import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.InterfaceCoverage;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.infra.ResultJson;
@@ -63,6 +64,17 @@ final class DiagnosisToolFixture implements AutoCloseable {
     /** @param devVersionLine the {@code versionLine} of {@code dev/node1} */
     DiagnosisToolFixture(WireMockServer dev, WireMockServer integration,
         Function<DiagnosisService, ToolHandler> tool, VersionSetting devVersionLine) {
+        this(dev, integration, tool, devVersionLine, InterfaceCoverage.production());
+    }
+
+    /**
+     * @param devVersionLine the {@code versionLine} of {@code dev/node1}
+     * @param coverage       the coverage list of the version gate (T045b: {@code userColumn} is
+     *                       admitted by its {@code CLI ps -u} row)
+     */
+    DiagnosisToolFixture(WireMockServer dev, WireMockServer integration,
+        Function<DiagnosisService, ToolHandler> tool, VersionSetting devVersionLine,
+        InterfaceCoverage coverage) {
         List<EffectiveNodeConfig> servers = List.of(
             server("dev/node1", "https://localhost:" + dev.httpsPort(), devVersionLine),
             server("qa/node1", "https://localhost:" + integration.httpsPort(),
@@ -91,7 +103,7 @@ final class DiagnosisToolFixture implements AutoCloseable {
         DiagnosisService diagnosis = new DiagnosisService(gateways, new TargetResolver(ids),
             new FanOut(), ResultLimiter.withDefaults(), timeouts::get, cliTimeouts::get,
             thresholds::get, Clock.systemUTC(), ResultJson::size,
-            gateWithoutClients(versions, gateways, CapabilityMatrix.production()),
+            gateWithoutClients(versions, gateways, CapabilityMatrix.production(), coverage),
             SecretTiming.NONE);
         client = McpTestClient.start(List.of(tool.apply(diagnosis)), scrubber);
         client.initialize();

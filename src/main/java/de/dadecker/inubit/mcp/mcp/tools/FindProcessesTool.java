@@ -5,6 +5,7 @@ import de.dadecker.inubit.mcp.application.DiagnosisService;
 import de.dadecker.inubit.mcp.domain.model.ProcessState;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import de.dadecker.inubit.mcp.mcp.ToolHints;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -16,12 +17,17 @@ import java.util.stream.Collectors;
  * port's check of a server whose credentials are not fetched yet runs in that server's own branch,
  * so its {@code INVALID_INPUT} becomes that server's {@code error} (feature 010, research R-8
  * addendum).
+ *
+ * <p>T045b (research D-21): with {@code userColumn} the result also names the column, and each
+ * process carries its {@code userColumnValue}; without it the result is unchanged.
  */
 public final class FindProcessesTool implements ToolHandler {
 
     static final String DESCRIPTION = "Find process instances on INUBIT {nodes}, e.g. failed"
         + " (ERROR) or hanging ones, filtered by workflow, state, and time. Use the returned"
-        + " processId and time range with `query_logs` to find the cause.";
+        + " processId and time range with `query_logs` to find the cause. userColumn (1 to 5)"
+        + " adds that user-defined Queue Manager column to each process: the field"
+        + " userDefined<i> of the REST queueLog row, the data of StartCLI `ps -u`.";
 
     private final DiagnosisService diagnosis;
 
@@ -59,7 +65,14 @@ public final class FindProcessesTool implements ToolHandler {
             args.optionalString("since"),
             args.optionalString("until"),
             args.integer("offset", 0),
-            args.integer("limit", 50));
-        return NodePages.of(diagnosis.findProcesses(request));
+            args.integer("limit", 50),
+            args.optionalInteger("userColumn"));
+        NodePages pages = NodePages.of(diagnosis.findProcesses(request));
+        return request.userColumn().<Object>map(
+            column -> new WithUserColumn(column, pages.results())).orElse(pages);
+    }
+
+    /** The result shape {@code {userColumn, results}} of a call with {@code userColumn}. */
+    record WithUserColumn(int userColumn, List<NodePages.Entry> results) {
     }
 }
