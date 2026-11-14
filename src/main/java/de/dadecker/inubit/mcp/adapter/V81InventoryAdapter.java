@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.adapter.cli.v81.VersionHistoryParser;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.MediaRange;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.ResourceKind;
+import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.adapter.rest.v81.DiagramExportParser;
 import de.dadecker.inubit.mcp.adapter.rest.v81.ModelDetailParser;
 import de.dadecker.inubit.mcp.adapter.rest.v81.ModelListParser;
@@ -36,11 +37,6 @@ import java.util.Objects;
  */
 public final class V81InventoryAdapter implements InventoryPort {
 
-    private static final String MODELS = "/ibis/rest/model/models";
-    private static final String MODEL_BY_NAME = "/ibis/rest/model/modelByName/";
-    private static final String EXPORT = "/ibis/rest/model/export/";
-    private static final String SYSTEM_INFO = "/ibis/rest/system/info";
-
     private final NodeId server;
     private final InubitHttpClient client;
     private final CliExportRunner exports;
@@ -53,21 +49,21 @@ public final class V81InventoryAdapter implements InventoryPort {
 
     @Override
     public List<InventoryItem> listDiagrams(String owner) {
-        byte[] body = client.get(MODELS, Map.of("user", owner), MediaRange.XML,
-            ResourceKind.ENDPOINT).body();
+        byte[] body = client.get(RestEndpoint.MODELS, List.of(), Map.of("user", owner),
+            MediaRange.XML, ResourceKind.ENDPOINT).body();
         return ModelListParser.parse(server, owner, body);
     }
 
     @Override
     public DiagramDetail diagramDetail(String owner, String name) {
-        byte[] body = client.get(MODEL_BY_NAME + InubitHttpClient.encodePathSegment(name),
+        byte[] body = client.get(RestEndpoint.MODEL_BY_NAME, List.of(name),
             Map.of("user", owner), MediaRange.XML).body();
         return ModelDetailParser.parse(server, body);
     }
 
     @Override
     public DiagramMetadata diagramMetadata(String name) {
-        byte[] body = client.get(EXPORT + InubitHttpClient.encodePathSegment(name), Map.of(),
+        byte[] body = client.get(RestEndpoint.MODEL_EXPORT, List.of(name), Map.of(),
             MediaRange.ANY).body();
         return DiagramExportParser.parse(server, body);
     }
@@ -98,7 +94,8 @@ public final class V81InventoryAdapter implements InventoryPort {
      */
     void confirmCredentials() {
         if (!client.credentialGuard().confirmed()) {
-            client.get(SYSTEM_INFO, Map.of(), MediaRange.XML, ResourceKind.ENDPOINT, 403);
+            client.get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of(), MediaRange.XML,
+                ResourceKind.ENDPOINT, 403);
         }
     }
 

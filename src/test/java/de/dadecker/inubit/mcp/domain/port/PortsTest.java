@@ -164,6 +164,56 @@ class PortsTest {
     }
 
     @Test
+    void aGatewayWithoutServerSettingsAdapterRefusesThemAsUnsupportedForItsNode() {
+        // feature 022 T020: adapter lines without a settings adapter
+        assertThatThrownBy(() -> new PreviousGateway().serverSettings())
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+                assertThat(e.error().node()).contains(NODE);
+                assertThat(e.error().message()).contains("Server settings", "dev/node1");
+            });
+        GatewayFactory factory = (GatewayFactory) Proxy.newProxyInstance(
+            GatewayFactory.class.getClassLoader(), new Class<?>[] {GatewayFactory.class},
+            (proxy, method, args) -> {
+                if (method.isDefault()) {
+                    return InvocationHandler.invokeDefault(proxy, method, args);
+                }
+                if (method.getName().equals("forServer")) {
+                    return new PreviousGateway();
+                }
+                throw new AssertionError(method + " was not expected");
+            });
+        assertThatThrownBy(() -> factory.serverSettings(NODE))
+            .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION));
+    }
+
+    @Test
+    void aGatewayWithoutUserAdapterRefusesUserReadsAsUnsupportedForItsNode() {
+        // feature 022 T033: adapter lines without a user directory adapter
+        assertThatThrownBy(() -> new PreviousGateway().userDirectory())
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+                assertThat(e.error().node()).contains(NODE);
+                assertThat(e.error().message()).contains("User reads", "dev/node1");
+            });
+        GatewayFactory factory = (GatewayFactory) Proxy.newProxyInstance(
+            GatewayFactory.class.getClassLoader(), new Class<?>[] {GatewayFactory.class},
+            (proxy, method, args) -> {
+                if (method.isDefault()) {
+                    return InvocationHandler.invokeDefault(proxy, method, args);
+                }
+                if (method.getName().equals("forServer")) {
+                    return new PreviousGateway();
+                }
+                throw new AssertionError(method + " was not expected");
+            });
+        assertThatThrownBy(() -> factory.userDirectory(NODE))
+            .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION));
+    }
+
+    @Test
     void aGatewayWithoutNodeToolAdaptersReportsTheCliAsUnavailableForItsNode() {
         // feature 024 T015 (research D-24): adapter lines without the node-tool adapters
         Gateway gateway = new PreviousGateway();

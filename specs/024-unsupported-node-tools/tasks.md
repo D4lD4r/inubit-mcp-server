@@ -700,6 +700,9 @@ the other just changed.
   long option names differ from T040/T041, fix them test-first before the flip; the own-node lookup
   is covered by the recorded `ownNode`/`clusterNodes` frames of T025; **owner reviews the fixture
   diff**; 8.1 `LOG_LEVEL_WRITE` → `SUPPORTED`, same test updates as T025
+  Note (merge review): in the same commit set the `CLI trace --nodelevel`, `--package` and
+  `--reset` rows of interface-coverage.tsv for that line from `planned` (US4) to `reachable`
+  (`set_temporary_log_level` / `reset_temporary_log_level`) and regenerate docs/interface-coverage.md.
 
 **Checkpoint**: build green; US4 end to end offline incl. cleanup, scheduler, two instances,
 shutdown and startup; code review of Phase 6.
@@ -738,6 +741,9 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   commit** (as T038 for `v9_0/node-config`; `noOfRetries`/`retryInterval` present on 9.0)
 - [ ] T065 [US5] **[OWNER]** **[BLOCKED: T061, T062]** Enable 9.0 `log_level_write` in **one commit**
   (as T058 for `v9_0/log-level`)
+  Note (merge review): in the same commit set the `CLI trace --nodelevel`, `--package` and
+  `--reset` rows of interface-coverage.tsv for that line from `planned` (US4) to `reachable`
+  (`set_temporary_log_level` / `reset_temporary_log_level`) and regenerate docs/interface-coverage.md.
 - [ ] T066 [US5] **[OWNER]** FR-005 fallback (only for a 9.0 capability whose recording could not be
   made): it stays `UNSUPPORTED` "not yet verified"; `NodeToolsVersionSelectionTest` and the docs
   state it; the owner confirms; noted in `reviews/implementation.md`
@@ -798,12 +804,16 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   `unsupported.*` keys, `get_health` `temporaryLogLevels`, `list_nodes` names, the summary parts
   and the `Temporary log levels:` section; the 8.1 / 9.0 state per capability; Changed (internal) —
   `EntryText` extracted from `read_queue_entry`, `WriteGuard`/`WriteChallengeRegistry` overloads
-- [ ] T074 Feature 022 integration (D-18; only if 022 is merged before this feature, else noted in
+- [X] T074 Feature 022 integration (D-18; only if 022 is merged before this feature, else noted in
   `reviews/implementation.md` as 022's task): rebase; `src/main/resources/coverage/interface-coverage.tsv`
   rows `trace -nl` (reachable, `set_temporary_log_level`), `trace -r` (reachable,
   `reset_temporary_log_level`), `cachemode nodelist` (not used: answering node via the helper);
   `CliCommand` `trace` forms merged with 022's area A (never offered by these tools); the log-level
   guard on 022's `ChangeGuard`; 022's coverage tests and `docs/interface-coverage.md` regenerated
+  Note (merge, owner decision: merge instead of rebase): the rows are named with the long forms
+  (`CLI trace --nodelevel`, `--package`, `--reset`; check 1 needs one row per CliCommand option) and
+  are `planned` (022 US4) until a line verifies `log_level_write` (see T058/T065); `cachemode nodelist`
+  is excluded; 022's `ChangeGuard` is not on main, the log-level guard on it stays 022's task.
 
 ### Full verification
 

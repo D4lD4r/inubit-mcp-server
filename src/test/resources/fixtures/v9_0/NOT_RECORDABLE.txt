@@ -1,6 +1,8 @@
 # INUBIT 9.0 fixture cases that tools/record-fixtures.sh (RECORD_INUBIT_LINE=9.0) does not record
-# (feature 017, research D-10, SC-006). They stay "reconstructed". The set is asserted exactly by
-# V90FixtureCatalogueTest, so an exemption cannot be added silently.
+# (feature 017, research D-10, SC-006). The write successes and REST 403/500/503 stay
+# "reconstructed"; the feature-022 administration cases (research D-26) are recorded once by their
+# live task and neutralized (origin "recorded <date> <version> neutralized", README). The set is
+# asserted exactly by V90FixtureCatalogueTest, so an exemption cannot be added silently.
 # Format: <case> <reason>
 import_created        write success: the read-only recorder never imports; confirmed by the live check after the release (quickstart steps 8-9, result text compared with the fixture)
 tag_ok                write success: the read-only recorder never tags; confirmed by the live check after the release (quickstart steps 8-9, result text compared with the fixture)
@@ -9,3 +11,24 @@ kill_ok               write success: the recorder only kills the absent process 
 rest_forbidden        REST 403: no reproducible way to provoke it on a test node; the status drives the error code (contract-tested, shared with 8.1), the body only feeds a scrubbed excerpt (D-12)
 rest_internal_error   REST 500: no reproducible way to provoke it on a test node; the status drives the error code (contract-tested, shared with 8.1), the body only feeds a scrubbed excerpt (D-12)
 rest_unavailable      REST 503: no reproducible way to provoke it on a test node; the status drives the error code (contract-tested, shared with 8.1), the body only feeds a scrubbed excerpt (D-12)
+admin-settings-session                        administration recording (feature 022, T024): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-settings-threads-refused                administration recording (feature 022, T024): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-settings-privileged-percentage-refused  administration recording (feature 022, T024): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-settings-privileged-list-refused        administration recording (feature 022, T024): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-settings-db-tolerance                   administration recording (feature 022, T024): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-settings-date                           administration recording (feature 022, T024): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-settings-license-days                   administration recording (feature 022, T024): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-settings-license-seconds                administration recording (feature 022, T024): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-license                                 administration recording (feature 022, T024): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-configurations                          administration recording (feature 022, T024): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-users-session                           administration recording (feature 022, T028b): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-users-user                              administration recording (feature 022, T028b): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-users-finger                            administration recording (feature 022, T028b): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-users-user-capitalized                  administration recording (feature 022, T028b): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-users-finger-capitalized                administration recording (feature 022, T028b): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-users-user-underscore                   administration recording (feature 022, T028b): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-users-finger-no-name                    administration recording (feature 022, T028b): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-users-msglist-empty                     administration recording (feature 022, T028b): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-users-who                               administration recording (feature 022, T028b): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-users-nwho                              administration recording (feature 022, T028b): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-users                                   administration recording (feature 022, T028b): run once by the owner-approved live task and neutralized; the recorder has no administration case

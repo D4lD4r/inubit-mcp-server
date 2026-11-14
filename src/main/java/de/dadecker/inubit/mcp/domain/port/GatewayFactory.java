@@ -122,6 +122,22 @@ public interface GatewayFactory {
     }
 
     /**
+     * The settings port of {@code server} (feature 022, US1); the default asks the gateway, whose
+     * default throws {@code UNSUPPORTED_VERSION}.
+     */
+    default ServerSettingsPort serverSettings(NodeId server) {
+        return forServer(server).serverSettings();
+    }
+
+    /**
+     * The user-directory port of {@code server} (feature 022, US2); the default asks the gateway,
+     * whose default throws {@code UNSUPPORTED_VERSION}.
+     */
+    default UserDirectoryPort userDirectory(NodeId server) {
+        return forServer(server).userDirectory();
+    }
+
+    /**
      * The cluster-node port of {@code server} (feature 024); the default asks the gateway, whose
      * default throws {@code CLI_UNAVAILABLE}.
      */

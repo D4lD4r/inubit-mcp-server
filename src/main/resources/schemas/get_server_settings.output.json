@@ -1,0 +1,155 @@
+{
+  "type": "object",
+  "required": ["settings"],
+  "properties": {
+    "settings": {
+      "type": "array",
+      "description": "One entry per resolved {node}, in config order",
+      "items": { "$ref": "#/$defs/ServerSettings" }
+    },
+    "serverUpdate": { "$ref": "#/$defs/ServerUpdate" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "ServerUpdate": {
+      "type": "object",
+      "description": "The last update check of this MCP server; absent while the check is off or none succeeded",
+      "required": ["currentVersion", "latestVersion", "updateAvailable", "releaseUrl",
+        "checkedAt"],
+      "properties": {
+        "currentVersion": { "type": "string" },
+        "latestVersion": { "type": "string" },
+        "updateAvailable": { "type": "boolean" },
+        "releaseUrl": { "type": "string" },
+        "checkedAt": { "type": "string", "description": "ISO-8601 timestamp" },
+        "notice": { "type": "string", "description": "How to update manually" }
+      },
+      "additionalProperties": false
+    },
+    "ServerSettings": {
+      "type": "object",
+      "description": "The settings of one {node}; only `node` and `error` when it could not be read at all",
+      "required": ["node"],
+      "properties": {
+        "node": { "type": "string" },
+        "license": {
+          "type": "object",
+          "properties": {
+            "expiryDate": { "type": "string", "description": "ISO-8601 date" },
+            "licensedThreads": { "type": "integer" },
+            "licensee": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "workflowThreads": { "type": "integer" },
+        "privilegedWorkflows": {
+          "type": "object",
+          "required": ["percentage", "workflows", "truncated"],
+          "properties": {
+            "percentage": { "type": "integer" },
+            "workflows": { "type": "array", "items": { "type": "string" }, "maxItems": 200 },
+            "truncated": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "dbConnectionTolerance": {
+          "type": "object",
+          "required": ["faultThreshold", "dropRatePercent", "dropIntervalSeconds"],
+          "properties": {
+            "faultThreshold": { "type": "integer" },
+            "dropRatePercent": { "type": "integer" },
+            "dropIntervalSeconds": { "type": "integer" }
+          },
+          "additionalProperties": false
+        },
+        "blockingQueueSize": { "type": "integer" },
+        "version": { "type": "string" },
+        "memoryUsedPercent": { "type": "number" },
+        "maintenanceMode": { "type": "boolean" },
+        "serverTime": { "type": "string", "description": "As the {node} shows it" },
+        "configuration": { "$ref": "#/$defs/Configuration" },
+        "sources": {
+          "type": "object",
+          "description": "The channel each returned fact came from",
+          "propertyNames": {
+            "enum": ["license", "licensedThreads", "workflowThreads", "privilegedWorkflows",
+              "dbConnectionTolerance", "blockingQueueSize", "version", "memoryUsedPercent",
+              "maintenanceMode", "serverTime", "configuration"]
+          },
+          "additionalProperties": { "enum": ["REST", "CLI"] }
+        },
+        "unavailable": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["part", "reason"],
+            "properties": {
+              "part": {
+                "enum": ["license", "threads", "privilegedWorkflows", "dbConnectionTolerance",
+                  "configuration", "serverTime", "status", "version", "load"]
+              },
+              "reason": { "type": "string", "description": "CODE: message" },
+              "likelyCause": { "type": "string" },
+              "nextStep": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "error": { "$ref": "#/$defs/ToolError" }
+      },
+      "oneOf": [
+        { "required": ["sources", "unavailable", "warnings"] },
+        { "required": ["error"] }
+      ],
+      "additionalProperties": false
+    },
+    "Configuration": {
+      "type": "object",
+      "description": "The section names, or the values of one section",
+      "required": ["maskedCount"],
+      "properties": {
+        "sections": { "type": "array", "items": { "type": "string" } },
+        "section": { "type": "string" },
+        "values": { "type": "array", "items": { "$ref": "#/$defs/ConfigurationValue" } },
+        "maskedCount": { "type": "integer", "minimum": 0 },
+        "truncated": { "type": "boolean", "description": "true if the section has more values" }
+      },
+      "oneOf": [
+        { "required": ["sections"] },
+        { "required": ["section", "values", "truncated"] }
+      ],
+      "additionalProperties": false
+    },
+    "ConfigurationValue": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": { "type": "string", "description": "JSON pointer below the section" },
+        "value": { "type": "string" },
+        "masked": { "const": true }
+      },
+      "oneOf": [{ "required": ["value"] }, { "required": ["masked"] }],
+      "additionalProperties": false
+    },
+    "ToolError": {
+      "type": "object",
+      "required": ["code", "message", "likelyCause", "nextStep"],
+      "properties": {
+        "code": {
+          "enum": ["TARGET_UNKNOWN", "UNREACHABLE", "TIMEOUT", "TLS_ERROR", "AUTH_FAILED",
+            "FORBIDDEN", "MAINTENANCE_MODE", "NOT_FOUND", "INVALID_INPUT", "CLI_UNAVAILABLE",
+            "UNEXPECTED_RESPONSE", "WRITE_DISABLED", "PRODUCTION_PROTECTED",
+            "CONFIRMATION_REQUIRED", "CONFIRMATION_INVALID", "PRECONDITION_FAILED",
+            "UNSUPPORTED_VERSION", "NOT_CONFIGURED", "INTERNAL"]
+        },
+        "message": { "type": "string" },
+        "likelyCause": { "type": "string" },
+        "nextStep": { "type": "string" },
+        "node": { "type": "string" },
+        "excerpt": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

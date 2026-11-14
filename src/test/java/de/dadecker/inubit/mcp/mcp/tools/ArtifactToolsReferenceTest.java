@@ -35,7 +35,7 @@ class ArtifactToolsReferenceTest {
             assertThat(reference).contains("[acme] " + Terminology.DEFAULT.render(description));
         }
         assertThat(reference).contains("| [`export_artifacts`](#export_artifacts) |",
-            "| [`check_artifacts`](#check_artifacts) |", "All twenty-seven tools");
+            "| [`check_artifacts`](#check_artifacts) |", "All twenty-nine tools");
     }
 
     @Test

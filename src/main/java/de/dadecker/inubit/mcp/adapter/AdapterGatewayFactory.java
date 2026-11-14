@@ -24,6 +24,7 @@ import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
 import de.dadecker.inubit.mcp.domain.port.ClusterNodePort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
+import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
@@ -38,6 +39,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueryRules;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
+import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.time.Clock;
@@ -80,8 +82,8 @@ import org.slf4j.LoggerFactory;
  * {@link VersionObserver} whenever ports are requested ({@link #processes}, {@link #logs},
  * {@link #inventory}, {@link #processControl}, {@link #artifacts}, {@link #imports},
  * {@link #tags}, {@link #partners}, {@link #queueEntryContent}, {@link #serverLogs},
- * {@link #clusterNodes}, {@link #ioLog}, {@link #nodeConfig}, {@link #logLevel} and the
- * gateway's port methods).
+ * {@link #serverSettings}, {@link #userDirectory}, {@link #clusterNodes}, {@link #ioLog},
+ * {@link #nodeConfig}, {@link #logLevel} and the gateway's port methods).
  * The selection itself never detects: the version gate detects before it admits a call, so the
  * ports requested after the admission belong to the detected version. The port set is built once
  * per selected range and rebuilt when the effective version moves to another range (e.g. after a
@@ -225,6 +227,16 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
     @Override
     public ServerLogPort serverLogs(NodeId server) {
         return slot(server).ports().serverLogs();
+    }
+
+    @Override
+    public ServerSettingsPort serverSettings(NodeId server) {
+        return slot(server).ports().serverSettings();
+    }
+
+    @Override
+    public UserDirectoryPort userDirectory(NodeId server) {
+        return slot(server).ports().userDirectory();
     }
 
     @Override

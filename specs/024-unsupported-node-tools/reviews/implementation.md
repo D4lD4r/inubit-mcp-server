@@ -96,3 +96,24 @@ opt-in.
 
 The orchestrator asked the operator on 2026-11-12 for the read spikes T018 (8.1) and T060 (9.0)
 (a run with input/output logging to name); they run in parallel to the offline work. The agent proposes the concrete action per spike and waits for the operator's go.
+
+## T074 – Feature 022 integration, partial (2026-11-14)
+
+`main` now holds feature 022 user stories 1 and 2 (#87, #88, #89); this branch merges it.
+
+- Coverage list: rows `trace --nodelevel`, `trace --package`, `trace --reset` and
+  `cachemode nodelist` (excluded, not used: the answering node comes from the helper).
+  The `trace` rows are written as the server sends them, like `trace --download`: check 1 of
+  `InterfaceCoverageCheckTest` needs a row per `CliCommand.OPTIONS` pair; the vendor's short
+  forms are `-nl`, `-p` and `-r`. They are `planned` (story US4, 022's area A writes), not yet
+  `reachable`: check 3 accepts `reachable` only for a registered tool, and the log-level tools are
+  not announced while `log_level_write` is "not yet verified" on 8.1 and 9.0. The commit that
+  verifies `log_level_write` on a line makes the three rows `reachable` there
+  (`set_temporary_log_level`, `reset_temporary_log_level`). `docs/interface-coverage.md`
+  regenerated (`mvn -q -Dcoverage.write=true test -Dtest=InterfaceCoverageDocsTest`).
+- `CliCommand`: 022 has not changed it on `main`; its area A forms (`trace on|off`, `trace -l`)
+  are still `planned` (US4), so nothing to merge yet. The `trace` validation admits only
+  `--download`, `--nodelevel` + `--package` and `--reset`.
+- **Open, 022's task**: `ChangeGuard` is not on `main` (it comes with 022's write stories). The
+  log-level tools keep the `WriteGuard` overload (T047); switching them to `ChangeGuard` falls to
+  022 when it adds it.

@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
 import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
 import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
 import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
 import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
@@ -56,7 +57,8 @@ class RefusingPortsTest {
         assertThat(method.getDeclaringClass()).isAssignableFrom(RefusingPorts.class);
 
         Object[] args = Stream.of(method.getParameterTypes())
-            .map(type -> type == long.class ? (Object) 0L : null).toArray();
+            .map(type -> type == long.class ? (Object) 0L : type == int.class ? (Object) 0 : null)
+            .toArray();
         Throwable thrown = catchThrowable(() -> method.invoke(refusing, args));
 
         assertThat(thrown).isInstanceOf(InvocationTargetException.class);
@@ -146,7 +148,8 @@ class RefusingPortsTest {
     void theNodeToolPortsRefuseWithTheSixOneRefusalWithoutContact() {
         // feature 024 T015 (research D-24): not the CLI_UNAVAILABLE of a port set without adapter
         PortSet ports = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
-            refusing, refusing, refusing, refusing, refusing, refusing, refusing, refusing);
+            refusing, refusing, refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing);
 
         for (ThrowingCallable call : nodeToolCalls(ports)) {
             assertThatThrownBy(call)
@@ -174,6 +177,71 @@ class RefusingPortsTest {
                     .isInstanceOfSatisfying(ToolErrorException.class, e -> {
                         assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
                         assertThat(e.error().message()).contains("not available");
+                    });
+            }
+        }
+    }
+
+    @Test
+    void serverSettingsRefuseWithTheSixOneRefusalWithoutContact() {
+        // feature 022 T020: no settings reads on 6.1 (spec edge case "INUBIT 6.1")
+        for (Runnable call : List.<Runnable>of(refusing::license,
+            () -> refusing.configuration(Optional.empty(), 100, 50_000),
+            () -> refusing.cliSettings(Set.of(UnavailablePart.THREADS)))) {
+            assertThatThrownBy(call::run).isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error()).isEqualTo(refusing.refusal().error()));
+        }
+    }
+
+    @Test
+    void thePortSetCompatibilityConstructorsFillInARefusingServerSettingsPort() {
+        // feature 022 T020: port sets built with the previous eight, nine or ten ports
+        PortSet eight = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing);
+        PortSet nine = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing);
+        PortSet ten = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing, refusing);
+
+        for (PortSet ports : List.of(eight, nine, ten)) {
+            for (Runnable call : List.<Runnable>of(() -> ports.serverSettings().license(),
+                () -> ports.serverSettings().configuration(Optional.empty(), 100, 50_000),
+                () -> ports.serverSettings().cliSettings(Set.of()))) {
+                assertThatThrownBy(call::run).isInstanceOfSatisfying(ToolErrorException.class,
+                    e -> {
+                        assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+                        assertThat(e.error().message()).contains("Server settings");
+                    });
+            }
+        }
+    }
+
+    @Test
+    void userReadsRefuseWithTheSixOneRefusalWithoutContact() {
+        // feature 022 T033: no user reads on 6.1 (spec edge case "INUBIT 6.1")
+        for (Runnable call : List.<Runnable>of(refusing::listUsers,
+            () -> refusing.readUsers(List.of("jdoe")), refusing::loggedIn)) {
+            assertThatThrownBy(call::run).isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error()).isEqualTo(refusing.refusal().error()));
+        }
+    }
+
+    @Test
+    void thePortSetCompatibilityConstructorsFillInARefusingUserDirectoryPort() {
+        // feature 022 T033: port sets built with the previous eight or eleven ports
+        PortSet eight = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing);
+        PortSet eleven = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing, refusing, refusing);
+
+        for (PortSet ports : List.of(eight, eleven)) {
+            for (Runnable call : List.<Runnable>of(() -> ports.userDirectory().listUsers(),
+                () -> ports.userDirectory().readUsers(List.of()),
+                () -> ports.userDirectory().loggedIn())) {
+                assertThatThrownBy(call::run).isInstanceOfSatisfying(ToolErrorException.class,
+                    e -> {
+                        assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+                        assertThat(e.error().message()).contains("User reads");
                     });
             }
         }

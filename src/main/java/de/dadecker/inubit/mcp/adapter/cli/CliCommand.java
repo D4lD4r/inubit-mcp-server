@@ -180,7 +180,8 @@ public final class CliCommand {
         return true;
     }
 
-    private static ToolErrorException invalid(String message, String likelyCause) {
+    /** {@code INVALID_INPUT}; also used by {@link CliSessionCommand.Builder}. */
+    static ToolErrorException invalid(String message, String likelyCause) {
         return new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT, message, likelyCause,
             "Use a value that matches the documented pattern"));
     }

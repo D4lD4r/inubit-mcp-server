@@ -1,12 +1,17 @@
 package de.dadecker.inubit.mcp.adapter;
 
+import de.dadecker.inubit.mcp.domain.model.CliSettingsSnapshot;
+import de.dadecker.inubit.mcp.domain.model.ConfigurationView;
 import de.dadecker.inubit.mcp.domain.model.EntryPart;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
+import de.dadecker.inubit.mcp.domain.model.LicenseFacts;
+import de.dadecker.inubit.mcp.domain.model.ListedUser;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
 import de.dadecker.inubit.mcp.domain.model.LogQuery;
+import de.dadecker.inubit.mcp.domain.model.LoginEntry;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Page;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
@@ -18,6 +23,7 @@ import de.dadecker.inubit.mcp.domain.model.RawEntryContent;
 import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.UserFacts;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.model.node.ClusterNodes;
 import de.dadecker.inubit.mcp.domain.model.node.IoLogListing;
@@ -42,7 +48,9 @@ import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
+import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
+import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import java.time.Duration;
 import java.time.Instant;
@@ -82,7 +90,8 @@ final class StaleReportingPorts {
             new Artifacts(ports.artifacts()), new Imports(ports.imports()),
             new Tags(ports.tags()), new Partners(ports.partners()),
             new QueueEntryContent(ports.queueEntryContent()),
-            new ServerLogs(ports.serverLogs()), new ClusterNodeList(ports.clusterNodes()),
+            new ServerLogs(ports.serverLogs()), new ServerSettings(ports.serverSettings()),
+            new UserDirectory(ports.userDirectory()), new ClusterNodeList(ports.clusterNodes()),
             new IoLog(ports.ioLog()), new NodeConfig(ports.nodeConfig()),
             new LogLevel(ports.logLevel()));
     }
@@ -377,6 +386,53 @@ final class StaleReportingPorts {
         public DownloadedLog download(ServerLogKind kind, InubitVersion version,
             long deadlineNanos) {
             return call(() -> delegate.download(kind, version, deadlineNanos));
+        }
+    }
+
+    final class ServerSettings implements ServerSettingsPort {
+        private final ServerSettingsPort delegate;
+
+        ServerSettings(ServerSettingsPort delegate) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public LicenseFacts license() {
+            return call(delegate::license);
+        }
+
+        @Override
+        public ConfigurationView configuration(Optional<String> section, int maxValues,
+            int maxChars) {
+            return call(() -> delegate.configuration(section, maxValues, maxChars));
+        }
+
+        @Override
+        public CliSettingsSnapshot cliSettings(Set<String> parts) {
+            return call(() -> delegate.cliSettings(parts));
+        }
+    }
+
+    final class UserDirectory implements UserDirectoryPort {
+        private final UserDirectoryPort delegate;
+
+        UserDirectory(UserDirectoryPort delegate) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public List<ListedUser> listUsers() {
+            return call(delegate::listUsers);
+        }
+
+        @Override
+        public List<UserFacts> readUsers(List<String> logins) {
+            return call(() -> delegate.readUsers(logins));
+        }
+
+        @Override
+        public List<LoginEntry> loggedIn() {
+            return call(delegate::loggedIn);
         }
     }
 

@@ -16,6 +16,14 @@ class UnavailablePartTest {
         assertThat(new UnavailablePart(part, "TIMEOUT: too slow").part()).isEqualTo(part);
     }
 
+    /** Feature 022 T035: the facts of one user of {@code read_users}, named as its sources. */
+    @ParameterizedTest
+    @ValueSource(strings = {"groups", "roles", "email", "personal"})
+    void everyUserPartIsAccepted(String part) {
+        assertThat(UnavailablePart.PARTS).contains(part);
+        assertThat(new UnavailablePart(part, "TIMEOUT: too slow").part()).isEqualTo(part);
+    }
+
     @Test
     void the61PartsAreNamedAsInTheOutput() {
         assertThat(UnavailablePart.THREADS).isEqualTo("threads");
@@ -35,7 +43,7 @@ class UnavailablePartTest {
     void anUnknownPartIsRejected(String part) {
         assertThatIllegalArgumentException()
             .isThrownBy(() -> new UnavailablePart(part, "TIMEOUT: too slow"))
-            .withMessageContaining("unknown health part");
+            .withMessageContaining("unknown part");
     }
 
     @Test

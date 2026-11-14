@@ -4,10 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
 import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.CliSettingsSnapshot;
+import de.dadecker.inubit.mcp.domain.model.ConfigurationView;
 import de.dadecker.inubit.mcp.domain.model.EntryPart;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.LicenseFacts;
+import de.dadecker.inubit.mcp.domain.model.ListedUser;
 import de.dadecker.inubit.mcp.domain.model.LogPresence;
+import de.dadecker.inubit.mcp.domain.model.LoginEntry;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.QueueEntries;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
@@ -16,6 +21,7 @@ import de.dadecker.inubit.mcp.domain.model.RawEntryContent.PartResult;
 import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.UserFacts;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.model.node.ClusterNodes;
 import de.dadecker.inubit.mcp.domain.model.node.IoLogListing;
@@ -39,7 +45,9 @@ import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
+import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
+import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import de.dadecker.inubit.mcp.testing.RecordingVersionObserver;
 import de.dadecker.inubit.mcp.testing.TestPermits;
 import java.lang.reflect.InvocationTargetException;
@@ -92,6 +100,8 @@ class StaleReportingPortsTest {
             throwing(PartnerManagementPort.class, failure),
             throwing(QueueEntryContentPort.class, failure),
             throwing(ServerLogPort.class, failure),
+            throwing(ServerSettingsPort.class, failure),
+            throwing(UserDirectoryPort.class, failure),
             throwing(ClusterNodePort.class, failure),
             throwing(IoLogPort.class, failure),
             throwing(NodeConfigPort.class, failure),
@@ -311,6 +321,133 @@ class StaleReportingPortsTest {
     }
 
     @Test
+    void serverSettingsAreForwardedAndAnUnexpectedResponseMarksTheNodeStale() throws Exception {
+        // feature 022 T020: the settings port is wrapped like every other port
+        LicenseFacts license = new LicenseFacts(Optional.empty(), Optional.of(32L),
+            Optional.empty());
+        ConfigurationView view = ConfigurationView.sections(List.of("GUIThreadsCount"));
+        CliSettingsSnapshot snapshot = new CliSettingsSnapshot(Optional.of(12L),
+            Optional.empty(), Optional.empty(), Optional.empty(), List.of());
+        List<Object> asked = new ArrayList<>();
+        ServerSettingsPort answering = new ServerSettingsPort() {
+            @Override
+            public LicenseFacts license() {
+                return license;
+            }
+
+            @Override
+            public ConfigurationView configuration(Optional<String> section, int maxValues,
+                int maxChars) {
+                asked.addAll(List.of(section, maxValues, maxChars));
+                return view;
+            }
+
+            @Override
+            public CliSettingsSnapshot cliSettings(Set<String> parts) {
+                asked.add(parts);
+                return snapshot;
+            }
+        };
+
+        ServerSettingsPort wrapped = stale.ports(withServerSettings(answering)).serverSettings();
+        assertThat(wrapped).isInstanceOf(StaleReportingPorts.ServerSettings.class);
+        assertThat(wrapped.license()).isSameAs(license);
+        assertThat(wrapped.configuration(Optional.of("S"), 7, 9_000)).isSameAs(view);
+        assertThat(wrapped.cliSettings(Set.of("threads"))).isSameAs(snapshot);
+        assertThat(asked).containsExactly(Optional.of("S"), 7, 9_000, Set.of("threads"));
+        assertThat(versions.events()).isEmpty();
+
+        for (RuntimeException other : List.of(failure(ErrorCode.NOT_FOUND),
+            failure(ErrorCode.FORBIDDEN), new IllegalStateException("bug"))) {
+            ServerSettingsPort port = stale.ports(withServerSettings(throwing(
+                ServerSettingsPort.class, other))).serverSettings();
+            for (Method method : ServerSettingsPort.class.getMethods()) {
+                assertThat(thrownBy(method, port)).as(method.toString()).isSameAs(other);
+            }
+        }
+        assertThat(versions.events()).isEmpty();
+
+        ToolErrorException unexpected = failure(ErrorCode.UNEXPECTED_RESPONSE);
+        ServerSettingsPort port = stale.ports(withServerSettings(throwing(
+            ServerSettingsPort.class, unexpected))).serverSettings();
+        for (Method method : ServerSettingsPort.class.getMethods()) {
+            assertThat(thrownBy(method, port)).as(method.toString()).isSameAs(unexpected);
+        }
+        assertThat(versions.events()).containsExactly("stale dev/node1", "stale dev/node1",
+            "stale dev/node1");
+    }
+
+    /** A port set of throwing ports whose settings port is {@code serverSettings}. */
+    private static PortSet withServerSettings(ServerSettingsPort serverSettings) {
+        PortSet others = throwingPorts(failure(ErrorCode.NOT_FOUND));
+        return new PortSet(others.processes(), others.logs(), others.inventory(),
+            others.processControl(), others.artifacts(), others.imports(), others.tags(),
+            others.partners(), others.queueEntryContent(), others.serverLogs(), serverSettings);
+    }
+
+    @Test
+    void userReadsAreForwardedAndAnUnexpectedResponseMarksTheNodeStale() throws Exception {
+        // feature 022 T033: the user directory port is wrapped like every other port
+        List<ListedUser> users = List.of(new ListedUser("jdoe", "ProcessEngineUser"));
+        List<UserFacts> facts = List.of();
+        List<LoginEntry> logins = List.of(new LoginEntry("jdoe", Optional.empty()));
+        List<Object> asked = new ArrayList<>();
+        UserDirectoryPort answering = new UserDirectoryPort() {
+            @Override
+            public List<ListedUser> listUsers() {
+                return users;
+            }
+
+            @Override
+            public List<UserFacts> readUsers(List<String> page) {
+                asked.add(page);
+                return facts;
+            }
+
+            @Override
+            public List<LoginEntry> loggedIn() {
+                return logins;
+            }
+        };
+
+        UserDirectoryPort wrapped = stale.ports(withUserDirectory(answering)).userDirectory();
+        assertThat(wrapped).isInstanceOf(StaleReportingPorts.UserDirectory.class);
+        assertThat(wrapped.listUsers()).isSameAs(users);
+        assertThat(wrapped.readUsers(List.of("jdoe"))).isSameAs(facts);
+        assertThat(wrapped.loggedIn()).isSameAs(logins);
+        assertThat(asked).containsExactly(List.of("jdoe"));
+        assertThat(versions.events()).isEmpty();
+
+        for (RuntimeException other : List.of(failure(ErrorCode.NOT_FOUND),
+            failure(ErrorCode.FORBIDDEN), new IllegalStateException("bug"))) {
+            UserDirectoryPort port = stale.ports(withUserDirectory(throwing(
+                UserDirectoryPort.class, other))).userDirectory();
+            for (Method method : UserDirectoryPort.class.getMethods()) {
+                assertThat(thrownBy(method, port)).as(method.toString()).isSameAs(other);
+            }
+        }
+        assertThat(versions.events()).isEmpty();
+
+        ToolErrorException unexpected = failure(ErrorCode.UNEXPECTED_RESPONSE);
+        UserDirectoryPort port = stale.ports(withUserDirectory(throwing(
+            UserDirectoryPort.class, unexpected))).userDirectory();
+        for (Method method : UserDirectoryPort.class.getMethods()) {
+            assertThat(thrownBy(method, port)).as(method.toString()).isSameAs(unexpected);
+        }
+        assertThat(versions.events()).containsExactly("stale dev/node1", "stale dev/node1",
+            "stale dev/node1");
+    }
+
+    /** A port set of throwing ports whose user directory port is {@code userDirectory}. */
+    private static PortSet withUserDirectory(UserDirectoryPort userDirectory) {
+        PortSet others = throwingPorts(failure(ErrorCode.NOT_FOUND));
+        return new PortSet(others.processes(), others.logs(), others.inventory(),
+            others.processControl(), others.artifacts(), others.imports(), others.tags(),
+            others.partners(), others.queueEntryContent(), others.serverLogs(),
+            others.serverSettings(), userDirectory);
+    }
+
+    @Test
     void theNodeToolPortsForwardEveryCallUnchanged() {
         // feature 024 T015 (research D-24): arguments and results pass through the wrappers
         InubitVersion version = InubitVersion.parse("8.1.17").orElseThrow();
@@ -327,6 +464,7 @@ class StaleReportingPortsTest {
         PortSet wrapped = stale.ports(new PortSet(others.processes(), others.logs(),
             others.inventory(), others.processControl(), others.artifacts(), others.imports(),
             others.tags(), others.partners(), others.queueEntryContent(), others.serverLogs(),
+            others.serverSettings(), others.userDirectory(),
             answering(ClusterNodePort.class, asked, method -> nodes),
             answering(IoLogPort.class, asked, method ->
                 method.equals("list") ? listing : noMatch),

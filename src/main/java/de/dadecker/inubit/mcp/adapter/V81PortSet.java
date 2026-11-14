@@ -7,6 +7,8 @@ import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliTagRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliTraceRunner;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
+import de.dadecker.inubit.mcp.adapter.cli.admin.CliSettingsRunner;
+import de.dadecker.inubit.mcp.adapter.cli.admin.CliUserRunner;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.log.CliServerLogAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.log.CliWebServiceLogAdapter;
@@ -23,6 +25,8 @@ import de.dadecker.inubit.mcp.adapter.cli.v81.V81TagAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81LogAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81PartnerManagementAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81ProcessQueryAdapter;
+import de.dadecker.inubit.mcp.adapter.rest.v81.V81SettingsAdapter;
+import de.dadecker.inubit.mcp.adapter.rest.v81.V81UserAdapter;
 import de.dadecker.inubit.mcp.domain.port.ClusterNodePort;
 import de.dadecker.inubit.mcp.domain.port.IoLogPort;
 import de.dadecker.inubit.mcp.domain.port.LogLevelPort;
@@ -31,11 +35,12 @@ import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 
 /**
- * The 8.1 port set: the REST adapters on the server's client and the StartCLI adapters; with a
- * helper host, the queue-entry helper of feature 020 (research D-17) and the server-log
- * download of feature 021 (research D-19) and the cluster's node list, the I/O log, the node
- * configuration and the temporary log level of feature 024 (research D-24) too. The set without
- * helper host has no node tools: their ports fail with {@code CLI_UNAVAILABLE} ({@link PortSet}).
+ * The 8.1 port set: the REST adapters on the server's client and the StartCLI adapters, the
+ * settings and the user directory of feature 022 included; with a helper host, the queue-entry
+ * helper of feature 020 (research D-17) and the server-log download of feature 021 (research
+ * D-19) and the cluster's node list, the I/O log, the node configuration and the temporary log
+ * level of feature 024 (research D-24) too. The set without helper host has no node tools: their
+ * ports fail with {@code CLI_UNAVAILABLE} ({@link PortSet}).
  */
 final class V81PortSet {
 
@@ -54,7 +59,6 @@ final class V81PortSet {
      */
     static PortSet create(PortSetRegistry.NodeResources node, HelperInstallation.Host host,
         ProcessRun processRun, CliConcurrencyLimiter limiter) {
-        PortSet ports = create(node);
         QueueEntryContentPort queueEntries = new CliQueueEntryAdapter(node.server(),
             node::credentials, node.guard(), node.cliRunner(), host, processRun, limiter,
             node.scrubber());
@@ -74,21 +78,35 @@ final class V81PortSet {
             node.server().secretLabels());
         LogLevelPort logLevel = new CliLogLevelAdapter(nodeHelper, node.server(),
             node.credentials(), node.guard(), node.cliRunner(), classifier(node), node.scrubber());
+        PortSet ports = create(node, queueEntries, serverLogs);
         return new PortSet(ports.processes(), ports.logs(), ports.inventory(),
             ports.processControl(), ports.artifacts(), ports.imports(), ports.tags(),
-            ports.partners(), queueEntries, serverLogs, clusterNodes, ioLog, nodeConfig,
-            logLevel);
+            ports.partners(), queueEntries, serverLogs, ports.serverSettings(),
+            ports.userDirectory(), clusterNodes, ioLog, nodeConfig, logLevel);
     }
 
     /**
      * Without queue-entry helper: queue-entry content is refused as by {@link RefusingPorts}, a
-     * server log download fails with {@code CLI_UNAVAILABLE} ({@link PortSet}'s compatibility
-     * constructors).
+     * server log download fails with {@code CLI_UNAVAILABLE} (as in {@link PortSet}'s
+     * compatibility constructors).
      */
     static PortSet create(PortSetRegistry.NodeResources node) {
+        return create(node, PortSet.NO_QUEUE_ENTRIES, PortSet.NO_SERVER_LOGS);
+    }
+
+    /**
+     * Every port but the node tools in one step. The settings read the REST parts on the server's
+     * client and the StartCLI parts in one session of a {@link CliSettingsRunner} (feature 022,
+     * research D-7); the user directory lists the logins on the server's client and reads the
+     * rest with a {@link CliUserRunner} (feature 022, research D-20).
+     */
+    private static PortSet create(PortSetRegistry.NodeResources node,
+        QueueEntryContentPort queueEntries, ServerLogPort serverLogs) {
         V81InventoryAdapter inventory = new V81InventoryAdapter(node.server().id(), node.client(),
             new CliExportRunner(node.server(), node.credentials(), node.guard(), node.cliRunner(),
                 classifier(node)));
+        CliUserRunner users = new CliUserRunner(node.server(), node.credentials(), node.guard(),
+            node.cliRunner(), classifier(node));
         return new PortSet(
             new V81ProcessQueryAdapter(node.server().id(), node.client()),
             new V81LogAdapter(node.server().id(), node.client()),
@@ -103,7 +121,13 @@ final class V81PortSet {
                 node.credentials(), node.guard(), node.cliRunner(), classifier(node)),
                 new CliTagRunner(node.server(), node.credentials(), node.guard(),
                     node.cliRunner(), classifier(node)), inventory::confirmCredentials),
-            new V81PartnerManagementAdapter(node.server().id(), node.client()));
+            new V81PartnerManagementAdapter(node.server().id(), node.client()),
+            queueEntries,
+            serverLogs,
+            new V81SettingsAdapter(node.server().id(), node.client(),
+                new CliSettingsRunner(node.server(), node.credentials(), node.guard(),
+                    node.cliRunner(), classifier(node))::read),
+            new V81UserAdapter(node.server().id(), node.client(), users::read, users::logins));
     }
 
     private static CliOutputClassifier classifier(PortSetRegistry.NodeResources node) {

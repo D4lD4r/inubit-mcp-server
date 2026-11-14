@@ -1,7 +1,10 @@
 package de.dadecker.inubit.mcp;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -18,6 +21,9 @@ import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
+import de.dadecker.inubit.mcp.domain.model.LicenseFacts;
+import de.dadecker.inubit.mcp.domain.model.ListedUser;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
@@ -32,6 +38,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -333,6 +340,54 @@ class WiringAuditTest {
         assertThat(leaked).as("files of the import %s below %s", auditId, realHome).isEmpty();
         assertThat(temp.resolve("home/.inubit-mcp/acme/backups").resolve(auditId + ".json"))
             .as("backup manifest below the handed-in home").isRegularFile();
+    }
+
+    @Test
+    void aSettingsReadThroughTheProductionWiringWritesNoAuditRecord() throws IOException {
+        // feature 022 T020: the production 8.1 port set reads GET /license with the node's
+        // credentials; reads are not audited (Constitution VII)
+        inubit.stubFor(get(urlPathEqualTo("/ibis/rest/license"))
+            .willReturn(RestFixtures.response("admin-license", "xml")));
+        startEnvironmentServer();
+
+        LicenseFacts license = wiring.gateways().serverSettings(NodeId.parse("dev/node1"))
+            .license();
+
+        assertThat(license.expiryDate()).contains(LocalDate.of(2046, 10, 8));
+        inubit.verify(1, getRequestedFor(urlPathEqualTo("/ibis/rest/license"))
+            .withHeader("Authorization", matching("Basic .+")));
+        assertThat(auditRecords()).as("audit records").isEmpty();
+    }
+
+    @Test
+    void aUserListThroughTheProductionWiringWritesNoAuditRecord() throws IOException {
+        // feature 022 T033: the production 8.1 port set lists the users over GET /user/users
+        // with the node's credentials; reads are not audited (Constitution VII)
+        inubit.stubFor(get(urlPathEqualTo("/ibis/rest/user/users"))
+            .willReturn(RestFixtures.response("admin-users", "xml")));
+        startEnvironmentServer();
+
+        List<ListedUser> users = wiring.gateways().userDirectory(NodeId.parse("dev/node1"))
+            .listUsers();
+
+        assertThat(users).hasSize(58);
+        inubit.verify(1, getRequestedFor(urlPathEqualTo("/ibis/rest/user/users"))
+            .withQueryParam("type", equalTo("processEngineUser"))
+            .withHeader("Authorization", matching("Basic .+")));
+        assertThat(auditRecords()).as("audit records").isEmpty();
+    }
+
+    /** Every line of every file in the audit directory. */
+    private List<String> auditRecords() throws IOException {
+        List<String> records = new ArrayList<>();
+        if (Files.isDirectory(temp.resolve("audit"))) {
+            try (Stream<Path> files = Files.list(temp.resolve("audit"))) {
+                for (Path file : files.toList()) {
+                    records.addAll(Files.readAllLines(file, StandardCharsets.UTF_8));
+                }
+            }
+        }
+        return records;
     }
 
     @Test

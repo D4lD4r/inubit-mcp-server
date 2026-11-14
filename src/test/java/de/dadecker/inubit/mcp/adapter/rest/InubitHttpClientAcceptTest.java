@@ -87,7 +87,7 @@ class InubitHttpClientAcceptTest {
     @ParameterizedTest
     @EnumSource(MediaRange.class)
     void getSendsTheHeaderOfItsRange(MediaRange range) {
-        client().get(PATH, Map.of(), range);
+        client().get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of(), range);
 
         wireMock.verify(getRequestedFor(urlPathEqualTo(PATH))
             .withHeader("Accept", equalTo(range.header())));
@@ -96,7 +96,7 @@ class InubitHttpClientAcceptTest {
     @ParameterizedTest
     @EnumSource(MediaRange.class)
     void getWithAResourceKindSendsTheHeaderOfItsRange(MediaRange range) {
-        client().get(PATH, Map.of(), range, ResourceKind.ENDPOINT);
+        client().get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of(), range, ResourceKind.ENDPOINT);
 
         wireMock.verify(getRequestedFor(urlPathEqualTo(PATH))
             .withHeader("Accept", equalTo(range.header())));
@@ -105,7 +105,7 @@ class InubitHttpClientAcceptTest {
     @ParameterizedTest
     @EnumSource(MediaRange.class)
     void getWithoutCredentialsSendsTheHeaderOfItsRangeAndNoAuthorization(MediaRange range) {
-        client().getWithoutCredentials("/ibis/rest/healthcheck", Map.of(), range);
+        client().getWithoutCredentials(RestEndpoint.HEALTHCHECK, List.of(), Map.of(), range);
 
         wireMock.verify(getRequestedFor(urlPathEqualTo("/ibis/rest/healthcheck"))
             .withHeader("Accept", equalTo(range.header()))
@@ -115,7 +115,8 @@ class InubitHttpClientAcceptTest {
     @ParameterizedTest
     @EnumSource(MediaRange.class)
     void postSendsTheHeaderOfItsRange(MediaRange range) {
-        client().post("/ibis/rest/log/systemLog", Map.of("format", "json"), "<logRequest/>",
+        client().post(RestEndpoint.LOG, List.of("systemLog"), Map.of("format", "json"),
+            "<logRequest/>",
             "application/xml", range);
 
         wireMock.verify(postRequestedFor(urlPathEqualTo("/ibis/rest/log/systemLog"))
@@ -126,7 +127,8 @@ class InubitHttpClientAcceptTest {
     @ParameterizedTest
     @EnumSource(MediaRange.class)
     void postWithAResourceKindSendsTheHeaderOfItsRange(MediaRange range) {
-        client().post("/ibis/rest/log/systemLog", Map.of(), "<logRequest/>", "application/xml",
+        client().post(RestEndpoint.LOG, List.of("systemLog"), Map.of(), "<logRequest/>",
+            "application/xml",
             range, ResourceKind.ENDPOINT);
 
         wireMock.verify(postRequestedFor(urlPathEqualTo("/ibis/rest/log/systemLog"))
@@ -137,12 +139,14 @@ class InubitHttpClientAcceptTest {
     void theResourceKindIsKeptWithARange() {
         wireMock.stubFor(any(anyUrl()).willReturn(aResponse().withStatus(404)));
 
-        assertThatThrownBy(() -> client().get(PATH, Map.of(), MediaRange.XML,
+        assertThatThrownBy(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of(),
+            MediaRange.XML,
             ResourceKind.ENDPOINT))
             .isInstanceOf(InubitHttpClient.EndpointMissing.class)
             .extracting(e -> ((ToolErrorException) e).error().code())
             .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
-        assertThatThrownBy(() -> client().get(PATH, Map.of(), MediaRange.XML))
+        assertThatThrownBy(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of(),
+            MediaRange.XML))
             .isInstanceOf(ToolErrorException.class)
             .extracting(e -> ((ToolErrorException) e).error().code())
             .isEqualTo(ErrorCode.NOT_FOUND);
@@ -153,7 +157,8 @@ class InubitHttpClientAcceptTest {
         wireMock.stubFor(any(anyUrl()).willReturn(aResponse().withStatus(503)
             .withHeader("Content-Type", "application/json").withBody("{}")));
 
-        RestResponse response = client().getWithoutCredentials("/ibis/rest/ready", Map.of(),
+        RestResponse response = client().getWithoutCredentials(RestEndpoint.READY, List.of(),
+            Map.of(),
             MediaRange.JSON, 503);
 
         assertThat(response.status()).isEqualTo(503);

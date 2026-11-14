@@ -16,6 +16,20 @@ log with content; the 9.0 web service log only against a recorded answer of 0 by
 9.0 web service log could be recorded), so on 9.0 an empty and a missing web service log cannot be
 told apart from the answer alone.
 
+Feature 022, first increment (user story 1): `get_server_settings` reads a node's license,
+workflow threads, privileged workflows, DB connection tolerance, server time and configuration.
+It is **supported on INUBIT 8.1 and 9.0**, verified against the recorded, neutralized answers of a
+live node of each version. Workflow threads and privileged workflows are always reported
+unavailable: StartCLI answers them only to the INUBIT root user. The new coverage page lists every
+documented StartCLI command and REST endpoint with its state per version.
+
+Feature 022, second increment (user story 2): `read_users` reads the users of one node: a page of
+users with their user group and roles, one user with e-mail and personal fields, or the users logged
+in with a client. It is **supported on INUBIT 8.1 and 9.0**, like `get_server_settings`; on 9.0 the
+logged-in users are refused, as StartCLI's `--who` lists no client connection there. The messages of
+the INUBIT message box are not offered yet: how `msglist` lists a message and whether `msgread`
+marks it as read have not been recorded.
+
 Feature 024: five tools for one INUBIT node through **unsupported INUBIT functionality**, each off
 unless a group opts in: the cluster's node list, the input/output logging of modules, node
 configuration values, and a temporary log level with an automatic reset. Verified on INUBIT 8.1
@@ -61,6 +75,41 @@ verified"): `read_io_log` and the log-level tools on INUBIT 8.1, all five tools 
 - `--check-config` ends every group line with `serverLogRead: enabled (unsupported)` or
   `serverLogRead: off`, but only when some group of the profile has the opt-in; otherwise its
   group lines are unchanged.
+- `get_server_settings` (feature 022) reads the settings of one node or of every node of a group,
+  one entry per node: the license (expiry date, licensed threads; the licensee always masked) over
+  REST, the workflow threads, privileged workflows, DB connection tolerance and server time in one
+  StartCLI session, and on request the configuration over REST, by section names or one section's
+  values with secrets masked. Version, memory share, blocking queue size and maintenance mode come
+  from the same calls as `get_health`. Every fact names its channel in `sources`; a part that
+  cannot be read (a missing "System Administrator" role for license and configuration, no
+  StartCLI client, a part not verified for the node's version) is listed under `unavailable` and
+  the other parts are returned. Supported on INUBIT 8.1, where the workflow threads and privileged
+  workflows are excluded (StartCLI answers them only to the INUBIT root user, so these parts are
+  always `unavailable`), and on INUBIT 9.0 with the same exclusions.
+- The capability `server_settings` in `list_nodes` (`reading server settings` in messages and
+  among the refused capabilities of a 6.1 node in `--check-config`): supported on INUBIT 8.1 and
+  9.0, refused on every other version.
+- `read_users` (feature 022) reads the users of ONE node, read-only, in three views. `users` lists
+  the users sorted by login, at most 25 per page with `offset`, `limit` and `nextOffset`: the logins
+  from the REST user list, the user group and roles from one StartCLI session per page (`user` and
+  `finger`). E-mail and the other personal fields are never part of the listing, only of the view
+  `user`, which shows one named user with its user group, the parent group, roles, e-mail and
+  personal fields (secrets masked); an unknown login gives `NOT_FOUND`. `logins` lists the users
+  logged in with a client, the `Toolset` rows of the StartCLI client option `--who` (this call's own
+  connection included), without a login time on INUBIT 8.1. A user with an additional user group
+  (the `Additional user group` row of `user`, read on any version, recorded only on 9.0) shows it in
+  `additionalGroups`. A user whose user group or roles cannot be read is still listed, with the part
+  under its own `unavailable`; a node without a StartCLI client still lists its users (the view
+  `logins` then fails with `CLI_UNAVAILABLE`). Supported on INUBIT 8.1 and 9.0; on 9.0 the view
+  `logins` is refused with `UNSUPPORTED_VERSION` and the reason: the 9.0 `--who` listing has no
+  `Toolset` row, not even for the call's own connection, so `--who` is not run there.
+- The capability `user_directory` in `list_nodes` (`reading users` in messages and among the
+  refused capabilities of a 6.1 node in `--check-config`): supported on INUBIT 8.1 and 9.0,
+  refused on every other version.
+- The coverage list of every documented StartCLI command and REST endpoint of INUBIT 8.1 and 9.0
+  with its state per version (`reachable`, `covered`, `planned` with what it waits for,
+  `undocumented`, `excluded` with the reason), published as `docs/interface-coverage.md`. A new
+  tool part is sent to a node only when its entries are `reachable` for the node's version.
 
 - Three read-only tools for ONE node (feature 024), each through internal, undocumented interfaces
   the Workbench uses, without vendor support or stability guarantee, that may stop working after
@@ -158,7 +207,11 @@ verified"): `read_io_log` and the log-level tools on INUBIT 8.1, all five tools 
   `read_io_log` shares; `WriteGuard` and `WriteChallengeRegistry` gained overloads for write tools
   other than the process actions (texts naming the tool, the group's opt-in before the version
   gate, confirmation codes bound to tool and node).
-- `docs/tools.md` describes twenty-seven tools.
+- `docs/tools.md` describes twenty-nine tools.
+- `docs/setup.md` names the INUBIT role "System Administrator" that `get_server_settings` needs for
+  the license and the configuration.
+- `docs/setup.md` lists the StartCLI reads of `read_users` among the CLI-backed tools and under
+  `cliTimeout`.
 
 ### Fixed
 

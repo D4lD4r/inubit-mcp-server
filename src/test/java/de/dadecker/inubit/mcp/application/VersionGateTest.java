@@ -1043,6 +1043,10 @@ class VersionGateTest {
             + " download the log in the Workbench (Administration, Server Log)");
         expected.put(Capability.WEBSERVICE_LOG_READ, "downloading the web service log; supported:"
             + " 8.1, 9.0; download the log in the Workbench (Administration, Server Log)");
+        // feature 022 (T011)
+        expected.put(Capability.SERVER_SETTINGS, "reading server settings; " + other);
+        // feature 022 (T033)
+        expected.put(Capability.USER_DIRECTORY, "reading users; " + other);
         expected.put(Capability.CLUSTER_NODES_READ, "reading the cluster's node list; supported:"
             + " 8.1, 9.0; use the Workbench's Cluster Manager");
         expected.put(Capability.IO_LOG_READ, "reading module input/output logging; supported: 8.1,"

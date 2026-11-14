@@ -88,7 +88,8 @@ class InubitHttpClientJsonErrorTest {
 
     private ToolError errorOf(ResourceKind kind) {
         ToolErrorException e = catchThrowableOfType(ToolErrorException.class,
-            () -> client().get(PATH, Map.of(), MediaRange.XML, kind));
+            () -> client().get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of(), MediaRange.XML,
+                kind));
         assertThat(e).as("the call must fail").isNotNull();
         return e.error();
     }
@@ -195,7 +196,8 @@ class InubitHttpClientJsonErrorTest {
         ToolError missing = errorOf(ResourceKind.ENDPOINT);
         assertThat(missing.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(catchThrowableOfType(InubitHttpClient.EndpointMissing.class,
-            () -> client().get(PATH, Map.of(), MediaRange.XML, ResourceKind.ENDPOINT)))
+            () -> client().get(RestEndpoint.SYSTEM_INFO, List.of(), Map.of(), MediaRange.XML,
+                ResourceKind.ENDPOINT)))
             .isNotNull();
 
         stub(400, "application/json", json90(400, "Bad request"));

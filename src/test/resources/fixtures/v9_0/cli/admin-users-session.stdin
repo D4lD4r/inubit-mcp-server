@@ -1,0 +1,9 @@
+<password>
+user 'jdoe'
+finger 'jdoe'
+user 'Ops_viewer'
+finger 'Ops_viewer'
+user 'qa_robot'
+finger 'qa_robot'
+msglist
+exit

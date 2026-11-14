@@ -26,6 +26,7 @@ import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.ClientCheckLookup;
 import de.dadecker.inubit.mcp.domain.port.WriteLock;
 import de.dadecker.inubit.mcp.infra.Secret;
+import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -41,8 +42,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,7 +57,8 @@ import org.slf4j.LoggerFactory;
  *       {@code [startcli.sh, -u, <user>, [--trustStoreFilePath, <p12>],
  *       [--disableHostNameVerification], --execCommand, <command>, <cliUrl>]}. There is never a
  *       {@code -p}; the password plus {@code \n} is written to stdin, which is then closed.
- *   <li>An interactive session on INUBIT 6.1 ({@link #runSession}, feature 012, research D-5):
+ *   <li>An interactive session ({@link #runSession}, feature 012, research D-5; for any version
+ *       since feature 022, research D-7):
  *       {@code [startcli.sh, -u, <user>, [--trustStoreFilePath, <path>],
  *       [--disableHostNameVerification], <cliUrl>]}; stdin receives the password line, one line
  *       per {@link CliSessionCommand} and {@code exit}, and is then closed. Environment,
@@ -64,7 +68,11 @@ import org.slf4j.LoggerFactory;
  *       without {@code --trustStoreFilePath} gets the trust store through
  *       {@code -Djavax.net.ssl.trustStore} and {@code -Djavax.net.ssl.trustStoreType} appended
  *       to {@code JAVA_TOOL_OPTIONS}; never a trust-store password.
- *   <li>Both kinds of run also append the trust store to {@code JAVA_TOOL_OPTIONS} when the
+ *   <li>A client option run ({@link #runClientOption}, feature 022, research D-20):
+ *       {@code [startcli.sh, -u, <user>, [--trustStoreFilePath, <p12>],
+ *       [--disableHostNameVerification], --who, <cliUrl>]}, stdin as for
+ *       {@code --execCommand}.
+ *   <li>Every kind of run also appends the trust store to {@code JAVA_TOOL_OPTIONS} when the
  *       client gets {@code --trustStoreFilePath}, because the INUBIT 9.0.10 client ignores that
  *       option for its login connection (T047 live check, finding F-1); a path with whitespace
  *       is passed only as the argument.
@@ -95,9 +103,10 @@ import org.slf4j.LoggerFactory;
  *   <li>Feature 017 (research D-3, D-4): every call reads the node's effective version once and
  *       chooses the client, JDK and address for it ({@link #select}); everything above sees the
  *       chosen {@code cli} settings.
- *   <li>Feature 017 (FR-017, research D-4): before {@link #run} and {@link #runSession} launch,
- *       the launch guard ({@link #checkLaunch}) compares the chosen client with its recorded
- *       check; the {@code -v}/{@code -h} probes and {@link #checkAvailable} are not guarded.
+ *   <li>Feature 017 (FR-017, research D-4): before {@link #run}, {@link #runSession} and
+ *       {@link #runClientOption} launch, the launch guard ({@link #checkLaunch}) compares the
+ *       chosen client with its recorded check; the {@code -v}/{@code -h} probes and
+ *       {@link #checkAvailable} are not guarded.
  *   <li>Feature 017 (FR-018, research D-24): {@link #run} with a {@link WritePermit} (a write)
  *       starts StartCLI inside {@link WriteLock#handOff}: under the node's lock it selects the
  *       client again with the locked version ({@code CLI_UNAVAILABLE} if the client or address
@@ -291,6 +300,16 @@ public final class CliRunner {
         Secret password, CliCommand command, Duration timeout, String timeoutSetting,
         StartHook hook) {
         EffectiveNodeConfig server = selection.server();
+        List<String> arguments = loginArguments(server, username);
+        arguments.add("--execCommand");
+        arguments.add(command.commandLine());
+        arguments.add(server.cli().url().toString());
+        return execute(selection, arguments, Optional.of(password), List.of(), timeout,
+            timeoutSetting, jvmTrustStore(server.tls().trustStore()), MAX_OUTPUT_BYTES, hook);
+    }
+
+    /** {@code -u <user> [--trustStoreFilePath <p12>] [--disableHostNameVerification]}. */
+    private static List<String> loginArguments(EffectiveNodeConfig server, String username) {
         List<String> arguments = new ArrayList<>(List.of("-u", username));
         server.tls().trustStore().ifPresent(trustStore -> {
             arguments.add("--trustStoreFilePath");
@@ -299,11 +318,51 @@ public final class CliRunner {
         if (server.tls().disableHostnameVerification()) {
             arguments.add("--disableHostNameVerification");
         }
-        arguments.add("--execCommand");
-        arguments.add(command.commandLine());
+        return arguments;
+    }
+
+    /**
+     * The options of the StartCLI client that read something as a run of their own (feature 022,
+     * research D-20, "Live recording T028a"). On 8.1 they are neither session commands (the
+     * session answers {@code Command not found.}) nor {@code --execCommand} arguments (the
+     * client takes them as its own option, T028).
+     */
+    public enum ClientOption {
+        /** The systems connected to the server, client connections included. */
+        WHO("--who");
+
+        private final String argument;
+
+        ClientOption(String argument) {
+            this.argument = argument;
+        }
+    }
+
+    /**
+     * Runs {@code startcli <login arguments> <option> <cliUrl>}, the same arguments as an
+     * {@code --execCommand} run with {@code option} in place of the command (T028a): only the
+     * password is written to stdin, guarded like
+     * {@link #run(EffectiveNodeConfig, String, Secret, CliCommand, Duration, CredentialGuard)}.
+     * As for {@link #runSession(Selection, String, Secret, CliClientOptions, List, Duration,
+     * int, CredentialGuard)}, the caller checks the pin first ({@link #checkPin}); the launch
+     * guard runs here.
+     *
+     * @throws ToolErrorException as {@link #runSession(Selection, String, Secret,
+     *     CliClientOptions, List, Duration, int, CredentialGuard)}
+     */
+    public CliResult runClientOption(Selection selection, String username, Secret password,
+        ClientOption option, Duration timeout, CredentialGuard guard) {
+        EffectiveNodeConfig server = selection.server();
+        if (windows) {
+            refuseWindowsCredentials(server, username, password);
+        }
+        checkLaunch(selection);
+        List<String> arguments = loginArguments(server, username);
+        arguments.add(option.argument);
         arguments.add(server.cli().url().toString());
-        return execute(selection, arguments, Optional.of(password), List.of(), timeout,
-            timeoutSetting, jvmTrustStore(server.tls().trustStore()), MAX_OUTPUT_BYTES, hook);
+        return guarded(guard.acquire(), () -> execute(selection, arguments,
+            Optional.of(password), List.of(), timeout, "cliTimeout",
+            jvmTrustStore(server.tls().trustStore()), MAX_OUTPUT_BYTES, StartHook.DIRECT));
     }
 
     /**
@@ -409,9 +468,7 @@ public final class CliRunner {
         }
         Selection selection = select(server);
         checkLaunch(selection);
-        if (server.tls().pinPerServer()) {
-            pinProbe.check(selection.server());
-        }
+        checkPin(selection);
         return selection;
     }
 
@@ -448,7 +505,8 @@ public final class CliRunner {
 
     /**
      * Logs in as {@code username} in StartCLI's interactive mode (INUBIT 6.1, feature 012,
-     * research D-5) and runs {@code commands}, then {@code exit}, in one process, guarded like
+     * research D-5; any version since feature 022, research D-7) and runs {@code commands}, then
+     * {@code exit}, in one process, guarded like
      * {@link #run(EffectiveNodeConfig, String, Secret, CliCommand, Duration, CredentialGuard)}.
      * Neither the password nor a command appears in the argument array. The trust store and the
      * host-name option are passed as {@code options} allow (research D-8); every refusal is
@@ -478,7 +536,24 @@ public final class CliRunner {
         CliClientOptions options, List<CliSessionCommand> commands, Duration timeout,
         int maxOutputBytes, CredentialGuard guard) {
         return runSession(selection, true, username, password, options, commands, timeout,
-            maxOutputBytes, guard);
+            maxOutputBytes, guard, UnaryOperator.identity());
+    }
+
+    /**
+     * A session whose commands carry {@code secrets} (feature 022, research D-7, FR-022): as
+     * {@link #runSession(Selection, String, Secret, CliClientOptions, List, Duration, int,
+     * CredentialGuard)}, for any INUBIT version; each secret is registered with
+     * {@code scrubber} before anything starts, so every later scrub (excerpts, logs) masks it, and
+     * stdout and stderr of the result are scrubbed, so the client's echo of a command's secret
+     * never reaches a parser.
+     */
+    public CliResult runSession(Selection selection, String username, Secret password,
+        Set<Secret> secrets, SecretScrubber scrubber, CliClientOptions options,
+        List<CliSessionCommand> commands, Duration timeout, int maxOutputBytes,
+        CredentialGuard guard) {
+        secrets.forEach(scrubber::register);
+        return runSession(selection, true, username, password, options, commands, timeout,
+            maxOutputBytes, guard, scrubber::scrub);
     }
 
     /**
@@ -492,12 +567,12 @@ public final class CliRunner {
         CliClientOptions options, List<CliSessionCommand> commands, Duration timeout,
         int maxOutputBytes, CredentialGuard guard) {
         return runSession(selection, false, username, password, options, commands, timeout,
-            maxOutputBytes, guard);
+            maxOutputBytes, guard, UnaryOperator.identity());
     }
 
     private CliResult runSession(Selection selection, boolean launchGuard, String username,
         Secret password, CliClientOptions options, List<CliSessionCommand> commands,
-        Duration timeout, int maxOutputBytes, CredentialGuard guard) {
+        Duration timeout, int maxOutputBytes, CredentialGuard guard, UnaryOperator<String> mask) {
         EffectiveNodeConfig server = selection.server();
         if (windows) {
             refuseWindowsCredentials(server, username, password);
@@ -522,9 +597,27 @@ public final class CliRunner {
         arguments.add(server.cli().url().toString());
         List<CliSessionCommand> lines = new ArrayList<>(commands);
         lines.add(CliSessionCommand.EXIT);
-        return guarded(guard.acquire(), () -> execute(selection, arguments,
+        CliResult result = guarded(guard.acquire(), () -> execute(selection, arguments,
             Optional.of(password), lines, timeout, "cliTimeout", extraJavaToolOptions,
             maxOutputBytes, StartHook.DIRECT));
+        return new CliResult(result.exitCode(), mask.apply(result.stdout()),
+            mask.apply(result.stderr()), result.duration(), result.truncated(),
+            result.outputBound(), result.clientMajor());
+    }
+
+    /**
+     * For a server of a stage with {@code tls.pinPerServer}, checks the certificate at the
+     * StartCLI address against the server's own pin (feature 014, research R-15); otherwise does
+     * nothing. {@link #run} calls it itself; an 8.1/9.0 caller of {@link #runSession} calls it
+     * before the session (feature 022, research D-7), the 6.1 session runs its own handshake.
+     *
+     * @throws ToolErrorException {@code TLS_ERROR}, {@code UNREACHABLE} or {@code TIMEOUT} with
+     *     the server id; StartCLI must then not be started
+     */
+    public void checkPin(Selection selection) {
+        if (selection.server().tls().pinPerServer()) {
+            pinProbe.check(selection.server());
+        }
     }
 
     /**
@@ -672,13 +765,16 @@ public final class CliRunner {
 
     /**
      * Runs {@code launch} under the guard permit {@code acquired}, which it closes: a
-     * {@code LoginFailure} rejects and an exit code 0 confirms the credentials.
+     * {@code LoginFailure} rejects and an exit code 0 confirms the credentials. A refusal for a
+     * missing "CLI login access" right does not reject: the credentials are right then, so the
+     * node must not be paused for them (feature 022).
      */
     private static CliResult guarded(CredentialGuard.Permit acquired,
         Supplier<CliResult> launch) {
         try (CredentialGuard.Permit permit = acquired) {
             CliResult result = launch.get();
-            if (CliOutputClassifier.isLoginFailure(result)) {
+            if (CliOutputClassifier.isLoginFailure(result)
+                && !CliOutputClassifier.isMissingCliRight(result)) {
                 permit.rejected();
             } else if (result.exitCode() == 0) {
                 permit.accepted();

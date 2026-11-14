@@ -25,6 +25,7 @@ import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
+import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81QueryRules;
 import de.dadecker.inubit.mcp.application.NodeVersions;
@@ -51,6 +52,7 @@ import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
 import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
@@ -72,7 +74,9 @@ import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
+import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
+import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
@@ -97,6 +101,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -589,6 +594,72 @@ class AdapterGatewayFactoryTest {
             assertThat(wireMock.getAllServeEvents()).isEmpty();
         }
         assertThat(versions.events()).as("no stale mark").isEmpty();
+    }
+
+    @Test
+    void the81And90PortSetsReadTheServerSettings(@TempDir Path root) throws IOException {
+        // feature 022 T020: the settings adapter of the 8.1 port set, which 9.0 reuses, with and
+        // without helper host, behind the stale-reporting decorator: the REST parts on the
+        // node's client, the StartCLI parts on the node's StartCLI runner
+        wireMock.stubFor(get(urlPathEqualTo("/ibis/rest/license"))
+            .willReturn(RestFixtures.response("admin-license", "xml")));
+        EffectiveNodeConfig on81 = server(DEV, VersionSetting.parse("8.1.17").orElseThrow());
+        EffectiveNodeConfig on90 = server(ENT2, VersionSetting.parse("9.0.7").orElseThrow());
+        try (CliResources resources = new CliResources("acme", PrivateFiles.forHost())) {
+            for (PortSetRegistry portSets : List.of(PortSetRegistry.v81Default().withV90(),
+                queueEntryPorts(Files.createDirectories(root.resolve("tmp")), resources))) {
+                try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(on81, on90),
+                    on81, on90)) {
+                    for (NodeId node : List.of(DEV, ENT2)) {
+                        ServerSettingsPort port = factory.serverSettings(node);
+                        assertThat(port).isInstanceOf(StaleReportingPorts.ServerSettings.class)
+                            .isSameAs(factory.forServer(node).serverSettings());
+
+                        assertThat(port.license().expiryDate())
+                            .contains(LocalDate.of(2046, 10, 8));
+                        assertThat(codeOf(() ->
+                            port.cliSettings(Set.of(UnavailablePart.THREADS))))
+                            .as("no StartCLI client configured")
+                            .isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                    }
+                }
+            }
+        }
+        wireMock.verify(4, getRequestedFor(urlPathEqualTo("/ibis/rest/license")));
+        assertThat(wireMock.getAllServeEvents()).hasSize(4);
+    }
+
+    @Test
+    void the81And90PortSetsReadTheUsers(@TempDir Path root) throws IOException {
+        // feature 022 T033: the user adapter of the 8.1 port set, which 9.0 reuses, with and
+        // without helper host, behind the stale-reporting decorator: the login list on the
+        // node's client, the StartCLI reads on the node's StartCLI runner
+        wireMock.stubFor(get(urlPathEqualTo("/ibis/rest/user/users"))
+            .willReturn(RestFixtures.response("admin-users", "xml")));
+        EffectiveNodeConfig on81 = server(DEV, VersionSetting.parse("8.1.17").orElseThrow());
+        EffectiveNodeConfig on90 = server(ENT2, VersionSetting.parse("9.0.7").orElseThrow());
+        try (CliResources resources = new CliResources("acme", PrivateFiles.forHost())) {
+            for (PortSetRegistry portSets : List.of(PortSetRegistry.v81Default().withV90(),
+                queueEntryPorts(Files.createDirectories(root.resolve("tmp")), resources))) {
+                try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(on81, on90),
+                    on81, on90)) {
+                    for (NodeId node : List.of(DEV, ENT2)) {
+                        UserDirectoryPort port = factory.userDirectory(node);
+                        assertThat(port).isInstanceOf(StaleReportingPorts.UserDirectory.class)
+                            .isSameAs(factory.forServer(node).userDirectory());
+
+                        assertThat(port.listUsers()).hasSize(58);
+                        for (Runnable call : List.<Runnable>of(
+                            () -> port.readUsers(List.of("jdoe")), port::loggedIn)) {
+                            assertThat(codeOf(call)).as("no StartCLI client configured")
+                                .isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                        }
+                    }
+                }
+            }
+        }
+        wireMock.verify(4, getRequestedFor(urlPathEqualTo("/ibis/rest/user/users")));
+        assertThat(wireMock.getAllServeEvents()).hasSize(4);
     }
 
     @Test
@@ -1266,8 +1337,9 @@ class AdapterGatewayFactoryTest {
             return new PortSet(ports.processes(), ports.logs(), ports.inventory(),
                 ports.processControl(), ports.artifacts(), ports.imports(), ports.tags(),
                 ports.partners(), ports.queueEntryContent(), ports.serverLogs(),
-                fake(ClusterNodePort.class, "7.9"), fake(IoLogPort.class, "7.9"),
-                fake(NodeConfigPort.class, "7.9"), fake(LogLevelPort.class, "7.9"));
+                ports.serverSettings(), ports.userDirectory(), fake(ClusterNodePort.class, "7.9"),
+                fake(IoLogPort.class, "7.9"), fake(NodeConfigPort.class, "7.9"),
+                fake(LogLevelPort.class, "7.9"));
         }, V81QueryRules.INSTANCE);
         InubitVersion version = InubitVersion.parse("7.9.3").orElseThrow();
         try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(node), node)) {
@@ -1899,6 +1971,38 @@ class AdapterGatewayFactoryTest {
 
             assertThatThrownBy(() -> port.download(ServerLogKind.TRACE,
                 InubitVersion.parse("6.1.0").orElseThrow(), System.nanoTime()))
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error()).isEqualTo(new RefusingPorts(DEV).refusal().error()));
+        }
+        assertThat(versions.events()).isEmpty();
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void aSixOneNodeRefusesServerSettingsWithoutContact() {
+        // feature 022 T020: the 6.1 port set refuses as RefusingPorts
+        EffectiveNodeConfig node = withoutUsableClient(VersionSetting.V6_1);
+        try (AdapterGatewayFactory factory = factory(WITH_V61, nodeVersions(node), node)) {
+            ServerSettingsPort port = factory.serverSettings(DEV);
+            assertThat(port).isInstanceOf(StaleReportingPorts.ServerSettings.class);
+
+            assertThatThrownBy(port::license)
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error()).isEqualTo(new RefusingPorts(DEV).refusal().error()));
+        }
+        assertThat(versions.events()).isEmpty();
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void aSixOneNodeRefusesUserReadsWithoutContact() {
+        // feature 022 T033: the 6.1 port set refuses as RefusingPorts
+        EffectiveNodeConfig node = withoutUsableClient(VersionSetting.V6_1);
+        try (AdapterGatewayFactory factory = factory(WITH_V61, nodeVersions(node), node)) {
+            UserDirectoryPort port = factory.userDirectory(DEV);
+            assertThat(port).isInstanceOf(StaleReportingPorts.UserDirectory.class);
+
+            assertThatThrownBy(port::listUsers)
                 .isInstanceOfSatisfying(ToolErrorException.class, e ->
                     assertThat(e.error()).isEqualTo(new RefusingPorts(DEV).refusal().error()));
         }

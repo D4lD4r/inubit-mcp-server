@@ -514,7 +514,7 @@ class NodeToolsDocsTest {
         throws IOException {
         String tools = tools();
 
-        assertThat(tools).contains("All twenty-seven tools",
+        assertThat(tools).contains("All twenty-nine tools",
             "the five node tools of feature 024 [their delta](../specs/"
                 + "024-unsupported-node-tools/contracts/mcp-tools-delta.md)",
             "| [`list_cluster_nodes`](#list_cluster_nodes) |", "| [`read_io_log`](#read_io_log) |",

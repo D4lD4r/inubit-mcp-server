@@ -1,0 +1,156 @@
+{
+  "type": "object",
+  "required": ["node", "view", "sources", "warnings"],
+  "properties": {
+    "node": { "type": "string" },
+    "view": { "enum": ["users", "user", "logins"] },
+    "sources": {
+      "type": "object",
+      "description": "The channel each returned fact came from",
+      "propertyNames": {
+        "enum": ["logins", "groups", "roles", "email", "personal", "loggedIn"]
+      },
+      "additionalProperties": { "enum": ["REST", "CLI"] }
+    },
+    "page": { "$ref": "#/$defs/Page" },
+    "user": { "$ref": "#/$defs/UserDetail" },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Warnings about the INUBIT version of the {node}, e.g. a version that is not verified for this tool"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "properties": {
+        "view": { "const": "users" },
+        "page": {
+          "properties": { "items": { "items": { "$ref": "#/$defs/UserSummary" } } }
+        }
+      },
+      "required": ["page"],
+      "not": { "required": ["user"] }
+    },
+    {
+      "properties": {
+        "view": { "const": "logins" },
+        "page": {
+          "properties": { "items": { "items": { "$ref": "#/$defs/LoginEntry" } } }
+        }
+      },
+      "required": ["page"],
+      "not": { "required": ["user"] }
+    },
+    {
+      "properties": { "view": { "const": "user" } },
+      "required": ["user"],
+      "not": { "required": ["page"] }
+    }
+  ],
+  "$defs": {
+    "Page": {
+      "type": "object",
+      "required": ["items", "offset", "limit", "totalIsLowerBound", "truncated"],
+      "properties": {
+        "items": { "type": "array", "maxItems": 25 },
+        "offset": { "type": "integer", "minimum": 0 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 25 },
+        "total": { "type": "integer", "minimum": 0, "description": "All entries" },
+        "totalIsLowerBound": { "type": "boolean" },
+        "truncated": { "type": "boolean" },
+        "nextOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Offset of the next page, if there is one"
+        }
+      },
+      "additionalProperties": false
+    },
+    "UserSummary": {
+      "type": "object",
+      "description": "One user of the view `users`; never an e-mail or other personal field",
+      "required": ["login", "unavailable"],
+      "properties": {
+        "login": { "type": "string" },
+        "group": { "type": "string" },
+        "additionalGroups": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The additional user groups; absent if INUBIT shows none"
+        },
+        "roles": { "type": "array", "items": { "type": "string" } },
+        "unavailable": {
+          "type": "array",
+          "description": "What could not be read for this user, with the reason",
+          "items": {
+            "allOf": [
+              { "$ref": "#/$defs/Unavailable" },
+              { "properties": { "part": { "enum": ["groups", "roles"] } } }
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "UserDetail": {
+      "type": "object",
+      "description": "The one user of the view `user`",
+      "required": ["login", "unavailable"],
+      "properties": {
+        "login": { "type": "string" },
+        "group": { "type": "string" },
+        "superGroup": { "type": "string", "description": "The parent of the user group" },
+        "additionalGroups": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The additional user groups; absent if INUBIT shows none"
+        },
+        "roles": { "type": "array", "items": { "type": "string" } },
+        "email": { "type": "string", "description": "Absent if INUBIT shows none" },
+        "personal": {
+          "type": "array",
+          "description": "The other personal fields INUBIT shows, secrets masked",
+          "items": { "$ref": "#/$defs/PersonalField" }
+        },
+        "unavailable": {
+          "type": "array",
+          "description": "What could not be read for this user, with the reason",
+          "items": { "$ref": "#/$defs/Unavailable" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "PersonalField": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "value": { "type": "string" },
+        "masked": { "const": true }
+      },
+      "oneOf": [{ "required": ["value"] }, { "required": ["masked"] }],
+      "additionalProperties": false
+    },
+    "LoginEntry": {
+      "type": "object",
+      "required": ["login"],
+      "properties": {
+        "login": { "type": "string" },
+        "since": { "type": "string", "description": "The login time as INUBIT shows it; absent on 8.1" }
+      },
+      "additionalProperties": false
+    },
+    "Unavailable": {
+      "type": "object",
+      "required": ["part", "reason"],
+      "properties": {
+        "part": { "enum": ["groups", "roles", "email", "personal"] },
+        "reason": { "type": "string", "description": "CODE: message" },
+        "likelyCause": { "type": "string" },
+        "nextStep": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

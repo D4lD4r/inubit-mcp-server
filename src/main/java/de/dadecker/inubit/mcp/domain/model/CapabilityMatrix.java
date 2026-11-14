@@ -86,7 +86,9 @@ public final class CapabilityMatrix {
 
     /**
      * 8.1: everything; the server-log reads of feature 021 since their recordings (trace log T033,
-     * web service log T046); of the node tools of feature 024 the cluster's node list and the node
+     * web service log T046), reading the server settings of feature 022 since its recordings
+     * (T014, contract tests T025), reading the users of feature 022 since its recordings (T028,
+     * contract tests T037); of the node tools of feature 024 the cluster's node list and the node
      * configuration since their recordings (T025, T038), the others not yet verified.
      */
     private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1),
@@ -98,7 +100,9 @@ public final class CapabilityMatrix {
      * 9.0 responses are under contract test (feature 018, FR-016, research D-7); reading Queue
      * Manager entries included since its recorded 9.0 error entry (feature 020, FR-019, research
      * D-20); the server-log reads of feature 021 since their recordings (trace log T051, web
-     * service log T052); the node tools of feature 024 not yet verified, as on 8.1.
+     * service log T052); reading the server settings and the users of feature 022 since their
+     * recordings (T024, T028b; contract tests T026, T037a); the node tools of feature 024 not yet
+     * verified, as on 8.1.
      */
     private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0),
         unsupported(with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED),
@@ -106,13 +110,15 @@ public final class CapabilityMatrix {
         Map.of(), false, notYetVerified(V9_0_NOT_YET_VERIFIED));
 
     /**
-     * Unknown versions: reading Queue Manager entries, the server logs and the node tools is
-     * refused, not run with a warning.
+     * Unknown versions: reading Queue Manager entries, the server logs, the server settings, the
+     * users (feature 022: the coverage gate knows 8.1 and 9.0 only) and the node tools is refused,
+     * not run with a warning.
      */
     private static final CapabilityMatrix PRODUCTION = new CapabilityMatrix(
         List.of(V6_1, V8_1, V9_0),
         unsupported(READS_UNVERIFIED, Set.of(Capability.QUEUE_ENTRY_READ,
             Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ,
+            Capability.SERVER_SETTINGS, Capability.USER_DIRECTORY,
             Capability.CLUSTER_NODES_READ, Capability.IO_LOG_READ, Capability.NODE_CONFIG_READ,
             Capability.LOG_LEVEL_WRITE)));
 
@@ -144,10 +150,14 @@ public final class CapabilityMatrix {
      * Queue Manager entries is supported on 8.1 and 9.0, on any other and on unknown versions
      * unsupported. Feature 021 (research D-6): downloading the trace log and the web service log
      * is supported on 8.1 (T033, T046) and 9.0 (T051, T052), on any other and on unknown versions
-     * unsupported. Feature 024 (research D-4): of the node tools, reading the cluster's node list
-     * and the node configuration is supported on 8.1 (T025, T038); the others on 8.1 and all of
-     * them on 9.0 are unsupported with the note "not yet verified", as on any other and on unknown
-     * versions (without the note).
+     * unsupported. Feature 022 (research D-1): reading the server settings is supported on 8.1
+     * and 9.0 since their contract tests (T025, T026), and unsupported on every other and on
+     * unknown versions; reading the users (US2) is supported on 8.1 and 9.0 since their contract
+     * tests (T037, T037a), and unsupported on every other and on unknown versions. Feature 024
+     * (research D-4): of the node tools, reading the cluster's node list and the node
+     * configuration is supported on 8.1 (T025, T038); the others on 8.1 and all of them on 9.0
+     * are unsupported with the note "not yet verified", as on any other and on unknown versions
+     * (without the note).
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;

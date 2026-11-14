@@ -230,10 +230,13 @@ class CapabilityExtensionTest {
         NodeOverview overview = new NodeOverview(servers.stream()
             .map(server -> server.summary(path -> false, false)).toList(), versions, MATRIX,
             // feature 020: reading Queue Manager entries needs a group opt-in none of these has;
-            // feature 021: Wiring does not allow the server-log reads yet; feature 024: the node
-            // tools need group opt-ins none of these has
+            // feature 021: Wiring does not allow the server-log reads yet; feature 022: the
+            // capabilities of its stories are left out, so this test keeps judging the
+            // capabilities of the US3 version extension only; feature 024: the node tools need
+            // group opt-ins none of these has
             (id, withClient) -> EnumSet.complementOf(EnumSet.of(Capability.QUEUE_ENTRY_READ,
                 Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ,
+                Capability.SERVER_SETTINGS, Capability.USER_DIRECTORY,
                 Capability.CLUSTER_NODES_READ, Capability.IO_LOG_READ,
                 Capability.NODE_CONFIG_READ, Capability.LOG_LEVEL_WRITE)),
             TestClientSelection.of(id -> true));

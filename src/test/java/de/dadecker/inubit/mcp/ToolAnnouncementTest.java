@@ -18,6 +18,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -33,13 +34,18 @@ import org.junit.jupiter.api.io.TempDir;
  * run the capability and has a client home. Feature 021 (T031, FR-002, D-17):
  * {@code download_server_log} for a node with a client home that may download the trace log;
  * T043: or for a node of a group with {@code unsupported.serverLogRead} with a client home that
- * may download the web service log. Feature 024 (T023, FR-002, SC-005, D-6):
- * {@code list_cluster_nodes} only for a node of a group with {@code unsupported.nodeStatusRead}
- * that may list the cluster's nodes and has a client home; T030: {@code read_io_log} the same with
- * {@code unsupported.ioLogRead}; T036: {@code get_node_config} the same with
- * {@code unsupported.nodeConfigRead}; T054: {@code set_temporary_log_level} and
- * {@code reset_temporary_log_level} only for a node with effective write access,
- * {@code unsupported.logLevelWrite} and a client home that may change the log level.
+ * may download the web service log. Feature 022 (T022, contracts/mcp-tools-delta.md
+ * "Announcement"): {@code get_server_settings} for a node that may read the server settings, with
+ * or without a client home; the production matrix admits it on no version before T025. T035:
+ * {@code read_users} likewise for a node that may read the user directory, right after
+ * {@code get_server_settings}; the production matrix admits it on no version before T037.
+ * Feature 024 (T023, FR-002, SC-005, D-6): {@code list_cluster_nodes} only for a node of a group
+ * with {@code unsupported.nodeStatusRead} that may list the cluster's nodes and has a client home;
+ * T030: {@code read_io_log} the same with {@code unsupported.ioLogRead}; T036:
+ * {@code get_node_config} the same with {@code unsupported.nodeConfigRead}; T054:
+ * {@code set_temporary_log_level} and {@code reset_temporary_log_level} only for a node with
+ * effective write access, {@code unsupported.logLevelWrite} and a client home that may change the
+ * log level.
  */
 class ToolAnnouncementTest {
 
@@ -169,11 +175,13 @@ class ToolAnnouncementTest {
 
     @Test
     void withoutAnOptInTheToolListIsUnchangedByFeature020() {
-        // feature 021 T033: an AUTO node with a client home also announces download_server_log
+        // feature 021 T033: an AUTO node with a client home also announces download_server_log;
+        // feature 022 T025, T037: and get_server_settings and read_users, as it may run 8.1
         List<String> withoutFeature020 = List.of("list_nodes", "get_health",
             "read_knowledge", "record_knowledge", "find_processes", "query_logs",
-            "download_server_log", "list_inventory", "get_inventory_item", "find_partners",
-            "export_artifacts", "export_archives", "check_artifacts");
+            "download_server_log", "get_server_settings", "read_users", "list_inventory",
+            "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+            "check_artifacts");
 
         assertThat(queueEntryTools("AUTO", cliHome(), false))
             .containsExactlyElementsOf(withoutFeature020);
@@ -186,8 +194,8 @@ class ToolAnnouncementTest {
         assertThat(queueEntryTools("AUTO", optIn("true") + "\n" + cliHome(), false))
             .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
                 "find_processes", "query_logs", "read_queue_entry", "download_server_log",
-                "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
-                "export_archives", "check_artifacts");
+                "get_server_settings", "read_users", "list_inventory", "get_inventory_item",
+                "find_partners", "export_artifacts", "export_archives", "check_artifacts");
     }
 
     @Test
@@ -305,11 +313,13 @@ class ToolAnnouncementTest {
     @Test
     void aClientHomeWithoutAnyUnsupportedSettingAnnouncesTheDownload() {
         // US1-6: no opt-in needed for the trace log
+        // feature 022 T022: the test matrix also admits the server settings on 8.1; T035: and
+        // the user directory
         assertThat(groupTools("V8_1", cliHome(), false, TraceMatrix.admittingEightOne()))
             .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
-                "find_processes", "query_logs", "download_server_log", "list_inventory",
-                "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
-                "check_artifacts");
+                "find_processes", "query_logs", "download_server_log", "get_server_settings",
+                "read_users", "list_inventory", "get_inventory_item", "find_partners",
+                "export_artifacts", "export_archives", "check_artifacts");
         assertThat(groupTools("AUTO", cliHome(), false, TraceMatrix.admittingEightOne()))
             .as("an AUTO node may run 8.1").contains("download_server_log");
     }
@@ -341,24 +351,29 @@ class ToolAnnouncementTest {
 
     @Test
     void onTheProductionMatrixThe81And90RecordingsAnnounceTheDownload() {
-        // T033: 8.1 admits the trace log, so an 8.1 and an AUTO node with a client home run it
+        // T033: 8.1 admits the trace log, so an 8.1 and an AUTO node with a client home run it;
+        // feature 022 T025, T037: 8.1 (and so an AUTO node) also admits the server settings and
+        // the users; T026, T037a: 9.0 admits the server settings and the users
         List<String> withDownload = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
             "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
             "export_archives", "check_artifacts");
+        List<String> withSettings = new ArrayList<>(withDownload);
+        withSettings.add(withSettings.indexOf("list_inventory"), "get_server_settings");
+        withSettings.add(withSettings.indexOf("list_inventory"), "read_users");
         assertThat(groupTools("V8_1", cliHome(), false, CapabilityMatrix.production()))
-            .containsExactlyElementsOf(withDownload);
+            .containsExactlyElementsOf(withSettings);
         assertThat(groupTools("AUTO", cliHome(), false, CapabilityMatrix.production()))
-            .containsExactlyElementsOf(withDownload);
+            .containsExactlyElementsOf(withSettings);
         // T046: 8.1 also admits the web service log, which adds no tool for an opted-in node
         assertThat(groupTools("V8_1", serverLogOptIn("true") + "\n" + cliHome(), false,
-            CapabilityMatrix.production())).containsExactlyElementsOf(withDownload);
+            CapabilityMatrix.production())).containsExactlyElementsOf(withSettings);
         // T051: 9.0 admits the trace log, so a node pinned to 9.0 with a 9.0 client runs it
         assertThat(groupTools("V9_0", "", true, CapabilityMatrix.production()))
-            .containsExactlyElementsOf(withDownload);
+            .containsExactlyElementsOf(withSettings);
         // T052: 9.0 also admits the web service log, which adds no tool for an opted-in node
         assertThat(groupTools("V9_0", serverLogOptIn("true"), true,
-            CapabilityMatrix.production())).containsExactlyElementsOf(withDownload);
+            CapabilityMatrix.production())).containsExactlyElementsOf(withSettings);
     }
 
     // --- feature 021 T043: the web service branch of download_server_log (FR-002, D-17) ----
@@ -405,11 +420,13 @@ class ToolAnnouncementTest {
     @Test
     void anOptedInNodeWithAClientHomeAnnouncesTheDownloadForTheWebServiceLog() {
         CapabilityMatrix matrix = WebServiceMatrix.admittingEightOneWithoutTrace();
+        // feature 022 T022: the test matrix also admits the server settings on 8.1; T035: and
+        // the user directory
         assertThat(groupTools("V8_1", serverLogOptIn("true") + "\n" + cliHome(), false, matrix))
             .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
-                "find_processes", "query_logs", "download_server_log", "list_inventory",
-                "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
-                "check_artifacts");
+                "find_processes", "query_logs", "download_server_log", "get_server_settings",
+                "read_users", "list_inventory", "get_inventory_item", "find_partners",
+                "export_artifacts", "export_archives", "check_artifacts");
         assertThat(groupTools("AUTO", serverLogOptIn("true") + "\n" + cliHome(), false, matrix))
             .as("an AUTO node may run 8.1").contains("download_server_log");
         assertThat(webServiceTools("V8_1", true)).contains("download_server_log");
@@ -435,9 +452,9 @@ class ToolAnnouncementTest {
 
     /** The T001 reference (SC-005): the tools of a client home on 8.1 or AUTO without opt-in. */
     private static final List<String> REFERENCE = List.of("list_nodes", "get_health",
-        "read_knowledge", "record_knowledge", "find_processes", "query_logs",
-        "download_server_log", "list_inventory", "get_inventory_item", "find_partners",
-        "export_artifacts", "export_archives", "check_artifacts");
+        "read_knowledge", "record_knowledge", "find_processes", "query_logs", "download_server_log",
+        "get_server_settings", "read_users", "list_inventory", "get_inventory_item",
+        "find_partners", "export_artifacts", "export_archives", "check_artifacts");
 
     private static String nodeStatusOptIn(String value) {
         return "    unsupported:\n      nodeStatusRead: " + value;
@@ -451,8 +468,9 @@ class ToolAnnouncementTest {
         assertThat(groupTools("V8_1", nodeStatusOptIn("true") + "\n" + cliHome(), false,
             matrix)).containsExactly("list_nodes", "get_health", "read_knowledge",
                 "record_knowledge", "find_processes", "query_logs", "download_server_log",
-                "list_cluster_nodes", "list_inventory", "get_inventory_item", "find_partners",
-                "export_artifacts", "export_archives", "check_artifacts");
+                "get_server_settings", "read_users", "list_cluster_nodes", "list_inventory",
+                "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+                "check_artifacts");
         assertThat(groupTools("AUTO", nodeStatusOptIn("true") + "\n" + cliHome(), false,
             matrix)).as("an AUTO node may run 8.1").contains("list_cluster_nodes");
         assertThat(groupTools("V8_1", "    production: true\n    write:\n      enabled: false\n"
@@ -510,8 +528,9 @@ class ToolAnnouncementTest {
         CapabilityMatrix production = CapabilityMatrix.production();
         List<String> withClusterNodes = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
-            "list_cluster_nodes", "list_inventory", "get_inventory_item", "find_partners",
-            "export_artifacts", "export_archives", "check_artifacts");
+            "get_server_settings", "read_users", "list_cluster_nodes", "list_inventory",
+            "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+            "check_artifacts");
         assertThat(groupTools("V8_1", nodeStatusOptIn("true") + "\n" + cliHome(), false,
             production)).containsExactlyElementsOf(withClusterNodes);
         assertThat(groupTools("AUTO", nodeStatusOptIn("true") + "\n" + cliHome(), false,
@@ -535,7 +554,8 @@ class ToolAnnouncementTest {
         CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
         assertThat(groupTools("V8_1", ioLogOptIn("true") + "\n" + cliHome(), false, matrix))
             .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
-                "find_processes", "query_logs", "download_server_log", "read_io_log",
+                "find_processes", "query_logs", "download_server_log",
+                "get_server_settings", "read_users", "read_io_log",
                 "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
                 "export_archives", "check_artifacts");
         assertThat(groupTools("V8_1", "    unsupported:\n      nodeStatusRead: true\n"
@@ -585,7 +605,8 @@ class ToolAnnouncementTest {
         CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
         assertThat(groupTools("V8_1", nodeConfigOptIn("true") + "\n" + cliHome(), false, matrix))
             .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
-                "find_processes", "query_logs", "download_server_log", "get_node_config",
+                "find_processes", "query_logs", "download_server_log",
+                "get_server_settings", "read_users", "get_node_config",
                 "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
                 "export_archives", "check_artifacts");
         assertThat(groupTools("V8_1", "    unsupported:\n      nodeStatusRead: true\n"
@@ -619,8 +640,9 @@ class ToolAnnouncementTest {
         CapabilityMatrix production = CapabilityMatrix.production();
         List<String> withNodeConfig = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
-            "get_node_config", "list_inventory", "get_inventory_item", "find_partners",
-            "export_artifacts", "export_archives", "check_artifacts");
+            "get_server_settings", "read_users", "get_node_config", "list_inventory",
+            "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+            "check_artifacts");
         assertThat(groupTools("V8_1", nodeConfigOptIn("true") + "\n" + cliHome(), false,
             production)).containsExactlyElementsOf(withNodeConfig);
         assertThat(groupTools("AUTO", nodeConfigOptIn("true") + "\n" + cliHome(), false,
@@ -652,7 +674,8 @@ class ToolAnnouncementTest {
         assertThat(groupTools("V8_1", writeEnabled(true) + logLevelOptIn("true") + cliHome(),
             false, matrix))
             .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
-                "find_processes", "query_logs", "download_server_log", "list_inventory",
+                "find_processes", "query_logs", "download_server_log",
+                "get_server_settings", "read_users", "list_inventory",
                 "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
                 "check_artifacts", "restart_process", "kill_process", "set_temporary_log_level",
                 "reset_temporary_log_level");
@@ -728,5 +751,90 @@ class ToolAnnouncementTest {
         }
         assertThat(groupTools("V9_0", writeEnabled(true) + logLevelOptIn("true"), true,
             production)).doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+    }
+
+    // --- feature 022 T022: get_server_settings (contracts/mcp-tools-delta.md "Announcement") --
+
+    @Test
+    void onTheProductionMatrixTheServerSettingsAreAnnouncedFor81And90() {
+        // T025 flipped 8.1, T026 flipped 9.0
+        assertThat(groupTools("V8_1", cliHome(), false, CapabilityMatrix.production()))
+            .contains("get_server_settings");
+        assertThat(groupTools("V8_1", "", false, CapabilityMatrix.production()))
+            .as("research D-1: without a client the StartCLI parts are unavailable")
+            .contains("get_server_settings");
+        assertThat(groupTools("AUTO", cliHome(), false, CapabilityMatrix.production()))
+            .as("an AUTO node may run 8.1").contains("get_server_settings");
+        assertThat(toolNames("V6_1", "V8_1", CapabilityMatrix.production()))
+            .contains("get_server_settings");
+        assertThat(groupTools("V9_0", "", true, CapabilityMatrix.production()))
+            .contains("get_server_settings");
+        assertThat(toolNames("V6_1", "V6_1", CapabilityMatrix.production()))
+            .doesNotContain("get_server_settings");
+    }
+
+    @Test
+    void aMatrixAdmittingTheServerSettingsAnnouncesThemWithoutAClientHome() {
+        // research D-1: allowed without a client; the StartCLI parts are then unavailable
+        // feature 022 T035: the test matrix also admits the user directory on 8.1
+        assertThat(groupTools("V8_1", "", false, TraceMatrix.admittingEightOne()))
+            .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
+                "find_processes", "query_logs", "get_server_settings", "read_users",
+                "list_inventory", "get_inventory_item", "find_partners", "check_artifacts");
+        assertThat(groupTools("AUTO", "", false, TraceMatrix.admittingEightOne()))
+            .as("an AUTO node may run 8.1").contains("get_server_settings");
+        assertThat(toolNames("V6_1", "V8_1", TraceMatrix.admittingEightOne()))
+            .contains("get_server_settings");
+    }
+
+    @Test
+    void nodesPinnedToVersionsWithoutTheServerSettingsDoNotAnnounceThem() {
+        assertThat(toolNames("V6_1", "V6_1", TraceMatrix.admittingEightOne()))
+            .doesNotContain("get_server_settings");
+        assertThat(groupTools("V9_0", "", true, TraceMatrix.admittingEightOne()))
+            .doesNotContain("get_server_settings");
+    }
+
+    // --- feature 022 T035: read_users (contracts/mcp-tools-delta.md "Announcement") ---------
+
+    @Test
+    void aMatrixAdmittingTheUserDirectoryAnnouncesReadUsersWithOrWithoutAClientHome() {
+        // without a client the users view lists the logins with groups and roles unavailable
+        for (String groupLines : List.of("", cliHome())) {
+            List<String> names = groupTools("V8_1", groupLines, false,
+                TraceMatrix.admittingEightOne());
+            assertThat(names).as(groupLines).contains("read_users");
+            assertThat(names.indexOf("read_users")).as("right after get_server_settings")
+                .isEqualTo(names.indexOf("get_server_settings") + 1);
+        }
+        assertThat(groupTools("AUTO", "", false, TraceMatrix.admittingEightOne()))
+            .as("an AUTO node may run 8.1").contains("read_users");
+        assertThat(toolNames("V6_1", "V8_1", TraceMatrix.admittingEightOne()))
+            .contains("read_users");
+    }
+
+    @Test
+    void nodesPinnedToVersionsWithoutTheUserDirectoryDoNotAnnounceReadUsers() {
+        assertThat(toolNames("V6_1", "V6_1", TraceMatrix.admittingEightOne()))
+            .doesNotContain("read_users");
+        assertThat(groupTools("V9_0", "", true, TraceMatrix.admittingEightOne()))
+            .doesNotContain("read_users");
+    }
+
+    @Test
+    void onTheProductionMatrixReadUsersIsAnnouncedFor81And90() {
+        // T037 flipped 8.1, T037a flipped 9.0
+        assertThat(groupTools("V8_1", cliHome(), false, CapabilityMatrix.production()))
+            .contains("read_users");
+        assertThat(groupTools("V8_1", "", false, CapabilityMatrix.production()))
+            .as("without a client the groups and roles are unavailable").contains("read_users");
+        assertThat(groupTools("AUTO", cliHome(), false, CapabilityMatrix.production()))
+            .as("an AUTO node may run 8.1").contains("read_users");
+        assertThat(toolNames("V6_1", "V8_1", CapabilityMatrix.production()))
+            .contains("read_users");
+        assertThat(groupTools("V9_0", "", true, CapabilityMatrix.production()))
+            .contains("read_users");
+        assertThat(toolNames("V6_1", "V6_1", CapabilityMatrix.production()))
+            .doesNotContain("read_users");
     }
 }

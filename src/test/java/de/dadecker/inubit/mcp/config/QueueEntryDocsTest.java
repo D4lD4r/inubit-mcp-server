@@ -258,7 +258,7 @@ class QueueEntryDocsTest {
     void toolsListsTheToolItsCapabilityAndItsAnnouncementRule() throws IOException {
         String tools = folded(Files.readString(TOOLS));
 
-        assertThat(tools).contains("All twenty-seven tools",
+        assertThat(tools).contains("All twenty-nine tools",
             "| [`read_queue_entry`](#read_queue_entry) | the content of ONE Queue Manager entry in"
                 + " `ERROR`",
             "`read_queue_entry` is **offered only if** a node's group has"

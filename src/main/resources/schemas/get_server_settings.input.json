@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "required": ["target"],
+  "properties": {
+    "target": {
+      "type": "string",
+      "description": "Id of one {group} (all its {nodes}) or of one {node} (`<{group}>/<{node}>`)",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}(/[a-z0-9][a-z0-9-]{0,31})?$"
+    },
+    "parts": {
+      "type": "array",
+      "description": "The settings to read; default: all but `configuration`",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["license", "threads", "privilegedWorkflows", "dbConnectionTolerance",
+          "configuration", "serverTime"]
+      }
+    },
+    "configurationSection": {
+      "type": "string",
+      "description": "The configuration section whose values to show, secrets masked; implies the part `configuration`",
+      "pattern": "^[^\\u0000-\\u001F\\u007F]{1,200}$"
+    }
+  },
+  "additionalProperties": false
+}

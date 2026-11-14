@@ -5,6 +5,7 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Node;
 import de.dadecker.inubit.mcp.domain.model.KeyMaterial;
 import de.dadecker.inubit.mcp.domain.model.SecretPlaceholder;
+import de.dadecker.inubit.mcp.domain.model.SecretRules;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.CertificateException;
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
@@ -194,27 +196,19 @@ final class SecretPaths {
 
     /**
      * Key material in a property that is not a secret type (review I3): an
-     * {@code InternalDocument} named like a keystore or holding one, or a PEM private key.
+     * {@code InternalDocument} named like a keystore, or a value that
+     * {@link SecretRules#isKeyMaterial} flags (the one key-material rule, feature 022 FR-010). A
+     * placeholder of an earlier redaction is never key material.
      */
     static boolean isKeyMaterial(Element property, String type, String value) {
         if (SecretPlaceholder.isPlaceholder(value.strip())) {
             return false;
         }
-        if (type.equals("InternalDocument")) {
-            if (KeyMaterial.hasKeyName(property.attribute("documentName").orElse(""))) {
-                return true;
-            }
-            if (KeyMaterial.decodeDocument(value).filter(KeyMaterial::isKeyMaterial)
-                .isPresent()) {
-                return true;
-            }
-        }
-        if (KeyMaterial.isKeyMaterial(value.getBytes(StandardCharsets.ISO_8859_1))) {
+        if (type.equals("InternalDocument")
+            && KeyMaterial.hasKeyName(property.attribute("documentName").orElse(""))) {
             return true;
         }
-        // a keystore can also sit base64-encoded in an untyped property (stage-2 review)
-        return KeyMaterial.longBase64(value) && KeyMaterial.decodeDocument(value)
-            .filter(KeyMaterial::isKeyMaterial).isPresent();
+        return SecretRules.isKeyMaterial(Optional.of(type), value);
     }
 
     /** True if {@code value} is one X.509 certificate (base64 DER or PEM) and nothing else. */

@@ -36,6 +36,16 @@ public enum Capability {
      * (feature 021).
      */
     WEBSERVICE_LOG_READ(Kind.READ, Set.of(Channel.CLI)),
+    /**
+     * {@code get_server_settings}: REST and StartCLI parts, each admitted by the coverage gate on
+     * its own (feature 022, research D-1, D-2).
+     */
+    SERVER_SETTINGS(Kind.READ, Set.of(Channel.REST, Channel.CLI)),
+    /**
+     * {@code read_users}: the login list over REST, groups, roles, personal fields and logins
+     * over StartCLI (feature 022, US2, research D-20).
+     */
+    USER_DIRECTORY(Kind.READ, Set.of(Channel.REST, Channel.CLI)),
     /** {@code list_cluster_nodes}: a helper on the INUBIT client (feature 024). */
     CLUSTER_NODES_READ(Kind.READ, Set.of(Channel.CLI)),
     /** {@code read_io_log}: a helper on the INUBIT client (feature 024). */
@@ -111,6 +121,8 @@ public enum Capability {
             case QUEUE_ENTRY_READ -> "reading Queue Manager entries";
             case TRACE_LOG_READ -> "downloading the trace log";
             case WEBSERVICE_LOG_READ -> "downloading the web service log";
+            case SERVER_SETTINGS -> "reading server settings";
+            case USER_DIRECTORY -> "reading users";
             case CLUSTER_NODES_READ -> "reading the cluster's node list";
             case IO_LOG_READ -> "reading module input/output logging";
             case NODE_CONFIG_READ -> "reading node configuration values";

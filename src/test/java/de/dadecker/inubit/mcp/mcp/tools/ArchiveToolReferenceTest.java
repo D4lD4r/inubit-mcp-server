@@ -50,7 +50,7 @@ class ArchiveToolReferenceTest {
     void theDescriptionIsQuotedAsRenderedAndTheToolIsListed() throws IOException {
         assertThat(folded(REFERENCE)).contains(
             "[acme] " + Terminology.DEFAULT.render(ExportArchivesTool.DESCRIPTION),
-            "| [`export_archives`](#export_archives) |", "All twenty-seven tools");
+            "| [`export_archives`](#export_archives) |", "All twenty-nine tools");
         assertThat(folded(Path.of("README.md"))).contains("| `export_archives` |");
     }
 

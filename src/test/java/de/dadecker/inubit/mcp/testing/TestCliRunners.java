@@ -97,6 +97,17 @@ public final class TestCliRunners {
             resources, pinProbe, versions);
     }
 
+    /** As above, with the recorded client checks of the launch guard (feature 017, D-4). */
+    public static CliRunner forHost(ProcessLauncher launcher,
+        Map<String, String> parentEnvironment, CliResources resources,
+        StartCliPinProbe pinProbe, Function<NodeId, Optional<InubitVersion>> versions,
+        ClientCheckLookup checks) {
+        boolean windows = Platform.windows();
+        return new CliRunner(launcher, parentEnvironment, windows,
+            windows ? new WindowsSystem() : new PosixSystem(), ProcessContainment.Bound::new,
+            resources, pinProbe, versions, checks);
+    }
+
     /**
      * What the helper of features 020/021 needs from the host platform ({@link Platform#windows()};
      * on Windows the simulated system directory); its processes count as contained.

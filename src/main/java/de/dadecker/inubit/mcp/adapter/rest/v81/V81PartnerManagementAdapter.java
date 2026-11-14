@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree.Element;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient.MediaRange;
+import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.adapter.rest.RestResponse;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -55,8 +56,6 @@ public final class V81PartnerManagementAdapter implements PartnerManagementPort 
     static final String NOT_RETURNED = "the export of this name did not return the requested"
         + " diagram; the name is not unique or not found";
 
-    private static final String EXPORT = "/ibis/rest/model/export/";
-
     private final NodeId server;
     private final InubitHttpClient client;
 
@@ -101,8 +100,8 @@ public final class V81PartnerManagementAdapter implements PartnerManagementPort 
     /** The export of {@code diagram}; a failure keeps its kind but loses the excerpt. */
     private RestResponse export(DiagramRef diagram) {
         try {
-            return client.get(EXPORT + InubitHttpClient.encodePathSegment(diagram.name()),
-                Map.of(), MediaRange.ANY, 404);
+            return client.get(RestEndpoint.MODEL_EXPORT, List.of(diagram.name()), Map.of(),
+                MediaRange.ANY, 404);
         } catch (ToolErrorException e) {
             ToolError error = e.error();
             if (error.excerpt().isEmpty()) {
