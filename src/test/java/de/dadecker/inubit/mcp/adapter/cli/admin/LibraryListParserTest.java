@@ -78,6 +78,23 @@ class LibraryListParserTest {
         assertUnknown(() -> LibraryListParser.parse("driver", List.of("ok.jar", line)));
     }
 
+    /**
+     * T043 round 2 (research D-19): an accepted line goes through the free-text masker before it
+     * becomes a file name; a line it changed is still listed, with the placeholder.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"password=synthetic-secret-3908", "x;pwd=synthetic-secret-3908.jar"})
+    void aSecretInsideALineIsMaskedAndTheLineStillListed(String line) {
+        List<LibraryEntry> entries = LibraryListParser.parse("driver",
+            List.of("ojdbc11.jar", line)).entries();
+
+        assertThat(entries).hasSize(2);
+        assertThat(entries.get(0)).isEqualTo(new LibraryEntry("ojdbc11.jar", "driver"));
+        assertThat(entries.get(1).file()).contains("${secret:")
+            .doesNotContain("synthetic-secret-3908");
+        assertThat(entries.get(1).type()).isEqualTo("driver");
+    }
+
     @Test
     void theExcerptOfAnUnknownAnswerHoldsNoSecret() {
         ToolError error = assertUnknown(() -> LibraryListParser.parse("driver",

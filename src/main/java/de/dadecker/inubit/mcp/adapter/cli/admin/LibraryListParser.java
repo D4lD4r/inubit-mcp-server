@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.adapter.cli.admin;
 
 import de.dadecker.inubit.mcp.domain.model.LibraryEntry;
+import de.dadecker.inubit.mcp.domain.model.SecretTextMasker;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import java.util.ArrayList;
 import java.util.List;
@@ -16,6 +17,8 @@ import java.util.List;
  * format is unknown (L-21): until a recording shows it, each line that is not blank is read as one
  * file name, and the listing says {@code rowFormatVerified = false}. A line over
  * {@value #MAX_LINE_CHARS} characters or with a control character is not taken for a file name.
+ * A line that is taken goes through {@link SecretTextMasker#mask} first (research D-19): a secret
+ * inside it is replaced by its placeholder and the line is still listed.
  */
 public final class LibraryListParser {
 
@@ -30,7 +33,7 @@ public final class LibraryListParser {
      * @param type  {@code driver} or {@code plugin}, the {@code --type} of the command
      * @param lines the answer after the client's preamble (script mode) or the session block
      * @return one entry per line that is not blank (blank and {@code \r}-only lines are skipped),
-     *     in the answer's order, with {@code rowFormatVerified = false}
+     *     in the answer's order, its secrets masked, with {@code rowFormatVerified = false}
      * @throws ToolErrorException {@code UNEXPECTED_RESPONSE} if a line is longer than
      *     {@value #MAX_LINE_CHARS} characters or holds a control character
      */
@@ -43,7 +46,7 @@ public final class LibraryListParser {
             if (line.length() > MAX_LINE_CHARS || line.chars().anyMatch(Character::isISOControl)) {
                 throw UnknownOutput.of("library --list --type " + type, EXPECTED, lines);
             }
-            entries.add(new LibraryEntry(line, type));
+            entries.add(new LibraryEntry(SecretTextMasker.mask(line), type));
         }
         return new LibraryEntry.Listing(entries, false);
     }

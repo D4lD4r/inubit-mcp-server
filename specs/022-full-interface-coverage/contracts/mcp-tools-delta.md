@@ -91,10 +91,12 @@ each tool's test, as for the existing tools. Types and validation: [data-model.m
   - `action`: `module` | `libraries`;
   - fields per action:
     - `module`: `diagram` + `moduleId` (`^[0-9]{1,10}$`);
-    - `libraries`: `libraryType` (optional, `driver` | `plugin`; without it both types are listed
-      in one stdin session), `offset` (0–9999), `limit` (1–100, default 100).
-- **Output**: `ModuleDetail` or `Page<LibraryEntry>` with `rowFormatVerified`, with `node` and
-  `source` (`REST` for `module`, `CLI` for `libraries`).
+    - `libraries`: `libraryType` (optional, `driver` | `plugin`; without it both types are listed,
+      drivers first, with one StartCLI script-mode run per type), `offset` (0–9999), `limit`
+      (1–100, default 100).
+- **Output**: `{ node, action, source, module?: ModuleDetail, page?: Page<LibraryEntry>,
+  rowFormatVerified?, warnings }`: `module` for `module`, `page` with `rowFormatVerified` for
+  `libraries`; `source` is `REST` for `module`, `CLI` for `libraries`.
 - **Rules** (research D-21, "Live recording T039"):
   - `module` reads `GET /model/nodeByModel/{diagram}/{moduleId}` as XML; an unknown id gives
     `NOT_FOUND` (the `500` page with the "could not be found" message), any other answer

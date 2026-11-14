@@ -517,7 +517,9 @@ values again.
 A module property value that is shown goes through `SecretTextMasker` before it is bounded, so a
 credential inside the text (`;password=…` or `?password=…` in a JDBC `dbURL`) becomes its
 `${secret:…}` placeholder while the rest stays; such a property is not masked as a whole and does
-not count in `maskedCount` (T040 review round 1).
+not count in `maskedCount` (T040 review round 1). Each line of a library list (`library --list
+--type`) that is taken for a file name goes through the same `SecretTextMasker` first; a line it
+changed is still listed, with the placeholder (T043 round 2).
 
 **Rationale**: FR-010 asks for one rule. The 018 rules are the strictest ones the project has.
 

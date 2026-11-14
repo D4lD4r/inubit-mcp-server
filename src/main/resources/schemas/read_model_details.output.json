@@ -1,0 +1,115 @@
+{
+  "type": "object",
+  "required": ["node", "action", "source", "warnings"],
+  "properties": {
+    "node": { "type": "string" },
+    "action": { "enum": ["module", "libraries"] },
+    "source": {
+      "enum": ["REST", "CLI"],
+      "description": "The channel the result came from: REST for `module`, StartCLI for `libraries`"
+    },
+    "module": { "$ref": "#/$defs/ModuleDetail" },
+    "page": { "$ref": "#/$defs/Page" },
+    "rowFormatVerified": {
+      "type": "boolean",
+      "description": "false while each line of the StartCLI answer is read as one file name, until a listed library is recorded"
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Warnings about the INUBIT version of the {node}, e.g. a version that is not verified for this tool"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "properties": { "action": { "const": "module" }, "source": { "const": "REST" } },
+      "required": ["module"],
+      "not": { "anyOf": [{ "required": ["page"] }, { "required": ["rowFormatVerified"] }] }
+    },
+    {
+      "properties": { "action": { "const": "libraries" }, "source": { "const": "CLI" } },
+      "required": ["page", "rowFormatVerified"],
+      "not": { "required": ["module"] }
+    }
+  ],
+  "$defs": {
+    "ModuleDetail": {
+      "type": "object",
+      "required": ["diagram", "moduleId", "name", "type", "connections", "properties", "maskedCount"],
+      "properties": {
+        "diagram": { "type": "string" },
+        "moduleId": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "description": "INUBIT's module type, e.g. twDatabaseConnector" },
+        "parentId": { "type": "string" },
+        "connections": {
+          "type": "array",
+          "description": "The outgoing connections",
+          "items": {
+            "type": "object",
+            "required": ["id", "targetId"],
+            "properties": {
+              "id": { "type": "string" },
+              "targetId": { "type": "string", "description": "The id of the module the connection leads to" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "properties": {
+          "type": "array",
+          "description": "The properties in INUBIT's order, secret values masked",
+          "items": { "$ref": "#/$defs/Property" }
+        },
+        "maskedCount": { "type": "integer", "minimum": 0, "description": "The number of masked properties" }
+      },
+      "additionalProperties": false
+    },
+    "Property": {
+      "type": "object",
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string", "description": "INUBIT's property type, e.g. String or Password" },
+        "value": { "type": "string", "maxLength": 4000, "description": "A credential inside the value is replaced by a placeholder" },
+        "truncated": { "const": true, "description": "The value was cut" },
+        "masked": { "const": true }
+      },
+      "oneOf": [
+        { "required": ["value"], "not": { "required": ["masked"] } },
+        { "required": ["masked"], "not": { "anyOf": [{ "required": ["value"] }, { "required": ["truncated"] }] } }
+      ],
+      "additionalProperties": false
+    },
+    "Page": {
+      "type": "object",
+      "required": ["items", "offset", "limit", "totalIsLowerBound", "truncated"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "required": ["file", "type"],
+            "properties": {
+              "file": { "type": "string" },
+              "type": { "enum": ["driver", "plugin"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "offset": { "type": "integer", "minimum": 0 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "total": { "type": "integer", "minimum": 0, "description": "All libraries" },
+        "totalIsLowerBound": { "type": "boolean" },
+        "truncated": { "type": "boolean" },
+        "nextOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Offset of the next page, if there is one"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

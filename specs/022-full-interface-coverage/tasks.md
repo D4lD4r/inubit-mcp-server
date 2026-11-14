@@ -657,7 +657,7 @@ offered).
     verified", `NodeOverview`, `list_nodes` enum), with `CapabilityMatrixTest` and `ListNodesToolTest`;
   - Failing tests first: adapter tests with WireMock (the T039 bodies and media types) and
     scripted StartCLI (the T039 outputs).
-- [ ] T043 [US3] `application/ModelDetailService.java` and tool `mcp/tools/ReadModelDetailsTool.java`:
+- [X] T043 [US3] `application/ModelDetailService.java` and tool `mcp/tools/ReadModelDetailsTool.java`:
   - schemas `read_model_details.{input,output}.json`;
   - actions `module` (`diagram` + `moduleId`) and `libraries` (`libraryType` optional, paged);
     no `moduleName`, `metadata` or `checkIsConnector` (owner decision 2026-11-14); each call is
