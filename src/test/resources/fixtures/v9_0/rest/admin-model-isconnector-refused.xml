@@ -1,0 +1,1 @@
+<ApiError><statusCode>401</statusCode><message>Authentication failed: The credentials entered are incorrect.</message><path>/ibis/rest/isconnector</path><timestamp>2026-11-14T10:57:09.840</timestamp></ApiError>

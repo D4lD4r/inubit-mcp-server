@@ -58,8 +58,8 @@ diagrams, Technical Workflows)
 |---|---|---|---|
 | GET | `/model/models` | auth | optional `businessUser`, `user`, `views`, `deep`, `version`, `tag`; XML `ModelList` |
 | GET | `/model/modelByName/{diagramName}` | auth | XML; encode spaces as `%20` |
-| GET | `/model/nodeByModel/{modelName}/{nodeId}` | auth | XML (also for Accept JSON); read by `read_model_details` `module`; an unknown id is a `500` page saying the module could not be found (recorded on 8.1.17, feature 022) |
-| GET | `/model/nodeByName/{diagramName}/{moduleName}` | auth | XML; removed from 9.0 docs; absent on 8.1.17: `404` "Not Found" for an existing diagram and module (recorded in feature 022) |
+| GET | `/model/nodeByModel/{modelName}/{nodeId}` | auth | XML (also for Accept JSON); read by `read_model_details` `module`; an unknown id is a `500` page saying the module could not be found (recorded on 8.1.17, feature 022). 9.0.10: XML only (indented, root `ns2:Node`, the same attributes, connections and properties), Accept JSON gets `406`; an unknown id is a `500` `ApiError` with the generic `Error while getting node by model`, which names no module, so `read_model_details` reads it as `UNEXPECTED_RESPONSE` with a hint (recorded in feature 022) |
+| GET | `/model/nodeByName/{diagramName}/{moduleName}` | auth | XML; removed from 9.0 docs; absent on 8.1.17: `404` "Not Found" for an existing diagram and module, and on 9.0.10 a `404` `ApiError` `Resource Not Found` (recorded in feature 022) |
 | GET | `/model/export/{diagramName}` | auth | ZIP stream (`.diagram.zip`); 9.0.10 sends it as `Content-Type: application/zip` with `Content-Encoding: gzip` (even with `Accept-Encoding: identity`), 8.1 plain without `Content-Type` |
 | PUT | `/model/import` | auth | XML `<Protocol>`; **UNVERIFIED** how the ZIP is transmitted |
 | DELETE | `/diagrams/{id}`, `/diagrams/{id}/version/{v}` | SysAdmin | version delete since 8.1.6 |
@@ -71,7 +71,9 @@ diagrams, Technical Workflows)
 `/process/processes/{type}/{group}/{name}` (PNG), `/process/search?searchText=` (JSON),
 `/process/metadata/{diagramName}` (XML `IBISWorkflow`). On 8.1.17 every workflow tried got a `500`
 page `Workflow details not found for <workflow>`, probably because the server's metadata registry
-was empty; the answer for a workflow with metadata is not recorded (feature 022, live check L-19).
+was empty; on 9.0.10 a `500` `ApiError` `An unexpected error occurred for workflow: <workflow>`,
+with the registry empty there too. The answer for a workflow with metadata is not recorded on
+either version (feature 022, live check L-19).
 
 **Reports**: `GET /report/reportdata[/{id}]` (JSON), `GET /report/reports[/{folder}/{sub}]` (XML),
 `PUT /report` (SysAdmin, multipart).
@@ -80,8 +82,9 @@ was empty; the answer for a workflow with metadata is not recorded (feature 022,
 `POST /isconnector` executes a remote workflow, but the payload is XStream-serialized CXF
 attachments (Java-specific). On 8.1.17 `GET /isconnector` refuses the REST login that every other
 REST call accepts: `401`, `Authentication failed. Please check the username and password.`, no
-`WWW-Authenticate` header; which authentication it expects is not known (feature 022, live check
-L-20).
+`WWW-Authenticate` header. On 9.0.10 likewise `401`, an `ApiError` `Authentication failed: The
+credentials entered are incorrect.` with `WWW-Authenticate: Basic realm="inubit REST interface"`.
+Which authentication it expects is not known (feature 022, live check L-20).
 
 **Tasks** (`/task/...`) and **Webapps** (`/webapp/...`): portal/human-task oriented — task lists,
 filters, claim/submit, ad-hoc processes. Low priority for an operations-focused MCP server.
@@ -132,10 +135,10 @@ or excluded with the reason) in the coverage page [interface-coverage.md](../int
 |---|---|
 | Users & groups | `create -cu/-cug/-cur …`, `finger <login>`, `user [--setGroup …]`, `passwd`, `delete --deleteUser/--deleteUserGroup` |
 | Objects & processes | `delete --deleteWorkflow/--deleteModule`, `rename …`, `processErrorStart <pid>` (restart process in Error), `kill <pid>`, `processdelete error`, `tag --tagMove/--tagDelete/--tagSetActive/…` |
-| Export/import/deploy | `export` (diagrams, metadata, repository, modules; `--exportTag`, `--includeHistory`; `--exportMetadata` exports the metadata registry, not workflow metadata, and `--exportMetadataNames` names registry entries, accepting names that do not exist; `--exportWorkflowGroupExclude` works only with `--exportWorkflowType` and an empty `--exportWorkflowGroup`; recorded on 8.1.17 in feature 022), `import` (`--importWorkflow[Active]`, `--importModule`, `--returnProtocol`, …), `deploy` (staging: `--deployWorkflowArchive`, `--deploySystemName`, `--deployConfiguration`, merged properties/archive) |
+| Export/import/deploy | `export` (diagrams, metadata, repository, modules; `--exportTag`, `--includeHistory`; `--exportMetadata` exports the metadata registry, not workflow metadata, and `--exportMetadataNames` names registry entries, accepting names that do not exist; `--exportWorkflowGroupExclude` works only with `--exportWorkflowType` and an empty `--exportWorkflowGroup` (8.1.17: otherwise `2-NOK: Missing export option.`); recorded on 8.1.17 in feature 022; 9.0.10 recorded the same working forms (the group exclusion with `--exportWorkflowType` and the empty group, the metadata export), with the single-quoted `--exportMetadataNames 'a,b'`, which 8.1.17 recorded only unquoted), `import` (`--importWorkflow[Active]`, `--importModule`, `--returnProtocol`, …), `deploy` (staging: `--deployWorkflowArchive`, `--deploySystemName`, `--deployConfiguration`, merged properties/archive) |
 | Runtime data | `process export|import|listBlocked|resume|deleteBlocked|validateExport` |
-| Libraries & plug-ins | `library --upload/--list/--delete/--deleteAll -t driver|plugin` (`library --list --type` read by `read_model_details` `libraries`; only the empty answer is recorded, live check L-21), `plugin --register/--deregister` |
-| Configuration & ops | `threads`, `privilegedWorkflows`, `maintenance [on|off|-s|-eq]`, `triggerMidnightTask`, `dbconnectiontolerance`, `trace`, `debug`, `getBlockingQueueSize`, `validateMigrationBackup` (interactive only), `fetchXSLT1.0` (not found on 8.1.17: `Command not found.`, also for `-h`; recorded in feature 022) |
+| Libraries & plug-ins | `library --upload/--list/--delete/--deleteAll -t driver|plugin` (`library --list --type` read by `read_model_details` `libraries`; only the empty answer is recorded, on 8.1.17 and 9.0.10, live check L-21), `plugin --register/--deregister` |
+| Configuration & ops | `threads`, `privilegedWorkflows`, `maintenance [on|off|-s|-eq]`, `triggerMidnightTask`, `dbconnectiontolerance`, `trace`, `debug`, `getBlockingQueueSize`, `validateMigrationBackup` (interactive only), `fetchXSLT1.0` (not found on 8.1.17 and 9.0.10: `Command not found.`, also for `-h`; recorded in feature 022; both coverage rows `excluded` on 8.1 and 9.0, the XSLT 1.0 report is not offered) |
 | Diagnosis & monitoring | `ps -a|-c|-csv|-e|-q|-w|-l n|-u|-f 'workflow=… AND tag=…'` (columns NODE, UID, PID, PRIO, STATE, DATE, WORKFLOW, MODULE, TAG; `-u <1..5>` adds one column `USER_DEFINED_<i>` cut to 15 characters, a single index only; covered by `find_processes` `userColumn` through the `queueLog` field `userDefined<i>`), direct options `-ne -nx -nw -nq -q -sv -pctmem -maintenanceState`, client options `--who` (read by `read_users`, view `logins`) and `--nwho` (the number of all connected systems; covered by `logins`), `uname`, `uptime`, `date`, `free`, `lls`, `msgsend/msglist/msgread/msgdel`, `license -td|-ts` |
 
 Offline scripts (engine stopped, not StartCLI): `backup.sh`, `restore.sh`,

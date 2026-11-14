@@ -589,14 +589,15 @@ The logins cost one JVM start per form, because the 8.1 client offers them only 
     registry entries only. The names are metadata names, not workflow names; INUBIT accepts names
     that do not exist. T039 recorded the list unquoted (`--exportMetadataNames Example1,Example2`);
     the server sends it single-quoted like every other value (`'Example1,Example2'`, R-11), the
-    form the group exclusion list was recorded with. The quoted metadata form is to be confirmed
-    at the next live recording of the metadata export (T039a).
+    form the group exclusion list was recorded with. The quoted metadata form is confirmed on
+    9.0.10 (T039a: `--exportMetadataNames 'Example1,Example2'` → `1-OK: Metadata Names exported
+    successfully.`); on 8.1 only the unquoted form is recorded.
   - The schema uses `if`/`then` per `content`; `diagramGroup` is required only for `workflows`.
   - The check-in comment trace of StartCLI exports is named in the description (FR-008).
 - **`xslt10Report` is not offered** (L-7 fallback): `fetchXSLT1.0` does not exist on 8.1.17
-  (`Command not found.`). Its rows are `excluded:command not found on INUBIT 8.1.17` on 8.1; 9.0
-  stays open until a 9.0 recording (T039a, US3 9.0 follow-up); T046d offers it on 9.0 only if
-  the command exists there and the owner decides so.
+  (`Command not found.`). Its rows are `excluded:command not found on INUBIT 8.1.17` on 8.1. On
+  9.0 the command is absent too (T039a, "Live recording T039a": `Command not found.` on 9.0.10),
+  so its 9.0 rows are `excluded:command not found on INUBIT 9.0.10` and T046d does not apply.
 - **`find_processes` `userColumn`** (`ps -u`, L-8, owner decisions 2026-11-14):
   - optional integer `1..5`; the result shows that one user-defined Queue Manager column;
   - the values come from the REST `queueLog` rows that `find_processes` already reads: the field
@@ -1221,3 +1222,75 @@ Decided on the open points found while applying (owner, 2026-11-14, second answe
    with the FR-002 reason "cannot be built from the documentation: answer form not recordable"
    or "…: authentication not documented"), so that no row stays `planned` (SC-001); a working
    form is built in T046b / T046c.
+
+## Live recording T039a (9.0, 2026-11-14)
+
+Read-only recordings on the 9.0.10 test node (non-production) with the profile's account, which is
+not the INUBIT root user, approved by the owner on 2026-11-14. StartCLI: the profile's 9.0.10
+client on Java 21, against the base URL (D-3). Every command ran once:
+
+- REST: `GET /model/nodeByModel/{d}/{id}` with Accept XML and with Accept `application/json` for
+  the Database Connector module of T039, with Accept XML for the IS Connector module of T039 and
+  with the unknown id `999999`; `GET /model/nodeByName/{d}/{m}` with the diagram and the name of
+  the module `nodeByModel` returned; `GET /process/metadata/{wf}` for that workflow;
+  `GET /isconnector?…type=validateWorkflow` once;
+- StartCLI in script mode: `library --list --type driver|plugin`; `fetchXSLT1.0 -h`;
+  `export --exportMetadata`, `export --exportMetadata --exportMetadataNames 'Example1,Example2'`
+  and the T041 form `export --exportWorkflowUser '<owner>' --exportWorkflowType 'technical'
+  --exportWorkflowGroup '' --exportWorkflowGroupExclude '<g1,…,g6>'`, each with `--exportFile`
+  into the private recording folder;
+- one stdin session with `library --list --type driver|plugin`, `fetchXSLT1.0 -h` and `exit`;
+- no new `queueLog` recording: the recorded 9.0 row with `userDefined1` set
+  (`fixtures/queue-entry/v9_0/error_entry.rows.json`) serves the `userColumn` case (L-8 on 9.0).
+
+Fixtures: `fixtures/v9_0/rest/admin-model-*` and `fixtures/v9_0/cli/admin-model-*`, each with
+`.origin` (`recorded 2026-11-14 9.0.10 neutralized`) and registered in `V90Cases` and
+`NOT_RECORDABLE.txt` (neutralization and the planted values `synthetic-secret-3901`/`-3902` in
+`fixtures/v9_0/README.md`). The workflow-group archive holds clear-text module secrets and is not
+committed.
+
+**Differences from 8.1 (T039).**
+
+| Aspect | 8.1.17 (T039) | 9.0.10 |
+|---|---|---|
+| `nodeByModel`, Accept XML | `200`, `application/xml;charset=UTF-8`, one line without a trailing line break; root `ns4:Node`, `ns2` = base, `ns4` = model, unused `ns3` = organigram | `200`, `application/xml;charset=UTF-8`, indented by four spaces per level, one element per line, trailing line break; root `ns2:Node` with `ns2` = model and `ns1` = base, no `ns3`; the same attributes, connection and property names, types and order (37 properties for the Database Connector module, among them `Password` with type `Password`, empty as on 8.1) |
+| `nodeByModel`, Accept JSON | the same XML as for Accept XML | **`406`**, `application/json;charset=UTF-8`, `{"statusCode":406,"message":"The requested media type is not acceptable.","path":…,"timestamp":…}` |
+| `nodeByModel`, unknown id | `500`, `text/html`, the status page with `@Start@The module with the id '<id>' in the model '<wf>'could not be found!@@@…@End@` | `500`, `application/xml` (no charset), `<ApiError><statusCode>500</statusCode><message>Error while getting node by model</message><path>…</path><timestamp>…</timestamp></ApiError>` in one line: a **generic** message that does not name the module |
+| `nodeByName` | `404`, `text/html` status page "Not Found" | `404`, `application/xml;charset=UTF-8`, `<ApiError>` `Resource Not Found` for an existing diagram and module name: the endpoint does not exist on 9.0.10 either |
+| `GET /process/metadata/{wf}` | `500`, `text/html`, `@Start@Workflow details not found for <wf>@@@…@End@` | `500`, `application/xml`, `<ApiError>` `An unexpected error occurred for workflow: <wf>`; the registry is empty here too (metadata export below) |
+| `GET /isconnector` | `401`, `text/plain`, `Authentication failed. Please check the username and password.`, no `WWW-Authenticate` | `401`, `application/xml;charset=UTF-8`, `<ApiError>` `Authentication failed: The credentials entered are incorrect.`, with `WWW-Authenticate: Basic realm="inubit REST interface"` (seen in the raw recording, not kept in the fixture), for the Basic auth every other REST call accepts |
+| `library --list --type driver\|plugin` | script mode: the preamble and one empty line; session block one `\r` line; exit 0 | script mode: the preamble and two empty lines (the extra 9.0 script-mode line, T024); session block one empty LF line; exit 0. Empty on this node too, so the row format is still unrecorded (L-21) |
+| `fetchXSLT1.0` | `Command not found.` (script mode with record and stack trace; exit 1) | **`Command not found.`** too: script mode `fetchXSLT1.0 -h` answers `EXECUTION ERROR` and `InubitException: @Start@IError@@@Internal INUBIT error!@End@Command not found.` (the short 9.0 refusal, T024), exit 1; in the session `Command not found.` and the session goes on |
+| `export --exportMetadata` | `1-OK: Metadata exported successfully.`; archive with the two empty registry files and a properties comment | the same answer (and the extra empty line); the same two files, the root without a space before `/>`; the comment keys in the order `Date`, `Type`, `User`, `Version` (8.1: `Date` last), `Version=6.0.0` on both |
+| `--exportMetadataNames` | recorded unquoted only (`Example1,Example2`) | recorded **single-quoted** (`'Example1,Example2'`, the form the server sends, R-11): `1-OK: Metadata Names exported successfully.`; names that exist nowhere are accepted |
+| `--exportWorkflowGroupExclude` (T041 form) | `1-OK: Workflow group exported successfully.` | the same; the archive again holds clear-text module secrets |
+| Exit codes | session 1 (`Command not found.`) | session 0 with the refused command (as in T024) |
+
+**L-7 on 9.0: the command does not exist on 9.0.10.** No file was written, so where it would be
+written cannot be answered on 9.0 either; T046d (`xslt10Report` on 9.0) does not apply.
+
+**L-19 and L-20: still open.** The 9.0 metadata registry is empty (the archive above), so no
+workflow has metadata to read; `/isconnector` refuses the profile's Basic auth on 9.0 as on 8.1
+(the raw answer named the realm `inubit REST interface`, not kept in the fixture; which credential store or form the endpoint
+expects is still not known).
+
+**Consequences for T046a (not applied here; the decisions are T046a's).**
+
+- Module detail on 9.0: only the XML form answers; Accept JSON gets `406`. The adapter already
+  asks for XML; `ModuleDetailXmlParser` matches local names, so the other prefixes and the
+  indentation should parse (to be shown by `ModelDetailsV90ContractTest`).
+- Unknown module id on 9.0: a `500` `ApiError` with the generic text `Error while getting node by
+  model`. It does not say that the module is missing, so `NOT_FOUND` cannot be told apart from
+  any other `500` of this endpoint by its text; whether 9.0 maps it to `NOT_FOUND` or to
+  `UNEXPECTED_RESPONSE` (masked, bounded excerpt) is T046a's decision.
+- `GET /model/nodeByName`: `404` `ApiError` on 9.0.10, so the 9.0 row can leave `undocumented`
+  with the same reason as on 8.1 (absent, `404`).
+- `fetchXSLT1.0` and `fetchXSLT1.0 --exportFilename` on 9.0:
+  `excluded:command not found on INUBIT 9.0.10` (the reason T039a names for "command absent").
+- `libraries`: the empty answer on 9.0 (two empty lines in script mode) is the only recorded form;
+  `rowFormatVerified: false` as on 8.1.
+- `export_archives` `metadata`: the quoted `--exportMetadataNames` form the server sends is
+  confirmed on 9.0; `ownerWithoutGroups` works on 9.0 in the T041 form.
+- `ps -u` on 9.0: no StartCLI recording needed; the `userColumn` case uses
+  `fixtures/queue-entry/v9_0/error_entry.rows.json`.
+- `GET /process/metadata/{name}` (L-19) and `GET /isconnector` (L-20) stay `planned` on 9.0.

@@ -49,8 +49,8 @@ import org.junit.jupiter.api.Timeout;
  * T043 (feature 022, US3 AS2, AS3, research D-21): the actions {@code module} and
  * {@code libraries} of {@code read_model_details}. The capability matrix supports
  * {@code MODEL_DETAILS}; the coverage list is a fixture whose {@code module} row is reachable on
- * 8.1 and {@code planned} on 9.0 (until T046a) and whose library rows are reachable on both, so
- * each action is admitted with its own entries.
+ * 8.1 and {@code planned} on 9.0 (unlike the production list since T046a) and whose library
+ * rows are reachable on both, so each action is admitted with its own entries.
  */
 @Timeout(30)
 class ModelDetailServiceTest {

@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.domain.model.CoverageEntry.Area;
 import de.dadecker.inubit.mcp.domain.model.CoverageState.Covered;
 import de.dadecker.inubit.mcp.domain.model.CoverageState.Excluded;
-import de.dadecker.inubit.mcp.domain.model.CoverageState.Planned;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -57,13 +56,14 @@ class InterfaceCoverageResourceTest {
     }
 
     /**
-     * T045b (research D-21): {@code find_processes userColumn} reads on 8.1 through REST what
-     * {@code ps -u} shows; 9.0 stays planned until the US3 9.0 follow-up (T046a).
+     * T045b, T046a (research D-21): {@code find_processes userColumn} reads on 8.1 and 9.0
+     * through REST what {@code ps -u} shows.
      */
     @Test
-    void psDashUIsCoveredByFindProcessesOn81AndPlannedOn90() {
+    void psDashUIsCoveredByFindProcessesOn81And90() {
         assertThat(COVERAGE.state(Channel.CLI, "ps -u", V8_1))
             .contains(new Covered("find_processes"));
-        assertThat(COVERAGE.state(Channel.CLI, "ps -u", V9_0)).contains(new Planned());
+        assertThat(COVERAGE.state(Channel.CLI, "ps -u", V9_0))
+            .contains(new Covered("find_processes"));
     }
 }

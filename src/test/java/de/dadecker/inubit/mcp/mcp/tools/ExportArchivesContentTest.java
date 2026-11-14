@@ -89,7 +89,7 @@ import tools.jackson.databind.JsonNode;
  * {@code 2-NOK: Missing export option.}
  *
  * <p>The coverage list is a fixture whose new rows are reachable on 8.1 and {@code planned} on
- * 9.0 (until T046 / T046a flip the production list), so each form is admitted per call. The
+ * 9.0 (unlike the production list since T046a), so each form is admitted per call. The
  * owner export of T039 is not committed (clear-text secrets); a synthetic archive of its layout
  * stands in for it. The folder rules and the production opt-in are those of {@code workflows}.
  */

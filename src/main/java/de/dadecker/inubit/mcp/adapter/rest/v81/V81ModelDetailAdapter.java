@@ -21,8 +21,10 @@ import java.util.function.Function;
  * <ul>
  *   <li>{@code GET /ibis/rest/model/nodeByModel/{diagram}/{moduleId}} with credentials and
  *       {@code Accept} XML ({@link ModuleDetailXmlParser}). INUBIT 8.1.17 answers XML also when
- *       JSON is asked for (T039). Its {@code 500} is handed to the parser, which tells the
- *       recorded "could not be found" page ({@code NOT_FOUND}) from any other answer;
+ *       JSON is asked for (T039); 9.0.10 answers XML only and JSON with {@code 406} (T039a). Its
+ *       {@code 500} is handed to the parser, which tells the recorded 8.1 "could not be found"
+ *       page ({@code NOT_FOUND}) and the generic 9.0 error (with the hint that the module id
+ *       probably does not exist) from any other answer;
  *   <li>the library list is passed to {@code libraries} (in production
  *       {@code CliLibraryRunner::list}), so this REST package does not reach the StartCLI adapter.
  * </ul>

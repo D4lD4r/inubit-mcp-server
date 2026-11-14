@@ -121,7 +121,7 @@ class ProcessUserColumnV81ContractTest {
             .containsOnly(bodies.get(0));
     }
 
-    /** 9.0: the case on {@code fixtures/queue-entry/v9_0/error_entry.rows.json} (T046a). */
+    /** 9.0: {@link ProcessUserColumnV90ContractTest} (T046a). */
     @Test
     void psUserColumnIsCoveredByFindProcessesOn81() {
         assertThat(InterfaceCoverage.production().state(Channel.CLI, "ps -u", new MajorMinor(8, 1)))

@@ -34,9 +34,11 @@ Feature 022, third increment (user story 3): `read_model_details` reads one modu
 with its secrets masked, or the uploaded libraries of a node. `export_archives` exports the
 owner's technical workflows without some diagram groups, or the metadata registry, as one archive.
 `find_processes` shows one user-defined Queue Manager column. All three are **supported on
-INUBIT 8.1; 9.0 not yet verified**. The process metadata of a workflow and the IS Connector check
-are not offered yet: no metadata answer could be recorded, and `/isconnector` refuses the REST
-login. The XSLT 1.0 report is not offered: `fetchXSLT1.0` does not exist on INUBIT 8.1.17.
+INUBIT 8.1 and 9.0**, verified against the recorded, neutralized answers of a live node of each
+version; on 9.0 an unknown module id gives `UNEXPECTED_RESPONSE`, as INUBIT answers it with a
+generic error there. The process metadata of a workflow and the IS Connector check are not offered
+yet: no metadata answer could be recorded, and `/isconnector` refuses the REST login. The XSLT 1.0
+report is not offered: `fetchXSLT1.0` does not exist on INUBIT 8.1.17 and 9.0.10.
 
 ### Added
 
@@ -112,16 +114,16 @@ login. The XSLT 1.0 report is not offered: `fetchXSLT1.0` does not exist on INUB
   (`GET /model/nodeByModel`): its type, parent, outgoing connections and properties in INUBIT's
   order. A property with a secret name, of type `Password` or with key material as value is shown
   as masked and counted in `maskedCount`; a credential inside a shown value is replaced by a
-  placeholder; a value over 4,000 characters is cut. An unknown module id gives `NOT_FOUND`.
-  `libraries` lists the uploaded drivers and plug-ins with StartCLI (`library --list --type`), one
-  run per type, at most 100 per page. Only the empty library list has been recorded, so each line
-  is read as one file name and the result says `rowFormatVerified: false`. There is no module name
-  input: `GET /model/nodeByName` answers 404 on INUBIT 8.1.17. Supported on INUBIT 8.1; 9.0 not yet
-  verified, so the tool is offered only when a node may run 8.1.
+  placeholder; a value over 4,000 characters is cut. An unknown module id gives `NOT_FOUND` on
+  INUBIT 8.1 and `UNEXPECTED_RESPONSE` with a hint on 9.0, whose generic error does not name the
+  module. `libraries` lists the uploaded drivers and plug-ins with StartCLI (`library --list
+  --type`), one run per type, at most 100 per page. Only the empty library list has been recorded,
+  so each line is read as one file name and the result says `rowFormatVerified: false`. There is no
+  module name input: `GET /model/nodeByName` answers 404 on INUBIT 8.1.17 and 9.0.10. Supported on
+  INUBIT 8.1 and 9.0.
 - The capability `model_details` in `list_nodes` (`reading model details` in messages and among
-  the refused capabilities of a 6.1 node in `--check-config`): supported on INUBIT 8.1, not yet
-  verified on 9.0 and refused on every other version, so every 9.0 node shows it under
-  `notUsable` and is `partially_supported` until it is verified.
+  the refused capabilities of a 6.1 node in `--check-config`): supported on INUBIT 8.1 and 9.0,
+  refused on every other version.
 - `export_archives` (feature 022) has the optional input `content`. `workflows` (default) is the
   export as before. `ownerWithoutGroups` with `excludeGroups` (1–20 diagram groups) exports the
   owner's technical workflows without those groups as one archive `<owner>.workflows.zip`, in
@@ -130,13 +132,13 @@ login. The XSLT 1.0 report is not offered: `fetchXSLT1.0` does not exist on INUB
   that do not exist are accepted), as one archive `metadata-registry.zip`, without owner and
   acknowledgement. An existing file of that name is refused before StartCLI runs. The result
   carries `source: "CLI"`; the audit records `content` and the excluded groups or metadata names.
-  Both forms are verified on INUBIT 8.1 and refused on 9.0 as not yet verified.
+  Both forms are verified on INUBIT 8.1 and 9.0.
 - `find_processes` (feature 022) has the optional input `userColumn` (1–5): the result names the
   column, and each process carries `userColumnValue`, the field `userDefined<i>` of the REST
   `queueLog` row the search reads anyway (the data of StartCLI `ps -u`, not cut to its 15
-  characters, masked and bounded like the row's other texts). Offered on INUBIT 8.1; a 9.0 node is
-  searched without the column, with a warning that names the reason (a call for one 9.0 node alone
-  gets the refusal as its `error`).
+  characters, masked and bounded like the row's other texts). Offered on INUBIT 8.1 and 9.0; a node
+  of another version (e.g. 9.1) is searched without the column, with a warning that names the
+  reason (a call for that node alone gets the refusal as its `error`).
 - The coverage list of every documented StartCLI command and REST endpoint of INUBIT 8.1 and 9.0
   with its state per version (`reachable`, `covered`, `planned` with what it waits for,
   `undocumented`, `excluded` with the reason), published as `docs/interface-coverage.md`. A new

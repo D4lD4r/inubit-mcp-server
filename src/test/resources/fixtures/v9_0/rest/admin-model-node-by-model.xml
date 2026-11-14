@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ns2:Node name="Demo-DB-Probe" type="twDatabaseConnector" id="100" xmlns:ns2="inubit.com/ibis/external/model" xmlns:ns1="inubit.com/ibis/external/base">
+    <ns2:Connection targetId="1" id="22"/>
+    <ns1:Properties>
+        <ns1:Property name="SCHEDULER" type="Boolean">false</ns1:Property>
+        <ns1:Property name="InputConnector" type="Boolean">true</ns1:Property>
+        <ns1:Property name="OutputConnector" type="Boolean">true</ns1:Property>
+        <ns1:Property name="IsActive" type="Boolean">true</ns1:Property>
+        <ns1:Property name="ListenerConnector" type="Boolean">false</ns1:Property>
+        <ns1:Property name="RetryNumber" type="Integer">0</ns1:Property>
+        <ns1:Property name="RetryInterval" type="Integer">660</ns1:Property>
+        <ns1:Property name="TimeoutInterval" type="Integer">600</ns1:Property>
+        <ns1:Property name="COLUMN" type="String">Column</ns1:Property>
+        <ns1:Property name="COLUMN_NAME" type="String">Name</ns1:Property>
+        <ns1:Property name="COLUMN_VALUE" type="String">Value</ns1:Property>
+        <ns1:Property name="ErrorSuppression" type="Boolean">false</ns1:Property>
+        <ns1:Property name="ID" type="String">id</ns1:Property>
+        <ns1:Property name="Password" type="Password">synthetic-secret-3901</ns1:Property>
+        <ns1:Property name="RESULT_SET" type="String">ResultSet</ns1:Property>
+        <ns1:Property name="ROW" type="String">Row</ns1:Property>
+        <ns1:Property name="RemoteConnector" type="Boolean">false</ns1:Property>
+        <ns1:Property name="Timeout" type="Boolean">true</ns1:Property>
+        <ns1:Property name="WRITE_ID" type="Boolean">false</ns1:Property>
+        <ns1:Property name="allwaysEnvelope" type="Boolean">false</ns1:Property>
+        <ns1:Property name="autoCommit" type="Boolean">false</ns1:Property>
+        <ns1:Property name="autoTypeRecognition" type="Boolean">true</ns1:Property>
+        <ns1:Property name="cacheAutoTypeRecognition" type="Boolean">false</ns1:Property>
+        <ns1:Property name="connectionPooling" type="Boolean">false</ns1:Property>
+        <ns1:Property name="dbURL" type="String">jdbc:postgresql://inubit-db-01.example.test:5432/demodb</ns1:Property>
+        <ns1:Property name="driverClass" type="String">org.postgresql.Driver</ns1:Property>
+        <ns1:Property name="ignoreErrors" type="Boolean">false</ns1:Property>
+        <ns1:Property name="markNullValue" type="Boolean">false</ns1:Property>
+        <ns1:Property name="metadata" type="Boolean">false</ns1:Property>
+        <ns1:Property name="outputClass" type="String">com.inubit.ibis.utils.query.ResultSetToXml</ns1:Property>
+        <ns1:Property name="proxyPassword" type="String">synthetic-secret-3902</ns1:Property>
+        <ns1:Property name="staticQuery" type="String">select version from demo_versions</ns1:Property>
+        <ns1:Property name="trimOutputValue" type="Boolean">false</ns1:Property>
+        <ns1:Property name="trimQueryValue" type="Boolean">false</ns1:Property>
+        <ns1:Property name="useISLogDB" type="Boolean">true</ns1:Property>
+        <ns1:Property name="useStaticQuery" type="Boolean">false</ns1:Property>
+        <ns1:Property name="user" type="String">demo_reader</ns1:Property>
+        <ns1:Property name="xsdTypesOutput" type="Boolean">false</ns1:Property>
+    </ns1:Properties>
+</ns2:Node>

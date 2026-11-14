@@ -774,7 +774,7 @@ offered).
 
 ### US3 9.0 follow-up (separate PR after the US3 PR, as for US1 and US2)
 
-- [ ] T039a [LIVE] [OWNER] [US3] The T039 reads on the 9.0 test server, after the US3 PR (owner
+- [X] T039a [LIVE] [OWNER] [US3] The T039 reads on the 9.0 test server, after the US3 PR (owner
   approval; the pin is current since T028b), into `fixtures/v9_0/{rest,cli}/admin-model-*` with
   `.origin` and `V90Cases` entries:
   - `GET /model/nodeByModel/{d}/{id}` (a module with a password property, and an unknown id);
@@ -795,7 +795,7 @@ offered).
   - command present but writing on the INUBIT host: `excluded:file written on the INUBIT host`;
   - command usable but the owner declines: `excluded:` with the owner's reason (for example
     `not offered by owner decision <date>`).
-- [ ] T046a [US3] 9.0 contracts and flips (after T039a): `ModelDetailsV90ContractTest`,
+- [X] T046a [US3] 9.0 contracts and flips (after T039a): `ModelDetailsV90ContractTest`,
   `ExportContentV90ContractTest` from the 9.0 fixtures and the `userColumn` case on
   `fixtures/queue-entry/v9_0/error_entry.rows.json`; the `v9_0` column of the US3 rows (`ps -u`
   `covered:find_processes`, which admits `userColumn` on 9.0 through T045's `admitOption`
@@ -838,7 +838,7 @@ offered).
   - the 9.0 rows flipped to `reachable:export_archives/xslt10Report`.
   - Failing tests first: `CliCommandTest`, `ExportArchivesContentTest` (the report file, folder
     rules, production opt-in), `ModelDetailsSecretLeakTest`, the 9.0 contract test.
-- [ ] T047a [US3] Docs and PR for 9.0 (after T046a and, where it applies, T046d):
+- [X] T047a [US3] Docs and PR for 9.0 (after T046a and, where it applies, T046d):
   - `docs/tools.md`, `CHANGELOG.md`, coverage page;
   - `docs/research/inubit-interfaces.md`: the 9.0 facts of T039a (module detail form, library
     list, the metadata registry export, `fetchXSLT1.0` on 9.0 and its row state);

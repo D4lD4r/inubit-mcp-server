@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ns2:Node name="Demo-IS-Probe" type="twinubitISConfiguration" id="34" parentId="66" xmlns:ns2="inubit.com/ibis/external/model" xmlns:ns1="inubit.com/ibis/external/base">
+    <ns2:Connection targetId="36" id="146"/>
+    <ns1:Properties>
+        <ns1:Property name="ErrorSuppression" type="Boolean">false</ns1:Property>
+    </ns1:Properties>
+</ns2:Node>

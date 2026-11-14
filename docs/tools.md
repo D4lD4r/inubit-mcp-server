@@ -140,8 +140,8 @@ or without a StartCLI installation (see [its section](#get_server_settings)).
 or without a StartCLI installation (see [its section](#read_users)).
 
 `read_model_details` is **offered only if** a node is not pinned to a version that refuses
-`model_details` (since its 8.1 recordings: a node pinned to 8.1 or `AUTO`), with or without a
-StartCLI installation (see [its section](#read_model_details)).
+`model_details` (since its 8.1 and 9.0 recordings: a node pinned to 8.1, 9.0 or `AUTO`), with or
+without a StartCLI installation (see [its section](#read_model_details)).
 
 The development tools of feature 004 are **offered only if at least one node is a development
 stage** (`development.enabled: true`, never on production groups; see
@@ -170,13 +170,13 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 | `get_health` | `monitoring` | read | REST; on 6.1 StartCLI | supported | runs with a warning; never refused | refused in this version (the report carries the refusal) |
 | `get_server_settings` | `server_settings` | read | REST + StartCLI | 8.1 and 9.0 supported, see [its section](#get_server_settings) | refused (no warning run) | refused |
 | `read_users` | `user_directory` | read | REST + StartCLI | 8.1 and 9.0 supported (view `logins` refused on 9.0), see [its section](#read_users) | refused (no warning run) | refused |
-| `read_model_details` | `model_details` | read | REST + StartCLI | 8.1 supported; 9.0 **refused until verified**, see [its section](#read_model_details) | refused (no warning run) | refused |
-| `find_processes` | `process_diagnosis` | read | REST; on 6.1 StartCLI | supported (input `userColumn` not yet verified on 9.0) | runs with a warning | refused in this version; the input `tag` always |
+| `read_model_details` | `model_details` | read | REST + StartCLI | 8.1 and 9.0 supported, see [its section](#read_model_details) | refused (no warning run) | refused |
+| `find_processes` | `process_diagnosis` | read | REST; on 6.1 StartCLI | supported | runs with a warning | refused in this version; the input `tag` always |
 | `query_logs` | `log_diagnosis` | read | REST | supported | runs with a warning | refused |
 | `list_inventory` `DIAGRAM` | `inventory` | read | REST | supported | runs with a warning | refused |
 | `list_inventory` `MODULE`, `get_inventory_item` (diagram details via REST; the module list and every version history via StartCLI) | `inventory` | read | REST + StartCLI | supported | the REST part runs with a warning; the StartCLI part also needs the client check | refused |
 | `find_partners`, the partner usage of `get_inventory_item` (feature 018) | `partner_management` | read | REST | 8.1: supported; 9.0: **runs with a warning** (not verified on 9.0) | runs with a warning | refused |
-| `export_artifacts`, `export_archives` | `workspace_export` | read on INUBIT | StartCLI | supported (the `export_archives` forms `ownerWithoutGroups` and `metadata` not yet verified on 9.0) | runs with a warning if the client check passes (refused on 9.1 with an 8.1 client) | refused |
+| `export_artifacts`, `export_archives` | `workspace_export` | read on INUBIT | StartCLI | supported | runs with a warning if the client check passes (refused on 9.1 with an 8.1 client) | refused |
 | `check_artifacts` | – (its optional module lookup: `inventory` over StartCLI) | read | none, optional module lookup | runs | runs; the module lookup as `inventory` | runs; the module lookup is skipped |
 | `read_queue_entry` | `queue_entry_read` | read (unsupported vendor interface) | REST lookup + helper on the INUBIT client | supported (8.1 and 9.0) | refused (no warning run) | refused |
 | `download_server_log` `log: trace` | `trace_log_read` | read on INUBIT, writes a local file | StartCLI | supported (8.1 and 9.0) | refused (no warning run) | refused |
@@ -202,9 +202,8 @@ the "not verified" warning — except `partner_management` (feature 018): the Pa
 export has been checked on INUBIT 8.1 only, so on 9.0 `find_partners` and the partner usage of
 `get_inventory_item` run with the warning `INUBIT 9.0.3 on qa/node1 is not verified for partner
 management; results may be incomplete`, and `list_nodes` shows a 9.0 node as
-`partially_supported`. Feature 022: `model_details` is refused on 9.0 until it is verified (see
-[`read_model_details`](#read_model_details)). Its StartCLI-backed parts need a StartCLI client
-whose declared range includes 9.0 (the INUBIT 9.0 client, on Java 21, usually configured as
+`partially_supported`. Its StartCLI-backed parts need a StartCLI client whose declared range
+includes 9.0 (the INUBIT 9.0 client, on Java 21, usually configured as
 `defaults.cliClients."9.0"`, see
 [setup.md](setup.md#startcli-client-per-inubit-version-defaultscliclients)); with an 8.1 client
 they are refused like on any version outside the client's range. The 9.0 support is derived from
@@ -354,8 +353,8 @@ client home for one of its possible versions and either is not pinned to a versi
 only if a node is not pinned to a version that refuses `server_settings` (8.1, 9.0 and `AUTO`
 nodes since the 8.1 and 9.0 recordings); a StartCLI installation is not needed. The same holds for
 `read_users` and `user_directory` (8.1, 9.0 and `AUTO` nodes since the 8.1 and 9.0
-recordings), and for `read_model_details` and `model_details` (8.1 and `AUTO` nodes since the 8.1
-recordings). `AUTO` nodes count as possibly capable as long as some version supports the
+recordings), and for `read_model_details` and `model_details` (8.1, 9.0 and `AUTO` nodes since the
+8.1 and 9.0 recordings). `AUTO` nodes count as possibly capable as long as some version supports the
 capability; a later detection does not change the list, it leads to refusals.
 
 ### INUBIT 6.1 (feature 012)
@@ -1167,14 +1166,15 @@ user is reported in that user's `unavailable` instead, as described above:
 > [acme] Read the model details of one INUBIT node. `target` takes the id of exactly one node
 > (`<group>/<node>`). `action` picks what to read: `module` reads the one module `moduleId` (the
 > module's numeric id) of the diagram `diagram` over REST, with its type, parent, outgoing
-> connections and properties in INUBIT's order; secret values are masked: a property whose name is
-> a secret name, whose type is `Password` or whose value is key material is shown as `masked` and
-> counted in `maskedCount`, and a credential inside a value (such as the password of a database
-> URL) is replaced by a placeholder. An unknown module id gives NOT_FOUND. `libraries` lists the
-> uploaded library files with StartCLI, `libraryType` `driver` or `plugin`, or both without it
-> (one StartCLI run per type, drivers first), paged with `offset` and `limit` (at most 100);
-> `nextOffset` gives the next page. Until a listed library is recorded, each line of the answer is
-> read as one file name and `rowFormatVerified` is false. Reads only; changes nothing on INUBIT.
+> connections and properties in INUBIT's order; secret values are masked: a property whose name is a
+> secret name, whose type is `Password` or whose value is key material is shown as `masked` and
+> counted in `maskedCount`, and a credential inside a value (such as the password of a database URL)
+> is replaced by a placeholder. An unknown module id gives NOT_FOUND on INUBIT 8.1 and
+> UNEXPECTED_RESPONSE with a hint on 9.0. `libraries` lists the uploaded library files with
+> StartCLI, `libraryType` `driver` or `plugin`, or both without it (one StartCLI run per type,
+> drivers first), paged with `offset` and `limit` (at most 100); `nextOffset` gives the next page.
+> Until a listed library is recorded, each line of the answer is read as one file name and
+> `rowFormatVerified` is false. Reads only; changes nothing on INUBIT.
 
 Feature 022 ([its delta](../specs/022-full-interface-coverage/contracts/mcp-tools-delta.md),
 research D-21). Reads ONE module of a diagram, or the uploaded libraries of ONE node. Nothing is
@@ -1187,15 +1187,13 @@ their state per version are listed in [interface-coverage.md](interface-coverage
 capability `model_details` (`reading model details` in messages) is declared per version:
 
 - INUBIT 8.1: supported, verified against the recordings of an 8.1.17 node.
-- INUBIT 9.0: not yet verified; refused with `UNSUPPORTED_VERSION` (`… reading model details is not
-  yet verified for INUBIT 9.0`) until the recordings of a live 9.0 node are under contract test.
+- INUBIT 9.0: supported, verified against the recordings of a 9.0.10 node. An unknown module id
+  answers there with a generic server error that does not name the module, so it is
+  `UNEXPECTED_RESPONSE` with the hint that the module id probably does not exist in the diagram.
 - INUBIT 6.1, any other line (9.1, `V9_X`) and an unknown version: refused (no warning run).
 
-`read_model_details` is in `tools/list` when a node may run 8.1 (see
-[Tool announcement](#tool-announcement)). Until 9.0 is verified, `list_nodes` shows
-`model_details` under `notUsable` of every 9.0 node with the reason `INUBIT 9.0 on prod/node1:
-reading model details is not yet verified for INUBIT 9.0`; such a node is therefore
-`partially_supported`.
+`read_model_details` is in `tools/list` when a node may run 8.1 or 9.0 (see
+[Tool announcement](#tool-announcement)).
 
 **Input** (`read_model_details.input.json`):
 
@@ -1213,7 +1211,7 @@ The actions and where their facts come from:
 
 | Action | Result | Read through |
 |---|---|---|
-| `module` | `module`: `diagram`, `moduleId`, `name`, `type` (INUBIT's module type, e.g. `twDatabaseConnector`), `parentId` (absent without a parent), `connections` (the outgoing connections, each `id` and `targetId`), `properties` (INUBIT's order) and `maskedCount` | REST `GET /model/nodeByModel/{diagram}/{moduleId}`, read as XML (INUBIT answers XML also for `Accept: application/json`) |
+| `module` | `module`: `diagram`, `moduleId`, `name`, `type` (INUBIT's module type, e.g. `twDatabaseConnector`), `parentId` (absent without a parent), `connections` (the outgoing connections, each `id` and `targetId`), `properties` (INUBIT's order) and `maskedCount` | REST `GET /model/nodeByModel/{diagram}/{moduleId}`, read as XML (INUBIT 8.1 answers XML also for `Accept: application/json`, 9.0 refuses that with HTTP 406) |
 | `libraries` | `page` of the library files, each `file` and `type` (`driver` or `plugin`), in the order of the answers, at most 100 per page; `rowFormatVerified` | one StartCLI run `library --list --type driver` and one `library --list --type plugin` (only the one of `libraryType` when it is given) |
 
 - **Masking** (research D-19, the rules of [`find_partners`](#find_partners)). A property whose
@@ -1222,21 +1220,27 @@ The actions and where their facts come from:
   In a value that is shown, a credential inside the text (e.g. the password of a database URL) is
   replaced by a placeholder; such a property is not masked as a whole and does not count. A value
   over 4,000 characters is cut (after masking) and carries `truncated: true`.
-- **Unknown module.** INUBIT answers an id the diagram does not have with an HTTP 500 page whose
-  message says that the module could not be found: `NOT_FOUND`. Any other answer that is not the
+- **Unknown module.** INUBIT 8.1 answers an id the diagram does not have with an HTTP 500 page
+  whose message says that the module could not be found: `NOT_FOUND`. INUBIT 9.0 answers it with
+  the generic HTTP 500 error `Error while getting node by model`, which names no module and is
+  also given for other failures: `UNEXPECTED_RESPONSE` with a masked, bounded excerpt and the hint
+  that the module id probably does not exist in the diagram. Any other answer that is not the
   recorded XML is `UNEXPECTED_RESPONSE` with a masked, bounded excerpt.
 - **No module name.** There is no `moduleName` input: `GET /model/nodeByName/{diagram}/{module}`
-  answers HTTP 404 on INUBIT 8.1.17 (its 8.1 entry is excluded) and is not documented for 9.0.
-- **Library rows** (live check L-21). Only the empty answer has been recorded, so the format of a
-  listed library is not known: each non-empty line of the answer is read as one file name (a line
-  over 255 characters or with a control character fails the call with `UNEXPECTED_RESPONSE`), a
-  credential inside it is masked, and `rowFormatVerified` is `false` until a listed library is
-  recorded. A failed run of either type fails the call; there is no partial list.
+  answers HTTP 404 on INUBIT 8.1.17 and 9.0.10 (its 8.1 entry is excluded) and is not documented for
+  9.0.
+- **Library rows** (live check L-21). Only the empty answer has been recorded (on INUBIT 8.1.17 and
+  9.0.10), so the format of a listed library is not known: each non-empty line of the answer is read
+  as one file name (a line over 255 characters or with a control character fails the call with
+  `UNEXPECTED_RESPONSE`), a credential inside it is masked, and `rowFormatVerified` is `false` until
+  a listed library is recorded. A failed run of either type fails the call; there is no partial
+  list.
 - **Not offered** (owner decision 2026-11-14). The process metadata of a workflow
   (`GET /process/metadata/{name}`) and the IS Connector check (`GET /isconnector`) are not
-  actions: the metadata read gave no positive answer to record on 8.1.17 (live check L-19), and
-  `/isconnector` refuses the REST login of the profile (live check L-20). Their entries stay
-  planned on the coverage page until these checks are settled.
+  actions: the metadata read gave no positive answer to record on 8.1.17 and 9.0.10 (live check
+  L-19; the metadata registry is empty on both), and `/isconnector` refuses the REST login of the
+  profile on both (live check L-20). Their entries stay planned on the coverage page until these
+  checks are settled.
 - The module read is bounded by the node's `timeout`, each library run by its `cliTimeout`. A
   node without a StartCLI client for its version still reads modules; `libraries` then fails with
   `CLI_UNAVAILABLE`. The StartCLI runs need the right "CLI login access" for the configured account
@@ -1280,11 +1284,11 @@ The actions and where their facts come from:
 | `TARGET_UNKNOWN` | unknown id |
 | `UNSUPPORTED_VERSION` | the node's version does not support `model_details` (see Versions; e.g. `INUBIT 6.1.… on test/node1 does not support reading model details; use the Workbench, or another node with a different INUBIT version`), or the StartCLI client does not support the version |
 | `CLI_UNAVAILABLE` | `libraries` on a node without a StartCLI client for its version |
-| `NOT_FOUND` | `module`: the diagram has no module with this id (the HTTP 500 "could not be found" page) |
+| `NOT_FOUND` | `module`: the diagram has no module with this id (the HTTP 500 "could not be found" page of INUBIT 8.1) |
 | `FORBIDDEN` | the REST module read answers HTTP 403 |
 | `AUTH_FAILED`, `TLS_ERROR`, `UNREACHABLE`, `TIMEOUT` | the login was rejected (with the account-lockout protection of [`get_health`](#get_health)), TLS check, connection; `TIMEOUT` of a library run after `cliTimeout` |
 | `MAINTENANCE_MODE` | the REST module read while the node is in maintenance mode (HTTP 503) |
-| `UNEXPECTED_RESPONSE` | an answer the server cannot read: a module answer that is not the recorded XML (with a masked excerpt), a library line that cannot be a file name |
+| `UNEXPECTED_RESPONSE` | an answer the server cannot read: a module answer that is not the recorded XML (with a masked excerpt; on INUBIT 9.0 also an unknown module id, see above), a library line that cannot be a file name |
 
 A failed library run (exit code other than 0, cut output, refused StartCLI login, an `n-NOK`
 message) fails the call with the code of the failure and a masked excerpt, as the other StartCLI
@@ -1379,11 +1383,12 @@ StartCLI `ps -u <i>` shows the same column cut to 15 characters, so its entry is
 `find_processes` on the [coverage page](interface-coverage.md); the value here is not cut to 15
 characters but bounded and masked like the row's other texts (200 characters with the truncation
 marker). Without `userColumn` the result is unchanged. The column is offered per node when the
-entry `ps -u` is covered for the node's version: on INUBIT 8.1 (verified against the recordings of
-an 8.1.17 node); on 9.0 it is not yet verified, and 6.1 does not offer it. A node whose version is not
-admitted is searched without the column, and its `warnings` say why (`userColumn unavailable
-(UNSUPPORTED_VERSION): find_processes: INUBIT 9.0.… on prod/node1: CLI ps -u is not yet verified
-for INUBIT 9.0; …`); when it is the only node of the call, this refusal is its `error`.
+entry `ps -u` is covered for the node's version: on INUBIT 8.1 and 9.0 (verified against the
+recordings of an 8.1.17 and a 9.0.10 node); 6.1 does not offer it, and on any other line it is not
+yet verified. A node whose version is not admitted is searched without the column, and its
+`warnings` say why (`userColumn unavailable (UNSUPPORTED_VERSION): find_processes: INUBIT 9.1.… on
+prod/node1: CLI ps -u is not yet verified for INUBIT 9.1; …`); when it is the only node of the
+call, this refusal is its `error`.
 
 **INUBIT 6.1 nodes** (feature 012, [INUBIT 6.1](#inubit-61-feature-012)): in this version
 process diagnosis is not supported on 6.1, so a 6.1 node's entry is the refusal
@@ -2697,9 +2702,8 @@ acknowledgement. Their one file name is known in advance, so an existing file of
 is refused (`INVALID_INPUT`, audited `REFUSED`) before StartCLI runs; such a refusal leaves no
 check-in comment trace. Both are listed in `archives` under `workflow` with the owner or
 `metadata registry`, and with empty module and repository lists. Each is admitted per call by the
-coverage list (`UNSUPPORTED_VERSION` "not yet verified" until its rows are reachable for the
-node's version): on INUBIT 8.1 both are verified against the recordings of an 8.1.17 node; on 9.0
-they are not yet verified.
+coverage list: on INUBIT 8.1 and 9.0 both are verified against the recordings of an 8.1.17 and a
+9.0.10 node; on any other version they are refused with `UNSUPPORTED_VERSION`.
 
 - `ownerWithoutGroups` exports **technical workflows only** (owner decision 2026-11-14); without
   `--exportWorkflowType` and the empty `--exportWorkflowGroup` INUBIT refuses the export (`2-NOK:
@@ -2708,11 +2712,10 @@ they are not yet verified.
   `MetadataAllocations.xml`), not the metadata of workflows. `metadataNames` are names of registry
   entries, not workflow names, and INUBIT accepts names that do not exist anywhere. The names
   are sent as one single-quoted, comma-separated argument, like every other value
-  (`--exportMetadataNames 'Example1,Example2'`); the recording has the list unquoted
-  (`Example1,Example2`), so the quoted form is to be confirmed at the next live recording of the
-  metadata export (research D-21).
+  (`--exportMetadataNames 'Example1,Example2'`); this quoted form is recorded on INUBIT 9.0.10, on
+  8.1 only the unquoted list (`Example1,Example2`) is recorded (research D-21).
 - The XSLT 1.0 report (`fetchXSLT1.0`) is not offered: the command is not found on INUBIT
-  8.1.17 (research D-21, live check L-7).
+  8.1.17 and 9.0.10 (research D-21, live check L-7).
 
 **Archive files.** `<file name>.diagram.zip` per workflow, the file name derived from the
 workflow name, in this order: each of `< > : " / \ | ? *` and each control character becomes `_`,

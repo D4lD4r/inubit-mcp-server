@@ -14,6 +14,7 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.ResultJson;
+import de.dadecker.inubit.mcp.testing.V90Cases;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -248,6 +249,50 @@ class ModuleDetailXmlParserTest {
                 assertThat(e.error().message()).contains("999999", DIAGRAM);
                 assertThat(e.error().excerpt()).isEmpty();
             });
+    }
+
+    /**
+     * T046a (owner decision 2026-11-14): INUBIT 9.0.10 answers an unknown module id with a generic
+     * {@code 500} {@code ApiError} that names no module (T039a). It cannot be told apart from
+     * another failure of the endpoint, so it is {@code UNEXPECTED_RESPONSE}, not
+     * {@code NOT_FOUND}, with the hint that the module id probably does not exist in the diagram.
+     */
+    @Test
+    void theRecorded90GenericErrorIsUnexpectedWithTheHintThatTheModuleIsProbablyMissing() {
+        RestResponse missing = new RestResponse(500, Optional.of("application/xml"),
+            V90Cases.restBody("admin-model-node-by-model-missing"));
+
+        ToolError error = unexpected("999999", missing);
+
+        assertThat(error.message()).contains("999999", DIAGRAM);
+        assertThat(error.likelyCause())
+            .contains("the module id probably does not exist in the diagram");
+        assertThat(error.nextStep()).contains("diagram name and the module id");
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
+            .contains("Error while getting node by model"));
+    }
+
+    @Test
+    void theExcerptOfThe90GenericErrorHoldsNoSecret() {
+        ToolError error = unexpected("7", answer(500, "application/xml", "<ApiError><statusCode>"
+            + "500</statusCode><message>Error while getting node by model</message><path>/ibis/rest"
+            + "/model/nodeByModel/x?password=synthetic-secret-3905</path></ApiError>"));
+
+        assertThat(error.likelyCause()).contains("probably does not exist");
+        assertThat(error.toString()).doesNotContain("synthetic-secret-3905");
+    }
+
+    /** Another recorded 9.0 {@code ApiError} keeps the general cause, without the hint. */
+    @Test
+    void another90ApiErrorIsUnexpectedWithoutTheHint() {
+        RestResponse other = new RestResponse(500, Optional.of("application/xml"),
+            V90Cases.restBody("admin-model-metadata-not-found"));
+
+        ToolError error = unexpected("100", other);
+
+        assertThat(error.likelyCause()).doesNotContain("probably does not exist");
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
+            .contains("An unexpected error occurred"));
     }
 
     @Test

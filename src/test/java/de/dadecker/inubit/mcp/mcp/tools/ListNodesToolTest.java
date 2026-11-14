@@ -1230,10 +1230,10 @@ class ListNodesToolTest {
         assertThat(notUsable(prod)).doesNotContain("user_directory");
     }
 
-    // --- feature 022 T042, T046: model_details usable on 8.1, not yet verified on 9.0 (D-1) ------
+    // --- feature 022 T042, T046, T046a: model_details usable on 8.1 and 9.0 (D-1) ---------------
 
     @Test
-    void modelDetailsIsUsableOn81AndNotYetVerifiedOn90() {
+    void modelDetailsIsUsableOn81And90() {
         String baseUrl = "https://localhost:" + wireMock.httpsPort();
         String yaml = """
             profile:
@@ -1264,10 +1264,8 @@ class ListNodesToolTest {
         assertThat(usable(test)).contains("model_details");
         assertThat(notUsable(test)).doesNotContain("model_details");
         JsonNode prod = versions.get("prod/node1");
-        assertThat(usable(prod)).doesNotContain("model_details");
-        assertThat(notUsable(prod)).contains("model_details");
-        assertThat(reason(prod, "model_details"))
-            .endsWith("reading model details is not yet verified for INUBIT 9.0");
+        assertThat(usable(prod)).contains("model_details");
+        assertThat(notUsable(prod)).doesNotContain("model_details");
     }
 
     @Test
