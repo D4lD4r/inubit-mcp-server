@@ -45,9 +45,10 @@ public final class NodeLogLevelLocks {
     /**
      * Takes the lock of {@code server}.
      *
-     * @throws ToolErrorException {@code PRECONDITION_FAILED} when another change of the server
-     *     holds it beyond {@code wait}, or when the lock file or its directories cannot be used
-     *     (a link, a directory, an I/O error)
+     * @throws Busy {@code PRECONDITION_FAILED} when another change of the server holds it beyond
+     *     {@code wait}
+     * @throws ToolErrorException {@code PRECONDITION_FAILED} when the lock file or its
+     *     directories cannot be used (a link, a directory, an I/O error)
      */
     public OwnerOnlyFileLock.Held acquire(NodeId server, Duration wait) {
         refuseLink(logLevels, "The log-levels directory ");
@@ -74,8 +75,18 @@ public final class NodeLogLevelLocks {
         }
     }
 
-    private static ToolErrorException busy(NodeId server) {
-        return new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+    /** Another change of the server holds the lock, unlike a lock file that cannot be used. */
+    public static final class Busy extends ToolErrorException {
+
+        private static final long serialVersionUID = 1L;
+
+        Busy(ToolError error) {
+            super(error);
+        }
+    }
+
+    private static Busy busy(NodeId server) {
+        return new Busy(ToolError.of(ErrorCode.PRECONDITION_FAILED,
             "Another log-level change for " + server.value() + " is running",
             "A set, a reset or a lease cleanup of this server (in this or another MCP server"
                 + " process of the profile) has not finished within the wait",

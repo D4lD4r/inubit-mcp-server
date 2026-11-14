@@ -600,7 +600,7 @@ the other just changed.
   `PRECONDITION_FAILED`, lease unchanged; lease changed between the confirmation and the forget
   (generation) → `PRECONDITION_FAILED`, nothing forgotten; reset failure keeps the lease and records `lastAttempt`;
   leak check)
-- [ ] T051 [US4] `LogLevelService.cleanup` for one lease (FR-043, D-16 "Cleanup of one lease",
+- [X] T051 [US4] `LogLevelService.cleanup` for one lease (FR-043, D-16 "Cleanup of one lease",
   D-22; after T050): node lock (busy → skipped), generation re-check under the store lock (changed
   or no longer open → nothing sent), cleanup preconditions **without** write guard, fail-closed
   `PENDING` audit, own-node lookup, `trace --reset` within one `cliTimeout` deadline,
@@ -637,6 +637,9 @@ the other just changed.
   merges a set while B decides a takeover after A "died" → B's cleanup sends nothing for the
   changed generation and ends the lease only on its next tick at the new expiry; both ticks at once
   → exactly one `trace --reset` per expiry; no lease lost or duplicated)
+  Note (T051 review): `cleanup` can still throw a RuntimeException before `PENDING` (lock, guard/gate,
+  credentials, gateways, audit); catch RuntimeException around each cleanup so the scheduled task
+  never ends, and rate-limit the unreadable-store WARN to once per hour (D-12).
 - [ ] T053 [US4] Shutdown and startup integration (FR-043, FR-045, D-17; after T052 and T036 — same `Wiring.java`/`MainTest.java`): `Wiring.java`
   creates `LeaseStore`, `NodeLogLevelLocks`, `LeaseScheduler` (started after construction),
   `resetLeasesOnShutdown()` (idempotent; `cleanup` with trigger `shutdown` for own open leases,

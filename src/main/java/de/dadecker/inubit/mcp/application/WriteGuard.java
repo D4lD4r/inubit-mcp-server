@@ -112,6 +112,22 @@ public final class WriteGuard {
         return configured(targets.resolveSingleServer(node), tool, optIn, optInKey);
     }
 
+    /**
+     * Feature 024 (FR-043, research D-16 step 3): the cleanup preconditions of an automatic reset
+     * of a lease on {@code server}: the server is configured, the version gate admits
+     * {@code capability} and the StartCLI client is available - <b>not</b> the production lock,
+     * {@code write.enabled} or the opt-in (owner decision: cleanup resets also run with write
+     * tools off).
+     *
+     * @throws ToolErrorException {@code TARGET_UNKNOWN}, {@code UNSUPPORTED_VERSION},
+     *     {@code CLI_UNAVAILABLE} or {@code AUTH_FAILED}
+     */
+    public WritePolicy admitCleanup(NodeId server, String tool, Capability capability,
+        Set<Channel> channels) {
+        NodeId id = targets.resolveSingleServer(server.value());
+        return contact(id, policies.apply(id), tool, capability, channels);
+    }
+
     /** The write checks naming {@code tool}, then the opt-in. */
     private WritePolicy configured(NodeId id, String tool, Predicate<NodeId> optIn,
         String optInKey) {

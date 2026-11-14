@@ -81,7 +81,8 @@ import org.slf4j.LoggerFactory;
  * </ol>
  *
  * <p>{@link #reset} resets the node or forgets a failed lease (D-15), with the same write guard,
- * node lock, own-node lookup and confirmation.
+ * node lock, own-node lookup and confirmation. {@link #cleanup} is the automatic reset of one
+ * lease (D-16), without the write guard.
  *
  * <p>Every refusal before {@code PENDING} is one {@code REFUSED} audit record.
  */
@@ -95,6 +96,8 @@ public final class LogLevelService {
     static final int MAX_MINUTES = 60;
     /** How long a lease update waits for the store lock (short: held only to read and write). */
     static final Duration STORE_WAIT = Duration.ofSeconds(2);
+    /** How long a cleanup waits for the node lock before it is skipped until the next tick. */
+    static final Duration CLEANUP_LOCK_WAIT = Duration.ofSeconds(2);
     /** A lease of a server no longer configured ends this long after its expiry (FR-044). */
     static final Duration UNCONFIGURED_FORGET_AFTER = Duration.ofDays(7);
 
@@ -239,6 +242,96 @@ public final class LogLevelService {
         }
         return nodeForm ? resetNode(call, request.node().get(), code)
             : forget(call, request.leaseId().get(), code);
+    }
+
+    /**
+     * The automatic reset of one lease (FR-043, research D-16 "Cleanup of one lease", D-22), which
+     * the lease scheduler or the shutdown decided on {@code decided}'s generation:
+     *
+     * <ol>
+     *   <li>The node lock, waiting at most {@link #CLEANUP_LOCK_WAIT}; busy → skipped, the next
+     *       tick decides again.
+     *   <li>Under the store lock the lease is read again: another generation (a set merged, another
+     *       instance changed it) or no longer open → nothing is sent.
+     *   <li>The cleanup preconditions ({@link WriteGuard#admitCleanup}, then the credentials), not
+     *       the write guard: also with write tools off (owner decision). Not met →
+     *       {@code RESET_FAILED} {@link LeaseReason#PRECONDITION} and one {@code REFUSED} record;
+     *       {@link LeaseReason#AUDIT_NOT_WRITABLE} if that record cannot be written.
+     *   <li>{@code PENDING}, fail closed: if it cannot be written, nothing is sent and the lease
+     *       keeps its state with {@link LeaseReason#AUDIT_NOT_WRITABLE}.
+     *   <li>The own-node lookup, then {@code trace --reset}, both within one {@code cliTimeout};
+     *       another answering node → {@code RESET_FAILED} {@link LeaseReason#OTHER_NODE_ANSWERS},
+     *       no reset.
+     *   <li>{@code RESET}, or {@code RESET_FAILED} with the attempt; then the final record.
+     * </ol>
+     *
+     * <p>Every lease update is a compare-and-set on the generation read in step 2: a lease changed
+     * meanwhile is not updated, and the final record says so. Nothing is thrown for an outcome;
+     * the lease and the audit log record it.
+     */
+    public void cleanup(Lease decided, LogLevelAudit.Trigger trigger) {
+        NodeId node = decided.server();
+        OwnerOnlyFileLock.Held held;
+        try {
+            held = locks.acquire(node, CLEANUP_LOCK_WAIT);
+        } catch (NodeLogLevelLocks.Busy e) {
+            LOG.info("Cleanup of lease {} on {} skipped: {}", decided.leaseId(), node,
+                e.error().message());
+            return;
+        } catch (ToolErrorException e) {
+            LOG.warn("Cleanup of lease {} on {} skipped: the node lock cannot be used ({})",
+                decided.leaseId(), node, e.error().message());
+            return;
+        }
+        try (held) {
+            Optional<Lease> current;
+            try {
+                // open(): a lease that is not open has no transition left (step 6 would throw),
+                // so a caller deciding on an ended lease sends nothing either
+                current = store.update(leases -> leases, STORE_WAIT).stream()
+                    .filter(lease -> lease.sameGeneration(decided) && lease.state().open())
+                    .findFirst();
+            } catch (RuntimeException e) {
+                LOG.warn("Cleanup of lease {} on {} skipped: the lease store could not be read"
+                    + " ({})", decided.leaseId(), node, e.getClass().getSimpleName());
+                return;
+            }
+            if (current.isEmpty()) {
+                return;
+            }
+            Lease lease = current.get();
+            WritePolicy policy = null;
+            LogLevelPort port;
+            try {
+                policy = guard.admitCleanup(node, RESET_TOOL, Capability.LOG_LEVEL_WRITE,
+                    Set.of(Channel.CLI));
+                prepareCredentials(RESET_TOOL, node);
+                port = gateways.logLevel(node);
+            } catch (ToolErrorException e) {
+                refuseCleanup(audit.automaticReset(trigger, lease,
+                    Optional.ofNullable(policy).flatMap(WritePolicy::account)), lease, e.error());
+                return;
+            }
+            LogLevelAudit.AutomaticReset reset =
+                audit.automaticReset(trigger, lease, policy.account());
+            try {
+                reset.pending();
+            } catch (LogLevelAudit.NotWritableException e) {
+                // the audit logged the ERROR; the next tick retries
+                LeaseAttempt attempt = new LeaseAttempt(clock.instant(), AuditOutcome.FAILED,
+                    Optional.empty(), Optional.of(LeaseReason.AUDIT_NOT_WRITABLE));
+                compareAndSet(lease, stored -> stored.attempted(attempt));
+                return;
+            }
+            CleanupOutcome outcome = lookupAndReset(lease, port, policy.permit().admitted());
+            String unrecorded = compareAndSet(lease, outcome.change()).map(why -> "; " + why)
+                .orElse("");
+            try {
+                reset.outcome(outcome.audited(), outcome.text() + unrecorded);
+            } catch (LogLevelAudit.NotWritableException e) {
+                // the audit logged the ERROR; the outcome is in the lease
+            }
+        }
     }
 
     // ---- steps 1 to 6 ----------------------------------------------------------------------
@@ -964,6 +1057,93 @@ public final class LogLevelService {
                 observed.open().map(LeaseSummary::of)),
             "Nothing was changed. Call " + RESET_TOOL + " again with confirmationCode before "
                 + issued.expiresAt() + " " + action);
+    }
+
+    // ---- cleanup (D-16) --------------------------------------------------------------------
+
+    /** The outcome of a cleanup's reset: the final audit record and the change of the lease. */
+    private record CleanupOutcome(AuditOutcome audited, String text, UnaryOperator<Lease> change) {
+    }
+
+    /** Step 3 not met: one {@code REFUSED} record, then {@code RESET_FAILED}. */
+    private void refuseCleanup(LogLevelAudit.AutomaticReset reset, Lease lease, ToolError error) {
+        LeaseReason reason = LeaseReason.PRECONDITION;
+        try {
+            reset.refused(LeaseReason.PRECONDITION.text() + ": " + text(error));
+        } catch (LogLevelAudit.NotWritableException e) {
+            // the audit logged the ERROR
+            reason = LeaseReason.AUDIT_NOT_WRITABLE;
+        }
+        LeaseAttempt attempt = new LeaseAttempt(clock.instant(), AuditOutcome.REFUSED,
+            Optional.of(error.code()), Optional.of(reason));
+        compareAndSet(lease, stored -> stored.failed(attempt));
+    }
+
+    /** Step 5: the own-node lookup, then {@code trace --reset}, within one {@code cliTimeout}. */
+    private CleanupOutcome lookupAndReset(Lease lease, LogLevelPort port, InubitVersion version) {
+        NodeId node = lease.server();
+        Duration budget = cliTimeouts.apply(node);
+        long deadline = nanoTime.getAsLong() + budget.toNanos();
+        String inubitNode;
+        try {
+            inubitNode = port.answeringNode(version, deadline);
+        } catch (RuntimeException e) {
+            return failedCleanup(failure(e, RESET_TOOL, node, "StartCLI"));
+        }
+        if (!inubitNode.equals(lease.inubitNode())) {
+            LeaseAttempt attempt = new LeaseAttempt(clock.instant(), AuditOutcome.REFUSED,
+                Optional.empty(), Optional.of(LeaseReason.OTHER_NODE_ANSWERS));
+            return new CleanupOutcome(AuditOutcome.REFUSED, LeaseReason.OTHER_NODE_ANSWERS.text()
+                + ": INUBIT node " + inubitNode + " answers for " + node + ", but the lease was"
+                + " set on " + lease.inubitNode(), stored -> stored.failed(attempt));
+        }
+        long left = deadline - nanoTime.getAsLong();
+        Optional<ToolError> failure = left > 0
+            ? resetAll(RESET_TOOL, port, node, version, Duration.ofNanos(left))
+            : Optional.of(ToolError.of(ErrorCode.TIMEOUT, "The reset of " + node + " was not"
+                    + " started: the own-node lookup used up cliTimeout ("
+                    + Durations.human(budget) + ")",
+                "The node or StartCLI answers slowly", "The MCP server retries the reset; raise"
+                    + " cliTimeout of " + node + " if the node is just slow").withNode(node));
+        if (failure.isPresent()) {
+            return failedCleanup(failure.get());
+        }
+        Instant at = clock.instant();
+        return new CleanupOutcome(AuditOutcome.EXECUTED, "every temporary log level on INUBIT"
+            + " node " + inubitNode + " was reset; lease " + lease.leaseId() + " ended",
+            stored -> stored.reset(at));
+    }
+
+    private CleanupOutcome failedCleanup(ToolError failure) {
+        LeaseAttempt attempt = attempt(clock.instant(), failure);
+        return new CleanupOutcome(AuditOutcome.FAILED,
+            attempt.reason().orElseThrow().text() + ": " + text(failure),
+            stored -> stored.failed(attempt));
+    }
+
+    /**
+     * Under the store lock: {@code read} changed by {@code change} if it still has the generation
+     * read in step 2; otherwise nothing is written. Never throws.
+     *
+     * @return why the change was not written; empty if it was
+     */
+    private Optional<String> compareAndSet(Lease read, UnaryOperator<Lease> change) {
+        Lease changed = change.apply(read);
+        try {
+            List<Lease> stored = store.update(leases -> leases.stream()
+                .map(lease -> lease.sameGeneration(read) ? changed : lease).toList(), STORE_WAIT);
+            if (stored.contains(changed)) {
+                return Optional.empty();
+            }
+            LOG.info("Lease {} of {} changed meanwhile; the cleanup's outcome was not recorded",
+                read.leaseId(), read.server());
+            return Optional.of("lease changed meanwhile, the outcome was not recorded");
+        } catch (RuntimeException e) {
+            LOG.error("Lease {} of {} could not record the cleanup's outcome ({}); it stays as it"
+                + " was", read.leaseId(), read.server(), e.getClass().getSimpleName());
+            return Optional.of("the lease could not record the outcome ("
+                + e.getClass().getSimpleName() + ")");
+        }
     }
 
     // ---- refusals --------------------------------------------------------------------------

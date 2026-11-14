@@ -446,4 +446,56 @@ class WriteGuardTest {
         assertThat(admitted.node()).isEqualTo(DEV);
         assertNothingContacted();
     }
+
+    // --- feature 024, T051: the cleanup preconditions (FR-043, research D-16 step 3) ------------
+
+    private WritePolicy admitCleanup(NodeId server) {
+        return logLevelGuard(LOG_LEVEL_ON_81).admitCleanup(server, RESET,
+            Capability.LOG_LEVEL_WRITE, CLI);
+    }
+
+    private ToolError cleanupRefusal(NodeId server) {
+        ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
+            () -> admitCleanup(server));
+        assertThat(exception).as("expected a refusal for " + server).isNotNull();
+        return exception.error();
+    }
+
+    /** Owner decision: the production lock, write.enabled and the opt-in do not apply. */
+    @Test
+    void theCleanupIsAdmittedWithoutTheWriteChecksAndTheOptIn() {
+        logLevelWrite = Set.of();
+
+        WritePolicy production = admitCleanup(PROD);
+        WritePolicy disabled = admitCleanup(TEST);
+        WritePolicy optedOut = admitCleanup(DEV);
+
+        assertThat(production.permit()).isEqualTo(new WritePermit(PROD,
+            Capability.LOG_LEVEL_WRITE, InubitVersion.parse("8.1").orElseThrow()));
+        assertThat(disabled.node()).isEqualTo(TEST);
+        assertThat(optedOut.account()).contains("jdoe");
+        assertThat(gateLookups).containsOnly(PROD, TEST, DEV);
+        assertThat(gateways.calls).containsExactly("check prod/inubit01", "check test/inubit01",
+            "check dev/node1");
+    }
+
+    @Test
+    void theCleanupStillPassesTheGateAndTheClientCheck() {
+        pins = Map.of(TEST, VersionSetting.V6_1);
+        assertThat(cleanupRefusal(TEST).code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+        assertThat(gateways.calls).as("the gate refuses before the client check").isEmpty();
+
+        gateways.unavailable = new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
+            "No CLI home is configured for dev/node1", "cliHome is not set", "Set cliHome")
+            .withNode(DEV));
+        assertThat(cleanupRefusal(DEV).code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(gateways.calls).containsExactly("check dev/node1");
+    }
+
+    @Test
+    void theCleanupOfAnUnconfiguredServerIsTargetUnknown() {
+        assertThat(cleanupRefusal(NodeId.parse("dev/inubit9")).code())
+            .isEqualTo(ErrorCode.TARGET_UNKNOWN);
+        assertNothingContacted();
+    }
 }
