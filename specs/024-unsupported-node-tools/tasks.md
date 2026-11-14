@@ -776,7 +776,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   validation texts; section 6 summary examples with the new group parts and the `Temporary log
   levels:` section. Failing test first: new `config/NodeToolsDocsTest.java` (the bold sentences and
   the production-warning texts present)
-- [ ] T071 [P] `docs/tools.md` (FR-003, D-25, D-31; after T054 and the flips or T066): sections
+- [X] T071 [P] `docs/tools.md` (FR-003, D-25, D-31; after T054 and the flips or T066): sections
   `## list_cluster_nodes`, `## read_io_log`, `## get_node_config`, `## set_temporary_log_level`,
   `## reset_temporary_log_level` (each starting with the tool description and a link to setup
   "Unsupported functions"; inputs with limits; outputs and variants; bounds; masking and its

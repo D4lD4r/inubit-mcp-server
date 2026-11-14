@@ -144,8 +144,10 @@ public final class CapabilityMatrix {
      * Queue Manager entries is supported on 8.1 and 9.0, on any other and on unknown versions
      * unsupported. Feature 021 (research D-6): downloading the trace log and the web service log
      * is supported on 8.1 (T033, T046) and 9.0 (T051, T052), on any other and on unknown versions
-     * unsupported. Feature 024 (research D-4): the node tools are unsupported everywhere, on 8.1
-     * and 9.0 with the note "not yet verified".
+     * unsupported. Feature 024 (research D-4): of the node tools, reading the cluster's node list
+     * and the node configuration is supported on 8.1 (T025, T038); the others on 8.1 and all of
+     * them on 9.0 are unsupported with the note "not yet verified", as on any other and on unknown
+     * versions (without the note).
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;

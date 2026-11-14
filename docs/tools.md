@@ -33,10 +33,12 @@ INUBIT 6.1 nodes of feature 012
 [`find_partners`](#find_partners)), the local knowledge of feature 019
 [its delta](../specs/019-local-knowledge/contracts/mcp-tools-delta.md) (see
 [The local knowledge](#the-local-knowledge-feature-019)), `read_queue_entry` of feature 020
-[its delta](../specs/020-queue-entry-read/contracts/mcp-tools-delta.md), and
+[its delta](../specs/020-queue-entry-read/contracts/mcp-tools-delta.md),
 `download_server_log` of feature 021
-[its delta](../specs/021-server-log-download/contracts/mcp-tools-delta.md).
-All twenty-two tools are described here; each section quotes the description the server
+[its delta](../specs/021-server-log-download/contracts/mcp-tools-delta.md), and the five node tools
+of feature 024 [their delta](../specs/024-unsupported-node-tools/contracts/mcp-tools-delta.md)
+(see [`list_cluster_nodes`](#list_cluster_nodes)).
+All twenty-seven tools are described here; each section quotes the description the server
 announces in `tools/list` for a profile `acme` without description and with the default
 terminology (Group/Node).
 
@@ -84,11 +86,16 @@ General rules:
 | [`query_logs`](#query_logs) | INUBIT log entries by time, workflow, severity, process id, text | read-only, idempotent, open world | yes (REST) |
 | [`read_queue_entry`](#read_queue_entry) | the content of ONE Queue Manager entry in `ERROR` (metadata, data stream, variables) through an **unsupported INUBIT interface**, opt-in per group | read-only, idempotent, open world | yes (REST `queueLog` + a helper on the INUBIT client) |
 | [`download_server_log`](#download_server_log) | download the trace log or the web service log of ONE node into a local folder and return a masked excerpt — **the file is in clear text**; the web service log through an **unsupported INUBIT interface**, opt-in per group | not read-only (writes a local file; read-only for INUBIT), not destructive, non-idempotent, open world | yes (trace: StartCLI `trace --download`; web service log: a helper on the INUBIT client) |
+| [`list_cluster_nodes`](#list_cluster_nodes) | the members of the INUBIT cluster of ONE node with status, version and uptime, optionally one member's details, through an **unsupported INUBIT interface**, opt-in per group | read-only, idempotent, open world | yes (a helper on the INUBIT client) |
+| [`read_io_log`](#read_io_log) | the logged input and output messages of ONE process run on ONE node, or one of them masked — **business and personal data** — through an **unsupported INUBIT interface**, opt-in per group | read-only, idempotent, open world | yes (a helper on the INUBIT client) |
+| [`get_node_config`](#get_node_config) | configuration values of ONE node from a fixed list of 20 values without secrets, through an **unsupported INUBIT interface**, opt-in per group | read-only, idempotent, open world | yes (a helper on the INUBIT client) |
 | [`list_inventory`](#list_inventory) | diagrams or modules filtered by name, type, group | read-only, idempotent, open world | yes (diagrams: REST; modules: StartCLI export) |
 | [`get_inventory_item`](#get_inventory_item) | one diagram or module: versions, tags, active flag, modules used; for a technical workflow its partner usage | read-only, idempotent, open world | yes (REST + StartCLI export with history; REST model export of the owner's system diagrams for the partner usage) |
 | [`find_partners`](#find_partners) | partners of the INUBIT Partner Management of the owner's system diagrams: search, list, compare across nodes; secrets only as set or not set | read-only, idempotent, open world | yes (REST model export of the owner's system diagrams, in memory) |
 | [`restart_process`](#restart_process--kill_process) | restart ONE process instance in ERROR on ONE node | **destructive**, non-idempotent, open world | yes (REST state read + StartCLI `processErrorStart`) |
 | [`kill_process`](#restart_process--kill_process) | delete ONE process instance on ONE node | **destructive**, non-idempotent, open world | yes (REST state read + StartCLI `kill`) |
+| [`set_temporary_log_level`](#set_temporary_log_level) | raise the log level of up to five INUBIT loggers on ONE node for a limited time, reset automatically; opt-in per group, needs write access; the answering node is looked up through an **unsupported INUBIT interface** | **destructive**, non-idempotent, open world | yes (StartCLI `trace --nodelevel`; the answering node through a helper on the INUBIT client) |
+| [`reset_temporary_log_level`](#reset_temporary_log_level) | reset every temporary log level on ONE node (also other users'), or forget a lease whose automatic reset failed | **destructive**, non-idempotent, open world | yes (StartCLI `trace --reset`; the answering node through a helper on the INUBIT client); forget: no |
 | [`export_artifacts`](#export_artifacts) | export technical workflows, modules or repository files into the local workspace and its history | read-only for INUBIT, non-idempotent (records a history entry), open world | yes (StartCLI `export`, read-only) |
 | [`check_artifacts`](#check_artifacts) | check workspace files offline: structure, a stylesheet run, XML/XSD | read-only, idempotent, open world | only to look up modules missing in the workspace (module list) |
 | [`export_archives`](#export_archives) | export the technical workflows of ONE diagram group as Workbench-importable archives, one per workflow, into a local folder — **secrets in clear text** | not read-only (writes local files; read-only for INUBIT), not destructive, non-idempotent, open world | yes (StartCLI `export`, read-only) |
@@ -126,6 +133,16 @@ pinned to a version that refuses the trace log download, or its group has
 log download (see [its section](#download_server_log)). It changes nothing on INUBIT, so it is
 offered in read-only mode, independent of `write.*`, `archives.*` and the production opt-ins.
 
+`list_cluster_nodes`, `read_io_log` and `get_node_config` are **offered only if** a node's group
+has `unsupported.nodeStatusRead`, `unsupported.ioLogRead` or `unsupported.nodeConfigRead: true`
+respectively ([setup.md](setup.md#unsupported-functions)), that node is not pinned to a version
+that refuses the tool, and it has an INUBIT client home; they change nothing on INUBIT and are
+offered in read-only mode. `set_temporary_log_level` and `reset_temporary_log_level` are **offered
+only if** a node with effective write access (`write.enabled`, and `write.productionOptIn` on
+production) has `unsupported.logLevelWrite: true` on its group, is not pinned to a version that
+refuses `log_level_write`, and has an INUBIT client home; they are offered together (see
+[Tool announcement](#tool-announcement)).
+
 The development tools of feature 004 are **offered only if at least one node is a development
 stage** (`development.enabled: true`, never on production groups; see
 [setup.md](setup.md#development-settings)); `run_e2e_test` only if, in addition, such a node's
@@ -161,17 +178,25 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 | `read_queue_entry` | `queue_entry_read` | read (unsupported vendor interface) | REST lookup + helper on the INUBIT client | supported (8.1 and 9.0) | refused (no warning run) | refused |
 | `download_server_log` `log: trace` | `trace_log_read` | read on INUBIT, writes a local file | StartCLI | supported (8.1 and 9.0) | refused (no warning run) | refused |
 | `download_server_log` `log: webservice` | `webservice_log_read` | read (unsupported vendor interface), writes a local file | helper on the INUBIT client | supported (8.1 and 9.0; on 9.0 verified against a recorded empty log only, see [its section](#download_server_log)) | refused (no warning run) | refused |
+| `list_cluster_nodes` (feature 024) | `cluster_nodes_read` | read (unsupported vendor interface) | helper on the INUBIT client | 8.1: supported; 9.0: refused (not yet verified) | refused (no warning run) | refused |
+| `read_io_log` (feature 024) | `io_log_read` | read (unsupported vendor interface) | helper on the INUBIT client | 8.1: refused (not yet verified); 9.0: refused (not yet verified) | refused (no warning run) | refused |
+| `get_node_config` (feature 024) | `node_config_read` | read (unsupported vendor interface) | helper on the INUBIT client | 8.1: supported; 9.0: refused (not yet verified) | refused (no warning run) | refused |
 | `import_artifacts`, `restore_backup` of a development backup, `set_active`, `tag_artifacts` | `development_writes` | write | StartCLI + REST | supported | refused | refused |
 | `restore_backup` of a deployment backup, `deploy_release` | `deployment` | write | StartCLI + REST | supported; `deploy_release` only within one minor version (8.1 → 8.1, 9.0 → 9.0) | refused; `deploy_release` also only within one minor version | refused |
 | `run_e2e_test` | `e2e_test` | write | SOAP + REST | supported | refused | refused |
 | `restart_process`, `kill_process` | `process_control` | write | REST + StartCLI | supported | refused | refused |
+| `set_temporary_log_level`, `reset_temporary_log_level` (feature 024) | `log_level_write` | write | StartCLI + helper on the INUBIT client (answering node) | 8.1: refused (not yet verified); 9.0: refused (not yet verified) | refused | refused |
 
 A deployment backup restored on a node that is also a development stage is checked as
 `development_writes`; both capabilities have the same states in this version. Refusal and
 warning texts name the capability in words: `monitoring`, `process diagnosis`, `log diagnosis`,
 `inventory`, `partner management`, `workspace export`, `development writes`, `deployment`,
 `end-to-end test`, `process control`, `reading Queue Manager entries`, `downloading the trace
-log`, `downloading the web service log`. Before feature 012,
+log`, `downloading the web service log`, `reading the cluster's node list`, `reading module
+input/output logging`, `reading node configuration values`, `changing temporary log levels`. The
+node tools of feature 024 are "not yet verified" on a line until a recorded, neutralized answer of
+that line is under contract test; until then that line is refused like any other (`… is not yet
+verified for INUBIT 9.0; nothing was sent`). Before feature 012,
 `find_processes` and `query_logs` shared the capability `diagnosis`; `list_nodes` and
 `--check-config` now show the two capabilities instead, with the same states on every version
 other than 6.1.
@@ -330,6 +355,19 @@ client home for one of its possible versions and either is not pinned to a versi
 `unsupported.serverLogRead: true` and it is not pinned to a version that refuses
 `webservice_log_read`; write settings do not matter. `AUTO` nodes count as possibly capable; a
 later detection does not change the list, it leads to refusals.
+
+Feature 024: `list_cluster_nodes` is offered only if a node of a group with
+`unsupported.nodeStatusRead: true` is not pinned to a version that refuses `cluster_nodes_read`
+(6.1, a line other than 8.1 and 9.0, a line on which it is not yet verified) and has an INUBIT
+client home for one of its possible versions; `read_io_log` (`unsupported.ioLogRead`,
+`io_log_read`) and `get_node_config` (`unsupported.nodeConfigRead`, `node_config_read`) likewise;
+write settings do not matter for them. `set_temporary_log_level` and `reset_temporary_log_level`
+are offered together, only if a node with effective write access of a group with
+`unsupported.logLevelWrite: true` is not pinned to a version that refuses `log_level_write` and has
+an INUBIT client home for one of its possible versions. An `AUTO` node counts as possibly capable
+only while some INUBIT version supports the capability: a capability that is not yet verified on
+any version offers its tools to no node. Without any of these opt-ins the tool list is exactly the
+one of feature 021.
 
 ### INUBIT 6.1 (feature 012)
 
@@ -629,7 +667,7 @@ part of the result.
 | `server` | `{version, source, at?}` with `source` `detected` (an `AUTO` node, detected before a tool call), `observed` (read by `get_health`, also on a pinned node) or `pinned` (the pin, without `at`; `6.1` for `V6_1`, `8.1` for `V8_1`, `9.0` for `V9_0`, `9.x` for `V9_X`); or only `{"state": "not_yet_detected"}` (call `get_health`), or `{"state": "unknown", "reason": "<error code>", "at": …}` after a failed detection. Times are ISO-8601 to the second |
 | `client` | the StartCLI client as in `get_health`: `{version, supportedFrom?, supportedTo?, comparison}` with `comparison` `match`, `mismatch` or `not_comparable` (the server version is unknown or has no patch, e.g. `V8_1`); or only `state`: `not_available` (no StartCLI installation), `not_yet_detected` (not probed yet; after a timed-out probe with `reason` `TIMEOUT` and `at`) or `unknown` (the probe failed: error code in `reason`, `at`) |
 | `status` | `supported` (every capability the configuration allows is supported), `partially_supported` (some are usable, others are unverified or not usable; e.g. an INUBIT 9.0 node, on which `partner_management` is unverified, feature 018), `unsupported` (none is usable) or `unknown` (an `AUTO` node whose version is not yet detected or unknown) |
-| `capabilities` | `usable`: the capabilities whose tools run on the node now (supported, or unverified for reads except on INUBIT 6.1, and not refused by the client), out of those its configuration allows (the reads always; `workspace_export` with a StartCLI installation; `development_writes` on a development stage; `deployment` in a group that receives deployments; `e2e_test` where `e2eTests` allows it; `process_control` with write access; `queue_entry_read` only for nodes whose group has `unsupported.queueEntryRead: true`; `trace_log_read` for nodes with an INUBIT client home; `webservice_log_read` only for nodes whose group has `unsupported.serverLogRead: true` and that have an INUBIT client home). `notUsable`: `[{capability, reason}]` with the reason the call would be refused; `inventory (StartCLI parts)` when `inventory` runs for its REST part but the client refuses its StartCLI parts (module list, version histories) |
+| `capabilities` | `usable`: the capabilities whose tools run on the node now (supported, or unverified for reads except on INUBIT 6.1, and not refused by the client), out of those its configuration allows (the reads always; `workspace_export` with a StartCLI installation; `development_writes` on a development stage; `deployment` in a group that receives deployments; `e2e_test` where `e2eTests` allows it; `process_control` with write access; `queue_entry_read` only for nodes whose group has `unsupported.queueEntryRead: true`; `trace_log_read` for nodes with an INUBIT client home; `webservice_log_read` only for nodes whose group has `unsupported.serverLogRead: true` and that have an INUBIT client home; feature 024: `cluster_nodes_read` only for nodes whose group has `unsupported.nodeStatusRead: true`, `io_log_read` only for nodes whose group has `unsupported.ioLogRead: true`, `node_config_read` only for nodes whose group has `unsupported.nodeConfigRead: true` and `log_level_write` only for nodes with write access whose group has `unsupported.logLevelWrite: true`, each only with an INUBIT client home). `notUsable`: `[{capability, reason}]` with the reason the call would be refused; `inventory (StartCLI parts)` when `inventory` runs for its REST part but the client refuses its StartCLI parts (module list, version histories) |
 | `warnings` | only when non-empty: a pin contradicted by `get_health`, a client that differs from the server or excludes it (see [the warnings](#inubit-versions-and-capabilities-feature-009)) |
 
 | `startCli` field | Meaning |
@@ -731,6 +769,7 @@ does not depend on `target` and never changes a report:
 | `client` | the local StartCLI client (feature 009): `{version, supportedFrom?, supportedTo?, comparison}` — the client version, the INUBIT range it declares (absent if it prints none) and `comparison` with the node's version: `match`, `mismatch` (major, minor or patch differ) or `not_comparable` (a version is unknown or has no patch); or `{"state": "not_available"}` for a node without a StartCLI installation. Absent when the probe failed (then the part `client` is in `unavailable`). Since feature 017 it is the client chosen for the version read in this call; if that choice changed and the time budget leaves no room for a second probe, `unavailable` holds `{"part": "client", "reason": "the StartCLI client for INUBIT 9.0.7 on test/node1 has not been checked yet", "nextStep": "Call get_health again"}` |
 | `unavailable` | parts that could not be obtained: `{part, reason, likelyCause?, nextStep?}` with `part` one of `status`, `ready`, `version`, `systemInfo`, `load`, `client`; `reason` starts with a code, e.g. `METRICS_NOT_LICENSED: GET /ibis/rest/metrics answered HTTP 403`, `AUTH_FAILED: …`, `TIMEOUT: …`; `likelyCause` and `nextStep` as in a `ToolError` |
 | `error` | only when `reachable: false`: `UNREACHABLE` (connection refused, DNS, VPN), `TIMEOUT`, `TLS_ERROR` (certificate, pin, host name), `AUTH_FAILED` (the node's credentials could not be prepared, feature 010), … with `likelyCause` and `nextStep` |
+| `temporaryLogLevels` | only when the node has an open lease of [`set_temporary_log_level`](#set_temporary_log_level) (feature 024), also when the log-level tools are off: per lease `leaseId`, `inubitNode`, `loggers` (`name`, `level`), `setAt`, `expiresAt`, `state` (`ACTIVE`, or `RESET_FAILED`: the automatic reset failed and the level may still be raised) and `lastAttempt` (the last reset attempt that did not end the lease: `at`, the instant it began, `outcome`, `code`, `reason`); see [Leases and automatic resets](#leases-and-automatic-resets). A lease store that cannot be read adds the warning `The temporary log level leases could not be read (<reason>)` to every report, never an error |
 | `warnings` | e.g. maintenance mode; "INUBIT 9.1.0 on dev/node1 is not verified for monitoring; results may be incomplete"; "the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T09:12:03Z); results are unverified"; a pin that this reading contradicts or differs from in the patch; a client that differs from the node's version or excludes it (texts in [the warnings table](#inubit-versions-and-capabilities-feature-009)) |
 
 How the report is built (research R-10):
@@ -1396,6 +1435,625 @@ server's trace log for ORDER-4711 and keep the file in /Users/operator/inubit-lo
 `download_server_log(target: "test/node1", log: "trace", targetFolder:
 "/Users/operator/inubit-logs", contains: "ORDER-4711")`. Delete the file when it is no longer
 needed.
+
+## `list_cluster_nodes`
+
+> [acme] Lists every INUBIT node the cluster of one node knows, as the Workbench's Cluster Manager
+> shows it: name, status (ACTIVE, MAINTENANCE, OFFLINE, or UNKNOWN for a node that does not answer),
+> INUBIT version, zone, node ID and uptime, and names the node that answered. With nodeName it also
+> returns that node's details (server, JDK, operating system, memory, cluster and zone names,
+> internal addresses and file paths), masked. Use it to check whether a cluster is complete and
+> healthy, including nodes this profile does not configure. UNSUPPORTED: it uses an undocumented
+> internal INUBIT interface without vendor support or stability guarantee, for diagnosis only; it
+> may stop working after any INUBIT update; INUBIT checks no right beyond the login; available only
+> for groups with unsupported.nodeStatusRead. Changes nothing on INUBIT.
+
+Feature 024 ([its delta](../specs/024-unsupported-node-tools/contracts/mcp-tools-delta.md)). The
+node list is read through unsupported INUBIT functionality; read
+[setup.md, Unsupported functions](setup.md#unsupported-functions) before enabling it with
+`unsupported.nodeStatusRead`. Lists the members of the INUBIT cluster that ONE configured node
+belongs to, as the Workbench's Cluster Manager shows them, and on request the details of one
+member. The server starts a small helper on the INUBIT client installation of the node's version
+(as `read_queue_entry`); it sends only the login, the lookup of the answering node, the node list
+and, with `nodeName`, the details of that member. Nothing is changed on INUBIT.
+
+**Unsupported.** The tool uses an undocumented internal INUBIT interface without vendor support or
+stability guarantee, for diagnosis only; it may stop working after any INUBIT update.
+**INUBIT checks no right beyond the login**: every INUBIT user the profile logs in with can list
+the nodes and their details.
+
+The tool is annotated `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`,
+`openWorldHint: true` (title "List the INUBIT cluster's nodes"). For when it is offered see
+[Tool announcement](#tool-announcement).
+
+**Input** (`list_cluster_nodes.input.json`):
+
+- `target` (required): id of exactly one node (`<group>/<node>`); a group id is `INVALID_INPUT`.
+- `nodeName` 1–128 characters of `A-Z`, `a-z`, `0-9`, `_`, `.`, `:` and `-`: the name of a member
+  as the list shows it; adds that member's details. The helper checks it against the list first,
+  so INUBIT is asked only for the details of a listed member; any other name is `INVALID_INPUT`.
+
+**Output** (`list_cluster_nodes.output.json`):
+
+```json
+{"node": "test/node1", "inubitNode": "node1", "total": 2, "truncated": false,
+ "nodes": [
+   {"name": "node1", "status": "ACTIVE", "version": "8.1.17", "zone": "zone-a",
+    "nodeId": "a1b2c3", "uptime": "PT76H5M12S", "uptimeSeconds": 273912},
+   {"name": "node2", "status": "UNKNOWN"}],
+ "details": {"node": "node1", "available": true,
+   "pairs": [{"key": "JDKVersion", "value": "17.0.9"},
+     {"key": "InternalNodeAddress", "value": "10.0.0.11:7800"}],
+   "truncated": false},
+ "hints": [],
+ "warnings": ["Read through an unsupported, undocumented INUBIT interface; diagnosis only",
+   "The node details contain internal addresses and file paths of the INUBIT installation"]}
+```
+
+| Field | Meaning |
+|---|---|
+| `node` | the configured node that was addressed |
+| `inubitNode` | the name INUBIT reported for the node the configured address reaches |
+| `total` | the number of members INUBIT returned |
+| `truncated` | `true` when more than 200 members were returned; at most 200 nodes are listed |
+| `nodes` | in INUBIT's order: `name`; `status` `ACTIVE`, `MAINTENANCE`, `OFFLINE`, `UNKNOWN` (`UNKNOWN` for a member that does not answer); `rawStatus` only for an unknown non-empty status text; `version`, `zone`, `nodeId`, `uptime` (ISO-8601 duration) and `uptimeSeconds`, each absent when INUBIT gave no value (always for a member that does not answer) |
+| `details` | only with `nodeName`: `node` and `available`; with `available: true` the `pairs` (`key`, `value`, `cut`: `true` when the value was cut) in INUBIT's order and `truncated` (`true` when the cap of 500 pairs or the helper's 256 KiB budget for the details stopped the pairs); with `available: false` a `reason`: INUBIT could not deliver the details, the list is still returned |
+| `hints` | `Only part of the node details was returned` when `details.truncated` is `true` |
+| `warnings` | always `Read through an unsupported, undocumented INUBIT interface; diagnosis only`; with details `The node details contain internal addresses and file paths of the INUBIT installation`; the version and client warnings of the version check |
+
+A cluster keeps members that no longer answer in its list, usually as `OFFLINE`; the recorded
+test clusters had no zone and no node ID for any member.
+
+**Bounds and masking.** At most 200 nodes and at most 500 pairs; a detail key at most 200
+characters, a detail value at most 2,000 characters after masking. Every detail value is masked
+before it is cut: the text rules of `read_queue_entry` (see [its Masking](#read_queue_entry)) and
+the known credentials of every configured node, which become `***`. Limits: the details name
+internal addresses, file paths and the versions of the JDK and the operating system (not masked,
+they are no credentials); a credential under a neutral name or in free text may still appear.
+
+**Time.** One helper run within the node's `cliTimeout` (built-in 30 s, see
+[setup.md](setup.md#unsupported-functions)), the login credentials included; the call takes one
+StartCLI slot of the node.
+
+**Cluster nodes.** The list comes from the node the configured address reaches, named in
+`inubitNode`; address cluster nodes directly, not through a load balancer.
+
+**Versions.** `cluster_nodes_read` is supported on INUBIT 8.1, verified against a recorded,
+neutralized answer of an 8.1 node. `cluster_nodes_read` is not yet verified for INUBIT 9.0: a 9.0
+node is refused with `UNSUPPORTED_VERSION` (`list_cluster_nodes: INUBIT 9.0.10 on test/node1:
+reading the cluster's node list is not yet verified for INUBIT 9.0; nothing was sent`) until a
+recorded 9.0 answer is under contract test. INUBIT 6.1, any other line (9.1, `V9_X`) and an
+undeclared version are refused with `UNSUPPORTED_VERSION` (`… supported: 8.1, 9.0`). The version
+of an `AUTO` node is detected first; if that fails, the detection's own error is returned.
+
+**Errors** (as `ToolError`, see [Common shapes](#common-shapes-page-and-toolerror)):
+
+| Code | When |
+|---|---|
+| `INVALID_INPUT` | an input fails its check (`Invalid nodeName: expected 1–128 characters of A-Z, a-z, 0-9, '_', '.', ':' and '-'`), a group id as `target`, a `nodeName` that is not in the list: `Node nodeX is not in the cluster of test/node1; known nodes: node1, node2` (at most 20 names, then "and n more"), next step `Use a name from the list` |
+| `TARGET_UNKNOWN` | unknown id; next step `Use an id from list_nodes` |
+| `NOT_CONFIGURED` | the node's group has no `unsupported.nodeStatusRead: true` (checked before the version detection; nothing is sent): `list_cluster_nodes is not enabled for group test: unsupported.nodeStatusRead is not set`, next step `Set unsupported.nodeStatusRead: true on group test and restart the MCP client (unsupported INUBIT functionality, see docs/setup.md "Unsupported functions")` |
+| `UNSUPPORTED_VERSION` | see Versions |
+| the detection's own code | the version of an `AUTO` node could not be detected; next step `Fix the cause and retry in a minute, or set versionLine of test/node1` |
+| `CLI_UNAVAILABLE` | no INUBIT client home for the node's version, `lib/ibis.jar` or the JDK missing, the helper could not start, a vendor class or method missing (`… lacks com.inubit.ibis.server.cluster.ClusterClient.getNodes`), next step `Check that defaults.cliClients."8.1" points to an INUBIT 8.1 client` |
+| `AUTH_FAILED`, `TLS_ERROR`, `UNREACHABLE`, `FORBIDDEN` | login rejected, TLS check, connection, access refused (the texts of `read_queue_entry`) |
+| `TIMEOUT` | `cliTimeout` exceeded: `list_cluster_nodes on test/node1 did not finish within cliTimeout (30 s)`, next step `Raise cliTimeout of test/node1` |
+| `MAINTENANCE_MODE`, credential codes | the version detection found maintenance mode; the node's own credentials are not available (nothing is launched) |
+| `UNEXPECTED_RESPONSE` | an error of the internal interface, unreadable helper output, an invalid node name or status text: `list_cluster_nodes got an unexpected answer from test/node1; the unsupported INUBIT interface may have changed after an INUBIT update`, next step `Use the Workbench's Cluster Manager; report the INUBIT version` |
+| `INTERNAL` | the helper is missing from the build |
+
+**Audit and logging.** A read: no audit record. One INFO log line per call names the node, the
+number of members, the detail node and the outcome, never a value.
+
+**Example prompt**: "Is the cluster of test/node1 complete? Show me the details of node2" →
+`list_cluster_nodes(target: "test/node1", nodeName: "node2")`.
+
+## `read_io_log`
+
+> [acme] Lists the logged input and output messages of the System Connector and Message Logger
+> Utility modules of one process run on one INUBIT node, as the Workbench's input/output logging
+> view shows them, or returns one of them. Call it with workflow and processId (from query_logs) to
+> get the list; call it again with message set to a listed ref to get that message's text, masked
+> and cut at maxChars, with its full size; binary messages only by size and type. Input/output
+> logging must be switched on for the process and its modules in INUBIT. Messages can contain
+> business and personal data that masking does not cover. UNSUPPORTED: it uses an undocumented
+> internal INUBIT interface without vendor support or stability guarantee, for diagnosis only; it
+> may stop working after any INUBIT update; INUBIT requires a right of the configured user for the
+> listing (FORBIDDEN without it); available only for groups with unsupported.ioLogRead. Changes
+> nothing on INUBIT.
+
+Feature 024 ([its delta](../specs/024-unsupported-node-tools/contracts/mcp-tools-delta.md)). The
+input/output logging is read through unsupported INUBIT functionality; read
+[setup.md, Unsupported functions](setup.md#unsupported-functions) before enabling it with
+`unsupported.ioLogRead`. Lists the logged input and output messages of the System Connector and
+Message Logger Utility modules of ONE process run on ONE node, as the Workbench's input/output
+logging view shows them, or returns one of those messages. The helper on the INUBIT client
+installation (as [`list_cluster_nodes`](#list_cluster_nodes)) sends only the login, the lookup of
+the answering node, the listing of the run and, with `message`, the download of that listed
+message. Nothing is changed on INUBIT.
+
+**Unsupported.** The tool uses an undocumented internal INUBIT interface without vendor support or
+stability guarantee, for diagnosis only; it may stop working after any INUBIT update. INUBIT
+requires a right of the configured user for the listing and refuses it without that right
+(`FORBIDDEN`); which right the Workbench's input/output logging view needs is not known from the
+client. **Messages can contain business and personal data**: masking does not cover business and
+personal data, only credentials it recognizes.
+
+Input/output logging must be switched on for the process and its modules in INUBIT; the tool shows
+what INUBIT logged and still keeps (INUBIT deletes old messages by its own retention). Process
+name and process ID come from [`query_logs`](#query_logs); the tool does not search runs.
+
+The tool is annotated `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`,
+`openWorldHint: true` (title "Read INUBIT module input/output logging"). For when it is offered
+see [Tool announcement](#tool-announcement).
+
+**Input** (`read_io_log.input.json`):
+
+- `target` (required): id of exactly one node (`<group>/<node>`).
+- `workflow` (required): `workflow` 1–200 characters, no control characters and neither `@@@`
+  nor `###` (they would change the name INUBIT looks up): the process (workflow) name as
+  `query_logs` returns it.
+- `processId` (required): `processId` 1–64 characters of `A-Z`, `a-z`, `0-9`, `_` and `-`: the
+  process ID of the run as `query_logs` returns it.
+- `message`: the `ref` of one entry of this run's listing (22 characters of `A-Z`, `a-z`, `0-9`,
+  `_`, `-`); returns that message. A ref is only compared with the listing, never sent to INUBIT
+  as a name.
+- `module` 1–200 characters, no control characters: lists only the entries whose module name or
+  module ID equals this text exactly.
+- `maxChars` 1–100,000, default 20,000: the maximum characters of the returned message text
+  (after masking).
+
+**Output** (`read_io_log.output.json`). The listing (no `message`):
+
+```json
+{"node": "test/node1", "inubitNode": "node1", "workflow": "Orders-Inbound", "processId": "4711",
+ "total": 4, "matching": 4,
+ "entries": [
+   {"ref": "Q2Fh7tZk1oVYbP3x9w-aAA", "moduleName": "Order Connector", "moduleId": "Module-0003",
+    "direction": "INPUT", "index": 1},
+   {"ref": "m0kq3T6cJYb1hX9Z2s_eRw", "moduleName": "Order Connector", "moduleId": "Module-0003",
+    "direction": "OUTPUT", "index": 1}],
+ "truncated": false, "hints": [],
+ "warnings": ["Read through an unsupported, undocumented INUBIT interface; diagnosis only"]}
+```
+
+With `message` the same fields plus the message:
+
+```json
+"message": {"ref": "Q2Fh7tZk1oVYbP3x9w-aAA", "moduleName": "Order Connector",
+  "moduleId": "Module-0003", "direction": "INPUT", "index": 1,
+  "kind": "text", "charset": "UTF-8", "sizeBytes": 74, "textChars": 84,
+  "text": "<order><customer>acme</customer><password>${secret:data.password}</password></order>",
+  "cut": false}
+```
+
+| Field | Meaning |
+|---|---|
+| `node`, `inubitNode` | the configured node and the name INUBIT reported for the node the configured address reaches |
+| `workflow`, `processId` | the run as requested |
+| `total`, `matching` | all logged messages of the run; those left after the `module` filter |
+| `entries` | in INUBIT's order, after the `module` filter, at most 500 entries: `ref` (pass it as `message`), `moduleName`, `moduleId` (absent when the entry's module part has an unexpected form), `direction` (`INPUT` or `OUTPUT`), `index` |
+| `truncated` | `true` when more than 500 entries matched |
+| `message` | only with `message`: the entry's fields, `kind` (`text`, `binary`, `empty`, `tooLarge`), `sizeBytes` (the full size) and, by kind, `charset` (`UTF-8` or `ISO-8859-1`), `text` (masked, at most `maxChars` characters), `textChars` (masked, before the cut), `cut`, `detected` |
+| `hints` | fixed texts (see the variants) |
+| `warnings` | always `Read through an unsupported, undocumented INUBIT interface; diagnosis only`; the version and client warnings of the version check |
+
+Variants:
+
+| Case | Shape |
+|---|---|
+| text message | `"kind": "text"` with `charset`, `text`, `textChars`, `cut` |
+| binary message | `"kind": "binary"`, `detected` only if a signature matched (`ZIP`, `GZIP`, `PDF`, `PNG`, `JPEG`, `GIF`, `JAVA_SERIALIZED`), hint `Binary content is not returned` |
+| empty or removed message | `"kind": "empty"`, hint `The message is empty or no longer available` (not an error) |
+| message over 10 MiB | `"kind": "tooLarge"`, hint `The message has <n> bytes and is too large to show (limit 10 MiB)`; nothing of it is read |
+| empty listing | `"entries": []`, hint `No logged message for this run: input/output logging may be off for the process or its modules, the messages may already be removed, or the run may have executed on another cluster node` |
+| entries of an unexpected form | listed with the raw module part as `moduleName` and without `moduleId`, hint `Some entries have an unexpected form; they are listed with their raw module part` |
+
+**Masking.** The text rules of `read_queue_entry` (see [its Masking](#read_queue_entry)) and the
+known credentials of every configured node (`***`) apply to the message text before it is cut at
+`maxChars`; binary content is never returned. Limits: masking does not cover business and personal
+data, and a credential under a neutral name, inside encoded content or in free text may still
+appear. The listing and the message are downloaded into a private temporary directory that is
+deleted at the end of the call, also on failure, timeout and shutdown.
+
+**Time.** The listing is bounded by the node's `cliTimeout` (built-in 30 s), reading a message
+(listing and download in one helper run) by `cliExportTimeout` (built-in 120 s, see
+[setup.md](setup.md#unsupported-functions)); the call takes one StartCLI slot of the node. A
+listing over 16 MiB is refused (`UNEXPECTED_RESPONSE`).
+
+**Cluster nodes.** INUBIT lists only the messages of the node the configured address reaches,
+named in `inubitNode`; a run executed on another cluster node gives an empty listing. Address
+cluster nodes directly, not through a load balancer.
+
+**Versions.** `io_log_read` is not yet verified for INUBIT 8.1: the recording of 8.1 was refused
+by INUBIT for the account of the test node (`FORBIDDEN`), so the listing form is not recorded yet.
+`io_log_read` is not yet verified for INUBIT 9.0. Both are refused with `UNSUPPORTED_VERSION`
+(`read_io_log: INUBIT 8.1.17 on test/node1: reading module input/output logging is not yet
+verified for INUBIT 8.1; nothing was sent`), as are INUBIT 6.1, any other line and an undeclared
+version. As long as `io_log_read` is supported on no INUBIT version, `read_io_log` is not offered
+(see [Tool announcement](#tool-announcement)).
+
+**Errors**: As [`list_cluster_nodes`](#list_cluster_nodes) (with the tool name, the opt-in
+`unsupported.ioLogRead` and the next step `Use the Workbench's input/output logging view; report
+the INUBIT version` for `UNEXPECTED_RESPONSE`), plus:
+
+| Code | When |
+|---|---|
+| `INVALID_INPUT` | `workflow` with a separator or control character, `processId`, `module` or `maxChars` outside the limits (`Invalid processId: expected 1–64 characters of A-Z, a-z, 0-9, '_' and '-'`); `message` not in the run's listing (nothing is downloaded): `Message Q2Fh7tZk1oVYbP3x9w-aAA is not in the input/output logging of process 4711 of Orders-Inbound on test/node1`, next step `Call read_io_log without message and use a listed ref` |
+| `FORBIDDEN` | INUBIT refuses the listing for the account (`NotAllowedAccess`): `test/node1 refused the input/output logging for the configured user` (INUBIT's text, which names the user, is not repeated), next step `Give the user the right the Workbench's input/output logging view needs` |
+| `TIMEOUT` | listing: `cliTimeout`; with `message`: `cliExportTimeout` (`read_io_log on test/node1 did not finish within cliExportTimeout (120 s)`, next step `Raise cliExportTimeout of test/node1`) |
+| `UNEXPECTED_RESPONSE` | another error of the listing or the download, a listing over 16 MiB, an entry of another process |
+
+**Audit and logging.** A read: no audit record. One INFO log line per call names the node, the
+process ID, the listing size or the message ref and its size, and the outcome, never content.
+
+**Example prompt**: "What did the Order Connector receive in run 4711 of Orders-Inbound on
+test/node1?" → `read_io_log(target: "test/node1", workflow: "Orders-Inbound", processId: "4711",
+module: "Order Connector")`, then `read_io_log(…, message: "Q2Fh7tZk1oVYbP3x9w-aAA")` with the
+`ref` of the listed `INPUT` entry.
+
+## `get_node_config`
+
+> [acme] Returns configuration values of the INUBIT node one node reaches, from a fixed list of
+> values that matter for diagnosis and hold no secrets: OperationMode, ClusterName, ZoneName,
+> NodeName, LocalMaintenanceMode, ActivateClusterManager, ClusterDebug,
+> ContainerShutdownOnNodeFailure, RegisterMBeans, RegisterInternalMBeans,
+> RuntimeDataCacheXMXPercentage, socketTimeoutInMillisecs, indexEnabled, iterationCount,
+> DataSourceLocation, LogsDBDataSourceLocation, RepositoryDataSourceLocation, ClusterBindAddress,
+> noOfRetries, retryInterval. Without names it returns all of them; per name value, type, display
+> name, description, category and whether it is editable or deprecated, or that the node has no such
+> value. Any other name is refused. UNSUPPORTED: it uses an undocumented internal INUBIT interface
+> without vendor support or stability guarantee, for diagnosis only; it may stop working after any
+> INUBIT update; INUBIT checks no right beyond the login; available only for groups with
+> unsupported.nodeConfigRead. Changes nothing on INUBIT.
+
+Feature 024 ([its delta](../specs/024-unsupported-node-tools/contracts/mcp-tools-delta.md)). The
+values are read through unsupported INUBIT functionality; read
+[setup.md, Unsupported functions](setup.md#unsupported-functions) before enabling it with
+`unsupported.nodeConfigRead`. Returns configuration values of the node ONE configured node reaches,
+from a fixed list of values that matter for diagnosis and hold no secrets. The helper on the INUBIT
+client installation (as [`list_cluster_nodes`](#list_cluster_nodes)) sends only the login, the
+lookup of the answering node and one read per requested name; it never changes a value (the
+interface's write method is not part of the helper).
+
+**Unsupported.** The tool uses an undocumented internal INUBIT interface without vendor support or
+stability guarantee, for diagnosis only; it may stop working after any INUBIT update.
+**INUBIT checks no right beyond the login**: every INUBIT user the profile logs in with can read
+these values.
+
+**The fixed list** (in this order): `OperationMode`, `ClusterName`, `ZoneName`, `NodeName`,
+`LocalMaintenanceMode`, `ActivateClusterManager`, `ClusterDebug`,
+`ContainerShutdownOnNodeFailure`, `RegisterMBeans`, `RegisterInternalMBeans`,
+`RuntimeDataCacheXMXPercentage`, `socketTimeoutInMillisecs`, `indexEnabled`, `iterationCount`,
+`DataSourceLocation`, `LogsDBDataSourceLocation`, `RepositoryDataSourceLocation`,
+`ClusterBindAddress`, `noOfRetries`, `retryInterval`. Any other name is refused before anything is
+sent; values that hold secrets (the database connection with its password, the cluster password,
+the initial root user password, identity provider settings) are not on the list. The helper holds
+its own copy of the list and refuses any other name as well.
+
+The tool is annotated `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`,
+`openWorldHint: true` (title "Read INUBIT node configuration values"). For when it is offered see
+[Tool announcement](#tool-announcement).
+
+**Input** (`get_node_config.input.json`):
+
+- `target` (required): id of exactly one node (`<group>/<node>`).
+- `names`: 1–20 distinct names of the fixed list, case-sensitive; without `names` all 20 values
+  are returned.
+
+**Output** (`get_node_config.output.json`):
+
+```json
+{"node": "test/node1", "inubitNode": "node1",
+ "values": [
+   {"name": "OperationMode", "present": true, "value": "CLUSTER", "type": "SelectProperty",
+    "displayName": "Operation mode", "description": "Single or cluster operation",
+    "category": "Cluster", "editable": true, "deprecated": false},
+   {"name": "noOfRetries", "present": false}],
+ "warnings": ["Read through an unsupported, undocumented INUBIT interface; diagnosis only"]}
+```
+
+| Field | Meaning |
+|---|---|
+| `node`, `inubitNode` | the configured node and the name INUBIT reported for the node the configured address reaches |
+| `values` | in request order (all 20 in list order without `names`), one per name: `name`; `present: true` with `value` (masked, at most 2,000 characters; `cut`: `true` when cut), `type`, `displayName`, `description`, `category`, `editable`, `deprecated`; or `present: false`: the value is not present on this node; or, when reading this one name failed, `error` with `code` and `message` and no `present` — the other names are still returned |
+| `warnings` | always `Read through an unsupported, undocumented INUBIT interface; diagnosis only`; the version and client warnings of the version check |
+
+A recorded 8.1 node answered a property it does not have with an internal INUBIT error instead of
+an empty value; exactly this answer is reported as `present: false`, every other error of one name
+as that name's `error`. On that node the vendor texts were generic: `displayName` equal to the
+name, `category` the type, an empty `description`.
+
+**Masking.** Every value is masked before it is cut (as the details of `list_cluster_nodes`),
+although the list holds no secrets; names are a fixed vocabulary. Data source locations and the
+cluster bind address name internal hosts and paths.
+
+**Time.** One helper run within the node's `cliTimeout` (built-in 30 s); one StartCLI slot.
+
+**Cluster nodes.** The values come from the node the configured address reaches, named in
+`inubitNode`; address cluster nodes directly, not through a load balancer.
+
+**Versions.** `node_config_read` is supported on INUBIT 8.1, verified against a recorded,
+neutralized answer of an 8.1 node. `node_config_read` is not yet verified for INUBIT 9.0: a 9.0
+node is refused with `UNSUPPORTED_VERSION` (`get_node_config: INUBIT 9.0.10 on test/node1: reading
+node configuration values is not yet verified for INUBIT 9.0; nothing was sent`) until a recorded
+9.0 answer is under contract test. INUBIT 6.1, any other line and an undeclared version are
+refused (`… supported: 8.1, 9.0`).
+
+**Errors**: As [`list_cluster_nodes`](#list_cluster_nodes) (with the tool name, the opt-in
+`unsupported.nodeConfigRead` and the next step `Use the Workbench's Cluster Manager; report the
+INUBIT version` for `UNEXPECTED_RESPONSE`, also when the helper does not answer each requested name
+once, in request order), plus:
+
+| Code | When |
+|---|---|
+| `INVALID_INPUT` | a name not on the fixed list (the service's check behind the schema; nothing is sent; the refused text is never echoed): `Configuration value names[3] is not readable; allowed: OperationMode, ClusterName, …`, next step `Use names from the allowed list exactly as written, or leave names out for all of them`; a name given twice |
+
+**Audit and logging.** A read: no audit record. One INFO log line per call names the node, the
+number of names and the outcome, never a value.
+
+**Example prompt**: "Is test/node1 in cluster mode, and which cluster and zone does it belong to?"
+→ `get_node_config(target: "test/node1", names: ["OperationMode", "ClusterName", "ZoneName"])`.
+
+## `set_temporary_log_level`
+
+> [acme] Raises the log level of one to five INUBIT loggers (names below com.inubit.ibis) on the
+> INUBIT node one node reaches, for a limited time (default 10 minutes, at most 60), through
+> StartCLI's documented trace -nl command; then download the trace log with download_server_log. The
+> MCP server records a lease and resets the node when it expires, when the MCP server shuts down, or
+> at its next start, also when write access is switched off meanwhile. The reset (StartCLI trace -r)
+> restores every temporary log level on that node, also those other users set; levels can also be
+> lost earlier (INUBIT restart, log configuration reload). Only the exactly named logger changes.
+> Confirmation as restart_process. UNSUPPORTED: uses unsupported, undocumented INUBIT functionality
+> (the lookup of the answering node goes through an internal INUBIT interface) without vendor
+> support or stability guarantee, for diagnosis only; it may stop working after any INUBIT update.
+> Needs write access and unsupported.logLevelWrite. Address cluster nodes directly, not through a
+> load balancer.
+
+Feature 024 ([its delta](../specs/024-unsupported-node-tools/contracts/mcp-tools-delta.md)). Read
+[setup.md, Unsupported functions](setup.md#unsupported-functions) before enabling it with
+`unsupported.logLevelWrite`. Raises the log level of one to five INUBIT loggers on the node ONE
+configured node reaches, for a limited time, so that the trace log shows more; download it with
+[`download_server_log`](#download_server_log). The MCP server records a lease and resets the node
+when the time is up (see [Leases and automatic resets](#leases-and-automatic-resets)).
+
+- The change uses StartCLI's documented `trace` command, one run per logger:
+  `trace --nodelevel <level> --package '<logger>'` (the long forms of `-nl` and `-p`). No other
+  form of `trace` is sent. The persistent trace settings are never changed.
+- The change is per logger: only the exactly named logger changes; name each logger whose output
+  you need.
+- The reset is per node: the reset restores every temporary level on that node, also other users',
+  not only the loggers of this call. Levels can also be lost earlier (INUBIT restart, log
+  configuration reload); INUBIT itself has no timer.
+- **Unsupported.** Before every change the MCP server asks which INUBIT node answers, through the
+  undocumented internal interface of [`list_cluster_nodes`](#list_cluster_nodes), without vendor
+  support or stability guarantee; the tool is meant for diagnosis only and may stop working after
+  any INUBIT update. A change is refused when another node answers than the open lease names;
+  behind a load balancer the lookup and the change can still reach different nodes, so address
+  cluster nodes directly, not through a load balancer.
+
+The tool needs write access (`write.enabled`, and `write.productionOptIn` on production) and
+`unsupported.logLevelWrite: true` on the node's group, and follows the node's confirmation mode as
+[`restart_process`](#restart_process--kill_process). It is annotated `readOnlyHint: false`,
+`destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true` (title "Raise INUBIT log
+levels temporarily"). For when it is offered see [Tool announcement](#tool-announcement).
+
+**Input** (`set_temporary_log_level.input.json`):
+
+- `node` (required): id of exactly one node (`<group>/<node>`).
+- `loggers` (required): 1–5 distinct names below `com.inubit.ibis`, each at most 200 characters,
+  pattern `^com\.inubit\.ibis(\.[A-Za-z_][A-Za-z0-9_]*)+$` (no `$` inner-class names).
+- `level` (required): `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`.
+- `durationMinutes` 1–60, default 10: how long the lease runs, counted from the executed change.
+- `confirmationCode`: the code of the preview (`^[A-Za-z0-9_-]{22}$`).
+
+**Output** (`set_temporary_log_level.output.json`): either `{"challenge": …}` (preview, nothing
+changed) or `{"result": …}`; refusals are tool errors.
+
+```json
+{"challenge": {
+   "confirmationCode": "Zk3p0Qx8LmN2vB7cR1tY4w", "expiresAt": "2026-11-12T08:20:30Z",
+   "preview": {"node": "test/node1", "inubitNode": "node1",
+     "loggers": [{"name": "com.inubit.ibis.acme.Orders", "level": "DEBUG"}],
+     "durationMinutes": 10, "openLease": null},
+   "message": "Nothing was changed. Call set_temporary_log_level again with confirmationCode before 2026-11-12T08:20:30Z to raise the level; the later reset restores every temporary level on node1, also other users'"}}
+```
+
+```json
+{"result": {
+   "node": "test/node1", "inubitNode": "node1", "outcome": "EXECUTED",
+   "leaseId": "3f2b8a1e-0c4d-4e7a-9b1f-2a6c5d8e9f01",
+   "loggers": [{"name": "com.inubit.ibis.acme.Orders", "level": "DEBUG"}],
+   "expiresAt": "2026-11-12T08:25:31Z",
+   "message": "Raised on INUBIT node node1 until 2026-11-12T08:25:31Z; then the MCP server resets every temporary log level on node1, also other users'. Levels can be lost earlier (INUBIT restart, log configuration reload).",
+   "auditId": "8c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f", "warnings": []}}
+```
+
+| Field | Meaning |
+|---|---|
+| `challenge` | `confirmationCode` (bound to the node, the inputs and the previewed state), `expiresAt` (issue time + `confirmationTtl`), `preview` and `message` |
+| `preview` | `node`, `inubitNode` (the node that answered), `loggers` (`name`, `level`) and `durationMinutes` of this call, `openLease`: the open lease of the node this change merges into (`leaseId`, `inubitNode`, `loggers`, `setAt`, `expiresAt`, `state`, `lastAttempt` with `at`, `outcome`, `code`, `reason`), absent or `null` when none is open |
+| `result` | `node`, `inubitNode`, `outcome`, `leaseId`, `loggers`, `expiresAt`, `message`, `auditId`, `warnings` |
+| `outcome` | `EXECUTED`: the levels are raised; `outcome: FAILED`: a StartCLI run failed and the node was reset at once (the `message` says so, and that a merged lease ended with it) |
+| `leaseId` | the lease recorded, merged into or ended |
+| `loggers` | every logger of the lease, also those of earlier sets merged into it |
+| `expiresAt` | when the MCP server resets the node, counted from the executed change; absent when the lease is no longer open |
+
+**Merging.** The node has at most one open lease: a set while one is open merges into it (the
+loggers are united, a named logger gets the new level, the later expiry wins, the setting MCP
+server instance becomes its owner); a lease holds at most 50 loggers. A set for a node whose last
+automatic reset failed (`RESET_FAILED`) is refused until that reset succeeds or the lease is
+forgotten.
+
+**Decision flow** (apart from the version detection of an `AUTO` node, nothing is sent before the
+answering-node lookup): input checks; one node; the write guard of `restart_process` (production
+lock, `write.enabled`); `unsupported.logLevelWrite`; the version check (`log_level_write`); the
+StartCLI client; the credentials; the node's log-level lock (one change per node at a time, across
+all MCP server instances of the profile); the lease store; the answering-node lookup; the
+confirmation; the audit record `PENDING`; the lease, recorded before StartCLI runs; the StartCLI
+runs; the lease update and the audit record `EXECUTED` or `FAILED`. If the lease cannot be updated
+after the change, the node is reset at once (`INTERNAL`).
+
+**Versions.** `log_level_write` is not yet verified for INUBIT 8.1. `log_level_write` is not yet
+verified for INUBIT 9.0. Until a recorded change and reset of that version are under contract test,
+both are refused with `UNSUPPORTED_VERSION` (`set_temporary_log_level: INUBIT 8.1.17 on test/node1:
+changing temporary log levels is not yet verified for INUBIT 8.1; nothing was sent`), as are INUBIT
+6.1, any other line and an undeclared version. As long as `log_level_write` is supported on no
+INUBIT version, `set_temporary_log_level` is not offered (see
+[Tool announcement](#tool-announcement)).
+
+**Errors** (as `ToolError`, see [Common shapes](#common-shapes-page-and-toolerror)):
+
+| Code | When |
+|---|---|
+| `INVALID_INPUT` | a logger outside `com.inubit.ibis` (`Invalid logger 2 (a name below com.inubit.ibis)`), a repeated logger, more than 5, an invalid level, `durationMinutes` outside 1–60, a malformed code; a group id |
+| `TARGET_UNKNOWN` | unknown id |
+| `PRODUCTION_PROTECTED`, `WRITE_DISABLED` | the write guard, naming the tool: `Write access is disabled for test/node1; nothing was changed`, next step naming `write.enabled` |
+| `NOT_CONFIGURED` | no `unsupported.logLevelWrite: true` (checked after the write settings): `set_temporary_log_level is not enabled for group test: unsupported.logLevelWrite is not set`, next step `Set unsupported.logLevelWrite: true …` |
+| `UNSUPPORTED_VERSION` | see Versions |
+| `PRECONDITION_FAILED` | the last automatic reset failed (`The last reset of test/node1 failed (lease 3f2b…, 2026-11-12T08:26:01Z: node unreachable); retry reset_temporary_log_level first`); another node answers than the open lease names (`INUBIT node node2 answers for test/node1, but the open lease was set on node1`); another log-level change for the node is running; the lease store cannot be read; the merged lease would hold more than 50 loggers; the state changed since the preview |
+| `CONFIRMATION_INVALID` | the code is unknown, used, expired or for other inputs; next step `Call again without confirmationCode` |
+| `CLI_UNAVAILABLE`, `AUTH_FAILED`, `TLS_ERROR`, `UNREACHABLE`, `FORBIDDEN`, `TIMEOUT` | as the read tools (helper lookup) and StartCLI; each StartCLI run and the lookup within `cliTimeout` |
+| `UNEXPECTED_RESPONSE` | the answering-node lookup answered unexpectedly, or StartCLI did not confirm the change (`… StartCLI did not confirm the log level change`), next step `Reset with reset_temporary_log_level; report the INUBIT version` |
+| `INTERNAL` | the audit record `PENDING` or the lease could not be written before the change (nothing sent); the lease could not be updated after the change: `The levels were raised but the lease could not be recorded; the node was reset` |
+
+**Audit.** `capability: set_temporary_log_level`, steps `PREVIEW` (`CHALLENGE_ISSUED`, `REFUSED`)
+and `EXECUTE` (`PENDING`, then `EXECUTED` or `FAILED`; `REFUSED`), with the node, the loggers and
+levels, the duration and the lease (`leaseId`, `inubitNode`, `expiresAt`); never log content.
+
+**Example prompt**: "Raise com.inubit.ibis.acme.Orders on test/node1 to DEBUG for 15 minutes,
+then show me the trace log" → `set_temporary_log_level(node: "test/node1", loggers:
+["com.inubit.ibis.acme.Orders"], level: "DEBUG", durationMinutes: 15)` returns the preview; after
+the user confirms, the same call with `confirmationCode` raises the level; then
+`download_server_log(target: "test/node1", log: "trace", …)`.
+
+## `reset_temporary_log_level`
+
+> [acme] Resets every temporary log level on the INUBIT node one node reaches through StartCLI's
+> documented trace -r command (every temporary log level on that node, also those other users set),
+> and ends the MCP server's lease for it; works also without a lease (to clean up an earlier
+> change). With leaseId and forget: true it instead ends a lease whose automatic reset failed,
+> without contacting INUBIT; the level may then stay raised until that node restarts. Confirmation
+> as restart_process. UNSUPPORTED: uses unsupported, undocumented INUBIT functionality (the lookup
+> of the answering node goes through an internal INUBIT interface) without vendor support or
+> stability guarantee, for diagnosis only; it may stop working after any INUBIT update. Needs write
+> access and unsupported.logLevelWrite. Address cluster nodes directly, not through a load balancer.
+
+Feature 024 ([its delta](../specs/024-unsupported-node-tools/contracts/mcp-tools-delta.md)). Read
+[setup.md, Unsupported functions](setup.md#unsupported-functions) before enabling it with
+`unsupported.logLevelWrite`. Two forms:
+
+- **`node`**: resets every temporary log level on the node ONE configured node reaches with
+  StartCLI's documented `trace --reset` (the long form of `-r`), and ends the MCP server's lease
+  for it; it works also without a lease, to clean up an earlier change. As every reset, the reset
+  restores every temporary level on that node, also other users'. The persistent trace settings
+  are never changed. As for a set, the MCP server first asks which INUBIT node answers (unsupported,
+  undocumented interface without vendor support, for diagnosis only; it may stop working after
+  any INUBIT update) and refuses when another node answers than the open lease names; address
+  cluster nodes directly, not through a load balancer.
+- **`leaseId` and `forget: true`**: ends a lease whose automatic reset failed (`RESET_FAILED`)
+  without contacting INUBIT, for a node that can no longer be reached; the level may then stay
+  raised until that node restarts. Nothing is sent: no version check, no client check, no
+  answering-node lookup; the write settings and the opt-in of the lease's group are checked.
+
+Both need write access and `unsupported.logLevelWrite: true` and follow the node's confirmation
+mode as [`restart_process`](#restart_process--kill_process). The tool is annotated
+`readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`
+(title "Reset temporary INUBIT log levels"); it is offered together with
+[`set_temporary_log_level`](#set_temporary_log_level). The automatic resets of the MCP server are
+described in [Leases and automatic resets](#leases-and-automatic-resets).
+
+**Input** (`reset_temporary_log_level.input.json`), exactly one of the two forms:
+
+- `node`: id of exactly one node (`<group>/<node>`), without `leaseId` and `forget`;
+- `leaseId` (a lowercase UUID, as `get_health` shows it) and `forget: true`, without `node`;
+- `confirmationCode`: the code of the preview (`^[A-Za-z0-9_-]{22}$`).
+
+**Output** (`reset_temporary_log_level.output.json`): either a `challenge` (`confirmationCode`,
+`expiresAt`, `preview`, `message`; nothing changed) or a `result`. The `preview` has `node`,
+`inubitNode` (the node that answered, or the one the lease names for forget) and the `openLease`
+the call ends (`leaseId`, `inubitNode`, `loggers` with `name` and `level`, `setAt`, `expiresAt`,
+`state`, `lastAttempt` with `at`, `outcome`, `code`, `reason`), absent when none is open. A
+result:
+
+```json
+{"result": {
+   "node": "test/node1", "inubitNode": "node1", "outcome": "EXECUTED",
+   "leaseId": "3f2b8a1e-0c4d-4e7a-9b1f-2a6c5d8e9f01", "leaseOpen": true,
+   "message": "Every temporary log level on INUBIT node node1 was reset, also other users'; the lease ended",
+   "auditId": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b", "warnings": []}}
+```
+
+| Field | Meaning |
+|---|---|
+| `node`, `inubitNode` | the configured node; the INUBIT node that answered (`node` form) or the one the lease names (forget) |
+| `outcome` | `EXECUTED`: the node was reset or the lease forgotten; `FAILED`: StartCLI's reset failed (see `message`; an open lease stays open and the MCP server retries) |
+| `leaseId` | the lease that was open when the call ran (ended, forgotten, or still open after `FAILED`); absent when none was open |
+| `leaseOpen` | whether a lease was open when the call ran |
+| `message`, `auditId`, `warnings` | as for a set |
+
+Variants: without a lease `leaseOpen: false` and `No lease was open for test/node1; every
+temporary log level on INUBIT node node1 was reset, also other users'`; forget: `outcome:
+EXECUTED`, `Lease 3f2b… ended as FORGOTTEN without contacting INUBIT; the level may still be
+raised on node1 until its restart` and the warning `The temporary log level may still be raised on
+INUBIT node node1 until its restart`.
+
+**Versions.** `log_level_write` is not yet verified for INUBIT 8.1. `log_level_write` is not yet
+verified for INUBIT 9.0. The `node` form is refused there with `UNSUPPORTED_VERSION`, as for a set
+(the forget form checks no version). As long as `log_level_write` is supported on no INUBIT
+version, `reset_temporary_log_level` is not offered (see [Tool announcement](#tool-announcement)).
+
+**Errors**: as [`set_temporary_log_level`](#set_temporary_log_level), plus `INVALID_INPUT` for an
+input combination other than the two forms (`Invalid input: expected either node, or leaseId with
+forget: true`), an unknown `leaseId`, `forget` of a lease not in `RESET_FAILED` (`Lease 3f2b… is
+ACTIVE; only a lease whose reset failed can be forgotten`) and a lease whose node is no longer
+configured (`… is no longer configured; the lease ends automatically 7 days after its expiry, on
+2026-11-19`). The rows that apply to a reset:
+
+| Code | When |
+|---|---|
+| `PRODUCTION_PROTECTED`, `WRITE_DISABLED` | the write guard, naming the tool |
+| `NOT_CONFIGURED` | no `unsupported.logLevelWrite: true` |
+| `PRECONDITION_FAILED` | another node answers than the open lease names; another log-level change for the node is running; the state changed since the preview (forget: the lease changed meanwhile, nothing is forgotten) |
+| `CONFIRMATION_INVALID` | the code is unknown, used, expired or for other inputs |
+
+**Audit.** `capability: reset_temporary_log_level`, as for a set, with `leaseId`, `forget` and
+whether a lease was open.
+
+**Example prompt**: "Reset the log levels on test/node1" →
+`reset_temporary_log_level(node: "test/node1")` returns the preview; after the user confirms, the
+same call with `confirmationCode` resets the node.
+
+### Leases and automatic resets
+
+Every executed set is recorded as a lease in
+`~/.inubit-mcp/<profile>/log-levels/leases.json` (owner-only, names, levels, ids and times only;
+created by the first set). The MCP server resets the node (`trace --reset`, audited with the
+trigger):
+
+- when the lease expires: a check runs every 30 s, so a reset follows within a minute;
+- when the MCP server shuts down (its own open leases, all nodes in parallel, at most the longest
+  `cliTimeout` of those nodes);
+- at its next start, for a lease left behind: a lease whose MCP server instance is no longer
+  running is taken over at once and reset when it has expired or failed, otherwise at its expiry;
+- also when write access is switched off meanwhile: these cleanup resets need no `write.enabled`,
+  `write.productionOptIn` or `unsupported.logLevelWrite`, only the node's configuration, a client,
+  credentials and a version that supports `log_level_write` (see
+  [setup.md](setup.md#unsupported-functions)).
+
+Before each automatic reset the MCP server asks which INUBIT node answers; if another node answers
+than the lease names, nothing is sent. A failed automatic reset leaves the lease open as
+`RESET_FAILED` and is retried at most once per 60 s; `lastAttempt.at` is the instant the attempt
+began, so a slow attempt does not delay the next one. A set for that node is refused until the
+reset succeeds; `reset_temporary_log_level` with `node` retries it at once, with `leaseId` and
+`forget: true` it ends the lease as `FORGOTTEN` without contacting INUBIT. A lease of a node that
+is no longer configured is not reset (no connection data): it ends as `FORGOTTEN` 7 days after its
+expiry and is a startup warning until then. Ended leases (`RESET`, `FORGOTTEN`) are removed 7 days
+after they ended.
+
+[`get_health`](#get_health) shows every open lease of the node in `temporaryLogLevels`, also when
+the log-level tools are off; `--check-config` and the startup log list them under `Temporary log
+levels:` (see [setup.md](setup.md#6-check-the-configuration)).
 
 ## Inventory: owner, groups, caching
 

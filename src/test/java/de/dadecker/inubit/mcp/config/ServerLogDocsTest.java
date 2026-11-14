@@ -269,7 +269,7 @@ class ServerLogDocsTest {
     void toolsListsTheToolItsCapabilitiesAndItsAnnouncementRule() throws IOException {
         String tools = folded(Files.readString(TOOLS));
 
-        assertThat(tools).contains("All twenty-two tools",
+        assertThat(tools).contains("All twenty-seven tools",
             "`download_server_log` of feature 021 [its delta](../specs/021-server-log-download/"
                 + "contracts/mcp-tools-delta.md)",
             "| [`download_server_log`](#download_server_log) |",
