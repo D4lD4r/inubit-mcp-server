@@ -2351,7 +2351,8 @@ class MainTest {
         assertThat(announcedTools(validConfig())).doesNotContain("download_server_log");
     }
 
-    // --- feature 024 T023, T025, T062: list_cluster_nodes only under its opt-in (FR-002, D-6)
+    // --- feature 024 T023, T025, T062: list_cluster_nodes only under its opt-in (FR-002, SC-005,
+    // D-6)
 
     @Test
     void withoutANodeToolOptInTheToolListEqualsTheReference() throws Exception {
@@ -2443,7 +2444,8 @@ class MainTest {
             .containsExactlyElementsOf(reference);
     }
 
-    // --- feature 024 T036, T038: get_node_config only under its opt-in (FR-002, SC-005, D-6)
+    // --- feature 024 T036, T038, T064: get_node_config only under its opt-in (FR-002, SC-005,
+    // D-6)
 
     @Test
     void anOptedInEightOneOrAutoNodeWithAClientHomeAnnouncesGetNodeConfig() throws Exception {
@@ -2460,6 +2462,29 @@ class MainTest {
         assertThat(announcedTools(config(Files.readString(optedIn)
             .replace("versionLine: V8_1", "versionLine: AUTO"))))
             .containsExactlyElementsOf(withNodeConfig);
+    }
+
+    @Test
+    void anOptedInNineZeroNodeWithANineZeroClientAnnouncesGetNodeConfig() throws Exception {
+        // T064: the production matrix supports the node configuration on 9.0 since its recording
+        credentials();
+        List<String> reference = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "get_server_settings", "read_users", "list_inventory", "get_inventory_item",
+            "find_partners", "export_artifacts", "export_archives", "check_artifacts");
+        List<String> withNodeConfig = new ArrayList<>(reference);
+        withNodeConfig.add(reference.indexOf("list_inventory"), "get_node_config");
+
+        for (String optIn : List.of("true", "false")) {
+            Path file = config(Files.readString(validConfig())
+                .replace("versionLine: V8_1", "versionLine: V9_0")
+                .replace("groups:\n", "defaults:\n  cliClients:\n    \"9.0\":\n      home: "
+                    + home.resolve("client-9.0") + "\ngroups:\n")
+                .replace("  - name: dev\n", "  - name: dev\n    unsupported:\n"
+                    + "      nodeConfigRead: " + optIn + "\n"));
+            assertThat(announcedTools(file)).as(optIn).containsExactlyElementsOf(
+                optIn.equals("true") ? withNodeConfig : reference);
+        }
     }
 
     // --- feature 024 T054, T058: the log-level tools only with write access and their opt-in

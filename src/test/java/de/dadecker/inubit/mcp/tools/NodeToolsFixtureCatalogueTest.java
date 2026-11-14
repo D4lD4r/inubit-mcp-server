@@ -58,8 +58,9 @@ import org.junit.jupiter.params.provider.ValueSource;
  * matrix says {@code SUPPORTED} exactly when all cases D-27 requires for it are recorded and have
  * their data files: {@code ok} for the cluster nodes, {@code listing} and {@code read_text} for the
  * I/O log, {@code all} for the node configuration, {@code set_ok} and {@code reset_ok} for the log
- * level. The 8.1 cluster-nodes, io-log and node-config cases and the 9.0 cluster-nodes cases
- * parse as the helper protocol (contracts/helper-protocol-delta.md) and as their names say.
+ * level. The 8.1 cluster-nodes, io-log and node-config cases and the 9.0 cluster-nodes and
+ * node-config cases parse as the helper protocol (contracts/helper-protocol-delta.md) and as their
+ * names say.
  */
 class NodeToolsFixtureCatalogueTest {
 
@@ -119,7 +120,8 @@ class NodeToolsFixtureCatalogueTest {
             "v8_1/log-level/missing_level", "v8_1/log-level/login_failure",
             "v8_1/log-level/forbidden", "v9_0/cluster-nodes/ok", "v9_0/cluster-nodes/no_answer",
             "v9_0/cluster-nodes/details", "v9_0/cluster-nodes/garbage",
-            "v9_0/cluster-nodes/api_missing");
+            "v9_0/cluster-nodes/api_missing", "v9_0/node-config/all", "v9_0/node-config/absent",
+            "v9_0/node-config/api_missing");
     }
 
     @Test
@@ -347,6 +349,16 @@ class NodeToolsFixtureCatalogueTest {
     private static final String PROPERTY_MISSING = "Exception from service object:"
         + " @Start@IError@@@Internal INUBIT error!@End@Cannot invoke \"Object.getClass()\""
         + " because \"o\" is null";
+    /**
+     * The message of every 9.0.10 {@code config error} of the T060 spike (research.md "Spike
+     * findings"): the same answer without the prefix {@code Exception from service object: }.
+     */
+    private static final String PROPERTY_MISSING_90 = "@Start@IError@@@Internal INUBIT error!@End@"
+        + "Cannot invoke \"Object.getClass()\" because \"o\" is null";
+    /** The 9.0 REST client's line before each missing-property frame of the T060 recording. */
+    private static final String WEB_CLIENT_LINE = "\\S+ main ERROR WebClient call failed:"
+        + " statusCode=500, reason=Internal Server Error,"
+        + " url=https://acme\\.example\\.test:8443/ibis/inubit/object/getObject";
 
     /**
      * Each 8.1 node-config case: its exit code, its frames and the parse problem; after a run that
@@ -457,6 +469,73 @@ class NodeToolsFixtureCatalogueTest {
     }
 
     /**
+     * T064: each 9.0 node-config case, as {@link #aNodeConfigCaseParsesAsItsNameSays}; the frames
+     * of a started run begin with {@code start REST_90} and the 9.0 REST client's netty DNS line,
+     * and right before each {@code config error} frame its stdout carries the REST client's
+     * {@code WebClient call failed} line (the HTTP 500 per missing name), all outside the frames,
+     * as recorded in {@code all} (research "Spike findings" T060); {@code api_missing} ends before
+     * the client starts, so without them.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "all | 0 | Start LoginOk NodeOk ConfigError ConfigOk ConfigError ConfigOk*4 ConfigError*3"
+            + " ConfigOk ConfigError ConfigOk*3 ConfigError*3 ConfigOk*2 End | -",
+        "absent | 0 | Start LoginOk NodeOk ConfigError ConfigAbsent ConfigOk End | -",
+        "api_missing | 4 | ApiMissing | -"})
+    void a90NodeConfigCaseParsesAsItsNameSaysWithTheRestClientsLinesOutsideTheFrames(
+        String name, int exit, String summary, String problem) throws IOException {
+        Path dir = ROOT.resolve("v9_0/node-config");
+        List<String> stdout = Files.readAllLines(dir.resolve(name + ".frames"),
+            StandardCharsets.UTF_8);
+        HelperFrames frames = configFrames("v9_0", name);
+
+        assertThat(Integer.parseInt(firstLine(dir.resolve(name + ".exit")))).isEqualTo(exit);
+        assertThat(summary(frames.frames()) + " | "
+            + frames.problem().map(Enum::name).orElse("-")).isEqualTo(summary + " | " + problem);
+        if (exit != 0) {
+            assertThat(stdout).allMatch(line -> line.startsWith("#QE1:"));
+            return;
+        }
+        assertThat(frames.frames().stream().map(frame -> switch (frame) {
+            case ConfigOk ok -> ok.name();
+            case ConfigAbsent absent -> absent.name();
+            case ConfigError error -> error.name();
+            default -> null;
+        }).filter(Objects::nonNull).toList()).isEqualTo(requestedNames("v9_0", name));
+        assertThat(stdout.subList(0, 2)).satisfiesExactly(
+            start -> assertThat(start).isEqualTo("#QE1:" + NONCE + " start REST_90"),
+            vendor -> assertThat(vendor).doesNotStartWith("#QE1:")
+                .contains(" main ERROR Unable to load io.netty.resolver.dns.macos."));
+        List<String> rest = stdout.subList(2, stdout.size());
+        for (int i = 0; i < rest.size(); i++) {
+            if (!rest.get(i).startsWith("#QE1:")) {
+                assertThat(rest.get(i)).matches(WEB_CLIENT_LINE);
+                assertThat(rest.get(i + 1)).as("the frame after the WebClient line")
+                    .startsWith("#QE1:" + NONCE + " config ")
+                    .contains(" error com.inubit.ibis.utils.InubitException ");
+            }
+        }
+        assertThat(rest).filteredOn(line -> !line.startsWith("#QE1:"))
+            .hasSameSizeAs(errors("v9_0", name));
+    }
+
+    /**
+     * T064: the 9.0 {@code all} is the recording of the T060 spike on 9.0.10: it asks for the same
+     * names as the 8.1 {@code all}, answers the same eleven with the same types, flags and generic
+     * vendor texts and, neutralized (D-26), the same fictitious values; the other nine fail in the
+     * 9.0.10 missing-property form, which {@code absent} carries beside the {@code absent} answer.
+     */
+    @Test
+    void the90AllCaseHasThe8_1ShapeWithThe90MissingPropertyForm() throws IOException {
+        assertThat(requestedNames("v9_0", "all")).isEqualTo(requestedNames("v8_1", "all"));
+        assertThat(answered("v9_0", "all")).isEqualTo(answered("v8_1", "all"));
+        assertThat(errors("v9_0", "all")).isEqualTo(errors("v8_1", "all").stream()
+            .map(error -> propertyMissing90(error.name())).toList());
+        assertThat(configFrames("v9_0", "absent").frames())
+            .contains(propertyMissing90("OperationMode"), new ConfigAbsent("ClusterBindAddress"));
+    }
+
+    /**
      * Each reconstructed 8.1 log-level case (StartCLI, research D-11): its exit code, the trace
      * form its {@code .origin} names on the first line, and the line of its stdout that says what
      * it is. Every one names a {@code --package} below {@code com.inubit.ibis}.
@@ -513,9 +592,18 @@ class NodeToolsFixtureCatalogueTest {
             PROPERTY_MISSING);
     }
 
+    private static ConfigError propertyMissing90(String name) {
+        return new ConfigError(name, List.of("com.inubit.ibis.utils.InubitException"),
+            PROPERTY_MISSING_90);
+    }
+
     private static HelperFrames configFrames(String name) throws IOException {
+        return configFrames("v8_1", name);
+    }
+
+    private static HelperFrames configFrames(String version, String name) throws IOException {
         return HelperFrames.parse(NONCE, Files.readString(
-            ROOT.resolve("v8_1/node-config/" + name + ".frames"), StandardCharsets.UTF_8));
+            ROOT.resolve(version + "/node-config/" + name + ".frames"), StandardCharsets.UTF_8));
     }
 
     /**
@@ -523,9 +611,13 @@ class NodeToolsFixtureCatalogueTest {
      * for a recorded case, whose first line is only {@code recorded <date> <version> neutralized}).
      */
     private static List<String> requestedNames(String name) throws IOException {
+        return requestedNames("v8_1", name);
+    }
+
+    private static List<String> requestedNames(String version, String name) throws IOException {
         Matcher names = Pattern.compile(
                 "(?<![A-Za-z])names=([A-Za-z]+(?:,[A-Za-z]+)*)(?![A-Za-z,])")
-            .matcher(Files.readString(ROOT.resolve("v8_1/node-config/" + name + ".origin"),
+            .matcher(Files.readString(ROOT.resolve(version + "/node-config/" + name + ".origin"),
                 StandardCharsets.UTF_8));
         assertThat(names.find()).as(name + ".origin names names=<name>,...").isTrue();
         return List.of(names.group(1).split(","));
@@ -533,8 +625,18 @@ class NodeToolsFixtureCatalogueTest {
 
     /** The {@code config ok} frames of a node-config case, in order. */
     private static List<ConfigOk> answered(String name) throws IOException {
-        return configFrames(name).frames().stream().filter(ConfigOk.class::isInstance)
+        return answered("v8_1", name);
+    }
+
+    private static List<ConfigOk> answered(String version, String name) throws IOException {
+        return configFrames(version, name).frames().stream().filter(ConfigOk.class::isInstance)
             .map(ConfigOk.class::cast).toList();
+    }
+
+    /** The {@code config error} frames of a node-config case, in order. */
+    private static List<ConfigError> errors(String version, String name) throws IOException {
+        return configFrames(version, name).frames().stream().filter(ConfigError.class::isInstance)
+            .map(ConfigError.class::cast).toList();
     }
 
     private static HelperFrames ioFrames(String name) throws IOException {

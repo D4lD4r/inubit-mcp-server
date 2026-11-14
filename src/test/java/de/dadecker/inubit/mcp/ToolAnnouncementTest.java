@@ -639,8 +639,8 @@ class ToolAnnouncementTest {
     }
 
     @Test
-    void onTheProductionMatrixGetNodeConfigIsAnnouncedForAnOptedInEightOneOrAutoNode() {
-        // since T038 the production matrix supports NODE_CONFIG_READ on 8.1; 9.0 still not
+    void onTheProductionMatrixGetNodeConfigIsAnnouncedForAnOptedInNodeOf81Or90OrAuto() {
+        // since T038 the production matrix supports NODE_CONFIG_READ on 8.1, since T064 on 9.0
         CapabilityMatrix production = CapabilityMatrix.production();
         List<String> withNodeConfig = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
@@ -652,7 +652,11 @@ class ToolAnnouncementTest {
         assertThat(groupTools("AUTO", nodeConfigOptIn("true") + "\n" + cliHome(), false,
             production)).containsExactlyElementsOf(withNodeConfig);
         assertThat(groupTools("V9_0", nodeConfigOptIn("true"), true, production))
+            .containsExactlyElementsOf(withNodeConfig);
+        assertThat(groupTools("V9_0", "", true, production))
             .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V9_0", nodeConfigOptIn("true"), false, production))
+            .as("without a 9.0 client").doesNotContain("get_node_config");
         assertThat(groupTools("V8_1", cliHome(), false, production))
             .containsExactlyElementsOf(REFERENCE);
         assertThat(groupTools("AUTO", cliHome(), false, production))

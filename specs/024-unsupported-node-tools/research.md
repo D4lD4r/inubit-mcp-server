@@ -827,6 +827,9 @@ Raw output stays owner-only outside every repository. Neutral facts only; I/O lo
   nodes without details): the same results — exit 0, the answering node `ACTIVE`, every other member
   `OFFLINE` (now 21 members), the netty DNS line on stdout right after `start REST_90`, which
   names no host. Its neutralized recording became the `v9_0/cluster-nodes/ok` fixture (T062).
+  The repeated node configuration for all 20 names (the same 11 present, the same 9 in the
+  missing-property form, each of those after a vendor `WebClient call failed: statusCode=500` line
+  on stdout naming the node's URL) became the `v9_0/node-config/all` fixture (T064).
 
 ### T039 – 8.1 log-level write spike (2026-11-14, non-production 8.1.17 test node, the configured 8.1.17 client)
 

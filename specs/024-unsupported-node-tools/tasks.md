@@ -737,7 +737,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   matrix, announcement and `MainTest` updated first
 - [ ] T063 [US5] **[OWNER]** **[BLOCKED: T060, T062]** Enable 9.0 `io_log_read` in **one commit** (as
   T032 for `v9_0/io-log`; `NodeToolsV90ContractTest` extended)
-- [ ] T064 [US5] **[OWNER]** **[BLOCKED: T060, T062]** Enable 9.0 `node_config_read` in **one
+- [X] T064 [US5] **[OWNER]** **[BLOCKED: T060, T062]** Enable 9.0 `node_config_read` in **one
   commit** (as T038 for `v9_0/node-config`; `noOfRetries`/`retryInterval` present on 9.0)
 - [ ] T065 [US5] **[OWNER]** **[BLOCKED: T061, T062]** Enable 9.0 `log_level_write` in **one commit**
   (as T058 for `v9_0/log-level`)

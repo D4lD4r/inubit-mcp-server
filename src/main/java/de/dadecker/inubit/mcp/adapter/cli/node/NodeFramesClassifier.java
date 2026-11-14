@@ -97,9 +97,10 @@ public final class NodeFramesClassifier {
      */
     private static final Pattern NOT_ALLOWED_ACCESS = Pattern.compile("@Start@NotAllowedAccess@");
     /**
-     * The exception chain and message part of INUBIT 8.1.17's answer for a configuration property
-     * the node does not have (spike T018, research D-10): an internal INUBIT error wrapping the
-     * server's {@code NullPointerException}.
+     * The exception chain and message part of INUBIT's answer for a configuration property the
+     * node does not have (research D-10): an internal INUBIT error wrapping the server's
+     * {@code NullPointerException}, on 8.1.17 with the message prefix
+     * {@code Exception from service object: } (spike T018), on 9.0.10 without it (spike T060).
      */
     private static final List<String> MISSING_PROPERTY_CHAIN =
         List.of("com.inubit.ibis.utils.InubitException");
@@ -358,10 +359,11 @@ public final class NodeFramesClassifier {
      *       before it is cut to {@value NodeConfigValue#MAX_VALUE_CHARS} characters, and a
      *       cut value is marked as cut.
      *   <li>{@code config <name> absent} is {@link NodeConfigValue.Absent}; so is a
-     *       {@code config <name> error} with exactly INUBIT 8.1.17's answer for a property the
-     *       node does not have (spike T018): the only exception class
-     *       {@code com.inubit.ibis.utils.InubitException} and a message containing
-     *       {@code Cannot invoke "Object.getClass()" because "o" is null}.
+     *       {@code config <name> error} with INUBIT's answer for a property the node does not
+     *       have, in both recorded forms (8.1.17 with the message prefix
+     *       {@code Exception from service object: }, spike T018; 9.0.10 without it, spike T060):
+     *       the only exception class {@code com.inubit.ibis.utils.InubitException} and a message
+     *       containing {@code Cannot invoke "Object.getClass()" because "o" is null}.
      *   <li>Any other {@code config <name> error} is {@link NodeConfigValue.Failed} with
      *       {@link HelperFailures#callFailure}'s code, else {@code UNEXPECTED_RESPONSE}, and the
      *       scrubbed excerpt as message; the other names are still answered.

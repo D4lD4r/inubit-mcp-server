@@ -193,7 +193,7 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 | `download_server_log` `log: webservice` | `webservice_log_read` | read (unsupported vendor interface), writes a local file | helper on the INUBIT client | supported (8.1 and 9.0; on 9.0 verified against a recorded empty log only, see [its section](#download_server_log)) | refused (no warning run) | refused |
 | `list_cluster_nodes` (feature 024) | `cluster_nodes_read` | read (unsupported vendor interface) | helper on the INUBIT client | supported (8.1 and 9.0) | refused (no warning run) | refused |
 | `read_io_log` (feature 024) | `io_log_read` | read (unsupported vendor interface) | helper on the INUBIT client | 8.1: refused (not yet verified); 9.0: refused (not yet verified) | refused (no warning run) | refused |
-| `get_node_config` (feature 024) | `node_config_read` | read (unsupported vendor interface) | helper on the INUBIT client | 8.1: supported; 9.0: refused (not yet verified) | refused (no warning run) | refused |
+| `get_node_config` (feature 024) | `node_config_read` | read (unsupported vendor interface) | helper on the INUBIT client | supported (8.1 and 9.0) | refused (no warning run) | refused |
 | `import_artifacts`, `restore_backup` of a development backup, `set_active`, `tag_artifacts` | `development_writes` | write | StartCLI + REST | supported | refused | refused |
 | `restore_backup` of a deployment backup, `deploy_release` | `deployment` | write | StartCLI + REST | supported; `deploy_release` only within one minor version (8.1 → 8.1, 9.0 → 9.0) | refused; `deploy_release` also only within one minor version | refused |
 | `run_e2e_test` | `e2e_test` | write | SOAP + REST | supported | refused | refused |
@@ -2082,10 +2082,10 @@ The tool is annotated `readOnlyHint: true`, `destructiveHint: false`, `idempoten
 | `values` | in request order (all 20 in list order without `names`), one per name: `name`; `present: true` with `value` (masked, at most 2,000 characters; `cut`: `true` when cut), `type`, `displayName`, `description`, `category`, `editable`, `deprecated`; or `present: false`: the value is not present on this node; or, when reading this one name failed, `error` with `code` and `message` and no `present` — the other names are still returned |
 | `warnings` | always `Read through an unsupported, undocumented INUBIT interface; diagnosis only`; the version and client warnings of the version check |
 
-A recorded 8.1 node answered a property it does not have with an internal INUBIT error instead of
-an empty value; exactly this answer is reported as `present: false`, every other error of one name
-as that name's `error`. On that node the vendor texts were generic: `displayName` equal to the
-name, `category` the type, an empty `description`.
+Recorded 8.1 and 9.0 nodes answered a property they do not have with an internal INUBIT error
+instead of an empty value; exactly this answer is reported as `present: false`, every other error
+of one name as that name's `error`. On those nodes the vendor texts were generic: `displayName`
+equal to the name, `category` the type, an empty `description`.
 
 **Masking.** Every value is masked before it is cut (as the details of `list_cluster_nodes`),
 although the list holds no secrets; names are a fixed vocabulary. Data source locations and the
@@ -2096,12 +2096,9 @@ cluster bind address name internal hosts and paths.
 **Cluster nodes.** The values come from the node the configured address reaches, named in
 `inubitNode`; address cluster nodes directly, not through a load balancer.
 
-**Versions.** `node_config_read` is supported on INUBIT 8.1, verified against a recorded,
-neutralized answer of an 8.1 node. `node_config_read` is not yet verified for INUBIT 9.0: a 9.0
-node is refused with `UNSUPPORTED_VERSION` (`get_node_config: INUBIT 9.0.10 on test/node1: reading
-node configuration values is not yet verified for INUBIT 9.0; nothing was sent`) until a recorded
-9.0 answer is under contract test. INUBIT 6.1, any other line and an undeclared version are
-refused (`… supported: 8.1, 9.0`).
+**Versions.** `node_config_read` is supported on INUBIT 8.1 and 9.0, each verified against a
+recorded, neutralized answer of a node of that line. INUBIT 6.1, any other line and an undeclared
+version are refused (`… supported: 8.1, 9.0`).
 
 **Errors**: As [`list_cluster_nodes`](#list_cluster_nodes) (with the tool name, the opt-in
 `unsupported.nodeConfigRead` and the next step `Use the Workbench's Cluster Manager; report the
