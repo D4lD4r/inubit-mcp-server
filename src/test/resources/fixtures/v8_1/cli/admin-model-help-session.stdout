@@ -1,0 +1,82 @@
+JAVA_HOME is set
+Connecting as 'jdoe' to https://inubit-dev-1.example.test:8443/ibis/servlet/IBISSoapServlet with hostname verification OFF
+Password: 
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+
+Connection to inubit Process Engine 8.1.17 established.
+<TAB> shows command list
+[COMMAND] with option -h or --help shows help for this command
+CLI|jdoe@inubit-dev-1.example.test> export -h
+usage: export [OPTIONS]
+Capability to export data of the inubit Process Engine to files
+Options:
+     --exportFile <arg>                               Output file for export
+     --exportMetadata                                 Export metadata registry
+     --exportMetadataNames <arg>                      Metadata names to export,
+                                                      comma separated
+     --exportModule <arg>                             Option to export modules
+     --exportModuleGroup <arg>                        Option to export modules
+                                                      under a module group type
+     --exportModuleUser <arg>                         Option to export modules
+                                                      under user or user group
+                                                      name
+     --exportRepositoryPath <arg>                     Repository export:
+                                                      Repository path to object
+                                                      or directory
+     --exportTag <arg>                                Tag name for export
+     --exportWorkflowGroup <arg>                      Name of workflow group(s),
+                                                      comma separated, use ""
+                                                      for all
+     --exportWorkflowGroupExclude <arg>               Exclude these groups from
+                                                      export
+     --exportWorkflowType <arg>                       Workflow type to export
+                                                      [technical | organigram |
+                                                      systemdiagram |
+                                                      constraintsdiagram | bpd |
+                                                      processmap | all]
+     --exportWorkflowUser <arg>                       Owning user of this
+                                                      workflow(group)
+  -h,--help                                           Displays this help
+     --includeHistory                                 Option to export version
+                                                      history
+CLI|jdoe@inubit-dev-1.example.test> library -h
+usage: library --[list|upload|delete|deleteAll] --type (driver|plugin)
+               <file-name> [<file-name>]*
+Manages library files of the inubit Process Engine (either plugins or drivers).
+Options:
+     --list                     Flag to list all uploaded library files
+                                available on the server
+     --upload                   Flag to upload library files (given with their
+                                file paths) to the server
+     --delete                   Flag to delete a uploaded library file on the
+                                server denoted by its jar file name.)
+     --deleteAll                Flag to delete all uploaded library files on the
+                                server
+  -t,--type <arg>               List, upload, or delete  libraries of the
+                                following type. Supported types are 'driver' and
+                                'plugin'.
+  -h,--help                     Displays this help
+CLI|jdoe@inubit-dev-1.example.test> ps -h
+usage: ps [OPTIONS] shows list of processes being in a certain state in the
+          Process Engine.
+Report a snapshot of the current queuemanager entries.
+Options:
+  -a,--all                               Shows all entries.
+  -c,--count                             Shows only the number of matching
+                                         processes.
+  -csv                                   Use CSV output format instead of a
+                                         table
+  -e,--error                             Shows only processes in state 'Error'.
+  -f,--filter <expression>               Defines a filter condition for show
+                                         only process running states.
+  -h,--help                              Displays this help
+  -l <arg>                               Limits output to X rows.
+  -q,--queued                            Shows only processes in state 'Queued'.
+  -u <index>                             Show specified user defined column(s)
+                                         as well. Leave blank to show all.
+                                         Possible indices: 1..5
+  -w,--waiting                           Shows only processes in state
+                                         'Waiting'.
+CLI|jdoe@inubit-dev-1.example.test> fetchXSLT1.0 -h
+Command not found.
+CLI|jdoe@inubit-dev-1.example.test> exit

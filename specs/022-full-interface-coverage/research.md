@@ -556,6 +556,8 @@ The logins cost one JVM start per form, because the 8.1 client offers them only 
   - The check-in comment trace of StartCLI exports is named in the description (FR-008).
 - Where `fetchXSLT1.0 -ef` writes its file is checked by L-7. If the file is written on the
   INUBIT host, the entry becomes `excluded:file-written-on-the-inubit-host`.
+- The 8.1 recording (T039) contradicts parts of this decision (`nodeByName`, the JSON module
+  detail, `metadata`, `checkIsConnector`, `xslt10Report`); see "Live recording T039".
 
 ## D-22 Operating a server (US4)
 
@@ -985,3 +987,136 @@ refuses the view with that reason before `--who` runs; `WhoParser` keeps its 8.1
 is `covered:read_users` on 9.0 as on 8.1. The `Additional user group` row is read into
 `additionalGroups` (one group per row). `msglist` and `msgread` stay `planned`, waiting for L-17
 only.
+
+## Live recording T039 (8.1, 2026-11-14)
+
+Read-only recordings on an 8.1.17 non-production server with the profile's account, which is not
+the INUBIT root user, approved by the owner on 2026-11-14. Every command ran once:
+
+- REST: `GET /model/nodeByModel/{d}/{id}` with Accept JSON and with Accept XML for a Database
+  Connector module, once for an IS Connector module and once with an unknown id `999999`;
+  `GET /model/nodeByName/{d}/{m}` (with and without `?user=`); `GET /process/metadata/{wf}` with
+  Accept JSON and XML; `GET /isconnector?workflowName&moduleName&type=validateWorkflow` for an IS
+  Connector module and for another module;
+- StartCLI in script mode: `library --list --type driver|plugin`; `ps -l 5 -u 1`,
+  `ps -a -l 3 -u 1`, `ps -l 5 -u`, `ps -a -l 3 -u 1,2`; `fetchXSLT1.0 -ef xslt10-report.txt`;
+  `export --exportMetadata`, `export --exportMetadata --exportMetadataNames Example1,Example2`,
+  `export --exportWorkflowGroupExclude` twice (without and with type and group, below), each with
+  `--exportFile` into the private recording folder;
+- one stdin session with `library --list --type driver|plugin`, `ps -a -l 3 -u 1`,
+  `fetchXSLT1.0 -ef xslt10-report.txt` and `exit`, and one with the help of `export`, `library`,
+  `ps` and `fetchXSLT1.0`.
+
+Fixtures: `fixtures/v8_1/cli/admin-model-*` and `fixtures/v8_1/rest/admin-model-*`
+(neutralization and planted values in `fixtures/v8_1/cli/README.md`). The workflow-group archive
+holds clear-text module secrets and is not committed. 9.0 was not recorded.
+
+**Module detail (`GET /model/nodeByModel`): XML, not JSON.**
+
+- `200` with `application/xml;charset=UTF-8` for Accept JSON as well as Accept XML; the two bodies
+  are identical. One line without a trailing line break, XML declaration with `standalone="yes"`.
+- Root `ns4:Node` with `name`, `type` (`twDatabaseConnector`, `twinubitISConfiguration`), `id`
+  and, for the IS Connector module only, `parentId`; namespaces `ns2` =
+  `inubit.com/ibis/external/base`, `ns4` = `inubit.com/ibis/external/model`, `ns3` =
+  `inubit.com/ibis/external/organigram` (unused).
+- Children: `ns4:Connection targetId= id=` (one per outgoing connection), then `ns2:Properties`
+  with `ns2:Property name= type=` and the value as text. Types seen: `Boolean`, `Integer`,
+  `String`, `Password`. In this recording the order is a fixed head (`SCHEDULER`, `InputConnector`,
+  `OutputConnector`, `IsActive`, `ListenerConnector`, `Retry…`, `TimeoutInterval`), then the
+  others in ASCII order.
+- The Database Connector module has a `Password`-typed property `Password` and the plain `String`
+  properties `dbURL`, `user`, `driverClass` and `staticQuery`. All of `Password`, `dbURL`, `user`
+  and `driverClass` were empty in the recording (the module uses the IS log database), so whether
+  a set password is sent in clear text, encrypted or left out is not recorded. The fixture plants
+  a clear-text value (the worst case) and a secret found only by its property name.
+- An unknown id gives `500`, `text/html;charset=UTF-8`, Tomcat's "Status page" with the
+  message `@Start@The module with the id '<id>' in the model '<wf>'could not be
+  found!@@@<same>@End@` (HTML-escaped quotes, no space before `could`) and a timestamp "Please look at inubit system log
+  at time stamp : <yyyy-MM-dd HH:mm:ss>".
+
+**`GET /model/nodeByName`: absent on 8.1.17.** `404`, `text/html`, the status page "Not Found" /
+"The server has not found anything matching the request URI", with and without `?user=`. The
+request named the existing diagram and the name of the module that `nodeByModel` returned, so
+the 404 is not a "module not found" (that answer is a `500` with an `@Start@…@End@` message, see
+above). The vendor documents the endpoint for 8.1, but this 8.1.17 server does not offer it.
+
+**`GET /process/metadata/{wf}`: no positive answer on this server.** `500`, `text/html`, the
+status page with `@Start@Workflow details not found for <wf>@@@<same>@End@`, for Accept JSON and
+XML and for every workflow tried (a technical workflow with and without `?user=`, and one BPD). Probably because
+the server's metadata registry is empty (the metadata export below) no workflow has metadata; the
+parameter form was not varied further. The answer for a workflow with metadata could not be
+recorded.
+
+**`GET /isconnector`: the profile's Basic auth is refused.** `401`, `text/plain;charset=UTF-8`,
+`Authentication failed. Please check the username and password.` (no line break, no
+`WWW-Authenticate` header) for both modules, with the same Basic auth that every other REST call
+of the recording accepted. The endpoint uses another authentication (another user store or
+another credential form); which one is not known.
+
+**`library --list --type driver|plugin`: empty on this server.** Script mode prints the preamble
+and one empty line (LF), the session block is one `\r` line; exit 0. No library was uploaded, so
+the row format of a listed library is not recorded.
+
+**L-8 (`ps -u`): answered for 8.1.**
+
+- `ps … -u <index>` adds one column `USER_DEFINED_<index>` after `TAG`. Every column except the
+  last is its longest value (or its header) plus two characters wide; the last header has one
+  trailing space, its values none; rows CRLF, `Total: <n>` CRLF, then an empty line. With no rows
+  the header columns are separated by one space and `Total: 0` follows.
+- Both recorded values were cut to 13 characters plus `..` (15 in all); whether shorter values
+  are shown whole was not recorded.
+- Only a single index works: `-u` without an index (the help: "Leave blank to show all") and a
+  list `-u 1,2` are refused with `ERROR … CLI`, `InubitException: …@Start@<message key
+  cli.process.option.filter.argument.expression.invalidFilterExpression>@@@Invalid filter
+  expression!@End@`, stack trace, `EXECUTION ERROR`, `Internal INUBIT error!`, `Invalid filter expression!`; exit 1.
+  The help gives the indices `1..5`.
+- `ps -h` also names `-csv` ("Use CSV output format instead of a table").
+
+**L-7 (`fetchXSLT1.0 -ef`): the command does not exist on 8.1.17.** Script mode answers
+`ERROR … CLI`, `InubitException: @Start@IError@@@Internal INUBIT error!@End@Command not found.`,
+the stack trace, `EXECUTION ERROR`, `Internal INUBIT error!`, `Command not found.` (exit 1); in the
+session `Command not found.` and the session goes on (exit 1). `fetchXSLT1.0 -h` gives `Command
+not found.` too. The command did not run, so no file was written; where its file would be
+written cannot be answered on 8.1.17.
+
+**`export --exportMetadata` exports the metadata registry, not workflow metadata.**
+
+- The help: `--exportMetadata` "Export metadata registry", `--exportMetadataNames <arg>` "Metadata
+  names to export, comma separated".
+- `export --exportMetadata --exportFile <zip>`: `1-OK: Metadata exported successfully.`, exit 0;
+  with `--exportMetadataNames Example1,Example2` added: `1-OK: Metadata Names exported
+  successfully.` (names that exist nowhere on the server are accepted). Whether
+  `--exportMetadataNames` works without `--exportMetadata` was not tried.
+- The archive holds `MetadataRegistry.xml` and `MetadataAllocations.xml` (an XML declaration, an
+  empty line and an empty root with `version="4.1"`, as the registry is empty) and a ZIP comment
+  in properties form: `#<date>`, `Type=MetadataExport`, `User=<login>`, `Version=6.0.0`,
+  `Date=<yyyy-MM-ddTHH\:mm\:ss>`. The names are metadata names (registry entries), not workflow
+  names.
+
+**`export --exportWorkflowGroupExclude`.**
+
+- With only `--exportWorkflowUser`, `--exportWorkflowGroupExclude` and `--exportFile`:
+  `2-NOK: Missing export option.` in the usual refusal form; exit 1.
+- With `--exportWorkflowUser '<owner>' --exportWorkflowType 'technical' --exportWorkflowGroup ''
+  --exportWorkflowGroupExclude '<g1,…,g6>' --exportFile '<zip>'` (the help names `""` for
+  all groups; `''` was used and works): `1-OK: Workflow group exported successfully.`, exit 0. Six groups joined with commas in one
+  single-quoted argument work.
+- The archive has the layout of a workflow export: `archive.properties` (`sourceVersion`,
+  `operationId`), `Repository.zip`, `workflow/workflow.xml` with one `WorkflowGroup` /
+  `WorkflowGroupName` per exported group, `module/module.xml` and the module files. The excluded
+  groups are absent, the owner's other groups present. Module files hold clear-text secrets, so
+  `acknowledgeClearTextSecrets` stays required.
+
+**Consequences for the plan (not applied here; owner decision needed).**
+
+| Point | Planned | Recorded on 8.1.17 | Consequence |
+|---|---|---|---|
+| L-7 `fetchXSLT1.0 -ef` | entry excluded if the file is written on the INUBIT host | the command does not exist | L-7 fallback: `xslt10Report` dropped (T044), the row `excluded:` with a reason such as "command not found on INUBIT 8.1.17" instead of "file written on the INUBIT host"; 9.0 open |
+| L-8 `ps -u` | `covered:find_processes` or excluded | one user-defined column per call, only a single index | T045 decides between `covered:find_processes` (with one index `1..5`) and `excluded:<reason>` |
+| `nodeByName` | 8.1 only, `moduleName` input | `404` on 8.1.17 | the 8.1 row cannot become `reachable`; `moduleName` would be refused on 8.1 as on 9.0 |
+| module detail | `ModuleDetailJsonParser` | XML only | an XML parser over `ns2:Property name/type`, masking by name and by `type="Password"` (D-19) |
+| `metadata` action | `GET /process/metadata/{name}` | `500` for every workflow; no positive form | the action's answer shape is unrecorded; the not-found page is the only contract |
+| `checkIsConnector` | `GET /isconnector` with the profile's REST auth | `401` | the action cannot work with the profile's credentials; excluded or planned until the authentication is known |
+| `export_archives` `metadata` | `workflows[1..50]`, `--exportMetadata` per workflow | a registry export, `--exportMetadataNames` names registry entries | the input becomes optional metadata names, not workflows |
+| `ownerWithoutGroups` | `excludeGroups[1..20]` | needs `--exportWorkflowType` and `--exportWorkflowGroup ''` as well | the builder adds both |
+| `libraries` | `LibraryListParser` | empty answer only | the row format is unrecorded; the parser knows only "no libraries" |

@@ -1,0 +1,6 @@
+<password>
+library --list --type driver
+library --list --type plugin
+ps -a -l 3 -u 1
+fetchXSLT1.0 -ef xslt10-report.txt
+exit

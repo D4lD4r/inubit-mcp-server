@@ -584,7 +584,7 @@ gains `ownerWithoutGroups`, `metadata` and `xslt10Report`. `ps -f` and the count
 **Independent test**: each action returns its documented shape from recordings; the new export
 forms write files under the unchanged folder rules (US3 AS1–AS8).
 
-- [ ] T039 [LIVE] [OWNER] [US3] L-7, L-8 and read recordings on 8.1:
+- [X] T039 [LIVE] [OWNER] [US3] L-7, L-8 and read recordings on 8.1:
   - `GET /model/nodeByModel/{d}/{id}`, `GET /model/nodeByName/{d}/{m}`;
   - `GET /process/metadata/{wf}`;
   - `GET /isconnector?…type=validateWorkflow`;
