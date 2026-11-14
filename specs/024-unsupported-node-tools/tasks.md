@@ -690,7 +690,7 @@ the other just changed.
   authoritative over the D-23 example; use the docs/setup.md lines as the ConfigSummaryTest golden.
   Note (T052 review): the summary and `get_health` texts for leases of unconfigured servers should
   reuse `LeaseScheduler.pendingForgetWarnings()` or share its text.
-- [ ] T057 [US4] Contract test (after T056): `NodeToolsV81ContractTest` `+` every `v8_1/log-level`
+- [X] T057 [US4] Contract test (after T056): `NodeToolsV81ContractTest` `+` every `v8_1/log-level`
   case through `CliLogLevelAdapter` + `LogLevelService` (test matrix): `set_ok` → lease and result;
   `reset_ok`; `missing_level` → `UNEXPECTED_RESPONSE` and an immediate reset; `login_failure` →
   `AUTH_FAILED`; `forbidden` → `FORBIDDEN`
