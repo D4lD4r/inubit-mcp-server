@@ -30,6 +30,14 @@ logged-in users are refused, as StartCLI's `--who` lists no client connection th
 the INUBIT message box are not offered yet: how `msglist` lists a message and whether `msgread`
 marks it as read have not been recorded.
 
+Feature 022, third increment (user story 3): `read_model_details` reads one module of a diagram
+with its secrets masked, or the uploaded libraries of a node. `export_archives` exports the
+owner's technical workflows without some diagram groups, or the metadata registry, as one archive.
+`find_processes` shows one user-defined Queue Manager column. All three are **supported on
+INUBIT 8.1; 9.0 not yet verified**. The process metadata of a workflow and the IS Connector check
+are not offered yet: no metadata answer could be recorded, and `/isconnector` refuses the REST
+login. The XSLT 1.0 report is not offered: `fetchXSLT1.0` does not exist on INUBIT 8.1.17.
+
 ### Added
 
 - `download_server_log` (feature 021) downloads ONE log of ONE node into a local folder
@@ -99,6 +107,36 @@ marks it as read have not been recorded.
 - The capability `user_directory` in `list_nodes` (`reading users` in messages and among the
   refused capabilities of a 6.1 node in `--check-config`): supported on INUBIT 8.1 and 9.0,
   refused on every other version.
+- `read_model_details` (feature 022) reads the model details of ONE node, read-only, in two
+  actions. `module` reads one module of a diagram by its numeric id over REST
+  (`GET /model/nodeByModel`): its type, parent, outgoing connections and properties in INUBIT's
+  order. A property with a secret name, of type `Password` or with key material as value is shown
+  as masked and counted in `maskedCount`; a credential inside a shown value is replaced by a
+  placeholder; a value over 4,000 characters is cut. An unknown module id gives `NOT_FOUND`.
+  `libraries` lists the uploaded drivers and plug-ins with StartCLI (`library --list --type`), one
+  run per type, at most 100 per page. Only the empty library list has been recorded, so each line
+  is read as one file name and the result says `rowFormatVerified: false`. There is no module name
+  input: `GET /model/nodeByName` answers 404 on INUBIT 8.1.17. Supported on INUBIT 8.1; 9.0 not yet
+  verified, so the tool is offered only when a node may run 8.1.
+- The capability `model_details` in `list_nodes` (`reading model details` in messages and among
+  the refused capabilities of a 6.1 node in `--check-config`): supported on INUBIT 8.1, not yet
+  verified on 9.0 and refused on every other version, so every 9.0 node shows it under
+  `notUsable` and is `partially_supported` until it is verified.
+- `export_archives` (feature 022) has the optional input `content`. `workflows` (default) is the
+  export as before. `ownerWithoutGroups` with `excludeGroups` (1–20 diagram groups) exports the
+  owner's technical workflows without those groups as one archive `<owner>.workflows.zip`, in
+  clear text like the workflow archives (`acknowledgeClearTextSecrets` required). `metadata`
+  exports the metadata registry, whole or only the registry entries `metadataNames` (1–50; names
+  that do not exist are accepted), as one archive `metadata-registry.zip`, without owner and
+  acknowledgement. An existing file of that name is refused before StartCLI runs. The result
+  carries `source: "CLI"`; the audit records `content` and the excluded groups or metadata names.
+  Both forms are verified on INUBIT 8.1 and refused on 9.0 as not yet verified.
+- `find_processes` (feature 022) has the optional input `userColumn` (1–5): the result names the
+  column, and each process carries `userColumnValue`, the field `userDefined<i>` of the REST
+  `queueLog` row the search reads anyway (the data of StartCLI `ps -u`, not cut to its 15
+  characters, masked and bounded like the row's other texts). Offered on INUBIT 8.1; a 9.0 node is
+  searched without the column, with a warning that names the reason (a call for one 9.0 node alone
+  gets the refusal as its `error`).
 - The coverage list of every documented StartCLI command and REST endpoint of INUBIT 8.1 and 9.0
   with its state per version (`reachable`, `covered`, `planned` with what it waits for,
   `undocumented`, `excluded` with the reason), published as `docs/interface-coverage.md`. A new
@@ -109,11 +147,11 @@ marks it as read have not been recorded.
 - Internal, no behaviour change: the helper on the INUBIT client, which `read_queue_entry` uses
   and now also `download_server_log`, is renamed `ClientHelper`; the helper classes both tools
   share moved to `adapter/cli/helper`.
-- `docs/tools.md` describes twenty-four tools.
+- `docs/tools.md` describes twenty-five tools.
 - `docs/setup.md` names the INUBIT role "System Administrator" that `get_server_settings` needs for
   the license and the configuration.
 - `docs/setup.md` lists the StartCLI reads of `read_users` among the CLI-backed tools and under
-  `cliTimeout`.
+  `cliTimeout`, and likewise the library list of `read_model_details`.
 
 ### Fixed
 

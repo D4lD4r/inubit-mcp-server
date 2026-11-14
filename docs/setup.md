@@ -18,7 +18,7 @@ guide walks through it. All host names below are examples (`*.example.test`).
 |---|---|
 | JDK 21 or newer on `PATH` (`java -version`) | runs the server |
 | Maven 3.9+ (`mvn -v`) | only to build the JAR from source; a released JAR can be downloaded instead ([README](../README.md#installation-in-claude-code)) |
-| INUBIT 8.1.17 client installation (Workbench), e.g. `/opt/inubit/client` with `bin/startcli.sh` (`bin\startcli.bat` on Windows, e.g. `C:\inubit\client`; [StartCLI on Windows](#startcli-on-windows)) | CLI-backed tools only (process restart/kill, module list and version histories of the inventory, the threads, privileged workflows, DB connection tolerance and server time of `get_server_settings`, the user groups, roles, personal fields and logins of `read_users`, `export_artifacts`, every development tool except `run_e2e_test`, and `deploy_release`, which needs it on every node of a target group and of its source group); the INUBIT versions it declares must include the server's major.minor, and it should match the servers' patch level ([StartCLI client check](#startcli-client-check)) |
+| INUBIT 8.1.17 client installation (Workbench), e.g. `/opt/inubit/client` with `bin/startcli.sh` (`bin\startcli.bat` on Windows, e.g. `C:\inubit\client`; [StartCLI on Windows](#startcli-on-windows)) | CLI-backed tools only (process restart/kill, module list and version histories of the inventory, the threads, privileged workflows, DB connection tolerance and server time of `get_server_settings`, the user groups, roles, personal fields and logins of `read_users`, the library list of `read_model_details`, `export_artifacts`, every development tool except `run_e2e_test`, and `deploy_release`, which needs it on every node of a target group and of its source group); the INUBIT versions it declares must include the server's major.minor, and it should match the servers' patch level ([StartCLI client check](#startcli-client-check)) |
 | Temurin (or another) JDK **17** | StartCLI 8.1 runs on Java 17, not on the JDK of the server |
 | Only for INUBIT 9.0 nodes: the INUBIT 9.0 client installation, e.g. `/opt/inubit-9.0/client`, and a JDK **21** | StartCLI 9.0 runs on Java 21; one client per INUBIT version is configured with `defaults.cliClients` ([StartCLI client per INUBIT version](#startcli-client-per-inubit-version-defaultscliclients)) |
 | Only for INUBIT 6.1 nodes: a StartCLI client whose declared INUBIT range includes 6.1 (e.g. the INUBIT 6.1 client) and the Java runtime it runs on | 6.1 nodes are reached through StartCLI only ([INUBIT 6.1 nodes](#inubit-61-nodes-v6_1)); on Windows with the rules of [StartCLI on Windows](#startcli-on-windows) |
@@ -183,7 +183,7 @@ use REST tools only.
   | Setting | Default | Meaning |
   |---|---|---|
   | `timeout` | `PT5S` | timeout of one REST call; a health overview of all servers returns within the largest `timeout` + 1 s |
-  | `cliTimeout` | `PT30S` | timeout of one StartCLI call of `restart_process` / `kill_process`, of the StartCLI session of `get_server_settings` and of the StartCLI session and the `--who` run of `read_users`; also bounds the StartCLI client check outside `get_health` ([StartCLI client check](#startcli-client-check)) |
+  | `cliTimeout` | `PT30S` | timeout of one StartCLI call of `restart_process` / `kill_process`, of the StartCLI session of `get_server_settings` and of the StartCLI session and the `--who` run of `read_users` and of each library run of `read_model_details`; also bounds the StartCLI client check outside `get_health` ([StartCLI client check](#startcli-client-check)) |
   | `hangingThreshold` | `PT60M` | when an `ACTIVE`, `WAITING` or `QUEUED` instance counts as hanging (`find_processes`) |
   | `resultLimits.maxItems` / `.maxChars` | `100` / `50000` | top level: largest page and largest result (characters of JSON) per tool call |
   | `logLevel` | `INFO` | top level: `ERROR`, `WARN`, `INFO`, `DEBUG` or `TRACE`; logs go to stderr as JSON lines |
@@ -256,9 +256,12 @@ credentials:                         # optional
 server uses it to decide which tools may run on the node: on INUBIT 8.1.x and 9.0.x every tool
 runs (feature 017; on 9.0 the StartCLI-backed tools need the INUBIT 9.0 client, see
 [StartCLI client per INUBIT version](#startcli-client-per-inubit-version-defaultscliclients);
-only the view `logins` of `read_users` is refused on 9.0, see [tools.md](tools.md#read_users));
+refused on 9.0 are the view `logins` of `read_users`, see [tools.md](tools.md#read_users), and,
+as not yet verified, `read_model_details`, the `export_archives` forms `ownerWithoutGroups` and
+`metadata` and the `find_processes` input `userColumn`);
 on any other version (9.1, a later version, the line `V9_X`) and on a version that is not known,
-read tools run with the 8.1 adapters and a warning in the result, and write tools are refused.
+read tools run with the 8.1 adapters and a warning in the result (except the reads the
+[capability table](tools.md) marks "refused (no warning run)"), and write tools are refused.
 INUBIT 6.1 is the
 exception: it has no 8.1 adapters to fall back to, so a 6.1 node runs only what is declared
 supported for 6.1 and refuses everything else ([INUBIT 6.1 nodes](#inubit-61-nodes-v6_1)).
@@ -268,7 +271,7 @@ supported for 6.1 and refuses everything else ([INUBIT 6.1 nodes](#inubit-61-nod
 | `AUTO` (default) | from the node itself, see below | per the detected version; while the version is unknown, reads run with a warning and writes are refused |
 | `V6_1` | none | INUBIT 6.1, StartCLI only, read-only; in this version every tool that would contact the node is refused ([INUBIT 6.1 nodes](#inubit-61-nodes-v6_1)) |
 | `V8_1` | none | everything (INUBIT 8.1) |
-| `V9_0` | none | everything (INUBIT 9.0.x, feature 017) except the view `logins` of `read_users`, which is refused; StartCLI-backed tools need a client whose declared range includes 9.0 |
+| `V9_0` | none | everything (INUBIT 9.0.x, feature 017) except the view `logins` of `read_users`, which is refused, and `read_model_details`, the `export_archives` forms `ownerWithoutGroups` and `metadata` and the `find_processes` input `userColumn`, which are not yet verified; StartCLI-backed tools need a client whose declared range includes 9.0 |
 | `V9_X` | none | some INUBIT 9 version, not 9.0 support: reads with a warning that the version is not verified; writes refused; never chooses a `cliClients` entry |
 | a concrete version, e.g. `"8.1.17"`, `"9.0.7-HF1"`, `"9.1.0"` or `"6.1.0.89"` | none | per the version's major.minor (`"8.1.17"`: everything; `"9.0.7-HF1"`: as `V9_0`; `"9.1.0"`: reads with a warning, writes refused; `"6.1.0.89"`: as `V6_1`); the patch is used for the [StartCLI client check](#startcli-client-check) |
 

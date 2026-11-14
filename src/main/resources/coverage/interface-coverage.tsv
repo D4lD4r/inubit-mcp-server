@@ -1,5 +1,5 @@
 # source: vendor pages "Command Line Interface" (with subpages) and "REST API" (every endpoint page), INUBIT 8.1 and 9.0, retrieved 2026-11-12
-# delivered-stories: US1, US2
+# delivered-stories: US1, US2, US3
 #
 # Feature 022 coverage list (contracts/coverage-list.md, research D-2). One row per entry:
 # CLI: one command with one option or option value set, as the vendor writes it;
@@ -106,8 +106,8 @@ REST	GET /user/users	READ	B	US2	reachable:read_users/users	reachable:read_users/
 
 # C. Libraries, plug-ins, EDI rules, keys
 # library --list, library --type: sent together by the read_model_details action libraries (library --list --type driver|plugin, T039 recordings, contract tests T046); 9.0 planned until the US3 9.0 follow-up (T046a)
-CLI	library --list	READ	C	US3	reachable:read_model_details/libraries	planned	-
-CLI	library --type	READ	C	US3	reachable:read_model_details/libraries	planned	-
+CLI	library --list	READ	C	US3	reachable:read_model_details/libraries	planned	9.0-followup
+CLI	library --type	READ	C	US3	reachable:read_model_details/libraries	planned	9.0-followup
 # library --upload, library --delete: planned until covered:administer_objects (US6) (research D-6 "Covered rows before their tool exists")
 CLI	library --upload	WRITE	C	US6	planned	planned	-
 CLI	library --delete	WRITE	C	US6	planned	planned	-
@@ -141,7 +141,7 @@ CLI	-ne	READ	D	-	covered:get_health	covered:get_health	-
 CLI	-nx	READ	D	-	covered:get_health	covered:get_health	-
 CLI	-nw	READ	D	-	covered:get_health	covered:get_health	-
 CLI	-nq	READ	D	-	covered:get_health	covered:get_health	-
-CLI	ps -u	READ	D	US3	covered:find_processes	planned	-
+CLI	ps -u	READ	D	US3	covered:find_processes	planned	9.0-followup
 CLI	processErrorStart	WRITE	D	-	reachable:restart_process/default	reachable:restart_process/default	-
 CLI	kill	WRITE	D	-	reachable:kill_process/default	reachable:kill_process/default	-
 CLI	processdelete error	WRITE	D	US4	planned	planned	-
@@ -172,11 +172,11 @@ CLI	export --exportModuleUser	EXPORT	E	-	reachable:export_artifacts/default	reac
 CLI	export --exportRepositoryPath	EXPORT	E	-	reachable:export_artifacts/default	reachable:export_artifacts/default	-
 CLI	export --exportTag	EXPORT	E	-	reachable:deploy_release/default	reachable:deploy_release/default	-
 # export --exportWorkflowGroupExclude, export --exportMetadata, export --exportMetadataNames: the export_archives content forms ownerWithoutGroups and metadata (T039 recordings, contract tests T046); 9.0 planned until the US3 9.0 follow-up (T046a)
-CLI	export --exportWorkflowGroupExclude	EXPORT	E	US3	reachable:export_archives/ownerWithoutGroups	planned	-
-CLI	export --exportMetadata	EXPORT	E	US3	reachable:export_archives/metadata	planned	-
-CLI	export --exportMetadataNames	EXPORT	E	US3	reachable:export_archives/metadata	planned	-
-CLI	fetchXSLT1.0	EXPORT	E	US3	excluded:command not found on INUBIT 8.1.17	planned	-
-CLI	fetchXSLT1.0 --exportFilename	EXPORT	E	US3	excluded:command not found on INUBIT 8.1.17	planned	-
+CLI	export --exportWorkflowGroupExclude	EXPORT	E	US3	reachable:export_archives/ownerWithoutGroups	planned	9.0-followup
+CLI	export --exportMetadata	EXPORT	E	US3	reachable:export_archives/metadata	planned	9.0-followup
+CLI	export --exportMetadataNames	EXPORT	E	US3	reachable:export_archives/metadata	planned	9.0-followup
+CLI	fetchXSLT1.0	EXPORT	E	US3	excluded:command not found on INUBIT 8.1.17	planned	9.0-followup
+CLI	fetchXSLT1.0 --exportFilename	EXPORT	E	US3	excluded:command not found on INUBIT 8.1.17	planned	9.0-followup
 CLI	import --importFile	WRITE	E	-	reachable:import_artifacts/default	reachable:import_artifacts/default	-
 CLI	import --importWorkflow	WRITE	E	-	reachable:import_artifacts/default	reachable:import_artifacts/default	-
 CLI	import --importWorkflowActive	WRITE	E	-	reachable:import_artifacts/default	reachable:import_artifacts/default	-
@@ -212,7 +212,7 @@ CLI	rename --renameMetadata	WRITE	E	US6	planned	planned	-
 CLI	rename --renameFile	WRITE	E	US6	planned	planned	-
 CLI	rename --renameDirectory	WRITE	E	US6	planned	planned	-
 CLI	rename --renameTo	WRITE	E	US6	planned	planned	-
-REST	GET /process/metadata/{name}	READ	E	US3	planned	planned	-
+REST	GET /process/metadata/{name}	READ	E	US3	planned	planned	L-19+9.0-followup
 REST	DELETE /diagrams/{name}	WRITE	E	US6	planned	planned	-
 REST	DELETE /diagrams/{name}/version/{version}	WRITE	E	US6	planned	planned	-
 REST	DELETE /modules/{id}	WRITE	E	US6	planned	planned	-
@@ -221,14 +221,14 @@ REST	DELETE /modules/{id}/version/{version}	WRITE	E	US6	planned	planned	-
 REST	GET /model/models	READ	E	-	reachable:list_inventory/default	reachable:list_inventory/default	-
 REST	GET /model/modelByName/{name}	READ	E	-	reachable:get_inventory_item/default	reachable:get_inventory_item/default	-
 # GET /model/nodeByModel/{model}/{node}: the read_model_details action module (T039 recordings, contract tests T046); 9.0 planned until the US3 9.0 follow-up (T046a)
-REST	GET /model/nodeByModel/{model}/{node}	READ	E	US3	reachable:read_model_details/module	planned	-
+REST	GET /model/nodeByModel/{model}/{node}	READ	E	US3	reachable:read_model_details/module	planned	9.0-followup
 REST	GET /model/export/{name}	EXPORT	E	-	reachable:get_inventory_item/default	reachable:get_inventory_item/default	-
 # GET /model/nodeByName/{diagram}/{module}: 404 "Not Found" on 8.1.17 for an existing diagram and module (T039 recording, contract tests T046); not documented for 9.0
 REST	GET /model/nodeByName/{diagram}/{module}	READ	E	-	excluded:absent on INUBIT 8.1.17 (404)	undocumented	-
 REST	PUT /model/import	WRITE	E	-	covered:import_artifacts	covered:import_artifacts	-
 REST	DELETE /repository	WRITE	E	US6	planned	planned	-
 REST	GET /task/formProxyServlet	READ	E	-	covered:export_archives	covered:export_archives	-
-REST	GET /isconnector	READ	E	US3	planned	planned	-
+REST	GET /isconnector	READ	E	US3	planned	planned	L-20+9.0-followup
 REST	POST /isconnector	WRITE	E	US6	planned	planned	-
 
 # Portal functions

@@ -28,7 +28,9 @@ import org.junit.jupiter.api.Test;
  * FR-027): {@code get_server_settings} is the twenty-third tool, quoted as announced, with its
  * parts, fields and errors, the role it needs and its state per version as the production matrix
  * declares it. T038 (US2): {@code read_users} is the twenty-fourth tool, with its views, fields,
- * errors and state per version in the same way.
+ * errors and state per version in the same way. T047 (US3): {@code read_model_details} is the
+ * twenty-fifth tool, with its actions, fields, errors and state per version in the same way, and
+ * {@code find_processes} quotes its description with {@code userColumn} and describes the column.
  */
 class DevelopmentToolsReferenceTest {
 
@@ -62,7 +64,7 @@ class DevelopmentToolsReferenceTest {
             "| [`restore_backup`](#restore_backup) |", "| [`set_active`](#set_active) |",
             "| [`tag_artifacts`](#tag_artifacts) |", "| [`run_e2e_test`](#run_e2e_test) |",
             "| [`deploy_release`](#deploy_release) |",
-            "All twenty-four tools");
+            "All twenty-five tools");
     }
 
     @Test
@@ -100,7 +102,8 @@ class DevelopmentToolsReferenceTest {
         assertThat(reference).contains(
             "[acme] " + Terminology.DEFAULT.render(GetServerSettingsTool.DESCRIPTION),
             "| [`get_server_settings`](#get_server_settings) |",
-            "`get_server_settings` and `read_users` of feature 022 [their delta]("
+            "`get_server_settings`, `read_users` and `read_model_details` of feature 022 [their"
+                + " delta]("
                 + "../specs/022-full-interface-coverage/contracts/mcp-tools-delta.md)",
             "| `get_server_settings` | `server_settings` |", "`reading server settings`",
             "`get_server_settings` is **offered only if**");
@@ -165,6 +168,51 @@ class DevelopmentToolsReferenceTest {
             assertThat(section).contains("- INUBIT " + line + ": "
                 + (verified ? "supported" : "not yet verified"));
         }
+    }
+
+    @Test
+    void readModelDetailsIsQuotedAsRenderedAndDescribed() throws IOException {
+        String reference = folded(TOOLS);
+
+        assertThat(reference).contains(
+            "[acme] " + Terminology.DEFAULT.render(ReadModelDetailsTool.DESCRIPTION),
+            "| [`read_model_details`](#read_model_details) |",
+            "| `read_model_details` | `model_details` |", "`reading model details`",
+            "`read_model_details` is **offered only if**");
+        String section = section(reference, "## `read_model_details`");
+        // every input and output field
+        assertThat(section).contains("`target`", "`action`", "`module`", "`libraries`",
+            "`diagram`", "`moduleId`", "`libraryType`", "`offset`", "`limit`", "`node`",
+            "`source`", "`name`", "`type`", "`parentId`", "`connections`", "`id`", "`targetId`",
+            "`properties`", "`value`", "`truncated`", "`masked`", "`maskedCount`", "`page`",
+            "`items`", "`file`", "`total`", "`nextOffset`", "`rowFormatVerified`", "`warnings`");
+        // the masking, the missing module name, the live checks and the errors
+        assertThat(section).contains("`Password`", "`GET /model/nodeByName/{diagram}/{module}`",
+            "L-19", "L-20", "L-21", "at most 100", "\"CLI login access\"",
+            "[interface-coverage.md](interface-coverage.md)", "`readOnlyHint: true`",
+            "| `INVALID_INPUT` |", "| `TARGET_UNKNOWN` |", "| `UNSUPPORTED_VERSION` |",
+            "| `CLI_UNAVAILABLE` |", "| `NOT_FOUND` |", "| `FORBIDDEN` |",
+            "| `MAINTENANCE_MODE` |", "| `UNEXPECTED_RESPONSE` |",
+            "| `AUTH_FAILED`, `TLS_ERROR`, `UNREACHABLE`, `TIMEOUT` |", "**Example prompts**");
+        // the state per version follows the production matrix (8.1 flipped in T046)
+        CapabilityMatrix matrix = CapabilityMatrix.production();
+        for (String line : List.of("8.1", "9.0")) {
+            boolean verified = matrix.state(InubitVersion.parse(line + ".0"),
+                Capability.MODEL_DETAILS) == SupportState.SUPPORTED;
+            assertThat(section).contains("- INUBIT " + line + ": "
+                + (verified ? "supported" : "not yet verified"));
+        }
+    }
+
+    @Test
+    void findProcessesQuotesItsDescriptionAndDescribesTheUserColumn() throws IOException {
+        String section = section(folded(TOOLS), "## `find_processes`");
+
+        assertThat(section).contains(
+            "[acme] " + Terminology.DEFAULT.render(FindProcessesTool.DESCRIPTION),
+            "| `userColumn` | integer 1–5 |", "| `userColumnValue` |", "`userDefined<i>`",
+            "`ps -u <i>`", "[coverage page](interface-coverage.md)",
+            "`userColumn unavailable (UNSUPPORTED_VERSION):");
     }
 
     @Test

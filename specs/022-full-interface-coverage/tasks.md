@@ -756,7 +756,7 @@ offered).
   - 8.1 `GET /model/nodeByName/{diagram}/{module}`: `excluded:absent on INUBIT 8.1.17 (404)`; 9.0
     stays `undocumented`;
   - `GET /process/metadata/{name}` and `GET /isconnector` stay `planned` (story US3).
-- [ ] T047 [US3] Docs and PR (after T045a, T045b and T046; not after T039a or T046a):
+- [X] T047 [US3] Docs and PR (after T045a, T045b and T046; not after T039a or T046a):
   - `docs/tools.md` sections `read_model_details`, `export_archives` (new forms) and
     `find_processes` (`userColumn`);
   - `docs/research/inubit-interfaces.md` (`nodeByName` and `fetchXSLT1.0` absent on 8.1.17, the
