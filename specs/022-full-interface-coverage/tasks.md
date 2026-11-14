@@ -703,7 +703,7 @@ offered).
     - `ArchiveToolReferenceTest`;
     - every existing `export_archives` test unchanged (SC-009);
     - `ModelDetailsSecretLeakTest` extended with the two forms (errors, logs, audit).
-- [ ] T045 [P] [US3] The `userColumn` gate (research D-21; owner decisions 2026-11-14):
+- [X] T045 [P] [US3] The `userColumn` gate (research D-21; owner decisions 2026-11-14):
   - `domain/model/InterfaceCoverage.servedBy(CoverageKey, MajorMinor, String tool)`: true when
     the row is `Covered(tool)` or `Reachable(tool, …)` for that line;
   - `application/VersionGate.admitOption(String tool, NodeId, CoverageKey)`: admits `userColumn`

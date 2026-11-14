@@ -22,7 +22,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Feature 022 (T006, research D-2, data-model.md → Coverage, contracts/coverage-list.md): the
- * coverage list loader, one test per failure rule, and the gate check {@code offered}.
+ * coverage list loader, one test per failure rule, the gate check {@code offered}, and
+ * {@code servedBy} (T045, research D-21).
  */
 class InterfaceCoverageTest {
 
@@ -319,6 +320,49 @@ class InterfaceCoverageTest {
 
         assertThat(empty.entries()).isEmpty();
         assertThat(empty.offered(Set.of(new CoverageKey(Channel.CLI, "lls")), V8_1)).isFalse();
+    }
+
+    // --- servedBy (T045) ----------------------------------------------------------------------
+
+    @Test
+    void servedByTheNamedToolWhenCoveredOrReachableByIt() {
+        InterfaceCoverage coverage = loadText(EXAMPLE);
+
+        assertThat(coverage.servedBy(new CoverageKey(Channel.CLI, "license -td"), V9_0,
+            "get_server_settings")).as("covered").isTrue();
+        assertThat(coverage.servedBy(new CoverageKey(Channel.REST, "GET /license"), V8_1,
+            "get_server_settings")).as("reachable").isTrue();
+    }
+
+    @Test
+    void notServedByAnotherToolOrWhenPlannedUndocumentedOrExcluded() {
+        InterfaceCoverage coverage = loadText(EXAMPLE);
+        CoverageKey license = new CoverageKey(Channel.REST, "GET /license");
+        CoverageKey byName =
+            new CoverageKey(Channel.REST, "GET /model/nodeByName/{diagram}/{module}");
+
+        assertThat(coverage.servedBy(new CoverageKey(Channel.CLI, "license -td"), V8_1,
+            "find_processes")).as("covered by another tool").isFalse();
+        assertThat(coverage.servedBy(license, V8_1, "export_archives"))
+            .as("reachable by another tool").isFalse();
+        assertThat(coverage.servedBy(license, V9_0, "get_server_settings")).as("planned")
+            .isFalse();
+        assertThat(coverage.state(byName.channel(), byName.entry(), V9_0))
+            .containsInstanceOf(Undocumented.class);
+        assertThat(coverage.servedBy(byName, V9_0, "get_model_details")).as("undocumented")
+            .isFalse();
+        assertThat(coverage.servedBy(new CoverageKey(Channel.CLI, "lls"), V8_1,
+            "get_server_settings")).as("excluded").isFalse();
+    }
+
+    @Test
+    void notServedOnAMissingLineOrForAnUnlistedEntry() {
+        InterfaceCoverage coverage = loadText(EXAMPLE);
+
+        assertThat(coverage.servedBy(new CoverageKey(Channel.CLI, "license -td"),
+            new MajorMinor(6, 1), "get_server_settings")).as("6.1").isFalse();
+        assertThat(coverage.servedBy(new CoverageKey(Channel.CLI, "nope"), V8_1,
+            "get_server_settings")).as("unlisted").isFalse();
     }
 
     // --- helpers ------------------------------------------------------------------------------

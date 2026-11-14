@@ -21,7 +21,8 @@ import java.util.Set;
 /**
  * The coverage list of the StartCLI and REST interfaces (feature 022, FR-001, FR-003, research
  * D-2, data-model.md → InterfaceCoverage): one {@link CoverageEntry} per documented entry with
- * its state per version line, and the gate checks {@link #offered} and {@link #refusal}.
+ * its state per version line, and the gate checks {@link #offered}, {@link #refusal} and
+ * {@link #servedBy}.
  *
  * <p>{@link #load} reads the tab-separated format of contracts/coverage-list.md and fails with
  * the line number on the first row that breaks a rule.
@@ -200,6 +201,22 @@ public final class InterfaceCoverage {
             .map(key -> new Unreachable(key, state(key.channel(), key.entry(), line)))
             .filter(gap -> !(gap.state().orElse(null) instanceof CoverageState.Reachable))
             .findFirst();
+    }
+
+    /**
+     * Whether {@code tool} serves {@code entry} on {@code line} (T045, research D-21): true when
+     * the entry is {@link CoverageState.Covered} or {@link CoverageState.Reachable} by that tool
+     * there; false for another tool, any other state, an unlisted entry or a line without state.
+     * The check of an option of an existing tool, e.g. {@code find_processes} {@code userColumn}
+     * for {@code CLI ps -u}.
+     */
+    public boolean servedBy(CoverageKey entry, MajorMinor line, String tool) {
+        Objects.requireNonNull(tool, "tool");
+        return state(entry.channel(), entry.entry(), line).filter(found -> switch (found) {
+            case CoverageState.Covered covered -> covered.tool().equals(tool);
+            case CoverageState.Reachable reachable -> reachable.tool().equals(tool);
+            default -> false;
+        }).isPresent();
     }
 
     private static CoverageEntry row(String line) {
