@@ -31,11 +31,13 @@ import de.dadecker.inubit.mcp.config.ParameterNames;
 import de.dadecker.inubit.mcp.config.SecretPlan;
 import de.dadecker.inubit.mcp.config.SecretSourceConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
+import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProbedClient;
@@ -44,7 +46,15 @@ import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.SemVer;
 import de.dadecker.inubit.mcp.domain.model.ServerUpdate;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.node.Lease;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseAttempt;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseOwner;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseReason;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseState;
+import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
+import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
+import de.dadecker.inubit.mcp.domain.port.LeaseView;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.mcp.SchemaResources;
@@ -63,11 +73,15 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -119,6 +133,9 @@ class GetHealthToolTest {
 
     @TempDir
     Path temp;
+
+    /** Feature 024: the lease store {@code get_health} reads (empty by default). */
+    private LeaseView leases = () -> new LeaseView.Snapshot.Leases(List.of());
 
     /** Feature 016: what the update check last recorded; read on every call. */
     private volatile Optional<ServerUpdate> serverUpdate = Optional.empty();
@@ -200,7 +217,7 @@ class GetHealthToolTest {
         HealthService health = new HealthService(gateways, new TargetResolver(ids),
             new FanOut(), timeouts::get, Clock.systemUTC(),
             gateWithoutClients(versions, gateways, CapabilityMatrix.production()), versions, probe,
-            TestClientSelection.of(withClient::contains));
+            TestClientSelection.of(withClient::contains), server -> Optional.empty(), leases);
         client = McpTestClient.start(List.of(new GetHealthTool(health, () -> serverUpdate)),
             scrubber);
         client.initialize();
@@ -337,6 +354,71 @@ class GetHealthToolTest {
         assertThat(bogus.path("error").path("code").asString()).isEqualTo("UNREACHABLE");
         assertThat(bogus.path("error").path("node").asString()).isEqualTo("staging/bogus");
         assertThat(bogus.path("error").path("nextStep").asString()).isNotBlank();
+    }
+
+    // --- feature 024, T055: the temporary log level leases (FR-045, research D-23) -----------
+
+    @Test
+    void withoutLeasesTheReportsAreUnchanged() {
+        JsonNode result = call(Map.of());
+
+        assertMatchesOutputSchema(result);
+        JsonNode reports = result.path("structuredContent").path("reports");
+        assertThat(reports.get(0).propertyNames()).as("dev/node1").containsExactly("node",
+            "group", "checkedAt", "reachable", "status", "ready", "readyMessage",
+            "maintenanceMode", "version", "load", "client", "unavailable", "warnings");
+        assertThat(reports.get(3).propertyNames()).as("staging/bogus").containsExactly("node",
+            "group", "checkedAt", "reachable", "status", "client", "unavailable", "error",
+            "warnings");
+    }
+
+    @Test
+    void theLeasesOfANodeAreReportedAsInTheContract() {
+        SortedMap<LoggerName, TemporaryLevel> loggers =
+            new TreeMap<>(Comparator.comparing(LoggerName::value));
+        loggers.put(new LoggerName("com.inubit.ibis.acme.Orders"), TemporaryLevel.DEBUG);
+        Lease lease = new Lease(UUID.fromString("3f2b8a1e-0c4d-4e7a-9b1f-2a6c5d8e9f01"), 3,
+            NodeId.parse("dev/node1"), "node1", loggers, Instant.parse("2026-11-12T08:15:31Z"),
+            Instant.parse("2026-11-12T08:25:31Z"),
+            new LeaseOwner(4711, Optional.of(Instant.parse("2026-11-12T07:58:02.114Z"))),
+            LeaseState.RESET_FAILED, UUID.fromString("8c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f"),
+            Optional.of(new LeaseAttempt(Instant.parse("2026-11-12T08:26:01Z"),
+                AuditOutcome.FAILED, Optional.of(ErrorCode.UNREACHABLE),
+                Optional.of(LeaseReason.NODE_UNREACHABLE))), Optional.empty());
+        leases = () -> new LeaseView.Snapshot.Leases(List.of(lease));
+        start(List.of(server("dev/node1", "https://localhost:" + dev.httpsPort(),
+            VersionSetting.V8_1)));
+
+        JsonNode result = call(Map.of("target", "dev/node1"));
+
+        assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
+        assertMatchesOutputSchema(result);
+        JsonNode report = result.path("structuredContent").path("reports").path(0);
+        assertThat(report.path("temporaryLogLevels")).isEqualTo(JSON.readTree("""
+            [
+              { "leaseId": "3f2b8a1e-0c4d-4e7a-9b1f-2a6c5d8e9f01", "inubitNode": "node1",
+                "loggers": [{ "name": "com.inubit.ibis.acme.Orders", "level": "DEBUG" }],
+                "setAt": "2026-11-12T08:15:31Z", "expiresAt": "2026-11-12T08:25:31Z",
+                "state": "RESET_FAILED",
+                "lastAttempt": { "at": "2026-11-12T08:26:01Z", "outcome": "FAILED",
+                  "code": "UNREACHABLE", "reason": "node unreachable" } }
+            ]"""));
+    }
+
+    @Test
+    void anUnreadableLeaseStoreIsAWarningThatMatchesTheOutputSchema() {
+        leases = () -> new LeaseView.Snapshot.Unreadable("lease 2: invalid auditId");
+        start(List.of(server("dev/node1", "https://localhost:" + dev.httpsPort(),
+            VersionSetting.V8_1)));
+
+        JsonNode result = call(Map.of("target", "dev/node1"));
+
+        assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
+        assertMatchesOutputSchema(result);
+        JsonNode report = result.path("structuredContent").path("reports").path(0);
+        assertThat(report.has("temporaryLogLevels")).isFalse();
+        assertThat(report.path("warnings")).extracting(JsonNode::asString).containsExactly(
+            "The temporary log level leases could not be read (lease 2: invalid auditId)");
     }
 
     // --- Phase 3 review H1, m3, M2: real adapters, slow and hanging servers ----------------

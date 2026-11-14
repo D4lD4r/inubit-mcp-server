@@ -669,7 +669,7 @@ the other just changed.
   `ToolAnnouncementTest.java` (not offered without write access or without the opt-in; offered with
   both), new `LogLevelWiringTest.java` (write disabled → `WRITE_DISABLED`, nothing sent),
   `MainTest.java` (after T036)
-- [ ] T055 [US4] `get_health` leases (FR-045, D-23; after T054, same `Wiring.java`):
+- [X] T055 [US4] `get_health` leases (FR-045, D-23; after T054, same `Wiring.java`):
   `domain/model/HealthReport.java` `+ temporaryLogLevels` (`LeaseSummary`), `application/HealthService.java`
   reads `LeaseView` (wait ≤ 2 s; failure → report warning), `Wiring.java` passes the `LeaseStore`
   (as `LeaseView`) into `HealthService`, `src/main/resources/schemas/get_health.output.json`

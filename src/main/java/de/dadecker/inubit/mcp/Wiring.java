@@ -472,9 +472,13 @@ final class Wiring implements AutoCloseable {
         Map<NodeId, String> stores = new HashMap<>();
         servers.stream().filter(server -> !server.secretPlan().aws())
             .forEach(server -> stores.put(server.id(), credentialStore.kind().displayName()));
+        // feature 024 (FR-045, research D-12, D-23): the profile's lease store below
+        // <home>/.inubit-mcp/<profile>/log-levels (created on the first lease); get_health reads it
+        Path leaseDirectory = LeaseStore.defaultDirectory(userHome, profile.name());
+        this.leaseStore = new LeaseStore(leaseDirectory, privateFiles, clock.clock());
         this.health = new HealthService(gateways, targets, fanOut, timeouts::get, clock.clock(),
             versionGate, versions, clientVersions, clientSelection,
-            id -> Optional.ofNullable(stores.get(id)));
+            id -> Optional.ofNullable(stores.get(id)), leaseStore);
         Map<NodeId, Duration> hangingThresholds = new HashMap<>();
         servers.forEach(server -> hangingThresholds.put(server.id(), server.hangingThreshold()));
         // feature 010/011 (research R-8, FR-008): a fan-out branch waits for its node's first
@@ -681,12 +685,10 @@ final class Wiring implements AutoCloseable {
         this.importArtifacts = new ImportArtifactsTool(imports);
         this.restoreBackup = new RestoreBackupTool(imports);
         this.setActive = new SetActiveTool(imports);
-        // feature 024 (FR-043 ... FR-045, research D-12, D-16, D-17): the profile's lease store and
-        // node locks below <home>/.inubit-mcp/<profile>/log-levels (created on the first lease),
-        // the log-level service on the shared challenge registry and audit log, and the scheduler
-        // (startLeases()); a takeover is recorded with the server's INUBIT account (D-22)
-        Path leaseDirectory = LeaseStore.defaultDirectory(userHome, profile.name());
-        this.leaseStore = new LeaseStore(leaseDirectory, privateFiles, clock.clock());
+        // feature 024 (FR-043 ... FR-045, research D-12, D-16, D-17): the node locks next to the
+        // lease store (above), the log-level service on the shared challenge registry and audit
+        // log, and the scheduler (startLeases()); a takeover is recorded with the server's INUBIT
+        // account (D-22)
         this.liveness = new SystemProcessLiveness();
         servers.forEach(server -> cliTimeouts.put(server.id(), server.cliTimeout()));
         LogLevelAudit logLevelAudit = new LogLevelAudit(audit, clock.clock(), profile.name(),

@@ -23,6 +23,7 @@ import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
+import de.dadecker.inubit.mcp.domain.port.LeaseView;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
@@ -80,7 +81,8 @@ class V61HealthTimingTest {
             gateWithoutClients(versions, gateways, WITH_61), versions,
             (id, version, timeout) -> new ProbedClient(ClientKey.NONE, CLIENT_610),
             TestClientSelection.of(id -> true),
-            id -> Optional.empty(), SINGLE, Duration.ofSeconds(1));
+            id -> Optional.empty(), () -> new LeaseView.Snapshot.Leases(List.of()), SINGLE,
+            Duration.ofSeconds(1));
         List<HealthReport> reports = service.check(Optional.of(LEGACY.value()), false);
         assertThat(reports).hasSize(1);
         return reports.get(0);
