@@ -28,6 +28,7 @@ import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
+import de.dadecker.inubit.mcp.domain.port.ModelDetailPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
@@ -78,7 +79,8 @@ import org.slf4j.LoggerFactory;
  * {@link VersionObserver} whenever ports are requested ({@link #processes}, {@link #logs},
  * {@link #inventory}, {@link #processControl}, {@link #artifacts}, {@link #imports},
  * {@link #tags}, {@link #partners}, {@link #queueEntryContent}, {@link #serverLogs},
- * {@link #serverSettings}, {@link #userDirectory} and the gateway's port methods).
+ * {@link #serverSettings}, {@link #userDirectory}, {@link #modelDetails} and the gateway's port
+ * methods).
  * The selection itself never detects: the version gate detects before it admits a call, so the
  * ports requested after the admission belong to the detected version. The port set is built once
  * per selected range and rebuilt when the effective version moves to another range (e.g. after a
@@ -232,6 +234,11 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
     @Override
     public UserDirectoryPort userDirectory(NodeId server) {
         return slot(server).ports().userDirectory();
+    }
+
+    @Override
+    public ModelDetailPort modelDetails(NodeId server) {
+        return slot(server).ports().modelDetails();
     }
 
     @Override

@@ -910,17 +910,20 @@ class ListNodesToolTest {
                 "log_diagnosis", "inventory", "partner_management", "workspace_export");
             assertThat(notUsable(dev)).as("no write access: no process control; feature 021:"
                 + " no version admits the trace log yet; feature 022: server settings and users"
-                + " not yet verified").containsExactly("development_writes", "trace_log_read",
-                "server_settings", "user_directory");
+                + " not yet verified; T042: model details not yet verified")
+                .containsExactly("development_writes", "trace_log_read", "server_settings",
+                    "user_directory", "model_details");
             JsonNode test = groups.path(1).path("nodes").path(0).path("version");
             assertThat(test.path("server").path("source").asString()).isEqualTo("pinned");
             assertThat(test.path("client").path("state").asString()).isEqualTo("not_available");
             assertThat(test.path("status").asString()).as("feature 022 T025, T037: server"
-                + " settings and users supported on 8.1").isEqualTo("supported");
+                + " settings and users supported on 8.1; T042: model details not yet verified")
+                .isEqualTo("partially_supported");
             assertThat(usable(test)).containsExactly("monitoring", "process_diagnosis",
                 "log_diagnosis", "inventory", "partner_management", "deployment",
                 "server_settings", "user_directory");
-            assertThat(notUsable(test)).isEmpty();
+            assertThat(notUsable(test)).as("feature 022 T042: model details not yet verified")
+                .containsExactly("model_details");
         }
     }
 
@@ -997,13 +1000,14 @@ class ListNodesToolTest {
                     "partner_management", "workspace_export", "queue_entry_read",
                     "trace_log_read", "server_settings", "user_directory");
             assertThat(notUsable(test)).as("feature 022 T025, T037: server settings and users"
-                + " supported on 8.1").isEmpty();
+                + " supported on 8.1; T042: model details not yet verified")
+                .containsExactly("model_details");
             JsonNode prod = groups.path(1).path("nodes").path(0).path("version");
             assertThat(usable(prod)).as("SC-002: as without feature 020").containsExactly(
                 "monitoring", "process_diagnosis", "log_diagnosis", "inventory",
                 "partner_management", "workspace_export", "trace_log_read", "server_settings",
                 "user_directory");
-            assertThat(notUsable(prod)).isEmpty();
+            assertThat(notUsable(prod)).containsExactly("model_details");
             JsonNode lab = groups.path(2).path("nodes").path(0).path("version");
             assertThat(usable(lab)).doesNotContain("queue_entry_read");
             assertThat(notUsable(lab)).doesNotContain("queue_entry_read");
@@ -1048,9 +1052,9 @@ class ListNodesToolTest {
         Map<String, JsonNode> production = traceVersions(config, CapabilityMatrix.production());
         assertThat(usable(production.get("test/node1"))).contains("trace_log_read");
         assertThat(notUsable(production.get("test/node1"))).as("feature 022 T025, T037:"
-            + " supported").isEmpty();
+            + " supported; T042: model details not yet verified").containsExactly("model_details");
         assertThat(usable(production.get("prod/node1"))).doesNotContain("trace_log_read");
-        assertThat(notUsable(production.get("prod/node1"))).isEmpty();
+        assertThat(notUsable(production.get("prod/node1"))).containsExactly("model_details");
 
         Map<String, JsonNode> recorded = traceVersions(config, TraceMatrix.admittingEightOne());
         assertThat(usable(recorded.get("test/node1"))).contains("trace_log_read");
@@ -1227,6 +1231,47 @@ class ListNodesToolTest {
         JsonNode prod = versions.get("prod/node1");
         assertThat(usable(prod)).contains("user_directory");
         assertThat(notUsable(prod)).doesNotContain("user_directory");
+    }
+
+    // --- feature 022 T042: model_details not yet verified on 8.1 and 9.0 (D-1) -------------------
+
+    @Test
+    void modelDetailsIsNotUsableOn81And90UntilVerified() {
+        String baseUrl = "https://localhost:" + wireMock.httpsPort();
+        String yaml = """
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            groups:
+              - name: test
+                versionLine: V8_1
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+              - name: prod
+                versionLine: V9_0
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+            """.formatted(temp.resolve("audit"), temp.resolve("workspace"), CLI_HOME, baseUrl,
+            baseUrl);
+        ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
+            .parse(yaml, temp.resolve("config.yaml")).config();
+
+        Map<String, JsonNode> versions = traceVersions(config, CapabilityMatrix.production());
+
+        for (Map.Entry<String, String> node : Map.of("test/node1", "8.1", "prod/node1", "9.0")
+            .entrySet()) {
+            JsonNode version = versions.get(node.getKey());
+            assertThat(usable(version)).as(node.getKey()).doesNotContain("model_details");
+            assertThat(notUsable(version)).as(node.getKey()).contains("model_details");
+            assertThat(reason(version, "model_details")).as(node.getKey())
+                .endsWith("reading model details is not yet verified for INUBIT "
+                    + node.getValue());
+        }
     }
 
     @Test

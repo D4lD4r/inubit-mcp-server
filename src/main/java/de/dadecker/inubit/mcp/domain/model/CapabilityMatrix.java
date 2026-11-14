@@ -72,12 +72,21 @@ public final class CapabilityMatrix {
         true);
 
     /**
+     * Feature 022 (research D-1, D-12): each capability is refused on 8.1 and 9.0 with this note
+     * until its contract tests flip it.
+     */
+    private static final String NOT_YET_VERIFIED = "not yet verified";
+
+    /**
      * 8.1: everything; the server-log reads of feature 021 since their recordings (trace log T033,
      * web service log T046), reading the server settings of feature 022 since its recordings
      * (T014, contract tests T025), reading the users of feature 022 since its recordings (T028,
-     * contract tests T037).
+     * contract tests T037); reading model details (feature 022, US3) not yet verified.
      */
-    private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1), ALL_SUPPORTED);
+    private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1),
+        with(ALL_SUPPORTED, Capability.MODEL_DETAILS, SupportState.UNSUPPORTED),
+        Map.of(), false,
+        Map.of(Capability.MODEL_DETAILS, NOT_YET_VERIFIED));
 
     /**
      * 9.0: everything as on 8.1 except partner management, which runs with a warning until recorded
@@ -85,24 +94,29 @@ public final class CapabilityMatrix {
      * Manager entries included since its recorded 9.0 error entry (feature 020, FR-019, research
      * D-20); the server-log reads of feature 021 since their recordings (trace log T051, web
      * service log T052); reading the server settings and the users of feature 022 since their
-     * recordings (T024, T028b; contract tests T026, T037a).
+     * recordings (T024, T028b; contract tests T026, T037a); reading model details (US3) not yet
+     * verified.
      */
     private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0),
-        with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED));
+        with(with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED),
+            Capability.MODEL_DETAILS, SupportState.UNSUPPORTED),
+        Map.of(), false,
+        Map.of(Capability.MODEL_DETAILS, NOT_YET_VERIFIED));
 
     /**
-     * Unknown versions: reading Queue Manager entries, the server logs, the server settings and
-     * the users is refused, not run with a warning (feature 022: the coverage gate knows 8.1 and
-     * 9.0 only).
+     * Unknown versions: reading Queue Manager entries, the server logs, the server settings, the
+     * users and the model details is refused, not run with a warning (feature 022: the coverage
+     * gate knows 8.1 and 9.0 only).
      */
     private static final CapabilityMatrix PRODUCTION = new CapabilityMatrix(
         List.of(V6_1, V8_1, V9_0),
-        with(with(with(with(with(READS_UNVERIFIED, Capability.QUEUE_ENTRY_READ,
+        with(with(with(with(with(with(READS_UNVERIFIED, Capability.QUEUE_ENTRY_READ,
             SupportState.UNSUPPORTED),
             Capability.TRACE_LOG_READ, SupportState.UNSUPPORTED),
             Capability.WEBSERVICE_LOG_READ, SupportState.UNSUPPORTED),
             Capability.SERVER_SETTINGS, SupportState.UNSUPPORTED),
-            Capability.USER_DIRECTORY, SupportState.UNSUPPORTED));
+            Capability.USER_DIRECTORY, SupportState.UNSUPPORTED),
+            Capability.MODEL_DETAILS, SupportState.UNSUPPORTED));
 
     /**
      * The version lines whose stored secret forms are verified as comparable across servers, so
@@ -135,7 +149,9 @@ public final class CapabilityMatrix {
      * unsupported. Feature 022 (research D-1): reading the server settings is supported on 8.1
      * and 9.0 since their contract tests (T025, T026), and unsupported on every other and on
      * unknown versions; reading the users (US2) is supported on 8.1 and 9.0 since their contract
-     * tests (T037, T037a), and unsupported on every other and on unknown versions.
+     * tests (T037, T037a), and unsupported on every other and on unknown versions; reading the
+     * model details (US3) is refused on 8.1 and 9.0 as not yet verified until its contract tests,
+     * and unsupported on every other and on unknown versions.
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;

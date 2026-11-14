@@ -7,11 +7,13 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ImportProtocol;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.InventoryItem;
+import de.dadecker.inubit.mcp.domain.model.LibraryEntry;
 import de.dadecker.inubit.mcp.domain.model.LicenseFacts;
 import de.dadecker.inubit.mcp.domain.model.ListedUser;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
 import de.dadecker.inubit.mcp.domain.model.LogQuery;
 import de.dadecker.inubit.mcp.domain.model.LoginEntry;
+import de.dadecker.inubit.mcp.domain.model.ModuleDetail;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Page;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
@@ -31,6 +33,7 @@ import de.dadecker.inubit.mcp.domain.port.DownloadedLog;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
+import de.dadecker.inubit.mcp.domain.port.ModelDetailPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
@@ -80,7 +83,7 @@ final class StaleReportingPorts {
             new Tags(ports.tags()), new Partners(ports.partners()),
             new QueueEntryContent(ports.queueEntryContent()),
             new ServerLogs(ports.serverLogs()), new ServerSettings(ports.serverSettings()),
-            new UserDirectory(ports.userDirectory()));
+            new UserDirectory(ports.userDirectory()), new ModelDetails(ports.modelDetails()));
     }
 
     private <T> T call(Supplier<T> call) {
@@ -420,6 +423,24 @@ final class StaleReportingPorts {
         @Override
         public List<LoginEntry> loggedIn() {
             return call(delegate::loggedIn);
+        }
+    }
+
+    final class ModelDetails implements ModelDetailPort {
+        private final ModelDetailPort delegate;
+
+        ModelDetails(ModelDetailPort delegate) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public ModuleDetail module(String diagram, String moduleId) {
+            return call(() -> delegate.module(diagram, moduleId));
+        }
+
+        @Override
+        public LibraryEntry.Listing libraries(String type) {
+            return call(() -> delegate.libraries(type));
         }
     }
 }

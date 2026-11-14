@@ -1047,6 +1047,8 @@ class VersionGateTest {
         expected.put(Capability.SERVER_SETTINGS, "reading server settings; " + other);
         // feature 022 (T033)
         expected.put(Capability.USER_DIRECTORY, "reading users; " + other);
+        // feature 022 (T042)
+        expected.put(Capability.MODEL_DETAILS, "reading model details; " + other);
 
         for (Capability capability : Capability.values()) {
             ToolError error = refusal(() -> gate().admit(V6_1, capability, capability.kind(),

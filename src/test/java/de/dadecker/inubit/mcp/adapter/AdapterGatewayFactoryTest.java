@@ -59,6 +59,7 @@ import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
+import de.dadecker.inubit.mcp.domain.port.ModelDetailPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
@@ -598,6 +599,39 @@ class AdapterGatewayFactoryTest {
             }
         }
         wireMock.verify(4, getRequestedFor(urlPathEqualTo("/ibis/rest/user/users")));
+        assertThat(wireMock.getAllServeEvents()).hasSize(4);
+    }
+
+    @Test
+    void the81And90PortSetsReadTheModelDetails(@TempDir Path root) throws IOException {
+        // feature 022 T042: the model detail adapter of the 8.1 port set, which 9.0 reuses, with
+        // and without helper host, behind the stale-reporting decorator: the module on the
+        // node's client, the library list on the node's StartCLI runner
+        String module = "/ibis/rest/model/nodeByModel/Workflow-0301/100";
+        wireMock.stubFor(get(urlPathEqualTo(module))
+            .willReturn(RestFixtures.response("admin-model-node-by-model", "xml")));
+        EffectiveNodeConfig on81 = server(DEV, VersionSetting.parse("8.1.17").orElseThrow());
+        EffectiveNodeConfig on90 = server(ENT2, VersionSetting.parse("9.0.7").orElseThrow());
+        try (CliResources resources = new CliResources("acme", PrivateFiles.forHost())) {
+            for (PortSetRegistry portSets : List.of(PortSetRegistry.v81Default().withV90(),
+                queueEntryPorts(Files.createDirectories(root.resolve("tmp")), resources))) {
+                try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(on81, on90),
+                    on81, on90)) {
+                    for (NodeId node : List.of(DEV, ENT2)) {
+                        ModelDetailPort port = factory.modelDetails(node);
+                        assertThat(port).isInstanceOf(StaleReportingPorts.ModelDetails.class)
+                            .isSameAs(factory.forServer(node).modelDetails());
+
+                        assertThat(port.module("Workflow-0301", "100").name())
+                            .isEqualTo("Demo-DB-Probe");
+                        assertThat(codeOf(() -> port.libraries("driver")))
+                            .as("no StartCLI client configured")
+                            .isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                    }
+                }
+            }
+        }
+        wireMock.verify(4, getRequestedFor(urlPathEqualTo(module)));
         assertThat(wireMock.getAllServeEvents()).hasSize(4);
     }
 
@@ -1912,6 +1946,22 @@ class AdapterGatewayFactoryTest {
             assertThat(port).isInstanceOf(StaleReportingPorts.UserDirectory.class);
 
             assertThatThrownBy(port::listUsers)
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error()).isEqualTo(new RefusingPorts(DEV).refusal().error()));
+        }
+        assertThat(versions.events()).isEmpty();
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void aSixOneNodeRefusesModelDetailReadsWithoutContact() {
+        // feature 022 T042: the 6.1 port set refuses as RefusingPorts
+        EffectiveNodeConfig node = withoutUsableClient(VersionSetting.V6_1);
+        try (AdapterGatewayFactory factory = factory(WITH_V61, nodeVersions(node), node)) {
+            ModelDetailPort port = factory.modelDetails(DEV);
+            assertThat(port).isInstanceOf(StaleReportingPorts.ModelDetails.class);
+
+            assertThatThrownBy(() -> port.module("Workflow-0301", "100"))
                 .isInstanceOfSatisfying(ToolErrorException.class, e ->
                     assertThat(e.error()).isEqualTo(new RefusingPorts(DEV).refusal().error()));
         }

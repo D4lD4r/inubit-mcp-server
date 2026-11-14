@@ -645,7 +645,7 @@ offered).
     `--exportWorkflowGroupExclude` without `--exportWorkflowType` and `--exportWorkflowGroup`
     rejected; `ps` (no `ps` form: `userColumn` comes from REST), `fetchXSLT1.0`, `library
     --delete` and `library --deleteAll` still rejected.
-- [ ] T042 [US3] Port and wiring:
+- [X] T042 [US3] Port and wiring:
   - `domain/port/ModelDetailPort.java` (`module`, `libraries`);
   - `adapter/rest/v81/V81ModelDetailAdapter.java` (REST, `Accept: application/xml`) plus
     `adapter/cli/admin/CliLibraryRunner.java` (list: one script-mode run per type, or one stdin

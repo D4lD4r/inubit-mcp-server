@@ -138,6 +138,14 @@ public interface GatewayFactory {
     }
 
     /**
+     * The model-detail port of {@code server} (feature 022, US3); the default asks the gateway,
+     * whose default throws {@code UNSUPPORTED_VERSION}.
+     */
+    default ModelDetailPort modelDetails(NodeId server) {
+        return forServer(server).modelDetails();
+    }
+
+    /**
      * The StartCLI health port of {@code server} if its effective version is reached through
      * StartCLI only (feature 012, research D-4), else empty. Never detects and never contacts
      * the server. The default, for a factory without such versions, is empty.
