@@ -600,7 +600,7 @@ offered).
 
   Neutralize into `fixtures/v8_1/{rest,cli}/admin-model-*` with planted secrets in module
   properties and metadata.
-- [ ] T040 [P] [US3] Parsers (research D-21, "Live recording T039"):
+- [X] T040 [P] [US3] Parsers (research D-21, "Live recording T039"):
   - `adapter/rest/v81/ModuleDetailXmlParser.java`: `ns4:Node` (`name`, `type`, `id`,
     `parentId`), `ns4:Connection` (`id`, `targetId`), `ns2:Properties/ns2:Property name= type=`
     with the value as text, hardened through `XmlSupport`. A property is masked through

@@ -514,6 +514,11 @@ properties and user records are walked leaf by leaf; a leaf is masked when its n
 `encrypted` flag or its value matches. Results carry `maskedCount`. `ResultMapper` scrubs known
 values again.
 
+A module property value that is shown goes through `SecretTextMasker` before it is bounded, so a
+credential inside the text (`;password=…` or `?password=…` in a JDBC `dbURL`) becomes its
+`${secret:…}` placeholder while the rest stays; such a property is not masked as a whole and does
+not count in `maskedCount` (T040 review round 1).
+
 **Rationale**: FR-010 asks for one rule. The 018 rules are the strictest ones the project has.
 
 ## D-20 Users and logins read (US2, FR-011)
