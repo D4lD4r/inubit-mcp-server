@@ -47,6 +47,11 @@ import tools.jackson.databind.json.JsonMapper;
  * 8.1/9.0 states equal {@link CapabilityMatrix#production()} (a flip forces a docs update); the
  * listed configuration names equal {@link NodeConfigName}; the tool table, capability rows,
  * announcement rules, {@code list_nodes} names and {@code get_health} {@code temporaryLogLevels}.
+ *
+ * <p>T072 (FR-003, D-31): README.md lists the five tools and when they are offered; SECURITY.md
+ * names the business and personal data of I/O messages and the masking limits, the owner-only
+ * lease store, the cleanup resets while write access is off and the answering-node lookup through
+ * an unsupported interface.
  */
 class NodeToolsDocsTest {
 
@@ -530,5 +535,62 @@ class NodeToolsDocsTest {
                 + " `unsupported.logLevelWrite: true`",
             "| `temporaryLogLevels` |",
             "`The temporary log level leases could not be read (<reason>)`");
+    }
+
+    // ---- README.md and SECURITY.md (T072) -------------------------------------------------
+
+    @Test
+    void readmeListsTheFiveToolsAndWhenTheyAreOffered() throws IOException {
+        String readme = folded(Files.readString(Path.of("README.md")));
+        String unsupported = "through an **unsupported, undocumented INUBIT interface**, for"
+            + " diagnosis only, opt-in per group";
+
+        assertThat(readme).contains(
+            "| `list_cluster_nodes` | the members of the INUBIT cluster of ONE node",
+            unsupported + " (`unsupported.nodeStatusRead`) | a helper on the INUBIT client |",
+            "| `read_io_log` | the logged input and output messages of ONE process run on ONE node",
+            "**business and personal data** that masking does not cover",
+            unsupported + " (`unsupported.ioLogRead`) | a helper on the INUBIT client |",
+            "| `get_node_config` | configuration values of ONE node from a fixed list of 20 names"
+                + " without secrets",
+            unsupported + " (`unsupported.nodeConfigRead`) | a helper on the INUBIT client |",
+            "| `set_temporary_log_level` | raise the log level of one to five INUBIT loggers on ONE"
+                + " node",
+            "reset automatically, also while write access is off; the answering node is looked up "
+                + unsupported + " (`unsupported.logLevelWrite`) | StartCLI `trace --nodelevel`;"
+                + " a helper on the INUBIT client (answering node) |",
+            "| `reset_temporary_log_level` | reset **every temporary log level on ONE node, also"
+                + " those other users set**",
+            "or forget a lease whose automatic reset failed; the answering node is looked up "
+                + unsupported + " (`unsupported.logLevelWrite`) | StartCLI `trace --reset`; a"
+                + " helper on the INUBIT client (answering node); forgetting: none |",
+            "| `list_cluster_nodes`, `read_io_log`, `get_node_config` | a node's group has"
+                + " `unsupported.nodeStatusRead`, `unsupported.ioLogRead` or"
+                + " `unsupported.nodeConfigRead: true` respectively, the node is not pinned to an"
+                + " INUBIT version that refuses the tool, and it has an INUBIT client home |",
+            "| `set_temporary_log_level`, `reset_temporary_log_level` | a node with effective write"
+                + " access (`write.enabled`) has `unsupported.logLevelWrite: true` on its group, is"
+                + " not pinned to an INUBIT version that refuses `log_level_write`, and has an"
+                + " INUBIT client home |");
+    }
+
+    @Test
+    void securityNamesTheIoDataTheLeaseStoreTheCleanupResetsAndTheNodeLookup()
+        throws IOException {
+        assertThat(folded(Files.readString(Path.of("SECURITY.md")))).contains(
+            "**Unsupported node tools** (`list_cluster_nodes`, `read_io_log`, `get_node_config`,"
+                + " `set_temporary_log_level`, `reset_temporary_log_level`)",
+            "**can contain business and personal data**",
+            "masking does not cover business and personal data",
+            "a credential under a neutral name, in encoded content or in free text may still"
+                + " appear",
+            "The three reads are not audited",
+            "`~/.inubit-mcp/<profile>/log-levels/` (owner-only; names, levels, ids and times"
+                + " only",
+            "**cleanup resets run also while write access is off**",
+            "a deliberate exception to the read-only default, approved by the project owner",
+            "every set, reset and automatic reset is audited",
+            "asks which INUBIT node answers through an unsupported, undocumented INUBIT interface"
+                + " (the helper on the INUBIT client)");
     }
 }

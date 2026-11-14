@@ -788,7 +788,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   the 20 configuration names listed equal `NodeConfigName`)
   Note (T070 review): docs/setup.md already links to `tools.md#list_cluster_nodes`, `#read_io_log`
   and `#get_node_config`; the review confirms these anchors resolve.
-- [ ] T072 `README.md` tool table rows for the five tools and announcement rows; `SECURITY.md`: I/O
+- [X] T072 `README.md` tool table rows for the five tools and announcement rows; `SECURITY.md`: I/O
   messages (business and personal data; masking limits), the lease store (owner-only; names and
   times only), the cleanup resets while write access is off (owner-approved exception), the
   answering-node lookup through an unsupported interface; `NodeToolsDocsTest` asserts the README
