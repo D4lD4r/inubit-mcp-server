@@ -52,18 +52,18 @@ class SetTemporaryLogLevelToolTest {
     /** contracts/mcp-tools-delta.md "Description", copied here to pin the wording. */
     private static final String CONTRACT_DESCRIPTION = "Raises the log level of one to five INUBIT"
         + " loggers (names below com.inubit.ibis) on the INUBIT node one {node} reaches, for a"
-        + " limited time (default 10 minutes, at most 60), through StartCLI's documented trace -nl"
-        + " command; then download the trace log with download_server_log. The MCP server records"
-        + " a lease and resets the node when it expires, when the MCP server shuts down, or at its"
-        + " next start, also when write access is switched off meanwhile. The reset (StartCLI trace"
-        + " -r) restores every temporary log level on that node, also those other users set;"
-        + " levels can also be lost earlier (INUBIT restart, log configuration reload). Only the"
-        + " exactly named logger changes. Confirmation as restart_process. UNSUPPORTED: uses"
-        + " unsupported, undocumented INUBIT functionality (the lookup of the answering node goes"
-        + " through an internal INUBIT interface) without vendor support or stability guarantee,"
-        + " for diagnosis only; it may stop working after any INUBIT update. Needs write access"
-        + " and unsupported.logLevelWrite. Address cluster nodes directly, not through a load"
-        + " balancer.";
+        + " limited time (default 10 minutes, at most 60), through StartCLI's documented trace"
+        + " --nodelevel command; then download the trace log with download_server_log. The MCP"
+        + " server records a lease and resets the node when it expires, when the MCP server shuts"
+        + " down, or at its next start, also when write access is switched off meanwhile. The reset"
+        + " (StartCLI trace --reset) restores every temporary log level on that node, also those"
+        + " other users set; levels can also be lost earlier (INUBIT restart, log configuration"
+        + " reload). Only the exactly named logger changes. Confirmation as restart_process."
+        + " UNSUPPORTED: uses unsupported, undocumented INUBIT functionality (the lookup of the"
+        + " answering node goes through an internal INUBIT interface) without vendor support or"
+        + " stability guarantee, for diagnosis only; it may stop working after any INUBIT update."
+        + " Needs write access and unsupported.logLevelWrite. Address cluster nodes directly, not"
+        + " through a load balancer.";
     /** contracts/mcp-tools-delta.md "Output", the challenge example verbatim. */
     private static final String CONTRACT_CHALLENGE = """
         { "challenge": {

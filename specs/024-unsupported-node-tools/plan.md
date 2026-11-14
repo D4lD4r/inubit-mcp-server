@@ -234,10 +234,10 @@ docs/setup.md, docs/tools.md, docs/live-tests.md, README.md, SECURITY.md, CHANGE
 - **021** (base branch): the helper, `adapter/cli/helper`, `HelperVariant`, `HelperFailures`,
   `CliConcurrencyLimiter.acquireForHelper(…, budgetSetting)`, `CliCommand`'s `trace` (only
   `--download` so far) are extended, not copied; rebase on `main` after 021's merge (D-30).
-- **022** (full interface coverage, in progress): whichever merges second adds `trace -nl`,
-  `trace -r` (reachable) and `cachemode nodelist` (not used, D-1) to the coverage list and uses
-  022's `ChangeGuard` in place of the `WriteGuard` overload; `CliCommand`'s `trace` forms are
-  merged (022's area A owns `on`/`off`/`-l`) (D-18; spec Assumptions).
+- **022** (full interface coverage, in progress): whichever merges second adds
+  `trace --nodelevel`, `trace --reset` (reachable) and `cachemode nodelist` (not used, D-1) to the
+  coverage list and uses 022's `ChangeGuard` in place of the `WriteGuard` overload; `CliCommand`'s
+  `trace` forms are merged (022's area A owns `on`/`off`/`--level`) (D-18; spec Assumptions).
 - **020** (`QueueEntryService` content rules, `EntryContentClassifier`, `QueueEntryBounds`):
   reused for message content; the content shaping is extracted into a shared `EntryText` helper
   without behaviour change (020 tests unchanged).
@@ -248,7 +248,7 @@ docs/setup.md, docs/tools.md, docs/live-tests.md, README.md, SECURITY.md, CHANGE
 
 | Item | Why needed | Simpler alternative rejected because |
 |---|---|---|
-| **Constitution I deviation**: cleanup resets (`trace --reset`) of recorded leases run while write tools are off (read-only mode, `logLevelWrite` or the production opt-in removed), and the reset clears every temporary level on that node, also other users' | owner decision 2026-11-12 (spec Clarifications): otherwise a raised level stays active without limit after the operator switches write access off | refusing cleanup without write access leaves a changed production-like state behind with no timer (INUBIT has none); resetting single loggers is not possible (`trace -r` is per node). Bounded: only for recorded leases, only `trace --reset`, own-node check first, audited, visible in `get_health` and `--check-config` |
+| **Constitution I deviation**: cleanup resets (`trace --reset`) of recorded leases run while write tools are off (read-only mode, `logLevelWrite` or the production opt-in removed), and the reset clears every temporary level on that node, also other users' | owner decision 2026-11-12 (spec Clarifications): otherwise a raised level stays active without limit after the operator switches write access off | refusing cleanup without write access leaves a changed production-like state behind with no timer (INUBIT has none); resetting single loggers is not possible (`trace --reset` is per node). Bounded: only for recorded leases, only `trace --reset`, own-node check first, audited, visible in `get_health` and `--check-config` |
 | Helper compiled with `release 17` (technology constraint "Java 21 or newer"), carried over from 020/021 | 8.1's client runs on JDK 17; vendor classes must not enter the server JVM | in-JVM class loading mixes vendor state with ours and cannot be killed per call (020 D-1/D-2) |
 | Durable lease store with a file lock, owner identity and a background scheduler | FR-043: leases survive restarts and are shared by instances of one profile; resets must happen without a tool call | an in-memory timer loses the lease on a crash; the audit log is not a queryable store; per-lease files cannot be updated atomically together (D-12, D-13) |
 | Lease generation (compare-and-set) plus a cross-process per-node lock | two instances of one profile: a reset decided by one must never end a lease another just merged, and two changes on one server must not interleave | an in-process lock does not serialize instances; ending leases by id alone loses a concurrent set (D-12, D-14, D-16); the lock reuses the generalized `KnowledgeLock`, no second implementation |

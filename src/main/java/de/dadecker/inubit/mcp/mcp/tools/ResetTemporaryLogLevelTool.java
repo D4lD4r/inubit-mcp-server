@@ -28,16 +28,16 @@ import java.util.function.Function;
 public final class ResetTemporaryLogLevelTool implements ToolHandler {
 
     static final String DESCRIPTION = "Resets every temporary log level on the INUBIT node one"
-        + " {node} reaches through StartCLI's documented trace -r command (every temporary log"
+        + " {node} reaches through StartCLI's documented trace --reset command (every temporary log"
         + " level on that node, also those other users set), and ends the MCP server's lease for"
         + " it; works also without a lease (to clean up an earlier change). With leaseId and"
         + " forget: true it instead ends a lease whose automatic reset failed, without contacting"
         + " INUBIT; the level may then stay raised until that node restarts. Confirmation as"
         + " restart_process. UNSUPPORTED: uses unsupported, undocumented INUBIT functionality (the"
-        + " lookup of the answering node goes through an internal INUBIT interface) without"
-        + " vendor support or stability guarantee, for diagnosis only; it may stop working after"
-        + " any INUBIT update. Needs write access and unsupported.logLevelWrite. Address cluster"
-        + " nodes directly, not through a load balancer.";
+        + " lookup of the answering node goes through an internal INUBIT interface) without vendor"
+        + " support or stability guarantee, for diagnosis only; it may stop working after any"
+        + " INUBIT update. Needs write access and unsupported.logLevelWrite. Address cluster nodes"
+        + " directly, not through a load balancer.";
 
     private final Function<ResetLevelRequest, LogLevelResult> reset;
 

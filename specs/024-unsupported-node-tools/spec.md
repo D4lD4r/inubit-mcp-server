@@ -22,8 +22,8 @@
 - The owner decided (2026-11-12): cleanup resets of recorded leases run even when write tools are
   off (read-only mode, opt-in or production opt-in removed). Reason: otherwise a raised level would
   stay active without limit. This is a deliberate deviation from Constitution I (a state change
-  while write access is off; `trace -r` also clears other users' temporary levels on that node),
-  recorded in the plan's Complexity Tracking.
+  while write access is off; `trace --reset` also clears other users' temporary levels on that
+  node), recorded in the plan's Complexity Tracking.
 
 ## Background
 
@@ -207,9 +207,9 @@ server shutdown or the next start resets the node; refusals happen before any ch
 7. **Given** a group without write access, without the production write opt-in on production, or
    without `unsupported.logLevelWrite`, **When** the set or the reset is requested, **Then** it is
    refused with the existing write refusal or `NOT_CONFIGURED`, and nothing is sent.
-8. **Given** no lease for the node, **When** the reset is confirmed, **Then** `trace -r` is sent,
-   an audit record is written, and the result says no lease was open and names the INUBIT node
-   that answered.
+8. **Given** no lease for the node, **When** the reset is confirmed, **Then** `trace --reset` is
+   sent, an audit record is written, and the result says no lease was open and names the INUBIT
+   node that answered.
 9. **Given** a `RESET_FAILED` lease with the reason "other node answers", **When** the reset is
    confirmed with its lease ID and `forget: true`, **Then** the lease ends as `FORGOTTEN` without
    any request, audited, and the result says the level may still be raised on that node.
@@ -305,10 +305,11 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   command lines, results, logs or audit records.
 - **FR-007**: Only these INUBIT requests MAY be sent: login, the node list, one node's details, the
   node configuration value of an allowlisted name, the I/O message listing of one run, the
-  download of one listed message, StartCLI `trace -nl <level> -p <logger>` and `trace -r`, the
-  question which node answers (the own-node lookup of the node status, or StartCLI `cachemode`
-  `nodelist`, both read-only), logout. No other `trace` form (`on`, `off`, `-l`) and no
-  configuration write MAY ever be sent.
+  download of one listed message, StartCLI `trace --nodelevel <level> --package '<logger>'` and
+  `trace --reset` (the long forms of the vendor's `-nl`, `-p` and `-r`, confirmed on 8.1 by the
+  write spike), the question which node answers (the own-node lookup of the node status, or
+  StartCLI `cachemode` `nodelist`, both read-only), logout. No other `trace` form (`on`, `off`,
+  `--level`) and no configuration write MAY ever be sent.
 
 **Node status (US1)**
 
@@ -372,18 +373,18 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   only by the operating-system user, in the profile's data directory, serialized against concurrent
   instances. The owner instance is identified by process ID plus process start time. A set that
   merges into an existing lease makes the setting instance the owner. The owner resets the node with
-  `trace -r` when the lease expires (within one minute) and before it shuts down (all its nodes in
-  parallel, waiting at most `cliTimeout` in total; a lease not reset then stays open). A set for a
-  node whose lease is `RESET_FAILED` MUST be refused before any change until that reset succeeded or
-  the lease was forgotten. Every running instance MUST, at least every minute and at its start, take
-  over and reset expired or `RESET_FAILED` leases whose owner instance no longer runs. These cleanup
-  resets MUST run whenever all preconditions of FR-005 and FR-006 hold (node configured, client
-  installation and credentials available, version supported and detectable), also when write tools
-  are off (owner decision, see Clarifications); otherwise the lease is `RESET_FAILED` and a startup
-  warning. A failed reset MUST be retried at least every minute while an instance runs and at every
-  start until it succeeds, the reset tool forgets it, or it ends
-  automatically as `FORGOTTEN` (FR-044). Every automatic reset, successful or
-  failed, MUST produce an audit record (tool, server, node, lease, outcome).
+  `trace --reset` when the lease expires (within one minute) and before it shuts down (all its nodes
+  in parallel, waiting at most `cliTimeout` in total; a lease not reset then stays open). A set for
+  a node whose lease is `RESET_FAILED` MUST be refused before any change until that reset succeeded
+  or the lease was forgotten. Every running instance MUST, at least every minute and at its start,
+  take over and reset expired or `RESET_FAILED` leases whose owner instance no longer runs. These
+  cleanup resets MUST run whenever all preconditions of FR-005 and FR-006 hold (node configured,
+  client installation and credentials available, version supported and detectable), also when write
+  tools are off (owner decision, see Clarifications); otherwise the lease is `RESET_FAILED` and a
+  startup warning. A failed reset MUST be retried at least every minute while an instance runs and
+  at every start until it succeeds, the reset tool forgets it, or it ends automatically as
+  `FORGOTTEN` (FR-044). Every automatic reset, successful or failed, MUST produce an audit record
+  (tool, server, node, lease, outcome).
 - **FR-044**: `reset_temporary_log_level` with `node` MUST reset the addressed node and end its
   lease; it MUST also reset a node without a lease (cleaning up an earlier change). With `leaseId`
   and `forget: true` it MUST end a lease in state `RESET_FAILED` (any reason; other states are
@@ -439,8 +440,8 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   write check on a test server needs the owner's approval of the concrete action.
 - Feature 021 is merged first. Feature 022 (full StartCLI and REST coverage, in progress) adds a
   coverage list of StartCLI commands and an area-based write guard; whichever merges second adds
-  `trace -nl`, `trace -r` and `cachemode nodelist` to that list and uses the write guard then in
-  place.
+  `trace --nodelevel`, `trace --reset` and `cachemode nodelist` to that list and uses the write
+  guard then in place.
 
 ## Out of Scope
 

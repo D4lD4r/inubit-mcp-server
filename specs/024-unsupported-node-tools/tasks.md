@@ -471,7 +471,7 @@ liveness, a set raises the levels and records a lease; expiry, shutdown or the n
 the node; refusals happen before any change; two fake instances on one store never end a lease
 the other just changed.
 
-- [ ] T039 [US4] **[LIVE] [OWNER]** 8.1 log-level write spike (D-28 step 2; may start after T001): the
+- [X] T039 [US4] **[LIVE] [OWNER]** 8.1 log-level write spike (D-28 step 2; may start after T001): the
   agent proposes the **concrete action** — the non-production 8.1 test server, the logger
   `com.inubit.ibis.cli` at `INFO` (or the owner's choice), StartCLI `trace --nodelevel INFO
   --package 'com.inubit.ibis.cli'` followed right after by `trace --reset` with the configured 8.1

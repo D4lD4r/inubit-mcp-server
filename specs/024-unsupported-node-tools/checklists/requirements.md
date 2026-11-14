@@ -31,5 +31,5 @@
 
 ## Notes
 
-- The vendor interface names (StartCLI `trace -nl`, request names) appear in Background and FR-006
-  on purpose: they define what may be sent to INUBIT (a safety boundary, as in 020/021).
+- The vendor interface names (StartCLI `trace --nodelevel`, request names) appear in Background and
+  FR-006 on purpose: they define what may be sent to INUBIT (a safety boundary, as in 020/021).

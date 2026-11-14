@@ -572,10 +572,11 @@ same configuration checks up to the opt-in only (no gate, no client check) for t
 which sends nothing (D-15). The `ProcessAction` overload delegates and keeps its texts
 byte-identical (`WriteGuardTest` unchanged).
 **Feature 022**: if 022 is merged before this step, its `ChangeGuard` is used in place of the
-overload and `src/main/resources/coverage/interface-coverage.tsv` gets the rows `trace -nl`
-(reachable, `set_temporary_log_level`), `trace -r` (reachable, `reset_temporary_log_level`) and
-`cachemode nodelist` (not used: the own-node lookup goes through the helper, D-1); `CliCommand`'s
-`trace` forms are merged with 022's (`on`/`off`/`-l` belong to 022's area A, never to these
+overload and `src/main/resources/coverage/interface-coverage.tsv` gets the rows
+`trace --nodelevel` and `trace --package` (reachable, `set_temporary_log_level`), `trace --reset`
+(reachable, `reset_temporary_log_level`) and `cachemode nodelist` (not used: the own-node lookup
+goes through the helper, D-1); `CliCommand`'s `trace` forms are merged with 022's
+(`on`/`off`/`--level` belong to 022's area A, never to these
 tools). Otherwise 022 does the same when it merges second (spec Assumptions).
 
 ## D-19 Confirmation (FR-040)
@@ -821,3 +822,35 @@ Raw output stays owner-only outside every repository. Neutral facts only; I/O lo
 - **clusterNodes with `details`**: the same 23 keys as on 8.1, `details ok 23 false`, no value cut; `InternalNodeAddress` and `ZoneName` are `-`, `ServerLibraryPath` has a value on this node (a path).
 - **nodeConfig**: the same split as 8.1 — the same 11 names answer `ok` with the same types and flags; the same 9 names fail with `com.inubit.ibis.utils.InubitException`, here without the `Exception from service object: ` prefix: `@Start@IError@@@Internal INUBIT error!@End@Cannot invoke "Object.getClass()" because "o" is null` (on the REST side an HTTP 500 per name). The adapter's missing-property rule (chain exactly `InubitException`, message containing the `"o" is null` text) matches both forms.
 - stderr: the same one-line JVM notice about the project's own `JAVA_TOOL_OPTIONS` as on 8.1.
+
+### T039 – 8.1 log-level write spike (2026-11-14, non-production 8.1.17 test node, the configured 8.1.17 client)
+
+Raw output stays owner-only outside every repository. Neutral facts only. The owner approved exactly
+two StartCLI runs, nothing else was run: `trace --nodelevel INFO --package 'com.inubit.ibis.cli'`,
+then right after `trace --reset`.
+
+- **Exit codes**: 0 for both runs.
+- **Long option names**: `--nodelevel`, `--package` and `--reset` are accepted — no usage text, no
+  `Unrecognized option`, no error (an unknown option fails with `Unrecognized option: …` and exit
+  1, docs/research/spike-development-deployment.md lines 44–49; a missing level is
+  `Missing log level.`, static facts above). FR-007, the contracts and the documentation use
+  these long forms.
+- **No confirmation line**: stdout of both runs holds only the client preamble (the `JAVA_HOME`
+  line, the `Password: ` prompt, the `SECURITY WARNING: Hostname verification is disabled …`
+  line, an empty line). The `CommandResult("OK")` of both forms is **not printed** with
+  `--execCommand` — no `n-OK:` line as other commands print. **Deviation from D-11**: the
+  reconstructed `1-OK: OK` line of the current fixtures does not occur.
+- stderr of both runs: only the JVM notice about the project's own `JAVA_TOOL_OPTIONS` (locale and
+  trust store properties).
+- **Persistent trace state unchanged**: get_health `systemInfo` before and after both runs: tracing
+  enabled, `TracingLevel` info.
+- **Consequence (decision for T058)**: the success form of both trace forms is "exit 0 and no
+  error text after the preamble". `CliOutputClassifier.classifyTraceLevel` answers
+  `UNEXPECTED_RESPONSE` for the real success today and changes test-first in T058, together with
+  the fixtures. Limitation: without a confirmation line a silently ignored command cannot be told
+  apart from a success. The static facts show one silent path: `Level.toLevel` turns an unknown
+  level text into `DEBUG` without an error (the StartCLI `trace` row above); T040 sends only the
+  `TemporaryLevel` enum names, which excludes it. Otherwise an unknown option is an error
+  (`Unrecognized option: …`, exit 1, docs/research/spike-development-deployment.md lines 44–49),
+  a missing level is `Missing log level.`, and an already-applied level is a no-op success, so the
+  risk is accepted for a diagnosis tool.

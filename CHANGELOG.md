@@ -142,13 +142,13 @@ verified"): `read_io_log` and the log-level tools on INUBIT 8.1, all five tools 
   `write.enabled` (and `write.productionOptIn` on production), follow the node's confirmation mode
   as `restart_process` and are annotated as destructive.
   - `set_temporary_log_level` raises the level (`TRACE` to `ERROR`) of one to five loggers below
-    `com.inubit.ibis` on the node the address reaches, through StartCLI's documented `trace -nl`,
-    for `durationMinutes` (default 10, at most 60). Only the exactly named logger changes; the
-    persistent trace settings are never changed. The trace log is then downloaded with
-    `download_server_log`.
-  - `reset_temporary_log_level` runs StartCLI's `trace -r`, which restores **every temporary log
-    level on that node, also those other users set**, and ends the lease; it works also without a
-    lease. With `leaseId` and `forget: true` it ends a lease whose automatic reset failed, without
+    `com.inubit.ibis` on the node the address reaches, through StartCLI's documented
+    `trace --nodelevel`, for `durationMinutes` (default 10, at most 60). Only the exactly named
+    logger changes; the persistent trace settings are never changed. The trace log is then
+    downloaded with `download_server_log`.
+  - `reset_temporary_log_level` runs StartCLI's `trace --reset`, which restores **every temporary
+    log level on that node, also those other users set**, and ends the lease; it works also without
+    a lease. With `leaseId` and `forget: true` it ends a lease whose automatic reset failed, without
     contacting INUBIT.
   - **Automatic reset.** Every change is recorded as a lease in
     `~/.inubit-mcp/<profile>/log-levels/` (owner-only). The server resets the node within a minute

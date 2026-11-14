@@ -69,9 +69,9 @@ text after the `serverLogRead` text (verbatim; links relative to `docs/`):
 >
 > **`unsupported.logLevelWrite` changes a running INUBIT node.** `set_temporary_log_level` raises
 > the level of named INUBIT loggers on the node the address reaches through StartCLI's documented
-> `trace -nl`, for a limited time; `reset_temporary_log_level` runs `trace -r`. Both are write
-> tools: they need `write.enabled` (and `write.productionOptIn` on production) and follow the
-> node's confirmation mode.
+> `trace --nodelevel`, for a limited time; `reset_temporary_log_level` runs `trace --reset`. Both
+> are write tools: they need `write.enabled` (and `write.productionOptIn` on production) and follow
+> the node's confirmation mode.
 >
 > - **The reset restores every temporary log level on that node**, also levels other users set.
 >   Only the exactly named logger changes; levels are kept in the node's memory only and can be

@@ -149,8 +149,8 @@ class NodeToolsDocsTest {
 
         String text = unsupported.substring(unsupported.indexOf(WRITE_OPENING));
         assertThat(text).contains(
-            "StartCLI's documented `trace -nl`, for a limited time;"
-                + " `reset_temporary_log_level` runs `trace -r`.",
+            "StartCLI's documented `trace --nodelevel`, for a limited time;"
+                + " `reset_temporary_log_level` runs `trace --reset`.",
             "they need `write.enabled` (and `write.productionOptIn` on production) and follow the"
                 + " node's confirmation mode.",
             "**The reset restores every temporary log level on that node**, also levels other"
