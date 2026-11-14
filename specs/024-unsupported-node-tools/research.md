@@ -862,3 +862,39 @@ then right after `trace --reset`.
   (`Unrecognized option: …`, exit 1, docs/research/spike-development-deployment.md lines 44–49),
   a missing level is `Missing log level.`, and an already-applied level is a no-op success, so the
   risk is accepted for a diagnosis tool.
+
+### T061 – 9.0 log-level write spike (2026-11-14, non-production 9.0.10 test node, the configured 9.0.10 client)
+
+Raw output stays owner-only outside every repository. Neutral facts only. The owner approved exactly
+the same two StartCLI runs as for T039, nothing else was run: `trace --nodelevel INFO --package
+'com.inubit.ibis.cli'`, then right after `trace --reset`. The client ran on JDK 21.
+
+- **Exit codes**: 0 for both runs.
+- **Long option names**: `--nodelevel`, `--package` and `--reset` are accepted on 9.0 as well — no
+  usage text, no error. FR-007 now names 9.0 as confirmed; the contracts and the documentation need no change.
+- **No confirmation line, as on 8.1**: stdout of both runs (identical apart from a timestamp) holds
+  only the 9.0 client preamble and no `n-OK:` line. The preamble differs from 8.1: the `JAVA_HOME`
+  line; the `SECURITY WARNING: Hostname verification is disabled …` line; one client-side log
+  record `ERROR <time> [main      ] DnsServerAddressStreamProviders Unable to load
+  io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider, fallback to system defaults. …
+  java.lang.UnsatisfiedLinkError: failed to load the required native library` (it names no host);
+  the hostname warning again; the `Password: ` prompt; the hostname warning again; empty lines.
+  This is the same shape as the 9.0 StartCLI recordings of features 021/022 (e.g.
+  `fixtures/server-log/v9_0/trace/ok.stdout`, `fixtures/v9_0/cli/*`), which carry the same netty
+  line.
+- stderr of both runs: only the JVM notice about the project's own `JAVA_TOOL_OPTIONS` (locale and
+  trust store properties; the 9.0.10 client takes the trust store this way because its login
+  ignores `--trustStoreFilePath`).
+- **Persistent trace state unchanged**: get_health `systemInfo` before and after both runs: tracing
+  enabled, `TracingLevel` warn.
+- **Consequence (decision for T065)**: the success form on 9.0 is the same silent success as on 8.1
+  ("exit 0 and no error text after the preamble"). The strict T058 rule (anything after the leading
+  preamble, a log record included, is `UNEXPECTED_RESPONSE`, D-11) rejects the real 9.0 success:
+  the netty line is a log record, and the hostname warning repeats around it and after the
+  `Password: ` prompt. T065 changes `CliOutputClassifier.classifyTraceLevel` test-first to
+  tolerate exactly this known vendor line and the repeated preamble lines, together with the
+  `v9_0/log-level` fixtures; every other log record stays `UNEXPECTED_RESPONSE`. The limitation of
+  T039 (a silently ignored command cannot be told apart from a success) applies unchanged.
+  **Deviation from D-11**: in the same T065 commit, D-11's success bullet and the
+  `classifyTraceLevel` javadoc are changed to allow this one vendor log record and the repeated
+  preamble lines on 9.0.

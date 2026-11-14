@@ -304,12 +304,12 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   audit records MUST follow the existing tools (020, 021). Credentials MUST never appear in
   command lines, results, logs or audit records.
 - **FR-007**: Only these INUBIT requests MAY be sent: login, the node list, one node's details, the
-  node configuration value of an allowlisted name, the I/O message listing of one run, the
-  download of one listed message, StartCLI `trace --nodelevel <level> --package '<logger>'` and
-  `trace --reset` (the long forms of the vendor's `-nl`, `-p` and `-r`, confirmed on 8.1 by the
-  write spike), the question which node answers (the own-node lookup of the node status, or
-  StartCLI `cachemode` `nodelist`, both read-only), logout. No other `trace` form (`on`, `off`,
-  `--level`) and no configuration write MAY ever be sent.
+  node configuration value of an allowlisted name, the I/O message listing of one run, the download
+  of one listed message, StartCLI `trace --nodelevel <level> --package '<logger>'` and `trace
+  --reset` (the long forms of the vendor's `-nl`, `-p` and `-r`, confirmed on 8.1 and 9.0 by the
+  write spikes (T039, T061)), the question which node answers (the own-node lookup of the node
+  status, or StartCLI `cachemode` `nodelist`, both read-only), logout. No other `trace` form (`on`,
+  `off`, `--level`) and no configuration write MAY ever be sent.
 
 **Node status (US1)**
 

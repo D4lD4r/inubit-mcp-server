@@ -729,7 +729,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   *Status 2026-11-13*: cluster nodes (+ details) and configuration values done on 9.0.10 (research.md
   "Spike findings" T060); I/O logging not tried (same account question as T018). Neutralized drafts for
   T062/T064 are in the session scratchpad (t062-out, t064-out), not in the repository.
-- [ ] T061 [US5] **[LIVE] [OWNER]** 9.0 log-level write spike (as T039 for 9.0; the owner approves
+- [X] T061 [US5] **[LIVE] [OWNER]** 9.0 log-level write spike (as T039 for 9.0; the owner approves
   exactly that action)
 - [X] T062 [US5] **[OWNER]** **[BLOCKED: T060]** Enable 9.0 `cluster_nodes_read` in **one commit**:
   neutralize as T025 into `v9_0/cluster-nodes/ok.*`; new `adapter/cli/node/NodeToolsV90ContractTest.java`
@@ -746,6 +746,9 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   Note (merge review): in the same commit set the `CLI trace --nodelevel`, `--package` and
   `--reset` rows of interface-coverage.tsv for that line from `planned` (US4) to `reachable`
   (`set_temporary_log_level` / `reset_temporary_log_level`) and regenerate docs/interface-coverage.md.
+  Note (T061): in the same commit change research.md D-11's success bullet and the
+  `CliOutputClassifier.classifyTraceLevel` javadoc to allow the one 9.0 netty log record and the
+  repeated preamble lines (research.md "Spike findings" T061), test-first.
 - [X] T066 [US5] **[OWNER]** FR-005 fallback (only for a 9.0 capability whose recording could not be
   made): it stays `UNSUPPORTED` "not yet verified"; `NodeToolsVersionSelectionTest` and the docs
   state it; the owner confirms; noted in `reviews/implementation.md`
