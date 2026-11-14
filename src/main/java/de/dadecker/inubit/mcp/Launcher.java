@@ -569,8 +569,16 @@ final class Launcher {
                 if (closing != null) {
                     closing.start(UpdateCheck.daemonExecutor());
                 }
+                // feature 024 (research D-17, FR-045): the leases found, then the scheduler
+                Wiring.LeaseStart leases = wiring.startLeases();
+                if (leases.open() > 0) {
+                    LOG.info("{} temporary log level lease(s) open", leases.open());
+                }
+                leases.warnings().forEach(warning -> LOG.warn("{}", warning));
                 server.awaitInputClosed();
                 LOG.info("stdin closed; shutting down");
+                // D-17: the open leases are reset while StartCLI can still run
+                wiring.resetLeasesOnShutdown();
                 wiring.stopCliWork();
             }
             return EXIT_OK;

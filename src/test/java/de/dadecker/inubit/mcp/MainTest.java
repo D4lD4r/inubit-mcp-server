@@ -10,6 +10,7 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.os.NoJob;
 import de.dadecker.inubit.mcp.application.ReleaseSource;
 import de.dadecker.inubit.mcp.application.UpdateCheck;
+import de.dadecker.inubit.mcp.application.nodetools.LeaseStore;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.FailureKind;
@@ -17,6 +18,16 @@ import de.dadecker.inubit.mcp.config.ParameterType;
 import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.domain.model.SemVer;
+import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.node.Lease;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseAttempt;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseOwner;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseReason;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseState;
+import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
+import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.infra.BuildInfo;
 import de.dadecker.inubit.mcp.infra.FileUpdateCache;
 import de.dadecker.inubit.mcp.infra.LogLevels;
@@ -45,11 +56,18 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.SortedMap;
+import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -2412,6 +2430,63 @@ class MainTest {
 
         assertThat(lines).anyMatch(line -> line.contains("started for profile acme"));
         assertThat(lines).noneMatch(line -> line.contains("pinPerServer"));
+    }
+
+    @Test
+    void theStartLogsTheOpenLeasesAndWarnsAboutFailedResetsAndUnconfiguredServers()
+        throws Exception {
+        // feature 024 T053 (FR-045, research D-17): leases of another running instance, so that
+        // neither the startup tick nor the shutdown touches them
+        credentials();
+        ProcessHandle parent = ProcessHandle.current().parent().orElseThrow();
+        LeaseOwner other = new LeaseOwner(parent.pid(), parent.info().startInstant()
+            .map(start -> start.truncatedTo(ChronoUnit.MILLIS)));
+        Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        Lease active = lease("dev/node1", other, now.plus(Duration.ofMinutes(10)));
+        Lease failed = lease("dev/node1", other, now.minus(Duration.ofMinutes(1)))
+            .failed(new LeaseAttempt(now, AuditOutcome.FAILED, Optional.of(ErrorCode.UNREACHABLE),
+                Optional.of(LeaseReason.NODE_UNREACHABLE)));
+        Lease unconfigured = lease("gone/node9", other, now.minus(Duration.ofDays(1)));
+        Lease ended = lease("dev/node1", other, now.minus(Duration.ofMinutes(5)))
+            .reset(now.minus(Duration.ofMinutes(4)));
+        Path leases = LeaseStore.defaultDirectory(home, "acme");
+        new LeaseStore(leases, PrivateFiles.forHost(), Clock.systemUTC()).update(
+            stored -> List.of(active, failed, unconfigured, ended), Duration.ofSeconds(5));
+
+        List<String> lines = startupLogOfAnInitializedServer(validConfig());
+
+        assertThat(lines).filteredOn(line -> line.contains("lease")).containsExactly(
+            "3 temporary log level lease(s) open",
+            "Temporary log level lease " + failed.leaseId() + " of dev/node1 (INUBIT node node1):"
+                + " the last reset failed (node unreachable); the level may still be raised until"
+                + " the reset is retried",
+            "Temporary log level lease " + unconfigured.leaseId() + " of gone/node9 (INUBIT node"
+                + " node1): the server is no longer configured, so the level is not reset; the"
+                + " lease is forgotten automatically on "
+                + now.minus(Duration.ofDays(1)).plus(Duration.ofDays(7)).atZone(ZoneOffset.UTC)
+                    .toLocalDate());
+    }
+
+    @Test
+    void withoutALeaseStoreTheStartLogsNoLeaseLineAndCreatesNoFile() throws Exception {
+        // feature 024 T053 (research D-12, D-17)
+        credentials();
+
+        List<String> lines = startupLogOfAnInitializedServer(validConfig());
+
+        assertThat(lines).anyMatch(line -> line.contains("started for profile acme"))
+            .noneMatch(line -> line.contains("lease"));
+        assertThat(LeaseStore.defaultDirectory(home, "acme")).doesNotExist();
+    }
+
+    /** A lease of {@code server} on INUBIT node node1 that expires at {@code expiresAt}. */
+    private static Lease lease(String server, LeaseOwner owner, Instant expiresAt) {
+        SortedMap<LoggerName, TemporaryLevel> loggers =
+            new TreeMap<>(Comparator.comparing(LoggerName::value));
+        loggers.put(new LoggerName("com.inubit.ibis.acme.Orders"), TemporaryLevel.DEBUG);
+        return new Lease(UUID.randomUUID(), 1, NodeId.parse(server), "node1", loggers,
+            expiresAt.minus(Duration.ofMinutes(10)), expiresAt, owner, LeaseState.ACTIVE,
+            UUID.randomUUID(), Optional.empty(), Optional.empty());
     }
 
     @Test

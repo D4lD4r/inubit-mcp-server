@@ -22,6 +22,7 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLiveness;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
@@ -84,7 +85,13 @@ import de.dadecker.inubit.mcp.application.knowledge.KnowledgeService;
 import de.dadecker.inubit.mcp.application.knowledge.NoteRefs;
 import de.dadecker.inubit.mcp.application.nodetools.ClusterNodeService;
 import de.dadecker.inubit.mcp.application.nodetools.IoLogService;
+import de.dadecker.inubit.mcp.application.nodetools.LeaseScheduler;
+import de.dadecker.inubit.mcp.application.nodetools.LeaseStore;
+import de.dadecker.inubit.mcp.application.nodetools.LogLevelAudit;
+import de.dadecker.inubit.mcp.application.nodetools.LogLevelService;
 import de.dadecker.inubit.mcp.application.nodetools.NodeConfigService;
+import de.dadecker.inubit.mcp.application.nodetools.NodeLogLevelLocks;
+import de.dadecker.inubit.mcp.application.nodetools.ProcessLiveness;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.ConfirmationMode;
 import de.dadecker.inubit.mcp.config.CredentialNames;
@@ -97,6 +104,7 @@ import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.DeployMode;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
+import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
@@ -105,10 +113,15 @@ import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
+import de.dadecker.inubit.mcp.domain.model.node.Lease;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseAttempt;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseOwner;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseState;
 import de.dadecker.inubit.mcp.domain.port.ClientSelectionPort;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.E2ePort;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
+import de.dadecker.inubit.mcp.domain.port.LeaseView;
 import de.dadecker.inubit.mcp.domain.port.NetworkPathProbe;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.infra.AuditLog;
@@ -151,15 +164,25 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Composition root: builds the shared components from a validated configuration and the tool
@@ -195,9 +218,18 @@ import java.util.function.Supplier;
  * unsupported ({@link #possiblyCapable}); {@code deploy_release} needs such a target node.
  *
  * <p>The JVM shutdown hook that stops StartCLI work is registered as the last step of the
- * constructor, so that a failing constructor leaves no hook behind (US3 re-review N2).
+ * constructor, so that a failing constructor leaves no hook behind (US3 re-review N2). Feature
+ * 024 (research D-17): it first resets the open log-level leases of this instance
+ * ({@link #resetLeasesOnShutdown()}).
  */
 final class Wiring implements AutoCloseable {
+
+    private static final Logger LOG = LoggerFactory.getLogger(Wiring.class);
+    /**
+     * The least time stopping the lease scheduler waits: a running tick holds the store lock at
+     * most {@code LogLevelService.STORE_WAIT}.
+     */
+    private static final Duration SCHEDULER_STOP = Duration.ofSeconds(2);
 
     private final ProfileInfo profile;
     /** Feature 012 (research D-12): the capability matrix, injectable for tests. */
@@ -258,6 +290,17 @@ final class Wiring implements AutoCloseable {
         .ConcurrentHashMap<>();
     private final CliResources cliResources;
     private final Thread cleanupHook;
+    /** Feature 024 (research D-12, D-16, D-17): the profile's temporary log-level leases. */
+    private final LeaseStore leaseStore;
+    private final LeaseScheduler leaseScheduler;
+    private final LogLevelService logLevels;
+    private final ProcessLiveness liveness;
+    /** The {@code cliTimeout} of each configured server; a lease of any other is never reset. */
+    private final Map<NodeId, Duration> cliTimeouts = new HashMap<>();
+    /** Whether {@link #startLeases()} ran, so that {@link #close()} resets the leases. */
+    private final AtomicBoolean leasesStarted = new AtomicBoolean();
+    /** The first {@link #resetLeasesOnShutdown()}; later calls wait for it. */
+    private final AtomicReference<CompletableFuture<Void>> leaseReset = new AtomicReference<>();
     /** Feature 015 (research R-9): the configuration roots an archive target stays out of. */
     private final ConfigLocation configLocation;
     /** Feature 023 (research D-6a): the locations derived from the handed-in home. */
@@ -365,7 +408,8 @@ final class Wiring implements AutoCloseable {
         // 002 research D-8: the export directories carry the profile name
         // feature 013 (FR-007): the export and import directories are private on every platform
         this.cliResources = new CliResources(profile.name(), privateFiles);
-        this.cleanupHook = new Thread(cliResources::close, "inubit-mcp-cli-cleanup");
+        // feature 024 (research D-17): the open leases are reset before StartCLI work is stopped
+        this.cleanupHook = new Thread(this::shutdownHook, "inubit-mcp-cli-cleanup");
         Terminology terms = profile.terminology();
         this.servers = config.effectiveNodes();
         this.targets = new TargetResolver(servers.stream().map(EffectiveNodeConfig::id).toList(),
@@ -476,8 +520,8 @@ final class Wiring implements AutoCloseable {
             knowledgeRecording ? new KnowledgeService.Writing(privateFiles, clock.clock(),
                 new KnowledgeAudit.Dependencies(audit, clock.clock(), profile.name(),
                     UUID::randomUUID)) : null);
-        this.processControl = new ProcessControlService(
-            new WriteGuard(targets, policies, gateways, versionGate), policies,
+        WriteGuard writeGuard = new WriteGuard(targets, policies, gateways, versionGate);
+        this.processControl = new ProcessControlService(writeGuard, policies,
             gateways, new ConfirmationRegistry(clock.clock()), audit, clock.clock(),
             UUID::randomUUID, profile.name());
         this.findPartners = new FindPartnersTool(partners, partnerAudits);
@@ -633,6 +677,24 @@ final class Wiring implements AutoCloseable {
         this.importArtifacts = new ImportArtifactsTool(imports);
         this.restoreBackup = new RestoreBackupTool(imports);
         this.setActive = new SetActiveTool(imports);
+        // feature 024 (FR-043 ... FR-045, research D-12, D-16, D-17): the profile's lease store and
+        // node locks below <home>/.inubit-mcp/<profile>/log-levels (created on the first lease),
+        // the log-level service on the shared challenge registry and audit log, and the scheduler
+        // (startLeases()); a takeover is recorded with the server's INUBIT account (D-22)
+        Path leaseDirectory = LeaseStore.defaultDirectory(userHome, profile.name());
+        this.leaseStore = new LeaseStore(leaseDirectory, privateFiles, clock.clock());
+        this.liveness = new SystemProcessLiveness();
+        servers.forEach(server -> cliTimeouts.put(server.id(), server.cliTimeout()));
+        LogLevelAudit logLevelAudit = new LogLevelAudit(audit, clock.clock(), profile.name(),
+            UUID::randomUUID);
+        this.logLevels = new LogLevelService(writeGuard, id -> byId.get(id).logLevelWrite(),
+            gateways, challenges, leaseStore, new NodeLogLevelLocks(leaseDirectory, privateFiles),
+            liveness, logLevelAudit, id -> byId.get(id).cliTimeout(), clock.clock(),
+            System::nanoTime);
+        this.leaseScheduler = new LeaseScheduler(leaseStore, logLevels, liveness, logLevelAudit,
+            cliTimeouts::containsKey,
+            id -> Optional.ofNullable(policies.apply(id)).flatMap(WritePolicy::account),
+            clock.clock());
         // last step (N2): SIGTERM (and System.exit) stop running StartCLI work and delete the
         // export directories
         Runtime.getRuntime().addShutdownHook(cleanupHook);
@@ -1035,8 +1097,138 @@ final class Wiring implements AutoCloseable {
         cliResources.close();
     }
 
+    /** Whether StartCLI work has been stopped ({@link #stopCliWork()} or the shutdown hook). */
+    boolean cliWorkStopped() {
+        return cliResources.closed();
+    }
+
+    /**
+     * What {@code Launcher} logs about the leases at the start (feature 024, research D-17,
+     * FR-045).
+     *
+     * @param open     the open leases of the profile
+     * @param warnings one per {@code RESET_FAILED} lease of a configured server and one per open
+     *                 lease of a server no longer configured
+     */
+    record LeaseStart(int open, List<String> warnings) {
+    }
+
+    /**
+     * Reads the open leases of the profile, then starts the lease scheduler, whose first tick is
+     * the startup cleanup (research D-17). Nothing is reported if the store cannot be read: the
+     * scheduler warns about that.
+     */
+    LeaseStart startLeases() {
+        int open = 0;
+        List<String> warnings = new ArrayList<>();
+        if (leaseStore.leases() instanceof LeaseView.Snapshot.Leases stored) {
+            List<Lease> openLeases = stored.leases().stream()
+                .filter(lease -> lease.state().open()).toList();
+            open = openLeases.size();
+            openLeases.stream().filter(lease -> lease.state() == LeaseState.RESET_FAILED
+                    && cliTimeouts.containsKey(lease.server()))
+                .map(lease -> "Temporary log level lease " + lease.leaseId() + " of "
+                    + lease.server() + " (INUBIT node " + lease.inubitNode() + "): the last reset"
+                    + " failed" + lease.lastAttempt().flatMap(LeaseAttempt::reason)
+                        .map(reason -> " (" + reason.text() + ")").orElse("")
+                    + "; the level may still be raised until the reset is retried")
+                .forEach(warnings::add);
+            warnings.addAll(leaseScheduler.pendingForgetWarnings());
+        }
+        leasesStarted.set(true);
+        leaseScheduler.start();
+        return new LeaseStart(open, warnings);
+    }
+
+    /**
+     * Feature 024 (research D-17, FR-043): stops the lease scheduler, then resets every open lease
+     * of this instance on a configured server ({@link LogLevelService#cleanup}, trigger
+     * {@code shutdown}), the nodes in parallel. Stopping the scheduler (a running tick and
+     * cleanup) and the resets share one deadline: the largest {@code cliTimeout} of the nodes with
+     * own open leases, but at least {@link #SCHEDULER_STOP}; the resets get what is left. A lease
+     * not reset by then stays open for the next start or another instance. Called when stdin is
+     * closed, by the shutdown hook and by {@link #close()}, before StartCLI work is stopped; the
+     * first call does the work, a later one waits for it.
+     */
+    void resetLeasesOnShutdown() {
+        CompletableFuture<Void> mine = new CompletableFuture<>();
+        CompletableFuture<Void> first = leaseReset.compareAndExchange(null, mine);
+        if (first != null) {
+            first.join();
+            return;
+        }
+        try {
+            // the ticks stop first, so that no tick decides on a lease reset here
+            Duration largest = largestCliTimeout(ownOpenLeases().keySet());
+            Duration bound = largest.compareTo(SCHEDULER_STOP) > 0 ? largest : SCHEDULER_STOP;
+            long deadline = System.nanoTime() + bound.toNanos();
+            leaseScheduler.shutdown(bound);
+            Map<NodeId, List<Lease>> perNode = ownOpenLeases();
+            if (perNode.isEmpty()) {
+                return;
+            }
+            ExecutorService resets = Executors.newFixedThreadPool(perNode.size(),
+                Thread.ofPlatform().daemon().name("inubit-mcp-shutdown-reset-", 0).factory());
+            perNode.values().forEach(leases -> resets.submit(() -> leases.forEach(this::reset)));
+            resets.shutdown();
+            boolean ended;
+            try {
+                ended = resets.awaitTermination(Math.max(0, deadline - System.nanoTime()),
+                    TimeUnit.NANOSECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                ended = false;
+            }
+            if (!ended) {
+                resets.shutdownNow();
+                LOG.warn("Temporary log levels not reset within {} at shutdown; their leases stay"
+                    + " open for the next start or another instance",
+                    Durations.human(bound));
+            }
+        } finally {
+            mine.complete(null);
+        }
+    }
+
+    private Duration largestCliTimeout(Set<NodeId> nodes) {
+        return nodes.stream().map(cliTimeouts::get).max(Duration::compareTo)
+            .orElse(Duration.ZERO);
+    }
+
+    /** The open leases this instance owns on configured servers, per server. */
+    private Map<NodeId, List<Lease>> ownOpenLeases() {
+        if (!(leaseStore.leases() instanceof LeaseView.Snapshot.Leases stored)) {
+            return Map.of();
+        }
+        LeaseOwner self = liveness.self();
+        return stored.leases().stream()
+            .filter(lease -> lease.state().open() && lease.owner().equals(self)
+                && cliTimeouts.containsKey(lease.server()))
+            .collect(Collectors.groupingBy(Lease::server, LinkedHashMap::new,
+                Collectors.toList()));
+    }
+
+    private void reset(Lease lease) {
+        try {
+            logLevels.cleanup(lease, LogLevelAudit.Trigger.SHUTDOWN);
+        } catch (RuntimeException e) {
+            LOG.warn("Shutdown reset of lease {} on {} failed ({})", lease.leaseId(),
+                lease.server(), e.getClass().getSimpleName());
+        }
+    }
+
+    /** The JVM shutdown hook (SIGTERM, {@code System.exit}): the leases, then StartCLI work. */
+    void shutdownHook() {
+        resetLeasesOnShutdown();
+        cliResources.close();
+    }
+
     @Override
     public void close() {
+        // serve may end early (interrupted, failed) without the reset after stdin closed
+        if (leasesStarted.get()) {
+            resetLeasesOnShutdown();
+        }
         e2eClients.values().forEach(SoapE2eClient::close);
         cliResources.close();
         gateways.close();

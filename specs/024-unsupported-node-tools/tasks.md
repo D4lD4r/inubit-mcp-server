@@ -640,7 +640,7 @@ the other just changed.
   Note (T051 review): `cleanup` can still throw a RuntimeException before `PENDING` (lock, guard/gate,
   credentials, gateways, audit); catch RuntimeException around each cleanup so the scheduled task
   never ends, and rate-limit the unreadable-store WARN to once per hour (D-12).
-- [ ] T053 [US4] Shutdown and startup integration (FR-043, FR-045, D-17; after T052 and T036 — same `Wiring.java`/`MainTest.java`): `Wiring.java`
+- [X] T053 [US4] Shutdown and startup integration (FR-043, FR-045, D-17; after T052 and T036 — same `Wiring.java`/`MainTest.java`): `Wiring.java`
   creates `LeaseStore`, `NodeLogLevelLocks`, `LeaseScheduler` (started after construction),
   `resetLeasesOnShutdown()` (idempotent; `cleanup` with trigger `shutdown` for own open leases,
   parallel, bounded by the largest `cliTimeout`), the shutdown hook runs it **before**
