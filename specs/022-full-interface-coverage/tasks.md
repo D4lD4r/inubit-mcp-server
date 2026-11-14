@@ -716,7 +716,7 @@ offered).
     reachable, covered by another tool, planned, missing line); `VersionGateActionTest`
     (`admitOption` with a test coverage file: 8.1 admitted, 9.0 `planned` refused "not yet
     verified", 6.1 refused, and the 9.0 row flipped to `covered:find_processes` admits 9.0).
-- [ ] T045a [US3] `waits` tokens (FR-004): `domain/model/CoverageEntry.WAITS_ITEM` admits
+- [X] T045a [US3] `waits` tokens (FR-004): `domain/model/CoverageEntry.WAITS_ITEM` admits
   `L-1` … `L-21`, `9.0-pin` and the new `9.0-followup` (`contracts/coverage-list.md`).
   - Failing test first in `InterfaceCoverageTest`: `L-21` and `9.0-followup` accepted, `L-22`
     and an unknown token refused.

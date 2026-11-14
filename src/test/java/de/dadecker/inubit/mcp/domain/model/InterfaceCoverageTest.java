@@ -107,6 +107,15 @@ class InterfaceCoverageTest {
     }
 
     @Test
+    void waitsAcceptsTheLastLiveCheckAndTheFollowUp() {
+        InterfaceCoverage coverage = load(
+            "REST\tGET /license\tREAD\tA\tUS1\tplanned\tplanned\tL-21+9.0-followup");
+
+        assertThat(coverage.entries()).extracting(CoverageEntry::waits)
+            .containsExactly(List.of("L-21", "9.0-followup"));
+    }
+
+    @Test
     void anExclusionReasonOf120CharactersIsAccepted() {
         String reason = "r".repeat(120);
 
@@ -185,8 +194,8 @@ class InterfaceCoverageTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"L-0", "L-19", "L-01", "L1", "9.0", "pin", "", "L-1+", "+L-1",
-        "L-1++9.0-pin", "L-1,9.0-pin", "L-1 + 9.0-pin"})
+    @ValueSource(strings = {"L-0", "L-22", "L-01", "L1", "9.0", "pin", "9.0-later", "followup",
+        "", "L-1+", "+L-1", "L-1++9.0-pin", "L-1,9.0-pin", "L-1 + 9.0-pin"})
     void failsOnAnUnknownWaitsValue(String waits) {
         assertFails("line 4", "waits",
             "REST\tGET /license\tREAD\tA\tUS1\tplanned\tplanned\t" + waits);
