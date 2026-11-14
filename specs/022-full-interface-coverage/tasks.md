@@ -838,7 +838,7 @@ offered).
   - the 9.0 rows flipped to `reachable:export_archives/xslt10Report`.
   - Failing tests first: `CliCommandTest`, `ExportArchivesContentTest` (the report file, folder
     rules, production opt-in), `ModelDetailsSecretLeakTest`, the 9.0 contract test.
-- [ ] T047a [US3] Docs and PR for 9.0 (after T046a and, where it applies, T046d):
+- [X] T047a [US3] Docs and PR for 9.0 (after T046a and, where it applies, T046d):
   - `docs/tools.md`, `CHANGELOG.md`, coverage page;
   - `docs/research/inubit-interfaces.md`: the 9.0 facts of T039a (module detail form, library
     list, the metadata registry export, `fetchXSLT1.0` on 9.0 and its row state);

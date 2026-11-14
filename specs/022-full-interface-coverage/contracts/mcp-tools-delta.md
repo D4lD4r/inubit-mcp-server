@@ -99,8 +99,10 @@ each tool's test, as for the existing tools. Types and validation: [data-model.m
   `libraries`; `source` is `REST` for `module`, `CLI` for `libraries`.
 - **Rules** (research D-21, "Live recording T039"):
   - `module` reads `GET /model/nodeByModel/{diagram}/{moduleId}` as XML; an unknown id gives
-    `NOT_FOUND` (the `500` page with the "could not be found" message), any other answer
-    `UNEXPECTED_RESPONSE` with a masked excerpt;
+    `NOT_FOUND` on 8.1 (the `500` page with the "could not be found" message) and on 9.0
+    `UNEXPECTED_RESPONSE` with a masked excerpt and the hint that the module id probably does not
+    exist (the generic `500` `ApiError` names no module; owner decision 2026-11-14), any other
+    answer `UNEXPECTED_RESPONSE` with a masked excerpt;
   - there is no `moduleName` input: `GET /model/nodeByName` is absent on 8.1.17 (`excluded:`)
     and `undocumented` on 9.0;
   - `libraries` carries `rowFormatVerified: false` until L-21 records a listed library; the

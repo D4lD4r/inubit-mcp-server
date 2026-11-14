@@ -595,9 +595,9 @@ The logins cost one JVM start per form, because the 8.1 client offers them only 
   - The schema uses `if`/`then` per `content`; `diagramGroup` is required only for `workflows`.
   - The check-in comment trace of StartCLI exports is named in the description (FR-008).
 - **`xslt10Report` is not offered** (L-7 fallback): `fetchXSLT1.0` does not exist on 8.1.17
-  (`Command not found.`). Its rows are `excluded:command not found on INUBIT 8.1.17` on 8.1; 9.0
-  stays open until a 9.0 recording (T039a, US3 9.0 follow-up); T046d offers it on 9.0 only if
-  the command exists there and the owner decides so.
+  (`Command not found.`). Its rows are `excluded:command not found on INUBIT 8.1.17` on 8.1. On
+  9.0 the command is absent too (T039a, "Live recording T039a": `Command not found.` on 9.0.10),
+  so its 9.0 rows are `excluded:command not found on INUBIT 9.0.10` and T046d does not apply.
 - **`find_processes` `userColumn`** (`ps -u`, L-8, owner decisions 2026-11-14):
   - optional integer `1..5`; the result shows that one user-defined Queue Manager column;
   - the values come from the REST `queueLog` rows that `find_processes` already reads: the field
