@@ -117,3 +117,22 @@ The orchestrator asked the operator on 2026-11-12 for the read spikes T018 (8.1)
 - **Open, 022's task**: `ChangeGuard` is not on `main` (it comes with 022's write stories). The
   log-level tools keep the `WriteGuard` overload (T047); switching them to `ChangeGuard` falls to
   022 when it adds it.
+
+## T066 – FR-005 fallback for io_log_read (2026-11-14)
+
+- **Owner decision** (2026-11-14, confirmed in chat): `io_log_read` stays `UNSUPPORTED` "not yet
+  verified" on INUBIT 8.1 **and** 9.0 for this release. `read_io_log` ships but is offered on no
+  node (FR-005).
+- **Reason**: the configured account of the non-production test nodes lacks the INUBIT right the
+  I/O-log listing checks; on 8.1 every listing answered `NotAllowedAccess` (research "Spike
+  findings" T018), and on 9.0 no listing was recorded for the same account question (T060). No
+  account with that right was available.
+- **State**: `CapabilityMatrix.production()` keeps `IO_LOG_READ` in `V8_1_NOT_YET_VERIFIED` and
+  `V9_0_NOT_YET_VERIFIED`; `NodeToolsVersionSelectionTest.readIoLogStaysNotYetVerifiedOn81And90`
+  pins it, and the production branch refuses `read_io_log` on both lines with the "not yet
+  verified" message. `docs/tools.md` (`read_io_log` Versions, capability row, "not offered"
+  sentence), `docs/setup.md` (Unsupported functions), `README.md` (tool table) and `CHANGELOG.md`
+  state it.
+- **Open**: T032 (8.1) and T063 (9.0) stay open; pick them up when an account with the I/O-log
+  right exists on a non-production node.
+- `log_level_write` on 9.0 is not part of this fallback (spike T061, flip T065).

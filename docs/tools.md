@@ -1993,7 +1993,8 @@ cluster nodes directly, not through a load balancer.
 
 **Versions.** `io_log_read` is not yet verified for INUBIT 8.1: the recording of 8.1 was refused
 by INUBIT for the account of the test node (`FORBIDDEN`), so the listing form is not recorded yet.
-`io_log_read` is not yet verified for INUBIT 9.0. Both are refused with `UNSUPPORTED_VERSION`
+`io_log_read` is not yet verified for INUBIT 9.0 either: no test account with that right was
+available, so no 9.0 recording was made. Both are refused with `UNSUPPORTED_VERSION`
 (`read_io_log: INUBIT 8.1.17 on test/node1: reading module input/output logging is not yet
 verified for INUBIT 8.1; nothing was sent`), as are INUBIT 6.1, any other line and an undeclared
 version. As long as `io_log_read` is supported on no INUBIT version, `read_io_log` is not offered

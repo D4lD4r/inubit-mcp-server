@@ -411,6 +411,7 @@ message is read masked and bounded; an unlisted reference is refused before any 
   `recorded …`; **the owner reviews the fixture diff before the commit**; in the same commit 8.1
   `IO_LOG_READ` → `SUPPORTED` with the same test updates as T025. If T018 shows that the listing
   keys on another process id than `query_logs` returns, stop and ask the owner (spec gap)
+  Note (T066, owner decision 2026-11-14): open for a later release; see reviews/implementation.md "T066 – FR-005 fallback for io_log_read".
 
 **Checkpoint**: build green; US1 and US2 work independently; code review of Phase 4.
 
@@ -737,6 +738,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   matrix, announcement and `MainTest` updated first
 - [ ] T063 [US5] **[OWNER]** **[BLOCKED: T060, T062]** Enable 9.0 `io_log_read` in **one commit** (as
   T032 for `v9_0/io-log`; `NodeToolsV90ContractTest` extended)
+  Note (T066, owner decision 2026-11-14): open for a later release; see reviews/implementation.md "T066 – FR-005 fallback for io_log_read".
 - [X] T064 [US5] **[OWNER]** **[BLOCKED: T060, T062]** Enable 9.0 `node_config_read` in **one
   commit** (as T038 for `v9_0/node-config`; `noOfRetries`/`retryInterval` present on 9.0)
 - [ ] T065 [US5] **[OWNER]** **[BLOCKED: T061, T062]** Enable 9.0 `log_level_write` in **one commit**
@@ -744,7 +746,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   Note (merge review): in the same commit set the `CLI trace --nodelevel`, `--package` and
   `--reset` rows of interface-coverage.tsv for that line from `planned` (US4) to `reachable`
   (`set_temporary_log_level` / `reset_temporary_log_level`) and regenerate docs/interface-coverage.md.
-- [ ] T066 [US5] **[OWNER]** FR-005 fallback (only for a 9.0 capability whose recording could not be
+- [X] T066 [US5] **[OWNER]** FR-005 fallback (only for a 9.0 capability whose recording could not be
   made): it stays `UNSUPPORTED` "not yet verified"; `NodeToolsVersionSelectionTest` and the docs
   state it; the owner confirms; noted in `reviews/implementation.md`
 

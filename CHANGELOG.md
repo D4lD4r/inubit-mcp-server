@@ -36,7 +36,9 @@ configuration values, and a temporary log level with an automatic reset. Verifie
 recorded, neutralized answers of a live non-production node: on INUBIT 8.1 `list_cluster_nodes`,
 `get_node_config` and the log-level tools, on INUBIT 9.0 `list_cluster_nodes` and
 `get_node_config`. Not yet verified, and refused there with `UNSUPPORTED_VERSION` ("not yet
-verified"): `read_io_log` on INUBIT 8.1, the other three tools on INUBIT 9.0.
+verified"): `read_io_log` on INUBIT 8.1, the other three tools on INUBIT 9.0. `read_io_log` is
+therefore not offered yet: no recording of its listing exists, as no test account with INUBIT's
+right for it was available.
 
 ### Added
 

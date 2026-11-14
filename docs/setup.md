@@ -916,6 +916,10 @@ interfaces the Workbench uses, driven by the local INUBIT client installation.
 - **`read_io_log`: business and personal data.** Logged messages contain what the modules
   received and sent. They are masked like Queue Manager entries (known credentials and
   secret-named values), but masking does not cover business and personal data.
+- **`read_io_log` is not offered yet.** Reading module input/output logging is not yet verified
+  for any INUBIT version (no recording of the listing exists), so this version does not offer
+  `read_io_log`, also with `unsupported.ioLogRead: true`
+  ([`read_io_log`, Versions](tools.md#read_io_log)).
 - **`get_node_config`: fixed list.** Only the 20 listed values can be read; values that hold
   secrets (database connection, cluster password, initial root password, identity provider) can
   never be requested.

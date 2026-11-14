@@ -84,6 +84,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -376,6 +377,26 @@ class NodeToolsVersionSelectionTest {
             + ": " + tool.label + " is not yet verified for INUBIT " + line
             + "; nothing was sent");
         assertNothingSent();
+    }
+
+    /**
+     * T066 (FR-005 fallback, owner decision 2026-11-14): no recording of the I/O-log listing
+     * exists: the test node's account lacks INUBIT's right for it on 8.1 (research "Spike
+     * findings" T018), and on 9.0 it was not tried for the same reason (T060). So
+     * {@code io_log_read} stays "not yet verified" on 8.1 and 9.0 and
+     * {@code read_io_log} takes the refusal branch above on both lines. T032 (8.1) and T063 (9.0)
+     * flip it once such a recording exists.
+     */
+    @Test
+    void readIoLogStaysNotYetVerifiedOn81And90() {
+        CapabilityMatrix production = CapabilityMatrix.production();
+
+        for (String version : List.of("8.1.17", "9.0.10")) {
+            assertThat(production.state(InubitVersion.parse(version), Capability.IO_LOG_READ))
+                .as(version).isEqualTo(SupportState.UNSUPPORTED);
+            assertThat(production.note(InubitVersion.parse(version), Capability.IO_LOG_READ))
+                .as(version).contains("not yet verified");
+        }
     }
 
     // --- helpers ----------------------------------------------------------------------------
