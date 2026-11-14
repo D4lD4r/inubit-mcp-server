@@ -239,7 +239,8 @@ class DiagnosisServiceTest {
         return new ProcessInstance(server, id, Optional.of(id), state,
             state.rawValues().isEmpty() ? "Suspended" : state.rawValues().get(0), since,
             Duration.ZERO, false, Optional.of("W"), Optional.of("M"), Optional.empty(),
-            Optional.empty(), Optional.empty(), Optional.of("OWNERS"), Optional.of("normal"));
+            Optional.empty(), Optional.empty(), Optional.of("OWNERS"), Optional.of("normal"),
+            Optional.empty());
     }
 
     private static <T> Page<T> page(List<T> items, int offset, int limit, long total,

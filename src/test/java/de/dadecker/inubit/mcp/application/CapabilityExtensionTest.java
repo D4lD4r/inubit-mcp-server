@@ -285,7 +285,8 @@ class CapabilityExtensionTest {
         ProcessInstance failed = new ProcessInstance(NODE_79, PROCESS_ID, Optional.empty(),
             ProcessState.ERROR, "Error", Instant.parse("2026-10-01T08:00:00Z"), Duration.ZERO,
             false, Optional.of("Workflow-79"), Optional.empty(), Optional.empty(),
-            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+            Optional.empty());
         ProcessQueryPort processes = new ProcessQueryPort() {
             @Override
             public void validate(ProcessQuery query) {

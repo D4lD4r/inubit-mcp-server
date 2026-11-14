@@ -800,7 +800,7 @@ class AdapterGatewayFactoryTest {
                 Optional.empty(), 0, 10);
             ProcessQuery tooDeep = new ProcessQuery(Set.of(), false, Duration.ofMinutes(5),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), 9_995, 10,
-                Instant.parse("2026-10-31T08:00:00Z"));
+                Instant.parse("2026-10-31T08:00:00Z"), Optional.empty());
 
             assertThatThrownBy(() -> factory.queryRules(DEV).validate(workflowOnTheAuditLog))
                 .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(e.error().code())

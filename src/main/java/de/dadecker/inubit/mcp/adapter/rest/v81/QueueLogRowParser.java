@@ -23,7 +23,9 @@ import tools.jackson.databind.JsonNode;
  * {@code status.content} with the state table of {@link ProcessState}, {@code since} =
  * {@code startTime} (epoch ms), {@code workflow} = {@code workflowName}, {@code module} =
  * {@code moduleName}, plus {@code moduleType}, {@code tag}, {@code node}, {@code owner} and
- * {@code priority}. Blank values are absent.
+ * {@code priority}. Blank values are absent. With a requested user column {@code i}
+ * ({@code find_processes userColumn}, research D-21) also {@code userColumnValue} =
+ * {@code userDefined<i>}; without one the row is parsed as before.
  *
  * <p>Size bound: every text is cut to 200 chars with the truncation marker. Because JSON escapes
  * expand some characters (a control character becomes {@code \u0001}, 6 chars), the serialized
@@ -34,20 +36,28 @@ import tools.jackson.databind.JsonNode;
 final class QueueLogRowParser {
 
     private static final List<String> OPTIONAL = List.of("globalProcessId", "workflow",
-        "module", "moduleType", "tag", "node", "owner", "priority");
+        "module", "moduleType", "tag", "node", "owner", "priority", "userColumnValue");
     private static final List<String> REQUIRED = List.of("rawState", "processId");
 
     private QueueLogRowParser() {
     }
 
+    /** {@link #parse(NodeId, JsonNode, Instant, Duration, Optional)} without a user column. */
+    static Bounded<ProcessInstance> parse(NodeId server, JsonNode row, Instant now,
+        Duration threshold) {
+        return parse(server, row, now, threshold, Optional.empty());
+    }
+
     /**
-     * @param now       the reference time of {@code timeInState} and {@code hanging}
-     * @param threshold the hanging threshold
+     * @param now        the reference time of {@code timeInState} and {@code hanging}
+     * @param threshold  the hanging threshold
+     * @param userColumn the user-defined column {@code 1..5} to read, as validated by
+     *                   {@code ProcessQuery}
      * @throws ToolErrorException {@code UNEXPECTED_RESPONSE} for a row without
      *     {@code workflowId} or {@code startTime}
      */
     static Bounded<ProcessInstance> parse(NodeId server, JsonNode row, Instant now,
-        Duration threshold) {
+        Duration threshold, Optional<Integer> userColumn) {
         String processId = RowValues.text(row, LogFilterTable.WORKFLOW_ID)
             .orElseThrow(() -> unexpected(server, LogFilterTable.WORKFLOW_ID));
         Instant since = RowValues.instant(row, "startTime")
@@ -66,6 +76,8 @@ final class QueueLogRowParser {
         put(texts, "node", row, "node");
         put(texts, "owner", row, "owner");
         put(texts, "priority", row, "priority");
+        userColumn.ifPresent(column ->
+            put(texts, "userColumnValue", row, "userDefined" + column));
         boolean cut = false;
         for (Map.Entry<String, String> text : texts.entrySet()) {
             String bounded = RowValues.cut(text.getValue(), ItemBounds.MAX_FIELD_CHARS);
@@ -125,7 +137,8 @@ final class QueueLogRowParser {
             text(texts, "tag"),
             text(texts, "node"),
             text(texts, "owner"),
-            text(texts, "priority"));
+            text(texts, "priority"),
+            text(texts, "userColumnValue"));
     }
 
     private static void put(Map<String, String> texts, String key, JsonNode row,

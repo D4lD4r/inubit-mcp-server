@@ -21,6 +21,8 @@ import java.util.Optional;
  *                        exceeds the threshold (FR-010)
  * @param inubitNode      the INUBIT {@code node} column of the Queue Manager row (renamed in
  *                        feature 002, because {@code node} now names the configured target)
+ * @param userColumnValue the requested user-defined column ({@code userDefined<i>} of the row,
+ *                        research D-21); empty if none was requested or the value is blank
  */
 public record ProcessInstance(
     NodeId node,
@@ -37,7 +39,8 @@ public record ProcessInstance(
     Optional<String> tag,
     Optional<String> inubitNode,
     Optional<String> owner,
-    Optional<String> priority) {
+    Optional<String> priority,
+    Optional<String> userColumnValue) {
 
     public ProcessInstance {
         Objects.requireNonNull(node, "node");
@@ -54,6 +57,7 @@ public record ProcessInstance(
         inubitNode = orEmpty(inubitNode);
         owner = orEmpty(owner);
         priority = orEmpty(priority);
+        userColumnValue = orEmpty(userColumnValue);
     }
 
     /**
@@ -63,7 +67,7 @@ public record ProcessInstance(
     public ProcessInstance assessedAt(Instant now, Duration threshold) {
         return new ProcessInstance(node, processId, globalProcessId, state, rawState, since,
             timeInState(since, now), hanging(state, since, now, threshold), workflow, module,
-            moduleType, tag, inubitNode, owner, priority);
+            moduleType, tag, inubitNode, owner, priority, userColumnValue);
     }
 
     /** {@code now - since}, at least zero and truncated to seconds. */

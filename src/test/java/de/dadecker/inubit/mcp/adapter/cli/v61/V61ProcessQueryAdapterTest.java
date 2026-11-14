@@ -163,7 +163,7 @@ class V61ProcessQueryAdapterTest {
         Duration threshold, Optional<String> workflow, Optional<String> tag,
         Optional<Instant> since, Optional<Instant> until, int offset, int limit) {
         return new ProcessQuery(states, hangingOnly, threshold, workflow, tag, since, until,
-            offset, limit, NOW);
+            offset, limit, NOW, Optional.empty());
     }
 
     private static List<String> ids(Page<ProcessInstance> page) {
@@ -215,7 +215,8 @@ class V61ProcessQueryAdapterTest {
             Optional.empty(), ProcessState.ERROR, "Error", Instant.parse("2026-10-31T20:47:05Z"),
             Duration.ofHours(10).plusMinutes(12).plusSeconds(55), false,
             Optional.of("InvoiceExport"), Optional.of("Sender(10511)"), Optional.empty(),
-            Optional.empty(), Optional.of("node2"), Optional.of("jdoe"), Optional.of("normal")));
+            Optional.empty(), Optional.of("node2"), Optional.of("jdoe"), Optional.of("normal"),
+            Optional.empty()));
         assertThat(page.total()).isEqualTo(OptionalLong.of(3));
         assertThat(page.totalIsLowerBound()).isFalse();
         assertThat(page.truncated()).isFalse();
@@ -623,7 +624,7 @@ class V61ProcessQueryAdapterTest {
         ProcessInstance instance = new ProcessInstance(ID, "400101", Optional.empty(),
             ProcessState.OTHER, escaped, Instant.parse("2026-10-30T07:15:42Z"), Duration.ZERO,
             false, Optional.of(escaped), Optional.of(escaped), Optional.empty(), Optional.empty(),
-            Optional.of(escaped), Optional.of(escaped), Optional.of(escaped));
+            Optional.of(escaped), Optional.of(escaped), Optional.of(escaped), Optional.empty());
 
         ProcessInstance bounded = V61ProcessQueryAdapter.bounded(instance);
 

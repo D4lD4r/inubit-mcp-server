@@ -11,11 +11,13 @@ import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessState;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.ResultJson;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.StreamSupport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -229,5 +231,89 @@ class QueueLogRowParserTest {
         assertThat(rows("log_queueLog.json")).allSatisfy(row ->
             assertThat(ResultJson.size(parse(row).value()))
                 .isLessThanOrEqualTo(ResultLimiter.MAX_ITEM_CHARS));
+    }
+
+    // Feature 022 T040a (research D-21): the requested user column userDefined<i>
+
+    private static Bounded<ProcessInstance> parse(JsonNode row, int userColumn) {
+        return QueueLogRowParser.parse(ID, row, NOW, THRESHOLD, Optional.of(userColumn));
+    }
+
+    @Test
+    void aRequestedUserColumnReadsUserDefinedOfTheRecordedRow() {
+        JsonNode recorded = rows("log_queueLog.json").get(0);
+
+        Bounded<ProcessInstance> first = parse(recorded, 1);
+        assertThat(first.value().userColumnValue()).contains("<message 2>");
+        assertThat(first.cut()).isFalse();
+        assertThat(parse(recorded, 2).value().userColumnValue()).contains("<message 1>");
+    }
+
+    @Test
+    void aBlankUserColumnIsAbsent() {
+        JsonNode recorded = rows("log_queueLog.json").get(0);
+        Map<String, Object> row = new LinkedHashMap<>(Map.of("workflowId", 7, "startTime", 1L,
+            "userDefined4", "   "));
+
+        assertThat(parse(recorded, 3).value().userColumnValue()).as("recorded \"\"").isEmpty();
+        assertThat(parse(JSON.valueToTree(row), 4).value().userColumnValue()).isEmpty();
+        assertThat(parse(JSON.valueToTree(row), 5).value().userColumnValue()).as("missing")
+            .isEmpty();
+    }
+
+    @Test
+    void withoutARequestedUserColumnTheRowsAreParsedAsBefore() {
+        for (JsonNode row : rows("log_queueLog.json")) {
+            ProcessInstance plain = parse(row).value();
+
+            assertThat(plain.userColumnValue()).isEmpty();
+            assertThat(QueueLogRowParser.parse(ID, row, NOW, THRESHOLD, Optional.empty()))
+                .isEqualTo(parse(row));
+            assertThat(parse(row, 1).value()).usingRecursiveComparison()
+                .ignoringFields("userColumnValue").isEqualTo(plain);
+        }
+    }
+
+    @Test
+    void aLongUserColumnValueIsCutWithTheMarker() {
+        Map<String, Object> row = new LinkedHashMap<>(Map.of("workflowId", 7, "startTime", 1L,
+            "userDefined2", "u".repeat(10_000)));
+
+        Bounded<ProcessInstance> parsed = parse(JSON.valueToTree(row), 2);
+
+        assertThat(parsed.cut()).isTrue();
+        assertThat(parsed.value().userColumnValue()).hasValueSatisfying(text ->
+            assertThat(text).startsWith("uuu").endsWith(ResultLimiter.TRUNCATION_MARKER)
+                .hasSize(200));
+    }
+
+    @Test
+    void anEscapeHeavyUserColumnKeepsTheRowBound() {
+        String text = "\u0001".repeat(201);
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("workflowId", 110190387);
+        row.put("startTime", 1_790_327_471_916L);
+        row.put("status", Map.of("level", 0, "content", text));
+        for (String field : List.of("globalPId", "workflowName", "moduleName", "moduleType",
+            "tag", "node", "owner", "priority", "userDefined5")) {
+            row.put(field, text);
+        }
+
+        Bounded<ProcessInstance> parsed = parse(JSON.valueToTree(row), 5);
+
+        assertThat(ResultJson.size(parsed.value()))
+            .isLessThanOrEqualTo(ResultLimiter.MAX_ITEM_CHARS);
+        assertThat(parsed.cut()).isTrue();
+        assertThat(parsed.value().processId()).isEqualTo("110190387");
+    }
+
+    @Test
+    void noRecordedUserColumnLeaksASecret() {
+        for (JsonNode row : rows("log_queueLog.json")) {
+            for (int column = 1; column <= 5; column++) {
+                TestSecrets.assertNoLeak(
+                    ResultJson.mapper().writeValueAsString(parse(row, column).value()));
+            }
+        }
     }
 }

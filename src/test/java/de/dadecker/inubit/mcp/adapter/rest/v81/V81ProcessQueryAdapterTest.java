@@ -101,7 +101,7 @@ class V81ProcessQueryAdapterTest {
         Optional<String> workflow, Optional<String> tag, Optional<Instant> since,
         Optional<Instant> until, int offset, int limit) {
         return new ProcessQuery(states, hangingOnly, THRESHOLD, workflow, tag, since, until,
-            offset, limit, NOW);
+            offset, limit, NOW, Optional.empty());
     }
 
     private static ProcessQuery states(Set<ProcessState> states, int offset, int limit) {

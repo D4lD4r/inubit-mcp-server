@@ -190,7 +190,8 @@ public final class DiagnosisService {
         checkPaging(request.offset(), request.limit());
         Function<NodeId, ProcessQuery> queryOf = server -> new ProcessQuery(request.states(),
             request.hangingOnly(), threshold(request, server), request.workflow(),
-            request.tag(), since, until, request.offset(), request.limit(), now);
+            request.tag(), since, until, request.offset(), request.limit(), now,
+            Optional.empty());
         // feature 011 (review T013-T014 r1): checked for every node without its credentials;
         // feature 012 (research D-10): an input the node's version cannot serve (tag on 6.1)
         // becomes that node's entry

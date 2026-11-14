@@ -58,7 +58,7 @@ final class FakeProcessControl implements GatewayFactory {
         return new ProcessInstance(server, processId, Optional.of(processId), state, rawState,
             since, Duration.ZERO, false, Optional.of(workflow), Optional.of(module),
             Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-            Optional.empty());
+            Optional.empty(), Optional.empty());
     }
 
     static ProcessRows rows(ProcessInstance... rows) {

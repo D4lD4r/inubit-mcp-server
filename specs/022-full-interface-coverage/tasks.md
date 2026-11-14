@@ -619,7 +619,7 @@ offered).
     name, the not-found page, an Accept-JSON request answered with XML), `LibraryListParserTest`
     (the recorded empty answers in script and session form; reconstructed non-empty lines),
     each with a leak check.
-- [ ] T040a [P] [US3] The user column in the process rows (research D-21; files apart from T040
+- [X] T040a [P] [US3] The user column in the process rows (research D-21; files apart from T040
   and T041):
   - `domain/model/ProcessQuery.java` gains the optional `userColumn` (1–5),
     `domain/model/ProcessInstance.java` the optional `userColumnValue`;
