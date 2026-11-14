@@ -681,6 +681,8 @@ the other just changed.
   tests first in `config/ConfigSummaryTest.java` (no store → no section, golden texts unchanged;
   seeded store → lines; unconfigured server; unreadable store) and `MainTest.java` `--check-config`
   (no reset, no takeover, store file unchanged)
+  Note (T070 review): the `Temporary log levels:` line form of contracts/configuration-delta.md is
+  authoritative over the D-23 example; use the docs/setup.md lines as the ConfigSummaryTest golden.
 - [ ] T057 [US4] Contract test (after T056): `NodeToolsV81ContractTest` `+` every `v8_1/log-level`
   case through `CliLogLevelAdapter` + `LogLevelService` (test matrix): `set_ok` → lease and result;
   `reset_ok`; `missing_level` → `UNEXPECTED_RESPONSE` and an immediate reset; `login_failure` →
@@ -759,7 +761,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
 
 ### Documentation (D-31)
 
-- [ ] T070 [P] `docs/setup.md` (FR-003, FR-042, FR-043; after T005): `### Unsupported functions` rows
+- [X] T070 [P] `docs/setup.md` (FR-003, FR-042, FR-043; after T005): `### Unsupported functions` rows
   and example for the four keys and the verbatim text of contracts/configuration-delta.md
   (incl. the cleanup-reset exception and the "address one node directly" precondition); the
   validation texts; section 6 summary examples with the new group parts and the `Temporary log
@@ -775,6 +777,8 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   announcement rules; `list_nodes` names. `NodeToolsDocsTest` extended first (short forms in the
   tool descriptions and docs; the documented 8.1/9.0 states match `CapabilityMatrix.production()`;
   the 20 configuration names listed equal `NodeConfigName`)
+  Note (T070 review): docs/setup.md already links to `tools.md#list_cluster_nodes`, `#read_io_log`
+  and `#get_node_config`; the review confirms these anchors resolve.
 - [ ] T072 `README.md` tool table rows for the five tools and announcement rows; `SECURITY.md`: I/O
   messages (business and personal data; masking limits), the lease store (owner-only; names and
   times only), the cleanup resets while write access is off (owner-approved exception), the
