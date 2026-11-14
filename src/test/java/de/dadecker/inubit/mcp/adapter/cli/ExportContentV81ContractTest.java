@@ -68,7 +68,6 @@ class ExportContentV81ContractTest {
     private static final List<String> SIX_GROUPS =
         List.of("GRP-01", "GRP-02", "GRP-03", "GRP-04", "GRP-05", "GRP-06");
     private static final MajorMinor V8_1 = new MajorMinor(8, 1);
-    private static final MajorMinor V9_0 = new MajorMinor(9, 0);
 
     @TempDir
     Path cliHome;
@@ -202,11 +201,6 @@ class ExportContentV81ContractTest {
         for (String entry : List.of("export --exportMetadata", "export --exportMetadataNames")) {
             assertThat(coverage.state(Channel.CLI, entry, V8_1)).as(entry)
                 .contains(new CoverageState.Reachable("export_archives", "metadata"));
-        }
-        for (String entry : List.of("export --exportWorkflowGroupExclude",
-            "export --exportMetadata", "export --exportMetadataNames")) {
-            assertThat(coverage.state(Channel.CLI, entry, V9_0)).as(entry)
-                .contains(new CoverageState.Planned());
         }
     }
 }

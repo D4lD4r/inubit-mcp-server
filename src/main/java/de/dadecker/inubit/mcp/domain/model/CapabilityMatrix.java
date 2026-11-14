@@ -72,12 +72,6 @@ public final class CapabilityMatrix {
         true);
 
     /**
-     * Feature 022 (research D-1, D-12): each capability is refused on 8.1 and 9.0 with this note
-     * until its contract tests flip it.
-     */
-    private static final String NOT_YET_VERIFIED = "not yet verified";
-
-    /**
      * 8.1: everything; the server-log reads of feature 021 since their recordings (trace log T033,
      * web service log T046), reading the server settings of feature 022 since its recordings
      * (T014, contract tests T025), reading the users of feature 022 since its recordings (T028,
@@ -91,15 +85,11 @@ public final class CapabilityMatrix {
      * 9.0 responses are under contract test (feature 018, FR-016, research D-7); reading Queue
      * Manager entries included since its recorded 9.0 error entry (feature 020, FR-019, research
      * D-20); the server-log reads of feature 021 since their recordings (trace log T051, web
-     * service log T052); reading the server settings and the users of feature 022 since their
-     * recordings (T024, T028b; contract tests T026, T037a); reading model details (US3) not yet
-     * verified.
+     * service log T052); reading the server settings, the users and the model details of feature
+     * 022 since their recordings (T024, T028b, T039a; contract tests T026, T037a, T046a).
      */
     private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0),
-        with(with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED),
-            Capability.MODEL_DETAILS, SupportState.UNSUPPORTED),
-        Map.of(), false,
-        Map.of(Capability.MODEL_DETAILS, NOT_YET_VERIFIED));
+        with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED));
 
     /**
      * Unknown versions: reading Queue Manager entries, the server logs, the server settings, the
@@ -148,9 +138,8 @@ public final class CapabilityMatrix {
      * and 9.0 since their contract tests (T025, T026), and unsupported on every other and on
      * unknown versions; reading the users (US2) is supported on 8.1 and 9.0 since their contract
      * tests (T037, T037a), and unsupported on every other and on unknown versions; reading the
-     * model details (US3) is supported on 8.1 since its contract tests (T046), unsupported on 9.0
-     * with the note "not yet verified" until T046a, and unsupported on every other and on unknown
-     * versions.
+     * model details (US3) is supported on 8.1 and 9.0 since their contract tests (T046, T046a),
+     * and unsupported on every other and on unknown versions.
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;

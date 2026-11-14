@@ -795,7 +795,7 @@ offered).
   - command present but writing on the INUBIT host: `excluded:file written on the INUBIT host`;
   - command usable but the owner declines: `excluded:` with the owner's reason (for example
     `not offered by owner decision <date>`).
-- [ ] T046a [US3] 9.0 contracts and flips (after T039a): `ModelDetailsV90ContractTest`,
+- [X] T046a [US3] 9.0 contracts and flips (after T039a): `ModelDetailsV90ContractTest`,
   `ExportContentV90ContractTest` from the 9.0 fixtures and the `userColumn` case on
   `fixtures/queue-entry/v9_0/error_entry.rows.json`; the `v9_0` column of the US3 rows (`ps -u`
   `covered:find_processes`, which admits `userColumn` on 9.0 through T045's `admitOption`

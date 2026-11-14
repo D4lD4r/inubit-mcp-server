@@ -351,15 +351,14 @@ class ToolAnnouncementTest {
         // T033: 8.1 admits the trace log, so an 8.1 and an AUTO node with a client home run it;
         // feature 022 T025, T037: 8.1 (and so an AUTO node) also admits the server settings and
         // the users; T026, T037a: 9.0 admits the server settings and the users; feature 022
-        // T046: 8.1 (and so an AUTO node) also admits the model details
+        // T046, T046a: 8.1 (and so an AUTO node) and 9.0 also admit the model details
         List<String> withDownload = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
             "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
             "export_archives", "check_artifacts");
-        List<String> withSettings = new ArrayList<>(withDownload);
-        withSettings.add(withSettings.indexOf("list_inventory"), "get_server_settings");
-        withSettings.add(withSettings.indexOf("list_inventory"), "read_users");
-        List<String> withModelDetails = new ArrayList<>(withSettings);
+        List<String> withModelDetails = new ArrayList<>(withDownload);
+        withModelDetails.add(withModelDetails.indexOf("list_inventory"), "get_server_settings");
+        withModelDetails.add(withModelDetails.indexOf("list_inventory"), "read_users");
         withModelDetails.add(withModelDetails.indexOf("list_inventory"), "read_model_details");
         assertThat(groupTools("V8_1", cliHome(), false, CapabilityMatrix.production()))
             .containsExactlyElementsOf(withModelDetails);
@@ -371,10 +370,10 @@ class ToolAnnouncementTest {
             CapabilityMatrix.production())).containsExactlyElementsOf(withModelDetails);
         // T051: 9.0 admits the trace log, so a node pinned to 9.0 with a 9.0 client runs it
         assertThat(groupTools("V9_0", "", true, CapabilityMatrix.production()))
-            .containsExactlyElementsOf(withSettings);
+            .containsExactlyElementsOf(withModelDetails);
         // T052: 9.0 also admits the web service log, which adds no tool for an opted-in node
         assertThat(groupTools("V9_0", serverLogOptIn("true"), true,
-            CapabilityMatrix.production())).containsExactlyElementsOf(withSettings);
+            CapabilityMatrix.production())).containsExactlyElementsOf(withModelDetails);
     }
 
     // --- feature 021 T043: the web service branch of download_server_log (FR-002, D-17) ----
@@ -563,8 +562,8 @@ class ToolAnnouncementTest {
     }
 
     @Test
-    void onTheProductionMatrixReadModelDetailsIsAnnouncedFor81Only() {
-        // T046 flipped 8.1; 9.0 refuses MODEL_DETAILS as "not yet verified" until T046a
+    void onTheProductionMatrixReadModelDetailsIsAnnouncedFor81And90() {
+        // T046 flipped 8.1, T046a flipped 9.0
         assertThat(groupTools("V8_1", cliHome(), false, CapabilityMatrix.production()))
             .contains("read_model_details");
         assertThat(groupTools("V8_1", "", false, CapabilityMatrix.production()))
@@ -575,7 +574,7 @@ class ToolAnnouncementTest {
         assertThat(toolNames("V6_1", "V8_1", CapabilityMatrix.production()))
             .contains("read_model_details");
         assertThat(groupTools("V9_0", "", true, CapabilityMatrix.production()))
-            .doesNotContain("read_model_details");
+            .contains("read_model_details");
         assertThat(toolNames("V6_1", "V6_1", CapabilityMatrix.production()))
             .doesNotContain("read_model_details");
     }

@@ -1187,15 +1187,13 @@ their state per version are listed in [interface-coverage.md](interface-coverage
 capability `model_details` (`reading model details` in messages) is declared per version:
 
 - INUBIT 8.1: supported, verified against the recordings of an 8.1.17 node.
-- INUBIT 9.0: not yet verified; refused with `UNSUPPORTED_VERSION` (`… reading model details is not
-  yet verified for INUBIT 9.0`) until the recordings of a live 9.0 node are under contract test.
+- INUBIT 9.0: supported, verified against the recordings of a 9.0.10 node. An unknown module id
+  answers there with a generic server error that does not name the module, so it is
+  `UNEXPECTED_RESPONSE` with the hint that the module id probably does not exist in the diagram.
 - INUBIT 6.1, any other line (9.1, `V9_X`) and an unknown version: refused (no warning run).
 
-`read_model_details` is in `tools/list` when a node may run 8.1 (see
-[Tool announcement](#tool-announcement)). Until 9.0 is verified, `list_nodes` shows
-`model_details` under `notUsable` of every 9.0 node with the reason `INUBIT 9.0 on prod/node1:
-reading model details is not yet verified for INUBIT 9.0`; such a node is therefore
-`partially_supported`.
+`read_model_details` is in `tools/list` when a node may run 8.1 or 9.0 (see
+[Tool announcement](#tool-announcement)).
 
 **Input** (`read_model_details.input.json`):
 

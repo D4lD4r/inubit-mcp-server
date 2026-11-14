@@ -37,6 +37,11 @@ import org.w3c.dom.Node;
  *   <li>{@code 500} {@code text/html}: the status page whose {@code @Start@…@End@} message says
  *       {@code The module with the id &apos;<id>&apos; in the model &apos;<wf>&apos;could not be
  *       found!} is {@code NOT_FOUND}.
+ *   <li>{@code 500} with the {@code ApiError} message {@code Error while getting node by model}:
+ *       INUBIT 9.0.10's answer to an unknown module id (T039a), which names no module and cannot
+ *       be told apart from another failure of the endpoint. It is {@code UNEXPECTED_RESPONSE}
+ *       with the hint that the module id probably does not exist in the diagram (owner decision
+ *       2026-11-14).
  * </ul>
  *
  * <p>A property is masked by {@link SecretRules} (D-19): by its name, by its type (so
@@ -64,6 +69,9 @@ final class ModuleDetailXmlParser {
     /** The recorded message of an unknown module id, with the quotes HTML-escaped. */
     private static final Pattern MODULE_NOT_FOUND = Pattern.compile(
         "@Start@The module with the id &apos;[^@<]+&apos;could not be found!@");
+    /** The generic message of INUBIT 9.0.10's {@code 500}, also for an unknown module id. */
+    private static final Pattern NODE_BY_MODEL_ERROR = Pattern.compile(
+        "<message>Error while getting node by model</message>");
     /** Raw prefix of the body that becomes the excerpt. */
     private static final int EXCERPT_WINDOW = 4096;
     /** Masked beyond the window, so that no secret crossing the cut survives in part. */
@@ -84,8 +92,8 @@ final class ModuleDetailXmlParser {
      * @param response the answer, also a {@code 500} the client was told to accept
      * @throws ToolErrorException {@code NOT_FOUND} (with the server id) for the recorded
      *     "could not be found" page; {@code UNEXPECTED_RESPONSE} (with the server id and a masked
-     *     excerpt) for any other answer, a document that is not the {@code Node} above, or a
-     *     {@code Node} of another module id
+     *     excerpt) for the 9.0 generic error (with the hint above), any other answer, a document
+     *     that is not the {@code Node} above, or a {@code Node} of another module id
      */
     static ModuleDetail parse(NodeId server, String diagram, String moduleId,
         RestResponse response) {
@@ -98,6 +106,19 @@ final class ModuleDetailXmlParser {
                 "Module " + moduleId + " was not found in diagram '" + diagram + "' on " + server,
                 "INUBIT reports that the diagram has no module with this id",
                 "Check the diagram name and the module id").withNode(server));
+        }
+        if (response.status() == 500
+            && NODE_BY_MODEL_ERROR.matcher(response.bodyText()).find()) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.UNEXPECTED_RESPONSE,
+                "Module " + moduleId + " in diagram '" + diagram + "' could not be read on "
+                    + server + ": INUBIT answered with status 500 \"Error while getting node by"
+                    + " model\"",
+                "INUBIT answers an unknown module id with this generic error, which it also"
+                    + " gives for other failures; the module id probably does not exist in the"
+                    + " diagram",
+                "Check the diagram name and the module id; if both are right, see the excerpt and"
+                    + " the INUBIT system log")
+                .withNode(server).withExcerpt(excerpt(response)));
         }
         throw unexpected(server, response, "answered with status " + response.status());
     }

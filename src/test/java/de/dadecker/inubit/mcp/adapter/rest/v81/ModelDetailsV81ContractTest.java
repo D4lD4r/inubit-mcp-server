@@ -278,11 +278,5 @@ class ModelDetailsV81ContractTest {
             .contains(new CoverageState.Reachable("read_model_details", "libraries"));
         assertThat(coverage.state(Channel.CLI, "library --type", V8_1))
             .contains(new CoverageState.Reachable("read_model_details", "libraries"));
-        for (String entry : List.of("library --list", "library --type")) {
-            assertThat(coverage.state(Channel.CLI, entry, V9_0)).as(entry)
-                .contains(new CoverageState.Planned());
-        }
-        assertThat(coverage.state(Channel.REST, "GET /model/nodeByModel/{model}/{node}", V9_0))
-            .contains(new CoverageState.Planned());
     }
 }

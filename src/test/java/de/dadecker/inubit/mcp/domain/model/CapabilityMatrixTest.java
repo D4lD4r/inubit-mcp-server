@@ -39,12 +39,11 @@ class CapabilityMatrixTest {
      * Feature 017 (T004, research D-9): 9.0 is declared like 8.1, REST and CLI; partner
      * management is the exception of feature 018 (below); feature 020 (T038): reading Queue
      * Manager entries included since its 9.0 recording; feature 021: the server-log reads
-     * included since their 9.0 recordings (T051, T052); feature 022: the server settings and
-     * the users included since their 9.0 contract tests (T026, T037a); the model details (US3)
-     * not yet verified (below).
+     * included since their 9.0 recordings (T051, T052); feature 022: the server settings, the
+     * users and the model details included since their 9.0 contract tests (T026, T037a, T046a).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"PARTNER_MANAGEMENT", "MODEL_DETAILS"},
+    @EnumSource(value = Capability.class, names = {"PARTNER_MANAGEMENT"},
         mode = EnumSource.Mode.EXCLUDE)
     void everyCapabilityIsSupportedOn90LikeOn81(Capability capability) {
         assertThat(production.state(version("9.0.7"), capability))
@@ -353,10 +352,8 @@ class CapabilityMatrixTest {
         assertThat(production.stateOfLine(9, OptionalInt.of(0), Capability.QUEUE_ENTRY_READ))
             .isEqualTo(SupportState.SUPPORTED);
         for (Capability capability : Capability.values()) {
-            if (capability != Capability.MODEL_DETAILS) {
-                assertThat(production.note(version("9.0.7"), capability)).as("%s", capability)
-                    .isEmpty();
-            }
+            assertThat(production.note(version("9.0.7"), capability)).as("%s", capability)
+                .isEmpty();
         }
         assertThat(production.channels(version("9.0.7"), Capability.QUEUE_ENTRY_READ))
             .isEqualTo(Capability.QUEUE_ENTRY_READ.channels());
@@ -588,26 +585,22 @@ class CapabilityMatrixTest {
         assertThat(Capability.MODEL_DETAILS.admittedPerChannel()).isFalse();
     }
 
-    /**
-     * Supported on 8.1 since its contract tests (T046); refused on 9.0 as "not yet verified"
-     * until T046a.
-     */
+    /** Supported on 8.1 and 9.0 since their contract tests (T046, T046a). */
     @Test
-    void modelDetailsIsSupportedOn81AndNotYetVerifiedOn90() {
+    void modelDetailsIsSupportedOn81And90() {
         assertThat(production.state(version("8.1.17"), Capability.MODEL_DETAILS))
             .isEqualTo(SupportState.SUPPORTED);
         assertThat(production.note(version("8.1.17"), Capability.MODEL_DETAILS)).isEmpty();
-        assertThat(production.state(version("9.0.7"), Capability.MODEL_DETAILS))
-            .isEqualTo(SupportState.UNSUPPORTED);
-        assertThat(production.note(version("9.0.7"), Capability.MODEL_DETAILS))
-            .contains("not yet verified");
+        assertThat(production.state(version("9.0.10"), Capability.MODEL_DETAILS))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.note(version("9.0.10"), Capability.MODEL_DETAILS)).isEmpty();
         assertThat(production.stateOfLine(8, OptionalInt.of(1), Capability.MODEL_DETAILS))
             .isEqualTo(SupportState.SUPPORTED);
         assertThat(production.stateOfLine(9, OptionalInt.of(0), Capability.MODEL_DETAILS))
-            .isEqualTo(SupportState.UNSUPPORTED);
+            .isEqualTo(SupportState.SUPPORTED);
         assertThat(production.lines(Capability.MODEL_DETAILS)).containsExactly("8.1", "9.0");
         assertThat(production.possiblySupported(Capability.MODEL_DETAILS))
-            .as("8.1 runs it, so read_model_details is announced").isTrue();
+            .as("8.1 and 9.0 run it, so read_model_details is announced").isTrue();
     }
 
     /** As the users: 6.1, other and unknown versions refuse it without a note. */
