@@ -974,7 +974,7 @@ node's `error`:
 |---|---|
 | `INVALID_INPUT` | invalid arguments (an unknown part, an empty `parts`, a control character in `configurationSection`) are rejected by the input schema with a plain-text validation message; the service's own check for an unknown part is only a defensive fallback behind the schema |
 | `TARGET_UNKNOWN` | unknown id |
-| `UNSUPPORTED_VERSION` | the node's version is not verified for `server_settings` (see Versions); for one part: its entry is not verified for the node's version (`serverTime via CLI date is not yet verified for INUBIT 9.0`) or excluded on it (`threads via CLI threads showNumberOfWorkflowThreads is excluded for INUBIT 8.1: needs the INUBIT root user`), or the StartCLI client does not support the version; as the node's `error` when no asked part can be read (`… on test/node1: no requested part can be read: …; nothing was sent`) |
+| `UNSUPPORTED_VERSION` | the node's version does not support `server_settings` (see Versions; e.g. `INUBIT 6.1.… on test/node1 does not support reading server settings; use the Workbench, or another node with a different INUBIT version`); for one part: its entry is not verified for the node's version or excluded on it (`threads via CLI threads showNumberOfWorkflowThreads is excluded for INUBIT 8.1: needs the INUBIT root user`), or the StartCLI client does not support the version; as the node's `error` when no asked part can be read (`… on test/node1: no requested part can be read: …; nothing was sent`) |
 | `CLI_UNAVAILABLE` | a StartCLI part on a node without a StartCLI client for its version (`threads is read through StartCLI, and no StartCLI client is installed for test/node1`); as the node's `error` when every asked part is a StartCLI part |
 | `FORBIDDEN` | `license`, `configuration`: the account lacks the role "System Administrator" (HTTP 403); the StartCLI parts: the account lacks the right "CLI login access" (not reported as a login failure) |
 | `NOT_FOUND` | `configuration`: no section named `configurationSection` |
@@ -1065,7 +1065,8 @@ The views and where their facts come from:
 - **Additional user groups.** On 9.0 `user '<login>'` shows a row `Additional user group` for a
   user with an additional group; its value is returned in `additionalGroups` (absent when the
   answer has no such row). Only a user with one additional group was recorded, so the row is read
-  as one group. No 8.1 recording showed the row.
+  as one group. The row is read on any version: no 8.1 recording showed it, but an 8.1 answer with
+  it is read the same way.
 - **Logins.** `--who` is an option of the StartCLI client, not a session command: on 8.1 it is
   answered only as a run of its own. It lists every system connected to the node (databases, portal,
   process user server) and one `Toolset` row per client connection, with the login in parentheses
@@ -1135,7 +1136,7 @@ user is reported in that user's `unavailable` instead, as described above:
 |---|---|
 | `INVALID_INPUT` | invalid arguments (a group id, `login` missing for `user` or given with another view, `offset` or `limit` with `user` or out of range, a control character in `login`) are rejected by the input schema with a plain-text validation message |
 | `TARGET_UNKNOWN` | unknown id |
-| `UNSUPPORTED_VERSION` | the node's version is not verified for `user_directory` (see Versions), `logins` on 9.0 (its entry `-who` is excluded there), or its StartCLI client does not support the version |
+| `UNSUPPORTED_VERSION` | the node's version does not support `user_directory` (see Versions; e.g. `INUBIT 6.1.… on test/node1 does not support reading users; use the Workbench, or another node with a different INUBIT version`); `logins` on 9.0 (its entry `-who` is excluded there), or the StartCLI client does not support the version |
 | `CLI_UNAVAILABLE` | `logins` on a node without a StartCLI client for its version; for `users` and `user` only in `unavailable` |
 | `FORBIDDEN` | the REST user list answers HTTP 403; the account lacks the right "CLI login access" (for `logins`; otherwise in `unavailable`) |
 | `NOT_FOUND` | `user`: the REST list has no user with this `login` (`No user 'nobody' on test/node1`), next step `List the users with view users and use a login of the list`; no StartCLI session is started |

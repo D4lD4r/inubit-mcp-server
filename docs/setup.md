@@ -255,7 +255,8 @@ credentials:                         # optional
 `versionLine`, per group or per node (the node wins), says which INUBIT version a node runs. The
 server uses it to decide which tools may run on the node: on INUBIT 8.1.x and 9.0.x every tool
 runs (feature 017; on 9.0 the StartCLI-backed tools need the INUBIT 9.0 client, see
-[StartCLI client per INUBIT version](#startcli-client-per-inubit-version-defaultscliclients));
+[StartCLI client per INUBIT version](#startcli-client-per-inubit-version-defaultscliclients);
+only the view `logins` of `read_users` is refused on 9.0, see [tools.md](tools.md#read_users));
 on any other version (9.1, a later version, the line `V9_X`) and on a version that is not known,
 read tools run with the 8.1 adapters and a warning in the result, and write tools are refused.
 INUBIT 6.1 is the
@@ -267,9 +268,9 @@ supported for 6.1 and refuses everything else ([INUBIT 6.1 nodes](#inubit-61-nod
 | `AUTO` (default) | from the node itself, see below | per the detected version; while the version is unknown, reads run with a warning and writes are refused |
 | `V6_1` | none | INUBIT 6.1, StartCLI only, read-only; in this version every tool that would contact the node is refused ([INUBIT 6.1 nodes](#inubit-61-nodes-v6_1)) |
 | `V8_1` | none | everything (INUBIT 8.1) |
-| `V9_0` | none | everything (INUBIT 9.0.x, feature 017); StartCLI-backed tools need a client whose declared range includes 9.0 |
+| `V9_0` | none | everything (INUBIT 9.0.x, feature 017) except the view `logins` of `read_users`, which is refused; StartCLI-backed tools need a client whose declared range includes 9.0 |
 | `V9_X` | none | some INUBIT 9 version, not 9.0 support: reads with a warning that the version is not verified; writes refused; never chooses a `cliClients` entry |
-| a concrete version, e.g. `"8.1.17"`, `"9.0.7-HF1"`, `"9.1.0"` or `"6.1.0.89"` | none | per the version's major.minor (`"8.1.17"`, `"9.0.7-HF1"`: everything; `"9.1.0"`: reads with a warning, writes refused; `"6.1.0.89"`: as `V6_1`); the patch is used for the [StartCLI client check](#startcli-client-check) |
+| a concrete version, e.g. `"8.1.17"`, `"9.0.7-HF1"`, `"9.1.0"` or `"6.1.0.89"` | none | per the version's major.minor (`"8.1.17"`: everything; `"9.0.7-HF1"`: as `V9_0`; `"9.1.0"`: reads with a warning, writes refused; `"6.1.0.89"`: as `V6_1`); the patch is used for the [StartCLI client check](#startcli-client-check) |
 
 ```yaml
 groups:

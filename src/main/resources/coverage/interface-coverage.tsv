@@ -4,7 +4,8 @@
 # Feature 022 coverage list (contracts/coverage-list.md, research D-2). One row per entry:
 # CLI: one command with one option or option value set, as the vendor writes it;
 # REST: method and path below /ibis/rest, path parameters as short names, query parameters left out.
-# The CLI pages of 8.1 and 9.0 list the same commands, so every CLI row has one state on both lines.
+# The CLI pages of 8.1 and 9.0 list the same commands, so every CLI row has a state on both lines;
+# the two states differ only where the versions behave differently (`-who`).
 # Not entries: the help options (-h, --help) and the login and connection options of StartCLI
 # (-u, -p, --execCommand, --trustStoreFilePath, --keyStoreFilePath, --keyStoreFilePwd,
 # --disableHostNameVerification).
@@ -13,7 +14,7 @@
 channel	entry	kind	area	story	v8_1	v9_0	waits
 
 # A. Server state and settings
-# license -td, license -ts: covered:get_server_settings since the 8.1 recordings (T025) and the 9.0 recordings (T026) (research D-6 "Covered rows before their tool exists")
+# license -td, license -ts: covered:get_server_settings since the 8.1 recordings (T014, contract tests T025) and the 9.0 recordings (T024, contract tests T026) (research D-6 "Covered rows before their tool exists")
 # threads showNumberOfWorkflowThreads, privilegedWorkflows showThreadsPercentage|showWorkflowList: answer "Only root user can use this command." to the profile's account (recorded T014 on 8.1, T024 on 9.0; owner decision 2026-11-13)
 CLI	license -td	READ	A	US1	covered:get_server_settings	covered:get_server_settings	-
 CLI	license -ts	READ	A	US1	covered:get_server_settings	covered:get_server_settings	-

@@ -572,7 +572,7 @@ e-mail, the logins and a message, each bounded (US2 AS1–AS6).
 - [X] T037a [US2] 9.0 contracts and flip (after T028b): `UsersV90ContractTest` (REST and CLI), the
   `v9_0` column of the US2 rows (`-nwho` `covered:read_users`), `USER_DIRECTORY` on 9.0, catalogue
   entries, `waits`.
-- [ ] T038a [US1] [US2] Docs and PR for 9.0 (after T026, T037a): `docs/tools.md`, `CHANGELOG.md`,
+- [X] T038a [US1] [US2] Docs and PR for 9.0 (after T026, T037a): `docs/tools.md`, `CHANGELOG.md`,
   coverage page; then open the PR.
 
 ## Phase 5: User Story 3 – Processes, run-time data and model details (P2)

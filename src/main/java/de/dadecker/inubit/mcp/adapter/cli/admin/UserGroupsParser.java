@@ -24,8 +24,9 @@ import java.util.regex.Pattern;
  * fixtures {@code v9_0/cli/admin-users-session} and {@code admin-users-user}) a user with an
  * additional group has a fourth row, {@code Additional user group <group>}, and every label is
  * padded to 23 characters. Its value is read as one group: only a user with one additional group
- * was recorded, so how several are shown is not known. On 8.1 no recorded user had one. Any other
- * row makes the block unknown. The answer shows no roles and no account state.
+ * was recorded, so how several are shown is not known. The fourth row is read on any version: on
+ * 8.1 no recorded user had one, but the parser accepts it there too. Any other row makes the block
+ * unknown. The answer shows no roles and no account state.
  *
  * <p>The error for an unknown block shows the recorded rows in full and of any other row only its
  * label ({@link UnknownOutput#paddedLabelsOnly}): such a row might hold a personal value, and the
