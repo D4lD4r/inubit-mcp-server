@@ -569,7 +569,7 @@ the other just changed.
   never swallowed). Failing tests first in `application/nodetools/LogLevelAuditTest.java` (field
   order; no logger values beyond names and levels; `PENDING` write failure surfaces as an
   exception; leak check)
-- [ ] T049 [US4] `application/nodetools/LogLevelService.set` (FR-040 … FR-043, FR-045, D-14, D-19;
+- [X] T049 [US4] `application/nodetools/LogLevelService.set` (FR-040 … FR-043, FR-045, D-14, D-19;
   after T042, T045–T048): the 12 steps of D-14 (input checks, write guard + opt-in + gate, **node
   lock** from step 3 to step 12, `RESET_FAILED` refusal, own-node lookup + other-node refusal,
   confirmation, `PENDING`, write-ahead lease (generation + 1), StartCLI runs per logger, lease
