@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.config;
 
+import de.dadecker.inubit.mcp.application.nodetools.LeaseScheduler;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
@@ -14,6 +15,8 @@ import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.node.Lease;
+import de.dadecker.inubit.mcp.domain.port.LeaseView;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
@@ -22,7 +25,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Text printed by {@code --check-config}: the profile, its terminology, credential store entry
@@ -53,7 +59,9 @@ import java.util.function.Predicate;
  * (FR-016) likewise appends {@code , serverLogRead: …} once some group has
  * {@code unsupported.serverLogRead: true}; feature 024 (FR-003, research D-5) then appends
  * {@code nodeStatusRead}, {@code ioLogRead}, {@code nodeConfigRead} and {@code logLevelWrite} the
- * same way, each only once some group sets it.
+ * same way, each only once some group sets it; and (FR-045, research D-23) a
+ * {@code Temporary log levels:} section with one line per open lease of the lease store, which is
+ * only read.
  * Groups and nodes are named with the profile's display names (FR-007). Values and URLs are never
  * printed.
  */
@@ -101,7 +109,7 @@ public final class ConfigSummary {
         ParameterCheck.Result parameters, EntryCheck.Result entries,
         List<CheckedClient> checked) {
         return render(loaded, report, clients, options, parameters, entries, checked,
-            Optional.empty());
+            Optional.empty(), List.of(), List.of());
     }
 
     /**
@@ -113,13 +121,37 @@ public final class ConfigSummary {
         ParameterCheck.Result parameters, EntryCheck.Result entries,
         List<CheckedClient> checked, KnowledgeStatus knowledge) {
         return render(loaded, report, clients, options, parameters, entries, checked,
-            Optional.of(knowledge));
+            Optional.of(knowledge), List.of(), List.of());
+    }
+
+    /**
+     * @param leases    the lease store of the profile (feature 024, FR-045, research D-23), read
+     *                  once: a section {@code Temporary log levels:} after the node lines with one
+     *                  line per open lease, or a warning if it cannot be read
+     * @param leaseFile the store's file, named in that warning
+     */
+    public String render(LoadedConfig loaded, ValidationReport report,
+        Map<NodeId, ClientVersion> clients, Map<NodeId, CliClientOptions> options,
+        ParameterCheck.Result parameters, EntryCheck.Result entries,
+        List<CheckedClient> checked, KnowledgeStatus knowledge, LeaseView leases,
+        Path leaseFile) {
+        return switch (leases.leases()) {
+            case LeaseView.Snapshot.Leases stored -> render(loaded, report, clients, options,
+                parameters, entries, checked, Optional.of(knowledge),
+                leaseLines(stored.leases(), loaded.config()), List.of());
+            case LeaseView.Snapshot.Unreadable unreadable -> render(loaded, report, clients,
+                options, parameters, entries, checked, Optional.of(knowledge), List.of(),
+                List.of("The temporary log level leases in " + leaseFile + " cannot be read ("
+                    + unreadable.reason() + "); log-level changes are refused until the file is"
+                    + " fixed or moved"));
+        };
     }
 
     private String render(LoadedConfig loaded, ValidationReport report,
         Map<NodeId, ClientVersion> clients, Map<NodeId, CliClientOptions> options,
         ParameterCheck.Result parameters, EntryCheck.Result entries,
-        List<CheckedClient> checked, Optional<KnowledgeStatus> knowledge) {
+        List<CheckedClient> checked, Optional<KnowledgeStatus> knowledge,
+        List<String> leaseLines, List<String> leaseWarnings) {
         ProfileConfig config = loaded.config();
         Terminology terms = config.terminology().effectiveOrDefault();
         StringBuilder out = new StringBuilder();
@@ -215,12 +247,33 @@ public final class ConfigSummary {
             out.append('\n');
         }
         checked.forEach(client -> out.append(client.line()).append('\n'));
-        appendList(out, "Warnings:", report.warnings());
+        if (!leaseLines.isEmpty()) {
+            out.append("Temporary log levels:\n");
+            leaseLines.forEach(line -> out.append("  ").append(line).append('\n'));
+        }
+        appendList(out, "Warnings:", Stream.concat(report.warnings().stream(),
+            leaseWarnings.stream()).toList());
         appendList(out, "Errors:", report.errors());
         out.append(report.hasErrors()
             ? "Result: FAILED (" + report.errors().size() + " error(s))"
             : "Result: OK").append('\n');
         return out.toString();
+    }
+
+    /**
+     * One line per open lease (FR-045, contracts/configuration-delta.md); a lease of a server not
+     * in {@code config} names the day it is forgotten ({@link LeaseScheduler#forgetDate}).
+     */
+    private static List<String> leaseLines(List<Lease> leases, ProfileConfig config) {
+        Set<NodeId> configured = config.resolvableNodes().stream().map(EffectiveNodeConfig::id)
+            .collect(Collectors.toSet());
+        return leases.stream().filter(lease -> lease.state().open())
+            .map(lease -> lease.server() + " (INUBIT node " + lease.inubitNode() + "): "
+                + lease.loggers().size() + " logger(s), until " + lease.expiresAt() + ", "
+                + lease.state() + (configured.contains(lease.server()) ? ""
+                    : " (server no longer configured; forgotten automatically on "
+                        + LeaseScheduler.forgetDate(lease) + ")"))
+            .toList();
     }
 
     /**

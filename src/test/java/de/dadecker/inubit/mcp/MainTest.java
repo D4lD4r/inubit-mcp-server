@@ -53,6 +53,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.time.Clock;
@@ -77,6 +78,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -2505,6 +2507,73 @@ class MainTest {
         assertThat(lines).anyMatch(line -> line.contains("started for profile acme"))
             .noneMatch(line -> line.contains("lease"));
         assertThat(LeaseStore.defaultDirectory(home, "acme")).doesNotExist();
+    }
+
+    @Test
+    void checkConfigListsTheOpenLeasesWithoutResettingOrTakingThemOver() throws Exception {
+        // feature 024 T056 (FR-045, research D-23): an expired lease of an owner that no longer
+        // runs would be taken over and reset by a server; --check-config only reads the store
+        credentials();
+        LeaseOwner gone = new LeaseOwner(ProcessHandle.current().pid(),
+            Optional.of(Instant.EPOCH));
+        Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        Lease expired = lease("dev/node1", gone, now.minus(Duration.ofMinutes(1)));
+        Lease unconfigured = lease("gone/node9", gone, now.minus(Duration.ofDays(1)));
+        Path leases = LeaseStore.defaultDirectory(home, "acme");
+        new LeaseStore(leases, PrivateFiles.forHost(), Clock.systemUTC()).update(
+            stored -> List.of(expired, unconfigured), Duration.ofSeconds(5));
+        Path file = leases.resolve(LeaseStore.FILE);
+        byte[] before = Files.readAllBytes(file);
+        FileTime modified = Files.getLastModifiedTime(file);
+        List<Path> entries;
+        try (Stream<Path> listed = Files.list(leases)) {
+            entries = listed.sorted().toList();
+        }
+
+        run("--check-config", "--config", validConfig().toString());
+
+        assertThat(out()).contains("\nTemporary log levels:\n"
+            + "  dev/node1 (INUBIT node node1): 1 logger(s), until " + expired.expiresAt()
+            + ", ACTIVE\n"
+            + "  gone/node9 (INUBIT node node1): 1 logger(s), until " + unconfigured.expiresAt()
+            + ", ACTIVE (server no longer configured; forgotten automatically on "
+            + unconfigured.expiresAt().plus(Duration.ofDays(7)).atZone(ZoneOffset.UTC)
+                .toLocalDate() + ")\n");
+        assertThat(Files.readAllBytes(file)).isEqualTo(before);
+        assertThat(Files.getLastModifiedTime(file)).isEqualTo(modified);
+        try (Stream<Path> listed = Files.list(leases)) {
+            assertThat(listed.sorted().toList()).isEqualTo(entries);
+        }
+    }
+
+    @Test
+    void checkConfigWithAnInvalidProfileNameReadsNoLeaseStore() throws Exception {
+        // feature 024 T056 (review): an invalid profile name is never part of a path; the summary
+        // with the error is still printed
+        credentials();
+        Files.createDirectories(home.resolve(".inubit-mcp"));
+        Path other = LeaseStore.defaultDirectory(home, "../other").normalize();
+        new LeaseStore(other, PrivateFiles.forHost(), Clock.systemUTC()).update(
+            stored -> List.of(lease("dev/node1", new LeaseOwner(4711, Optional.empty()),
+                Instant.now().plus(Duration.ofMinutes(10)))), Duration.ofSeconds(5));
+
+        for (String name : List.of("\"../other\"", "\"ac\\0me\"")) {
+            stdout.reset();
+            String yaml = Files.readString(validConfig()).replace("name: acme", "name: " + name);
+            List<Path> before;
+            try (Stream<Path> walked = Files.walk(home)) {
+                before = walked.sorted().toList();
+            }
+
+            int exit = run("--check-config", "--config", config(yaml).toString());
+
+            assertThat(exit).as(name).isEqualTo(1);
+            assertThat(out()).as(name).contains("Invalid profile.name", "Result: FAILED")
+                .doesNotContain("Temporary log levels");
+            try (Stream<Path> walked = Files.walk(home)) {
+                assertThat(walked.sorted().toList()).as(name).isEqualTo(before);
+            }
+        }
     }
 
     /** A lease of {@code server} on INUBIT node node1 that expires at {@code expiresAt}. */

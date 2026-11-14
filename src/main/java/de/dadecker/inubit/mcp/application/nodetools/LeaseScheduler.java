@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.domain.port.LeaseView;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -167,8 +168,16 @@ public final class LeaseScheduler {
             .map(lease -> "Temporary log level lease " + lease.leaseId() + " of " + lease.server()
                 + " (INUBIT node " + lease.inubitNode() + "): the server is no longer configured,"
                 + " so the level is not reset; the lease is forgotten automatically on "
-                + forgetAt(lease).atZone(ZoneOffset.UTC).toLocalDate())
+                + forgetDate(lease))
             .toList();
+    }
+
+    /**
+     * The day (UTC) on which an open lease of a server no longer configured ends as
+     * {@code FORGOTTEN}; also named by the configuration summary (FR-045, research D-23).
+     */
+    public static LocalDate forgetDate(Lease lease) {
+        return forgetAt(lease).atZone(ZoneOffset.UTC).toLocalDate();
     }
 
     /**

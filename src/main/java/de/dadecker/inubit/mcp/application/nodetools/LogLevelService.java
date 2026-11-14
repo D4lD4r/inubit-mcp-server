@@ -32,8 +32,6 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -1005,11 +1003,10 @@ public final class LogLevelService {
             if (e.error().code() != ErrorCode.TARGET_UNKNOWN) {
                 throw e;
             }
-            LocalDate end = lease.expiresAt().plus(UNCONFIGURED_FORGET_AFTER)
-                .atZone(ZoneOffset.UTC).toLocalDate();
             throw invalidReset("Lease " + lease.leaseId() + " of " + lease.server() + " cannot"
                 + " be forgotten: " + lease.server() + " is no longer configured; the lease ends"
-                + " automatically 7 days after its expiry, on " + end);
+                + " automatically 7 days after its expiry, on "
+                + LeaseScheduler.forgetDate(lease));
         }
     }
 

@@ -679,7 +679,7 @@ the other just changed.
   validates; golden output without leases unchanged) and a wired test in `LogLevelWiringTest.java`
   (a seeded store's lease appears in `get_health` through the real `Wiring`, also with
   `write.enabled: false`)
-- [ ] T056 [US4] `--check-config` and summary leases (FR-045, D-23; after T055, same `Launcher.java`
+- [X] T056 [US4] `--check-config` and summary leases (FR-045, D-23; after T055, same `Launcher.java`
   and `MainTest.java`): `config/ConfigSummary.java` section `Temporary log levels:`
   (contracts/configuration-delta.md; read-only; unconfigured servers with the forget date;
   unreadable store warning), `Launcher.java` `--check-config` passes the store read-only. Failing
