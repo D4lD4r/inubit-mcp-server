@@ -266,7 +266,9 @@ public final class LogLevelService {
      * </ol>
      *
      * <p>Every lease update is a compare-and-set on the generation read in step 2: a lease changed
-     * meanwhile is not updated, and the final record says so. Nothing is thrown for an outcome;
+     * meanwhile is not updated, and the final record says so. A recorded attempt is timed from its
+     * start, the instant after step 2 (as every {@link LeaseAttempt#at()}), so the scheduler's
+     * retry 60 s later does not drift by the attempt's duration. Nothing is thrown for an outcome;
      * the lease and the audit log record it.
      */
     public void cleanup(Lease decided, LogLevelAudit.Trigger trigger) {
@@ -300,6 +302,7 @@ public final class LogLevelService {
                 return;
             }
             Lease lease = current.get();
+            Instant started = clock.instant();
             WritePolicy policy = null;
             LogLevelPort port;
             try {
@@ -309,7 +312,8 @@ public final class LogLevelService {
                 port = gateways.logLevel(node);
             } catch (ToolErrorException e) {
                 refuseCleanup(audit.automaticReset(trigger, lease,
-                    Optional.ofNullable(policy).flatMap(WritePolicy::account)), lease, e.error());
+                    Optional.ofNullable(policy).flatMap(WritePolicy::account)), lease, started,
+                    e.error());
                 return;
             }
             LogLevelAudit.AutomaticReset reset =
@@ -318,12 +322,13 @@ public final class LogLevelService {
                 reset.pending();
             } catch (LogLevelAudit.NotWritableException e) {
                 // the audit logged the ERROR; the next tick retries
-                LeaseAttempt attempt = new LeaseAttempt(clock.instant(), AuditOutcome.FAILED,
+                LeaseAttempt attempt = new LeaseAttempt(started, AuditOutcome.FAILED,
                     Optional.empty(), Optional.of(LeaseReason.AUDIT_NOT_WRITABLE));
                 compareAndSet(lease, stored -> stored.attempted(attempt));
                 return;
             }
-            CleanupOutcome outcome = lookupAndReset(lease, port, policy.permit().admitted());
+            CleanupOutcome outcome =
+                lookupAndReset(lease, port, policy.permit().admitted(), started);
             String unrecorded = compareAndSet(lease, outcome.change()).map(why -> "; " + why)
                 .orElse("");
             try {
@@ -658,9 +663,10 @@ public final class LogLevelService {
     private LogLevelResult failedRun(LogLevelAudit.ToolCall call, WritePolicy policy,
         Observed observed, Lease ahead, ToolError failure, LogLevelPort port) {
         NodeId node = policy.node();
+        Instant started = clock.instant();
         Optional<ToolError> resetFailure = resetAll(SET_TOOL, port, node,
             policy.permit().admitted(), cliTimeouts.apply(node));
-        Lease lease = recordReset(ahead, resetFailure).orElse(ahead);
+        Lease lease = recordReset(ahead, started, resetFailure).orElse(ahead);
         boolean open = lease.state().open();
         String inubitNode = ahead.inubitNode();
         String message = "Raising the log level on INUBIT node " + inubitNode + " failed ("
@@ -700,8 +706,9 @@ public final class LogLevelService {
      */
     private ToolErrorException unrecorded(LogLevelAudit.ToolCall call, NodeId node, Lease ahead,
         RuntimeException cause, LogLevelPort port, InubitVersion version, Duration timeout) {
+        Instant started = clock.instant();
         Optional<ToolError> resetFailure = resetAll(SET_TOOL, port, node, version, timeout);
-        call.lease(Optional.of(recordReset(ahead, resetFailure).orElse(ahead)));
+        call.lease(Optional.of(recordReset(ahead, started, resetFailure).orElse(ahead)));
         String why = cause instanceof ToolErrorException failure ? failure.error().message()
             : cause.getClass().getSimpleName();
         ToolError error = resetFailure.isEmpty()
@@ -750,11 +757,14 @@ public final class LogLevelService {
      * The lease after a reset at once: {@code RESET}, or {@code RESET_FAILED} with the attempt.
      * Best effort: if the store cannot record it, the write-ahead lease stays as it is (the
      * lease scheduler resets the node at its expiry).
+     *
+     * @param started when the reset began: the time of a failed attempt
      */
-    private Optional<Lease> recordReset(Lease ahead, Optional<ToolError> resetFailure) {
+    private Optional<Lease> recordReset(Lease ahead, Instant started,
+        Optional<ToolError> resetFailure) {
         Instant at = clock.instant();
         return record(ahead, lease -> resetFailure
-            .map(failure -> lease.failed(attempt(at, failure)))
+            .map(failure -> lease.failed(attempt(started, failure)))
             .orElseGet(() -> lease.reset(at)), "the reset after a failed set");
     }
 
@@ -858,11 +868,12 @@ public final class LogLevelService {
         String inubitNode = observed.inubitNode();
         Optional<Lease> open = observed.open();
         call.pending();
+        Instant started = clock.instant();
         Optional<ToolError> failure = resetAll(RESET_TOOL, port, node,
             policy.permit().admitted(), cliTimeouts.apply(node));
         Instant at = clock.instant();
         Optional<Lease> recorded = open.flatMap(lease -> record(lease, stored -> failure
-                .map(failed -> stored.attempted(attempt(at, failed)))
+                .map(failed -> stored.attempted(attempt(started, failed)))
                 .orElseGet(() -> stored.reset(at)),
             failure.isEmpty() ? "the reset" : "the failed reset"));
         Optional<Lease> current = recorded.or(() -> open);
@@ -1066,7 +1077,8 @@ public final class LogLevelService {
     }
 
     /** Step 3 not met: one {@code REFUSED} record, then {@code RESET_FAILED}. */
-    private void refuseCleanup(LogLevelAudit.AutomaticReset reset, Lease lease, ToolError error) {
+    private void refuseCleanup(LogLevelAudit.AutomaticReset reset, Lease lease, Instant started,
+        ToolError error) {
         LeaseReason reason = LeaseReason.PRECONDITION;
         try {
             reset.refused(LeaseReason.PRECONDITION.text() + ": " + text(error));
@@ -1074,13 +1086,18 @@ public final class LogLevelService {
             // the audit logged the ERROR
             reason = LeaseReason.AUDIT_NOT_WRITABLE;
         }
-        LeaseAttempt attempt = new LeaseAttempt(clock.instant(), AuditOutcome.REFUSED,
+        LeaseAttempt attempt = new LeaseAttempt(started, AuditOutcome.REFUSED,
             Optional.of(error.code()), Optional.of(reason));
         compareAndSet(lease, stored -> stored.failed(attempt));
     }
 
-    /** Step 5: the own-node lookup, then {@code trace --reset}, within one {@code cliTimeout}. */
-    private CleanupOutcome lookupAndReset(Lease lease, LogLevelPort port, InubitVersion version) {
+    /**
+     * Step 5: the own-node lookup, then {@code trace --reset}, within one {@code cliTimeout}.
+     *
+     * @param started the start of the attempt, its time if it does not end the lease
+     */
+    private CleanupOutcome lookupAndReset(Lease lease, LogLevelPort port, InubitVersion version,
+        Instant started) {
         NodeId node = lease.server();
         Duration budget = cliTimeouts.apply(node);
         long deadline = nanoTime.getAsLong() + budget.toNanos();
@@ -1088,10 +1105,10 @@ public final class LogLevelService {
         try {
             inubitNode = port.answeringNode(version, deadline);
         } catch (RuntimeException e) {
-            return failedCleanup(failure(e, RESET_TOOL, node, "StartCLI"));
+            return failedCleanup(started, failure(e, RESET_TOOL, node, "StartCLI"));
         }
         if (!inubitNode.equals(lease.inubitNode())) {
-            LeaseAttempt attempt = new LeaseAttempt(clock.instant(), AuditOutcome.REFUSED,
+            LeaseAttempt attempt = new LeaseAttempt(started, AuditOutcome.REFUSED,
                 Optional.empty(), Optional.of(LeaseReason.OTHER_NODE_ANSWERS));
             return new CleanupOutcome(AuditOutcome.REFUSED, LeaseReason.OTHER_NODE_ANSWERS.text()
                 + ": INUBIT node " + inubitNode + " answers for " + node + ", but the lease was"
@@ -1106,7 +1123,7 @@ public final class LogLevelService {
                 "The node or StartCLI answers slowly", "The MCP server retries the reset; raise"
                     + " cliTimeout of " + node + " if the node is just slow").withNode(node));
         if (failure.isPresent()) {
-            return failedCleanup(failure.get());
+            return failedCleanup(started, failure.get());
         }
         Instant at = clock.instant();
         return new CleanupOutcome(AuditOutcome.EXECUTED, "every temporary log level on INUBIT"
@@ -1114,8 +1131,8 @@ public final class LogLevelService {
             stored -> stored.reset(at));
     }
 
-    private CleanupOutcome failedCleanup(ToolError failure) {
-        LeaseAttempt attempt = attempt(clock.instant(), failure);
+    private CleanupOutcome failedCleanup(Instant started, ToolError failure) {
+        LeaseAttempt attempt = attempt(started, failure);
         return new CleanupOutcome(AuditOutcome.FAILED,
             attempt.reason().orElseThrow().text() + ": " + text(failure),
             stored -> stored.failed(attempt));

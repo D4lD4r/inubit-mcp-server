@@ -520,7 +520,8 @@ scheduler and the shutdown:
 startup without blocking the MCP initialization. A tick, under the store lock (wait ≤ 2 s; busy →
 skip): per lease decide `cleanup` (own `ACTIVE` expired; own `RESET_FAILED` or a lease whose last
 attempt was refused or not audited, **at most once per 60 s** after its `lastAttempt` — FR-043's
-"at least every minute"), `takeover` (owner
+"at least every minute"; `lastAttempt.at` is the instant the attempt began, so a slow attempt does
+not push the retry a tick later; due 1 s early as a tolerance against clock slew), `takeover` (owner
 not alive, state `ACTIVE` or `RESET_FAILED`: owner := self, generation + 1, audited `trigger:
 takeover`; then `cleanup` if expired or failed, otherwise at its expiry by this instance),
 `forget` (server not configured and `expiresAt + 7 days` passed → `FORGOTTEN`, audited), `remove`

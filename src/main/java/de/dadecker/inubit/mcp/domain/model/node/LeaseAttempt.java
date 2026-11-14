@@ -6,7 +6,11 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 
-/** The last reset attempt of a lease that did not end it (research D-12, D-16). */
+/**
+ * The last reset attempt of a lease that did not end it (research D-12, D-16).
+ *
+ * @param at the instant the attempt began (the 60-s retry of D-16 counts from it)
+ */
 public record LeaseAttempt(
     Instant at, AuditOutcome outcome, Optional<ErrorCode> code, Optional<LeaseReason> reason) {
 

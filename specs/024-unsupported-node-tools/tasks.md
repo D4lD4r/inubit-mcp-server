@@ -618,7 +618,7 @@ the other just changed.
   lease after the cleanup was decided (generation g → g + 1) → the cleanup sends nothing and the
   lease stays `ACTIVE` with the new expiry and loggers; a set holding the node lock → the cleanup
   is skipped without contacting INUBIT; leak check)
-- [ ] T052 [US4] `application/nodetools/LeaseScheduler.java` (FR-043 … FR-045, SC-004, D-16; after
+- [X] T052 [US4] `application/nodetools/LeaseScheduler.java` (FR-043 … FR-045, SC-004, D-16; after
   T046, T051): tick every 30 s (first at start); decisions under the store lock (cleanup, takeover
   with generation + 1 and audit, `FORGOTTEN` 7 days after expiry for unconfigured servers with
   audit, retention), cleanups outside it per node in parallel; busy store lock → tick skipped;
@@ -652,6 +652,8 @@ the other just changed.
   `ACTIVE`; audit not writable at shutdown → nothing sent, lease kept; the hook path does the same
   once), `MainTest.java` (startup log lines with a seeded store; without a store file no lease line
   and no file created)
+  Note (T052 review): log the startup WARN per lease of an unconfigured server from
+  `LeaseScheduler.pendingForgetWarnings()`; do not write the text a second time.
 - [ ] T054 [US4] Tools, schemas and wiring (FR-001, FR-003, FR-040, D-6, D-25; after T053, same
   `Wiring.java` and `MainTest.java`): `mcp/tools/SetTemporaryLogLevelTool.java`,
   `ResetTemporaryLogLevelTool.java` (`ToolHints.destructive(…)`, descriptions of contracts),
@@ -686,6 +688,8 @@ the other just changed.
   (no reset, no takeover, store file unchanged)
   Note (T070 review): the `Temporary log levels:` line form of contracts/configuration-delta.md is
   authoritative over the D-23 example; use the docs/setup.md lines as the ConfigSummaryTest golden.
+  Note (T052 review): the summary and `get_health` texts for leases of unconfigured servers should
+  reuse `LeaseScheduler.pendingForgetWarnings()` or share its text.
 - [ ] T057 [US4] Contract test (after T056): `NodeToolsV81ContractTest` `+` every `v8_1/log-level`
   case through `CliLogLevelAdapter` + `LogLevelService` (test matrix): `set_ok` → lease and result;
   `reset_ok`; `missing_level` → `UNEXPECTED_RESPONSE` and an immediate reset; `login_failure` →

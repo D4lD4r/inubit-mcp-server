@@ -404,9 +404,10 @@ class LogLevelServiceResetTest {
         Lease lease = onlyLease();
         assertThat(lease.state()).isEqualTo(LeaseState.ACTIVE);
         assertThat(lease.generation()).isEqualTo(open.generation() + 1);
-        assertThat(lease.lastAttempt()).contains(new LeaseAttempt(NOW.plus(RUN),
-            AuditOutcome.FAILED, Optional.of(ErrorCode.UNREACHABLE),
-            Optional.of(LeaseReason.NODE_UNREACHABLE)));
+        assertThat(lease.lastAttempt()).as("timed from the start of the reset run, not from its"
+            + " end").contains(new LeaseAttempt(NOW, AuditOutcome.FAILED,
+            Optional.of(ErrorCode.UNREACHABLE), Optional.of(LeaseReason.NODE_UNREACHABLE)));
+        assertThat(clock.instant()).isEqualTo(NOW.plus(RUN));
         assertThat(lease.expiresAt()).isEqualTo(open.expiresAt());
 
         assertThat(result.outcome()).isEqualTo(LogLevelResult.Status.FAILED);

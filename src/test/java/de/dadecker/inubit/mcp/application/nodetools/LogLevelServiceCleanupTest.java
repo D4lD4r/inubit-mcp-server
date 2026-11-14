@@ -378,9 +378,11 @@ class LogLevelServiceCleanupTest {
         Lease lease = onlyLease();
         assertThat(lease.state()).isEqualTo(LeaseState.RESET_FAILED);
         assertThat(lease.generation()).isEqualTo(decided.generation() + 1);
-        assertThat(lease.lastAttempt()).contains(new LeaseAttempt(NOW.plus(RUN),
+        assertThat(lease.lastAttempt()).as("timed from the start of the attempt, although the"
+            + " failed reset took " + RUN).contains(new LeaseAttempt(NOW,
             AuditOutcome.FAILED, Optional.of(ErrorCode.UNREACHABLE),
             Optional.of(LeaseReason.NODE_UNREACHABLE)));
+        assertThat(clock.instant()).isEqualTo(NOW.plus(RUN));
         assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.FAILED);
         assertThat(auditLog.records.get(1).reason()).contains("node unreachable: UNREACHABLE:"
             + " StartCLI could not reach test/node1");
