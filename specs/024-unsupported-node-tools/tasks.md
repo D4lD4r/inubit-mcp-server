@@ -748,7 +748,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
 
 ### Live check (gates the feature; SC-001, SC-002, SC-004; D-29)
 
-- [ ] T067 Live test code (offline part; after T054): `live/NodeToolsLiveTest.java` (`@Tag("live")`,
+- [X] T067 Live test code (offline part; after T054): `live/NodeToolsLiveTest.java` (`@Tag("live")`,
   `-Plive`, production refused by `live/LiveTarget.java`; `INUBIT_LIVE_NODE`, optional
   `INUBIT_LIVE_IO_PROCESS=<workflow>/<processId>`, `INUBIT_LIVE_LOG_LEVEL=approved` for the write
   part; skipped without them; read tools through the wired server: node list < 10 s with the

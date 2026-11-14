@@ -187,6 +187,15 @@ public final class TestWiring implements AutoCloseable {
         return wiring.gateways();
     }
 
+    /**
+     * Starts the lease scheduler as the launcher does (feature 024, research D-17): it resets an
+     * expired temporary log level, and {@link #close()} then resets the open leases of this
+     * instance.
+     */
+    public void startLeases() {
+        wiring.startLeases();
+    }
+
     /** The home the wiring keeps its per-profile state below ({@code <home>/.inubit-mcp}). */
     public Path userHome() {
         return userHome;
