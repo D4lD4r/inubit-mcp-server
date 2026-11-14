@@ -40,13 +40,13 @@ import java.util.function.Supplier;
  * </ul>
  *
  * <p>A block its parser cannot read marks only its part unavailable (FR-013). That includes a
- * command StartCLI refuses: as recorded on 8.1.17 (T014, L-1), its block reads
- * {@code EXECUTION ERROR} and the reason, the session goes on with the next command and ends with
- * exit code 1. A failure of the whole session (credentials, the pin of a {@code tls.pinPerServer}
- * stage, launch, timeout, an exit code other than 0 without such a block, cut output, a refused
- * login, a missing "CLI login access" right, or not one prompt per command) is thrown with the
- * node set, as no block can be told apart then. The blocks are split with
- * {@link CliSessionParser#STANDARD}, the recorded prompt with the echoed command.
+ * command StartCLI refuses: as recorded on 8.1.17 (T014, L-1) and 9.0.10 (T024), its block reads
+ * {@code EXECUTION ERROR} and the reason and the session goes on with the next command; it ends
+ * with exit code 1 on 8.1 and 0 on 9.0. A failure of the whole session (credentials, the pin of
+ * a {@code tls.pinPerServer} stage, launch, timeout, an exit code other than 0 without such a
+ * block, cut output, a refused login, a missing "CLI login access" right, or not one prompt per
+ * command) is thrown with the node set, as no block can be told apart then. The blocks are split
+ * with {@link CliSessionParser#STANDARD}, the recorded prompt with the echoed command.
  */
 public final class CliSettingsRunner {
 

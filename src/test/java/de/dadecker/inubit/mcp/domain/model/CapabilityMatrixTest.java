@@ -497,20 +497,19 @@ class CapabilityMatrixTest {
         assertThat(Capability.SERVER_SETTINGS.label()).isEqualTo("reading server settings");
     }
 
-    /** Supported on 8.1 since its contract tests (T025); 9.0 "not yet verified" until T026. */
+    /** Supported on 8.1 and 9.0 since their contract tests (T025, T026). */
     @Test
-    void serverSettingsIsSupportedOn81AndNotYetVerifiedOn90() {
+    void serverSettingsIsSupportedOn81And90() {
         assertThat(production.state(version("8.1.17"), Capability.SERVER_SETTINGS))
             .isEqualTo(SupportState.SUPPORTED);
         assertThat(production.note(version("8.1.17"), Capability.SERVER_SETTINGS)).isEmpty();
-        assertThat(production.state(version("9.0.7"), Capability.SERVER_SETTINGS))
-            .isEqualTo(SupportState.UNSUPPORTED);
-        assertThat(production.note(version("9.0.7"), Capability.SERVER_SETTINGS))
-            .contains("not yet verified");
+        assertThat(production.state(version("9.0.10"), Capability.SERVER_SETTINGS))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.note(version("9.0.10"), Capability.SERVER_SETTINGS)).isEmpty();
         assertThat(production.stateOfLine(8, OptionalInt.of(1), Capability.SERVER_SETTINGS))
             .isEqualTo(SupportState.SUPPORTED);
         assertThat(production.stateOfLine(9, OptionalInt.of(0), Capability.SERVER_SETTINGS))
-            .isEqualTo(SupportState.UNSUPPORTED);
+            .isEqualTo(SupportState.SUPPORTED);
         assertThat(production.lines(Capability.SERVER_SETTINGS)).containsExactly("8.1", "9.0");
         assertThat(production.possiblySupported(Capability.SERVER_SETTINGS)).isTrue();
     }

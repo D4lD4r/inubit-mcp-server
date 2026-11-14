@@ -131,8 +131,8 @@ log download (see [its section](#download_server_log)). It changes nothing on IN
 offered in read-only mode, independent of `write.*`, `archives.*` and the production opt-ins.
 
 `get_server_settings` is **offered only if** a node is not pinned to a version that refuses
-`server_settings` (since its 8.1 recordings: a node pinned to 8.1 or `AUTO`), with or without a
-StartCLI installation (see [its section](#get_server_settings)).
+`server_settings` (since its 8.1 and 9.0 recordings: a node pinned to 8.1, 9.0 or `AUTO`), with
+or without a StartCLI installation (see [its section](#get_server_settings)).
 
 `read_users` is **offered only if** a node is not pinned to a version that refuses
 `user_directory` (since its 8.1 recordings: a node pinned to 8.1 or `AUTO`), with or without a
@@ -163,7 +163,7 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 |---|---|---|---|---|---|---|
 | `list_nodes` | – | read | none | runs | runs (no INUBIT contact) | runs (no INUBIT contact) |
 | `get_health` | `monitoring` | read | REST; on 6.1 StartCLI | supported | runs with a warning; never refused | refused in this version (the report carries the refusal) |
-| `get_server_settings` | `server_settings` | read | REST + StartCLI | 8.1 supported; 9.0 **refused until verified**, see [its section](#get_server_settings) | refused (no warning run) | refused |
+| `get_server_settings` | `server_settings` | read | REST + StartCLI | 8.1 and 9.0 supported, see [its section](#get_server_settings) | refused (no warning run) | refused |
 | `read_users` | `user_directory` | read | REST + StartCLI | 8.1 supported; 9.0 **refused until verified**, see [its section](#read_users) | refused (no warning run) | refused |
 | `find_processes` | `process_diagnosis` | read | REST; on 6.1 StartCLI | supported | runs with a warning | refused in this version; the input `tag` always |
 | `query_logs` | `log_diagnosis` | read | REST | supported | runs with a warning | refused |
@@ -343,10 +343,11 @@ client home for one of its possible versions and either is not pinned to a versi
 `trace_log_read` (6.1, a line other than 8.1 and 9.0), or its group has
 `unsupported.serverLogRead: true` and it is not pinned to a version that refuses
 `webservice_log_read`; write settings do not matter. Feature 022: `get_server_settings` is offered
-only if a node is not pinned to a version that refuses `server_settings` (8.1 and `AUTO` nodes
-since the 8.1 recordings); a StartCLI installation is not needed. The same holds for `read_users`
-and `user_directory`. `AUTO` nodes count as possibly capable as long as some version supports the
-capability; a later detection does not change the list, it leads to refusals.
+only if a node is not pinned to a version that refuses `server_settings` (8.1, 9.0 and `AUTO`
+nodes since the 8.1 and 9.0 recordings); a StartCLI installation is not needed. The same holds for
+`read_users` and `user_directory` (8.1 and `AUTO` nodes since the 8.1 recordings). `AUTO` nodes
+count as possibly capable as long as some version supports the capability; a later detection does
+not change the list, it leads to refusals.
 
 ### INUBIT 6.1 (feature 012)
 
@@ -874,16 +875,12 @@ are listed in [interface-coverage.md](interface-coverage.md). The capability `se
   only to the INUBIT root user ("Only root user can use this command."), so their entries are
   excluded (`UNSUPPORTED_VERSION: threads via CLI threads showNumberOfWorkflowThreads is excluded
   for INUBIT 8.1: needs the INUBIT root user`) and never sent.
-- INUBIT 9.0: not yet verified; refused with `UNSUPPORTED_VERSION` (`… reading server settings is
-  not yet verified for INUBIT 9.0`) until the recordings of a live 9.0 node are under contract
-  test. `threads` and `privilegedWorkflows` are excluded on 9.0 as on 8.1.
+- INUBIT 9.0: supported, verified against the recordings of a 9.0.10 node. `threads` and
+  `privilegedWorkflows` are excluded on 9.0 as on 8.1.
 - INUBIT 6.1, any other line (9.1, `V9_X`) and an unknown version: refused (no warning run).
 
-`get_server_settings` is in `tools/list` when a node may run 8.1 (see
-[Tool announcement](#tool-announcement)). Until 9.0 is verified, `list_nodes` shows
-`server_settings` under `notUsable` of every 9.0 node with the reason `INUBIT 9.0 on prod/node1:
-reading server settings is not yet verified for INUBIT 9.0`; such a node is therefore
-`partially_supported`.
+`get_server_settings` is in `tools/list` when a node may run 8.1 or 9.0 (see
+[Tool announcement](#tool-announcement)).
 
 **Input** (`get_server_settings.input.json`):
 

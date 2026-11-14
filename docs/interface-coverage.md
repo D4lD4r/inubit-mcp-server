@@ -15,9 +15,9 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 
 | State | 8.1 | 9.0 |
 | --- | ---: | ---: |
-| reachable | 42 | 34 |
-| covered | 39 | 36 |
-| planned | 103 | 113 |
+| reachable | 42 | 38 |
+| covered | 39 | 38 |
+| planned | 103 | 107 |
 | undocumented | 3 | 1 |
 | excluded | 63 | 66 |
 | all entries | 250 | 250 |
@@ -26,13 +26,13 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 
 | Entry | Kind | Story | 8.1 | 9.0 |
 | --- | --- | --- | --- | --- |
-| CLI `license -td` | READ | US1 | covered `get_server_settings` | planned, waits `9.0-pin` |
-| CLI `license -ts` | READ | US1 | covered `get_server_settings` | planned, waits `9.0-pin` |
+| CLI `license -td` | READ | US1 | covered `get_server_settings` | covered `get_server_settings` |
+| CLI `license -ts` | READ | US1 | covered `get_server_settings` | covered `get_server_settings` |
 | CLI `threads showNumberOfWorkflowThreads` | READ | - | excluded: needs the INUBIT root user | excluded: needs the INUBIT root user |
 | CLI `privilegedWorkflows showThreadsPercentage` | READ | - | excluded: needs the INUBIT root user | excluded: needs the INUBIT root user |
 | CLI `privilegedWorkflows showWorkflowList` | READ | - | excluded: needs the INUBIT root user | excluded: needs the INUBIT root user |
-| CLI `dbconnectiontolerance show` | READ | US1 | reachable `get_server_settings/default` | planned, waits `9.0-pin` |
-| CLI `date` | READ | US1 | reachable `get_server_settings/default` | planned, waits `9.0-pin` |
+| CLI `dbconnectiontolerance show` | READ | US1 | reachable `get_server_settings/default` | reachable `get_server_settings/default` |
+| CLI `date` | READ | US1 | reachable `get_server_settings/default` | reachable `get_server_settings/default` |
 | CLI `getBlockingQueueSize` | READ | - | covered `get_health` | covered `get_health` |
 | CLI `-sv` | READ | - | covered `get_health` | covered `get_health` |
 | CLI `-pctmem` | READ | - | covered `get_health` | covered `get_health` |
@@ -64,8 +64,8 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | REST `GET /metrics` | READ | - | reachable `get_health/default` | reachable `get_health/default` |
 | REST `GET /system/info` | READ | - | reachable `get_health/default` | reachable `get_health/default` |
 | REST `GET /ready` | READ | - | reachable `get_health/default` | reachable `get_health/default` |
-| REST `GET /configurations` | READ | US1 | reachable `get_server_settings/default` | planned, waits `9.0-pin` |
-| REST `GET /license` | READ | US1 | reachable `get_server_settings/default` | planned, waits `9.0-pin` |
+| REST `GET /configurations` | READ | US1 | reachable `get_server_settings/default` | reachable `get_server_settings/default` |
+| REST `GET /license` | READ | US1 | reachable `get_server_settings/default` | reachable `get_server_settings/default` |
 | REST `POST /ready/{status}` | WRITE | US4 | planned | planned |
 | REST `PUT /license` | WRITE | US6 | planned | planned |
 | REST `PUT /configurations` | WRITE | US6 | planned | planned |

@@ -434,7 +434,7 @@ as a typed field with its source, and missing parts with their reason (US1 AS1â€
   - From the T019 review: anchor `CliOutputClassifier.MISSING_CLI_RIGHT` to the recorded refusal
     code or text for a missing "CLI login access" right (L-1), and add classifier tests for that
     text and for the recorded wrong-credentials text (the guard must still pause on the latter).
-- [ ] T026 [US1] 9.0 contracts and flip [BLOCKED: T024]: `SettingsV90ContractTest.java`, rows
+- [X] T026 [US1] 9.0 contracts and flip: `SettingsV90ContractTest.java`, rows
   and matrix for `v9_0`, catalogue entries.
   - the same for the `v9_0` column of `license -td` / `license -ts` (`covered:get_server_settings`);
 - [X] T027 [US1] Docs and release notes (FR-027):
