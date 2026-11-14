@@ -223,8 +223,11 @@ management; results may be incomplete`, and `list_nodes` shows a 9.0 node as
 includes 9.0 (the INUBIT 9.0 client, on Java 21, usually configured as
 `defaults.cliClients."9.0"`, see
 [setup.md](setup.md#startcli-client-per-inubit-version-defaultscliclients)); with an 8.1 client
-they are refused like on any version outside the client's range. The 9.0 support is derived from
-INUBIT's documentation and has not yet been checked against a live INUBIT 9.0 node.
+they are refused like on any version outside the client's range. The 9.0 support of feature 017
+is derived from INUBIT's documentation, with the fixes of a first live check (0.8.1); the tools of
+features 020–022 and 024 are verified against recorded, neutralized answers of a live
+non-production INUBIT 9.0 node where a 9.0 recording exists (the table above gives the state per
+tool).
 
 **The version a call is judged on.** For a pinned node (`V8_1`, `V9_0`, `V9_X`, a concrete version) the
 pin, unless `get_health` has read another version since (then that one, see

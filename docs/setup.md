@@ -472,8 +472,11 @@ about each of them ([section 6](#6-check-the-configuration)).
 
 ### StartCLI client per INUBIT version (`defaults.cliClients`)
 
-> INUBIT 9.0 support is derived from documentation and has not yet been checked against a live
-> INUBIT 9.0 node.
+> The INUBIT 9.0 support of feature 017 is derived from INUBIT's documentation, with the fixes of
+> a first live check (0.8.1); the tools of features 020–022 and 024 are verified against recorded,
+> neutralized answers of a live non-production INUBIT 9.0 node where a 9.0 recording exists. The
+> state per tool and version:
+> [tools.md, INUBIT versions and capabilities](tools.md#inubit-versions-and-capabilities-feature-009).
 
 Since feature 017 a profile can hold one StartCLI client per INUBIT version: the INUBIT 9.0
 client for 9.0 nodes, the 8.1 client for 8.1 nodes. Each client runs on the Java version its

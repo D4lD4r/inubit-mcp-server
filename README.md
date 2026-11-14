@@ -158,8 +158,11 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
   deployments are used, also with rights to export, import and tag the owner's diagrams and
   modules. INUBIT 9.0 nodes are
   pinned with `versionLine: V9_0` or detected (`AUTO`); `V9_X` and INUBIT 9.1 and later run reads
-  unverified and refuse writes. The INUBIT 9.0 support is derived from INUBIT's documentation and
-  has not yet been checked against a live INUBIT 9.0 node.
+  unverified and refuse writes. The INUBIT 9.0 support of feature 017 is derived from INUBIT's
+  documentation, with the fixes of a first live check (0.8.1); the tools of features 020–022 and
+  024 are verified against recorded, neutralized answers of a live non-production INUBIT 9.0 node
+  where a 9.0 recording exists. The state per tool and version:
+  [INUBIT versions and capabilities](docs/tools.md#inubit-versions-and-capabilities-feature-009).
 - **INUBIT 6.1** is supported read-only, through StartCLI only, for nodes pinned with
   `versionLine: V6_1` (or a concrete 6.1 version): the server sends them no REST request and
   never writes to them. In this version every tool except `list_nodes` and the offline checks
