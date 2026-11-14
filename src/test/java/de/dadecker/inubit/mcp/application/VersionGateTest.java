@@ -1479,18 +1479,25 @@ class VersionGateTest {
         Capability.NODE_CONFIG_READ, "get_node_config",
         Capability.LOG_LEVEL_WRITE, "set_temporary_log_level");
 
+    /** The node-tool capabilities admitted on 9.0 since their recordings (T062). */
+    private static final Map<Capability, String> RECORDED_ON_90 = Map.of(
+        Capability.CLUSTER_NODES_READ, "list_cluster_nodes");
+
     /**
-     * Until its recording each node tool is refused with the matrix note: on 9.0 every one, on
-     * 8.1 every one but those recorded there ({@link #RECORDED_ON_81}, below).
+     * Until its recording each node tool is refused with the matrix note on 8.1 and 9.0, every one
+     * but those recorded on that line ({@link #RECORDED_ON_81}, {@link #RECORDED_ON_90}, below).
      */
     @Test
     void aNodeToolIsNotYetVerifiedUntilItsRecording() {
         NODE_TOOLS.forEach((capability, tool) -> {
-            ToolError v90 = refusal(() -> gate().admit(tool, V9_0, capability,
-                capability.kind(), CLI));
-            assertThat(v90.message()).isEqualTo(tool + ": INUBIT 9.0 on prod/node4: "
-                + capability.label() + " is not yet verified for INUBIT 9.0; nothing was sent");
-            assertNoLeak(v90);
+            if (!RECORDED_ON_90.containsKey(capability)) {
+                ToolError v90 = refusal(() -> gate().admit(tool, V9_0, capability,
+                    capability.kind(), CLI));
+                assertThat(v90.message()).isEqualTo(tool + ": INUBIT 9.0 on prod/node4: "
+                    + capability.label() + " is not yet verified for INUBIT 9.0; nothing was"
+                    + " sent");
+                assertNoLeak(v90);
+            }
             if (!RECORDED_ON_81.containsKey(capability)) {
                 ToolError v81 = refusal(() -> gate().admit(tool, PINNED, capability,
                     capability.kind(), CLI));
@@ -1501,7 +1508,8 @@ class VersionGateTest {
             }
         });
         assertThat(probe.calls).as("no StartCLI run").isEmpty();
-        assertThat(appender.list).hasSize(2 * NODE_TOOLS.size() - RECORDED_ON_81.size());
+        assertThat(appender.list)
+            .hasSize(2 * NODE_TOOLS.size() - RECORDED_ON_81.size() - RECORDED_ON_90.size());
     }
 
     /**
@@ -1515,6 +1523,22 @@ class VersionGateTest {
 
             assertThat(v81.warnings()).as(tool).isEmpty();
             assertThat(v81.version()).as(tool).contains(version("8.1.17"));
+        });
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+        assertThat(appender.list).isEmpty();
+    }
+
+    /** T062: the recorded 9.0 cluster-nodes case admits the cluster's node list without warning. */
+    @Test
+    void aRecordedNodeToolIsAdmittedOn90SinceItsRecording() {
+        detection.answer("9.0.10");
+        RECORDED_ON_90.forEach((capability, tool) -> {
+            Admission detected = gate().admit(tool, AUTO, capability, capability.kind(), CLI);
+            Admission line = gate().admit(tool, V9_0, capability, capability.kind(), CLI);
+
+            assertThat(detected.warnings()).as(tool).isEmpty();
+            assertThat(detected.version()).as(tool).contains(version("9.0.10"));
+            assertThat(line.warnings()).as(tool).isEmpty();
         });
         assertThat(probe.calls).as("no StartCLI run").isEmpty();
         assertThat(appender.list).isEmpty();

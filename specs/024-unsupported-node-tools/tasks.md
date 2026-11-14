@@ -730,7 +730,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   T062/T064 are in the session scratchpad (t062-out, t064-out), not in the repository.
 - [ ] T061 [US5] **[LIVE] [OWNER]** 9.0 log-level write spike (as T039 for 9.0; the owner approves
   exactly that action)
-- [ ] T062 [US5] **[OWNER]** **[BLOCKED: T060]** Enable 9.0 `cluster_nodes_read` in **one commit**:
+- [X] T062 [US5] **[OWNER]** **[BLOCKED: T060]** Enable 9.0 `cluster_nodes_read` in **one commit**:
   neutralize as T025 into `v9_0/cluster-nodes/ok.*`; new `adapter/cli/node/NodeToolsV90ContractTest.java`
   (all v9_0 cluster-nodes cases incl. reconstructed ones and the REST client's stdout noise outside
   frames); **owner reviews the fixture diff**; 9.0 `CLUSTER_NODES_READ` → `SUPPORTED`; catalogue,

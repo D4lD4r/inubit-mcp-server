@@ -389,9 +389,14 @@ class NodeToolsDocsTest {
         String tools = tools();
         for (Map.Entry<String, Capability> tool : CAPABILITY.entrySet()) {
             String section = toolSection(tool.getKey());
+            String supportedOnBoth = "`" + LIST_NODES_NAME.get(tool.getValue())
+                + "` is supported on INUBIT 8.1 and 9.0";
             for (String line : List.of("8.1", "9.0")) {
                 String stated = stateSentence(tool.getValue(), line);
-                assertThat(section).as(tool.getKey() + " on " + line).contains(stated);
+                // supported on both lines: one sentence names both (T062)
+                assertThat(section).as(tool.getKey() + " on " + line).contains(
+                    stateCell(tool.getValue()).startsWith("supported (") ? supportedOnBoth
+                        : stated);
                 String name = "`" + LIST_NODES_NAME.get(tool.getValue()) + "`";
                 assertThat(section).as("no contrary statement for " + line).doesNotContain(
                     stated.endsWith("verified for INUBIT " + line)

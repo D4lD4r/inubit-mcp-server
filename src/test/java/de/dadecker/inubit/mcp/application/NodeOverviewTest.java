@@ -134,6 +134,24 @@ class NodeOverviewTest {
                     + " for INUBIT 8.1");
     }
 
+    /** T062: on 9.0 the cluster's node list is usable since its recording, the others not yet. */
+    @Test
+    void onANineZeroNodeOnlyTheClusterNodeListIsUsableOfTheNodeTools() {
+        Set<Capability> nodeTools = EnumSet.of(Capability.CLUSTER_NODES_READ,
+            Capability.IO_LOG_READ, Capability.NODE_CONFIG_READ, Capability.LOG_LEVEL_WRITE);
+
+        NodeSummary.Capabilities v90 = version(VersionSetting.V9_0, nodeTools).capabilities();
+
+        assertThat(v90.usable()).containsExactly("cluster_nodes_read");
+        assertThat(v90.notUsable()).extracting(NodeSummary.NotUsable::reason).containsExactly(
+            "INUBIT 9.0 on dev/node1: reading module input/output logging is not yet verified for"
+                + " INUBIT 9.0",
+            "INUBIT 9.0 on dev/node1: reading node configuration values is not yet verified for"
+                + " INUBIT 9.0",
+            "INUBIT 9.0 on dev/node1: changing temporary log levels is not yet verified for"
+                + " INUBIT 9.0");
+    }
+
     @Test
     void partnerManagementIsListedByItsNameWithTheStateOfTheVersionLine() {
         Set<Capability> partners = EnumSet.of(Capability.PARTNER_MANAGEMENT);

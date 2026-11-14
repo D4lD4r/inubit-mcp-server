@@ -523,8 +523,8 @@ class ToolAnnouncementTest {
     }
 
     @Test
-    void onTheProductionMatrixListClusterNodesIsAnnouncedForAnOptedInEightOneOrAutoNode() {
-        // since T025 the production matrix supports CLUSTER_NODES_READ on 8.1; 9.0 still not
+    void onTheProductionMatrixListClusterNodesIsAnnouncedForAnOptedInNodeOf81Or90OrAuto() {
+        // since T025 the production matrix supports CLUSTER_NODES_READ on 8.1, since T062 on 9.0
         CapabilityMatrix production = CapabilityMatrix.production();
         List<String> withClusterNodes = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
@@ -536,7 +536,11 @@ class ToolAnnouncementTest {
         assertThat(groupTools("AUTO", nodeStatusOptIn("true") + "\n" + cliHome(), false,
             production)).containsExactlyElementsOf(withClusterNodes);
         assertThat(groupTools("V9_0", nodeStatusOptIn("true"), true, production))
+            .containsExactlyElementsOf(withClusterNodes);
+        assertThat(groupTools("V9_0", "", true, production))
             .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V9_0", nodeStatusOptIn("true"), false, production))
+            .as("without a 9.0 client").doesNotContain("list_cluster_nodes");
         assertThat(groupTools("V8_1", cliHome(), false, production))
             .containsExactlyElementsOf(REFERENCE);
         assertThat(groupTools("AUTO", cliHome(), false, production))

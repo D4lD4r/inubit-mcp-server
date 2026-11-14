@@ -45,12 +45,13 @@ class CapabilityMatrixTest {
      * management is the exception of feature 018 (below); feature 020 (T038): reading Queue
      * Manager entries included since its 9.0 recording; feature 021: the server-log reads
      * included since their 9.0 recordings (T051, T052); feature 022: the server settings and
-     * the users included since their 9.0 contract tests (T026, T037a); feature 024: the node
-     * tools wait for their recordings (below).
+     * the users included since their 9.0 contract tests (T026, T037a); feature 024: the cluster's
+     * node list since its 9.0 recording (T062), the other node tools wait for their recordings
+     * (below).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"PARTNER_MANAGEMENT", "CLUSTER_NODES_READ",
-        "IO_LOG_READ", "NODE_CONFIG_READ", "LOG_LEVEL_WRITE"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"PARTNER_MANAGEMENT", "IO_LOG_READ",
+        "NODE_CONFIG_READ", "LOG_LEVEL_WRITE"}, mode = EnumSource.Mode.EXCLUDE)
     void everyCapabilityIsSupportedOn90LikeOn81(Capability capability) {
         assertThat(production.state(version("9.0.7"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -608,14 +609,34 @@ class CapabilityMatrixTest {
     }
 
     /**
-     * T025, T038, T058 (FR-005, D-27): the recorded 8.1 cluster-nodes, node-config and log-level
-     * cases enabled the cluster's node list, the node configuration and the temporary log levels
-     * on 8.1; their notes are gone there. 9.0 still refuses them as "not yet verified" (until T062,
-     * T064, T065).
+     * T025, T062 (FR-005, D-27): the recorded 8.1 and 9.0 cluster-nodes cases enabled the
+     * cluster's node list on both lines; its notes are gone.
+     */
+    @Test
+    void theClusterNodeListIsSupportedOn81And90WithoutNote() {
+        Capability clusterNodes = Capability.CLUSTER_NODES_READ;
+        for (Optional<InubitVersion> recorded : List.of(version("8.1.17"), version("9.0.7"))) {
+            assertThat(production.state(recorded, clusterNodes)).as("%s", recorded)
+                .isEqualTo(SupportState.SUPPORTED);
+            assertThat(production.note(recorded, clusterNodes)).as("%s", recorded).isEmpty();
+            assertThat(production.channels(recorded, clusterNodes)).as("%s", recorded)
+                .containsExactly(Channel.CLI);
+        }
+        assertThat(production.stateOfLine(8, OptionalInt.of(1), clusterNodes))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.stateOfLine(9, OptionalInt.of(0), clusterNodes))
+            .isEqualTo(SupportState.SUPPORTED);
+        assertThat(production.lines(clusterNodes)).containsExactly("8.1", "9.0");
+        assertThat(production.possiblySupported(clusterNodes)).isTrue();
+    }
+
+    /**
+     * T038, T058 (FR-005, D-27): the recorded 8.1 node-config and log-level cases enabled the
+     * node configuration and the temporary log levels on 8.1; their notes are gone there. 9.0
+     * still refuses them as "not yet verified" (until T064, T065).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"CLUSTER_NODES_READ", "NODE_CONFIG_READ",
-        "LOG_LEVEL_WRITE"})
+    @EnumSource(value = Capability.class, names = {"NODE_CONFIG_READ", "LOG_LEVEL_WRITE"})
     void aRecordedNodeToolIsSupportedOn81WithoutNoteAndNotYetVerifiedOn90(Capability capability) {
         assertThat(production.state(version("8.1.17"), capability))
             .isEqualTo(SupportState.SUPPORTED);

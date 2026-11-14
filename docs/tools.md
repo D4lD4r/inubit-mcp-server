@@ -191,7 +191,7 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 | `read_queue_entry` | `queue_entry_read` | read (unsupported vendor interface) | REST lookup + helper on the INUBIT client | supported (8.1 and 9.0) | refused (no warning run) | refused |
 | `download_server_log` `log: trace` | `trace_log_read` | read on INUBIT, writes a local file | StartCLI | supported (8.1 and 9.0) | refused (no warning run) | refused |
 | `download_server_log` `log: webservice` | `webservice_log_read` | read (unsupported vendor interface), writes a local file | helper on the INUBIT client | supported (8.1 and 9.0; on 9.0 verified against a recorded empty log only, see [its section](#download_server_log)) | refused (no warning run) | refused |
-| `list_cluster_nodes` (feature 024) | `cluster_nodes_read` | read (unsupported vendor interface) | helper on the INUBIT client | 8.1: supported; 9.0: refused (not yet verified) | refused (no warning run) | refused |
+| `list_cluster_nodes` (feature 024) | `cluster_nodes_read` | read (unsupported vendor interface) | helper on the INUBIT client | supported (8.1 and 9.0) | refused (no warning run) | refused |
 | `read_io_log` (feature 024) | `io_log_read` | read (unsupported vendor interface) | helper on the INUBIT client | 8.1: refused (not yet verified); 9.0: refused (not yet verified) | refused (no warning run) | refused |
 | `get_node_config` (feature 024) | `node_config_read` | read (unsupported vendor interface) | helper on the INUBIT client | 8.1: supported; 9.0: refused (not yet verified) | refused (no warning run) | refused |
 | `import_artifacts`, `restore_backup` of a development backup, `set_active`, `tag_artifacts` | `development_writes` | write | StartCLI + REST | supported | refused | refused |
@@ -1844,13 +1844,10 @@ StartCLI slot of the node.
 **Cluster nodes.** The list comes from the node the configured address reaches, named in
 `inubitNode`; address cluster nodes directly, not through a load balancer.
 
-**Versions.** `cluster_nodes_read` is supported on INUBIT 8.1, verified against a recorded,
-neutralized answer of an 8.1 node. `cluster_nodes_read` is not yet verified for INUBIT 9.0: a 9.0
-node is refused with `UNSUPPORTED_VERSION` (`list_cluster_nodes: INUBIT 9.0.10 on test/node1:
-reading the cluster's node list is not yet verified for INUBIT 9.0; nothing was sent`) until a
-recorded 9.0 answer is under contract test. INUBIT 6.1, any other line (9.1, `V9_X`) and an
-undeclared version are refused with `UNSUPPORTED_VERSION` (`… supported: 8.1, 9.0`). The version
-of an `AUTO` node is detected first; if that fails, the detection's own error is returned.
+**Versions.** `cluster_nodes_read` is supported on INUBIT 8.1 and 9.0, each verified against a
+recorded, neutralized answer of a node of that line. INUBIT 6.1, any other line (9.1, `V9_X`) and
+an undeclared version are refused with `UNSUPPORTED_VERSION` (`… supported: 8.1, 9.0`). The
+version of an `AUTO` node is detected first; if that fails, the detection's own error is returned.
 
 **Errors** (as `ToolError`, see [Common shapes](#common-shapes-page-and-toolerror)):
 

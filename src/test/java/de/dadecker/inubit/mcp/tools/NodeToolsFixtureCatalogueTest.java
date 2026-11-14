@@ -58,8 +58,8 @@ import org.junit.jupiter.params.provider.ValueSource;
  * matrix says {@code SUPPORTED} exactly when all cases D-27 requires for it are recorded and have
  * their data files: {@code ok} for the cluster nodes, {@code listing} and {@code read_text} for the
  * I/O log, {@code all} for the node configuration, {@code set_ok} and {@code reset_ok} for the log
- * level. The 8.1 cluster-nodes, io-log and node-config cases parse as the helper protocol
- * (contracts/helper-protocol-delta.md) and as their names say.
+ * level. The 8.1 cluster-nodes, io-log and node-config cases and the 9.0 cluster-nodes cases
+ * parse as the helper protocol (contracts/helper-protocol-delta.md) and as their names say.
  */
 class NodeToolsFixtureCatalogueTest {
 
@@ -117,7 +117,9 @@ class NodeToolsFixtureCatalogueTest {
             "v8_1/node-config/absent", "v8_1/node-config/one_error",
             "v8_1/node-config/api_missing", "v8_1/log-level/set_ok", "v8_1/log-level/reset_ok",
             "v8_1/log-level/missing_level", "v8_1/log-level/login_failure",
-            "v8_1/log-level/forbidden");
+            "v8_1/log-level/forbidden", "v9_0/cluster-nodes/ok", "v9_0/cluster-nodes/no_answer",
+            "v9_0/cluster-nodes/details", "v9_0/cluster-nodes/garbage",
+            "v9_0/cluster-nodes/api_missing");
     }
 
     @Test
@@ -152,6 +154,50 @@ class NodeToolsFixtureCatalogueTest {
         assertThat(Integer.parseInt(firstLine(dir.resolve(name + ".exit")))).isEqualTo(exit);
         assertThat(summary(frames.frames()) + " | "
             + frames.problem().map(Enum::name).orElse("-")).isEqualTo(summary + " | " + problem);
+        int members = 0;
+        int details = 0;
+        for (HelperFrames.Frame frame : frames.frames()) {
+            switch (frame) {
+                case Member member -> members++;
+                case MembersOk ok -> assertThat(ok.count()).as("members ok").isEqualTo(members);
+                case Detail detail -> details++;
+                case DetailsOk ok -> assertThat(ok.count()).as("details ok").isEqualTo(details);
+                default -> { }
+            }
+        }
+    }
+
+    /**
+     * T062: each 9.0 cluster-nodes case, as {@link #aClusterNodesCaseParsesAsItsNameSays}; the
+     * frames of a started run begin with {@code start REST_90}, and right after that frame its
+     * stdout carries the 9.0 REST client's netty DNS line outside the frames, as recorded in
+     * {@code ok} (research "Spike findings" T060); {@code api_missing} ends before the client
+     * starts, so without that line.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "ok | 0 | Start LoginOk NodeOk Member*21 MembersOk End | -",
+        "no_answer | 0 | Start LoginOk NodeOk Member*2 MembersOk End | -",
+        "details | 0 | Start LoginOk NodeOk Member*2 MembersOk Detail*9 DetailsOk End | -",
+        "garbage | 0 | Start LoginOk NodeOk | UNKNOWN_FRAME_TYPE",
+        "api_missing | 4 | ApiMissing | -"})
+    void a90ClusterNodesCaseParsesAsItsNameSaysWithTheRestClientsLineOutsideTheFrames(
+        String name, int exit, String summary, String problem) throws IOException {
+        Path dir = ROOT.resolve("v9_0/cluster-nodes");
+        String stdout = Files.readString(dir.resolve(name + ".frames"), StandardCharsets.UTF_8);
+        HelperFrames frames = HelperFrames.parse(NONCE, stdout);
+
+        assertThat(Integer.parseInt(firstLine(dir.resolve(name + ".exit")))).isEqualTo(exit);
+        assertThat(summary(frames.frames()) + " | "
+            + frames.problem().map(Enum::name).orElse("-")).isEqualTo(summary + " | " + problem);
+        if (summary.startsWith("Start ")) {
+            assertThat(stdout.lines().limit(2).toList()).satisfiesExactly(
+                start -> assertThat(start).isEqualTo("#QE1:" + NONCE + " start REST_90"),
+                vendor -> assertThat(vendor).doesNotStartWith("#QE1:")
+                    .contains(" main ERROR Unable to load io.netty.resolver.dns.macos."));
+        } else {
+            assertThat(stdout.lines()).allMatch(line -> line.startsWith("#QE1:"));
+        }
         int members = 0;
         int details = 0;
         for (HelperFrames.Frame frame : frames.frames()) {

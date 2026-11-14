@@ -823,6 +823,10 @@ Raw output stays owner-only outside every repository. Neutral facts only; I/O lo
 - **clusterNodes with `details`**: the same 23 keys as on 8.1, `details ok 23 false`, no value cut; `InternalNodeAddress` and `ZoneName` are `-`, `ServerLibraryPath` has a value on this node (a path).
 - **nodeConfig**: the same split as 8.1 — the same 11 names answer `ok` with the same types and flags; the same 9 names fail with `com.inubit.ibis.utils.InubitException`, here without the `Exception from service object: ` prefix: `@Start@IError@@@Internal INUBIT error!@End@Cannot invoke "Object.getClass()" because "o" is null` (on the REST side an HTTP 500 per name). The adapter's missing-property rule (chain exactly `InubitException`, message containing the `"o" is null` text) matches both forms.
 - stderr: the same one-line JVM notice about the project's own `JAVA_TOOL_OPTIONS` as on 8.1.
+- **Repeated 2026-11-14** (non-production 9.0.10 node, the 9.0.10 client, `REST_90`, cluster
+  nodes without details): the same results — exit 0, the answering node `ACTIVE`, every other member
+  `OFFLINE` (now 21 members), the netty DNS line on stdout right after `start REST_90`, which
+  names no host. Its neutralized recording became the `v9_0/cluster-nodes/ok` fixture (T062).
 
 ### T039 – 8.1 log-level write spike (2026-11-14, non-production 8.1.17 test node, the configured 8.1.17 client)
 
