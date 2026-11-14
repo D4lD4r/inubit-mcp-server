@@ -62,7 +62,9 @@ class ArchiveToolReferenceTest {
         names.addAll(properties(output));
         names.addAll(properties(output.get("properties").get("archives").get("items")));
         assertThat(names).as("the scan finds the fields").contains("acknowledgeClearTextSecrets",
-            "clearTextSecrets", "failed", "notWritten", "truncated", "missingModules");
+            "clearTextSecrets", "failed", "notWritten", "truncated", "missingModules",
+            // feature 022 (T044, research D-21)
+            "content", "excludeGroups", "metadataNames", "source");
 
         String section = section();
         assertThat(names).allSatisfy(name -> assertThat(section).as(name)

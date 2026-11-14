@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.adapter.cli.v81;
 
 import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -51,6 +52,20 @@ public final class V81ArtifactAdapter implements ArtifactPort {
         exports.checkRepositoryExport(path);
         confirmCredentials.run();
         return exports.exportRepository(path);
+    }
+
+    @Override
+    public byte[] exportOwnerWithoutGroups(String owner, List<String> excludeGroups) {
+        exports.checkOwnerWithoutGroupsExport(owner, excludeGroups);
+        confirmCredentials.run();
+        return exports.exportOwnerWithoutGroups(owner, excludeGroups);
+    }
+
+    @Override
+    public byte[] exportMetadata(List<String> metadataNames) {
+        exports.checkMetadataExport(metadataNames);
+        confirmCredentials.run();
+        return exports.exportMetadata(metadataNames);
     }
 
     @Override

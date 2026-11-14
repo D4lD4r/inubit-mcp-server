@@ -61,7 +61,12 @@ class ExportArchivesToolTest {
         + " the user wants that. The folder must be an absolute path outside the workspace, the"
         + " server's directories (including its configuration directory), git working trees and"
         + " network paths; existing files are never replaced. Read-only for INUBIT; does not"
-        + " touch the workspace.";
+        + " touch the workspace. With content ownerWithoutGroups: one archive of the owner's"
+        + " technical workflows only, without the diagram groups excludeGroups (also IN CLEAR"
+        + " TEXT). With content metadata: one archive of the metadata registry, whole or only the"
+        + " registry entries metadataNames (metadata names, not workflow names; names that do"
+        + " not exist are accepted); no acknowledgement needed. Every export runs StartCLI, and"
+        + " INUBIT appends a trace to the check-in comments of the exported workflows.";
     /** The fixed statement of contracts/mcp-tools-delta.md, copied here to pin the wording. */
     private static final String CLEAR_TEXT_SECRETS = "The archives contain the secrets of these"
         + " workflows (passwords, keys, certificates, saved test messages) in clear text. Do not"
@@ -161,9 +166,10 @@ class ExportArchivesToolTest {
         assertThat(annotations.path("openWorldHint").asBoolean(false)).isTrue();
         JsonNode schema = tool.path("inputSchema");
         assertThat(schema.path("required")).extracting(JsonNode::asString)
-            .containsExactly("target", "diagramGroup", "targetFolder");
+            .containsExactly("target", "targetFolder");
         assertThat(schema.path("properties").propertyNames()).containsExactly("target", "owner",
-            "diagramGroup", "workflows", "targetFolder", "acknowledgeClearTextSecrets", "reason");
+            "content", "diagramGroup", "workflows", "excludeGroups", "metadataNames",
+            "targetFolder", "acknowledgeClearTextSecrets", "reason");
         assertThat(schema.path("additionalProperties").asBoolean(true)).isFalse();
         assertThat(schema.path("properties").path("acknowledgeClearTextSecrets").has("const"))
             .as("research R-1: the tool checks the acknowledgement, not the schema").isFalse();
@@ -333,6 +339,19 @@ class ExportArchivesToolTest {
         assertThat(description).contains("IN CLEAR TEXT").contains("acknowledgeClearTextSecrets");
         assertThat(client.listTools().path("tools").get(0).path("description").asString())
             .contains("IN CLEAR TEXT").contains("acknowledgeClearTextSecrets");
+    }
+
+    /**
+     * T044 (feature 022, research D-21, FR-008): the description names the content forms, that
+     * ownerWithoutGroups exports technical workflows only, that metadata exports registry entries
+     * and accepts unknown names, and the check-in comment trace of StartCLI exports.
+     */
+    @Test
+    void theDescriptionNamesTheContentFormsAndTheCheckInCommentTrace() {
+        assertThat(new ExportArchivesTool(service).descriptionText())
+            .contains("content ownerWithoutGroups", "owner's technical workflows only",
+                "excludeGroups", "content metadata", "metadata registry", "metadataNames",
+                "names that do not exist are accepted", "check-in comments");
     }
 
     @Test

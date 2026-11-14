@@ -2486,6 +2486,11 @@ input: "inputs/order.xml"})`.
 > true only when the user wants that. The folder must be an absolute path outside the workspace,
 > the server's directories (including its configuration directory), git working trees and network
 > paths; existing files are never replaced. Read-only for INUBIT; does not touch the workspace.
+> With content ownerWithoutGroups: one archive of the owner's technical workflows only, without
+> the diagram groups excludeGroups (also IN CLEAR TEXT). With content metadata: one archive of the
+> metadata registry, whole or only the registry entries metadataNames (metadata names, not
+> workflow names; names that do not exist are accepted); no acknowledgement needed. Every export
+> runs StartCLI, and INUBIT appends a trace to the check-in comments of the exported workflows.
 
 Feature 015 ([its delta](../specs/015-workbench-archives/contracts/mcp-tools-delta.md)). Runs one
 StartCLI `export` of the diagram group (as `export_artifacts`, `--exportWorkflowType 'technical'`,
@@ -2509,12 +2514,27 @@ intent; it does not replace that confirmation. The tool is offered under the con
 | Property | Rules |
 |---|---|
 | `target` (required) | id of one group (its first node is used and named in the result) or one node |
-| `owner` | INUBIT user or user group owning the workflows; default `inventory.owner` of the node |
-| `diagramGroup` (required) | one diagram group name (letters, digits, `_ . -` and spaces, 1–200) |
-| `workflows` | 1–50 unique workflow names (1–200 characters, no control characters), matched case-sensitively; default: every technical workflow of the diagram group, at most 50 |
+| `owner` | INUBIT user or user group owning the workflows; default `inventory.owner` of the node; not with `metadata` |
+| `content` | `workflows` (default), `ownerWithoutGroups` or `metadata` (feature 022, see below) |
+| `diagramGroup` (required for `workflows`) | one diagram group name (letters, digits, `_ . -` and spaces, 1–200); only with `workflows` |
+| `workflows` | 1–50 unique workflow names (1–200 characters, no control characters), matched case-sensitively; default: every technical workflow of the diagram group, at most 50; only with `workflows` |
+| `excludeGroups` (required for `ownerWithoutGroups`) | 1–20 unique diagram group names (as `diagramGroup`) left out; only with `ownerWithoutGroups` |
+| `metadataNames` | 1–50 unique metadata names (as `diagramGroup`); default: the whole registry; only with `metadata` |
 | `targetFolder` (required) | absolute path of the local folder for the archives (1–4096 characters); see the folder rules below; created owner-only if missing |
-| `acknowledgeClearTextSecrets` | must be `true` (checked by the tool, not the schema, so that a missing acknowledgement is audited and explained) |
+| `acknowledgeClearTextSecrets` | must be `true` for `workflows` and `ownerWithoutGroups` (checked by the tool, not the schema, so that a missing acknowledgement is audited and explained) |
 | `reason` | one line, 1–500 characters; stored in the audit log |
+
+**Content forms** (feature 022, research D-21). `ownerWithoutGroups` runs `export
+--exportWorkflowUser '<owner>' --exportWorkflowType 'technical' --exportWorkflowGroup ''
+--exportWorkflowGroupExclude '<g1>,<g2>,…'` and writes the export as it is, one archive
+`<owner>.workflows.zip` (the owner's technical workflows only, module secrets in clear text).
+`metadata` runs `export --exportMetadata`, with `--exportMetadataNames '<n1>,<n2>,…'` for
+`metadataNames`, and writes one archive `metadata-registry.zip`; it needs no owner and no
+acknowledgement. Their one file name is known in advance, so an existing file of the same name
+is refused (`INVALID_INPUT`, audited `REFUSED`) before StartCLI runs. Both are listed in
+`archives` with empty module and repository lists; each is
+admitted per call by the coverage list (`UNSUPPORTED_VERSION` "not yet verified" until its rows
+are reachable for the node's version).
 
 **Archive files.** `<file name>.diagram.zip` per workflow, the file name derived from the
 workflow name, in this order: each of `< > : " / \ | ? *` and each control character becomes `_`,
@@ -2605,15 +2625,16 @@ the rule and the folder, never a file's content.
 
 | Field | Meaning |
 |---|---|
-| `node`, `owner`, `diagramGroup` | where the workflows came from (a group target: its first node) |
+| `node`, `owner`, `diagramGroup` | where the workflows came from (a group target: its first node); `diagramGroup` only for `workflows`, no `owner` for `metadata` |
 | `targetFolder` | the absolute path of the folder |
 | `auditId` | the id of the call's audit records |
-| `clearTextSecrets` | always: "The archives contain the secrets of these workflows (passwords, keys, certificates, saved test messages) in clear text. Do not share, attach or commit them as they are; delete them when no longer needed." |
+| `clearTextSecrets` | always except for `metadata`: "The archives contain the secrets of these workflows (passwords, keys, certificates, saved test messages) in clear text. Do not share, attach or commit them as they are; delete them when no longer needed." |
 | `archives` | the archives written completely, in write order (see below) |
 | `failed` | `[{workflow, code, message}]`, at most one entry: the archive the writes stopped at (`INTERNAL`) |
 | `notWritten` | the workflows not attempted after the failure |
 | `truncated` | `true` if `modules`, `missingModules` or `repositoryPaths` were cut: over all archives together they hold at most `resultLimits.maxItems` items, filled archive by archive (per archive modules, then missing modules, then repository paths); counts, archives and warnings are never cut, and the full lists are not written anywhere |
 | `warnings` | call-level: the version warnings of the node (feature 009), the cloud-sync warning, a file of the call that could not be deleted (a temporary `.part` file, or a file of the failed archive; it holds the same secrets), an audit outcome that could not be written (naming the `auditId`) |
+| `source` | `CLI`: the archives came from StartCLI (feature 022) |
 
 Per archive: `workflow`, `file` (the name in `targetFolder`), `path` (absolute), `size` (bytes),
 `moduleCount` and `modules` (`[{name, pluginType}]`), `missingModuleCount` and `missingModules`

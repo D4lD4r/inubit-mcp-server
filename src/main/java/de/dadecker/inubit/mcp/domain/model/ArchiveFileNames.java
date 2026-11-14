@@ -37,6 +37,17 @@ public final class ArchiveFileNames {
      *     in UTF-8
      */
     public static String fileName(String workflow) {
+        return fileName(workflow, SUFFIX);
+    }
+
+    /**
+     * The file name of {@code name} by the same rules, ending in {@code suffix} instead (feature
+     * 022, research D-21: the one archive of an {@code export_archives} form other than
+     * {@code workflows}).
+     *
+     * @throws ToolErrorException as {@link #fileName(String)}
+     */
+    public static String fileName(String workflow, String suffix) {
         StringBuilder name = new StringBuilder(workflow.length());
         for (int i = 0; i < workflow.length(); i++) {
             char c = workflow.charAt(i);
@@ -58,7 +69,7 @@ public final class ArchiveFileNames {
         if (RESERVED.contains(base.toUpperCase(Locale.ROOT))) {
             name.insert(0, '_');
         }
-        String fileName = name + SUFFIX;
+        String fileName = name + suffix;
         int bytes = fileName.getBytes(StandardCharsets.UTF_8).length;
         if (bytes > MAX_BYTES) {
             throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,

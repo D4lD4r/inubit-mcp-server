@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.config.CliPaths;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -102,7 +103,8 @@ public final class CliCommand {
      * most values each takes (feature 022, research D-21).
      */
     private static final Map<String, Integer> LIST_OPTIONS =
-        Map.of("--exportWorkflowGroupExclude", 20, "--exportMetadataNames", 50);
+        Map.of("--exportWorkflowGroupExclude", ArtifactPort.MAX_EXCLUDED_GROUPS,
+            "--exportMetadataNames", ArtifactPort.MAX_METADATA_NAMES);
     /** The only options of the metadata export (feature 022, research D-21). */
     private static final Set<String> METADATA_OPTIONS =
         Set.of("--exportMetadata", "--exportMetadataNames", "--exportFile");

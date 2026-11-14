@@ -159,10 +159,10 @@ REST	POST /log/{name}	READ	D	-	reachable:query_logs/default	reachable:query_logs
 REST	POST /log/processLog	READ	D	-	excluded:the log processLog fails on INUBIT 8.1.17 (vendor side)	excluded:the log processLog fails on INUBIT 8.1.17 (vendor side)	-
 
 # E. Diagrams, modules, repository, tags
-CLI	export --exportWorkflowUser	EXPORT	E	-	reachable:export_archives/default	reachable:export_archives/default	-
-CLI	export --exportWorkflowType	EXPORT	E	-	reachable:export_archives/default	reachable:export_archives/default	-
-CLI	export --exportWorkflowGroup	EXPORT	E	-	reachable:export_archives/default	reachable:export_archives/default	-
-CLI	export --exportFile	EXPORT	E	-	reachable:export_archives/default	reachable:export_archives/default	-
+CLI	export --exportWorkflowUser	EXPORT	E	-	reachable:export_archives/workflows	reachable:export_archives/workflows	-
+CLI	export --exportWorkflowType	EXPORT	E	-	reachable:export_archives/workflows	reachable:export_archives/workflows	-
+CLI	export --exportWorkflowGroup	EXPORT	E	-	reachable:export_archives/workflows	reachable:export_archives/workflows	-
+CLI	export --exportFile	EXPORT	E	-	reachable:export_archives/workflows	reachable:export_archives/workflows	-
 CLI	export --includeHistory	EXPORT	E	-	reachable:get_inventory_item/default	reachable:get_inventory_item/default	-
 CLI	export --exportModule	EXPORT	E	-	reachable:export_artifacts/default	reachable:export_artifacts/default	-
 CLI	export --exportModuleGroup	EXPORT	E	-	reachable:export_artifacts/default	reachable:export_artifacts/default	-
@@ -172,8 +172,8 @@ CLI	export --exportTag	EXPORT	E	-	reachable:deploy_release/default	reachable:dep
 CLI	export --exportWorkflowGroupExclude	EXPORT	E	US3	planned	planned	-
 CLI	export --exportMetadata	EXPORT	E	US3	planned	planned	-
 CLI	export --exportMetadataNames	EXPORT	E	US3	planned	planned	-
-CLI	fetchXSLT1.0	EXPORT	E	US3	planned	planned	-
-CLI	fetchXSLT1.0 --exportFilename	EXPORT	E	US3	planned	planned	-
+CLI	fetchXSLT1.0	EXPORT	E	US3	excluded:command not found on INUBIT 8.1.17	planned	-
+CLI	fetchXSLT1.0 --exportFilename	EXPORT	E	US3	excluded:command not found on INUBIT 8.1.17	planned	-
 CLI	import --importFile	WRITE	E	-	reachable:import_artifacts/default	reachable:import_artifacts/default	-
 CLI	import --importWorkflow	WRITE	E	-	reachable:import_artifacts/default	reachable:import_artifacts/default	-
 CLI	import --importWorkflowActive	WRITE	E	-	reachable:import_artifacts/default	reachable:import_artifacts/default	-

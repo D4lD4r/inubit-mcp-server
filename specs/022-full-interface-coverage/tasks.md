@@ -673,7 +673,7 @@ offered).
   - Also `security/ModelDetailsSecretLeakTest.java`: planted secrets in module properties (by
     name and by `type="Password"`) never appear in results, errors, logs or audit. The new
     `export_archives` forms are added to it in T044, the user column in T045b.
-- [ ] T044 [US3] `export_archives` `content` forms (D-21):
+- [X] T044 [US3] `export_archives` `content` forms (D-21):
   - `src/main/resources/schemas/export_archives.input.json`:
     - `content` enum `workflows` | `ownerWithoutGroups` | `metadata`, default `workflows`;
     - `if/then`: `diagramGroup` required only for `workflows`;

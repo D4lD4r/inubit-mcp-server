@@ -17,9 +17,9 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | --- | ---: | ---: |
 | reachable | 42 | 41 |
 | covered | 39 | 39 |
-| planned | 103 | 102 |
+| planned | 101 | 102 |
 | undocumented | 3 | 1 |
-| excluded | 63 | 67 |
+| excluded | 65 | 67 |
 | all entries | 250 | 250 |
 
 ## A. Server state and settings
@@ -174,10 +174,10 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 
 | Entry | Kind | Story | 8.1 | 9.0 |
 | --- | --- | --- | --- | --- |
-| CLI `export --exportWorkflowUser` | EXPORT | - | reachable `export_archives/default` | reachable `export_archives/default` |
-| CLI `export --exportWorkflowType` | EXPORT | - | reachable `export_archives/default` | reachable `export_archives/default` |
-| CLI `export --exportWorkflowGroup` | EXPORT | - | reachable `export_archives/default` | reachable `export_archives/default` |
-| CLI `export --exportFile` | EXPORT | - | reachable `export_archives/default` | reachable `export_archives/default` |
+| CLI `export --exportWorkflowUser` | EXPORT | - | reachable `export_archives/workflows` | reachable `export_archives/workflows` |
+| CLI `export --exportWorkflowType` | EXPORT | - | reachable `export_archives/workflows` | reachable `export_archives/workflows` |
+| CLI `export --exportWorkflowGroup` | EXPORT | - | reachable `export_archives/workflows` | reachable `export_archives/workflows` |
+| CLI `export --exportFile` | EXPORT | - | reachable `export_archives/workflows` | reachable `export_archives/workflows` |
 | CLI `export --includeHistory` | EXPORT | - | reachable `get_inventory_item/default` | reachable `get_inventory_item/default` |
 | CLI `export --exportModule` | EXPORT | - | reachable `export_artifacts/default` | reachable `export_artifacts/default` |
 | CLI `export --exportModuleGroup` | EXPORT | - | reachable `export_artifacts/default` | reachable `export_artifacts/default` |
@@ -187,8 +187,8 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | CLI `export --exportWorkflowGroupExclude` | EXPORT | US3 | planned | planned |
 | CLI `export --exportMetadata` | EXPORT | US3 | planned | planned |
 | CLI `export --exportMetadataNames` | EXPORT | US3 | planned | planned |
-| CLI `fetchXSLT1.0` | EXPORT | US3 | planned | planned |
-| CLI `fetchXSLT1.0 --exportFilename` | EXPORT | US3 | planned | planned |
+| CLI `fetchXSLT1.0` | EXPORT | US3 | excluded: command not found on INUBIT 8.1.17 | planned |
+| CLI `fetchXSLT1.0 --exportFilename` | EXPORT | US3 | excluded: command not found on INUBIT 8.1.17 | planned |
 | CLI `import --importFile` | WRITE | - | reachable `import_artifacts/default` | reachable `import_artifacts/default` |
 | CLI `import --importWorkflow` | WRITE | - | reachable `import_artifacts/default` | reachable `import_artifacts/default` |
 | CLI `import --importWorkflowActive` | WRITE | - | reachable `import_artifacts/default` | reachable `import_artifacts/default` |

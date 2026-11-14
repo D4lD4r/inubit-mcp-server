@@ -16,22 +16,34 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
+import de.dadecker.inubit.mcp.adapter.archive.v81.V81WorkflowArchives;
+import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.ScriptedProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.admin.CliLibraryRunner;
+import de.dadecker.inubit.mcp.adapter.cli.v81.V81ArtifactAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.MaintenanceProbe;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81ModelDetailAdapter;
+import de.dadecker.inubit.mcp.application.ArchiveExportAudit;
+import de.dadecker.inubit.mcp.application.ArchiveExportService;
+import de.dadecker.inubit.mcp.application.ArchiveFolderWriter;
 import de.dadecker.inubit.mcp.application.ModelDetailService;
 import de.dadecker.inubit.mcp.application.NodeVersions;
+import de.dadecker.inubit.mcp.application.ResultLimiter;
+import de.dadecker.inubit.mcp.application.TargetFolderRules;
 import de.dadecker.inubit.mcp.application.TargetResolver;
 import de.dadecker.inubit.mcp.application.VersionGate;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
+import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
+import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
@@ -49,28 +61,40 @@ import de.dadecker.inubit.mcp.domain.port.AuditPort;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.mcp.tools.ExportArchivesTool;
 import de.dadecker.inubit.mcp.mcp.tools.ReadModelDetailsTool;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
+import de.dadecker.inubit.mcp.testing.GitFreeTempDir;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestClientSelection;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.StringReader;
+import java.io.UncheckedIOException;
 import java.lang.reflect.Constructor;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.zip.Deflater;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -101,7 +125,12 @@ import tools.jackson.databind.JsonNode;
  *       excerpt, or a captured log line (TRACE); the tool writes no audit record.
  * </ul>
  *
- * <p>The new {@code export_archives} forms are added here in T044, the user column in T045b.
+ * <p>T044 adds the {@code export_archives} forms {@code ownerWithoutGroups} and {@code metadata}
+ * on the real {@link ArchiveExportService} and {@link CliExportRunner}: an owner export whose
+ * module file holds {@link #ARCHIVE_SECRET} in clear text (as INUBIT exports it) is written to the
+ * folder, but the secret appears in no result, error, log line or audit record, also when a
+ * second call is refused (an existing file of the same name, before any StartCLI run); failed
+ * StartCLI runs of both forms echo the password and a secret-named value. The user column follows in T045b.
  */
 @Timeout(60)
 class ModelDetailsSecretLeakTest {
@@ -123,8 +152,10 @@ class ModelDetailsSecretLeakTest {
     private static final String CLI_SECRET = "synthetic-secret-4302";
     /** A secret inside a line of a successful library list (research D-19). */
     private static final String LIST_SECRET = "synthetic-secret-4303";
+    /** A clear-text module secret inside the owner export archive (T044). */
+    private static final String ARCHIVE_SECRET = "synthetic-secret-4401";
     private static final List<String> SECRETS = List.of(PASSWORD, TYPE_SECRET, NAME_SECRET,
-        URL_SECRET, CLI_SECRET, LIST_SECRET);
+        URL_SECRET, CLI_SECRET, LIST_SECRET, ARCHIVE_SECRET);
 
     private static final String RECORDED_URL =
         "jdbc:postgresql://inubit-db-01.example.test:5432/demodb";
@@ -133,25 +164,37 @@ class ModelDetailsSecretLeakTest {
         .replace(RECORDED_URL, RECORDED_URL + "?user=demo_reader&amp;password=" + URL_SECRET
             + "&amp;ssl=true");
 
-    /** The US3 rows of interface-coverage.tsv, reachable on 8.1. */
+    /** The US3 rows of interface-coverage.tsv and the export rows, reachable on 8.1. */
     private static final String COVERAGE = """
         # delivered-stories:
         channel\tentry\tkind\tarea\tstory\tv8_1\tv9_0\twaits
         REST\tGET /model/nodeByModel/{model}/{node}\tREAD\tE\tUS3\treachable:read_model_details/module\tplanned\t-
         CLI\tlibrary --list\tREAD\tC\tUS3\treachable:read_model_details/libraries\tplanned\t-
         CLI\tlibrary --type\tREAD\tC\tUS3\treachable:read_model_details/libraries\tplanned\t-
+        CLI\texport --exportWorkflowUser\tEXPORT\tE\t-\treachable:export_archives/workflows\treachable:export_archives/workflows\t-
+        CLI\texport --exportWorkflowType\tEXPORT\tE\t-\treachable:export_archives/workflows\treachable:export_archives/workflows\t-
+        CLI\texport --exportWorkflowGroup\tEXPORT\tE\t-\treachable:export_archives/workflows\treachable:export_archives/workflows\t-
+        CLI\texport --exportFile\tEXPORT\tE\t-\treachable:export_archives/workflows\treachable:export_archives/workflows\t-
+        CLI\texport --exportWorkflowGroupExclude\tEXPORT\tE\tUS3\treachable:export_archives/ownerWithoutGroups\tplanned\t-
+        CLI\texport --exportMetadata\tEXPORT\tE\tUS3\treachable:export_archives/metadata\tplanned\t-
+        CLI\texport --exportMetadataNames\tEXPORT\tE\tUS3\treachable:export_archives/metadata\tplanned\t-
         """;
 
     private static WireMockServer wireMock;
 
     @TempDir
     Path cliHome;
+    @TempDir(factory = GitFreeTempDir.class)
+    Path exportRoot;
 
     private final SecretScrubber scrubber = SecretScrubber.global();
     private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
     private final List<InubitHttpClient> clients = new ArrayList<>();
     private Level previousLevel;
     private McpTestClient client;
+    private VersionGate gate;
+    /** The audit records of the export_archives calls (T044). */
+    private final List<AuditRecord> audit = new CopyOnWriteArrayList<>();
     /** The scripted StartCLI of the next library run. */
     private FakeProcessLauncher launcher = FakeProcessLauncher.replaying(
         "admin-model-library-driver");
@@ -185,7 +228,7 @@ class ModelDetailsSecretLeakTest {
         versions.clientProbed(DEV1, new ProbedClient(ClientKey.NONE, new ClientVersion(
             InubitVersion.parse("8.1.12").orElseThrow(), InubitVersion.parse("8.1.0"),
             InubitVersion.parse("8.1.99"))));
-        VersionGate gate = new VersionGate(versions, new FakeVersionDetection(versions),
+        gate = new VersionGate(versions, new FakeVersionDetection(versions),
             everythingSupported(), (node, version, timeout) -> {
                 throw new AssertionError("no client probe expected for " + node);
             }, TestClientSelection.of(DEV1::equals), node -> Duration.ZERO,
@@ -338,7 +381,123 @@ class ModelDetailsSecretLeakTest {
         }
     }
 
+    /**
+     * T044: the {@code export_archives} forms. A successful owner export writes the archive with
+     * its clear-text module secret, which no result, log line or audit record repeats; the same
+     * call refused for the existing file before StartCLI runs, and failed runs of both forms
+     * (into another folder) that echo the password and a secret-named value, carry no secret
+     * either.
+     */
+    @Test
+    void theExportFormsShowNoSecretInResultsErrorsLogsOrAudit() throws IOException {
+        Path folder = exportRoot.resolve("archives");
+        Map<String, Object> owner = Map.of("target", "dev/node1", "content",
+            "ownerWithoutGroups", "owner", USER, "excludeGroups", List.of("GRP-01"),
+            "targetFolder", folder.toString(), "acknowledgeClearTextSecrets", true);
+        Map<String, Object> failedOwner = new HashMap<>(owner);
+        failedOwner.put("targetFolder", exportRoot.resolve("failed").toString());
+        Map<String, Object> metadata = Map.of("target", "dev/node1", "content", "metadata",
+            "metadataNames", List.of("Example1"), "targetFolder",
+            exportRoot.resolve("failed").toString());
+        byte[] archive = ownerExportWithSecret();
+        List<JsonNode> results = new ArrayList<>();
+        try (McpTestClient exports = McpTestClient.start(
+            List.of(new ExportArchivesTool(exportService())), scrubber)) {
+            exports.initialize();
+
+            launcher = FakeProcessLauncher.replaying("admin-model-export-group-exclude")
+                .onLaunch(spec -> write(spec, archive));
+            JsonNode written = exports.callTool("export_archives", owner);
+            assertThat(written.path("isError").asBoolean()).as(written.toString()).isFalse();
+            assertThat(new String(Files.readAllBytes(folder.resolve(USER + ".workflows.zip")),
+                StandardCharsets.ISO_8859_1)).as("the archive itself holds the secret")
+                .contains(ARCHIVE_SECRET);
+            results.add(written);
+
+            List<ProcessLauncher.LaunchSpec> launched = new CopyOnWriteArrayList<>();
+            launcher = FakeProcessLauncher.replaying("admin-model-export-group-exclude")
+                .onLaunch(launched::add);
+            JsonNode collision = exports.callTool("export_archives", owner);
+            assertThat(collision.path("isError").asBoolean()).as(collision.toString()).isTrue();
+            assertThat(launched).as("refused before StartCLI").isEmpty();
+            results.add(collision);
+
+            String planted = "password=" + CLI_SECRET + " for " + PASSWORD;
+            for (Map<String, Object> arguments : List.of(failedOwner, metadata)) {
+                for (FakeProcessLauncher failure : List.of(
+                    FakeProcessLauncher.of("Password: " + PASSWORD + "\nERROR " + planted + "\n",
+                        "java.lang.IllegalStateException: " + planted + "\n", 1),
+                    FakeProcessLauncher.of("Password: " + PASSWORD + "\n2-NOK: " + planted
+                        + "\n", "", 0))) {
+                    launcher = failure;
+                    JsonNode result = exports.callTool("export_archives", arguments);
+                    assertThat(result.path("isError").asBoolean()).as(result.toString())
+                        .isTrue();
+                    results.add(result);
+                }
+            }
+        }
+
+        assertThat(audit).extracting(AuditRecord::outcome).contains(AuditOutcome.EXECUTED,
+            AuditOutcome.REFUSED, AuditOutcome.FAILED);
+        assertNoSecret(results, audit.stream().map(AuditRecord::toString).toList());
+    }
+
     // --- support -------------------------------------------------------------------------------
+
+    /** {@code export_archives} on the real service, adapter and runner of the node (T044). */
+    private ArchiveExportService exportService() {
+        return new ArchiveExportService(new TargetResolver(List.of(DEV1)),
+            node -> Optional.of(USER), node -> Optional.of(USER), node -> false, node -> false,
+            new TargetFolderRules(exportRoot.resolve("home"), exportRoot.resolve("workspace"),
+                exportRoot.resolve("audit"), List.of(exportRoot.resolve("config")), Map.of(),
+                letter -> false, false),
+            node -> new V81ArtifactAdapter(exports(), () -> { }), new V81WorkflowArchives(), gate,
+            new ArchiveFolderWriter(), ResultLimiter.withDefaults(),
+            new ArchiveExportAudit.Dependencies(audit::add,
+                new MutableClock(Instant.parse("2026-11-14T10:00:00Z")), "acme",
+                UUID::randomUUID));
+    }
+
+    private CliExportRunner exports() {
+        NodeCredentials credentials = new NodeCredentials(DEV1,
+            Optional.of(new SourcedValue<>(USER, "INUBIT_DEV_USERNAME")),
+            Optional.of(new SourcedValue<>(Secret.of(PASSWORD), "INUBIT_DEV_PASSWORD")),
+            Optional.empty(), Optional.empty());
+        return new CliExportRunner(server(), credentials,
+            new CredentialGuard(storeLabels("INUBIT", DEV1),
+                new MutableClock(Instant.parse("2026-11-14T08:00:00Z"))),
+            TestCliRunners.forHost(launcher, Map.of("PATH", Platform.searchPath()),
+                new CliResources("acme", PrivateFiles.forHost())),
+            new CliOutputClassifier(scrubber, storeLabels("INUBIT", DEV1), false));
+    }
+
+    /** Writes {@code zip} to the launch's {@code --exportFile}, as StartCLI does. */
+    private static void write(ProcessLauncher.LaunchSpec spec, byte[] zip) {
+        try {
+            Files.write(ScriptedProcessLauncher.exportFile(spec), zip);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /** The layout of the T039 owner export with a module file holding a clear-text secret. */
+    private static byte[] ownerExportWithSecret() throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
+            zip.setLevel(Deflater.NO_COMPRESSION); // the secret stays readable in the bytes
+            for (Map.Entry<String, String> entry : Map.of(
+                "archive.properties", "sourceVersion=8.1.17\n",
+                "module/module.xml", "<Modules/>",
+                "module/Demo-DB-Probe.xml", "<Property name=\"Password\">" + ARCHIVE_SECRET
+                    + "</Property>").entrySet()) {
+                zip.putNextEntry(new ZipEntry(entry.getKey()));
+                zip.write(entry.getValue().getBytes(StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+        }
+        return bytes.toByteArray();
+    }
 
     private JsonNode call(Map<String, Object> arguments) {
         return client.callTool("read_model_details", arguments);

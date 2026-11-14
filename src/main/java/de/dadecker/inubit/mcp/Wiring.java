@@ -228,7 +228,8 @@ final class Wiring implements AutoCloseable {
     /** Feature 022 (research D-2): the tool actions of the coverage gate; stories add theirs. */
     private final ActionCatalog actions = new ActionCatalog(Stream.of(
         Stream.of(ServerSettingsService.SPEC), UserReadService.SPECS.stream(),
-        ModelDetailService.SPECS.stream()).flatMap(specs -> specs).toList());
+        ModelDetailService.SPECS.stream(), ArchiveExportService.SPECS.stream())
+        .flatMap(specs -> specs).toList());
     private final ExportArtifactsTool exportArtifacts;
     /** Feature 015: offered under the condition of {@code export_artifacts} (research R-16). */
     private final ExportArchivesTool exportArchives;

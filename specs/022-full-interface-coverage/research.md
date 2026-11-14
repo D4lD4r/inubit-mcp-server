@@ -587,7 +587,10 @@ The logins cost one JVM start per form, because the 8.1 client offers them only 
   - `metadata` exports the metadata registry: `export --exportMetadata`, and with the optional
     `metadataNames[1..50]` also `--exportMetadataNames <n1,…>` (comma separated) for the named
     registry entries only. The names are metadata names, not workflow names; INUBIT accepts names
-    that do not exist.
+    that do not exist. T039 recorded the list unquoted (`--exportMetadataNames Example1,Example2`);
+    the server sends it single-quoted like every other value (`'Example1,Example2'`, R-11), the
+    form the group exclusion list was recorded with. The quoted metadata form is to be confirmed
+    at the next live recording of the metadata export (T039a).
   - The schema uses `if`/`then` per `content`; `diagramGroup` is required only for `workflows`.
   - The check-in comment trace of StartCLI exports is named in the description (FR-008).
 - **`xslt10Report` is not offered** (L-7 fallback): `fetchXSLT1.0` does not exist on 8.1.17

@@ -9,15 +9,20 @@ import java.util.UUID;
  * The result of one {@code export_archives} call (feature 015, data-model.md →
  * ArchiveExportResult, research R-14, FR-011, FR-012): what was written, what failed and what was
  * not attempted, names and counts only, never file content or secret values. Refusals before the
- * first write are tool errors, not results.
+ * first write are tool errors, not results. Feature 022 (research D-21): the {@code content}
+ * forms {@code ownerWithoutGroups} and {@code metadata} write one archive, listed with empty
+ * module and repository lists; their result has no {@code diagramGroup}, and {@code metadata}
+ * none of {@code owner} and {@code clearTextSecrets} ({@code null}, left out of the JSON).
  *
  * @param node             the node the diagram group was exported from (a group target: its
  *                         first node)
- * @param owner            the owner in effect
- * @param diagramGroup     the diagram group
+ * @param owner            the owner in effect; {@code null} for {@code metadata}
+ * @param diagramGroup     the diagram group; {@code null} unless {@code content} is
+ *                         {@code workflows}
  * @param targetFolder     the absolute path of the target folder
  * @param auditId          the id of the call's audit records
- * @param clearTextSecrets the fixed statement {@link #CLEAR_TEXT_SECRETS}
+ * @param clearTextSecrets the fixed statement {@link #CLEAR_TEXT_SECRETS}; {@code null} for
+ *                         {@code metadata}
  * @param archives         the archives written completely, in write order
  * @param failed           at most one entry: the archive the writes stopped at (FR-011)
  * @param notWritten       the workflows not attempted after the failure
@@ -28,11 +33,12 @@ import java.util.UUID;
  *                         warnings are never cut
  * @param warnings         call-level warnings (version admission, leftover temporary file,
  *                         audit outcome not written)
+ * @param source           the channel the archives came from, {@code CLI} (feature 022, FR-009)
  */
 public record ArchiveExportResult(String node, String owner, String diagramGroup,
     String targetFolder, UUID auditId, String clearTextSecrets, List<WrittenArchive> archives,
     List<FailedArchive> failed, List<String> notWritten, boolean truncated,
-    List<String> warnings) {
+    List<String> warnings, String source) {
 
     /** The statement every result carries (contracts/mcp-tools-delta.md). */
     public static final String CLEAR_TEXT_SECRETS = "The archives contain the secrets of these"
@@ -41,11 +47,9 @@ public record ArchiveExportResult(String node, String owner, String diagramGroup
 
     public ArchiveExportResult {
         Objects.requireNonNull(node, "node");
-        Objects.requireNonNull(owner, "owner");
-        Objects.requireNonNull(diagramGroup, "diagramGroup");
         Objects.requireNonNull(targetFolder, "targetFolder");
         Objects.requireNonNull(auditId, "auditId");
-        Objects.requireNonNull(clearTextSecrets, "clearTextSecrets");
+        Objects.requireNonNull(source, "source");
         archives = List.copyOf(archives);
         failed = List.copyOf(failed);
         notWritten = List.copyOf(notWritten);

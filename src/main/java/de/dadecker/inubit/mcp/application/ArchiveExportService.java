@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
+import de.dadecker.inubit.mcp.application.ArchiveExportRequest.Content;
 import de.dadecker.inubit.mcp.domain.model.ArchiveExportResult;
 import de.dadecker.inubit.mcp.domain.model.ArchiveExportResult.FailedArchive;
 import de.dadecker.inubit.mcp.domain.model.ArchiveExportResult.MissingModule;
@@ -8,6 +9,7 @@ import de.dadecker.inubit.mcp.domain.model.ArchiveFileNames;
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.CoverageKey;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -49,6 +51,15 @@ import org.slf4j.LoggerFactory;
  * writes and the outcome record. No archive is written before every check passed. The result's
  * module, missing-module and repository-path lists are bounded together by {@code
  * resultLimits.maxItems} (R-14).
+ *
+ * <p>Feature 022 (research D-21): the {@code content} forms {@code ownerWithoutGroups} (the
+ * owner's technical workflows without the excluded diagram groups) and {@code metadata} (the
+ * metadata registry, whole or the named entries) export one archive each over StartCLI, written
+ * as it is, not sliced. They keep the order, the folder rules, the production opt-in, the
+ * writer and the audit; {@code metadata} needs no owner and no acknowledgement (the registry
+ * holds no module secrets). Each is admitted by {@link VersionGate#admitCall} with the entries
+ * of its {@link ActionSpec} ({@link #SPECS}) for the call; {@code workflows} keeps its
+ * capability admission. Every result names its source, StartCLI (FR-009).
  */
 public final class ArchiveExportService {
 
@@ -63,6 +74,34 @@ public final class ArchiveExportService {
     private static final Pattern GROUP =
         Pattern.compile("^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$");
     private static final Pattern REASON = Pattern.compile("^[^\\r\\n]{1,500}$");
+
+    private static final CoverageKey WORKFLOW_USER = cli("export --exportWorkflowUser");
+    private static final CoverageKey WORKFLOW_TYPE = cli("export --exportWorkflowType");
+    private static final CoverageKey WORKFLOW_GROUP = cli("export --exportWorkflowGroup");
+    private static final CoverageKey GROUP_EXCLUDE = cli("export --exportWorkflowGroupExclude");
+    private static final CoverageKey EXPORT_FILE = cli("export --exportFile");
+    private static final CoverageKey METADATA = cli("export --exportMetadata");
+    private static final CoverageKey METADATA_NAMES = cli("export --exportMetadataNames");
+
+    /** {@code ownerWithoutGroups}: one variant, every option of the recorded form. */
+    public static final ActionSpec OWNER_WITHOUT_GROUPS = spec(Content.OWNER_WITHOUT_GROUPS,
+        Set.of(WORKFLOW_USER, WORKFLOW_TYPE, WORKFLOW_GROUP, GROUP_EXCLUDE, EXPORT_FILE),
+        input -> Set.of(WORKFLOW_USER, WORKFLOW_TYPE, WORKFLOW_GROUP, GROUP_EXCLUDE,
+            EXPORT_FILE));
+    /** {@code metadata}: {@code --exportMetadataNames} only when {@code metadataNames} is given. */
+    public static final ActionSpec METADATA_EXPORT = spec(Content.METADATA,
+        Set.of(METADATA, METADATA_NAMES, EXPORT_FILE),
+        input -> input.containsKey("metadataNames") ? Set.of(METADATA, METADATA_NAMES,
+            EXPORT_FILE) : Set.of(METADATA, EXPORT_FILE));
+    /** The forms admitted per call (research D-2 action key {@code content}). */
+    public static final List<ActionSpec> SPECS = List.of(OWNER_WITHOUT_GROUPS, METADATA_EXPORT);
+    /** The source of every result: all forms export over StartCLI (FR-009). */
+    private static final String SOURCE = Channel.CLI.name();
+    /** The file of the {@code metadata} archive and the name it is listed under. */
+    private static final String METADATA_FILE = "metadata-registry.zip";
+    private static final String METADATA_LABEL = "metadata registry";
+    /** The suffix of the {@code ownerWithoutGroups} archive, after the owner. */
+    private static final String OWNER_SUFFIX = ".workflows.zip";
 
     private final TargetResolver targets;
     private final Function<NodeId, Optional<String>> owners;
@@ -129,9 +168,7 @@ public final class ArchiveExportService {
      *     INTERNAL} naming the target folder
      */
     public ArchiveExportResult export(ArchiveExportRequest request) {
-        ArchiveExportAudit record = new ArchiveExportAudit(audit, request.target(),
-            request.owner(), request.diagramGroup(), request.targetFolder(), request.workflows(),
-            request.acknowledgeClearTextSecrets(), request.reason(), request.mcpClient());
+        ArchiveExportAudit record = new ArchiveExportAudit(audit, request);
         Static checked;
         try {
             checked = check(request, record);
@@ -154,10 +191,14 @@ public final class ArchiveExportService {
                 "nothing exported or written", NO_RECORD);
             throw e;
         }
-        return run(request, record, checked);
+        return request.content() == Content.WORKFLOWS ? run(request, record, checked)
+            : runSingle(request, record, checked);
     }
 
-    /** The outcome of the static checks (R-13 steps 1–3); {@code warnings}: the folder's. */
+    /**
+     * The outcome of the static checks (R-13 steps 1–3); {@code owner}: {@code null} for
+     * {@code metadata}; {@code warnings}: the folder's.
+     */
     private record Static(NodeId node, String owner, Path folder, List<String> warnings) {
     }
 
@@ -169,15 +210,11 @@ public final class ArchiveExportService {
     private Static check(ArchiveExportRequest request, ArchiveExportAudit record) {
         NodeId node = targets.resolve(request.target()).get(0);
         record.node(node, accounts.apply(node));
-        String owner = request.owner().or(() -> owners.apply(node))
-            .orElseThrow(() -> new ToolErrorException(ToolError.of(ErrorCode.NOT_CONFIGURED,
-                targets.terms().render("{Node} ") + node + " has no inventory.owner and the call"
-                    + " names no owner",
-                targets.terms().render("inventory.owner is not set for this {node}, its {group}"
-                    + " or in defaults"),
-                "Pass owner, or set inventory.owner for " + node + " or in defaults")
-                .withNode(node)));
-        record.owner(owner);
+        String owner = request.content() == Content.METADATA ? null
+            : owner(request, node);
+        if (owner != null) {
+            record.owner(owner);
+        }
         if (production.test(node) && !productionOptIn.test(node)) {
             throw refused(ErrorCode.PRODUCTION_PROTECTED, node,
                 node + targets.terms().render(" belongs to the production {group} ")
@@ -189,7 +226,7 @@ public final class ArchiveExportService {
                     + " this {group} must allow it, set archives.productionOptIn: true for it and"
                     + " restart the MCP client"));
         }
-        if (!request.acknowledgeClearTextSecrets()) {
+        if (request.content() != Content.METADATA && !request.acknowledgeClearTextSecrets()) {
             throw refused(ErrorCode.INVALID_INPUT, node, "acknowledgeClearTextSecrets is not"
                     + " true: the archives contain the workflows' secrets (passwords, keys,"
                     + " certificates, saved test messages) in clear text",
@@ -207,8 +244,31 @@ public final class ArchiveExportService {
         return new Static(node, owner, folder.path(), folder.warnings());
     }
 
+    /** The requested owner, or the node's {@code inventory.owner}. */
+    private String owner(ArchiveExportRequest request, NodeId node) {
+        return request.owner().or(() -> owners.apply(node))
+            .orElseThrow(() -> new ToolErrorException(ToolError.of(ErrorCode.NOT_CONFIGURED,
+                targets.terms().render("{Node} ") + node + " has no inventory.owner and the call"
+                    + " names no owner",
+                targets.terms().render("inventory.owner is not set for this {node}, its {group}"
+                    + " or in defaults"),
+                "Pass owner, or set inventory.owner for " + node + " or in defaults")
+                .withNode(node)));
+    }
+
     /** The input schema's names and limits again (defence in depth; R-13 step 2). */
     private static void checkInputs(ArchiveExportRequest request, NodeId node) {
+        switch (request.content()) {
+            case OWNER_WITHOUT_GROUPS -> checkNames(node, "excludeGroups",
+                request.excludeGroups(), 1, ArtifactPort.MAX_EXCLUDED_GROUPS);
+            case METADATA -> checkNames(node, "metadataNames", request.metadataNames(), 0,
+                ArtifactPort.MAX_METADATA_NAMES);
+            case WORKFLOWS -> checkWorkflows(request, node);
+        }
+        checkReason(request, node);
+    }
+
+    private static void checkWorkflows(ArchiveExportRequest request, NodeId node) {
         if (!GROUP.matcher(request.diagramGroup()).matches()) {
             throw invalid(node, "diagramGroup is not 1 to " + MAX_NAME + " letters, digits,"
                 + " '_', '.', '-' or spaces, starting with a letter, digit, '_' or '.'");
@@ -229,8 +289,30 @@ public final class ArchiveExportService {
                     + " characters without control characters");
             }
         }
+    }
+
+    private static void checkReason(ArchiveExportRequest request, NodeId node) {
         if (request.reason().isPresent() && !REASON.matcher(request.reason().get()).matches()) {
             throw invalid(node, "reason is not one line of 1 to " + MAX_REASON + " characters");
+        }
+    }
+
+    /** {@code min} to {@code max} distinct names of the name rule in {@code names}. */
+    private static void checkNames(NodeId node, String input, List<String> names, int min,
+        int max) {
+        if (names.size() < min || names.size() > max) {
+            throw invalid(node, input + " has " + names.size() + " names; expected " + min
+                + " to " + max);
+        }
+        if (new HashSet<>(names).size() != names.size()) {
+            throw invalid(node, input + " names an entry more than once");
+        }
+        for (int i = 0; i < names.size(); i++) {
+            if (!GROUP.matcher(names.get(i)).matches()) {
+                throw invalid(node, input + "[" + i + "] is not 1 to " + MAX_NAME + " letters,"
+                    + " digits, '_', '.', '-' or spaces, starting with a letter, digit, '_' or"
+                    + " '.'");
+            }
         }
     }
 
@@ -263,24 +345,114 @@ public final class ArchiveExportService {
                 checked.folder()));
             prepared = new Prepared(admission, sliced, selected);
         } catch (ToolErrorException e) {
-            ToolError error = e.error();
-            boolean refused = error.code() == ErrorCode.UNSUPPORTED_VERSION
-                || checking && error.code() == ErrorCode.INVALID_INPUT;
-            AuditOutcome outcome = refused ? AuditOutcome.REFUSED : AuditOutcome.FAILED;
-            Optional<String> warning = record.outcome(outcome, error.code() + ": "
-                + error.message());
-            logEnd(node.value(), outcome.name(), request, error.code() + ", nothing written",
-                auditId(record));
-            if (warning.isEmpty()) {
-                throw e;
-            }
-            throw new ToolErrorException(new ToolError(error.code(), error.message() + ". "
-                + warning.get(), error.likelyCause(), error.nextStep(), error.node(),
-                error.excerpt()));
+            throw beforeWrite(request, record, node, e, checking);
         } catch (RuntimeException e) {
             throw unexpected(request, record, node, e, "", ", nothing written");
         }
         return write(request, record, checked, prepared);
+    }
+
+    /**
+     * Audits a tool error before the first write and returns what to throw: {@code REFUSED} for
+     * the version gate and for an {@code INVALID_INPUT} of the export-dependent checks
+     * ({@code checking}), otherwise {@code FAILED}; the error carries the outcome warning, if
+     * any.
+     */
+    private static ToolErrorException beforeWrite(ArchiveExportRequest request,
+        ArchiveExportAudit record, NodeId node, ToolErrorException e, boolean checking) {
+        ToolError error = e.error();
+        boolean refused = error.code() == ErrorCode.UNSUPPORTED_VERSION
+            || checking && error.code() == ErrorCode.INVALID_INPUT;
+        AuditOutcome outcome = refused ? AuditOutcome.REFUSED : AuditOutcome.FAILED;
+        Optional<String> warning = record.outcome(outcome, error.code() + ": "
+            + error.message());
+        logEnd(node.value(), outcome.name(), request, error.code() + ", nothing written",
+            auditId(record));
+        if (warning.isEmpty()) {
+            return e;
+        }
+        return new ToolErrorException(new ToolError(error.code(), error.message() + ". "
+            + warning.get(), error.likelyCause(), error.nextStep(), error.node(),
+            error.excerpt()));
+    }
+
+    /**
+     * {@code ownerWithoutGroups} and {@code metadata} (feature 022, research D-21): the version
+     * gate per call; the one file name is known in advance, so the check against the files in the
+     * target folder comes before the StartCLI export (a refusal starts no export and leaves no
+     * check-in comment trace); then the export, and the archive is written as exported. Failures
+     * are audited as in {@link #run}, the folder check's {@code INVALID_INPUT} as
+     * {@code REFUSED}.
+     */
+    private ArchiveExportResult runSingle(ArchiveExportRequest request,
+        ArchiveExportAudit record, Static checked) {
+        NodeId node = checked.node();
+        boolean owner = request.content() == Content.OWNER_WITHOUT_GROUPS;
+        ActionSpec spec = owner ? OWNER_WITHOUT_GROUPS : METADATA_EXPORT;
+        String label = owner ? checked.owner() : METADATA_LABEL;
+        boolean checking = false;
+        List<String> admission;
+        String file;
+        byte[] archive;
+        try {
+            VersionGate.Admission admitted = gate.admitCall(ArchiveExportAudit.CAPABILITY, node,
+                spec, spec.entries(request.metadataNames().isEmpty() ? Map.of()
+                    : Map.of("metadataNames", request.metadataNames())));
+            admission = new ArrayList<>(admitted.warnings());
+            admission.addAll(admitted.notes());
+            checking = true;
+            file = withNode(node, () -> {
+                String name = owner ? ArchiveFileNames.fileName(label, OWNER_SUFFIX)
+                    : METADATA_FILE;
+                record.files(List.of(name));
+                checkFolder(checked.folder(), List.of(label), List.of(name));
+                return name;
+            });
+            checking = false;
+            ArtifactPort port = artifacts.apply(node);
+            archive = withNode(node, () -> owner
+                ? port.exportOwnerWithoutGroups(checked.owner(), request.excludeGroups())
+                : port.exportMetadata(request.metadataNames()));
+        } catch (ToolErrorException e) {
+            throw beforeWrite(request, record, node, e, checking);
+        } catch (RuntimeException e) {
+            throw unexpected(request, record, node, e, "", ", nothing written");
+        }
+        return writeSingle(request, record, checked, admission,
+            new ArchiveFolderWriter.Archive(label, file, () -> archive));
+    }
+
+    /** The write of {@link #runSingle}, its outcome record and its result, as {@link #write}. */
+    private ArchiveExportResult writeSingle(ArchiveExportRequest request,
+        ArchiveExportAudit record, Static checked, List<String> admission,
+        ArchiveFolderWriter.Archive archive) {
+        ArchiveFolderWriter.Result written = null;
+        List<WrittenArchive> archives;
+        try {
+            written = writer.write(checked.folder(), List.of(archive));
+            archives = written.written().stream().map(placed -> new WrittenArchive(
+                placed.workflow(), placed.file(),
+                checked.folder().resolve(placed.file()).toAbsolutePath().toString(),
+                placed.size(), 0, List.of(), 0, List.of(), 0, List.of(), List.of())).toList();
+        } catch (RuntimeException e) {
+            String state = written == null ? " while writing" : " after the writes, "
+                + counts(written.written().size(), written);
+            throw unexpectedWrite(request, record, checked, e, written, state);
+        }
+        List<FailedArchive> failed = written.failed().stream()
+            .map(f -> new FailedArchive(f.workflow(), f.code(), f.message())).toList();
+        AuditOutcome outcome = failed.isEmpty() ? AuditOutcome.EXECUTED
+            : AuditOutcome.PARTIALLY_COMPLETED;
+        String counts = counts(archives.size(), written);
+        List<String> warnings = new ArrayList<>(admission);
+        warnings.addAll(checked.warnings());
+        warnings.addAll(written.warnings());
+        record.outcome(outcome, counts).ifPresent(warnings::add);
+        logEnd(checked.node().value(), outcome.name(), request, counts, auditId(record));
+        return new ArchiveExportResult(checked.node().value(), checked.owner(), null,
+            checked.folder().toString(), record.auditId(),
+            request.content() == Content.METADATA ? null : ArchiveExportResult.CLEAR_TEXT_SECRETS,
+            archives, failed, written.notWritten(), false, warnings, SOURCE);
     }
 
     /** What the writes need: the gate's warnings, the sliced export, the selected workflows. */
@@ -360,8 +532,11 @@ public final class ArchiveExportService {
      */
     private static void logEnd(String node, String outcome, ArchiveExportRequest request,
         String counts, String audited) {
-        LOG.info("{} on {}: {} (diagram group {}: {}; {})", ArchiveExportAudit.CAPABILITY, node,
-            outcome, LogText.loggable(request.diagramGroup()), counts, audited);
+        String subject = request.content() == Content.WORKFLOWS
+            ? "diagram group " + LogText.loggable(request.diagramGroup())
+            : "content " + request.content().key();
+        LOG.info("{} on {}: {} ({}: {}; {})", ArchiveExportAudit.CAPABILITY, node, outcome,
+            subject, counts, audited);
     }
 
     private static String auditId(ArchiveExportAudit record) {
@@ -453,7 +628,7 @@ public final class ArchiveExportService {
         for (int i = 0; i < files.size(); i++) {
             String name = existing.get(ArchiveFileNames.key(files.get(i)));
             if (name != null) {
-                collisions.add(files.get(i) + " of workflow '" + selected.get(i) + "' with "
+                collisions.add(files.get(i) + " of '" + selected.get(i) + "' with "
                     + name);
             }
         }
@@ -507,7 +682,7 @@ public final class ArchiveExportService {
         return new ArchiveExportResult(checked.node().value(), checked.owner(),
             request.diagramGroup(), checked.folder().toString(), record.auditId(),
             ArchiveExportResult.CLEAR_TEXT_SECRETS, archiveResults, failed,
-            written.notWritten(), bounded.truncated(), warnings);
+            written.notWritten(), bounded.truncated(), warnings, SOURCE);
     }
 
     private static String counts(int archives, ArchiveFolderWriter.Result written) {
@@ -568,6 +743,17 @@ public final class ArchiveExportService {
             plan.modules().size(), plan.modules(), plan.missingModules().size(),
             plan.missingModules().stream().map(MissingModule::new).toList(),
             plan.repositoryPaths().size(), plan.repositoryPaths(), warnings);
+    }
+
+    private static CoverageKey cli(String entry) {
+        return new CoverageKey(Channel.CLI, entry);
+    }
+
+    private static ActionSpec spec(Content content, Set<CoverageKey> entries,
+        Function<Map<String, Object>, Set<CoverageKey>> variant) {
+        return new ActionSpec(ArchiveExportAudit.CAPABILITY, content.key(),
+            Capability.WORKSPACE_EXPORT, ActionSpec.Area.READ, ActionSpec.Kind.READ, entries,
+            variant, Set.of(), false, Optional.empty(), ActionSpec.RestartNotice.NONE);
     }
 
     private static <T> T withNode(NodeId node, Supplier<T> action) {

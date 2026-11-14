@@ -289,6 +289,16 @@ final class StaleReportingPorts {
         public byte[] exportRepository(String path) {
             return call(() -> delegate.exportRepository(path));
         }
+
+        @Override
+        public byte[] exportOwnerWithoutGroups(String owner, List<String> excludeGroups) {
+            return call(() -> delegate.exportOwnerWithoutGroups(owner, excludeGroups));
+        }
+
+        @Override
+        public byte[] exportMetadata(List<String> metadataNames) {
+            return call(() -> delegate.exportMetadata(metadataNames));
+        }
     }
 
     final class Imports implements ImportPort {
