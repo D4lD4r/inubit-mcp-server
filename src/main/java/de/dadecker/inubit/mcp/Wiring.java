@@ -153,8 +153,10 @@ import de.dadecker.inubit.mcp.mcp.tools.RecordKnowledgeTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
 import de.dadecker.inubit.mcp.mcp.tools.ReadQueueEntryTool;
+import de.dadecker.inubit.mcp.mcp.tools.ResetTemporaryLogLevelTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestoreBackupTool;
 import de.dadecker.inubit.mcp.mcp.tools.SetActiveTool;
+import de.dadecker.inubit.mcp.mcp.tools.SetTemporaryLogLevelTool;
 import de.dadecker.inubit.mcp.mcp.tools.RunE2eTestTool;
 import de.dadecker.inubit.mcp.mcp.tools.TagArtifactsTool;
 import de.dadecker.inubit.mcp.mcp.tools.RestartProcessTool;
@@ -205,7 +207,9 @@ import org.slf4j.LoggerFactory;
  * of US4 ({@code restart_process}, {@code kill_process}) are added only if
  * {@link #anyWriteEnabled()} (contracts/mcp-tools.md, Story 4 / AS 6); their service, the write
  * guard and the audit log ({@code auditDirectory}, written only on a write call) are built in any
- * case. Feature 004: {@code import_artifacts}, {@code restore_backup}, {@code set_active} and
+ * case. Feature 024 (research D-6): {@code set_temporary_log_level} and
+ * {@code reset_temporary_log_level} after them, only if {@link #anyLogLevelNode()}. Feature
+ * 004: {@code import_artifacts}, {@code restore_backup}, {@code set_active} and
  * {@code tag_artifacts} only if {@link #anyDevelopmentNode()} ({@code restore_backup} also if
  * {@link #anyDeploymentTarget()}, feature 005), {@code run_e2e_test} only if
  * {@link #anyE2eNode()} (its SOAP clients are created per node on first use); their services
@@ -796,6 +800,10 @@ final class Wiring implements AutoCloseable {
             handlers.add(new RestartProcessTool(processControl));
             handlers.add(new KillProcessTool(processControl));
         }
+        if (anyLogLevelNode()) {
+            handlers.add(new SetTemporaryLogLevelTool(logLevels::set));
+            handlers.add(new ResetTemporaryLogLevelTool(logLevels::reset));
+        }
         if (anyDevelopmentNode()) {
             handlers.add(importArtifacts);
             handlers.add(restoreBackup);
@@ -957,7 +965,8 @@ final class Wiring implements AutoCloseable {
      * D-6): listing the cluster's nodes with the client and the group's
      * {@code unsupported.nodeStatusRead}, reading the I/O log with the client and the group's
      * {@code unsupported.ioLogRead}, reading the node configuration with the client and the
-     * group's {@code unsupported.nodeConfigRead}.
+     * group's {@code unsupported.nodeConfigRead}, changing the temporary log level with the
+     * client, effective write access and the group's {@code unsupported.logLevelWrite}.
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
         Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
@@ -995,6 +1004,9 @@ final class Wiring implements AutoCloseable {
         }
         if (withClient && server.nodeConfigRead()) {
             allowed.add(Capability.NODE_CONFIG_READ);
+        }
+        if (withClient && server.effectiveWriteEnabled() && server.logLevelWrite()) {
+            allowed.add(Capability.LOG_LEVEL_WRITE);
         }
         return allowed;
     }
@@ -1065,6 +1077,19 @@ final class Wiring implements AutoCloseable {
     private boolean anyNodeConfigNode() {
         return servers.stream().anyMatch(server -> server.nodeConfigRead()
             && possiblyCapable(server, Capability.NODE_CONFIG_READ)
+            && clientSelection.anyCandidate(server.id()));
+    }
+
+    /**
+     * Feature 024 (FR-040, research D-6): true if a node with effective write access of a group
+     * with {@code unsupported.logLevelWrite} may change the temporary log level
+     * ({@link #possiblyCapable}) and has a client home some version of it may use
+     * ({@link ClientSelectionPort#anyCandidate}).
+     */
+    private boolean anyLogLevelNode() {
+        return servers.stream().anyMatch(server -> server.effectiveWriteEnabled()
+            && server.logLevelWrite()
+            && possiblyCapable(server, Capability.LOG_LEVEL_WRITE)
             && clientSelection.anyCandidate(server.id()));
     }
 

@@ -654,7 +654,7 @@ the other just changed.
   and no file created)
   Note (T052 review): log the startup WARN per lease of an unconfigured server from
   `LeaseScheduler.pendingForgetWarnings()`; do not write the text a second time.
-- [ ] T054 [US4] Tools, schemas and wiring (FR-001, FR-003, FR-040, D-6, D-25; after T053, same
+- [X] T054 [US4] Tools, schemas and wiring (FR-001, FR-003, FR-040, D-6, D-25; after T053, same
   `Wiring.java` and `MainTest.java`): `mcp/tools/SetTemporaryLogLevelTool.java`,
   `ResetTemporaryLogLevelTool.java` (`ToolHints.destructive(…)`, descriptions of contracts),
   `src/main/resources/schemas/set_temporary_log_level.{input,output}.json`,

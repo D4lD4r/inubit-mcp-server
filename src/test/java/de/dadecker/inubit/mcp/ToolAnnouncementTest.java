@@ -37,7 +37,9 @@ import org.junit.jupiter.api.io.TempDir;
  * {@code list_cluster_nodes} only for a node of a group with {@code unsupported.nodeStatusRead}
  * that may list the cluster's nodes and has a client home; T030: {@code read_io_log} the same with
  * {@code unsupported.ioLogRead}; T036: {@code get_node_config} the same with
- * {@code unsupported.nodeConfigRead}.
+ * {@code unsupported.nodeConfigRead}; T054: {@code set_temporary_log_level} and
+ * {@code reset_temporary_log_level} only for a node with effective write access,
+ * {@code unsupported.logLevelWrite} and a client home that may change the log level.
  */
 class ToolAnnouncementTest {
 
@@ -629,5 +631,102 @@ class ToolAnnouncementTest {
             .containsExactlyElementsOf(REFERENCE);
         assertThat(groupTools("AUTO", cliHome(), false, production))
             .containsExactlyElementsOf(REFERENCE);
+    }
+
+    // --- feature 024 T054: the log-level tools (FR-002, FR-040, SC-005, research D-6) ----------
+
+    private static final List<String> LOG_LEVEL_TOOLS = List.of("set_temporary_log_level",
+        "reset_temporary_log_level");
+
+    private static String writeEnabled(boolean enabled) {
+        return "    write:\n      enabled: " + enabled + "\n";
+    }
+
+    private static String logLevelOptIn(String value) {
+        return "    unsupported:\n      logLevelWrite: " + value + "\n";
+    }
+
+    @Test
+    void aNodeWithWriteAccessTheOptInAndAClientHomeAnnouncesBothLogLevelTools() {
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V8_1", writeEnabled(true) + logLevelOptIn("true") + cliHome(),
+            false, matrix))
+            .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
+                "find_processes", "query_logs", "download_server_log", "list_inventory",
+                "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+                "check_artifacts", "restart_process", "kill_process", "set_temporary_log_level",
+                "reset_temporary_log_level");
+        assertThat(groupTools("AUTO", writeEnabled(true) + logLevelOptIn("true") + cliHome(),
+            false, matrix)).as("an AUTO node may run 8.1").containsAll(LOG_LEVEL_TOOLS);
+        assertThat(groupTools("V8_1", "    production: true\n    write:\n      enabled: true\n"
+            + "      productionOptIn: true\n" + logLevelOptIn("true") + cliHome(), false, matrix))
+            .as("production with write.productionOptIn").containsAll(LOG_LEVEL_TOOLS);
+    }
+
+    @Test
+    void withoutWriteAccessTheOptInOrAClientHomeTheLogLevelToolsAreNotAnnounced() {
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V8_1", writeEnabled(false) + logLevelOptIn("true") + cliHome(),
+            false, matrix)).as("write disabled").containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V8_1", logLevelOptIn("true") + cliHome(), false, matrix))
+            .as("write not configured").containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V8_1", "    production: true\n" + writeEnabled(true)
+            + logLevelOptIn("true") + cliHome(), false, matrix))
+            .as("production without write.productionOptIn")
+            .doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+        assertThat(groupTools("V8_1", writeEnabled(true) + logLevelOptIn("false") + cliHome(),
+            false, matrix)).as("without the opt-in").contains("restart_process")
+            .doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+        assertThat(groupTools("V8_1", writeEnabled(true) + cliHome(), false, matrix))
+            .as("opt-in not set").doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+        assertThat(groupTools("V8_1", writeEnabled(true) + logLevelOptIn("true"), false, matrix))
+            .as("without a client home").contains("restart_process")
+            .doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+        assertThat(groupTools("V6_1", writeEnabled(true) + logLevelOptIn("true") + cliHome(),
+            false, matrix)).as("pinned to 6.1").doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+    }
+
+    @Test
+    void theWriteAccessTheOptInAndTheClientHomeMustBeOnTheSameNode() {
+        String yaml = """
+            profile:
+              name: acme
+            workspace: %s
+            groups:
+              - name: test
+                versionLine: V8_1
+                write:
+                  enabled: true
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: https://localhost:1
+              - name: lab
+                versionLine: V8_1
+                unsupported:
+                  logLevelWrite: true
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: https://localhost:2
+            """.formatted(temp.resolve("workspace"), temp.resolve("cli-test"),
+            temp.resolve("cli-lab"));
+
+        assertThat(toolNames(yaml, TraceMatrix.admittingEightOne())).contains("restart_process")
+            .doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+    }
+
+    @Test
+    void onTheProductionMatrixTheLogLevelToolsAreNotAnnouncedBeforeTheirRecording() {
+        // LOG_LEVEL_WRITE stays unsupported on 8.1 and 9.0 until its flip (T058, T065)
+        CapabilityMatrix production = CapabilityMatrix.production();
+        for (String line : List.of("V8_1", "AUTO")) {
+            assertThat(groupTools(line, writeEnabled(true) + logLevelOptIn("true") + cliHome(),
+                false, production)).as(line).doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+        }
+        assertThat(groupTools("V9_0", writeEnabled(true) + logLevelOptIn("true"), true,
+            production)).doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
     }
 }

@@ -2368,6 +2368,10 @@ class MainTest {
         assertThat(announcedTools(config(Files.readString(nodeConfigOptedOut)
             .replace("versionLine: V8_1", "versionLine: AUTO"))))
             .containsExactlyElementsOf(reference);
+        // T054: the log-level opt-in without write access
+        Path logLevelWithoutWrite =
+            configWithClientHome("    unsupported:\n      logLevelWrite: true\n");
+        assertThat(announcedTools(logLevelWithoutWrite)).containsExactlyElementsOf(reference);
     }
 
     @Test
@@ -2420,6 +2424,30 @@ class MainTest {
         assertThat(announcedTools(config(Files.readString(optedIn)
             .replace("versionLine: V8_1", "versionLine: AUTO"))))
             .containsExactlyElementsOf(withNodeConfig);
+    }
+
+    // --- feature 024 T054: the log-level tools only with write access and their opt-in
+    // (FR-002, FR-040, SC-005, D-6)
+
+    @Test
+    void aWriteEnabledNodeDoesNotAnnounceTheLogLevelToolsBeforeTheirRecording() throws Exception {
+        // the production matrix keeps LOG_LEVEL_WRITE unsupported on 8.1 and 9.0 until its flip
+        // (T058, T065): with write access and the opt-in only restart_process and kill_process
+        // are added to the reference
+        credentials();
+        List<String> withWrite = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
+            "export_archives", "check_artifacts", "restart_process", "kill_process");
+
+        for (String optIn : List.of("true", "false")) {
+            Path file = configWithClientHome("    write:\n      enabled: true\n"
+                + "    unsupported:\n      logLevelWrite: " + optIn + "\n");
+            assertThat(announcedTools(file)).as(optIn).containsExactlyElementsOf(withWrite);
+            assertThat(announcedTools(config(Files.readString(file)
+                .replace("versionLine: V8_1", "versionLine: AUTO"))))
+                .as(optIn).containsExactlyElementsOf(withWrite);
+        }
     }
 
     @Test

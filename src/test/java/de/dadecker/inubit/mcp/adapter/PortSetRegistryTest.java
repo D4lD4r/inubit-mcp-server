@@ -14,6 +14,7 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.node.CliClusterNodeAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.node.CliIoLogAdapter;
+import de.dadecker.inubit.mcp.adapter.cli.node.CliLogLevelAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.node.CliNodeConfigAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61HealthAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
@@ -147,9 +148,9 @@ class PortSetRegistryTest {
     }
 
     @Test
-    void theHelperPortSetReadsTheClusterNodesTheIoLogAndTheNodeConfigOnEightOneAndNineZero() {
-        // feature 024 T023, T030, T036 (research D-24): the 8.1 port set with the helper also
-        // serves 9.0 (the helper picks its variant by version); the log level is not wired yet
+    void theHelperPortSetServesEveryNodeToolOnEightOneAndNineZero() {
+        // feature 024 T023, T030, T036, T054 (research D-24): the 8.1 port set with the helper
+        // also serves 9.0 (the helper picks its variant by version)
         SecretScrubber scrubber = new SecretScrubber();
         try (CliResources resources = new CliResources("acme", PrivateFiles.forHost())) {
             HelperInstallation.Host host = new HelperInstallation.Host(false, Map.of(),
@@ -175,10 +176,8 @@ class PortSetRegistryTest {
                         .isInstanceOf(CliIoLogAdapter.class);
                     assertThat(ports.nodeConfig()).as(setting.text())
                         .isInstanceOf(CliNodeConfigAdapter.class);
-                    assertThatThrownBy(() -> ports.logLevel().answeringNode(
-                        effective(setting).orElseThrow(), System.nanoTime())).as(setting.text())
-                        .isInstanceOfSatisfying(ToolErrorException.class, e ->
-                            assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE));
+                    assertThat(ports.logLevel()).as(setting.text())
+                        .isInstanceOf(CliLogLevelAdapter.class);
                 }
             }
         }

@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.adapter.cli.log.CliServerLogAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.log.CliWebServiceLogAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.node.CliClusterNodeAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.node.CliIoLogAdapter;
+import de.dadecker.inubit.mcp.adapter.cli.node.CliLogLevelAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.node.CliNodeConfigAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.node.NodeHelperRunner;
 import de.dadecker.inubit.mcp.adapter.cli.queue.CliQueueEntryAdapter;
@@ -24,6 +25,7 @@ import de.dadecker.inubit.mcp.adapter.rest.v81.V81PartnerManagementAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81ProcessQueryAdapter;
 import de.dadecker.inubit.mcp.domain.port.ClusterNodePort;
 import de.dadecker.inubit.mcp.domain.port.IoLogPort;
+import de.dadecker.inubit.mcp.domain.port.LogLevelPort;
 import de.dadecker.inubit.mcp.domain.port.NodeConfigPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
@@ -31,10 +33,9 @@ import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 /**
  * The 8.1 port set: the REST adapters on the server's client and the StartCLI adapters; with a
  * helper host, the queue-entry helper of feature 020 (research D-17) and the server-log
- * download of feature 021 (research D-19) and the cluster's node list, the I/O log and the node
- * configuration of feature 024 (research D-24) too. The log level of feature 024 has no adapter
- * yet, nor has the set without helper host the node tools: their ports fail with
- * {@code CLI_UNAVAILABLE} ({@link PortSet}).
+ * download of feature 021 (research D-19) and the cluster's node list, the I/O log, the node
+ * configuration and the temporary log level of feature 024 (research D-24) too. The set without
+ * helper host has no node tools: their ports fail with {@code CLI_UNAVAILABLE} ({@link PortSet}).
  */
 final class V81PortSet {
 
@@ -48,7 +49,8 @@ final class V81PortSet {
      * download (feature 021, research D-15) runs with the same credentials, guard, runner and
      * {@code limiter}, the web service log with the same {@code host} and {@code processRun}.
      * The cluster's node list, the I/O log and the node configuration (feature 024) run the
-     * INUBIT client helper with all of them.
+     * INUBIT client helper with all of them; the temporary log level runs it for the own-node
+     * lookup and StartCLI as the trace download does.
      */
     static PortSet create(PortSetRegistry.NodeResources node, HelperInstallation.Host host,
         ProcessRun processRun, CliConcurrencyLimiter limiter) {
@@ -70,10 +72,12 @@ final class V81PortSet {
             node.server().secretLabels());
         NodeConfigPort nodeConfig = new CliNodeConfigAdapter(nodeHelper, node.scrubber(),
             node.server().secretLabels());
+        LogLevelPort logLevel = new CliLogLevelAdapter(nodeHelper, node.server(),
+            node.credentials(), node.guard(), node.cliRunner(), classifier(node), node.scrubber());
         return new PortSet(ports.processes(), ports.logs(), ports.inventory(),
             ports.processControl(), ports.artifacts(), ports.imports(), ports.tags(),
             ports.partners(), queueEntries, serverLogs, clusterNodes, ioLog, nodeConfig,
-            PortSet.NodeToolsUnavailable.INSTANCE);
+            logLevel);
     }
 
     /**

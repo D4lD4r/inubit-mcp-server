@@ -1,0 +1,102 @@
+{
+  "type": "object",
+  "description": "Either the preview of the first step (challenge) or the result of the execution (result); refusals are tool errors",
+  "properties": {
+    "challenge": { "$ref": "#/$defs/ConfirmationChallenge" },
+    "result": { "$ref": "#/$defs/ResetResult" }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    { "required": ["challenge"] },
+    { "required": ["result"] }
+  ],
+  "$defs": {
+    "ConfirmationChallenge": {
+      "type": "object",
+      "description": "Nothing was changed; call the tool again with confirmationCode before expiresAt to execute",
+      "required": ["confirmationCode", "expiresAt", "preview", "message"],
+      "properties": {
+        "confirmationCode": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{22}$",
+          "description": "One-time code, bound to this {node} or lease"
+        },
+        "expiresAt": { "type": "string", "description": "ISO-8601 UTC" },
+        "preview": { "$ref": "#/$defs/Preview" },
+        "message": { "type": "string", "description": "What to do next" }
+      },
+      "additionalProperties": false
+    },
+    "Preview": {
+      "type": "object",
+      "required": ["node", "inubitNode"],
+      "properties": {
+        "node": { "type": "string" },
+        "inubitNode": {
+          "type": "string",
+          "description": "The INUBIT node that answered (reset), or the one the lease names (forget)"
+        },
+        "openLease": {
+          "anyOf": [{ "$ref": "#/$defs/LeaseSummary" }, { "type": "null" }],
+          "description": "The lease the call ends; absent when no lease is open"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ResetResult": {
+      "type": "object",
+      "required": ["node", "inubitNode", "outcome", "leaseOpen", "message", "auditId", "warnings"],
+      "properties": {
+        "node": { "type": "string" },
+        "inubitNode": { "type": "string" },
+        "outcome": {
+          "enum": ["EXECUTED", "FAILED"],
+          "description": "EXECUTED: the node was reset or the lease forgotten; FAILED: StartCLI's reset failed (see message)"
+        },
+        "leaseId": { "type": "string", "description": "The lease the call ended or forgot" },
+        "leaseOpen": { "type": "boolean", "description": "Whether a lease was open when the call ran" },
+        "message": { "type": "string" },
+        "auditId": { "type": "string", "description": "Id of the execution's audit records" },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "Logger": {
+      "type": "object",
+      "required": ["name", "level"],
+      "properties": {
+        "name": { "type": "string" },
+        "level": { "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"] }
+      },
+      "additionalProperties": false
+    },
+    "LeaseSummary": {
+      "type": "object",
+      "required": ["leaseId", "inubitNode", "loggers", "setAt", "expiresAt", "state"],
+      "properties": {
+        "leaseId": { "type": "string" },
+        "inubitNode": { "type": "string" },
+        "loggers": { "type": "array", "items": { "$ref": "#/$defs/Logger" } },
+        "setAt": { "type": "string", "description": "ISO-8601 UTC" },
+        "expiresAt": { "type": "string", "description": "ISO-8601 UTC" },
+        "state": {
+          "enum": ["ACTIVE", "RESET_FAILED"],
+          "description": "RESET_FAILED: the automatic reset failed; the level may still be raised"
+        },
+        "lastAttempt": {
+          "type": "object",
+          "description": "The last reset attempt that did not end the lease",
+          "required": ["at", "outcome"],
+          "properties": {
+            "at": { "type": "string", "description": "ISO-8601 UTC" },
+            "outcome": { "type": "string" },
+            "code": { "type": "string" },
+            "reason": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
