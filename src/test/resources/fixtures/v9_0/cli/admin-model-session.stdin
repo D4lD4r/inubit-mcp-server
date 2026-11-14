@@ -1,0 +1,5 @@
+<password>
+library --list --type driver
+library --list --type plugin
+fetchXSLT1.0 -h
+exit

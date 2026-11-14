@@ -32,3 +32,17 @@ admin-users-msglist-empty                     administration recording (feature 
 admin-users-who                               administration recording (feature 022, T028b): run once by the owner-approved live task and neutralized; the recorder has no administration case
 admin-users-nwho                              administration recording (feature 022, T028b): run once by the owner-approved live task and neutralized; the recorder has no administration case
 admin-users                                   administration recording (feature 022, T028b): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-model-node-by-model                     administration recording (feature 022, T039a): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-model-node-by-model-json-refused        administration recording (feature 022, T039a): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-model-node-by-model-is-connector        administration recording (feature 022, T039a): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-model-node-by-model-missing             administration recording (feature 022, T039a): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-model-node-by-name-not-found            administration recording (feature 022, T039a): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-model-metadata-not-found                administration recording (feature 022, T039a): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-model-isconnector-refused               administration recording (feature 022, T039a): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-model-library-driver                    administration recording (feature 022, T039a): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-model-library-plugin                    administration recording (feature 022, T039a): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-model-fetchxslt-not-found               administration recording (feature 022, T039a): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-model-export-metadata                   administration recording (feature 022, T039a): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-model-export-metadata-names             administration recording (feature 022, T039a): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-model-export-group-exclude              administration recording (feature 022, T039a): run once by the owner-approved live task and neutralized; the recorder has no administration case
+admin-model-session                           administration recording (feature 022, T039a): run once by the owner-approved live task and neutralized; the recorder has no administration case

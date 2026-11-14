@@ -774,7 +774,7 @@ offered).
 
 ### US3 9.0 follow-up (separate PR after the US3 PR, as for US1 and US2)
 
-- [ ] T039a [LIVE] [OWNER] [US3] The T039 reads on the 9.0 test server, after the US3 PR (owner
+- [X] T039a [LIVE] [OWNER] [US3] The T039 reads on the 9.0 test server, after the US3 PR (owner
   approval; the pin is current since T028b), into `fixtures/v9_0/{rest,cli}/admin-model-*` with
   `.origin` and `V90Cases` entries:
   - `GET /model/nodeByModel/{d}/{id}` (a module with a password property, and an unknown id);

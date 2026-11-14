@@ -1,0 +1,18 @@
+JAVA_HOME is set
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+ERROR 10:57:28,907 [main      ] DnsServerAddressStreamProviders Unable to load io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider, fallback to system defaults. This may result in incorrect DNS resolutions on MacOS. Check whether you have a dependency on 'io.netty:netty-resolver-dns-native-macos'. Use DEBUG level to see the full stack: java.lang.UnsatisfiedLinkError: failed to load the required native library
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+Password: 
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+Connecting as 'jdoe' to https://inubit-dev-2.example.test:8443?isCli
+
+Connection to inubit Process Engine 9.0.10 established.
+<TAB> shows command list
+[COMMAND] with option -h or --help shows help for this command
+CLI|jdoe@inubit-dev-2.example.test> library --list --type driver
+
+CLI|jdoe@inubit-dev-2.example.test> library --list --type plugin
+
+CLI|jdoe@inubit-dev-2.example.test> fetchXSLT1.0 -h
+Command not found.
+CLI|jdoe@inubit-dev-2.example.test> exit

@@ -1,7 +1,7 @@
 # INUBIT 9.0 fixtures
 
 **Mostly documentation-derived ("reconstructed").** Apart from the administration recordings of
-feature 022 (`admin-*`, recorded 2026-11-13 on INUBIT 9.0.10), no INUBIT 9.0 node has been
+feature 022 (`admin-*`, recorded 2026-11-13 and 2026-11-14 on INUBIT 9.0.10), no INUBIT 9.0 node has been
 recorded (feature 017, research D-10). Every other case was derived from the recorded 8.1.17 fixtures (`../v8_1/`) and
 the documented 9.0 differences (`docs/research/inubit-interfaces.md` §4). Tests open these files
 only through `de.dadecker.inubit.mcp.testing.V90Cases`, which refuses a case without its
@@ -46,7 +46,8 @@ StartCLI client is `RECORD_CLI_HOME`, else the `defaults.cliClients."9.0"` entry
 The 9.0 counterparts of the feature-022 administration cases (research D-26; tasks T002). A
 coverage-list row becomes `reachable` for 9.0 only in the commit that adds its recording here,
 together with its row in the table below. The first cases come from T024 and T028b (below), recorded
-after the owner confirmed the renewed certificate of the 9.0 test server (2026-11-13).
+after the owner confirmed the renewed certificate of the 9.0 test server (2026-11-13); the US3
+cases (`admin-model-*`) come from T039a (2026-11-14).
 
 - **Name**: `admin-<entry-slug>[-<variant>]`, the same name as the 8.1 case of the same command
   or endpoint (see "Administration cases (feature 022)" in `../v8_1/cli/README.md`).
@@ -92,6 +93,20 @@ after the owner confirmed the renewed certificate of the 9.0 test server (2026-1
 | `cli/admin-users-who` | `recorded 2026-11-13 9.0.10 neutralized` | CLI `-who` | a client run of its own, `startcli.sh … --who <url>`, password on stdin (`.stdin`): the script-mode preamble (with the Netty line), then the table with the 8.1 header; `SYSTEM-ID` 65 characters wide (8.1: 64; the longest `SYSTEM-ID` is one character longer); three JDBC URLs, `Portal (BPC)`, `Process User Server (inubit)`; **no `Toolset` row** for the client's own connection and no `STATE` in any row; header and rows end in CRLF, then an empty line; exit 0 |
 | `cli/admin-users-nwho` | `recorded 2026-11-13 9.0.10 neutralized` | CLI `-nwho` | as `admin-users-who` for `--nwho`: the preamble, then `5` (the number of rows `--who` lists), LF; exit 0 |
 | `rest/admin-users` | `recorded 2026-11-13 9.0.10 neutralized` | REST `GET /user/users` | `GET /user/users?type=processEngineUser`, `200`, `application/xml;charset=UTF-8`: XML declaration with `standalone="yes"`, root `ns2:UserList` with `ns2` bound to `inubit.com/ibis/external/user` and `ns1` to `…/base` (8.1: default namespace), one `ns2:User` per line indented by four spaces, trailing line break; 55 users with `id`, `email`, `type="ProcessEngineUser"` and, for 29, `firstName` and `lastName`; not sorted by `id`; no account state |
+| `rest/admin-model-node-by-model` | `recorded 2026-11-14 9.0.10 neutralized` | REST `GET /model/nodeByModel/{d}/{id}` | the Database Connector module of the 8.1 case (same id, connection and property order), Accept XML: `200`, `application/xml;charset=UTF-8`, XML declaration with `standalone="yes"`, root `ns2:Node` with `ns2` = `inubit.com/ibis/external/model` and `ns1` = `…/base` (8.1: `ns4`/`ns2` and an unused `ns3`), indented by four spaces per level, one element per line, trailing line break; 37 recorded `ns1:Property name= type=` (`Boolean`, `Integer`, `String`, `Password`) plus the planted `proxyPassword` (see below) |
+| `rest/admin-model-node-by-model-json-refused` | `recorded 2026-11-14 9.0.10 neutralized` | REST `GET /model/nodeByModel/{d}/{id}` | the same request with Accept `application/json`: `406`, `application/json;charset=UTF-8`, one line `{"statusCode":406,"message":"The requested media type is not acceptable.","path":…,"timestamp":…}` without a trailing line break (8.1 answered XML with `200`) |
+| `rest/admin-model-node-by-model-is-connector` | `recorded 2026-11-14 9.0.10 neutralized` | REST `GET /model/nodeByModel/{d}/{id}` | the IS Connector module of the 8.1 case (`type="twinubitISConfiguration"`, `parentId`), one `ErrorSuppression` property; `200`, `application/xml;charset=UTF-8`, layout as `admin-model-node-by-model` |
+| `rest/admin-model-node-by-model-missing` | `recorded 2026-11-14 9.0.10 neutralized` | REST `GET /model/nodeByModel/{d}/{id}` | unknown module id `999999`: `500`, `application/xml` (no charset), one line without a trailing line break, `<ApiError>` with `statusCode` `500`, the generic `message` `Error while getting node by model`, `path` and `timestamp` (8.1: the `text/html` status page saying the module could not be found) |
+| `rest/admin-model-node-by-name-not-found` | `recorded 2026-11-14 9.0.10 neutralized` | REST `GET /model/nodeByName/{d}/{m}` | the existing diagram and the name of the module `nodeByModel` returned: `404`, `application/xml;charset=UTF-8`, `<ApiError>` `Resource Not Found` (form as `admin-model-node-by-model-missing`) |
+| `rest/admin-model-metadata-not-found` | `recorded 2026-11-14 9.0.10 neutralized` | REST `GET /process/metadata/{wf}` | the workflow of the module cases: `500`, `application/xml`, `<ApiError>` `An unexpected error occurred for workflow: Workflow-0301` (8.1: `Workflow details not found for …`); the metadata registry is empty (`cli/admin-model-export-metadata.zip`), so no positive answer is recorded |
+| `rest/admin-model-isconnector-refused` | `recorded 2026-11-14 9.0.10 neutralized` | REST `GET /isconnector?…type=validateWorkflow` | `401`, `application/xml;charset=UTF-8`, `<ApiError>` `Authentication failed: The credentials entered are incorrect.` for the Basic auth every other REST call accepts; the recorded answer also had `WWW-Authenticate: Basic realm="inubit REST interface"` (not kept: `.http` holds status and content type only; 8.1: `text/plain`, no `WWW-Authenticate`) |
+| `cli/admin-model-library-driver` | `recorded 2026-11-14 9.0.10 neutralized` | CLI `library --list --type driver` | script mode: the preamble, then two empty lines (the empty answer and the extra 9.0 script-mode line; no library uploaded); exit 0 |
+| `cli/admin-model-library-plugin` | `recorded 2026-11-14 9.0.10 neutralized` | CLI `library --list --type plugin` | as `admin-model-library-driver` |
+| `cli/admin-model-fetchxslt-not-found` | `recorded 2026-11-14 9.0.10 neutralized` | CLI `fetchXSLT1.0` | script mode, `fetchXSLT1.0 -h`: the preamble, `EXECUTION ERROR` and `com.inubit.ibis.utils.InubitException: @Start@IError@@@Internal INUBIT error!@End@Command not found.` (no record, no stack trace, no empty line after); exit 1: the command does not exist on 9.0.10 |
+| `cli/admin-model-export-metadata` | `recorded 2026-11-14 9.0.10 neutralized` | CLI `export --exportMetadata` | `export --exportMetadata --exportFile '<zip>'`: the preamble, `1-OK: Metadata exported successfully.` and an empty line; exit 0. `.zip`: `MetadataRegistry.xml` and `MetadataAllocations.xml`, each an XML declaration, an empty line and an empty root with `version="4.1"` (`<MetadataRegistry version="4.1"/>`, 8.1 with a space before `/>`); the ZIP comment `#<date>`, `Date=…`, `Type=MetadataExport`, `User=jdoe`, `Version=6.0.0` (8.1: `Date=` last) |
+| `cli/admin-model-export-metadata-names` | `recorded 2026-11-14 9.0.10 neutralized` | CLI `export --exportMetadataNames` | `export --exportMetadata --exportMetadataNames 'Example1,Example2' --exportFile '<zip>'` (single-quoted, the form the server sends; 8.1 recorded it unquoted): `1-OK: Metadata Names exported successfully.` and an empty line; exit 0. `.zip` as in `admin-model-export-metadata` (the names exist nowhere on the server) |
+| `cli/admin-model-export-group-exclude` | `recorded 2026-11-14 9.0.10 neutralized` | CLI `export --exportWorkflowGroupExclude` | `--exportWorkflowUser '<owner>' --exportWorkflowType 'technical' --exportWorkflowGroup '' --exportWorkflowGroupExclude '<g1,…,g6>' --exportFile '<zip>'` (the T041 form): `1-OK: Workflow group exported successfully.` and an empty line; exit 0. The archive is not committed (it holds clear-text module secrets) |
+| `cli/admin-model-session` | `recorded 2026-11-14 9.0.10 neutralized` | the US3 CLI reads | one stdin session (`.stdin`): `library --list --type driver`, `library --list --type plugin`, `fetchXSLT1.0 -h`, `exit`. Preamble and echo as in `admin-settings-session`. Each `library` block is one empty LF line; `fetchXSLT1.0 -h` answers `Command not found.` and the session goes on; exit 0 (8.1: 1) |
 
 Neutralization of the T024 and T028b cases (recorded 2026-11-13 on the 9.0.10 test node with the
 profile's non-root account, every command once; raw outputs private, never committed). Every
@@ -124,3 +139,27 @@ the 8.1 cases, it has the same fictitious value there:
 - `--who`: the database host → `inubit-db-002.example.test` and the database names →
   `inubitlogdb` / `inubitcachedb` (same lengths, so the URLs and the column keep their recorded
   widths), `IDLE` → `52:07:13s`; the `nwho` count is kept.
+
+Neutralization of the T039a cases (`admin-model-*`; recorded 2026-11-14 on the 9.0.10 test node
+with the profile's non-root account, every command once; raw outputs private, never committed),
+with the values of T024/T028b and of the 8.1 T039 cases (`../v8_1/cli/README.md`):
+
+- the account → `jdoe`, the server host → `inubit-dev-2.example.test`, the trust-store path →
+  `/home/jdoe/.config/inubit-mcp/dev-truststore.p12`, `User=` in the comment of the two
+  metadata archives → `jdoe` (the archives were rebuilt with the recorded entries and comment);
+- the workflow → `Workflow-0301`, the modules → `Demo-DB-Probe` and `Demo-IS-Probe` (also in the
+  ApiError `path` and `message`); the ids, property names, types, order and the boolean and
+  integer values are kept; the `staticQuery` text → `select version from demo_versions`;
+- every time of day (Netty lines, ApiError and JSON `timestamp`, ZIP comment and entry times)
+  moved back twelve hours; date, minutes, seconds and milliseconds kept;
+- the `export` options: the owner and the six excluded groups are named only as placeholders
+  (`<owner>`, `<g1,…,g6>`) in the table above; `Example1,Example2` are the names the recording
+  used;
+- planted values in `rest/admin-model-node-by-model.xml`, as on 8.1 (the recorded module, which
+  uses the IS log database, had `Password`, `dbURL`, `driverClass` and `user` empty):
+  `Password` (type `Password`) → `synthetic-secret-3901`; one added property `proxyPassword`
+  (type `String`, in the recorded alphabetical order before `staticQuery`, indented like its
+  neighbours) → `synthetic-secret-3902`, a secret found only by its name; `dbURL` →
+  `jdbc:postgresql://inubit-db-01.example.test:5432/demodb`, `driverClass` →
+  `org.postgresql.Driver`, `user` → `demo_reader` (no secrets). Whether INUBIT sends a set
+  password in clear text, encrypted or not at all is not recorded; the plant assumes clear text.
