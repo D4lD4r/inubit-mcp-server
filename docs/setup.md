@@ -766,6 +766,10 @@ workflows' secrets out of INUBIT.
 |---|---|---|---|
 | `unsupported.queueEntryRead` | group | `false` | offers `read_queue_entry` for the nodes of this group, which reads Queue Manager entries through an **unsupported, undocumented** INUBIT interface (see the text below); independent of `write.*`, `archives.*` and `production` |
 | `unsupported.serverLogRead` | group | `false` | allows `download_server_log` with `log: webservice` for the nodes of this group, which reads `webservice.log` through an **unsupported, undocumented** INUBIT interface (see the text below); independent of `unsupported.queueEntryRead`, `write.*`, `archives.*` and `production` |
+| `unsupported.nodeStatusRead` | group | `false` | offers `list_cluster_nodes` for the nodes of this group (unsupported interface) |
+| `unsupported.ioLogRead` | group | `false` | offers `read_io_log` (unsupported interface; messages can contain business and personal data) |
+| `unsupported.nodeConfigRead` | group | `false` | offers `get_node_config` (unsupported interface; fixed list of values) |
+| `unsupported.logLevelWrite` | group | `false` | offers `set_temporary_log_level` and `reset_temporary_log_level` for nodes of this group **with write access** (`write.enabled`, and `write.productionOptIn` on production); the answering-node lookup is unsupported |
 
 ```yaml
 groups:
@@ -818,8 +822,8 @@ profile setting for the text limit (the caller's `maxChars`).
   `false`; anything else (also `1`, `0` or the text `"true"`) is a startup error that does not
   echo the value.
 - `unsupported` on a node or in `defaults`, and any key under `unsupported` other than
-  `queueEntryRead` and `serverLogRead`, is a startup error (unknown key): the opt-in is a
-  decision per group.
+  `queueEntryRead`, `serverLogRead`, `nodeStatusRead`, `ioLogRead`, `nodeConfigRead` and
+  `logLevelWrite`, is a startup error (unknown key): the opt-in is a decision per group.
 - `--check-config` ([section 6](#6-check-the-configuration)) shows the state on every group line
   once a group of the profile opts in.
 
@@ -871,6 +875,101 @@ and the node's usual credentials and TLS settings. A download is bounded by the 
 `cliExportTimeout` (built-in 120 s); raise it for large logs. There is no setting for the target
 folder (the caller's `targetFolder`) or the excerpt limits (`tailLines`, `maxChars`). The value
 rules of `queueEntryRead` above apply to `serverLogRead` as well.
+
+The node tools have four settings of their own. All are independent of each other and of
+`unsupported.queueEntryRead` / `serverLogRead`.
+
+```yaml
+groups:
+  - name: test
+    write:
+      enabled: true          # needed only for the log-level tools
+    unsupported:
+      nodeStatusRead: true   # unsupported INUBIT functionality, diagnosis only
+      ioLogRead: true
+      nodeConfigRead: true
+      logLevelWrite: true
+    nodes:
+      - name: node1
+        baseUrl: https://inubit-test-01.example.test:8443
+```
+
+**`unsupported.nodeStatusRead`, `unsupported.ioLogRead` and `unsupported.nodeConfigRead` use
+unsupported INUBIT functionality.** INUBIT documents no interface for the cluster's node list,
+the input/output logging of modules or node configuration values. When a setting is `true`, the
+tool ([`list_cluster_nodes`](tools.md#list_cluster_nodes), [`read_io_log`](tools.md#read_io_log),
+[`get_node_config`](tools.md#get_node_config)) reads them through the internal, undocumented
+interfaces the Workbench uses, driven by the local INUBIT client installation.
+
+- **No vendor support, no stability guarantee.** The vendor gives no support and no stability
+  guarantee for these interfaces. They may stop working, or behave differently, after **any**
+  INUBIT update, including patch releases.
+- **Diagnosis only.**
+- **INUBIT checks no right beyond the login** for `list_cluster_nodes` and `get_node_config`:
+  every INUBIT user the profile logs in with can read them. `read_io_log` is the exception:
+  INUBIT requires a right of the configured user for the listing and refuses it without that
+  right (`FORBIDDEN`).
+- **`read_io_log`: business and personal data.** Logged messages contain what the modules
+  received and sent. They are masked like Queue Manager entries (known credentials and
+  secret-named values), but masking does not cover business and personal data.
+- **`get_node_config`: fixed list.** Only the 20 listed values can be read; values that hold
+  secrets (database connection, cluster password, initial root password, identity provider) can
+  never be requested.
+- **Cluster nodes.** Each tool reads from the node the configured address reaches and names it;
+  address cluster nodes directly, not through a load balancer.
+
+**`unsupported.logLevelWrite` changes a running INUBIT node.** `set_temporary_log_level` raises
+the level of named INUBIT loggers on the node the address reaches through StartCLI's documented
+`trace -nl`, for a limited time; `reset_temporary_log_level` runs `trace -r`. Both are write
+tools: they need `write.enabled` (and `write.productionOptIn` on production) and follow the
+node's confirmation mode.
+
+- **The reset restores every temporary log level on that node**, also levels other users set.
+  Only the exactly named logger changes; levels are kept in the node's memory only and can be
+  lost earlier (INUBIT restart, log configuration reload). The persistent trace settings are never
+  changed.
+- **Automatic reset.** Every change is recorded as a lease in
+  `~/.inubit-mcp/<profile>/log-levels/` (owner-only). The MCP server resets the node within a
+  minute after the lease expires, before it shuts down, and at its next start; another running
+  instance of the same profile takes over leases whose instance no longer runs.
+- **Cleanup resets run also when write access is off.** If `write.enabled`,
+  `write.productionOptIn` or `unsupported.logLevelWrite` is removed while a lease is open, the
+  tools are no longer offered, but the MCP server still resets the recorded nodes (a deliberate
+  exception to the read-only default, decided so that a raised level never stays without limit).
+  A lease that cannot be reset is shown in `get_health` and the startup log and retried every
+  minute; `reset_temporary_log_level` with `leaseId` and `forget: true` ends it without contacting
+  INUBIT. A lease of a server you remove from the configuration ends automatically 7 days after
+  its expiry.
+- **Address the node directly.** The MCP server asks which INUBIT node answers before every
+  change and reset and refuses when another node answers than the open lease names; behind a
+  load balancer the lookup and the change can still reach different nodes.
+- Every set, reset and automatic reset is written to the audit log.
+
+Enable each setting per group and deliberately; on a group with `production: true` the server
+starts with a warning.
+
+Every tool needs an INUBIT client installation for the node's version, configured as for StartCLI
+(`cli.home`, `defaults.cliClients."8.1"` / `"9.0"`, `defaults.cliHome`; see
+[StartCLI client per INUBIT version](#startcli-client-per-inubit-version-defaultscliclients)),
+and the node's usual credentials and TLS settings. Timeouts: `cliTimeout` (built-in 30 s) for the
+node list, the configuration values, the I/O listing and each log-level StartCLI run;
+`cliExportTimeout` (built-in 120 s) for reading one I/O message. There is no setting for the lease
+store; it lives in the profile's data directory (`~/.inubit-mcp/<profile>/log-levels/`) and is
+created by the first `set_temporary_log_level`.
+
+The value rules of `queueEntryRead` above apply to the four settings as well. The startup errors
+name the place and never the value:
+
+- a value other than `true`, `false`, empty or `null` (for example `"true"`, `1`, `0`, `yes`, a
+  list or a mapping): `Invalid value at groups[0].unsupported.ioLogRead in <source>: expected true
+  or false`;
+- another key under `unsupported` on a group: `Unknown key 'gcRun' at groups[0].unsupported in
+  <source>`;
+- a key on a node or in `defaults`: `Unknown key 'unsupported' at groups[0].nodes[0] in
+  <source>`.
+
+The warnings these settings can cause are listed in
+[section 6](#6-check-the-configuration).
 
 ### Audit log
 
@@ -2347,6 +2446,50 @@ Group prod (production): archives: refused (no archives.productionOptIn), server
 An opt-in on a group with `production: true` is a warning as well: `unsupported.serverLogRead is
 enabled on production group prod: the web service log is read through an undocumented INUBIT
 interface without vendor support`.
+
+The four node-tool settings ([Unsupported functions](#unsupported-functions)) work the same way:
+once a group of the profile sets one of them, every group line ends with `<key>: enabled
+(unsupported)` or `<key>: off` for that key. The parts follow the order `queueEntryRead`,
+`serverLogRead`, `nodeStatusRead`, `ioLogRead`, `nodeConfigRead`, `logLevelWrite`, each only if
+some group sets it. The group lines with `nodeStatusRead` and `logLevelWrite` on `test` (default
+terminology):
+
+```text
+Group test: archives: allowed, nodeStatusRead: enabled (unsupported), logLevelWrite: enabled (unsupported)
+Group prod (production): archives: refused (no archives.productionOptIn), nodeStatusRead: off, logLevelWrite: off
+```
+
+An opt-in on a group with `production: true` is a warning:
+
+- `unsupported.nodeStatusRead is enabled on production group prod: the cluster's node list is
+  read through an undocumented INUBIT interface without vendor support`
+- `unsupported.ioLogRead is enabled on production group prod: module input and output messages
+  are read through an undocumented INUBIT interface without vendor support; they can contain
+  business and personal data`
+- `unsupported.nodeConfigRead is enabled on production group prod: node configuration values are
+  read through an undocumented INUBIT interface without vendor support`
+- `unsupported.logLevelWrite is enabled on production group prod: temporary log levels of
+  production nodes can be changed; the answering node is looked up through an undocumented INUBIT
+  interface`
+
+`logLevelWrite: true` on a group none of whose nodes has write access is a warning as well, since
+the log-level tools are not offered there: `unsupported.logLevelWrite has no effect on group test:
+write access is off (cleanup resets of recorded leases still run)`.
+
+While the lease store holds a temporary log level that has not ended (see the automatic reset in
+[Unsupported functions](#unsupported-functions)), the summary also has a section `Temporary log
+levels:` with one line per lease; a lease of a server that is no longer configured names the day
+it is forgotten automatically. `--check-config` only reads the store; it never resets a node or
+takes over a lease:
+
+```text
+Temporary log levels:
+  test/node1 (INUBIT node node1): 1 logger(s), until 2026-11-12T08:25:31Z, ACTIVE
+  legacy/node2 (INUBIT node node2): 2 logger(s), until 2026-11-10T09:00:00Z, RESET_FAILED (server no longer configured; forgotten automatically on 2026-11-17)
+```
+
+A store that cannot be read is a warning: `The temporary log level leases in <path> cannot be
+read (<reason>); log-level changes are refused until the file is fixed or moved`.
 
 The version part of a node line ([INUBIT version](#inubit-version-versionline)):
 
