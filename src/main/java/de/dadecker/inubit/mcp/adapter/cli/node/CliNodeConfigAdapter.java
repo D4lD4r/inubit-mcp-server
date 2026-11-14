@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.adapter.cli.node;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFailures;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperRequest;
 import de.dadecker.inubit.mcp.config.SecretLabels;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
 import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValues;
@@ -47,7 +48,7 @@ public final class CliNodeConfigAdapter implements NodeConfigPort {
     public NodeConfigValues values(List<NodeConfigName> names, InubitVersion version,
         long deadlineNanos) {
         Objects.requireNonNull(names, "names");
-        try (NodeHelperRunner.Run run = runner.run(version,
+        try (NodeHelperRunner.Run run = runner.run(Capability.NODE_CONFIG_READ, version,
             out -> new HelperRequest.NodeConfig(names), classifier, BUDGET, deadlineNanos)) {
             return classifier.nodeConfig(run.request(), run.inubitNode(), run.frames());
         }

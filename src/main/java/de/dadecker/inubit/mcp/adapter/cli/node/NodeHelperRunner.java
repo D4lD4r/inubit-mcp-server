@@ -17,6 +17,7 @@ import de.dadecker.inubit.mcp.adapter.cli.node.NodeFramesClassifier.Login;
 import de.dadecker.inubit.mcp.adapter.cli.node.NodeFramesClassifier.Outcome;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.MajorMinor;
@@ -137,6 +138,8 @@ public final class NodeHelperRunner {
      * {@code deadlineNanos} ({@link System#nanoTime()}). The caller closes the result, which
      * deletes the private directory.
      *
+     * @param capability the node tool's capability, named by the refusal of a version the helper
+     *     has no variant for
      * @param operation the operation, given the private {@code out/} directory for its files
      * @param classifier judges the frames with the tool's texts
      * @param budgetSetting the node setting the deadline comes from, named in a {@code TIMEOUT}
@@ -149,8 +152,10 @@ public final class NodeHelperRunner {
      *     {@code CLI_UNAVAILABLE} of the launch; the classified failure of the run; the private
      *     directory is deleted then
      */
-    public Run run(InubitVersion version, Function<Path, HelperRequest.Operation> operation,
-        NodeFramesClassifier classifier, String budgetSetting, long deadlineNanos) {
+    public Run run(Capability capability, InubitVersion version,
+        Function<Path, HelperRequest.Operation> operation, NodeFramesClassifier classifier,
+        String budgetSetting, long deadlineNanos) {
+        Objects.requireNonNull(capability, "capability");
         Objects.requireNonNull(version, "version");
         Objects.requireNonNull(operation, "operation");
         Objects.requireNonNull(classifier, "classifier");
@@ -160,7 +165,8 @@ public final class NodeHelperRunner {
         try {
             variant = HelperVariant.forVersion(release);
         } catch (ToolErrorException e) {
-            throw located(e);
+            // the gate refuses such a version first; HelperVariant's text is the queue-entry one
+            throw unsupported(capability, version);
         }
         NodeCredentials current = credentials();
         CliRunner.Selection selection = runner.select(server, Optional.of(version));
@@ -264,6 +270,25 @@ public final class NodeHelperRunner {
             }
             return outcome;
         }
+    }
+
+    /**
+     * A version the helper has no variant for, in the words of the gate's refusal of
+     * {@code capability} (feature 024, research D-4).
+     */
+    private ToolErrorException unsupported(Capability capability, InubitVersion version) {
+        return new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
+            "INUBIT " + version.raw() + " on " + server.id() + " does not support "
+                + capability.label() + " through the INUBIT client helper; supported: 8.1, 9.0;"
+                + " nothing was sent",
+            "The unsupported INUBIT interface the INUBIT client helper uses is only known for"
+                + " INUBIT 8.1 and 9.0",
+            switch (capability) {
+                case CLUSTER_NODES_READ, NODE_CONFIG_READ -> "Use the Workbench's Cluster Manager";
+                case IO_LOG_READ -> "Use the Workbench's input/output logging view";
+                case LOG_LEVEL_WRITE -> "Use StartCLI trace -nl/-r by hand";
+                default -> throw new IllegalArgumentException(capability + " is no node tool");
+            }).withNode(server.id()));
     }
 
     private ToolErrorException deadlinePassed(String budgetSetting) {

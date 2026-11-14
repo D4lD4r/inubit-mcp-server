@@ -10,6 +10,7 @@ import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFailures;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperRequest;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -83,8 +84,8 @@ public final class CliLogLevelAdapter implements LogLevelPort {
 
     @Override
     public String answeringNode(InubitVersion version, long deadlineNanos) {
-        try (NodeHelperRunner.Run run = helper.run(version, out -> new HelperRequest.OwnNode(),
-            frames, BUDGET, deadlineNanos)) {
+        try (NodeHelperRunner.Run run = helper.run(Capability.LOG_LEVEL_WRITE, version,
+            out -> new HelperRequest.OwnNode(), frames, BUDGET, deadlineNanos)) {
             if (!run.frames().isEmpty()) {
                 throw new ToolErrorException(failures.unexpected("The INUBIT client helper wrote"
                     + " frames after the node's name; the own-node lookup has none"));

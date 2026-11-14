@@ -711,12 +711,14 @@ versions above 9.0, undetectable versions and "not yet verified" versions (FR-00
 **Independent test**: one profile with 8.1, 9.0 and 6.1 nodes; each tool uses the matching client
 on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
 
-- [ ] T059 [US5] Version selection across the five tools (US5-1 … US5-3; after T054):
+- [X] T059 [US5] Version selection across the five tools (US5-1 … US5-3; after T054):
   new `application/nodetools/NodeToolsVersionSelectionTest.java` (test matrix: 8.1 → 8.1 client and
   `SOAP_81`, 9.0 → 9.0 client and `REST_90` for the helper and the 9.0 StartCLI for the log level;
   6.1, 9.1, undeclared → `UNSUPPORTED_VERSION` naming the supported lines, nothing sent; an
   undetectable version → the detection's code, nothing sent; production matrix → "not yet verified"
   for every unflipped (version, capability)); fixes in adapters or services test-first
+  Note (T059 review): for the two log-level tools an undetectable version gives `UNSUPPORTED_VERSION`
+  (write guard `gate.admit`, D-4 "Admission"; `TLS_ERROR` passes through), as spec US5-2 allows.
 - [ ] T060 [US5] **[LIVE] [OWNER]** 9.0 read spike (as T018 against the non-production 9.0 test
   server with the 9.0 client on Java 21; the throw-away runner compares the version get_health
   reported just before with 9.0 and refuses a mismatch); findings appended to "Spike findings"

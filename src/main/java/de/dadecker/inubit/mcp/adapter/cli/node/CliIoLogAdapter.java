@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.adapter.cli.node;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFailures;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperRequest;
 import de.dadecker.inubit.mcp.config.SecretLabels;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.node.IoLogListing;
 import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
@@ -53,7 +54,7 @@ public final class CliIoLogAdapter implements IoLogPort {
     @Override
     public IoLogListing list(String processId, String workflow, InubitVersion version,
         long deadlineNanos) {
-        try (NodeHelperRunner.Run run = runner.run(version,
+        try (NodeHelperRunner.Run run = runner.run(Capability.IO_LOG_READ, version,
             out -> new HelperRequest.IoLog(processId, workflow, Optional.empty(),
                 out.resolve(LIST_FILE), Optional.empty()),
             classifier, LIST_BUDGET, deadlineNanos)) {
@@ -65,7 +66,7 @@ public final class CliIoLogAdapter implements IoLogPort {
     public IoLogRead read(String processId, String workflow, IoMessageRef ref,
         InubitVersion version, long deadlineNanos) {
         Objects.requireNonNull(ref, "ref");
-        NodeHelperRunner.Run run = runner.run(version,
+        NodeHelperRunner.Run run = runner.run(Capability.IO_LOG_READ, version,
             out -> new HelperRequest.IoLog(processId, workflow, Optional.of(ref),
                 out.resolve(LIST_FILE), Optional.of(out.resolve(MESSAGE_FILE))),
             classifier, READ_BUDGET, deadlineNanos);

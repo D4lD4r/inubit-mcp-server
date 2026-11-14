@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.adapter.cli.node;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFailures;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperRequest;
 import de.dadecker.inubit.mcp.config.SecretLabels;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.node.ClusterNodes;
 import de.dadecker.inubit.mcp.domain.port.ClusterNodePort;
@@ -45,7 +46,7 @@ public final class CliClusterNodeAdapter implements ClusterNodePort {
     public ClusterNodes nodes(Optional<String> details, InubitVersion version,
         long deadlineNanos) {
         Objects.requireNonNull(details, "details");
-        try (NodeHelperRunner.Run run = runner.run(version,
+        try (NodeHelperRunner.Run run = runner.run(Capability.CLUSTER_NODES_READ, version,
             out -> new HelperRequest.ClusterNodes(details), classifier, BUDGET, deadlineNanos)) {
             return classifier.clusterNodes(run.request(), run.inubitNode(), run.frames());
         }

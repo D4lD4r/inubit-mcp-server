@@ -26,6 +26,7 @@ import de.dadecker.inubit.mcp.adapter.rest.TlsTestServer;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
@@ -79,6 +80,8 @@ class NodeHelperRunnerTest {
 
     private static final NodeId NODE = NodeId.parse("test/node1");
     private static final InubitVersion V81 = InubitVersion.parse("8.1.17").orElseThrow();
+    /** The capability of {@link #SUBJECT}. */
+    private static final Capability CAPABILITY = Capability.CLUSTER_NODES_READ;
     private static final String USER = "jdoe";
     private static final Duration BUDGET = Duration.ofSeconds(20);
     private static final TestCertificates CERTS = TestCertificates.get();
@@ -145,7 +148,8 @@ class NodeHelperRunnerTest {
         EffectiveNodeConfig server = http().build();
         Path directory;
 
-        try (NodeHelperRunner.Run run = runner(server).run(V81, OWN_NODE, classifier(server),
+        try (NodeHelperRunner.Run run = runner(server).run(CAPABILITY, V81, OWN_NODE,
+            classifier(server),
             "cliTimeout", deadline())) {
             assertThat(run.inubitNode()).isEqualTo("node1");
             assertThat(run.frames()).isEmpty();
@@ -184,7 +188,7 @@ class NodeHelperRunnerTest {
         EffectiveNodeConfig server = http().build();
         Path list;
 
-        try (NodeHelperRunner.Run run = runner(server).run(V81,
+        try (NodeHelperRunner.Run run = runner(server).run(CAPABILITY, V81,
             out -> new HelperRequest.IoLog("P1", "Orders", Optional.empty(),
                 out.resolve("io.list"), Optional.empty()),
             classifier(server), "cliTimeout", deadline())) {
@@ -204,7 +208,7 @@ class NodeHelperRunnerTest {
             "node ok node1", "end"));
         EffectiveNodeConfig server = http().build();
 
-        runner(server).run(InubitVersion.parse("9.0.10").orElseThrow(), OWN_NODE,
+        runner(server).run(CAPABILITY, InubitVersion.parse("9.0.10").orElseThrow(), OWN_NODE,
             classifier(server), "cliTimeout", deadline()).close();
 
         assertThat(decode(launcher.last().stdinBytes())).containsEntry("variant", "REST_90");
@@ -222,7 +226,7 @@ class NodeHelperRunnerTest {
             EffectiveNodeConfig server = https(tls.port())
                 .pin(TestCertificates.fingerprint(CERTS.localhostCertificate())).build();
 
-            try (NodeHelperRunner.Run run = runner(server).run(V81, OWN_NODE,
+            try (NodeHelperRunner.Run run = runner(server).run(CAPABILITY, V81, OWN_NODE,
                 classifier(server), "cliTimeout", deadline())) {
                 Map<String, String> request = decode(launcher.last().stdinBytes());
                 assertThat(request.get("trustStore")).isEqualTo(run.outDirectory().getParent()
@@ -391,7 +395,8 @@ class NodeHelperRunnerTest {
 
         try (CliConcurrencyLimiter.Permit other =
                  limiter.acquireForHelper(server, Duration.ZERO, "cliTimeout")) {
-            runner(server).run(V81, OWN_NODE, classifier(server), "cliTimeout", deadline())
+            runner(server).run(CAPABILITY, V81, OWN_NODE, classifier(server), "cliTimeout",
+                deadline())
                 .close();
         }
 
@@ -431,15 +436,32 @@ class NodeHelperRunnerTest {
 
     // --- before the launch: version, credentials, client --------------------------------------
 
-    @Test
-    void anUnsupportedVersionLaunchesNothing() throws IOException {
+    /**
+     * A version the helper has no variant for (the gate refuses it first): the refusal names the
+     * node tool's capability and the gate's next step for it, not the queue-entry helper of
+     * feature 020.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "CLUSTER_NODES_READ|reading the cluster's node list|Use the Workbench's Cluster Manager",
+        "IO_LOG_READ|reading module input/output logging"
+            + "|Use the Workbench's input/output logging view",
+        "NODE_CONFIG_READ|reading node configuration values|Use the Workbench's Cluster Manager",
+        "LOG_LEVEL_WRITE|changing temporary log levels|Use StartCLI trace -nl/-r by hand"})
+    void anUnsupportedVersionNamesTheNodeToolAndLaunchesNothing(Capability capability,
+        String label, String nextStep) throws IOException {
         launcher = answering(fields -> answer(0, fields, "end"));
         EffectiveNodeConfig server = http().build();
 
-        ToolError error = failure(runner(server), InubitVersion.parse("9.1.0").orElseThrow(),
-            "cliTimeout", deadline());
+        ToolError error = failure(runner(server), capability,
+            InubitVersion.parse("9.1.0").orElseThrow(), "cliTimeout", deadline());
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+        assertThat(error.message()).isEqualTo("INUBIT 9.1.0 on test/node1 does not support "
+            + label + " through the INUBIT client helper; supported: 8.1, 9.0; nothing was sent");
+        assertThat(error.likelyCause()).isEqualTo("The unsupported INUBIT interface the INUBIT"
+            + " client helper uses is only known for INUBIT 8.1 and 9.0");
+        assertThat(error.nextStep()).isEqualTo(nextStep);
         assertThat(launcher.launchCount()).isZero();
         assertTempRootEmpty();
     }
@@ -484,7 +506,8 @@ class NodeHelperRunnerTest {
             "node ok node1", "end"));
         EffectiveNodeConfig server = http().build();
 
-        runner(server).run(V81, OWN_NODE, classifier(server), "cliTimeout", deadline()).close();
+        runner(server).run(CAPABILITY, V81, OWN_NODE, classifier(server), "cliTimeout",
+            deadline()).close();
 
         List<ILoggingEvent> events = appender.list.stream()
             .filter(event -> event.getLoggerName().equals(NodeHelperRunner.class.getName()))
@@ -541,12 +564,18 @@ class NodeHelperRunnerTest {
         return failure(runner, V81, budget, deadline);
     }
 
-    /** The error of an {@code ownNode} run; it carries the node and leaks nothing. */
     private ToolError failure(NodeHelperRunner runner, InubitVersion version, String budget,
         long deadline) {
+        return failure(runner, CAPABILITY, version, budget, deadline);
+    }
+
+    /** The error of an {@code ownNode} run; it carries the node and leaks nothing. */
+    private ToolError failure(NodeHelperRunner runner, Capability capability,
+        InubitVersion version, String budget, long deadline) {
         EffectiveNodeConfig server = http().build();
         ToolErrorException thrown = catchThrowableOfType(ToolErrorException.class,
-            () -> runner.run(version, OWN_NODE, classifier(server), budget, deadline).close());
+            () -> runner.run(capability, version, OWN_NODE, classifier(server), budget,
+                deadline).close());
         assertThat(thrown).as("the run fails").isNotNull();
         ToolError error = thrown.error();
         assertThat(error.node()).contains(NODE);
