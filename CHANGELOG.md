@@ -16,6 +16,13 @@ log with content; the 9.0 web service log only against a recorded answer of 0 by
 9.0 web service log could be recorded), so on 9.0 an empty and a missing web service log cannot be
 told apart from the answer alone.
 
+Feature 024: five tools for one INUBIT node through **unsupported INUBIT functionality**, each off
+unless a group opts in: the cluster's node list, the input/output logging of modules, node
+configuration values, and a temporary log level with an automatic reset. Verified on INUBIT 8.1
+against recorded, neutralized answers of a live non-production node: `list_cluster_nodes` and
+`get_node_config`. Not yet verified, and refused there with `UNSUPPORTED_VERSION` ("not yet
+verified"): `read_io_log` and the log-level tools on INUBIT 8.1, all five tools on INUBIT 9.0.
+
 ### Added
 
 - `download_server_log` (feature 021) downloads ONE log of ONE node into a local folder
@@ -55,12 +62,103 @@ told apart from the answer alone.
   `serverLogRead: off`, but only when some group of the profile has the opt-in; otherwise its
   group lines are unchanged.
 
+- Three read-only tools for ONE node (feature 024), each through internal, undocumented interfaces
+  the Workbench uses, without vendor support or stability guarantee, that may stop working after
+  any INUBIT update; **for diagnosis only**. The helper of `read_queue_entry` runs them on the
+  INUBIT client installation of the node's version. Nothing on INUBIT is changed.
+  - `list_cluster_nodes` lists every INUBIT node the cluster knows, as the Workbench's Cluster
+    Manager shows it, also nodes the profile does not configure: name, status (`ACTIVE`,
+    `MAINTENANCE`, `OFFLINE`, or `UNKNOWN` for a node that does not answer), INUBIT version, zone,
+    node ID and uptime; with `nodeName` also that node's details (server, JDK, operating system,
+    memory, cluster and zone names, internal addresses and file paths).
+  - `read_io_log` lists the logged input and output messages of the System Connector and Message
+    Logger Utility modules of one process run (`workflow` and `processId` from `query_logs`,
+    optionally one `module`), and with `message` set to a listed `ref` returns that message's
+    text, cut at `maxChars` (default 20,000, at most 100,000), binary messages only by size and
+    type. Input/output logging must be switched on in INUBIT, and INUBIT requires a right of the
+    configured user for the listing (`FORBIDDEN` without it). Messages can contain business and
+    personal data that masking does not cover.
+  - `get_node_config` returns configuration values from a fixed list of 20 names that matter for
+    diagnosis and hold no secrets (e.g. `OperationMode`, `ClusterName`, `NodeName`,
+    `LocalMaintenanceMode`, the data source locations), with type, display name, description,
+    category and whether a value is editable or deprecated; any other name is refused.
+  - Every result names the INUBIT node that answered (`inubitNode`) and carries the warning
+    `Read through an unsupported, undocumented INUBIT interface; diagnosis only`; every value is
+    masked: secrets by name as in `read_queue_entry`, and the known credentials of every
+    configured node. INUBIT checks no right beyond the login for `list_cluster_nodes` and
+    `get_node_config`. Address cluster nodes directly, not through a load balancer.
+  - A call is bounded by the node's `cliTimeout`, reading one I/O message by `cliExportTimeout`.
+    Reads are not audited.
+- `set_temporary_log_level` and `reset_temporary_log_level` (feature 024), write tools: they need
+  `write.enabled` (and `write.productionOptIn` on production), follow the node's confirmation mode
+  as `restart_process` and are annotated as destructive.
+  - `set_temporary_log_level` raises the level (`TRACE` to `ERROR`) of one to five loggers below
+    `com.inubit.ibis` on the node the address reaches, through StartCLI's documented `trace -nl`,
+    for `durationMinutes` (default 10, at most 60). Only the exactly named logger changes; the
+    persistent trace settings are never changed. The trace log is then downloaded with
+    `download_server_log`.
+  - `reset_temporary_log_level` runs StartCLI's `trace -r`, which restores **every temporary log
+    level on that node, also those other users set**, and ends the lease; it works also without a
+    lease. With `leaseId` and `forget: true` it ends a lease whose automatic reset failed, without
+    contacting INUBIT.
+  - **Automatic reset.** Every change is recorded as a lease in
+    `~/.inubit-mcp/<profile>/log-levels/` (owner-only). The server resets the node within a minute
+    after the lease expires, before it shuts down and at its next start; a failed reset is shown
+    in `get_health` and the startup log and retried every minute. Another running instance of the
+    same profile takes over leases whose instance no longer runs; a lease of a server removed from
+    the configuration ends automatically 7 days after its expiry.
+  - **Cleanup resets run also when write access is off**: if `write.enabled`,
+    `write.productionOptIn` or `unsupported.logLevelWrite` is removed while a lease is open, the
+    tools are no longer offered, but the server still resets the recorded nodes (a deliberate
+    exception to the read-only default, so that a raised level never stays without limit).
+  - Before every change and reset the server asks which INUBIT node answers, through an internal,
+    undocumented INUBIT interface (the helper), and refuses when another node answers than the
+    open lease names; address cluster nodes directly. Levels live in the node's memory only and can
+    be lost earlier (INUBIT restart, log configuration reload).
+  - Every set, reset and automatic reset is written to the audit log.
+- The group settings `unsupported.nodeStatusRead`, `unsupported.ioLogRead`,
+  `unsupported.nodeConfigRead` and `unsupported.logLevelWrite` (default `false`, independent of
+  each other and of the other `unsupported.*` keys): only nodes of an opted-in group offer the
+  tool; a node of another group is refused with `NOT_CONFIGURED`. A tool is announced only if such
+  a node has an INUBIT client home and is not pinned to a version that refuses it, the log-level
+  tools only where the node also has write access; without any of these opt-ins the tool list is
+  unchanged. An opt-in on a `production: true` group starts the server with a warning, and
+  `logLevelWrite` on a group without write access with a warning that it has no effect there
+  (cleanup resets still run).
+- `get_health` lists a node's open temporary log levels in `temporaryLogLevels` (lease, loggers,
+  times, state and the last reset attempt), also while write tools are off; an unreadable lease
+  store is a warning, never an error.
+- The capabilities `cluster_nodes_read`, `io_log_read`, `node_config_read` and `log_level_write`
+  in `list_nodes` (each only for nodes of groups with its opt-in and an INUBIT client home,
+  `log_level_write` also only with write access): on INUBIT 8.1 `cluster_nodes_read` and
+  `node_config_read` supported, `io_log_read` and `log_level_write` refused as not yet verified;
+  on INUBIT 9.0 all four refused as not yet verified; refused on 6.1, on other lines (9.1,
+  `V9_X`) and on undeclared versions. An 8.1 node with such a capability is listed
+  `partially_supported` instead of `supported` (9.0 nodes already are). The `--check-config`
+  summary of a 6.1 node lists `reading the cluster's node list`, `reading module input/output
+  logging`, `reading node configuration values` or `changing temporary log levels` among its
+  refused capabilities for a group with the opt-in.
+- `--check-config` ends every group line with `<key>: enabled (unsupported)` or `<key>: off` for
+  each of the four keys some group of the profile sets (after `queueEntryRead` and
+  `serverLogRead`); otherwise the group lines are unchanged. While the lease store holds a lease
+  that has not ended, a section `Temporary log levels:` follows with one line per lease (server,
+  INUBIT node, number of loggers, expiry, state; for a server no longer configured the day the
+  lease is forgotten). `--check-config` only reads the store; it never resets a node or takes over
+  a lease.
+
+  See `docs/setup.md` ("Unsupported functions") and `docs/tools.md`.
+
 ### Changed
 
 - Internal, no behaviour change: the helper on the INUBIT client, which `read_queue_entry` uses
   and now also `download_server_log`, is renamed `ClientHelper`; the helper classes both tools
   share moved to `adapter/cli/helper`.
-- `docs/tools.md` describes twenty-two tools.
+- Internal, no behaviour change (feature 024): the shaping of an entry's text (classify, clear the
+  known credentials, mask, then cut) moved from `read_queue_entry` into `EntryText`, which
+  `read_io_log` shares; `WriteGuard` and `WriteChallengeRegistry` gained overloads for write tools
+  other than the process actions (texts naming the tool, the group's opt-in before the version
+  gate, confirmation codes bound to tool and node).
+- `docs/tools.md` describes twenty-seven tools.
 
 ### Fixed
 

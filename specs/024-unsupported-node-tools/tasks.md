@@ -793,7 +793,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   times only), the cleanup resets while write access is off (owner-approved exception), the
   answering-node lookup through an unsupported interface; `NodeToolsDocsTest` asserts the README
   rows (after T071, same test file)
-- [ ] T073 [P] `CHANGELOG.md` `[Unreleased]`: Added — the five tools (unsupported, opt-in per group,
+- [X] T073 [P] `CHANGELOG.md` `[Unreleased]`: Added — the five tools (unsupported, opt-in per group,
   diagnosis only; the log-level tools as write tools with automatic reset), the four
   `unsupported.*` keys, `get_health` `temporaryLogLevels`, `list_nodes` names, the summary parts
   and the `Temporary log levels:` section; the 8.1 / 9.0 state per capability; Changed (internal) —
@@ -816,6 +816,9 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   against the T001 reference (tool lists differ only by tools whose opt-in is set; no test
   removed); quickstart offline table checked row by row; final code review over `git diff
   main...HEAD`; findings in `reviews/implementation.md`
+  Note (T073 review): after the flips (T032, T058, T062–T065) or T066, re-check the 8.1/9.0 state in
+  CHANGELOG.md (intro paragraph and `list_nodes` bullet) and docs/tools.md against
+  `CapabilityMatrix.production()`, and that docs/tools.md has 27 tools.
 
 ## Dependencies
 
