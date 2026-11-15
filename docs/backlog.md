@@ -68,7 +68,43 @@ the workspace with the masking of feature 018 (at least as strict as the workspa
 that the workspace history records partner changes over time. Decided in the clarification of
 feature 018 (2026-11-09): not part of 018, a later feature.
 
+## Feature 022: remaining user stories US4–US7 (specified, paused 2026-11-15)
+
+**State.** Feature 022 (`specs/022-full-interface-coverage/`) is specified, planned and reviewed
+for all seven stories. US1–US3 are delivered on INUBIT 8.1 and 9.0 (`get_server_settings`,
+`read_users`, `read_model_details`, the `export_archives` content forms, `find_processes`
+`userColumn`). The owner paused the feature after US3; the stories below stay specified in
+spec, plan and tasks and resume from `tasks.md` Phase 6. Every story changes the server, so each
+needs the shared change infrastructure (T048–T050: preview, confirmation, audit, `ChangeGuard`)
+and live recordings with write commands on a non-production server, approved per command set.
+
+| Story | Tools | What it does | Live checks before parsers |
+|---|---|---|---|
+| US4 – Operate a server (P2) | `operate_server`, `manage_tags` | maintenance on/off, readiness, trace and trace level, debug, midnight task, deleting processes in error; the active tag of a user, tag removal limited to a group or path | T054 (L-2, L-3), T055 (L-4) |
+| US5 – Transfer and repair run-time data (P3) | `transfer_runtime_data` | export, validate, import, list, resume and delete blocked processes; archives stay on the INUBIT host | T069 (L-9, L-10) |
+| US6 – Administer objects, libraries and settings (P3) | `administer_objects`, `change_server_settings` | uploads from configured folders, named secret entries, backup before every delete, rename or replace; configuration changes | T079 (L-11, L-14, L-16, L-21) |
+| US7 – Administer users and groups (P4) | `administer_users` | create, change and delete users, groups and roles, passwords from named entries, imports, messages; never the server's own access | T092 (L-12, L-13, L-15, L-18) |
+
+**Also open from feature 022 (Phase 10 and follow-ups).**
+- T103: 9.0 recordings for the stories delivered later; T104: fallbacks for live checks still
+  open at the end of the feature, at least L-19 (`GET /process/metadata/{name}`: no workflow with
+  metadata was found on the test servers) and L-20 (`GET /isconnector` refuses the profile's
+  Basic auth with 401 on 8.1 and 9.0); T106: the README tool table; L-17 (`msgread` and the
+  message views of `read_users`).
+- L-21: the row format of `library --list` is not verified (both test servers have no uploaded
+  libraries); `read_model_details` returns `rowFormatVerified: false` until it is.
+- `get_health` passes INUBIT's `/ready` `message` into its result without the free-text masker
+  (it is not an error message); decide whether to mask it.
+- docs/tools.md (9.0 paragraph of feature 017) and docs/research/inubit-interfaces.md §4.1 still
+  say that 9.0 is not checked live, although features 020–022 verified it.
+
 ## Further read access to INUBIT (interface comparison of 2026-11-12)
+
+**Done in feature 022 (US1–US3), 2026-11-14.** Rows 1–6 and 9 are delivered
+(`get_server_settings`, `read_users`, `read_model_details`, `find_processes`); row 8
+(`fetchXSLT1.0`) does not exist on INUBIT 8.1.17 or 9.0.10; rows 10 and 11 wait for L-19 and
+L-20 (see the feature 022 entry above); row 7 is part of US5. The text below is the original
+comparison.
 
 **Problem.** A comparison of the vendor documentation (StartCLI and REST, 8.1 and 9.0) with the
 commands and endpoints the server uses showed read access that is documented but not offered by
