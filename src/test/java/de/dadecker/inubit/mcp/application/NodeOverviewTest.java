@@ -135,21 +135,20 @@ class NodeOverviewTest {
     }
 
     /**
-     * T062, T064: on 9.0 the cluster's node list and the node configuration are usable since
-     * their recordings, the others not yet.
+     * T062, T064, T065: on 9.0 the cluster's node list, the node configuration and the temporary
+     * log levels are usable since their recordings, the I/O log not yet.
      */
     @Test
-    void onANineZeroNodeTheClusterNodeListAndTheNodeConfigurationAreUsableOfTheNodeTools() {
+    void onANineZeroNodeEveryNodeToolButTheIoLogIsUsable() {
         Set<Capability> nodeTools = EnumSet.of(Capability.CLUSTER_NODES_READ,
             Capability.IO_LOG_READ, Capability.NODE_CONFIG_READ, Capability.LOG_LEVEL_WRITE);
 
         NodeSummary.Capabilities v90 = version(VersionSetting.V9_0, nodeTools).capabilities();
 
-        assertThat(v90.usable()).containsExactly("cluster_nodes_read", "node_config_read");
+        assertThat(v90.usable())
+            .containsExactly("cluster_nodes_read", "node_config_read", "log_level_write");
         assertThat(v90.notUsable()).extracting(NodeSummary.NotUsable::reason).containsExactly(
             "INUBIT 9.0 on dev/node1: reading module input/output logging is not yet verified for"
-                + " INUBIT 9.0",
-            "INUBIT 9.0 on dev/node1: changing temporary log levels is not yet verified for"
                 + " INUBIT 9.0");
     }
 

@@ -121,7 +121,7 @@ class NodeToolsFixtureCatalogueTest {
             "v8_1/log-level/forbidden", "v9_0/cluster-nodes/ok", "v9_0/cluster-nodes/no_answer",
             "v9_0/cluster-nodes/details", "v9_0/cluster-nodes/garbage",
             "v9_0/cluster-nodes/api_missing", "v9_0/node-config/all", "v9_0/node-config/absent",
-            "v9_0/node-config/api_missing");
+            "v9_0/node-config/api_missing", "v9_0/log-level/set_ok", "v9_0/log-level/reset_ok");
     }
 
     @Test
@@ -587,6 +587,38 @@ class NodeToolsFixtureCatalogueTest {
             .singleElement().asString().startsWith("Picked up JAVA_TOOL_OPTIONS: ");
     }
 
+    /**
+     * {@code v9_0} {@code set_ok} and {@code reset_ok} are the recordings of the T061 spike on
+     * 9.0.10 (T065): as on 8.1, exit code 0 and no confirmation line, but the 9.0 client's
+     * preamble: its netty log record kept verbatim and the hostname warning repeated around it and
+     * after the password prompt; stderr only the JVM notice.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "set_ok | trace --nodelevel INFO --package 'com.inubit.ibis.acme'",
+        "reset_ok | trace --reset"})
+    void aRecorded90LogLevelCaseIsTheSilentSuccessOfThe9_0Spike(String name, String form)
+        throws IOException {
+        Path base = ROOT.resolve("v9_0/log-level/" + name);
+        String hostname = "SECURITY WARNING: Hostname verification is disabled. Your connection"
+            + " might not be secured!";
+
+        assertThat(Integer.parseInt(firstLine(Path.of(base + ".exit")))).isZero();
+        List<String> origin = Files.readAllLines(Path.of(base + ".origin"), StandardCharsets.UTF_8);
+        assertThat(origin.get(0)).isEqualTo("recorded 2026-11-14 9.0.10 neutralized");
+        assertThat(origin.get(1)).contains("StartCLI " + form + " on a non-production 9.0.10 node");
+        List<String> stdout = Files.readAllLines(Path.of(base + ".stdout"), StandardCharsets.UTF_8);
+        assertThat(stdout).hasSize(8);
+        assertThat(stdout.get(2)).matches("ERROR \\d{2}:\\d{2}:\\d{2},\\d{3} \\[main      \\]"
+            + " DnsServerAddressStreamProviders Unable to load"
+            + " io\\.netty\\.resolver\\.dns\\.macos\\.MacOSDnsServerAddressStreamProvider,"
+            + " fallback to system defaults\\. .*");
+        assertThat(stdout).containsExactly("JAVA_HOME is set", hostname, stdout.get(2), hostname,
+            "Password: ", hostname, "", "");
+        assertThat(Files.readAllLines(Path.of(base + ".stderr"), StandardCharsets.UTF_8))
+            .singleElement().asString().startsWith("Picked up JAVA_TOOL_OPTIONS: ");
+    }
+
     private static ConfigError propertyMissing(String name) {
         return new ConfigError(name, List.of("com.inubit.ibis.utils.InubitException"),
             PROPERTY_MISSING);
@@ -735,12 +767,14 @@ class NodeToolsFixtureCatalogueTest {
             .isNull();
 
         // the log level needs both of its cases recorded; the other cases of a tool do not count
+        // (the copy's recorded 9.0 reset_ok of T065 is made reconstructed first)
         Files.createDirectories(copy.resolve("v9_0/log-level"));
         for (String name : List.of("set_ok", "reset_ok")) {
             for (String suffix : List.of(".stdout", ".stderr", ".exit")) {
                 Files.writeString(copy.resolve("v9_0/log-level/" + name + suffix), "x\n");
             }
         }
+        Files.writeString(copy.resolve("v9_0/log-level/reset_ok.origin"), "reconstructed x\n");
         Files.writeString(copy.resolve("v9_0/log-level/set_ok.origin"),
             "recorded 2026-11-12 9.0.10 neutralized\n");
         Files.writeString(copy.resolve("v9_0/log-level/forbidden.origin"),

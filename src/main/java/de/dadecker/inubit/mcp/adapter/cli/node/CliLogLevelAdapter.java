@@ -36,7 +36,8 @@ import java.util.Objects;
  *       through {@link CliRunner#run} with the node's {@link CredentialGuard} (client choice of
  *       feature 017, pin check, password on stdin) and judged by
  *       {@link CliOutputClassifier#classifyTraceLevel}: a success is exit code 0 with nothing
- *       after the client preamble (T039).
+ *       after the client preamble (T039; on 9.0 apart from the client's own netty log record and
+ *       repeated preamble lines, T061).
  * </ul>
  *
  * <p>The lookup and a StartCLI run are separate logins; behind a load balancer they may reach

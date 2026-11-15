@@ -198,7 +198,7 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 | `restore_backup` of a deployment backup, `deploy_release` | `deployment` | write | StartCLI + REST | supported; `deploy_release` only within one minor version (8.1 → 8.1, 9.0 → 9.0) | refused; `deploy_release` also only within one minor version | refused |
 | `run_e2e_test` | `e2e_test` | write | SOAP + REST | supported | refused | refused |
 | `restart_process`, `kill_process` | `process_control` | write | REST + StartCLI | supported | refused | refused |
-| `set_temporary_log_level`, `reset_temporary_log_level` (feature 024) | `log_level_write` | write | StartCLI + helper on the INUBIT client (answering node) | 8.1: supported; 9.0: refused (not yet verified) | refused | refused |
+| `set_temporary_log_level`, `reset_temporary_log_level` (feature 024) | `log_level_write` | write | StartCLI + helper on the INUBIT client (answering node) | supported (8.1 and 9.0) | refused | refused |
 
 A deployment backup restored on a node that is also a development stage is checked as
 `development_writes`; both capabilities have the same states in this version. Refusal and
@@ -2218,12 +2218,9 @@ confirmation; the audit record `PENDING`; the lease, recorded before StartCLI ru
 runs; the lease update and the audit record `EXECUTED` or `FAILED`. If the lease cannot be updated
 after the change, the node is reset at once (`INTERNAL`).
 
-**Versions.** `log_level_write` is supported on INUBIT 8.1, verified against a recorded,
-neutralized change and reset of an 8.1 node. `log_level_write` is not yet verified for INUBIT 9.0:
-a 9.0 node is refused with `UNSUPPORTED_VERSION` (`set_temporary_log_level: INUBIT 9.0.10 on
-test/node1: changing temporary log levels is not yet verified for INUBIT 9.0; nothing was sent`)
-until a recorded 9.0 change and reset are under contract test. INUBIT 6.1, any other line and an
-undeclared version are refused as well.
+**Versions.** `log_level_write` is supported on INUBIT 8.1 and 9.0, each verified against a
+recorded, neutralized change and reset of a node of that line. INUBIT 6.1, any other line and an
+undeclared version are refused (`… supported: 8.1, 9.0`).
 
 **Errors** (as `ToolError`, see [Common shapes](#common-shapes-page-and-toolerror)):
 
@@ -2321,9 +2318,9 @@ EXECUTED`, `Lease 3f2b… ended as FORGOTTEN without contacting INUBIT; the leve
 raised on node1 until its restart` and the warning `The temporary log level may still be raised on
 INUBIT node node1 until its restart`.
 
-**Versions.** `log_level_write` is supported on INUBIT 8.1, verified against a recorded,
-neutralized reset of an 8.1 node. `log_level_write` is not yet verified for INUBIT 9.0: the `node`
-form is refused there with `UNSUPPORTED_VERSION`, as for a set (the forget form checks no version).
+**Versions.** `log_level_write` is supported on INUBIT 8.1 and 9.0, each verified against a
+recorded, neutralized reset of a node of that line. On any other version the `node` form is
+refused with `UNSUPPORTED_VERSION`, as for a set (the forget form checks no version).
 
 **Errors**: as [`set_temporary_log_level`](#set_temporary_log_level), plus `INVALID_INPUT` for an
 input combination other than the two forms (`Invalid input: expected either node, or leaseId with

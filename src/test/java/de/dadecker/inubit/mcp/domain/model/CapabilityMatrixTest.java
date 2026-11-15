@@ -46,12 +46,12 @@ class CapabilityMatrixTest {
      * Manager entries included since its 9.0 recording; feature 021: the server-log reads
      * included since their 9.0 recordings (T051, T052); feature 022: the server settings and
      * the users included since their 9.0 contract tests (T026, T037a); feature 024: the cluster's
-     * node list and the node configuration since their 9.0 recordings (T062, T064), the other
-     * node tools wait for their recordings (below).
+     * node list, the node configuration and the temporary log levels since their 9.0 recordings
+     * (T062, T064, T065), the I/O log waits for its recording (below).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"PARTNER_MANAGEMENT", "IO_LOG_READ",
-        "LOG_LEVEL_WRITE"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"PARTNER_MANAGEMENT", "IO_LOG_READ"},
+        mode = EnumSource.Mode.EXCLUDE)
     void everyCapabilityIsSupportedOn90LikeOn81(Capability capability) {
         assertThat(production.state(version("9.0.7"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -609,12 +609,13 @@ class CapabilityMatrixTest {
     }
 
     /**
-     * T025, T062 and T038, T064 (FR-005, D-27): the recorded 8.1 and 9.0 cluster-nodes and
-     * node-config cases enabled the cluster's node list and the node configuration on both lines;
-     * their notes are gone.
+     * T025, T062; T038, T064 and T058, T065 (FR-005, D-27): the recorded 8.1 and 9.0
+     * cluster-nodes, node-config and log-level cases enabled the cluster's node list, the node
+     * configuration and the temporary log levels on both lines; their notes are gone.
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"CLUSTER_NODES_READ", "NODE_CONFIG_READ"})
+    @EnumSource(value = Capability.class, names = {"CLUSTER_NODES_READ", "NODE_CONFIG_READ",
+        "LOG_LEVEL_WRITE"})
     void aNodeToolRecordedOn81And90IsSupportedOnBothWithoutNote(Capability capability) {
         for (Optional<InubitVersion> recorded : List.of(version("8.1.17"), version("9.0.7"))) {
             assertThat(production.state(recorded, capability)).as("%s", recorded)
@@ -627,29 +628,6 @@ class CapabilityMatrixTest {
             .isEqualTo(SupportState.SUPPORTED);
         assertThat(production.stateOfLine(9, OptionalInt.of(0), capability))
             .isEqualTo(SupportState.SUPPORTED);
-        assertThat(production.lines(capability)).containsExactly("8.1", "9.0");
-        assertThat(production.possiblySupported(capability)).isTrue();
-    }
-
-    /**
-     * T058 (FR-005, D-27): the recorded 8.1 log-level cases enabled the temporary log levels on
-     * 8.1; their note is gone there. 9.0 still refuses them as "not yet verified" (until T065).
-     */
-    @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"LOG_LEVEL_WRITE"})
-    void aRecordedNodeToolIsSupportedOn81WithoutNoteAndNotYetVerifiedOn90(Capability capability) {
-        assertThat(production.state(version("8.1.17"), capability))
-            .isEqualTo(SupportState.SUPPORTED);
-        assertThat(production.stateOfLine(8, OptionalInt.of(1), capability))
-            .isEqualTo(SupportState.SUPPORTED);
-        assertThat(production.note(version("8.1.17"), capability)).isEmpty();
-        assertThat(production.channels(version("8.1.17"), capability))
-            .containsExactly(Channel.CLI);
-        assertThat(production.state(version("9.0.7"), capability))
-            .isEqualTo(SupportState.UNSUPPORTED);
-        assertThat(production.stateOfLine(9, OptionalInt.of(0), capability))
-            .isEqualTo(SupportState.UNSUPPORTED);
-        assertThat(production.note(version("9.0.7"), capability)).contains("not yet verified");
         assertThat(production.lines(capability)).containsExactly("8.1", "9.0");
         assertThat(production.possiblySupported(capability)).isTrue();
     }

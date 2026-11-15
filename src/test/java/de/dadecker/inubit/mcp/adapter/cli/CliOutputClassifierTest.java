@@ -17,9 +17,11 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
@@ -652,10 +654,23 @@ class CliOutputClassifierTest {
      * {@code reset_ok} recorded in T039, the others reconstructed in T041).
      */
     private static CliResult logLevelFixture(String fixtureCase) {
-        String base = "node-tools/v8_1/log-level/" + fixtureCase;
+        return logLevelFixture("v8_1", fixtureCase);
+    }
+
+    /**
+     * {@code fixtures/node-tools/<version>/log-level/<fixtureCase>.*} ({@code v9_0} {@code set_ok}
+     * and {@code reset_ok} recorded in T061).
+     */
+    private static CliResult logLevelFixture(String version, String fixtureCase) {
+        String base = "node-tools/" + version + "/log-level/" + fixtureCase;
         return new CliResult(
             Integer.parseInt(text(base + ".exit").strip()), text(base + ".stdout"),
             text(base + ".stderr"), Duration.ofSeconds(3), false, CliRunner.MAX_OUTPUT_BYTES);
+    }
+
+    /** The recorded 9.0 log-level case {@code fixtureCase} as a run of the 9.0 client. */
+    private static CliResult nineZeroLogLevelFixture(String fixtureCase) {
+        return logLevelFixture("v9_0", fixtureCase).forClientMajor(OptionalInt.of(9));
     }
 
     private ToolError traceLevelFailure(CliOutputClassifier classifier, CliResult result) {
@@ -721,6 +736,99 @@ class CliOutputClassifierTest {
             .isEqualTo("StartCLI printed unexpected output for the log level change");
         assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
             .contains("WARN 10:00:00,000"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"set_ok", "reset_ok"})
+    void theRecorded90AnswerIsASuccessInTheTraceLevelContext(String fixtureCase) {
+        // T061: exit code 0, the 9.0 client's preamble with its netty log record and the
+        // hostname warning repeated around it and after the prompt; no confirmation
+        CliOutcome outcome = classifier.classifyTraceLevel(nineZeroLogLevelFixture(fixtureCase));
+
+        assertThat(outcome).isInstanceOfSatisfying(CliOutcome.Success.class, success -> {
+            assertThat(success.output().logLines()).singleElement().asString()
+                .contains("DnsServerAddressStreamProviders");
+            assertThat(success.output().okMessages()).isEmpty();
+        });
+    }
+
+    /** The netty log record of the recorded 9.0 {@code set_ok}. */
+    private static String recorded90DnsRecord() {
+        return nineZeroLogLevelFixture("set_ok").stdout().lines()
+            .filter(line -> line.startsWith("ERROR ")).findFirst().orElseThrow();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "WARN 10:00:00,000 [main      ] CLI                       trace",
+        "ERROR 10:00:00,000 [main      ] DnsServerAddressStreamProviders Default DNS servers"
+            + " could not be read",
+        "RECORDED"})
+    void anotherLogRecordBesideThe90PreambleIsNoSuccess(String record) {
+        // only the one recorded netty record is tolerated (T061), not another one, not twice
+        String line = record.equals("RECORDED") ? recorded90DnsRecord() : record;
+        CliResult recorded = nineZeroLogLevelFixture("set_ok");
+        CliResult result = new CliResult(0, recorded.stdout() + line + "\n", recorded.stderr(),
+            Duration.ofSeconds(3), false, CliRunner.MAX_OUTPUT_BYTES, OptionalInt.of(9));
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+    }
+
+    @Test
+    void anExtraLineBesideThe90PreambleIsNoSuccess() {
+        CliResult recorded = nineZeroLogLevelFixture("set_ok");
+        CliResult result = new CliResult(0, recorded.stdout().replace("Password: \n",
+            "Password: \nlevel changed\n"), recorded.stderr(), Duration.ofSeconds(3), false,
+            CliRunner.MAX_OUTPUT_BYTES, OptionalInt.of(9));
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt ->
+            assertThat(excerpt).contains("level changed"));
+    }
+
+    @Test
+    void theRecorded90RecordWithAStackLineIsNoSuccess() {
+        // the tolerated record is the one line; a stack trace below it makes it another record
+        CliResult recorded = nineZeroLogLevelFixture("set_ok");
+        String record = recorded90DnsRecord();
+        CliResult result = new CliResult(0, recorded.stdout().replace(record + "\n", record
+            + "\n\tat io.netty.resolver.dns.DnsServerAddressStreamProviders.<clinit>(Unknown"
+            + " Source)\n"), recorded.stderr(), Duration.ofSeconds(3), false,
+            CliRunner.MAX_OUTPUT_BYTES, OptionalInt.of(9));
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(result.stdout()).contains("\tat io.netty");
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+    }
+
+    static Stream<OptionalInt> notTheNineZeroClient() {
+        return Stream.of(OptionalInt.of(8), OptionalInt.empty());
+    }
+
+    @ParameterizedTest
+    @MethodSource("notTheNineZeroClient")
+    void theRecorded90RecordIsNoSuccessWithoutThe90Client(OptionalInt clientMajor) {
+        // only the 9.0 client prints the netty record (T061); from another client it is unexpected
+        CliResult result = logLevelFixture("v9_0", "set_ok").forClientMajor(clientMajor);
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
+            .contains("DnsServerAddressStreamProviders"));
     }
 
     @Test

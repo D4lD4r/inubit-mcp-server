@@ -75,7 +75,7 @@ Types for [spec.md](spec.md); decisions in [research.md](research.md). "New" = n
 | Type | Change | Responsibility |
 |---|---|---|
 | `adapter/cli/CliCommand` | changed | `trace` forms: `traceNodeLevel(TemporaryLevel, LoggerName)` (`--nodelevel` + `--package`), `traceReset()` (`--reset`); `build()` refuses every other `trace` combination | D-11 |
-| `adapter/cli/CliOutputClassifier` | changed | `+ classifyTraceLevel(CliResult)`: silent success after the preamble (pinned by the T039 recording), `Missing log level.` → `UNEXPECTED_RESPONSE`, else `classify` | D-11 |
+| `adapter/cli/CliOutputClassifier` | changed | `+ classifyTraceLevel(CliResult)`: silent success after the preamble (pinned by the T039 and T061 recordings; on 9.0 with the client's netty log record and repeated preamble lines), `Missing log level.` → `UNEXPECTED_RESPONSE`, else `classify` | D-11 |
 | `adapter/cli/helper/HelperRequest` | changed | `Operation` `+ OwnNode`, `ClusterNodes`, `NodeConfig`, `IoLog`; `encode()` writes `op` for every operation except `QueueEntryRead`; 020/021 encodings byte-identical | D-2 |
 | `adapter/cli/helper/HelperFrames` | changed | `+ Member`, `MembersOk`/`MembersError`, `Detail`, `DetailsOk`/`DetailsError`/`DetailsUnknown`, `ConfigOk`/`ConfigAbsent`/`ConfigError`, `IoListOk`/`IoListError`, `IoMatch(Optional<String>)`, part `MESSAGE` | D-2 |
 | `adapter/cli/node/NodeHelperRunner` | new | one helper run for a node: variant, selection, `checkLaunch`, TLS check + trust store, private directory (`CliResources` reservation), slot `acquireForHelper(…, budgetSetting)`, `ProcessRun`, `HelperFailures` | D-24 |

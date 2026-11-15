@@ -2487,8 +2487,8 @@ class MainTest {
         }
     }
 
-    // --- feature 024 T054, T058: the log-level tools only with write access and their opt-in
-    // (FR-002, FR-040, SC-005, D-6)
+    // --- feature 024 T054, T058, T065: the log-level tools only with write access and their
+    // opt-in (FR-002, FR-040, SC-005, D-6)
 
     @Test
     void aWriteEnabledOptedInEightOneOrAutoNodeAnnouncesTheLogLevelTools() throws Exception {
@@ -2512,6 +2512,31 @@ class MainTest {
             assertThat(announcedTools(config(Files.readString(file)
                 .replace("versionLine: V8_1", "versionLine: AUTO"))))
                 .as(optIn).containsExactlyElementsOf(expected);
+        }
+    }
+
+    @Test
+    void aWriteEnabledOptedInNineZeroNodeWithANineZeroClientAnnouncesTheLogLevelTools()
+        throws Exception {
+        // T065: the production matrix supports LOG_LEVEL_WRITE on 9.0 since its recording
+        credentials();
+        List<String> withWrite = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "get_server_settings", "read_users", "list_inventory", "get_inventory_item",
+            "find_partners", "export_artifacts", "export_archives", "check_artifacts",
+            "restart_process", "kill_process");
+        List<String> withLogLevel = new ArrayList<>(withWrite);
+        withLogLevel.addAll(List.of("set_temporary_log_level", "reset_temporary_log_level"));
+
+        for (String optIn : List.of("true", "false")) {
+            Path file = config(Files.readString(validConfig())
+                .replace("versionLine: V8_1", "versionLine: V9_0")
+                .replace("groups:\n", "defaults:\n  cliClients:\n    \"9.0\":\n      home: "
+                    + home.resolve("client-9.0") + "\ngroups:\n")
+                .replace("  - name: dev\n", "  - name: dev\n    write:\n      enabled: true\n"
+                    + "    unsupported:\n      logLevelWrite: " + optIn + "\n"));
+            assertThat(announcedTools(file)).as(optIn).containsExactlyElementsOf(
+                optIn.equals("true") ? withLogLevel : withWrite);
         }
     }
 

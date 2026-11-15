@@ -79,8 +79,7 @@ public final class CapabilityMatrix {
     private static final Set<Capability> V8_1_NOT_YET_VERIFIED = Set.of(Capability.IO_LOG_READ);
 
     /** Feature 024: the same for 9.0. */
-    private static final Set<Capability> V9_0_NOT_YET_VERIFIED = Set.of(
-        Capability.IO_LOG_READ, Capability.LOG_LEVEL_WRITE);
+    private static final Set<Capability> V9_0_NOT_YET_VERIFIED = Set.of(Capability.IO_LOG_READ);
 
     /**
      * 8.1: everything; the server-log reads of feature 021 since their recordings (trace log T033,
@@ -101,8 +100,8 @@ public final class CapabilityMatrix {
      * D-20); the server-log reads of feature 021 since their recordings (trace log T051, web
      * service log T052); reading the server settings and the users of feature 022 since their
      * recordings (T024, T028b; contract tests T026, T037a); of the node tools of feature 024 the
-     * cluster's node list and the node configuration since their recordings (T062, T064), the
-     * others not yet verified.
+     * cluster's node list, the node configuration and the temporary log levels since their
+     * recordings (T062, T064, T065), the I/O log not yet verified.
      */
     private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0),
         unsupported(with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED),
@@ -155,9 +154,9 @@ public final class CapabilityMatrix {
      * unknown versions; reading the users (US2) is supported on 8.1 and 9.0 since their contract
      * tests (T037, T037a), and unsupported on every other and on unknown versions. Feature 024
      * (research D-4): of the node tools, reading the cluster's node list and the node
-     * configuration is supported on 8.1 and 9.0 (T025, T062; T038, T064), changing temporary log
-     * levels on 8.1 (T058); the others on 8.1 and 9.0 are unsupported with the note "not yet
-     * verified", as on any other and on unknown versions (without the note).
+     * configuration and changing temporary log levels is supported on 8.1 and 9.0 (T025, T062;
+     * T038, T064; T058, T065); reading the I/O log on 8.1 and 9.0 is unsupported with the note
+     * "not yet verified", as on any other and on unknown versions (without the note).
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;

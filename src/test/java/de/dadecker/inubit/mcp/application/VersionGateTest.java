@@ -1479,10 +1479,11 @@ class VersionGateTest {
         Capability.NODE_CONFIG_READ, "get_node_config",
         Capability.LOG_LEVEL_WRITE, "set_temporary_log_level");
 
-    /** The node-tool capabilities admitted on 9.0 since their recordings (T062, T064). */
+    /** The node-tool capabilities admitted on 9.0 since their recordings (T062, T064, T065). */
     private static final Map<Capability, String> RECORDED_ON_90 = Map.of(
         Capability.CLUSTER_NODES_READ, "list_cluster_nodes",
-        Capability.NODE_CONFIG_READ, "get_node_config");
+        Capability.NODE_CONFIG_READ, "get_node_config",
+        Capability.LOG_LEVEL_WRITE, "set_temporary_log_level");
 
     /**
      * Until its recording each node tool is refused with the matrix note on 8.1 and 9.0, every one
@@ -1530,8 +1531,8 @@ class VersionGateTest {
     }
 
     /**
-     * T062, T064: the recorded 9.0 cluster-nodes and node-config cases admit the cluster's node
-     * list and the node configuration without warning.
+     * T062, T064, T065: the recorded 9.0 cluster-nodes, node-config and log-level cases admit the
+     * cluster's node list, the node configuration and the temporary log levels without warning.
      */
     @Test
     void aRecordedNodeToolIsAdmittedOn90SinceItsRecording() {

@@ -750,8 +750,8 @@ class ToolAnnouncementTest {
     }
 
     @Test
-    void onTheProductionMatrixTheLogLevelToolsAreAnnouncedForAnOptedInEightOneOrAutoNode() {
-        // since T058 the production matrix supports LOG_LEVEL_WRITE on 8.1; 9.0 still not (T065)
+    void onTheProductionMatrixTheLogLevelToolsAreAnnouncedForAnOptedInNodeOf81Or90OrAuto() {
+        // since T058 the production matrix supports LOG_LEVEL_WRITE on 8.1, since T065 on 9.0
         CapabilityMatrix production = CapabilityMatrix.production();
         for (String line : List.of("V8_1", "AUTO")) {
             assertThat(groupTools(line, writeEnabled(true) + logLevelOptIn("true") + cliHome(),
@@ -760,7 +760,13 @@ class ToolAnnouncementTest {
                 .as(line + " without the opt-in").doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
         }
         assertThat(groupTools("V9_0", writeEnabled(true) + logLevelOptIn("true"), true,
-            production)).doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+            production)).containsAll(LOG_LEVEL_TOOLS);
+        assertThat(groupTools("V9_0", writeEnabled(true), true, production))
+            .as("9.0 without the opt-in").doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+        assertThat(groupTools("V9_0", logLevelOptIn("true"), true, production))
+            .as("9.0 without write access").doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+        assertThat(groupTools("V9_0", writeEnabled(true) + logLevelOptIn("true"), false,
+            production)).as("without a 9.0 client").doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
     }
 
     // --- feature 022 T022: get_server_settings (contracts/mcp-tools-delta.md "Announcement") --

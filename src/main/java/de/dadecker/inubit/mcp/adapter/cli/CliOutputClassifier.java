@@ -77,6 +77,17 @@ public final class CliOutputClassifier {
     private static final String ACCESS_DENIED = "AccessDenied";
     /** StartCLI's text for a temporary log level change without a level (feature 024, D-11). */
     private static final String MISSING_LOG_LEVEL = "Missing log level.";
+    /**
+     * The one log record the 9.0 client prints itself before the login: netty cannot load its
+     * macOS DNS resolver (write spike T061, also in the 9.0 StartCLI recordings of features 021
+     * and 022). It names no host and says nothing about the command (feature 024, D-11).
+     */
+    private static final Pattern NINE_CLIENT_DNS_RECORD = Pattern.compile(
+        "^ERROR\\s+\\d{2}:\\d{2}:\\d{2},\\d{3} \\[main\\s*\\] "
+            + Pattern.quote("DnsServerAddressStreamProviders Unable to load"
+                + " io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider, fallback to"
+                + " system defaults.")
+            + ".*$");
     private static final Pattern MISSING_MODULE = Pattern.compile("^The module .+ not found$");
 
     private static final String PASSWORD_PROMPT = "Password:";
@@ -258,12 +269,17 @@ public final class CliOutputClassifier {
      * {@code Missing log level.}, is {@code UNEXPECTED_RESPONSE} whatever its prefix or exit code;
      * the server's marker {@code AccessDenied} is a refused change ({@code FORBIDDEN}). StartCLI
      * prints no confirmation for either form (write spike T039, 8.1.17: stdout only the
-     * preamble), so with exit code 0, no marker and no {@code n-NOK} message a success is nothing
-     * after the preamble on stdout and stderr but {@code n-OK} messages; any other line or log
-     * record is {@code UNEXPECTED_RESPONSE} "StartCLI printed unexpected output for the log level
-     * change" (contract "unexpected StartCLI output"). Cut output, a non-zero exit code, an
-     * {@code n-NOK} message and any other marker are classified as by
-     * {@link #classify(CliResult)}, except that a marker is never a success here.
+     * preamble; write spike T061, 9.0.10: the same with the 9.0 client's preamble), so with exit
+     * code 0, no marker and no {@code n-NOK} message a success is nothing after the leading
+     * preamble on stdout and stderr but {@code n-OK} messages, preamble lines (the 9.0 client
+     * repeats the hostname warning, also after the password prompt) and, only for a run of the
+     * 9.0 client ({@link CliResult#clientMajor()} 9 or later), at most one log record: that
+     * client's single-line netty record {@code DnsServerAddressStreamProviders Unable to load
+     * io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider, fallback to system
+     * defaults.…}; any other line or log record is {@code UNEXPECTED_RESPONSE} "StartCLI printed
+     * unexpected output for the log level change" (contract "unexpected StartCLI output"). Cut
+     * output, a non-zero exit code, an {@code n-NOK} message and any other marker are classified
+     * as by {@link #classify(CliResult)}, except that a marker is never a success here.
      */
     public CliOutcome classifyTraceLevel(CliResult result) {
         if (result.truncated()) {
@@ -287,8 +303,13 @@ public final class CliOutputClassifier {
         }
         if (result.exitCode() == 0 && output.nokMessages().isEmpty()
             && output.markers().isEmpty()) {
-            if (output.logLines().isEmpty()
-                && output.outputLines().size() == output.okMessages().size()) {
+            boolean nine = result.clientMajor().isPresent()
+                && result.clientMajor().getAsInt() >= 9;
+            if (output.logLines().size() <= (nine ? 1 : 0) && output.logLines().stream()
+                    .allMatch(line -> NINE_CLIENT_DNS_RECORD.matcher(line).matches())
+                && output.outputLines().stream()
+                    .filter(line -> !isPreamble(line) && !line.strip().equals(PASSWORD_PROMPT))
+                    .count() == output.okMessages().size()) {
                 return new CliOutcome.Success(output);
             }
             return new CliOutcome.Failure(error(ErrorCode.UNEXPECTED_RESPONSE,

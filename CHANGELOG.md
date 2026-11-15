@@ -33,12 +33,11 @@ marks it as read have not been recorded.
 Feature 024: five tools for one INUBIT node through **unsupported INUBIT functionality**, each off
 unless a group opts in: the cluster's node list, the input/output logging of modules, node
 configuration values, and a temporary log level with an automatic reset. Verified against
-recorded, neutralized answers of a live non-production node: on INUBIT 8.1 `list_cluster_nodes`,
-`get_node_config` and the log-level tools, on INUBIT 9.0 `list_cluster_nodes` and
-`get_node_config`. Not yet verified, and refused there with `UNSUPPORTED_VERSION` ("not yet
-verified"): `read_io_log` on INUBIT 8.1, the other three tools on INUBIT 9.0. `read_io_log` is
-therefore not offered yet: no recording of its listing exists, as no test account with INUBIT's
-right for it was available.
+recorded, neutralized answers of a live non-production node: on INUBIT 8.1 and 9.0
+`list_cluster_nodes`, `get_node_config` and the log-level tools. Not yet verified, and refused
+there with `UNSUPPORTED_VERSION` ("not yet verified"): `read_io_log` on INUBIT 8.1 and 9.0.
+`read_io_log` is therefore not offered yet: no recording of its listing exists, as no test account
+with INUBIT's right for it was available.
 
 ### Added
 
@@ -182,10 +181,9 @@ right for it was available.
   store is a warning, never an error.
 - The capabilities `cluster_nodes_read`, `io_log_read`, `node_config_read` and `log_level_write`
   in `list_nodes` (each only for nodes of groups with its opt-in and an INUBIT client home,
-  `log_level_write` also only with write access): on INUBIT 8.1 `cluster_nodes_read`,
+  `log_level_write` also only with write access): on INUBIT 8.1 and 9.0 `cluster_nodes_read`,
   `node_config_read` and `log_level_write` supported, `io_log_read` refused as not yet verified;
-  on INUBIT 9.0 `cluster_nodes_read` and `node_config_read` supported, the other two refused as
-  not yet verified; refused on 6.1, on other lines (9.1, `V9_X`) and on undeclared versions. An
+  refused on 6.1, on other lines (9.1, `V9_X`) and on undeclared versions. An
   8.1 node with such a capability is listed `partially_supported` instead of `supported` (9.0
   nodes already are). The `--check-config` summary of a 6.1 node lists `reading the cluster's node
   list`, `reading module input/output logging`, `reading node configuration values` or `changing

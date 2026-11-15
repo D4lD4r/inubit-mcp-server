@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.adapter.cli.node;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.assertj.core.api.Assertions.entry;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -9,22 +10,35 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
+import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher.Answer;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
+import de.dadecker.inubit.mcp.adapter.cli.ScriptedProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.log.ServerLogVersionProfile;
 import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.TargetResolver;
+import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
+import de.dadecker.inubit.mcp.application.WriteGuard;
 import de.dadecker.inubit.mcp.application.nodetools.ClusterNodeService;
 import de.dadecker.inubit.mcp.application.nodetools.ClusterNodesRequest;
+import de.dadecker.inubit.mcp.application.nodetools.LeaseStore;
+import de.dadecker.inubit.mcp.application.nodetools.LogLevelAudit;
+import de.dadecker.inubit.mcp.application.nodetools.LogLevelService;
 import de.dadecker.inubit.mcp.application.nodetools.NodeConfigRequest;
 import de.dadecker.inubit.mcp.application.nodetools.NodeConfigService;
+import de.dadecker.inubit.mcp.application.nodetools.NodeLogLevelLocks;
+import de.dadecker.inubit.mcp.application.nodetools.ProcessLiveness;
+import de.dadecker.inubit.mcp.application.nodetools.ResetLevelRequest;
+import de.dadecker.inubit.mcp.application.nodetools.SetLevelRequest;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
+import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
+import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -35,9 +49,16 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
+import de.dadecker.inubit.mcp.domain.model.WritePolicy;
 import de.dadecker.inubit.mcp.domain.model.node.ClusterNode;
 import de.dadecker.inubit.mcp.domain.model.node.ClusterNodes;
 import de.dadecker.inubit.mcp.domain.model.node.ClusterNodesResult;
+import de.dadecker.inubit.mcp.domain.model.node.Lease;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseOwner;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseState;
+import de.dadecker.inubit.mcp.domain.model.node.LogLevelResult;
+import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
 import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
 import de.dadecker.inubit.mcp.domain.model.node.NodeConfigResult;
 import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValue;
@@ -45,11 +66,13 @@ import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValue.Absent;
 import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValue.Present;
 import de.dadecker.inubit.mcp.domain.model.node.NodeDetail;
 import de.dadecker.inubit.mcp.domain.model.node.NodeStatus;
+import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.domain.port.ClusterNodePort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
+import de.dadecker.inubit.mcp.domain.port.LogLevelPort;
 import de.dadecker.inubit.mcp.domain.port.NodeConfigPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
@@ -73,7 +96,10 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.TreeSet;
+import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -114,6 +140,17 @@ import org.junit.jupiter.api.io.TempDir;
  * vendor line above, each missing-property frame of a started case follows the REST client's
  * {@code WebClient call failed} line on stdout, as recorded; it too reaches no result, error or log
  * line.
+ *
+ * <p>T065 (FR-040 … FR-044, research D-11, D-14): each {@code node-tools/v9_0/log-level} case
+ * answers a StartCLI run ({@code .stdout}/{@code .stderr}/{@code .exit}, scripted with
+ * {@link ScriptedProcessLauncher}) of the real {@link LogLevelService} over the real
+ * {@link CliLogLevelAdapter}, as the T057 part of {@code NodeToolsV81ContractTest}: a real
+ * {@link LeaseStore} below the temporary directory, confirmation {@code CLIENT}, the helper's
+ * own-node lookup ({@code REST_90}) answering {@code node1}. Every StartCLI run is on the 9.0
+ * client with its JDK. {@code set_ok} and {@code reset_ok} are the neutralized recordings of
+ * spike T061: exit code 0, no confirmation, the 9.0 client's netty log record and its repeated
+ * hostname warning (D-11); the record reaches no result, audit record or log line. One more line
+ * after the recorded output is no success: the raise fails and the node is reset at once.
  */
 @Timeout(60)
 class NodeToolsV90ContractTest {
@@ -127,21 +164,33 @@ class NodeToolsV90ContractTest {
     static final List<String> CONFIG_CASES = List.of("all", "absent", "api_missing");
     /** The node-config cases of a started run. */
     private static final List<String> CONFIG_STARTED = List.of("all", "absent");
+    /** The log-level cases; exactly the {@code v9_0/log-level/*.stdout} on disk. */
+    static final List<String> LEVEL_CASES = List.of("set_ok", "reset_ok");
 
     /**
-     * 9.0 supports the cluster's node list and the node configuration; every other version and
-     * capability does not.
+     * 9.0 supports the cluster's node list, the node configuration and the temporary log levels;
+     * every other version and capability does not.
      */
     private static final CapabilityMatrix MATRIX = new CapabilityMatrix(List.of(
         new CapabilityMatrix.Entry(new VersionRange(9, 0, 9, 0),
             Map.of(Capability.CLUSTER_NODES_READ, SupportState.SUPPORTED,
-                Capability.NODE_CONFIG_READ, SupportState.SUPPORTED))), Map.of());
+                Capability.NODE_CONFIG_READ, SupportState.SUPPORTED,
+                Capability.LOG_LEVEL_WRITE, SupportState.SUPPORTED))), Map.of());
     private static final Path DIRECTORY =
         Path.of("src/test/resources/fixtures/node-tools/v9_0/cluster-nodes");
     private static final String FIXTURES = "node-tools/v9_0/cluster-nodes/";
     private static final Path CONFIG_DIRECTORY =
         Path.of("src/test/resources/fixtures/node-tools/v9_0/node-config");
     private static final String CONFIG_FIXTURES = "node-tools/v9_0/node-config/";
+    private static final Path LEVEL_DIRECTORY =
+        Path.of("src/test/resources/fixtures/node-tools/v9_0/log-level");
+    private static final String LEVEL_FIXTURES = "node-tools/v9_0/log-level/";
+    /** The logger of the log-level cases and the StartCLI commands of a raise and a reset. */
+    private static final String ACME = "com.inubit.ibis.acme";
+    private static final String SET_ACME = "trace --nodelevel DEBUG --package '" + ACME + "'";
+    private static final String RESET = "trace --reset";
+    /** This MCP server instance, the owner of the leases it writes. */
+    private static final LeaseOwner SELF = new LeaseOwner(4711, Optional.empty());
     private static final String FRAMES = ".frames";
     private static final String FIXTURE_NONCE = "0123456789abcdef0123456789abcdef";
     private static final String FRAME_PREFIX = "#QE1:" + FIXTURE_NONCE + " ";
@@ -182,6 +231,10 @@ class NodeToolsV90ContractTest {
     private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
     private Level previousLevel;
     private FakeProcessLauncher launcher;
+    /** StartCLI of the log-level cases. */
+    private final ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
+    private final List<AuditRecord> audited = new CopyOnWriteArrayList<>();
+    private LeaseStore leases;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -216,6 +269,12 @@ class NodeToolsV90ContractTest {
     @Test
     void theNodeConfigCasesAreExactlyTheFixtureCasesOnDisk() throws IOException {
         assertThat(casesOnDisk(CONFIG_DIRECTORY)).containsExactlyInAnyOrderElementsOf(CONFIG_CASES);
+    }
+
+    @Test
+    void theLogLevelCasesAreExactlyTheFixtureCasesOnDisk() throws IOException {
+        assertThat(casesOnDisk(LEVEL_DIRECTORY, ".stdout"))
+            .containsExactlyInAnyOrderElementsOf(LEVEL_CASES);
     }
 
     @Test
@@ -469,6 +528,88 @@ class NodeToolsV90ContractTest {
         assertTempRootEmpty();
     }
 
+    // --- set_temporary_log_level and reset_temporary_log_level (US4, US5-1) ---------------------
+
+    @Test
+    void setOkRecordsAnActiveLeaseOnThe90Client() throws IOException {
+        script(SET_ACME, "set_ok");
+
+        LogLevelResult.Outcome result = outcome(levelService().set(setAcme()));
+
+        cli.verifyComplete();
+        assertThat(cli.execCommands()).containsExactly(SET_ACME);
+        assertStartCliRanOnThe90Client();
+        assertThat(launcher.launchCount()).as("one own-node lookup").isOne();
+        assertThat(field("op")).isEqualTo("ownNode");
+        assertThat(field("variant")).isEqualTo("REST_90");
+        Instant expiry = NOW.plus(Duration.ofMinutes(10));
+        Lease lease = onlyLease();
+        assertThat(lease.state()).isEqualTo(LeaseState.ACTIVE);
+        assertThat(lease.inubitNode()).isEqualTo("node1");
+        assertThat(lease.loggers())
+            .containsExactly(entry(new LoggerName(ACME), TemporaryLevel.DEBUG));
+        assertThat(lease.expiresAt()).isEqualTo(expiry);
+        assertThat(result.outcome()).isEqualTo(LogLevelResult.Status.EXECUTED);
+        assertThat(result.leaseId()).contains(lease.leaseId());
+        assertThat(result.expiresAt()).contains(expiry);
+        assertThat(result.leaseOpen()).isTrue();
+        assertThat(result.warnings()).isEmpty();
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.EXECUTED);
+        assertLevelsLeakNothing(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void resetOkEndsTheOpenLeaseOnThe90Client() throws IOException {
+        script(SET_ACME, "set_ok");
+        script(RESET, "reset_ok");
+        LogLevelService service = levelService();
+        outcome(service.set(setAcme()));
+
+        LogLevelResult.Outcome result = outcome(service.reset(new ResetLevelRequest(
+            Optional.of(NODE.value()), Optional.empty(), Optional.empty(), Optional.empty(),
+            Optional.empty())));
+
+        cli.verifyComplete();
+        assertThat(cli.execCommands()).containsExactly(SET_ACME, RESET);
+        assertStartCliRanOnThe90Client();
+        Lease lease = onlyLease();
+        assertThat(lease.state()).isEqualTo(LeaseState.RESET);
+        assertThat(lease.endedAt()).contains(NOW);
+        assertThat(result.outcome()).isEqualTo(LogLevelResult.Status.EXECUTED);
+        assertThat(result.leaseId()).contains(lease.leaseId());
+        assertThat(result.message()).isEqualTo("Every temporary log level on INUBIT node node1"
+            + " was reset, also other users'; the lease ended");
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.EXECUTED,
+            AuditOutcome.PENDING, AuditOutcome.EXECUTED);
+        assertLevelsLeakNothing(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void aLineAfterTheRecordedOutputIsUnexpectedAndTheNodeIsResetAtOnce() throws IOException {
+        cli.expect(SET_ACME).replying(fixture(LEVEL_FIXTURES, "set_ok.stdout") + "level changed\n",
+            fixture(LEVEL_FIXTURES, "set_ok.stderr"), 0);
+        script(RESET, "reset_ok");
+
+        LogLevelResult.Outcome result = outcome(levelService().set(setAcme()));
+
+        cli.verifyComplete();
+        assertThat(cli.execCommands()).containsExactly(SET_ACME, RESET);
+        assertStartCliRanOnThe90Client();
+        Lease lease = onlyLease();
+        assertThat(lease.state()).isEqualTo(LeaseState.RESET);
+        assertThat(result.outcome()).isEqualTo(LogLevelResult.Status.FAILED);
+        assertThat(result.leaseOpen()).isFalse();
+        assertThat(result.message()).isEqualTo("Raising the log level on INUBIT node node1"
+            + " failed (UNEXPECTED_RESPONSE: StartCLI printed unexpected output for the log level"
+            + " change); every temporary log level on node1 was reset at once, also other"
+            + " users', and lease " + lease.leaseId() + " ended");
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.FAILED);
+        assertLevelsLeakNothing(result);
+        assertTempRootEmpty();
+    }
+
     // --- helpers ----------------------------------------------------------------------------
 
     /**
@@ -482,7 +623,7 @@ class NodeToolsV90ContractTest {
             server.secretLabels());
         return new ClusterNodeService(new TargetResolver(List.of(NODE)), node -> true,
             FakeVersionDetection.gateWithoutClients(versions, detection, MATRIX),
-            new Gateways(port, null), node -> CLI_TIMEOUT, System::nanoTime);
+            new Gateways(port, null, null), node -> CLI_TIMEOUT, System::nanoTime);
     }
 
     /** The real {@code get_node_config} service over the real adapter, as {@link #service}. */
@@ -492,22 +633,143 @@ class NodeToolsV90ContractTest {
             server.secretLabels());
         return new NodeConfigService(new TargetResolver(List.of(NODE)), node -> true,
             FakeVersionDetection.gateWithoutClients(versions, detection, MATRIX),
-            new Gateways(null, port), node -> CLI_TIMEOUT, System::nanoTime);
+            new Gateways(null, port, null), node -> CLI_TIMEOUT, System::nanoTime);
+    }
+
+    /**
+     * The real log-level service over the real adapter for {@link #NODE}: {@link #MATRIX}, the
+     * opt-in set, write access with confirmation {@code CLIENT}, the detection answering 9.0.10,
+     * StartCLI {@link #cli} chosen for the detected version, the client helper answering the
+     * own-node lookup with {@code node1}, the lease store {@link #leases} below the temporary
+     * directory.
+     */
+    private LogLevelService levelService() {
+        EffectiveNodeConfig server = profile.node(NODE.value(), VersionSetting.AUTO).build();
+        NodeCredentials credentials = credentials();
+        launcher = ownNode("node1");
+        CredentialGuard guard = new CredentialGuard(server.secretLabels(), Clock.systemUTC());
+        CliRunner runner = TestCliRunners.forHost(cli, PARENT, resources,
+            versions::effectiveVersion);
+        NodeHelperRunner helper = new NodeHelperRunner(server, () -> credentials, guard, runner,
+            TestCliRunners.helperHost(PARENT, resources, tempRoot),
+            new ProcessRun(launcher, resources), new CliConcurrencyLimiter(MATRIX));
+        LogLevelPort port = new CliLogLevelAdapter(helper, server, credentials, guard, runner,
+            new CliOutputClassifier(scrubber, server.secretLabels(), runner.windows()), scrubber);
+        Gateways gateways = new Gateways(null, null, port);
+        WritePolicy policy = new WritePolicy(NODE, false, true, false,
+            WritePolicy.Confirmation.CLIENT, Duration.ofMinutes(5), Optional.of("jdoe"));
+        WriteGuard writeGuard = new WriteGuard(new TargetResolver(List.of(NODE)), node -> policy,
+            gateways, FakeVersionDetection.gateWithoutClients(versions, detection, MATRIX));
+        MutableClock clock = new MutableClock(NOW);
+        Path levels = tempRoot.resolveSibling("log-levels");
+        leases = new LeaseStore(levels, PrivateFiles.forHost(), clock);
+        ProcessLiveness liveness = new ProcessLiveness() {
+            @Override
+            public LeaseOwner self() {
+                return SELF;
+            }
+
+            @Override
+            public boolean alive(LeaseOwner owner) {
+                return owner.equals(SELF);
+            }
+        };
+        return new LogLevelService(writeGuard, node -> true, gateways,
+            new WriteChallengeRegistry(clock), leases,
+            new NodeLogLevelLocks(levels, PrivateFiles.forHost()), liveness,
+            new LogLevelAudit(audited::add, clock, "acme", UUID::randomUUID),
+            node -> CLI_TIMEOUT, clock, System::nanoTime);
+    }
+
+    /** DEBUG for {@link #ACME} on {@link #NODE} for the default 10 minutes, no code. */
+    private static SetLevelRequest setAcme() {
+        return new SetLevelRequest(NODE.value(), List.of(ACME), "DEBUG", OptionalInt.empty(),
+            Optional.empty(), Optional.empty());
+    }
+
+    /** The executed outcome of a call (confirmation {@code CLIENT}: never a challenge). */
+    private static LogLevelResult.Outcome outcome(LogLevelResult result) {
+        assertThat(result).isInstanceOf(LogLevelResult.Outcome.class);
+        return (LogLevelResult.Outcome) result;
+    }
+
+    private Lease onlyLease() {
+        List<Lease> stored = leases.read();
+        assertThat(stored).hasSize(1);
+        return stored.get(0);
+    }
+
+    private List<AuditOutcome> outcomes() {
+        return audited.stream().map(AuditRecord::outcome).toList();
+    }
+
+    /** Expects {@code command}, answered by the log-level case {@code fixtureCase}. */
+    private void script(String command, String fixtureCase) {
+        cli.expect(command).replying(fixture(LEVEL_FIXTURES, fixtureCase + ".stdout"),
+            fixture(LEVEL_FIXTURES, fixtureCase + ".stderr"),
+            Integer.parseInt(fixture(LEVEL_FIXTURES, fixtureCase + ".exit").strip()));
+    }
+
+    /** Every StartCLI run on the 9.0 client with JDK 21, neither the 8.1 client nor JDK 17. */
+    private void assertStartCliRanOnThe90Client() {
+        assertThat(cli.launches()).isNotEmpty().allSatisfy(launch -> {
+            LaunchSpec spec = launch.spec();
+            assertThat(spec.workingDirectory()).isEqualTo(profile.client90());
+            assertThat(spec.environment()).containsEntry("JAVA_HOME", profile.jdk21().toString());
+            assertThat(String.join(" ", spec.command()) + spec.environment())
+                .contains(profile.client90().toString())
+                .doesNotContain(profile.client81().toString(), profile.jdk17().toString());
+        });
+    }
+
+    /**
+     * Nothing secret and no netty log record in the result, the audit records or the lease store,
+     * nothing secret in a StartCLI run's arguments and environment; the password reaches StartCLI
+     * on stdin only.
+     */
+    private void assertLevelsLeakNothing(LogLevelResult.Outcome result) throws IOException {
+        String store = Files.readString(tempRoot.resolveSibling("log-levels")
+            .resolve(LeaseStore.FILE));
+        for (String text : List.of(result.toString(), audited.toString(), store)) {
+            TestSecrets.assertNoLeak(text);
+            assertThat(text).doesNotContain(VENDOR_LINE);
+        }
+        for (ScriptedProcessLauncher.Launch launch : cli.launches()) {
+            TestSecrets.assertNoLeak(String.join(" ", launch.spec().command()));
+            TestSecrets.assertNoLeak(launch.spec().environment().toString());
+            assertThat(new String(launch.process().stdinBytes(), StandardCharsets.UTF_8))
+                .isEqualTo(TestSecrets.CONFIGURED_PASSWORD + "\n");
+        }
+    }
+
+    /**
+     * A client helper that answers every request with the {@code REST_90} own-node lookup of
+     * {@code inubitNode} (exit 0), with the request's nonce.
+     */
+    private static FakeProcessLauncher ownNode(String inubitNode) {
+        String frames = Stream.of("start REST_90", "login ok", "node ok " + inubitNode, "end")
+            .map(frame -> FRAME_PREFIX + frame + "\n").collect(Collectors.joining());
+        return FakeProcessLauncher.of("", "", 0).responding(request -> new Answer(
+            frames.replace(FIXTURE_NONCE, field(request, "nonce")), 0));
     }
 
     /** The real helper runner for {@code server} with the configured credentials. */
     private NodeHelperRunner helper(EffectiveNodeConfig server) {
-        NodeCredentials credentials = new NodeCredentials(NODE,
-            Optional.of(new SourcedValue<>("jdoe", "test")),
-            Optional.of(new SourcedValue<>(scrubber.register(TestSecrets.CONFIGURED_PASSWORD),
-                "test")),
-            Optional.empty(), Optional.empty());
+        NodeCredentials credentials = credentials();
         CredentialGuard guard = new CredentialGuard(server.secretLabels(), Clock.systemUTC());
         CliRunner runner = TestCliRunners.forHost(launcher, PARENT, resources,
             versions::effectiveVersion);
         return new NodeHelperRunner(server, () -> credentials, guard, runner,
             TestCliRunners.helperHost(PARENT, resources, tempRoot),
             new ProcessRun(launcher, resources), new CliConcurrencyLimiter(MATRIX));
+    }
+
+    /** The configured credentials: user {@code jdoe}, the password registered with the scrubber. */
+    private NodeCredentials credentials() {
+        return new NodeCredentials(NODE, Optional.of(new SourcedValue<>("jdoe", "test")),
+            Optional.of(new SourcedValue<>(scrubber.register(TestSecrets.CONFIGURED_PASSWORD),
+                "test")),
+            Optional.empty(), Optional.empty());
     }
 
     /**
@@ -546,10 +808,15 @@ class NodeToolsV90ContractTest {
 
     /** The cases of a fixture directory: its {@code .frames} file names without the suffix. */
     private static TreeSet<String> casesOnDisk(Path directory) throws IOException {
+        return casesOnDisk(directory, FRAMES);
+    }
+
+    /** The cases of a fixture directory: the names of its files ending in {@code suffix}. */
+    private static TreeSet<String> casesOnDisk(Path directory, String suffix) throws IOException {
         try (Stream<Path> files = Files.list(directory)) {
             return files.map(file -> file.getFileName().toString())
-                .filter(name -> name.endsWith(FRAMES))
-                .map(name -> name.substring(0, name.length() - FRAMES.length()))
+                .filter(name -> name.endsWith(suffix))
+                .map(name -> name.substring(0, name.length() - suffix.length()))
                 .collect(Collectors.toCollection(TreeSet::new));
         }
     }
@@ -648,11 +915,11 @@ class NodeToolsV90ContractTest {
     }
 
     /**
-     * Only the given port of {@link #NODE} (the other is {@code null}); every other port is an
+     * Only the given port of {@link #NODE} (the others are {@code null}); every other port is an
      * assertion error.
      */
-    private record Gateways(ClusterNodePort clusterNodePort, NodeConfigPort nodeConfigPort)
-        implements GatewayFactory {
+    private record Gateways(ClusterNodePort clusterNodePort, NodeConfigPort nodeConfigPort,
+        LogLevelPort logLevelPort) implements GatewayFactory {
 
         @Override
         public ClusterNodePort clusterNodes(NodeId server) {
@@ -666,6 +933,13 @@ class NodeToolsV90ContractTest {
             assertThat(server).isEqualTo(NODE);
             assertThat(nodeConfigPort).as("the node-configuration port is expected").isNotNull();
             return nodeConfigPort;
+        }
+
+        @Override
+        public LogLevelPort logLevel(NodeId server) {
+            assertThat(server).isEqualTo(NODE);
+            assertThat(logLevelPort).as("the log-level port is expected").isNotNull();
+            return logLevelPort;
         }
 
         @Override
@@ -698,9 +972,26 @@ class NodeToolsV90ContractTest {
             throw new AssertionError("not expected");
         }
 
+        /** The write guard's client check of the log-level tools; the client is installed. */
         @Override
         public ProcessControlPort processControl(NodeId server) {
-            throw new AssertionError("not expected");
+            assertThat(server).isEqualTo(NODE);
+            assertThat(logLevelPort).as("the log-level port is expected").isNotNull();
+            return new ProcessControlPort() {
+                @Override
+                public void checkAvailable() {
+                }
+
+                @Override
+                public String restart(String processId, WritePermit permit) {
+                    throw new AssertionError("not expected");
+                }
+
+                @Override
+                public String kill(String processId, WritePermit permit) {
+                    throw new AssertionError("not expected");
+                }
+            };
         }
 
         @Override

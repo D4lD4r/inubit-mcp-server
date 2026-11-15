@@ -340,9 +340,14 @@ and shutdown (`CliResources` reservation, as 020).
   `-p`, `-r`, decided test-first before the flip).
 - One StartCLI run per logger (commons-cli keeps one `-p` value), sequential, each bounded by the
   node's `cliTimeout`; a reset is one run.
-- Success = exit code 0 and nothing after the client preamble but `n-OK` lines, no log record and
-  no marker (`CliOutputClassifier.classifyTraceLevel`; the write spike T039 recorded that StartCLI
-  prints no confirmation for either form, see "Spike findings"). Any other line →
+- Success = exit code 0, no marker and nothing after the leading client preamble but `n-OK`
+  lines, preamble lines and, only for a run of the 9.0 client, at most its one single-line log
+  record (`DnsServerAddressStreamProviders Unable to load
+  io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider, fallback to system defaults. …`)
+  (`CliOutputClassifier.classifyTraceLevel`; the write spikes T039 (8.1) and T061 (9.0) recorded
+  that StartCLI prints no confirmation for either form, and that the 9.0 client prints that record
+  and repeats the hostname warning around it and after the password prompt, see "Spike findings").
+  Any other line or log record →
   `UNEXPECTED_RESPONSE` "StartCLI printed unexpected output for the log level change";
   `Missing log level.`, any `Exception`/error marker → `UNEXPECTED_RESPONSE` naming StartCLI.
 

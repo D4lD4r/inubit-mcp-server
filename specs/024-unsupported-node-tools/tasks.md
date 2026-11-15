@@ -741,7 +741,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   Note (T066, owner decision 2026-11-14): open for a later release; see reviews/implementation.md "T066 – FR-005 fallback for io_log_read".
 - [X] T064 [US5] **[OWNER]** **[BLOCKED: T060, T062]** Enable 9.0 `node_config_read` in **one
   commit** (as T038 for `v9_0/node-config`; `noOfRetries`/`retryInterval` present on 9.0)
-- [ ] T065 [US5] **[OWNER]** **[BLOCKED: T061, T062]** Enable 9.0 `log_level_write` in **one commit**
+- [X] T065 [US5] **[OWNER]** **[BLOCKED: T061, T062]** Enable 9.0 `log_level_write` in **one commit**
   (as T058 for `v9_0/log-level`)
   Note (merge review): in the same commit set the `CLI trace --nodelevel`, `--package` and
   `--reset` rows of interface-coverage.tsv for that line from `planned` (US4) to `reachable`

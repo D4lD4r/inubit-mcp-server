@@ -367,8 +367,9 @@ class WriteGuardTest {
 
     @Test
     void theGateRefusesAfterTheOptInAndBeforeTheClientCheck() {
-        // the production matrix: the log-level change is not yet verified on 9.0 (8.1 since T058)
-        pins = Map.of(DEV, VersionSetting.V9_0);
+        // the production matrix: the log-level change is refused on 6.1 (8.1 since T058, 9.0
+        // since T065)
+        pins = Map.of(DEV, VersionSetting.V6_1);
         ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
             () -> logLevelGuard(CapabilityMatrix.production()).admit("dev/node1", SET,
                 Capability.LOG_LEVEL_WRITE, CLI, logLevelWrite::contains, OPT_IN_KEY));
