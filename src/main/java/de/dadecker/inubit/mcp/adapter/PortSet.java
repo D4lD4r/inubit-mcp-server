@@ -262,7 +262,7 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
             return new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
                 "The node tools are not available on this adapter line",
                 "This port set has no node-tool adapter",
-                "Use a node with an INUBIT 8.1 CLI installation (cliHome)"));
+                "Use a node with an INUBIT 8.1 or 9.0 client home (cliHome)"));
         }
 
         @Override

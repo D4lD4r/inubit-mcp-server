@@ -138,4 +138,5 @@ Temporary log levels:
 ```
 
 An unreadable store is a warning: `The temporary log level leases in <path> cannot be read
-(<reason>); log-level changes are refused until the file is fixed or moved`.
+(<reason>); setting a temporary log level and forgetting a lease are refused until the file is
+fixed or moved; reset_temporary_log_level with node still resets the node`.

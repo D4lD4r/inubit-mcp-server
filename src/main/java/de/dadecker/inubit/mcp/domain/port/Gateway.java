@@ -190,7 +190,7 @@ public interface Gateway {
         throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
             "Cluster node lists are not available for " + node(),
             "This adapter line has no cluster-node adapter",
-            "Use a node with an INUBIT 8.1 CLI installation (cliHome)").withNode(node()));
+            "Use a node with an INUBIT 8.1 or 9.0 client home (cliHome)").withNode(node()));
     }
 
     /**
@@ -204,7 +204,7 @@ public interface Gateway {
         throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
             "I/O log reads are not available for " + node(),
             "This adapter line has no I/O log adapter",
-            "Use a node with an INUBIT 8.1 CLI installation (cliHome)").withNode(node()));
+            "Use a node with an INUBIT 8.1 or 9.0 client home (cliHome)").withNode(node()));
     }
 
     /**
@@ -218,7 +218,7 @@ public interface Gateway {
         throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
             "Node configuration reads are not available for " + node(),
             "This adapter line has no node-configuration adapter",
-            "Use a node with an INUBIT 8.1 CLI installation (cliHome)").withNode(node()));
+            "Use a node with an INUBIT 8.1 or 9.0 client home (cliHome)").withNode(node()));
     }
 
     /**
@@ -232,6 +232,6 @@ public interface Gateway {
         throw new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
             "Temporary log levels are not available for " + node(),
             "This adapter line has no log-level adapter",
-            "Use a node with an INUBIT 8.1 CLI installation (cliHome)").withNode(node()));
+            "Use a node with an INUBIT 8.1 or 9.0 client home (cliHome)").withNode(node()));
     }
 }

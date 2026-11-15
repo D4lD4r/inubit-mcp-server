@@ -248,7 +248,7 @@ public final class LogLevelService {
      *
      * <ol>
      *   <li>The node lock, waiting at most {@link #CLEANUP_LOCK_WAIT}; busy → skipped, the next
-     *       tick decides again.
+     *       tick decides again; interrupted (shutdown) → skipped as such, the flag kept.
      *   <li>Under the store lock the lease is read again: another generation (a set merged, another
      *       instance changed it) or no longer open → nothing is sent.
      *   <li>The cleanup preconditions ({@link WriteGuard#admitCleanup}, then the credentials), not
@@ -277,6 +277,10 @@ public final class LogLevelService {
         } catch (NodeLogLevelLocks.Busy e) {
             LOG.info("Cleanup of lease {} on {} skipped: {}", decided.leaseId(), node,
                 e.error().message());
+            return;
+        } catch (OwnerOnlyFileLock.Interrupted e) {
+            LOG.info("Cleanup of lease {} on {} skipped: interrupted while waiting for the node"
+                + " lock (shutdown)", decided.leaseId(), node);
             return;
         } catch (ToolErrorException e) {
             LOG.warn("Cleanup of lease {} on {} skipped: the node lock cannot be used ({})",

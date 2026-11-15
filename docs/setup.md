@@ -2498,7 +2498,8 @@ Temporary log levels:
 ```
 
 A store that cannot be read is a warning: `The temporary log level leases in <path> cannot be
-read (<reason>); log-level changes are refused until the file is fixed or moved`.
+read (<reason>); setting a temporary log level and forgetting a lease are refused until the file
+is fixed or moved; reset_temporary_log_level with node still resets the node`.
 
 The version part of a node line ([INUBIT version](#inubit-version-versionline)):
 

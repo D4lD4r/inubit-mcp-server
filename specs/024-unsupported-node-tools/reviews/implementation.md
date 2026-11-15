@@ -136,3 +136,92 @@ The orchestrator asked the operator on 2026-11-12 for the read spikes T018 (8.1)
 - **Open**: T032 (8.1) and T063 (9.0) stay open; pick them up when an account with the I/O-log
   right exists on a non-production node.
 - `log_level_write` on 9.0 is not part of this fallback (spike T061, flip T065).
+
+## T075 – full verification (2026-11-15)
+
+Mechanical checks at `9bafb7e6` (merge of `main` `e25eb239`, feature 022 US3). The final code review
+over `git diff main...HEAD` is recorded separately. JDK 25.0.5, Maven 3.10.0, Python 3.15.2, macOS.
+
+| Check | Result | Evidence |
+|---|---|---|
+| `mvn -B clean verify -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-024-tmp` | green | `BUILD SUCCESS`, exit 0; surefire 593 classes / 10352 tests, failsafe 3 / 4; 0 failures, 0 errors, 58 skipped (all OS-conditional, as at T001) |
+| `python3 -I -m unittest discover -s tools/tests -v` | green | 441 tests OK |
+| `python3 -I tools/check-identifiers.py --all` | green | exit 0, no output |
+| `NoCustomerIdentifiersTest` with the private lists | green | 20 tests, 0 skipped; the denylist, neutralize map, synthetic map and allowlist were picked up from the default directory `~/.config/inubit-mcp/` (the test skips only when no list is found) |
+| exactly one `ClientHelper.class` in the jar | green | `target/inubit-mcp-server-0.9.1.jar`: one entry, `META-INF/inubit-mcp/client-helper/de/dadecker/inubit/mcp/helper/ClientHelper.class` |
+| `git diff --stat origin/main...HEAD -- src/test/resources/fixtures/queue-entry src/test/resources/fixtures/server-log` | empty | merge base `e25eb239` = `origin/main`. The local `main` ref is stale (`5ec65996`, 8 commits behind `origin/main`, before 021), so `main...HEAD` shows the 021 fixtures; compare against `origin/main` |
+| SC-005: no test removed | green | 10356 tests ≥ 7984 (T001); `git diff --diff-filter=D origin/main...HEAD -- src/test` empty; no `@Test` line removed; the three test methods whose signature line was removed are renames (`theWriteCapabilitiesAreExactlyTheFiveOfKindWrite`, `traceDownloadKeepsItsText`, `traceDownloadNeedsExactlyOneDownloadAndNothingElse`) |
+| SC-005: tool lists | green | all ten reference tests of the T001 tables still exist in `MainTest` and `ToolAnnouncementTest`; against `origin/main` both files have only additions (676 lines, 0 deletions), i.e. the reference assertions are unchanged; the added tests announce the new tools only with their opt-in (and client home, write access for the log-level tools), and `withoutANodeToolOptInTheToolListEqualsTheReference` pins the list without opt-in |
+| quickstart offline table | green | see below |
+| T075 note: CHANGELOG / docs vs `CapabilityMatrix.production()` | consistent | matrix: 8.1 and 9.0 `cluster_nodes_read`, `node_config_read`, `log_level_write` supported, `io_log_read` "not yet verified" (`V8_1_NOT_YET_VERIFIED` = `V9_0_NOT_YET_VERIFIED` = {`IO_LOG_READ`}). CHANGELOG intro paragraph and `list_nodes` bullet, docs/tools.md capability rows and the Versions paragraphs of the five tools state the same; `NodeToolsDocsTest` green |
+| docs/tools.md tool count | 30 | 30 tool sections, "All thirty tools" (the "27" in the T075 note predates the merge of 022 US3) |
+
+Open by owner decision, not failures: T018, T032, T060, T063 (I/O logging: no account with the
+right; fallback T066 in force).
+
+Quickstart offline table (every named class exists and has a surefire report with 0 failures,
+0 errors; 59 classes):
+
+| Row | Tests | Result |
+|---|---|---|
+| no opt-in, SC-005 | `MainTest`, `ToolAnnouncementTest`, `ConfigSummaryTest` | green |
+| `unsupported.*` keys | `ConfigLoaderTest`, `EffectiveNodeConfigTest`, `ConfigValidatorTest` | green |
+| summary group parts | `ConfigSummaryTest` | green |
+| capabilities | `CapabilityMatrixTest`, `VersionGateTest`, `NodeOverviewTest`, `NodeToolsFixtureCatalogueTest` | green |
+| helper requests | `HelperRequestTest`, `ClientHelperTest`, `HelperFramesTest`; fixture diff empty (above) | green |
+| helper vendor calls | `ClientHelperTest`, `FakeVendorClassesTest` | green |
+| allowlist | `NodeConfigAllowlistTest`, `NodeConfigServiceTest`, `GetNodeConfigToolTest` | green |
+| child JVM round trip | `ClientHelperProcessTest`, `ClientHelperPackagingTest` | green |
+| node details bounded | `ClientHelperTest`, `CliClusterNodeAdapterTest` (`details_truncated` replay) | green |
+| message reference | `IoMessageRefTest`, `ClientHelperTest`, `CliIoLogAdapterTest` | green |
+| US1 | `ClusterNodeServiceTest`, `ListClusterNodesWiringTest`, `NodeToolsV81ContractTest` | green |
+| US2 | `IoLogServiceTest`, `CliIoLogAdapterTest`, `ReadIoLogWiringTest`, `NodeToolsV81ContractTest` | green |
+| US3 | `NodeConfigServiceTest`, `CliNodeConfigAdapterTest`, `NodeToolsV81ContractTest` | green |
+| `trace` forms | `CliCommandTest` | green |
+| log-level run classification | `CliOutputClassifierTest`, `CliLogLevelAdapterTest` | green |
+| US4 set | `LogLevelServiceSetTest`, `WriteGuardTest`, `WriteChallengeRegistryTest` | green |
+| US4 reset / forget | `LogLevelServiceResetTest`, `WriteGuardTest`, `ResetTemporaryLogLevelToolTest` | green |
+| lease store | `LeaseStoreTest`, `LeaseTest` | green |
+| owner identity, takeover | `ProcessLivenessTest`, `LeaseSchedulerTest` | green |
+| one lock implementation | `OwnerOnlyFileLockTest`, `KnowledgeLockTest`, `NodeLogLevelLocksTest` | green |
+| lease generation | `LogLevelServiceCleanupTest`, `LeaseTest` | green |
+| two instances | `LeaseTwoInstanceTest`, `LeaseStoreTest` | green |
+| cleanup audit fail closed | `LogLevelServiceCleanupTest`, `LeaseSchedulerTest`, `LeaseShutdownWiringTest` | green |
+| cleanup of one lease | `LogLevelServiceCleanupTest` | green |
+| scheduler | `LeaseSchedulerTest` | green |
+| shutdown | `LeaseShutdownWiringTest`, `MainTest` | green |
+| `get_health` leases | `HealthServiceTest`, `GetHealthToolTest`, `LogLevelWiringTest` | green |
+| `--check-config` leases | `ConfigSummaryTest`, `MainTest` | green |
+| version selection | `NodeToolsVersionSelectionTest` | green |
+| masking | `NodeTextMaskingTest`, `EntryTextTest`, `LogLevelAuditTest` (+ service tests) | green |
+| `read_queue_entry` unchanged | `QueueEntryServiceTest`, `QueueEntryV81ContractTest`, `QueueEntryV90ContractTest` | green |
+| docs | `NodeToolsDocsTest` | green |
+| package boundaries | `PackageBoundaryTest` | green |
+| fictitious names | `NoCustomerIdentifiersTest` (private lists), `tools/check-identifiers.py --all` | green |
+
+Fixes for the four minors of the final code review (uncommitted):
+
+- Minor 1: the warning about a lease store that cannot be read (`ConfigSummary`, docs/setup.md,
+  contracts/configuration-delta.md) now says that setting a temporary log level and forgetting a
+  lease are refused and that `reset_temporary_log_level` with `node` still resets the node
+  (research D-12, matching `LeaseStore.unreadable()`); pinned in `ConfigSummaryTest` and
+  `NodeToolsDocsTest`.
+- Minor 2: `OwnerOnlyFileLock` throws its own `Interrupted` error (`PRECONDITION_FAILED`,
+  "Interrupted while waiting for the lock of …; nothing was written") instead of the caller's
+  `busy` error, with the interrupt flag set again. `LogLevelService.cleanup` logs it as "skipped:
+  interrupted while waiting for the node lock (shutdown)", not as a concurrent change. Only the
+  interrupt case changed, so `KnowledgeLock`'s busy text and timeout are as before. Tests:
+  `OwnerOnlyFileLockTest` (interrupt during the in-process wait and during the file-lock wait),
+  `LogLevelServiceCleanupTest.anInterruptWhileWaitingForTheNodeLockSkipsTheCleanupAsInterrupted`.
+- Minor 3: the next step of the node-tools "not available" errors now reads "Use a node with an
+  INUBIT 8.1 or 9.0 client home (cliHome)". That covers `PortSet.NodeToolsUnavailable` and the
+  four feature-024 defaults in `Gateway` (`clusterNodes`, `ioLog`, `nodeConfig`, `logLevel`),
+  which had the same text. The feature-021 server-log text (`PortSet.NO_SERVER_LOGS`) and the
+  older `Gateway` defaults are unchanged.
+- Minor 4: the 148-character javadoc line in `LogLevelAudit` is rewrapped to ≤ 100 characters.
+- Re-run after the fixes: the affected classes plus `ConfigSummaryTest`, `NodeToolsDocsTest`,
+  `OwnerOnlyFileLockTest`, `KnowledgeLockTest`, `NodeLogLevelLocksTest`,
+  `LogLevelServiceCleanupTest`, `LeaseShutdownWiringTest`, `LeaseSchedulerTest` and `MainTest` are
+  green (273 tests). The full build with the tmpdir argLine is green: surefire 10355 tests
+  (+3 new), failsafe 4, 0 failures, 0 errors, 58 skipped. One `ClientHelper.class` in the jar,
+  `NoCustomerIdentifiersTest` 20/0 skipped, `check-identifiers.py --all` exit 0.

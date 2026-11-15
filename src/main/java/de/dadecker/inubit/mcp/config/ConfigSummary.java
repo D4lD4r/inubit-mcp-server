@@ -142,8 +142,9 @@ public final class ConfigSummary {
             case LeaseView.Snapshot.Unreadable unreadable -> render(loaded, report, clients,
                 options, parameters, entries, checked, Optional.of(knowledge), List.of(),
                 List.of("The temporary log level leases in " + leaseFile + " cannot be read ("
-                    + unreadable.reason() + "); log-level changes are refused until the file is"
-                    + " fixed or moved"));
+                    + unreadable.reason() + "); setting a temporary log level and forgetting a"
+                    + " lease are refused until the file is fixed or moved;"
+                    + " reset_temporary_log_level with node still resets the node"));
         };
     }
 

@@ -481,6 +481,30 @@ class LogLevelServiceCleanupTest {
         assertThat(lines(Level.WARN)).as("busy is no warning").isEmpty();
     }
 
+    /**
+     * The shutdown interrupts cleanups (shutdownNow): an interrupt while waiting for the node lock
+     * is no concurrent change; skipped with its own line, the interrupt flag kept.
+     */
+    @Test
+    void anInterruptWhileWaitingForTheNodeLockSkipsTheCleanupAsInterrupted() {
+        Lease decided = stored(activeLease(TEST));
+
+        Thread.currentThread().interrupt();
+        try {
+            service().cleanup(decided, Trigger.SHUTDOWN);
+        } finally {
+            assertThat(Thread.interrupted()).as("the interrupt flag is kept").isTrue();
+        }
+
+        assertNothingContacted();
+        assertThat(onlyLease()).isEqualTo(decided);
+        assertThat(auditLog.records).isEmpty();
+        assertThat(lines(Level.INFO)).contains("Cleanup of lease " + decided.leaseId()
+            + " on test/node1 skipped: interrupted while waiting for the node lock (shutdown)")
+            .noneMatch(line -> line.contains("Another log-level change"));
+        assertThat(lines(Level.WARN)).isEmpty();
+    }
+
     /** A lock file that cannot be used is no busy lock: skipped too, but with a WARN. */
     @Test
     void anUnusableNodeLockFileSkipsTheCleanupWithAWarning() throws IOException {

@@ -56,6 +56,8 @@ public final class OwnerOnlyFileLock {
      * @param busy the caller's error when another holder keeps the lock beyond {@code wait}
      * @throws ToolErrorException {@code busy} when the wait runs out; {@code PRECONDITION_FAILED}
      *     when the lock file cannot be used (a link, a directory, an I/O error)
+     * @throws Interrupted when the thread is interrupted while waiting (e.g. by a shutdown); the
+     *     interrupt flag is set again
      */
     public Held acquire(Path lockFile, Duration wait, Supplier<ToolErrorException> busy) {
         long deadline = System.nanoTime() + wait.toNanos();
@@ -66,7 +68,7 @@ public final class OwnerOnlyFileLock {
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw busy.get();
+            throw interrupted();
         }
         try {
             FileChannel channel = open(lockFile);
@@ -139,8 +141,25 @@ public final class OwnerOnlyFileLock {
                 Thread.sleep(Math.min(POLL_MILLIS, TimeUnit.NANOSECONDS.toMillis(left) + 1));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                throw busy.get();
+                throw interrupted();
             }
+        }
+    }
+
+    private Interrupted interrupted() {
+        return new Interrupted(ToolError.of(ErrorCode.PRECONDITION_FAILED,
+            "Interrupted while waiting for the lock of " + subject + "; nothing was written",
+            "The MCP server is shutting down or the call was cancelled",
+            "Retry"));
+    }
+
+    /** The wait for the lock was interrupted: no other holder is implied, unlike {@code busy}. */
+    public static final class Interrupted extends ToolErrorException {
+
+        private static final long serialVersionUID = 1L;
+
+        private Interrupted(ToolError error) {
+            super(error);
         }
     }
 

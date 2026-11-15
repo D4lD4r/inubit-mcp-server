@@ -651,8 +651,9 @@ class ConfigSummaryTest {
 
         assertThat(summary).doesNotContain("Temporary log levels:").contains("Warnings:\n"
             + "  - The temporary log level leases in " + LEASE_FILE + " cannot be read (lease 2:"
-            + " invalid auditId); log-level changes are refused until the file is fixed or"
-            + " moved\n"
+            + " invalid auditId); setting a temporary log level and forgetting a lease are"
+            + " refused until the file is fixed or moved; reset_temporary_log_level with node"
+            + " still resets the node\n"
             + "Result: OK\n");
     }
 

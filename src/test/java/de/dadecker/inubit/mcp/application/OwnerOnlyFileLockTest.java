@@ -20,7 +20,9 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -139,6 +141,54 @@ class OwnerOnlyFileLockTest {
         }
         assertThat(OwnerOnlyFileLock.heldInProcess(lockFile())).isFalse();
         lock().acquire(lockFile(), SHORT, BUSY).close();
+    }
+
+    @Test
+    void anInterruptWhileWaitingInTheProcessIsNoBusyLockAndKeepsTheInterruptFlag()
+        throws Exception {
+        try (OwnerOnlyFileLock.Held held = lock().acquire(lockFile(), SHORT, BUSY)) {
+            assertInterruptedWhileWaiting();
+        }
+        assertThat(OwnerOnlyFileLock.heldInProcess(lockFile())).isFalse();
+    }
+
+    @Test
+    void anInterruptWhileWaitingForTheFileLockIsNoBusyLockAndLeavesNoLockBehind()
+        throws Exception {
+        Path file = Files.writeString(lockFile(), "");
+        try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE);
+             FileLock elsewhere = channel.lock()) {
+            assertInterruptedWhileWaiting();
+            assertThat(elsewhere.isValid()).isTrue();
+        }
+        assertThat(OwnerOnlyFileLock.heldInProcess(lockFile())).isFalse();
+        lock().acquire(lockFile(), SHORT, BUSY).close();
+    }
+
+    /** Interrupts a thread waiting (up to 10 s) for the held lock and checks what it got. */
+    private void assertInterruptedWhileWaiting() throws InterruptedException {
+        AtomicReference<Throwable> thrown = new AtomicReference<>();
+        AtomicBoolean flagKept = new AtomicBoolean();
+        Thread waiter = new Thread(() -> {
+            try {
+                lock().acquire(lockFile(), Duration.ofSeconds(10), BUSY).close();
+            } catch (RuntimeException e) {
+                thrown.set(e);
+                flagKept.set(Thread.currentThread().isInterrupted());
+            }
+        });
+        waiter.start();
+        Thread.sleep(150);
+        waiter.interrupt();
+        waiter.join(5000);
+
+        assertThat(waiter.isAlive()).isFalse();
+        assertThat(thrown.get()).isInstanceOfSatisfying(OwnerOnlyFileLock.Interrupted.class, e -> {
+            assertThat(e.error().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
+            assertThat(e.error().message()).isEqualTo("Interrupted while waiting for the lock of"
+                + " the test state; nothing was written");
+        });
+        assertThat(flagKept).as("the interrupt flag is restored").isTrue();
     }
 
     @Test

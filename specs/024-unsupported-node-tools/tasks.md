@@ -826,7 +826,7 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
 
 ### Full verification
 
-- [ ] T075 Full verification (after all other tasks): `mvn -B clean verify
+- [X] T075 Full verification (after all other tasks): `mvn -B clean verify
   -DargLine=-Djava.io.tmpdir=/private/tmp/inubit-024-tmp` and `python3 -I -m unittest discover -s
   tools/tests -v` green; `python3 -I tools/check-identifiers.py --all` (exit 0) and
   `NoCustomerIdentifiersTest` with the private lists green; `unzip -l target/inubit-mcp-server-*.jar`
