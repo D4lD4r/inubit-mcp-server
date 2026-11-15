@@ -234,7 +234,11 @@ public final class HelperFailures {
         return Optional.empty();
     }
 
-    private ToolError forbidden() {
+    /**
+     * {@code FORBIDDEN} with the subject's refusal texts, for a refusal the operation recognizes
+     * itself.
+     */
+    public ToolError forbidden() {
         return error(ErrorCode.FORBIDDEN, labels.node() + " " + subject.refusal(),
             subject.refusalCause(), subject.refusalNextStep());
     }

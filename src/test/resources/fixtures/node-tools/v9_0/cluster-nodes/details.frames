@@ -1,0 +1,18 @@
+#QE1:0123456789abcdef0123456789abcdef start REST_90
+2026-11-14T14:21:31.981821Z main ERROR Unable to load io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider, fallback to system defaults. This may result in incorrect DNS resolutions on MacOS. Check whether you have a dependency on 'io.netty:netty-resolver-dns-native-macos'. Use DEBUG level to see the full stack: java.lang.UnsatisfiedLinkError: failed to load the required native library
+#QE1:0123456789abcdef0123456789abcdef login ok
+#QE1:0123456789abcdef0123456789abcdef node ok node1
+#QE1:0123456789abcdef0123456789abcdef member node1 ACTIVE 9.0.10 zone-a 10.0.0.11%3A7800 345600000
+#QE1:0123456789abcdef0123456789abcdef member node2 - - zone-a - -
+#QE1:0123456789abcdef0123456789abcdef members ok 2
+#QE1:0123456789abcdef0123456789abcdef detail NodeName node1
+#QE1:0123456789abcdef0123456789abcdef detail ZoneName zone-a
+#QE1:0123456789abcdef0123456789abcdef detail ClusterBindAddress 10.0.0.11%3A7800
+#QE1:0123456789abcdef0123456789abcdef detail InstallationDirectory %2Fopt%2Finubit%2Fserver
+#QE1:0123456789abcdef0123456789abcdef detail JavaVersion 17.0.12
+#QE1:0123456789abcdef0123456789abcdef detail Memory.HeapMax 4294967296
+#QE1:0123456789abcdef0123456789abcdef detail Memory.HeapUsed 1073741824
+#QE1:0123456789abcdef0123456789abcdef detail JvmArguments -Xmx4g%20-Djavax.net.ssl.trustStorePassword%3Dexample-secret
+#QE1:0123456789abcdef0123456789abcdef detail Description -
+#QE1:0123456789abcdef0123456789abcdef details ok 9 false
+#QE1:0123456789abcdef0123456789abcdef end

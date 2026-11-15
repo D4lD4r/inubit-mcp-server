@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "required": ["node", "inubitNode", "values", "warnings"],
+  "properties": {
+    "node": { "type": "string" },
+    "inubitNode": { "type": "string", "description": "The INUBIT cluster member that answered" },
+    "values": {
+      "type": "array",
+      "maxItems": 20,
+      "description": "One entry per requested name, in request order",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "present": { "type": "boolean", "description": "false: not present on this node; absent when error is set" },
+          "value": { "type": "string", "description": "Masked; at most 2000 characters" },
+          "cut": { "type": "boolean", "description": "true when the value was cut at 2000 characters" },
+          "type": { "type": "string" },
+          "displayName": { "type": "string" },
+          "description": { "type": "string" },
+          "category": { "type": "string" },
+          "editable": { "type": "boolean" },
+          "deprecated": { "type": "boolean" },
+          "error": {
+            "type": "object",
+            "description": "Reading this name failed; the other names are still returned",
+            "required": ["code", "message"],
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}

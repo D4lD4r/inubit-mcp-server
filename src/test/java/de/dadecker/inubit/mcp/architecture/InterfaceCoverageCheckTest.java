@@ -499,7 +499,8 @@ class InterfaceCoverageCheckTest {
     /**
      * The tools and the action catalogue of {@link TestWiring} for a profile that offers every
      * tool: knowledge recording, a development group with write access, end-to-end tests, a
-     * StartCLI client and the queue entry read, and a production group that receives deployments.
+     * StartCLI client, the queue entry read and the temporary log levels (feature 024, T058), and a
+     * production group that receives deployments.
      */
     private static void readWiring() {
         String yaml = """
@@ -521,6 +522,7 @@ class InterfaceCoverageCheckTest {
                     baseUrl: https://localhost:1
                 unsupported:
                   queueEntryRead: true
+                  logLevelWrite: true
                 cli:
                   home: %1$s/client
                 write:

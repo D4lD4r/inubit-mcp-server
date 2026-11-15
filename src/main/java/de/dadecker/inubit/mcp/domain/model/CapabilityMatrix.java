@@ -22,7 +22,8 @@ import java.util.stream.Stream;
  * <p>An entry may declare channels per capability that replace the capability's own
  * {@link Capability#channels()}, and may be {@code cliOnly}: the node is reached through StartCLI
  * only (feature 012, research D-3). It may carry a note per capability that the refusal uses,
- * e.g. "not yet verified" (feature 020, research D-6; feature 021: the server-log reads).
+ * e.g. "not yet verified" (feature 020, research D-6; feature 021: the server-log reads; feature
+ * 024: the node tools).
  */
 public final class CapabilityMatrix {
 
@@ -72,13 +73,26 @@ public final class CapabilityMatrix {
         true);
 
     /**
+     * Feature 024 (FR-005, research D-4, D-27): the node tools refused on 8.1 with the note "not
+     * yet verified"; the commit that adds the recording of one removes it here.
+     */
+    private static final Set<Capability> V8_1_NOT_YET_VERIFIED = Set.of(Capability.IO_LOG_READ);
+
+    /** Feature 024: the same for 9.0. */
+    private static final Set<Capability> V9_0_NOT_YET_VERIFIED = Set.of(Capability.IO_LOG_READ);
+
+    /**
      * 8.1: everything; the server-log reads of feature 021 since their recordings (trace log T033,
      * web service log T046), reading the server settings of feature 022 since its recordings
      * (T014, contract tests T025), reading the users of feature 022 since its recordings (T028,
      * contract tests T037), reading the model details of feature 022 since its recordings (T039,
-     * contract tests T046).
+     * contract tests T046); of the node tools of feature 024 the cluster's node list, the node
+     * configuration and the temporary log levels since their recordings (T025, T038, T058), the
+     * I/O log not yet verified.
      */
-    private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1), ALL_SUPPORTED);
+    private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1),
+        unsupported(ALL_SUPPORTED, V8_1_NOT_YET_VERIFIED), Map.of(), false,
+        notYetVerified(V8_1_NOT_YET_VERIFIED));
 
     /**
      * 9.0: everything as on 8.1 except partner management, which runs with a warning until recorded
@@ -86,25 +100,27 @@ public final class CapabilityMatrix {
      * Manager entries included since its recorded 9.0 error entry (feature 020, FR-019, research
      * D-20); the server-log reads of feature 021 since their recordings (trace log T051, web
      * service log T052); reading the server settings, the users and the model details of feature
-     * 022 since their recordings (T024, T028b, T039a; contract tests T026, T037a, T046a).
+     * 022 since their recordings (T024, T028b, T039a; contract tests T026, T037a, T046a); of the
+     * node tools of feature 024 the cluster's node list, the node configuration and the temporary
+     * log levels since their recordings (T062, T064, T065), the I/O log not yet verified.
      */
     private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0),
-        with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED));
+        unsupported(with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED),
+            V9_0_NOT_YET_VERIFIED),
+        Map.of(), false, notYetVerified(V9_0_NOT_YET_VERIFIED));
 
     /**
      * Unknown versions: reading Queue Manager entries, the server logs, the server settings, the
-     * users and the model details is refused, not run with a warning (feature 022: the coverage
-     * gate knows 8.1 and 9.0 only).
+     * users and the model details (feature 022: the coverage gate knows 8.1 and 9.0 only) and the
+     * node tools is refused, not run with a warning.
      */
     private static final CapabilityMatrix PRODUCTION = new CapabilityMatrix(
         List.of(V6_1, V8_1, V9_0),
-        with(with(with(with(with(with(READS_UNVERIFIED, Capability.QUEUE_ENTRY_READ,
-            SupportState.UNSUPPORTED),
-            Capability.TRACE_LOG_READ, SupportState.UNSUPPORTED),
-            Capability.WEBSERVICE_LOG_READ, SupportState.UNSUPPORTED),
-            Capability.SERVER_SETTINGS, SupportState.UNSUPPORTED),
-            Capability.USER_DIRECTORY, SupportState.UNSUPPORTED),
-            Capability.MODEL_DETAILS, SupportState.UNSUPPORTED));
+        unsupported(READS_UNVERIFIED, Set.of(Capability.QUEUE_ENTRY_READ,
+            Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ,
+            Capability.SERVER_SETTINGS, Capability.USER_DIRECTORY, Capability.MODEL_DETAILS,
+            Capability.CLUSTER_NODES_READ, Capability.IO_LOG_READ, Capability.NODE_CONFIG_READ,
+            Capability.LOG_LEVEL_WRITE)));
 
     /**
      * The version lines whose stored secret forms are verified as comparable across servers, so
@@ -139,7 +155,11 @@ public final class CapabilityMatrix {
      * unknown versions; reading the users (US2) is supported on 8.1 and 9.0 since their contract
      * tests (T037, T037a), and unsupported on every other and on unknown versions; reading the
      * model details (US3) is supported on 8.1 and 9.0 since their contract tests (T046, T046a),
-     * and unsupported on every other and on unknown versions.
+     * and unsupported on every other and on unknown versions. Feature 024 (research D-4): of the
+     * node tools, reading the cluster's node list and the node configuration and changing
+     * temporary log levels is supported on 8.1 and 9.0 (T025, T062; T038, T064; T058, T065);
+     * reading the I/O log on 8.1 and 9.0 is unsupported with the note "not yet verified", as on
+     * any other and on unknown versions (without the note).
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;
@@ -240,6 +260,19 @@ public final class CapabilityMatrix {
         Map<Capability, SupportState> copy = new EnumMap<>(states);
         copy.put(capability, state);
         return copy;
+    }
+
+    private static Map<Capability, SupportState> unsupported(
+        Map<Capability, SupportState> states, Set<Capability> capabilities) {
+        Map<Capability, SupportState> copy = new EnumMap<>(states);
+        capabilities.forEach(capability -> copy.put(capability, SupportState.UNSUPPORTED));
+        return copy;
+    }
+
+    private static Map<Capability, String> notYetVerified(Set<Capability> capabilities) {
+        Map<Capability, String> notes = new EnumMap<>(Capability.class);
+        capabilities.forEach(capability -> notes.put(capability, "not yet verified"));
+        return notes;
     }
 
     private static Map<Capability, SupportState> checked(Map<Capability, SupportState> states) {

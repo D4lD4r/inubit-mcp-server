@@ -1,0 +1,2 @@
+reconstructed fixtures/server-log/v8_1/trace/login_failure.{stdout,stderr,exit} (itself fixtures/v8_1/cli/login_failed, the recorded 8.1.17 StartCLI login failure, @Start@LoginFailure, exit 1) for trace --nodelevel DEBUG --package 'com.inubit.ibis.acme';
+StartCLI fails at the login before trace runs, so the output does not depend on the trace form.

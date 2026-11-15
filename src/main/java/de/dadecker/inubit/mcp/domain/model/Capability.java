@@ -50,7 +50,18 @@ public enum Capability {
      * {@code read_model_details}: a module over REST, the libraries over StartCLI (feature 022,
      * US3, research D-21).
      */
-    MODEL_DETAILS(Kind.READ, Set.of(Channel.REST, Channel.CLI));
+    MODEL_DETAILS(Kind.READ, Set.of(Channel.REST, Channel.CLI)),
+    /** {@code list_cluster_nodes}: a helper on the INUBIT client (feature 024). */
+    CLUSTER_NODES_READ(Kind.READ, Set.of(Channel.CLI)),
+    /** {@code read_io_log}: a helper on the INUBIT client (feature 024). */
+    IO_LOG_READ(Kind.READ, Set.of(Channel.CLI)),
+    /** {@code get_node_config}: a helper on the INUBIT client (feature 024). */
+    NODE_CONFIG_READ(Kind.READ, Set.of(Channel.CLI)),
+    /**
+     * {@code set_temporary_log_level} and {@code reset_temporary_log_level}: StartCLI
+     * {@code trace -nl}/{@code -r} (feature 024).
+     */
+    LOG_LEVEL_WRITE(Kind.WRITE, Set.of(Channel.CLI));
 
     /** Whether the capability only reads from INUBIT or changes it. */
     public enum Kind {
@@ -118,6 +129,10 @@ public enum Capability {
             case SERVER_SETTINGS -> "reading server settings";
             case USER_DIRECTORY -> "reading users";
             case MODEL_DETAILS -> "reading model details";
+            case CLUSTER_NODES_READ -> "reading the cluster's node list";
+            case IO_LOG_READ -> "reading module input/output logging";
+            case NODE_CONFIG_READ -> "reading node configuration values";
+            case LOG_LEVEL_WRITE -> "changing temporary log levels";
         };
     }
 }

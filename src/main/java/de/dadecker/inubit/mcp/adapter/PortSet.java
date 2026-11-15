@@ -3,6 +3,7 @@ package de.dadecker.inubit.mcp.adapter;
 import de.dadecker.inubit.mcp.domain.model.CliSettingsSnapshot;
 import de.dadecker.inubit.mcp.domain.model.ConfigurationView;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LibraryEntry;
 import de.dadecker.inubit.mcp.domain.model.LicenseFacts;
 import de.dadecker.inubit.mcp.domain.model.ListedUser;
@@ -11,11 +12,22 @@ import de.dadecker.inubit.mcp.domain.model.ModuleDetail;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.UserFacts;
+import de.dadecker.inubit.mcp.domain.model.node.ClusterNodes;
+import de.dadecker.inubit.mcp.domain.model.node.IoLogListing;
+import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
+import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValues;
+import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
+import de.dadecker.inubit.mcp.domain.port.ClusterNodePort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
+import de.dadecker.inubit.mcp.domain.port.IoLogPort;
+import de.dadecker.inubit.mcp.domain.port.LogLevelPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.ModelDetailPort;
+import de.dadecker.inubit.mcp.domain.port.NodeConfigPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
@@ -24,6 +36,7 @@ import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
+import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -33,15 +46,17 @@ import java.util.Set;
  * The version-specific ports of one server: US2 (REST), US3 (REST and CLI exports), US4 (CLI),
  * feature 003 (CLI exports), feature 004 (CLI imports and tags), feature 018 (REST partner
  * management), feature 020 (queue-entry content over the StartCLI client), feature 021 (server
- * log downloads) and feature 022 (server settings, US1, the user directory, US2, and the model
- * details, US3, each over REST and StartCLI). Built by a {@link PortSetRegistry.Factory} chosen for
- * the node's effective version (feature 009 research D-16); the monitoring port is not part of it.
+ * log downloads), feature 022 (server settings, US1, the user directory, US2, and the model
+ * details, US3, each over REST and StartCLI) and feature 024 (the node tools). Built by a
+ * {@link PortSetRegistry.Factory} chosen for the node's effective version (feature 009 research
+ * D-16); the monitoring port is not part of it.
  */
 public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort inventory,
     ProcessControlPort processControl, ArtifactPort artifacts, ImportPort imports,
     TagPort tags, PartnerManagementPort partners, QueueEntryContentPort queueEntryContent,
     ServerLogPort serverLogs, ServerSettingsPort serverSettings,
-    UserDirectoryPort userDirectory, ModelDetailPort modelDetails) {
+    UserDirectoryPort userDirectory, ModelDetailPort modelDetails, ClusterNodePort clusterNodes,
+    IoLogPort ioLog, NodeConfigPort nodeConfig, LogLevelPort logLevel) {
 
     /**
      * The queue-entry port of port sets without a queue-entry adapter (before feature 020): it
@@ -129,12 +144,31 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
         Objects.requireNonNull(serverSettings, "serverSettings");
         Objects.requireNonNull(userDirectory, "userDirectory");
         Objects.requireNonNull(modelDetails, "modelDetails");
+        Objects.requireNonNull(clusterNodes, "clusterNodes");
+        Objects.requireNonNull(ioLog, "ioLog");
+        Objects.requireNonNull(nodeConfig, "nodeConfig");
+        Objects.requireNonNull(logLevel, "logLevel");
+    }
+
+    /**
+     * The ports before feature 024: every node-tool call fails with {@code CLI_UNAVAILABLE}
+     * (research D-24). Used by port sets without node-tool adapters.
+     */
+    public PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort inventory,
+        ProcessControlPort processControl, ArtifactPort artifacts, ImportPort imports,
+        TagPort tags, PartnerManagementPort partners, QueueEntryContentPort queueEntryContent,
+        ServerLogPort serverLogs, ServerSettingsPort serverSettings,
+        UserDirectoryPort userDirectory, ModelDetailPort modelDetails) {
+        this(processes, logs, inventory, processControl, artifacts, imports, tags, partners,
+            queueEntryContent, serverLogs, serverSettings, userDirectory, modelDetails,
+            NodeToolsUnavailable.INSTANCE, NodeToolsUnavailable.INSTANCE,
+            NodeToolsUnavailable.INSTANCE, NodeToolsUnavailable.INSTANCE);
     }
 
     /**
      * The ports before feature 022, US3: a model-detail read fails with
-     * {@code UNSUPPORTED_VERSION}, as the default of {@code Gateway#modelDetails()}. Used by port
-     * sets without a model detail adapter.
+     * {@code UNSUPPORTED_VERSION}, as the default of {@code Gateway#modelDetails()}, a node-tool
+     * call as by the previous constructor. Used by port sets without a model detail adapter.
      */
     public PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort inventory,
         ProcessControlPort processControl, ArtifactPort artifacts, ImportPort imports,
@@ -148,7 +182,8 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
     /**
      * The ports before feature 022, US2: a user-directory read fails with
      * {@code UNSUPPORTED_VERSION}, as the default of {@code Gateway#userDirectory()}, a
-     * model-detail read as by the previous constructor. Used by port sets without a user adapter.
+     * model-detail read and a node-tool call as by the previous constructor. Used by port sets
+     * without a user adapter.
      */
     public PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort inventory,
         ProcessControlPort processControl, ArtifactPort artifacts, ImportPort imports,
@@ -215,5 +250,59 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
             "Model details are not available on this adapter line",
             "This port set has no model detail adapter",
             "Call list_nodes for what this node supports"));
+    }
+
+    /** The node-tool ports of a port set without node-tool adapters (feature 024). */
+    static final class NodeToolsUnavailable
+        implements ClusterNodePort, IoLogPort, NodeConfigPort, LogLevelPort {
+
+        static final NodeToolsUnavailable INSTANCE = new NodeToolsUnavailable();
+
+        private static ToolErrorException unavailable() {
+            return new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
+                "The node tools are not available on this adapter line",
+                "This port set has no node-tool adapter",
+                "Use a node with an INUBIT 8.1 or 9.0 client home (cliHome)"));
+        }
+
+        @Override
+        public ClusterNodes nodes(Optional<String> details, InubitVersion version,
+            long deadlineNanos) {
+            throw unavailable();
+        }
+
+        @Override
+        public IoLogListing list(String processId, String workflow, InubitVersion version,
+            long deadlineNanos) {
+            throw unavailable();
+        }
+
+        @Override
+        public IoLogRead read(String processId, String workflow, IoMessageRef ref,
+            InubitVersion version, long deadlineNanos) {
+            throw unavailable();
+        }
+
+        @Override
+        public NodeConfigValues values(List<NodeConfigName> names, InubitVersion version,
+            long deadlineNanos) {
+            throw unavailable();
+        }
+
+        @Override
+        public String answeringNode(InubitVersion version, long deadlineNanos) {
+            throw unavailable();
+        }
+
+        @Override
+        public void raise(TemporaryLevel level, LoggerName logger, InubitVersion version,
+            Duration timeout) {
+            throw unavailable();
+        }
+
+        @Override
+        public void resetAll(InubitVersion version, Duration timeout) {
+            throw unavailable();
+        }
     }
 }

@@ -40,6 +40,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>Feature 005 (research D-6): {@link #DEPLOY_RELEASE} codes are bound to the target
  *       <em>group</em> instead of a node; a node code never confirms a group call and the other
  *       way round.
+ *   <li>Feature 024 (research D-19): the log-level tools key their codes by tool name and node,
+ *       like the {@link Operation} codes; a code never confirms another tool.
  * </ul>
  */
 public final class WriteChallengeRegistry {
@@ -101,6 +103,21 @@ public final class WriteChallengeRegistry {
     }
 
     /**
+     * Issues a code for {@code tool} on {@code node} with these inputs, as previewed (feature
+     * 024: the log-level tools).
+     *
+     * @throws ToolErrorException {@code PRECONDITION_FAILED} if {@link #MAX_PENDING} unexpired
+     *     codes are pending
+     */
+    public synchronized Issued issue(String tool, NodeId node, String inputFingerprint,
+        String previewState, Duration ttl) {
+        Objects.requireNonNull(tool, "tool");
+        Objects.requireNonNull(node, "node");
+        return issue(tool, "node:" + node.value(), Optional.of(node), inputFingerprint,
+            previewState, ttl);
+    }
+
+    /**
      * Issues a code for {@code tool} on the whole group {@code group} (feature 005: deploy
      * releases into a target group).
      *
@@ -158,6 +175,17 @@ public final class WriteChallengeRegistry {
         String inputFingerprint) {
         return redeem(code, operation.toolName(), "node:" + node.value(), Optional.of(node),
             inputFingerprint);
+    }
+
+    /**
+     * Redeems {@code code} for exactly this tool, node and inputs (feature 024); the code is
+     * removed in any case.
+     *
+     * @throws ToolErrorException {@code CONFIRMATION_INVALID} as {@link #redeem(String,
+     *     Operation, NodeId, String)}
+     */
+    public String redeem(String code, String tool, NodeId node, String inputFingerprint) {
+        return redeem(code, tool, "node:" + node.value(), Optional.of(node), inputFingerprint);
     }
 
     /**

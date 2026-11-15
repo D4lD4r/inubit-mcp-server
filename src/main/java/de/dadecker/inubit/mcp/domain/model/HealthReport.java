@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.domain.model;
 
+import de.dadecker.inubit.mcp.domain.model.node.LeaseSummary;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -19,6 +20,8 @@ import java.util.Optional;
  * @param unavailable parts that could not be obtained, with the reason (FR-008)
  * @param error       set when {@code reachable=false}
  * @param warnings    e.g. maintenance mode, an unsupported version line (FR-029)
+ * @param temporaryLogLevels the open temporary log level leases of the node (feature 024,
+ *                    FR-045, research D-23), in store order; empty when it has none
  */
 public record HealthReport(
     NodeId node,
@@ -36,7 +39,8 @@ public record HealthReport(
     Optional<Client> client,
     List<UnavailablePart> unavailable,
     Optional<ToolError> error,
-    List<String> warnings) {
+    List<String> warnings,
+    List<LeaseSummary> temporaryLogLevels) {
 
     public HealthReport {
         Objects.requireNonNull(node, "node");
@@ -54,9 +58,22 @@ public record HealthReport(
         unavailable = List.copyOf(unavailable);
         error = orEmpty(error);
         warnings = List.copyOf(warnings);
+        temporaryLogLevels = List.copyOf(temporaryLogLevels);
         if (!reachable && error.isEmpty()) {
             throw new IllegalArgumentException("an unreachable node's report needs an error");
         }
+    }
+
+    /** A report without temporary log level leases; {@code HealthService} adds them per call. */
+    public HealthReport(NodeId node, GroupId group, Instant checkedAt, boolean reachable,
+        HealthStatus status, Optional<Boolean> ready, Optional<String> readyMessage,
+        Optional<Boolean> maintenanceMode, Optional<String> version,
+        Optional<SystemInfo> systemInfo, Optional<LoadFigures> load,
+        Optional<ProcessCounts> processCounts, Optional<Client> client,
+        List<UnavailablePart> unavailable, Optional<ToolError> error, List<String> warnings) {
+        this(node, group, checkedAt, reachable, status, ready, readyMessage, maintenanceMode,
+            version, systemInfo, load, processCounts, client, unavailable, error, warnings,
+            List.of());
     }
 
     /**

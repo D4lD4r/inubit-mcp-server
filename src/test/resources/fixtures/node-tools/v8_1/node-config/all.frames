@@ -1,0 +1,24 @@
+#QE1:0123456789abcdef0123456789abcdef start SOAP_81
+#QE1:0123456789abcdef0123456789abcdef login ok
+#QE1:0123456789abcdef0123456789abcdef node ok node1
+#QE1:0123456789abcdef0123456789abcdef config OperationMode error com.inubit.ibis.utils.InubitException Exception%20from%20service%20object%3A%20%40Start%40IError%40%40%40Internal%20INUBIT%20error%21%40End%40Cannot%20invoke%20%22Object.getClass%28%29%22%20because%20%22o%22%20is%20null
+#QE1:0123456789abcdef0123456789abcdef config ClusterName ok String true false ClusterName String - acme-cluster
+#QE1:0123456789abcdef0123456789abcdef config ZoneName error com.inubit.ibis.utils.InubitException Exception%20from%20service%20object%3A%20%40Start%40IError%40%40%40Internal%20INUBIT%20error%21%40End%40Cannot%20invoke%20%22Object.getClass%28%29%22%20because%20%22o%22%20is%20null
+#QE1:0123456789abcdef0123456789abcdef config NodeName ok String true false NodeName String - node1
+#QE1:0123456789abcdef0123456789abcdef config LocalMaintenanceMode ok Boolean true false LocalMaintenanceMode Boolean - false
+#QE1:0123456789abcdef0123456789abcdef config ActivateClusterManager ok Boolean true false ActivateClusterManager Boolean - true
+#QE1:0123456789abcdef0123456789abcdef config ClusterDebug ok Boolean true false ClusterDebug Boolean - false
+#QE1:0123456789abcdef0123456789abcdef config ContainerShutdownOnNodeFailure error com.inubit.ibis.utils.InubitException Exception%20from%20service%20object%3A%20%40Start%40IError%40%40%40Internal%20INUBIT%20error%21%40End%40Cannot%20invoke%20%22Object.getClass%28%29%22%20because%20%22o%22%20is%20null
+#QE1:0123456789abcdef0123456789abcdef config RegisterMBeans error com.inubit.ibis.utils.InubitException Exception%20from%20service%20object%3A%20%40Start%40IError%40%40%40Internal%20INUBIT%20error%21%40End%40Cannot%20invoke%20%22Object.getClass%28%29%22%20because%20%22o%22%20is%20null
+#QE1:0123456789abcdef0123456789abcdef config RegisterInternalMBeans error com.inubit.ibis.utils.InubitException Exception%20from%20service%20object%3A%20%40Start%40IError%40%40%40Internal%20INUBIT%20error%21%40End%40Cannot%20invoke%20%22Object.getClass%28%29%22%20because%20%22o%22%20is%20null
+#QE1:0123456789abcdef0123456789abcdef config RuntimeDataCacheXMXPercentage ok Integer true false RuntimeDataCacheXMXPercentage Integer - 20
+#QE1:0123456789abcdef0123456789abcdef config socketTimeoutInMillisecs error com.inubit.ibis.utils.InubitException Exception%20from%20service%20object%3A%20%40Start%40IError%40%40%40Internal%20INUBIT%20error%21%40End%40Cannot%20invoke%20%22Object.getClass%28%29%22%20because%20%22o%22%20is%20null
+#QE1:0123456789abcdef0123456789abcdef config indexEnabled ok Boolean true false indexEnabled Boolean - true
+#QE1:0123456789abcdef0123456789abcdef config iterationCount ok Integer true false iterationCount Integer - 10000
+#QE1:0123456789abcdef0123456789abcdef config DataSourceLocation ok String true false DataSourceLocation String - java%3A%2Fcomp%2Fenv%2Fjdbc%2FIBISDB
+#QE1:0123456789abcdef0123456789abcdef config LogsDBDataSourceLocation error com.inubit.ibis.utils.InubitException Exception%20from%20service%20object%3A%20%40Start%40IError%40%40%40Internal%20INUBIT%20error%21%40End%40Cannot%20invoke%20%22Object.getClass%28%29%22%20because%20%22o%22%20is%20null
+#QE1:0123456789abcdef0123456789abcdef config RepositoryDataSourceLocation error com.inubit.ibis.utils.InubitException Exception%20from%20service%20object%3A%20%40Start%40IError%40%40%40Internal%20INUBIT%20error%21%40End%40Cannot%20invoke%20%22Object.getClass%28%29%22%20because%20%22o%22%20is%20null
+#QE1:0123456789abcdef0123456789abcdef config ClusterBindAddress error com.inubit.ibis.utils.InubitException Exception%20from%20service%20object%3A%20%40Start%40IError%40%40%40Internal%20INUBIT%20error%21%40End%40Cannot%20invoke%20%22Object.getClass%28%29%22%20because%20%22o%22%20is%20null
+#QE1:0123456789abcdef0123456789abcdef config noOfRetries ok Integer true false noOfRetries Integer - 3
+#QE1:0123456789abcdef0123456789abcdef config retryInterval ok Long true false retryInterval Long - 5000
+#QE1:0123456789abcdef0123456789abcdef end

@@ -14,8 +14,10 @@ import java.util.Optional;
  *               only; there is no {@code deploy} on a node)
  * @param credentials feature 010: the group's secret source and Parameter Store names
  * @param archives feature 015: {@code archives.productionOptIn} (group-level only, research R-15)
- * @param unsupported feature 020: {@code unsupported.queueEntryRead} (group-level only, research
- *                    D-15)
+ * @param unsupported features 020, 021 and 024: the opt-ins for undocumented INUBIT interfaces,
+ *                    {@code queueEntryRead}, {@code serverLogRead}, {@code nodeStatusRead},
+ *                    {@code ioLogRead}, {@code nodeConfigRead} and {@code logLevelWrite}
+ *                    (group-level only, see {@link UnsupportedConfig})
  */
 public record GroupConfig(
     String name,

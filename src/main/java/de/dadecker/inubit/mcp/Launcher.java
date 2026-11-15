@@ -22,6 +22,7 @@ import de.dadecker.inubit.mcp.application.UpdateCheck;
 import de.dadecker.inubit.mcp.application.knowledge.KnowledgeAnnouncement;
 import de.dadecker.inubit.mcp.application.knowledge.KnowledgeDirectory;
 import de.dadecker.inubit.mcp.application.knowledge.KnowledgeLimits;
+import de.dadecker.inubit.mcp.application.nodetools.LeaseStore;
 import de.dadecker.inubit.mcp.config.CheckedClient;
 import de.dadecker.inubit.mcp.config.CliClient;
 import de.dadecker.inubit.mcp.config.ConfigException;
@@ -276,9 +277,21 @@ final class Launcher {
                 ? EntryCheck.run(nodes, context.credentialStore().get(), context.windows())
                 : EntryCheck.Result.none(StoreKind.forOs(System.getProperty("os.name")));
             ValidationReport checked = entries.addTo(parameters.addTo(withProbes));
-            context.out().print(new ConfigSummary(context.exists(), context.windows())
-                .render(loaded, checked, clients, options, parameters, entries,
-                    checkedClients, knowledgeStatus(loaded.config().knowledge())));
+            ConfigSummary summary = new ConfigSummary(context.exists(), context.windows());
+            KnowledgeStatus knowledge = knowledgeStatus(loaded.config().knowledge());
+            // feature 024 (FR-045, research D-23): the lease store is only read - no scheduler,
+            // no takeover, no reset; an invalid profile name is never part of a path
+            String profile = loaded.config().profile().name();
+            if (ProfileInfo.isValidName(profile)) {
+                Path leaseDirectory = LeaseStore.defaultDirectory(context.userHome(), profile);
+                context.out().print(summary.render(loaded, checked, clients, options, parameters,
+                    entries, checkedClients, knowledge,
+                    new LeaseStore(leaseDirectory, context.privateFiles(), Clock.systemUTC()),
+                    leaseDirectory.resolve(LeaseStore.FILE)));
+            } else {
+                context.out().print(summary.render(loaded, checked, clients, options, parameters,
+                    entries, checkedClients, knowledge));
+            }
             context.out().flush();
             return checked.hasErrors() ? EXIT_ERROR : EXIT_OK;
         }
@@ -569,8 +582,16 @@ final class Launcher {
                 if (closing != null) {
                     closing.start(UpdateCheck.daemonExecutor());
                 }
+                // feature 024 (research D-17, FR-045): the leases found, then the scheduler
+                Wiring.LeaseStart leases = wiring.startLeases();
+                if (leases.open() > 0) {
+                    LOG.info("{} temporary log level lease(s) open", leases.open());
+                }
+                leases.warnings().forEach(warning -> LOG.warn("{}", warning));
                 server.awaitInputClosed();
                 LOG.info("stdin closed; shutting down");
+                // D-17: the open leases are reset while StartCLI can still run
+                wiring.resetLeasesOnShutdown();
                 wiring.stopCliWork();
             }
             return EXIT_OK;

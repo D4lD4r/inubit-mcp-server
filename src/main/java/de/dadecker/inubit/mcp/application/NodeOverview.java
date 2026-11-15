@@ -289,6 +289,10 @@ public final class NodeOverview {
             case SERVER_SETTINGS -> "server_settings";
             case USER_DIRECTORY -> "user_directory";
             case MODEL_DETAILS -> "model_details";
+            case CLUSTER_NODES_READ -> "cluster_nodes_read";
+            case IO_LOG_READ -> "io_log_read";
+            case NODE_CONFIG_READ -> "node_config_read";
+            case LOG_LEVEL_WRITE -> "log_level_write";
         };
     }
 }

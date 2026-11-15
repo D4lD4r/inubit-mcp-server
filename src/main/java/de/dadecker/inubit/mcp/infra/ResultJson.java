@@ -4,11 +4,17 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import de.dadecker.inubit.mcp.application.PartnerService;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
+import de.dadecker.inubit.mcp.domain.model.HealthReport;
 import de.dadecker.inubit.mcp.domain.model.LogType;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseReason;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseSummary;
+import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
 import de.dadecker.inubit.mcp.domain.model.partner.SecretFingerprint;
+import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import tools.jackson.core.JsonGenerator;
 import tools.jackson.databind.MapperFeature;
 import tools.jackson.databind.SerializationContext;
@@ -21,7 +27,10 @@ import tools.jackson.databind.ser.std.ToStringSerializer;
  * The JSON form of tool results (contracts/mcp-tools.md): record components in declaration order,
  * empty {@code Optional}s and {@code null}s omitted (except the {@code name} of an unresolved
  * workflow of {@code find_partners}), ids and log types as strings (e.g.
- * {@code systemLog}), {@code java.time} values as ISO-8601. A {@link SecretFingerprint} is
+ * {@code systemLog}), {@code java.time} values as ISO-8601. Feature 024
+ * ({@code $defs/LeaseSummary}, research D-23): a {@link LoggerName} as its name, a
+ * {@link LeaseReason} as its text, and {@code temporaryLogLevels} of a {@link HealthReport}
+ * omitted when empty. A {@link SecretFingerprint} is
  * refused (feature 018: it never reaches a result). Shared by the MCP result mapping and by the
  * mappers that bound an item's serialized size ({@code ItemBounds.MAX_ITEM_CHARS}), so that both
  * measure the same text.
@@ -36,9 +45,12 @@ public final class ResultJson {
             .addSerializer(NodeId.class, new ToStringSerializer(NodeId.class))
             .addSerializer(GroupId.class, new ToStringSerializer(GroupId.class))
             .addSerializer(LogType.class, new ToStringSerializer(LogType.class))
+            .addSerializer(LoggerName.class, text(LoggerName::value))
+            .addSerializer(LeaseReason.class, text(LeaseReason::text))
             .addSerializer(SecretFingerprint.class, new RefusingFingerprintSerializer()))
         .addMixIn(NodeSummary.StartCli.class, StartCliJson.class)
         .addMixIn(PartnerService.WorkflowView.class, WorkflowViewJson.class)
+        .addMixIn(HealthReport.class, HealthReportJson.class)
         .build();
 
     /**
@@ -57,6 +69,23 @@ public final class ResultJson {
     private abstract static class WorkflowViewJson {
         @JsonInclude(JsonInclude.Include.ALWAYS)
         abstract Optional<String> name();
+    }
+
+    /** {@code get_health} (research D-23): no leases, no {@code temporaryLogLevels}. */
+    private abstract static class HealthReportJson {
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        abstract List<LeaseSummary> temporaryLogLevels();
+    }
+
+    /** Writes a value as the string {@code text} gives. */
+    private static <T> ValueSerializer<T> text(Function<T, String> text) {
+        return new ValueSerializer<>() {
+            @Override
+            public void serialize(T value, JsonGenerator generator,
+                SerializationContext context) {
+                generator.writeString(text.apply(value));
+            }
+        };
     }
 
     /** Refuses every {@link SecretFingerprint}; the message names the type, never the value. */

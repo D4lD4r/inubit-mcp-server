@@ -7,10 +7,11 @@ import java.util.Map;
 
 /**
  * The small JSON subset of the server's own state files (backup manifests, the deployment
- * ledger): objects, arrays and strings, no numbers, booleans or nulls. The application layer
- * depends on the JDK only (Constitution V), hence no JSON library here.
+ * ledger, the log-level leases): objects, arrays, strings, integers ({@link Long}) and
+ * {@code null}; no fractions, exponents or booleans. The application layer depends on the JDK only
+ * (Constitution V), hence no JSON library here.
  */
-final class MiniJson {
+public final class MiniJson {
 
     private final String text;
     private int position;
@@ -47,8 +48,34 @@ final class MiniJson {
             case '{' -> object();
             case '[' -> array();
             case '"' -> string();
-            default -> throw new IllegalArgumentException("Unexpected value");
+            case 'n' -> literalNull();
+            default -> integer();
         };
+    }
+
+    private Object literalNull() {
+        if (!text.startsWith("null", position)) {
+            throw new IllegalArgumentException("Unexpected value");
+        }
+        position += 4;
+        return null;
+    }
+
+    /** {@code -?(0|[1-9][0-9]*)} within the range of a {@code long}. */
+    private Long integer() {
+        int start = position;
+        if (position < text.length() && text.charAt(position) == '-') {
+            position++;
+        }
+        int digits = position;
+        while (position < text.length() && text.charAt(position) >= '0'
+            && text.charAt(position) <= '9') {
+            position++;
+        }
+        if (position == digits || (text.charAt(digits) == '0' && position > digits + 1)) {
+            throw new IllegalArgumentException("Unexpected value");
+        }
+        return Long.parseLong(text, start, position, 10);
     }
 
     private List<Object> array() {
@@ -134,8 +161,11 @@ final class MiniJson {
         }
     }
 
-    /** Parses one object; anything else, or trailing content, is refused. */
-    static Map<String, Object> parse(String text) {
+    /**
+     * Parses one object; anything else, or trailing content, is refused. A {@code null} member is
+     * kept as a key with a {@code null} value.
+     */
+    public static Map<String, Object> parse(String text) {
         MiniJson parser = new MiniJson(text);
         Map<String, Object> object = parser.object();
         parser.end();
@@ -143,7 +173,7 @@ final class MiniJson {
     }
 
     /** {@code value} as a JSON string literal. */
-    static String quote(String value) {
+    public static String quote(String value) {
         StringBuilder out = new StringBuilder("\"");
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);

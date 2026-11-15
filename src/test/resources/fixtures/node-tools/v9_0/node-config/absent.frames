@@ -1,0 +1,9 @@
+#QE1:0123456789abcdef0123456789abcdef start REST_90
+2026-11-14T14:21:34.096804Z main ERROR Unable to load io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider, fallback to system defaults. This may result in incorrect DNS resolutions on MacOS. Check whether you have a dependency on 'io.netty:netty-resolver-dns-native-macos'. Use DEBUG level to see the full stack: java.lang.UnsatisfiedLinkError: failed to load the required native library
+#QE1:0123456789abcdef0123456789abcdef login ok
+#QE1:0123456789abcdef0123456789abcdef node ok node1
+2026-11-14T14:21:34.855635Z main ERROR WebClient call failed: statusCode=500, reason=Internal Server Error, url=https://acme.example.test:8443/ibis/inubit/object/getObject
+#QE1:0123456789abcdef0123456789abcdef config OperationMode error com.inubit.ibis.utils.InubitException %40Start%40IError%40%40%40Internal%20INUBIT%20error%21%40End%40Cannot%20invoke%20%22Object.getClass%28%29%22%20because%20%22o%22%20is%20null
+#QE1:0123456789abcdef0123456789abcdef config ClusterBindAddress absent
+#QE1:0123456789abcdef0123456789abcdef config NodeName ok String true false Node%20name Cluster Name%20of%20this%20node%20within%20the%20cluster. node1
+#QE1:0123456789abcdef0123456789abcdef end

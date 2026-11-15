@@ -88,6 +88,29 @@ Reports are especially welcome for:
   longer needed. Reports are welcome for a log file written where the folder rules forbid it, for
   log content reaching a log line or audit record, and for a configured credential reaching the
   excerpt unmasked.
+- **Unsupported node tools** (`list_cluster_nodes`, `read_io_log`, `get_node_config`,
+  `set_temporary_log_level`, `reset_temporary_log_level`): each is off unless the node's group
+  opts in (`unsupported.*`), and they use internal, undocumented INUBIT interfaces through the
+  helper on the INUBIT client, for diagnosis only. The logged input and output messages that
+  `read_io_log` returns **can contain business and personal data**; they reach the conversation
+  and with it the AI provider of the MCP client. Every value is masked (secrets by name and the
+  known credentials of every configured node), but masking does not cover business and personal
+  data, and a credential under a neutral name, in encoded content or in free text may still
+  appear. The three reads are not audited; every set, reset and automatic reset is audited. Every
+  executed set is recorded as a lease in `~/.inubit-mcp/<profile>/log-levels/` (owner-only;
+  names, levels, ids and times only, never a message, configuration value or credential). The
+  server resets the node when the lease expires, at shutdown and at its next start; these
+  **cleanup resets run also while write access is off** (after `write.enabled`,
+  `write.productionOptIn` or `unsupported.logLevelWrite` was removed), a deliberate exception to
+  the read-only default, approved by the project owner, so that a raised log level never stays
+  without limit. A reset restores every temporary log level on that node, also those other users
+  set. Before every change and reset, automatic ones included, the server asks which INUBIT node
+  answers through an unsupported, undocumented INUBIT interface (the helper on the INUBIT client)
+  and sends nothing when another node answers than an open lease names; address cluster nodes
+  directly, not through a load balancer. Reports are welcome for a tool offered or run without
+  its group's opt-in, a level change without write access, the production opt-in, the
+  confirmation or an audit record, a change or reset sent to another node than the one named, a
+  configured credential reaching a result unmasked, and a lease store others can read.
 - **Local knowledge** (`read_knowledge`, `record_knowledge`): the notes are plain Markdown files
   on the local disk, **unencrypted**; what the server creates there (folder, notes, history
   versions, lock file) is owner-only, existing folders keep their permissions (the server warns

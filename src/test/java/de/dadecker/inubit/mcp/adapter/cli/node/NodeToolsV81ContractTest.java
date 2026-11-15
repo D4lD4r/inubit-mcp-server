@@ -1,0 +1,1563 @@
+package de.dadecker.inubit.mcp.adapter.cli.node;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.assertj.core.api.Assertions.entry;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import de.dadecker.inubit.mcp.adapter.CredentialGuard;
+import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
+import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
+import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
+import de.dadecker.inubit.mcp.adapter.cli.CliResources;
+import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher.Answer;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
+import de.dadecker.inubit.mcp.adapter.cli.ScriptedProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
+import de.dadecker.inubit.mcp.adapter.rest.TlsTestServer;
+import de.dadecker.inubit.mcp.application.NodeVersions;
+import de.dadecker.inubit.mcp.application.TargetResolver;
+import de.dadecker.inubit.mcp.application.WriteChallengeRegistry;
+import de.dadecker.inubit.mcp.application.WriteGuard;
+import de.dadecker.inubit.mcp.application.nodetools.ClusterNodeService;
+import de.dadecker.inubit.mcp.application.nodetools.ClusterNodesRequest;
+import de.dadecker.inubit.mcp.application.nodetools.IoLogRequest;
+import de.dadecker.inubit.mcp.application.nodetools.IoLogService;
+import de.dadecker.inubit.mcp.application.nodetools.LeaseStore;
+import de.dadecker.inubit.mcp.application.nodetools.LogLevelAudit;
+import de.dadecker.inubit.mcp.application.nodetools.LogLevelService;
+import de.dadecker.inubit.mcp.application.nodetools.NodeConfigRequest;
+import de.dadecker.inubit.mcp.application.nodetools.NodeConfigService;
+import de.dadecker.inubit.mcp.application.nodetools.NodeLogLevelLocks;
+import de.dadecker.inubit.mcp.application.nodetools.ProcessLiveness;
+import de.dadecker.inubit.mcp.application.nodetools.ResetLevelRequest;
+import de.dadecker.inubit.mcp.application.nodetools.SetLevelRequest;
+import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.config.NodeCredentials;
+import de.dadecker.inubit.mcp.config.SourcedValue;
+import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
+import de.dadecker.inubit.mcp.domain.model.AuditRecord;
+import de.dadecker.inubit.mcp.domain.model.BinarySignature;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.QueueEntryResult;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
+import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
+import de.dadecker.inubit.mcp.domain.model.WritePolicy;
+import de.dadecker.inubit.mcp.domain.model.node.ClusterNode;
+import de.dadecker.inubit.mcp.domain.model.node.ClusterNodes;
+import de.dadecker.inubit.mcp.domain.model.node.ClusterNodesResult;
+import de.dadecker.inubit.mcp.domain.model.node.IoDirection;
+import de.dadecker.inubit.mcp.domain.model.node.IoLogEntry;
+import de.dadecker.inubit.mcp.domain.model.node.IoLogResult;
+import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
+import de.dadecker.inubit.mcp.domain.model.node.Lease;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseOwner;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseReason;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseState;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseSummary;
+import de.dadecker.inubit.mcp.domain.model.node.LogLevelResult;
+import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigResult;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValue;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValue.Absent;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValue.Failed;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigValue.Present;
+import de.dadecker.inubit.mcp.domain.model.node.NodeDetail;
+import de.dadecker.inubit.mcp.domain.model.node.NodeStatus;
+import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
+import de.dadecker.inubit.mcp.domain.port.ClusterNodePort;
+import de.dadecker.inubit.mcp.domain.port.Gateway;
+import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
+import de.dadecker.inubit.mcp.domain.port.InventoryPort;
+import de.dadecker.inubit.mcp.domain.port.IoLogPort;
+import de.dadecker.inubit.mcp.domain.port.LogLevelPort;
+import de.dadecker.inubit.mcp.domain.port.LogPort;
+import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
+import de.dadecker.inubit.mcp.domain.port.NodeConfigPort;
+import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
+import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
+import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
+import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
+import de.dadecker.inubit.mcp.testing.TraceMatrix;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.TreeSet;
+import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+
+/**
+ * T024 (feature 024, FR-005, FR-010, FR-011, research D-7, D-27): the INUBIT 8.1 contract of
+ * {@code list_cluster_nodes}. Each {@code node-tools/v8_1/cluster-nodes} case runs the real
+ * {@link ClusterNodeService} over the real {@link CliClusterNodeAdapter} and
+ * {@link NodeHelperRunner}; a {@link FakeProcessLauncher} reads the helper request from stdin and
+ * replays the case's {@code .frames}/{@code .exit} with the request's nonce. No process, no
+ * network (the TLS edge case talks to a local test server only). Test matrix declaration:
+ * {@link TraceMatrix#admittingEightOne()}, so the contract does not depend on the production
+ * declaration.
+ *
+ * <p>{@code ok} is the recording of spike T018 (T025): the answering node {@code ACTIVE} with its
+ * version and uptime, every other member {@code OFFLINE} without version and uptime; its names and
+ * total are asserted against what its frames say. {@code no_answer} keeps the reconstructed case
+ * of a member without a status. Every result,
+ * error and log line is checked for leaks; the {@code details} case checks end to end that the
+ * credential-like value of the fixture is masked in the service's result.
+ *
+ * <p>T031 (FR-020 … FR-023, research D-8, D-9, D-20): each {@code node-tools/v8_1/io-log} case
+ * runs the real {@link IoLogService} over the real {@link CliIoLogAdapter} with the request its
+ * {@code .origin} names; the fake launcher also writes the case's {@code .list} and
+ * {@code .message} to the request's {@code listOut} and {@code messageOut}. {@code read_text}
+ * checks end to end that its invented credentials are masked before the cut and appear in no
+ * result, error or log line.
+ *
+ * <p>T037 (FR-030 … FR-032, research D-10, D-21): each {@code node-tools/v8_1/node-config} case
+ * runs the real {@link NodeConfigService} over the real {@link CliNodeConfigAdapter} with the names
+ * its {@code .origin} names. {@code all} is the recording of spike T018 (T038); its values are
+ * asserted against what its frames say, so only the counts of present and absent names
+ * ({@link #ALL_PRESENT}) are written into this test. {@code secret_value} keeps the reconstructed
+ * shape of {@code all} with a credential-looking value ({@link #CONFIG_SECRET},
+ * {@link #CONFIG_SECRET_NAME}) for the masking of D-21. {@code absent} carries both forms of a
+ * property the node does not have, {@code one_error} a failure of one name only.
+ *
+ * <p>T057 (FR-040 … FR-044, research D-11, D-14, D-15): each {@code node-tools/v8_1/log-level}
+ * case answers a StartCLI run ({@code .stdout}/{@code .stderr}/{@code .exit}, scripted with
+ * {@link ScriptedProcessLauncher}) of the real {@link LogLevelService} over the real
+ * {@link CliLogLevelAdapter}, with a real {@link LeaseStore} below the temporary directory, a
+ * fixed clock and confirmation {@code CLIENT}; the client helper's own-node lookup answers
+ * {@code node1}. A failed raise is the call's {@code FAILED} outcome naming the code, followed by
+ * the reset at once of D-14 step 11. The result, the audit records, the lease store and the
+ * StartCLI arguments and environments are checked for leaks. {@code set_ok} and {@code reset_ok}
+ * are the neutralized recordings of spike T039 (T058): exit code 0 and nothing after the client
+ * preamble, StartCLI's silent success.
+ */
+@Timeout(60)
+class NodeToolsV81ContractTest {
+
+    /** The cases; exactly the {@code v8_1/cluster-nodes/*.frames} on disk. */
+    static final List<String> CASES = List.of("ok", "no_answer", "single", "details",
+        "details_truncated", "details_unknown", "details_error", "unknown_status", "api_missing",
+        "garbage");
+
+    /** The io-log cases; exactly the {@code v8_1/io-log/*.frames} on disk. */
+    static final List<String> IO_CASES = List.of("listing", "empty_listing", "read_text",
+        "read_latin1", "read_binary", "read_empty", "no_match", "foreign_process", "list_error");
+
+    /** The node-config cases; exactly the {@code v8_1/node-config/*.frames} on disk. */
+    static final List<String> CONFIG_CASES = List.of("all", "secret_value", "absent", "one_error",
+        "api_missing");
+
+    /** The log-level cases; exactly the {@code v8_1/log-level/*.stdout} on disk. */
+    static final List<String> LEVEL_CASES = List.of("set_ok", "reset_ok", "missing_level",
+        "login_failure", "forbidden");
+
+    private static final CapabilityMatrix MATRIX = TraceMatrix.admittingEightOne();
+    private static final Path DIRECTORY =
+        Path.of("src/test/resources/fixtures/node-tools/v8_1/cluster-nodes");
+    private static final String FIXTURES = "node-tools/v8_1/cluster-nodes/";
+    private static final Path IO_DIRECTORY =
+        Path.of("src/test/resources/fixtures/node-tools/v8_1/io-log");
+    private static final String IO_FIXTURES = "node-tools/v8_1/io-log/";
+    private static final Path CONFIG_DIRECTORY =
+        Path.of("src/test/resources/fixtures/node-tools/v8_1/node-config");
+    private static final String CONFIG_FIXTURES = "node-tools/v8_1/node-config/";
+    private static final Path LEVEL_DIRECTORY =
+        Path.of("src/test/resources/fixtures/node-tools/v8_1/log-level");
+    private static final String LEVEL_FIXTURES = "node-tools/v8_1/log-level/";
+    /** The logger of the log-level cases and the StartCLI commands of a raise and a reset. */
+    private static final String ACME = "com.inubit.ibis.acme";
+    private static final String SET_ACME = "trace --nodelevel DEBUG --package '" + ACME + "'";
+    private static final String RESET = "trace --reset";
+    /** This MCP server instance, the owner of the leases it writes. */
+    private static final LeaseOwner SELF = new LeaseOwner(4711, Optional.empty());
+    private static final String FRAMES = ".frames";
+    private static final String FIXTURE_NONCE = "0123456789abcdef0123456789abcdef";
+    private static final String FRAME_PREFIX = "#QE1:" + FIXTURE_NONCE + " ";
+    private static final NodeId NODE = NodeId.parse("test/node1");
+    private static final String USER = "jdoe";
+    private static final Duration CLI_TIMEOUT = Duration.ofSeconds(20);
+    private static final Instant NOW = Instant.parse("2026-11-13T10:00:00Z");
+    /** The credential-like value in the {@code JvmArguments} pair of the {@code details} case. */
+    private static final String DETAILS_SECRET = "example-secret";
+    /** The invented value of the {@code <password>} element in {@code read_text.message}. */
+    private static final String PASSWORD_SECRET = "fictitious-Secret-42";
+    /** The invented {@code Authorization: Basic} value in {@code read_text.message}. */
+    private static final String BASIC_SECRET = "b3JkZXJzOmZpY3RpdGlvdXMtQmFzaWMtNw==";
+    /** The {@code read_text} credentials, also the password the Basic value decodes to. */
+    private static final String[] READ_TEXT_SECRETS =
+        {PASSWORD_SECRET, BASIC_SECRET, "fictitious-Basic-7"};
+    /**
+     * The names the recorded {@code all} answers; the others it answers with INUBIT 8.1.17's error
+     * for a property the node does not have (T018).
+     */
+    private static final int ALL_PRESENT = 11;
+    /** The name whose value in {@code secret_value} carries {@link #CONFIG_SECRET}. */
+    private static final NodeConfigName CONFIG_SECRET_NAME = NodeConfigName.DATA_SOURCE_LOCATION;
+    /**
+     * The invented {@code password=} value in {@code secret_value}'s {@link #CONFIG_SECRET_NAME},
+     * and its placeholder (D-21).
+     */
+    private static final String CONFIG_SECRET = "example-secret";
+    private static final String CONFIG_PLACEHOLDER = "${secret:data.password}";
+    /** The {@code config <name> error} message of 8.1.17 for a property the node lacks (T018). */
+    private static final String MISSING_PROPERTY = "Cannot invoke \"Object.getClass()\" because"
+        + " \"o\" is null";
+    private static final String MISSING_PROPERTY_CHAIN = "com.inubit.ibis.utils.InubitException";
+    /** The server's environment, with credentials the helper must never get (leak check). */
+    private static final Map<String, String> PARENT = Map.of(
+        "PATH", "/usr/bin:/bin",
+        "HOME", "/home/test",
+        "INUBIT_PASSWORD", TestSecrets.CONFIGURED_PASSWORD,
+        "INUBIT_TRUST_STORE_PASSWORD", TestSecrets.TRUST_STORE_PASSWORD);
+
+    @TempDir
+    Path root;
+
+    private Path tempRoot;
+    private Path home;
+    private Path jdk;
+    private final CliResources resources = new CliResources("t024", PrivateFiles.forHost());
+    private final SecretScrubber scrubber = new SecretScrubber();
+    private final NodeVersions versions = new NodeVersions(new MutableClock(NOW),
+        node -> VersionSetting.AUTO, node -> Duration.ofMinutes(10));
+    private final FakeVersionDetection detection =
+        new FakeVersionDetection(versions).answer(NODE, "8.1.17");
+    private final Logger logger = (Logger) org.slf4j.LoggerFactory.getLogger("de.dadecker.inubit");
+    private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    private Level previousLevel;
+    private FakeProcessLauncher launcher;
+    /** StartCLI of the log-level cases. */
+    private final ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
+    /** The clock of the leases and the audit records of the log-level cases. */
+    private final MutableClock leaseClock = new MutableClock(NOW);
+    private final List<AuditRecord> audited = new CopyOnWriteArrayList<>();
+    private LeaseStore leases;
+
+    @BeforeEach
+    void setUp() throws IOException {
+        tempRoot = Files.createDirectories(root.resolve("tmp"));
+        home = client();
+        jdk = jdk();
+        previousLevel = logger.getLevel();
+        logger.setLevel(Level.TRACE);
+        appender.start();
+        logger.addAppender(appender);
+    }
+
+    @AfterEach
+    void tearDown() {
+        logger.detachAppender(appender);
+        logger.setLevel(previousLevel);
+        appender.stop();
+        resources.close();
+        for (ILoggingEvent event : appender.list) {
+            String message = event.getFormattedMessage();
+            TestSecrets.assertNoLeak(message);
+            assertThat(message).doesNotContain(DETAILS_SECRET, CONFIG_SECRET)
+                .doesNotContain(READ_TEXT_SECRETS);
+        }
+    }
+
+    @Test
+    void theCasesAreExactlyTheFixtureCasesOnDisk() throws IOException {
+        assertThat(casesOnDisk(DIRECTORY)).containsExactlyInAnyOrderElementsOf(CASES);
+    }
+
+    @Test
+    void theIoLogCasesAreExactlyTheFixtureCasesOnDisk() throws IOException {
+        assertThat(casesOnDisk(IO_DIRECTORY)).containsExactlyInAnyOrderElementsOf(IO_CASES);
+    }
+
+    @Test
+    void theNodeConfigCasesAreExactlyTheFixtureCasesOnDisk() throws IOException {
+        assertThat(casesOnDisk(CONFIG_DIRECTORY))
+            .containsExactlyInAnyOrderElementsOf(CONFIG_CASES);
+    }
+
+    @Test
+    void theLogLevelCasesAreExactlyTheFixtureCasesOnDisk() throws IOException {
+        assertThat(casesOnDisk(LEVEL_DIRECTORY, ".stdout"))
+            .containsExactlyInAnyOrderElementsOf(LEVEL_CASES);
+    }
+
+    // --- the list (US1-1, US1-2, US1-5) -------------------------------------------------------
+
+    @Test
+    void okListsTheRecordedMembersTheAnsweringNodeActiveAndTheOthersOfflineWithoutUptime()
+        throws IOException {
+        List<String> frames = frames("ok");
+        String answering = token(frames, "node ok ");
+        List<String[]> members = frames.stream().filter(frame -> frame.startsWith("member "))
+            .map(frame -> frame.split(" ")).toList();
+        launcher = replaying("ok");
+
+        ClusterNodesResult result = service(http().build(), credentials()).list(request());
+
+        assertThat(result.node()).isEqualTo(NODE);
+        ClusterNodes cluster = result.cluster();
+        assertThat(cluster.answeringNode()).isEqualTo(answering);
+        assertThat(cluster.nodes()).extracting(ClusterNode::name).containsExactlyElementsOf(
+            members.stream().map(member -> decode(member[1])).toList());
+        assertThat(cluster.total()).isEqualTo(Integer.parseInt(token(frames, "members ok ")))
+            .isEqualTo(members.size()).isEqualTo(12);
+        assertThat(cluster.truncated()).isFalse();
+        assertThat(cluster.details()).isEmpty();
+        assertThat(cluster.nodes()).filteredOn(node -> node.name().equals(answering))
+            .singleElement().satisfies(node -> {
+                assertThat(node.status()).isEqualTo(NodeStatus.ACTIVE);
+                assertThat(node.version()).contains("8.1.17");
+                assertThat(node.uptime()).isPresent();
+            });
+        assertThat(cluster.nodes()).filteredOn(node -> !node.name().equals(answering))
+            .hasSize(11).allSatisfy(node -> {
+                assertThat(node.status()).isEqualTo(NodeStatus.OFFLINE);
+                assertThat(node.rawStatus()).isEmpty();
+                assertThat(node.version()).isEmpty();
+                assertThat(node.uptime()).as("an OFFLINE member's uptime 0 is absent").isEmpty();
+            });
+        assertThat(result.warnings()).containsExactly(ClusterNodesResult.WARNING);
+        assertThat(result.hints()).isEmpty();
+        assertThat(requestLines()).contains("op=clusterNodes", "details=");
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertNoLeak(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void noAnswerKeepsAMemberWithoutAStatusUnknown() throws IOException {
+        launcher = replaying("no_answer");
+
+        ClusterNodesResult result = service(http().build(), credentials()).list(request());
+
+        assertThat(result.cluster().answeringNode()).isEqualTo("node1");
+        assertThat(result.cluster().nodes()).extracting(ClusterNode::name)
+            .containsExactly("node1", "node2");
+        assertThat(result.cluster().nodes().get(0).status()).isEqualTo(NodeStatus.ACTIVE);
+        assertThat(result.cluster().nodes().get(1)).isEqualTo(new ClusterNode("node2",
+            NodeStatus.UNKNOWN, Optional.empty(), Optional.empty(), Optional.of("zone-a"),
+            Optional.empty(), Optional.empty()));
+        assertThat(result.cluster().total()).isEqualTo(2);
+        assertThat(result.warnings()).containsExactly(ClusterNodesResult.WARNING);
+        assertNoLeak(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void singleListsTheOneMember() throws IOException {
+        launcher = replaying("single");
+
+        ClusterNodesResult result = service(http().build(), credentials()).list(request());
+
+        assertThat(result.cluster().nodes()).extracting(ClusterNode::name)
+            .containsExactly("node1");
+        assertThat(result.cluster().total()).isEqualTo(1);
+        assertThat(result.cluster().answeringNode()).isEqualTo("node1");
+        assertThat(result.warnings()).containsExactly(ClusterNodesResult.WARNING);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void anUnknownStatusConstantIsUnknownWithTheRawStatus() throws IOException {
+        launcher = replaying("unknown_status");
+
+        ClusterNodesResult result = service(http().build(), credentials()).list(request());
+
+        assertThat(result.cluster().nodes().get(1)).isEqualTo(new ClusterNode("node2",
+            NodeStatus.UNKNOWN, Optional.of("STARTING"), Optional.of("8.1.17"),
+            Optional.of("zone-a"), Optional.empty(), Optional.of(Duration.ofMinutes(2))));
+        assertTempRootEmpty();
+    }
+
+    // --- the details (US1-3, US1-6) -----------------------------------------------------------
+
+    @Test
+    void detailsAreThePairsInOrderWithTheCredentialMaskedInTheResultAndTheDetailsWarning()
+        throws IOException {
+        assertThat(fixture("details.frames")).as("the case carries a credential-like value")
+            .contains("trustStorePassword%3D" + DETAILS_SECRET);
+        launcher = replaying("details");
+
+        ClusterNodesResult result = service(http().build(), credentials())
+            .list(request("node1"));
+
+        assertThat(requestLines()).contains("op=clusterNodes", "details=node1");
+        assertThat(result.cluster().nodes()).hasSize(2);
+        ClusterNodes.Available details =
+            (ClusterNodes.Available) result.cluster().details().orElseThrow();
+        assertThat(details.node()).isEqualTo("node1");
+        assertThat(details.truncated()).isFalse();
+        assertThat(details.pairs()).extracting(NodeDetail::key).containsExactly("NodeName",
+            "ZoneName", "ClusterBindAddress", "InstallationDirectory", "JavaVersion",
+            "Memory.HeapMax", "Memory.HeapUsed", "JvmArguments", "Description");
+        assertThat(details.pairs().get(2))
+            .isEqualTo(new NodeDetail("ClusterBindAddress", "10.0.0.11:7800", false));
+        assertThat(details.pairs().get(8)).isEqualTo(new NodeDetail("Description", "", false));
+        NodeDetail jvm = details.pairs().get(7);
+        // the 020 rule for a secret-named key=value: the value becomes its placeholder
+        assertThat(jvm.value()).isEqualTo("-Xmx4g -Djavax.net.ssl.trustStorePassword="
+            + "${secret:data.-Djavax.net.ssl.trustStorePassword}");
+        assertThat(jvm.cut()).isFalse();
+        assertThat(result.warnings()).containsExactly(ClusterNodesResult.WARNING,
+            ClusterNodesResult.DETAILS_WARNING);
+        assertThat(result.hints()).isEmpty();
+        assertNoLeak(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void truncatedDetailsKeepTheHelpersFlagAndAddTheHint() throws IOException {
+        launcher = replaying("details_truncated");
+
+        ClusterNodesResult result = service(http().build(), credentials())
+            .list(request("node1"));
+
+        ClusterNodes.Available details =
+            (ClusterNodes.Available) result.cluster().details().orElseThrow();
+        assertThat(details.truncated()).isTrue();
+        assertThat(details.pairs()).hasSize(ClusterNodes.MAX_PAIRS);
+        assertThat(details.pairs()).filteredOn(NodeDetail::cut).extracting(NodeDetail::key)
+            .containsExactly("ClassPath");
+        assertThat(result.hints()).containsExactly(ClusterNodesResult.DETAILS_TRUNCATED_HINT);
+        assertThat(result.warnings()).containsExactly(ClusterNodesResult.WARNING,
+            ClusterNodesResult.DETAILS_WARNING);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void anUnknownDetailsNodeIsInvalidInputNamingTheKnownMembers() throws IOException {
+        launcher = replaying("details_unknown");
+
+        ToolError error = errorOf(service(http().build(), credentials()), request("node3"));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(error.message()).isEqualTo(
+            "Node node3 is not in the cluster of test/node1; known nodes: node1, node2");
+        assertThat(error.nextStep()).isEqualTo("Use a name from the list");
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void detailsInubitCannotDeliverAreUnavailableTheListStaysAndNoDetailsWarning()
+        throws IOException {
+        launcher = replaying("details_error");
+
+        ClusterNodesResult result = service(http().build(), credentials())
+            .list(request("node2"));
+
+        assertThat(result.cluster().nodes()).extracting(ClusterNode::name)
+            .containsExactly("node1", "node2");
+        assertThat(result.cluster().details()).contains(
+            new ClusterNodes.Unavailable("node2", "Node node2 did not answer. Read timed out"));
+        assertThat(result.warnings()).containsExactly(ClusterNodesResult.WARNING);
+        assertThat(result.hints()).isEmpty();
+        assertTempRootEmpty();
+    }
+
+    // --- failing cases --------------------------------------------------------------------------
+
+    @ParameterizedTest
+    @CsvSource({
+        "api_missing, CLI_UNAVAILABLE",
+        "garbage, UNEXPECTED_RESPONSE"})
+    void eachFailingCaseHasItsCodeAndLeavesNothing(String fixtureCase, ErrorCode expected)
+        throws IOException {
+        launcher = replaying(fixtureCase);
+
+        ToolError error = errorOf(service(http().build(), credentials()), request());
+
+        assertThat(error.code()).isEqualTo(expected);
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertTempRootEmpty();
+    }
+
+    // --- edge case "credentials not available, TLS failure, maintenance mode" (spec) -----------
+
+    @Test
+    void maintenanceModeComesFromTheDetectionAndNothingIsLaunched() throws IOException {
+        detection.fail(NODE, ErrorCode.MAINTENANCE_MODE);
+        launcher = replaying("ok");
+
+        ToolError error = errorOf(service(http().build(), credentials()), request());
+
+        assertThat(error.code()).isEqualTo(ErrorCode.MAINTENANCE_MODE);
+        assertThat(detection.requests()).containsExactly(NODE);
+        assertThat(launcher.launchCount()).isZero();
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void missingCredentialsAreAuthFailedAndNothingIsLaunched() throws IOException {
+        launcher = replaying("ok");
+        NodeCredentials none = new NodeCredentials(NODE, Optional.empty(), Optional.empty(),
+            Optional.empty(), Optional.empty());
+
+        ToolError error = errorOf(service(http().build(), none), request());
+
+        assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(error.message()).isEqualTo("No INUBIT credentials are configured for"
+            + " test/node1, so the INUBIT client helper cannot log in");
+        assertThat(launcher.launchCount()).isZero();
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void anUntrustedCertificateIsATlsErrorAndNothingIsLaunched() throws Exception {
+        TestCertificates certificates = TestCertificates.get();
+        launcher = replaying("ok");
+        ToolError error;
+        try (TlsTestServer tls = TlsTestServer.start(certificates.rogueKeyStore())) {
+            EffectiveNodeConfig server = TestNodeConfig.node().id(NODE.value())
+                .baseUrl("https://127.0.0.1:" + tls.port())
+                .trustStore(certificates.trustStore()).cliHome(home).cliJavaHome(jdk).build();
+
+            error = errorOf(service(server, credentials()), request());
+        }
+
+        assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
+        assertThat(launcher.launchCount()).isZero();
+        assertTempRootEmpty();
+    }
+
+    // --- read_io_log: the listing (US2-1, US2-4) ----------------------------------------------
+
+    @Test
+    void theListingIsTheRunsEntriesInServerOrderWithoutAMessage() throws IOException {
+        List<String> listed = ioFixture("listing.list").lines().toList();
+        IoLogRequest request = ioRequest("listing", OptionalInt.empty());
+        assertThat(request.message()).as("listing.origin names no ref").isEmpty();
+        launcher = replayingIoLog("listing");
+
+        IoLogResult result = ioLogService().read(request);
+
+        assertThat(result.node()).isEqualTo(NODE);
+        assertThat(result.answeringNode()).isEqualTo("node1");
+        assertThat(result.workflow()).isEqualTo(request.workflow());
+        assertThat(result.processId()).isEqualTo(request.processId());
+        assertThat(result.entries()).extracting(IoLogEntry::entry)
+            .containsExactlyElementsOf(listed);
+        assertThat(result.entries().get(0)).isEqualTo(new IoLogEntry(listed.get(0),
+            "Order Connector", Optional.of("Module-0003"), IoDirection.INPUT, 1,
+            IoMessageRef.of(listed.get(0))));
+        assertThat(result.entries()).allSatisfy(entry -> {
+            assertThat(entry.moduleParsed()).isTrue();
+            assertThat(entry.ref()).isEqualTo(IoMessageRef.of(entry.entry()));
+        });
+        assertThat(result.total()).isEqualTo(result.matching()).isEqualTo(listed.size())
+            .isEqualTo(4);
+        assertThat(result.truncated()).isFalse();
+        assertThat(result.message()).isEmpty();
+        assertThat(result.hints()).isEmpty();
+        assertThat(result.warnings()).containsExactly(IoLogResult.WARNING);
+        assertThat(requestLines()).contains("op=ioLog", "processId=" + request.processId(),
+            "workflow=" + request.workflow(), "ref=", "messageOut=");
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertNoLeak(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void anEmptyListingHasNoEntriesAndTheEmptyListingHint() throws IOException {
+        launcher = replayingIoLog("empty_listing");
+
+        IoLogResult result = ioLogService().read(ioRequest("empty_listing", OptionalInt.empty()));
+
+        assertThat(result.answeringNode()).isEqualTo("node1");
+        assertThat(result.entries()).isEmpty();
+        assertThat(result.total()).isZero();
+        assertThat(result.matching()).isZero();
+        assertThat(result.message()).isEmpty();
+        assertThat(result.hints()).containsExactly(IoLogResult.EMPTY_LISTING_HINT);
+        assertThat(result.warnings()).containsExactly(IoLogResult.WARNING);
+        assertTempRootEmpty();
+    }
+
+    // --- read_io_log: the message (US2-2, US2-5, FR-021 … FR-023) ------------------------------
+
+    @Test
+    void theTextIsReadWithThePasswordAndTheAuthorizationValueMaskedAndNoSecretAnywhere()
+        throws IOException {
+        byte[] bytes = ioBytes("read_text.message");
+        assertThat(new String(bytes, StandardCharsets.UTF_8))
+            .as("the case carries the invented credentials")
+            .contains("<password>" + PASSWORD_SECRET + "</password>",
+                "Authorization: Basic " + BASIC_SECRET);
+        assertThat(Base64.getDecoder().decode(BASIC_SECRET))
+            .asString(StandardCharsets.UTF_8).endsWith(":" + READ_TEXT_SECRETS[2]);
+        IoLogRequest request = ioRequest("read_text", OptionalInt.empty());
+        launcher = replayingIoLog("read_text");
+
+        IoLogResult result = ioLogService().read(request);
+
+        IoLogResult.Message message = result.message().orElseThrow();
+        assertThat(message.entry().ref().value()).isEqualTo(request.message().orElseThrow());
+        assertThat(result.entries()).contains(message.entry());
+        assertThat(message.kind()).isEqualTo("text");
+        assertThat(message.charset()).contains("UTF-8");
+        assertThat(message.sizeBytes()).isEqualTo(bytes.length);
+        assertThat(message.text()).contains(maskedReadText());
+        assertThat(message.text().orElseThrow()).contains(
+            "<password>${secret:data.password}</password>",
+            "Authorization: ${secret:authorization}");
+        assertThat(message.textChars()).contains(maskedReadText().length());
+        assertThat(message.cut()).contains(false);
+        assertThat(message.hint()).isEmpty();
+        assertThat(result.total()).isEqualTo(4);
+        assertThat(result.hints()).isEmpty();
+        assertThat(result.warnings()).containsExactly(IoLogResult.WARNING);
+        assertThat(requestLines()).contains("op=ioLog", "ref=" + request.message().get());
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertNoLeak(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void aSmallMaxCharsCutsTheTextAfterTheMasking() throws IOException {
+        String header = "Authorization: ";
+        // 10 characters into the value: of the raw text "Basic b3Jk", of the masked a placeholder
+        int maxChars = maskedReadText().indexOf(header) + header.length() + 10;
+        launcher = replayingIoLog("read_text");
+
+        IoLogResult result = ioLogService().read(ioRequest("read_text",
+            OptionalInt.of(maxChars)));
+
+        IoLogResult.Message message = result.message().orElseThrow();
+        assertThat(message.text()).contains(maskedReadText().substring(0, maxChars));
+        assertThat(message.text().orElseThrow()).endsWith(header + "${secret:a")
+            .doesNotContain(BASIC_SECRET.substring(0, 4));
+        assertThat(message.textChars()).contains(maskedReadText().length());
+        assertThat(message.cut()).contains(true);
+        assertNoLeak(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void aLatin1MessageIsDecodedAsIso88591() throws IOException {
+        byte[] bytes = ioBytes("read_latin1.message");
+        launcher = replayingIoLog("read_latin1");
+
+        IoLogResult result = ioLogService().read(ioRequest("read_latin1", OptionalInt.empty()));
+
+        IoLogResult.Message message = result.message().orElseThrow();
+        assertThat(message.kind()).isEqualTo("text");
+        assertThat(message.charset()).contains("ISO-8859-1");
+        assertThat(message.sizeBytes()).isEqualTo(bytes.length);
+        assertThat(message.text()).contains(new String(bytes, StandardCharsets.ISO_8859_1));
+        assertThat(message.text().orElseThrow()).contains("Bestellung für Müller");
+        assertThat(message.cut()).contains(false);
+        assertThat(result.hints()).isEmpty();
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void aBinaryMessageIsItsSizeAndSignatureWithoutContent() throws IOException {
+        byte[] bytes = ioBytes("read_binary.message");
+        launcher = replayingIoLog("read_binary");
+
+        IoLogResult result = ioLogService().read(ioRequest("read_binary", OptionalInt.empty()));
+
+        IoLogResult.Message message = result.message().orElseThrow();
+        assertThat(message.kind()).isEqualTo("binary");
+        assertThat(message.sizeBytes()).isEqualTo(bytes.length);
+        assertThat(message.detected()).contains(BinarySignature.GZIP);
+        assertThat(message.text()).isEmpty();
+        assertThat(message.charset()).isEmpty();
+        assertThat(message.hint()).contains(QueueEntryResult.Data.BINARY_HINT);
+        assertThat(result.hints()).containsExactly(QueueEntryResult.Data.BINARY_HINT);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void anEmptyMessageIsEmptyWithItsHint() throws IOException {
+        launcher = replayingIoLog("read_empty");
+
+        IoLogResult result = ioLogService().read(ioRequest("read_empty", OptionalInt.empty()));
+
+        IoLogResult.Message message = result.message().orElseThrow();
+        assertThat(message.kind()).isEqualTo("empty");
+        assertThat(message.sizeBytes()).isZero();
+        assertThat(message.text()).isEmpty();
+        assertThat(result.hints()).containsExactly(IoLogResult.Message.EMPTY_HINT);
+        assertTempRootEmpty();
+    }
+
+    // --- read_io_log: failing cases -------------------------------------------------------------
+
+    @Test
+    void aRefTheRunDoesNotListIsInvalidInputAfterOneRun() throws IOException {
+        IoLogRequest request = ioRequest("no_match", OptionalInt.empty());
+        launcher = replayingIoLog("no_match");
+
+        ToolError error = errorOf(ioLogService(), request);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(error.message()).isEqualTo("Message " + request.message().orElseThrow()
+            + " is not in the input/output logging of process " + request.processId() + " of "
+            + request.workflow() + " on test/node1");
+        assertThat(error.nextStep())
+            .isEqualTo("Call read_io_log without message and use a listed ref");
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void anEntryOfAnotherProcessIsAnUnexpectedResponseThatDoesNotQuoteIt() throws IOException {
+        launcher = replayingIoLog("foreign_process");
+
+        ToolError error = errorOf(ioLogService(), ioRequest("foreign_process",
+            OptionalInt.empty()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.toString()).doesNotContain("4712", "Order Connector");
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void inubitsNotAllowedAccessIsForbiddenWithoutEchoingInubitsText() throws IOException {
+        launcher = replayingIoLog("list_error");
+
+        ToolError error = errorOf(ioLogService(), ioRequest("list_error", OptionalInt.empty()));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.FORBIDDEN);
+        assertThat(error.message())
+            .isEqualTo("test/node1 refused the input/output logging for the configured user");
+        assertThat(error.nextStep())
+            .isEqualTo("Give the user the right the Workbench's input/output logging view needs");
+        assertThat(error.toString()).doesNotContain(USER, "NotAllowedAccess");
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertTempRootEmpty();
+    }
+
+    // --- get_node_config (US3-1 … US3-5) --------------------------------------------------------
+
+    @Test
+    void allAnswersEveryNameInListOrderAsItsFramesSayWithTheMissingPropertyFormAbsent()
+        throws IOException {
+        List<String[]> frames = frames("all", CONFIG_FIXTURES).stream()
+            .filter(frame -> frame.startsWith("config ")).map(frame -> frame.split(" ", -1))
+            .toList();
+        List<String> wireNames = Arrays.stream(NodeConfigName.values())
+            .map(NodeConfigName::wireName).toList();
+        assertThat(configNames("all")).as("all.origin names all 20 in list order")
+            .isEqualTo(wireNames);
+        assertThat(frames).extracting(frame -> frame[1]).isEqualTo(wireNames);
+        assertThat(frames).filteredOn(frame -> frame[2].equals("error"))
+            .as("every error of all is the missing-property form").allSatisfy(frame -> {
+                assertThat(frame[3]).isEqualTo(MISSING_PROPERTY_CHAIN);
+                assertThat(decode(frame[4])).contains(MISSING_PROPERTY);
+            });
+        launcher = replaying("all", CONFIG_FIXTURES);
+
+        // no names: all of them, in list order
+        NodeConfigResult result = nodeConfigService()
+            .read(new NodeConfigRequest(NODE.value(), List.of()));
+
+        assertThat(result.node()).isEqualTo(NODE);
+        assertThat(result.answeringNode()).isEqualTo(token(frames("all", CONFIG_FIXTURES),
+            "node ok "));
+        assertThat(result.values()).extracting(NodeConfigValue::name)
+            .containsExactly(NodeConfigName.values());
+        assertThat(result.values()).containsExactlyElementsOf(frames.stream()
+            .map(NodeToolsV81ContractTest::expectedConfigValue).toList());
+        assertThat(result.values()).filteredOn(Present.class::isInstance).hasSize(ALL_PRESENT);
+        assertThat(result.values()).filteredOn(Absent.class::isInstance)
+            .hasSize(NodeConfigName.values().length - ALL_PRESENT);
+        assertThat(result.warnings()).containsExactly(NodeConfigResult.WARNING);
+        assertThat(requestLines()).contains("op=nodeConfig");
+        assertThat(field(launcher.last().stdinBytes(), "names"))
+            .isEqualTo(String.join(",", wireNames));
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertThat(appender.list).extracting(ILoggingEvent::getFormattedMessage)
+            .contains("get_node_config on test/node1: 20 name(s), outcome OK");
+        assertNoLeak(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void secretValueMasksTheCredentialLookingValueEndToEnd() throws IOException {
+        List<String[]> frames = frames("secret_value", CONFIG_FIXTURES).stream()
+            .filter(frame -> frame.startsWith("config ")).map(frame -> frame.split(" ", -1))
+            .toList();
+        assertThat(frames).filteredOn(frame -> frame[1].equals(CONFIG_SECRET_NAME.wireName()))
+            .singleElement().satisfies(frame -> assertThat(decode(frame[9]))
+                .as("the case carries a credential-looking value")
+                .endsWith("password=" + CONFIG_SECRET));
+        launcher = replaying("secret_value", CONFIG_FIXTURES);
+
+        NodeConfigResult result = nodeConfigService()
+            .read(new NodeConfigRequest(NODE.value(), configNames("secret_value")));
+
+        assertThat(result.values()).containsExactlyElementsOf(frames.stream()
+            .map(NodeToolsV81ContractTest::expectedConfigValue).toList());
+        assertThat(result.values()).filteredOn(value -> value.name() == CONFIG_SECRET_NAME)
+            .singleElement().satisfies(value -> assertThat(((Present) value).value())
+                .endsWith("password=" + CONFIG_PLACEHOLDER).doesNotContain(CONFIG_SECRET));
+        assertThat(result.warnings()).containsExactly(NodeConfigResult.WARNING);
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertNoLeak(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void absentMapsBothFormsOfAMissingPropertyToAbsent() throws IOException {
+        List<String> frames = frames("absent", CONFIG_FIXTURES);
+        assertThat(frames).as("the case carries the 8.1.17 error form and the absent form")
+            .contains("config ClusterBindAddress absent")
+            .anySatisfy(frame -> assertThat(decode(frame))
+                .startsWith("config OperationMode error " + MISSING_PROPERTY_CHAIN + " ")
+                .endsWith(MISSING_PROPERTY));
+        launcher = replaying("absent", CONFIG_FIXTURES);
+
+        NodeConfigResult result = nodeConfigService()
+            .read(new NodeConfigRequest(NODE.value(), configNames("absent")));
+
+        assertThat(field(launcher.last().stdinBytes(), "names"))
+            .isEqualTo("OperationMode,ClusterBindAddress,NodeName");
+        assertThat(result.values()).containsExactly(
+            new Absent(NodeConfigName.OPERATION_MODE),
+            new Absent(NodeConfigName.CLUSTER_BIND_ADDRESS),
+            new Present(NodeConfigName.NODE_NAME, "node1", false, "String", "Node name",
+                "Name of this node within the cluster.", "Cluster", true, false));
+        assertThat(result.warnings()).containsExactly(NodeConfigResult.WARNING);
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertNoLeak(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void oneErrorFailsOnlyThatNameWithItsCodeAndAScrubbedMessageAndReturnsTheOthers()
+        throws IOException {
+        launcher = replaying("one_error", CONFIG_FIXTURES);
+
+        NodeConfigResult result = nodeConfigService()
+            .read(new NodeConfigRequest(NODE.value(), configNames("one_error")));
+
+        assertThat(field(launcher.last().stdinBytes(), "names"))
+            .isEqualTo("ClusterName,NodeName,retryInterval");
+        assertThat(result.values()).extracting(NodeConfigValue::name).containsExactly(
+            NodeConfigName.CLUSTER_NAME, NodeConfigName.NODE_NAME, NodeConfigName.RETRY_INTERVAL);
+        assertThat(((Present) result.values().get(0)).value()).isEqualTo("acme-cluster");
+        // the chain names a SocketTimeoutException; the line break of the message is gone
+        assertThat(result.values().get(1)).isEqualTo(new Failed(NodeConfigName.NODE_NAME,
+            ErrorCode.UNREACHABLE,
+            "Exception from service object: Node node1 did not answer in time. Read timed out"));
+        assertThat(((Present) result.values().get(2)).value()).isEqualTo("5000");
+        assertThat(result.warnings()).containsExactly(NodeConfigResult.WARNING);
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertNoLeak(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void apiMissingIsCliUnavailableAndLeavesNothing() throws IOException {
+        launcher = replaying("api_missing", CONFIG_FIXTURES);
+
+        ToolError error = errorOf(nodeConfigService(),
+            new NodeConfigRequest(NODE.value(), configNames("api_missing")));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(launcher.launchCount()).isEqualTo(1);
+        assertTempRootEmpty();
+    }
+
+    // --- set_temporary_log_level and reset_temporary_log_level (US4) ---------------------------
+
+    @Test
+    void setOkRecordsAnActiveLeaseAndAnswersTheExecutedResult() throws IOException {
+        script(SET_ACME, "set_ok");
+
+        LogLevelResult.Outcome result = outcome(levelService().set(setAcme()));
+
+        cli.verifyComplete();
+        assertThat(cli.execCommands()).containsExactly(SET_ACME);
+        assertThat(launcher.launchCount()).as("one own-node lookup").isEqualTo(1);
+        assertThat(requestLines()).contains("op=ownNode");
+        Instant expiry = NOW.plus(Duration.ofMinutes(10));
+        Lease lease = onlyLease();
+        assertThat(lease.state()).isEqualTo(LeaseState.ACTIVE);
+        assertThat(lease.server()).isEqualTo(NODE);
+        assertThat(lease.inubitNode()).isEqualTo("node1");
+        assertThat(lease.loggers())
+            .containsExactly(entry(new LoggerName(ACME), TemporaryLevel.DEBUG));
+        assertThat(lease.owner()).isEqualTo(SELF);
+        assertThat(lease.setAt()).isEqualTo(NOW);
+        assertThat(lease.expiresAt()).isEqualTo(expiry);
+        assertThat(result.node()).isEqualTo(NODE);
+        assertThat(result.inubitNode()).isEqualTo("node1");
+        assertThat(result.outcome()).isEqualTo(LogLevelResult.Status.EXECUTED);
+        assertThat(result.leaseId()).contains(lease.leaseId());
+        assertThat(result.loggers()).containsExactly(
+            new LeaseSummary.Logger(new LoggerName(ACME), TemporaryLevel.DEBUG));
+        assertThat(result.expiresAt()).contains(expiry);
+        assertThat(result.leaseOpen()).isTrue();
+        assertThat(result.message()).isEqualTo("Raised on INUBIT node node1 until " + expiry
+            + "; then the MCP server resets every temporary log level on node1, also other"
+            + " users'. Levels can be lost earlier (INUBIT restart, log configuration reload).");
+        assertThat(result.warnings()).isEmpty();
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.EXECUTED);
+        assertLevelsLeakNothing(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void resetOkEndsTheOpenLease() throws IOException {
+        script(SET_ACME, "set_ok");
+        script(RESET, "reset_ok");
+        LogLevelService service = levelService();
+        outcome(service.set(setAcme()));
+
+        LogLevelResult.Outcome result = outcome(service.reset(new ResetLevelRequest(
+            Optional.of(NODE.value()), Optional.empty(), Optional.empty(), Optional.empty(),
+            Optional.empty())));
+
+        cli.verifyComplete();
+        assertThat(cli.execCommands()).containsExactly(SET_ACME, RESET);
+        assertThat(launcher.launchCount()).as("one own-node lookup per call").isEqualTo(2);
+        Lease lease = onlyLease();
+        assertThat(lease.state()).isEqualTo(LeaseState.RESET);
+        assertThat(lease.endedAt()).contains(NOW);
+        assertThat(result.inubitNode()).isEqualTo("node1");
+        assertThat(result.outcome()).isEqualTo(LogLevelResult.Status.EXECUTED);
+        assertThat(result.leaseId()).contains(lease.leaseId());
+        assertThat(result.leaseOpen()).as("a lease was open").isTrue();
+        assertThat(result.expiresAt()).isEmpty();
+        assertThat(result.message()).isEqualTo("Every temporary log level on INUBIT node node1"
+            + " was reset, also other users'; the lease ended");
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.EXECUTED,
+            AuditOutcome.PENDING, AuditOutcome.EXECUTED);
+        assertLevelsLeakNothing(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void missingLevelIsAnUnexpectedResponseAndTheNodeIsResetAtOnce() throws IOException {
+        script(SET_ACME, "missing_level");
+        script(RESET, "reset_ok");
+
+        LogLevelResult.Outcome result = outcome(levelService().set(setAcme()));
+
+        cli.verifyComplete();
+        assertThat(cli.execCommands()).containsExactly(SET_ACME, RESET);
+        Lease lease = onlyLease();
+        assertThat(lease.state()).isEqualTo(LeaseState.RESET);
+        assertThat(lease.endedAt()).contains(NOW);
+        assertThat(result.outcome()).isEqualTo(LogLevelResult.Status.FAILED);
+        assertThat(result.leaseId()).contains(lease.leaseId());
+        assertThat(result.leaseOpen()).isFalse();
+        assertThat(result.expiresAt()).isEmpty();
+        assertThat(result.message()).isEqualTo("Raising the log level on INUBIT node node1"
+            + " failed (UNEXPECTED_RESPONSE: StartCLI did not change the log level: Missing log"
+            + " level.); every temporary log level on node1 was reset at once, also other"
+            + " users', and lease " + lease.leaseId() + " ended");
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.FAILED);
+        assertThat(audited.get(1).reason().orElseThrow()).startsWith("UNEXPECTED_RESPONSE: ");
+        assertLevelsLeakNothing(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void loginFailureIsAuthFailedAndTheCredentialGuardHoldsBackTheResetAtOnce()
+        throws IOException {
+        script(SET_ACME, "login_failure");
+
+        LogLevelResult.Outcome result = outcome(levelService().set(setAcme()));
+
+        cli.verifyComplete();
+        assertThat(cli.execCommands()).as("the rejected login pauses StartCLI's logins")
+            .containsExactly(SET_ACME);
+        Lease lease = onlyLease();
+        assertThat(lease.state()).isEqualTo(LeaseState.RESET_FAILED);
+        assertThat(lease.lastAttempt().orElseThrow().code()).contains(ErrorCode.AUTH_FAILED);
+        assertThat(lease.lastAttempt().orElseThrow().reason()).contains(LeaseReason.CLI_FAILED);
+        assertThat(result.outcome()).isEqualTo(LogLevelResult.Status.FAILED);
+        assertThat(result.leaseId()).contains(lease.leaseId());
+        assertThat(result.leaseOpen()).isTrue();
+        assertThat(result.expiresAt()).contains(lease.expiresAt());
+        assertThat(result.message())
+            .startsWith("Raising the log level on INUBIT node node1 failed (AUTH_FAILED: ")
+            .contains(", and the reset failed too (AUTH_FAILED: ")
+            .endsWith("the MCP server retries the reset of lease " + lease.leaseId()
+                + " at least every minute");
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.FAILED);
+        assertThat(audited.get(1).reason().orElseThrow()).startsWith("AUTH_FAILED: ");
+        assertLevelsLeakNothing(result);
+        assertTempRootEmpty();
+    }
+
+    @Test
+    void forbiddenIsForbiddenAndTheResetAtOnceIsRefusedToo() throws IOException {
+        // the account lacks the right to change log levels, which trace --reset needs as well
+        script(SET_ACME, "forbidden");
+        script(RESET, "forbidden");
+
+        LogLevelResult.Outcome result = outcome(levelService().set(setAcme()));
+
+        cli.verifyComplete();
+        assertThat(cli.execCommands()).containsExactly(SET_ACME, RESET);
+        Lease lease = onlyLease();
+        assertThat(lease.state()).isEqualTo(LeaseState.RESET_FAILED);
+        assertThat(lease.lastAttempt().orElseThrow().code()).contains(ErrorCode.FORBIDDEN);
+        assertThat(result.outcome()).isEqualTo(LogLevelResult.Status.FAILED);
+        assertThat(result.leaseOpen()).isTrue();
+        String forbidden = "FORBIDDEN: The INUBIT account is not allowed to change log levels"
+            + " on test/node1";
+        assertThat(result.message()).isEqualTo("Raising the log level on INUBIT node node1"
+            + " failed (" + forbidden + "), and the reset failed too (" + forbidden + "); the"
+            + " levels may stay raised on node1: the MCP server retries the reset of lease "
+            + lease.leaseId() + " at least every minute");
+        assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.FAILED);
+        assertThat(audited.get(1).reason()).contains(forbidden);
+        assertLevelsLeakNothing(result);
+        assertTempRootEmpty();
+    }
+
+    // --- helpers ----------------------------------------------------------------------------
+
+    /**
+     * The real service over the real adapter for {@code server}: {@link #MATRIX}, the opt-in set,
+     * the detection answering 8.1.17, the helper getting {@code credentials}.
+     */
+    private ClusterNodeService service(EffectiveNodeConfig server, NodeCredentials credentials) {
+        ClusterNodePort port = new CliClusterNodeAdapter(helper(server, credentials), scrubber,
+            server.secretLabels());
+        return new ClusterNodeService(new TargetResolver(List.of(NODE)), node -> true,
+            FakeVersionDetection.gateWithoutClients(versions, detection, MATRIX),
+            new Gateways(port, null, null, null), node -> CLI_TIMEOUT, System::nanoTime);
+    }
+
+    /**
+     * The real {@code read_io_log} service over the real adapter, as {@link #service}; its
+     * listing and read budgets are both {@link #CLI_TIMEOUT}, its known secrets the scrubber's.
+     */
+    private IoLogService ioLogService() {
+        EffectiveNodeConfig server = http().build();
+        IoLogPort port = new CliIoLogAdapter(helper(server, credentials()), scrubber,
+            server.secretLabels());
+        return new IoLogService(new TargetResolver(List.of(NODE)), node -> true,
+            FakeVersionDetection.gateWithoutClients(versions, detection, MATRIX),
+            new Gateways(null, port, null, null), node -> CLI_TIMEOUT, node -> CLI_TIMEOUT,
+            scrubber::scrub, System::nanoTime);
+    }
+
+    /** The real {@code get_node_config} service over the real adapter, as {@link #service}. */
+    private NodeConfigService nodeConfigService() {
+        EffectiveNodeConfig server = http().build();
+        NodeConfigPort port = new CliNodeConfigAdapter(helper(server, credentials()), scrubber,
+            server.secretLabels());
+        return new NodeConfigService(new TargetResolver(List.of(NODE)), node -> true,
+            FakeVersionDetection.gateWithoutClients(versions, detection, MATRIX),
+            new Gateways(null, null, port, null), node -> CLI_TIMEOUT, System::nanoTime);
+    }
+
+    /**
+     * The real log-level service over the real adapter for {@link #http()}: {@link #MATRIX}, the
+     * opt-in set, write access with confirmation {@code CLIENT}, the detection answering 8.1.17,
+     * StartCLI {@link #cli}, the client helper answering the own-node lookup with {@code node1},
+     * the lease store {@link #leases} below the temporary directory.
+     */
+    private LogLevelService levelService() {
+        EffectiveNodeConfig server = http().build();
+        NodeCredentials credentials = credentials();
+        launcher = ownNode("node1");
+        CredentialGuard guard = new CredentialGuard(server.secretLabels(), Clock.systemUTC());
+        CliRunner runner = TestCliRunners.forHost(cli, PARENT, resources);
+        NodeHelperRunner helper = new NodeHelperRunner(server, () -> credentials, guard, runner,
+            TestCliRunners.helperHost(PARENT, resources, tempRoot),
+            new ProcessRun(launcher, resources), new CliConcurrencyLimiter(MATRIX));
+        LogLevelPort port = new CliLogLevelAdapter(helper, server, credentials, guard, runner,
+            new CliOutputClassifier(scrubber, server.secretLabels(), runner.windows()), scrubber);
+        Gateways gateways = new Gateways(null, null, null, port);
+        WritePolicy policy = new WritePolicy(NODE, false, true, false,
+            WritePolicy.Confirmation.CLIENT, Duration.ofMinutes(5), Optional.of(USER));
+        WriteGuard writeGuard = new WriteGuard(new TargetResolver(List.of(NODE)), node -> policy,
+            gateways, FakeVersionDetection.gateWithoutClients(versions, detection, MATRIX));
+        Path levels = root.resolve("log-levels");
+        leases = new LeaseStore(levels, PrivateFiles.forHost(), leaseClock);
+        ProcessLiveness liveness = new ProcessLiveness() {
+            @Override
+            public LeaseOwner self() {
+                return SELF;
+            }
+
+            @Override
+            public boolean alive(LeaseOwner owner) {
+                return owner.equals(SELF);
+            }
+        };
+        return new LogLevelService(writeGuard, node -> true, gateways,
+            new WriteChallengeRegistry(leaseClock), leases,
+            new NodeLogLevelLocks(levels, PrivateFiles.forHost()), liveness,
+            new LogLevelAudit(audited::add, leaseClock, "acme", UUID::randomUUID),
+            node -> CLI_TIMEOUT, leaseClock, System::nanoTime);
+    }
+
+    /** DEBUG for {@link #ACME} on {@link #NODE} for the default 10 minutes, no code. */
+    private static SetLevelRequest setAcme() {
+        return new SetLevelRequest(NODE.value(), List.of(ACME), "DEBUG", OptionalInt.empty(),
+            Optional.empty(), Optional.empty());
+    }
+
+    /** The executed outcome of a call (confirmation {@code CLIENT}: never a challenge). */
+    private static LogLevelResult.Outcome outcome(LogLevelResult result) {
+        assertThat(result).isInstanceOf(LogLevelResult.Outcome.class);
+        return (LogLevelResult.Outcome) result;
+    }
+
+    private Lease onlyLease() {
+        List<Lease> stored = leases.read();
+        assertThat(stored).hasSize(1);
+        return stored.get(0);
+    }
+
+    private List<AuditOutcome> outcomes() {
+        return audited.stream().map(AuditRecord::outcome).toList();
+    }
+
+    /** Expects {@code command}, answered by the log-level case {@code fixtureCase}. */
+    private void script(String command, String fixtureCase) {
+        cli.expect(command).replying(fixture(LEVEL_FIXTURES, fixtureCase + ".stdout"),
+            fixture(LEVEL_FIXTURES, fixtureCase + ".stderr"),
+            Integer.parseInt(fixture(LEVEL_FIXTURES, fixtureCase + ".exit").strip()));
+    }
+
+    /**
+     * Nothing secret in the result, the audit records, the lease store or a StartCLI run's
+     * arguments and environment; the password reaches StartCLI on stdin only.
+     */
+    private void assertLevelsLeakNothing(LogLevelResult.Outcome result) throws IOException {
+        TestSecrets.assertNoLeak(result.toString());
+        TestSecrets.assertNoLeak(audited.toString());
+        TestSecrets.assertNoLeak(
+            Files.readString(root.resolve("log-levels").resolve(LeaseStore.FILE)));
+        for (ScriptedProcessLauncher.Launch launch : cli.launches()) {
+            TestSecrets.assertNoLeak(String.join(" ", launch.spec().command()));
+            TestSecrets.assertNoLeak(launch.spec().environment().toString());
+            assertThat(new String(launch.process().stdinBytes(), StandardCharsets.UTF_8))
+                .isEqualTo(TestSecrets.CONFIGURED_PASSWORD + "\n");
+        }
+    }
+
+    /**
+     * A client helper that answers every request with the own-node lookup of {@code inubitNode}
+     * (exit 0), with the request's nonce.
+     */
+    private static FakeProcessLauncher ownNode(String inubitNode) {
+        String frames = Stream.of("start SOAP_81", "login ok", "node ok " + inubitNode, "end")
+            .map(frame -> FRAME_PREFIX + frame + "\n").collect(Collectors.joining());
+        return FakeProcessLauncher.of("", "", 0).responding(request -> new Answer(
+            frames.replace(FIXTURE_NONCE, field(request, "nonce")), 0));
+    }
+
+    /** The real helper runner for {@code server}, the helper getting {@code credentials}. */
+    private NodeHelperRunner helper(EffectiveNodeConfig server, NodeCredentials credentials) {
+        CredentialGuard guard = new CredentialGuard(server.secretLabels(), Clock.systemUTC());
+        CliRunner runner = TestCliRunners.forHost(launcher, PARENT, resources);
+        return new NodeHelperRunner(server, () -> credentials, guard, runner,
+            TestCliRunners.helperHost(PARENT, resources, tempRoot),
+            new ProcessRun(launcher, resources), new CliConcurrencyLimiter(MATRIX));
+    }
+
+    private TestNodeConfig http() {
+        return TestNodeConfig.node().id(NODE.value()).baseUrl("http://inubit.example.test:8000")
+            .allowInsecureHttp(true).cliHome(home).cliJavaHome(jdk);
+    }
+
+    private NodeCredentials credentials() {
+        return new NodeCredentials(NODE, Optional.of(new SourcedValue<>(USER, "test")),
+            Optional.of(new SourcedValue<>(scrubber.register(TestSecrets.CONFIGURED_PASSWORD),
+                "test")),
+            Optional.empty(), Optional.empty());
+    }
+
+    private static ClusterNodesRequest request() {
+        return new ClusterNodesRequest(NODE.value(), Optional.empty());
+    }
+
+    private static ClusterNodesRequest request(String nodeName) {
+        return new ClusterNodesRequest(NODE.value(), Optional.of(nodeName));
+    }
+
+    /** The error of a call; it carries the node and leaks nothing. */
+    private static ToolError errorOf(ClusterNodeService service, ClusterNodesRequest request) {
+        ToolErrorException thrown =
+            catchThrowableOfType(ToolErrorException.class, () -> service.list(request));
+        assertThat(thrown).as("the call fails").isNotNull();
+        ToolError error = thrown.error();
+        assertThat(error.node()).contains(NODE);
+        TestSecrets.assertNoLeak(error.toString());
+        return error;
+    }
+
+    /** The error of a {@code read_io_log} call; it carries the node and leaks nothing. */
+    private static ToolError errorOf(IoLogService service, IoLogRequest request) {
+        ToolErrorException thrown =
+            catchThrowableOfType(ToolErrorException.class, () -> service.read(request));
+        assertThat(thrown).as("the call fails").isNotNull();
+        ToolError error = thrown.error();
+        assertThat(error.node()).contains(NODE);
+        TestSecrets.assertNoLeak(error.toString());
+        assertThat(error.toString()).doesNotContain(READ_TEXT_SECRETS);
+        return error;
+    }
+
+    /** The error of a {@code get_node_config} call; it carries the node and leaks nothing. */
+    private static ToolError errorOf(NodeConfigService service, NodeConfigRequest request) {
+        ToolErrorException thrown =
+            catchThrowableOfType(ToolErrorException.class, () -> service.read(request));
+        assertThat(thrown).as("the call fails").isNotNull();
+        ToolError error = thrown.error();
+        assertThat(error.node()).contains(NODE);
+        TestSecrets.assertNoLeak(error.toString());
+        assertThat(error.toString()).doesNotContain(CONFIG_SECRET);
+        return error;
+    }
+
+    private static void assertNoLeak(NodeConfigResult result) {
+        TestSecrets.assertNoLeak(result.toString());
+        assertThat(result.toString()).doesNotContain(CONFIG_SECRET);
+    }
+
+    private static void assertNoLeak(ClusterNodesResult result) {
+        TestSecrets.assertNoLeak(result.toString());
+        assertThat(result.toString()).doesNotContain(DETAILS_SECRET);
+    }
+
+    private static void assertNoLeak(IoLogResult result) {
+        TestSecrets.assertNoLeak(result.toString());
+        assertThat(result.toString()).doesNotContain(READ_TEXT_SECRETS);
+    }
+
+    private void assertTempRootEmpty() throws IOException {
+        try (Stream<Path> entries = Files.list(tempRoot)) {
+            assertThat(entries).as("nothing left below the temporary directory").isEmpty();
+        }
+    }
+
+    /** The cases of {@code directory}: the names of its {@code .frames} files. */
+    private static TreeSet<String> casesOnDisk(Path directory) throws IOException {
+        return casesOnDisk(directory, FRAMES);
+    }
+
+    /** The cases of {@code directory}: the names of its files ending in {@code suffix}. */
+    private static TreeSet<String> casesOnDisk(Path directory, String suffix) throws IOException {
+        try (Stream<Path> files = Files.list(directory)) {
+            return files.map(file -> file.getFileName().toString())
+                .filter(name -> name.endsWith(suffix))
+                .map(name -> name.substring(0, name.length() - suffix.length()))
+                .collect(Collectors.toCollection(TreeSet::new));
+        }
+    }
+
+    /** The lines of the last helper request, as written to its stdin. */
+    private List<String> requestLines() {
+        return new String(launcher.last().stdinBytes(), StandardCharsets.US_ASCII).lines()
+            .toList();
+    }
+
+    /** The operation frames of {@code <case>.frames}: each line after the nonce, still encoded. */
+    private static List<String> frames(String fixtureCase) {
+        return frames(fixtureCase, FIXTURES);
+    }
+
+    /** As {@link #frames(String)}, of the case in the resource directory {@code fixtures}. */
+    private static List<String> frames(String fixtureCase, String fixtures) {
+        return fixture(fixtures, fixtureCase + FRAMES).lines()
+            .filter(line -> line.startsWith(FRAME_PREFIX))
+            .map(line -> line.substring(FRAME_PREFIX.length())).toList();
+    }
+
+    /** The decoded rest of the one frame starting with {@code start}. */
+    private static String token(List<String> frames, String start) {
+        List<String> matching = frames.stream().filter(frame -> frame.startsWith(start))
+            .toList();
+        assertThat(matching).as("one '%s' frame", start).hasSize(1);
+        return decode(matching.get(0).substring(start.length()));
+    }
+
+    private static String decode(String token) {
+        return URLDecoder.decode(token, StandardCharsets.UTF_8);
+    }
+
+    private static String fixture(String name) {
+        return fixture(FIXTURES, name);
+    }
+
+    private static String fixture(String fixtures, String name) {
+        return new String(FakeProcessLauncher.resource(fixtures + name), StandardCharsets.UTF_8);
+    }
+
+    /** Replays {@code <case>.frames}/{@code .exit} of the cluster-nodes fixtures with the nonce. */
+    private static FakeProcessLauncher replaying(String fixtureCase) {
+        return replaying(fixtureCase, FIXTURES);
+    }
+
+    /** As {@link #replaying(String)}, of the case in the resource directory {@code fixtures}. */
+    private static FakeProcessLauncher replaying(String fixtureCase, String fixtures) {
+        String frames = fixture(fixtures, fixtureCase + FRAMES);
+        int exit = Integer.parseInt(fixture(fixtures, fixtureCase + ".exit").strip());
+        return FakeProcessLauncher.of("", "", 0).responding(request -> new Answer(
+            frames.replace(FIXTURE_NONCE, field(request, "nonce")), exit));
+    }
+
+    /**
+     * Replays {@code <case>.frames}/{@code .exit} of the io-log fixtures with the nonce, after
+     * writing the case's {@code .list} and {@code .message} (if it has them) to the request's
+     * {@code listOut} and {@code messageOut}, as the helper does.
+     */
+    private static FakeProcessLauncher replayingIoLog(String fixtureCase) {
+        String frames = ioFixture(fixtureCase + FRAMES);
+        int exit = Integer.parseInt(ioFixture(fixtureCase + ".exit").strip());
+        return FakeProcessLauncher.of("", "", 0).responding(request -> {
+            copyIfPresent(fixtureCase + ".list", field(request, "listOut"));
+            copyIfPresent(fixtureCase + ".message", field(request, "messageOut"));
+            return new Answer(frames.replace(FIXTURE_NONCE, field(request, "nonce")), exit);
+        });
+    }
+
+    private static void copyIfPresent(String fixtureFile, String target) {
+        Path source = IO_DIRECTORY.resolve(fixtureFile);
+        if (Files.exists(source)) {
+            try {
+                Files.write(Path.of(target), Files.readAllBytes(source));
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+    }
+
+    /** The decoded value of {@code key} in a helper request. */
+    private static String field(byte[] request, String key) {
+        return decode(new String(request, StandardCharsets.US_ASCII).lines()
+            .filter(line -> line.startsWith(key + "=")).findFirst().orElseThrow()
+            .substring(key.length() + 1));
+    }
+
+    /**
+     * The {@code read_io_log} request the first line of {@code <case>.origin} names: its
+     * {@code processId}, {@code workflow} and, for a read, {@code ref}.
+     */
+    private static IoLogRequest ioRequest(String fixtureCase, OptionalInt maxChars) {
+        String origin = ioFixture(fixtureCase + ".origin").lines().findFirst().orElseThrow();
+        return new IoLogRequest(NODE.value(), originValue(origin, "workflow").orElseThrow(),
+            originValue(origin, "processId").orElseThrow(), originValue(origin, "ref"),
+            Optional.empty(), maxChars);
+    }
+
+    private static Optional<String> originValue(String origin, String key) {
+        Matcher value = Pattern.compile(" " + key + "=([0-9A-Za-z_-]+)").matcher(origin);
+        return value.find() ? Optional.of(value.group(1)) : Optional.empty();
+    }
+
+    /**
+     * The configuration names of the first {@code names=} in {@code <case>.origin} (on its second
+     * line for a recorded case, whose first line is only {@code recorded <date> <version>
+     * neutralized}).
+     */
+    private static List<String> configNames(String fixtureCase) {
+        String origin = fixture(CONFIG_FIXTURES, fixtureCase + ".origin");
+        Matcher names = Pattern.compile("(?<![A-Za-z])names=([0-9A-Za-z,]+)").matcher(origin);
+        assertThat(names.find()).as("%s.origin names the request's names", fixtureCase).isTrue();
+        return List.of(names.group(1).split(","));
+    }
+
+    /**
+     * What the service returns for the split {@code config} frame of {@code all} or
+     * {@code secret_value}: an {@code ok} frame its {@link Present} with {@code -} as the empty
+     * text and {@link #CONFIG_SECRET} masked, any other frame (by the assertions on the cases, the
+     * missing-property form) {@link Absent}.
+     */
+    private static NodeConfigValue expectedConfigValue(String[] frame) {
+        NodeConfigName name = NodeConfigName.parse(frame[1]).orElseThrow();
+        if (!frame[2].equals("ok")) {
+            return new Absent(name);
+        }
+        // config <name> ok <type> <editable> <deprecated> <displayName> <category>
+        //     <description> <value>
+        return new Present(name, text(frame[9]).replace(CONFIG_SECRET, CONFIG_PLACEHOLDER),
+            false, frame[3], text(frame[6]), text(frame[8]), text(frame[7]),
+            Boolean.parseBoolean(frame[4]), Boolean.parseBoolean(frame[5]));
+    }
+
+    /** A text token of a frame; {@code -} is the empty text (helper-protocol-delta.md). */
+    private static String text(String token) {
+        return token.equals("-") ? "" : decode(token);
+    }
+
+    private static String ioFixture(String name) {
+        return new String(ioBytes(name), StandardCharsets.UTF_8);
+    }
+
+    private static byte[] ioBytes(String name) {
+        return FakeProcessLauncher.resource(IO_FIXTURES + name);
+    }
+
+    /**
+     * {@code read_text.message} as the masking must return it: the {@code <password>} value and
+     * the {@code Authorization} value replaced by their placeholders, everything else unchanged.
+     */
+    private static String maskedReadText() {
+        return ioFixture("read_text.message")
+            .replace(PASSWORD_SECRET, "${secret:data.password}")
+            .replace("Basic " + BASIC_SECRET, "${secret:authorization}");
+    }
+
+    /**
+     * A client home with StartCLI (for the log-level cases), {@code lib/ibis.jar},
+     * {@code lib/shared/} and {@code conf/}.
+     */
+    private Path client() throws IOException {
+        Path client = root.resolve("client");
+        Files.createDirectories(client.resolve("lib").resolve("shared"));
+        Files.createDirectories(client.resolve("conf"));
+        Files.createFile(client.resolve("lib").resolve("ibis.jar"));
+        FakeStartCli.install(client);
+        return client;
+    }
+
+    /** A JDK directory with an executable {@code bin/java} and {@code bin/java.exe}. */
+    private Path jdk() throws IOException {
+        Path directory = root.resolve("jdk");
+        Path bin = Files.createDirectories(directory.resolve("bin"));
+        for (String name : List.of("java", "java.exe")) {
+            Path java = Files.createFile(bin.resolve(name));
+            if (!Platform.windows()) {
+                Files.setPosixFilePermissions(java, PosixFilePermissions.fromString("rwx------"));
+            }
+        }
+        return directory;
+    }
+
+    /**
+     * Only the given port of {@link #NODE} (the others are {@code null}); every other port is
+     * an assertion error.
+     */
+    private record Gateways(ClusterNodePort clusterNodePort, IoLogPort ioLogPort,
+        NodeConfigPort nodeConfigPort, LogLevelPort logLevelPort) implements GatewayFactory {
+
+        @Override
+        public ClusterNodePort clusterNodes(NodeId server) {
+            assertThat(server).isEqualTo(NODE);
+            assertThat(clusterNodePort).as("the cluster-node port is expected").isNotNull();
+            return clusterNodePort;
+        }
+
+        @Override
+        public IoLogPort ioLog(NodeId server) {
+            assertThat(server).isEqualTo(NODE);
+            assertThat(ioLogPort).as("the I/O log port is expected").isNotNull();
+            return ioLogPort;
+        }
+
+        @Override
+        public NodeConfigPort nodeConfig(NodeId server) {
+            assertThat(server).isEqualTo(NODE);
+            assertThat(nodeConfigPort).as("the node-configuration port is expected").isNotNull();
+            return nodeConfigPort;
+        }
+
+        @Override
+        public LogLevelPort logLevel(NodeId server) {
+            assertThat(server).isEqualTo(NODE);
+            assertThat(logLevelPort).as("the log-level port is expected").isNotNull();
+            return logLevelPort;
+        }
+
+        @Override
+        public Gateway forServer(NodeId server) {
+            throw new AssertionError("not expected");
+        }
+
+        @Override
+        public InubitVersion detect(NodeId server) {
+            throw new AssertionError("not expected");
+        }
+
+        @Override
+        public MonitoringPort monitoring(NodeId server) {
+            throw new AssertionError("not expected");
+        }
+
+        @Override
+        public ProcessQueryPort processes(NodeId server) {
+            throw new AssertionError("not expected");
+        }
+
+        @Override
+        public LogPort logs(NodeId server) {
+            throw new AssertionError("not expected");
+        }
+
+        @Override
+        public InventoryPort inventory(NodeId server) {
+            throw new AssertionError("not expected");
+        }
+
+        /** The write guard's client check of the log-level tools; the client is installed. */
+        @Override
+        public ProcessControlPort processControl(NodeId server) {
+            assertThat(server).isEqualTo(NODE);
+            assertThat(logLevelPort).as("the log-level port is expected").isNotNull();
+            return new ProcessControlPort() {
+                @Override
+                public void checkAvailable() {
+                }
+
+                @Override
+                public String restart(String processId, WritePermit permit) {
+                    throw new AssertionError("not expected");
+                }
+
+                @Override
+                public String kill(String processId, WritePermit permit) {
+                    throw new AssertionError("not expected");
+                }
+            };
+        }
+
+        @Override
+        public Optional<Gateway> knownGateway(NodeId server) {
+            throw new AssertionError("not expected");
+        }
+    }
+}

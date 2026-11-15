@@ -26,6 +26,14 @@ public class IBISSoapClient implements I_IBISClientInterface {
         script.login();
     }
 
+    @Override
+    public String getObject(String objectName, String user, String objectType)
+        throws Exception {
+        FakeInubitScript script = FakeInubitScript.active();
+        script.record("IBISSoapClient.getObject", objectName, user, objectType);
+        return script.object(objectName, objectType);
+    }
+
     public void logoutUser(String user) {
         FakeInubitScript.active().record("IBISSoapClient.logoutUser", user);
     }

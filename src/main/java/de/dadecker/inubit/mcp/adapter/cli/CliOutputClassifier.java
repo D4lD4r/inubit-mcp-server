@@ -14,6 +14,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * Interprets StartCLI output (research R-6, R-7; recordings of spikes S-2/S-3).
@@ -79,6 +80,19 @@ public final class CliOutputClassifier {
     private static final String FILE_WAS_NOT_FOUND = "FileWasNotFound";
     /** The server's marker for a refused request (feature 021, research D-14). */
     private static final String ACCESS_DENIED = "AccessDenied";
+    /** StartCLI's text for a temporary log level change without a level (feature 024, D-11). */
+    private static final String MISSING_LOG_LEVEL = "Missing log level.";
+    /**
+     * The one log record the 9.0 client prints itself before the login: netty cannot load its
+     * macOS DNS resolver (write spike T061, also in the 9.0 StartCLI recordings of features 021
+     * and 022). It names no host and says nothing about the command (feature 024, D-11).
+     */
+    private static final Pattern NINE_CLIENT_DNS_RECORD = Pattern.compile(
+        "^ERROR\\s+\\d{2}:\\d{2}:\\d{2},\\d{3} \\[main\\s*\\] "
+            + Pattern.quote("DnsServerAddressStreamProviders Unable to load"
+                + " io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider, fallback to"
+                + " system defaults.")
+            + ".*$");
     private static final Pattern MISSING_MODULE = Pattern.compile("^The module .+ not found$");
 
     private static final String PASSWORD_PROMPT = "Password:";
@@ -201,7 +215,7 @@ public final class CliOutputClassifier {
                     + " and was cut (exit code " + result.exitCode() + ")",
                 "The command printed far more than expected, so its result cannot be trusted",
                 "Check the INUBIT system log for the time of the call")
-                .withExcerpt(excerpt(String.join("\n", output.outputLines()))));
+                .withExcerpt(masked(String.join("\n", output.outputLines()))));
         }
         if (result.exitCode() == 0 && !output.okMessages().isEmpty()
             && output.nokMessages().isEmpty()) {
@@ -253,6 +267,70 @@ public final class CliOutputClassifier {
             return new CliOutcome.Success(output);
         }
         return classify(result);
+    }
+
+    /**
+     * Classifies a {@code trace --nodelevel … --package …} or {@code trace --reset} run (feature
+     * 024, research D-11, D-20). StartCLI's text for an option form without a level,
+     * {@code Missing log level.}, is {@code UNEXPECTED_RESPONSE} whatever its prefix or exit code;
+     * the server's marker {@code AccessDenied} is a refused change ({@code FORBIDDEN}). StartCLI
+     * prints no confirmation for either form (write spike T039, 8.1.17: stdout only the
+     * preamble; write spike T061, 9.0.10: the same with the 9.0 client's preamble), so with exit
+     * code 0, no marker and no {@code n-NOK} message a success is nothing after the leading
+     * preamble on stdout and stderr but {@code n-OK} messages, preamble lines (the 9.0 client
+     * repeats the hostname warning, also after the password prompt) and, only for a run of the
+     * 9.0 client ({@link CliResult#clientMajor()} 9 or later), at most one log record: that
+     * client's single-line netty record {@code DnsServerAddressStreamProviders Unable to load
+     * io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider, fallback to system
+     * defaults.…}; any other line or log record is {@code UNEXPECTED_RESPONSE} "StartCLI printed
+     * unexpected output for the log level change" (contract "unexpected StartCLI output"). Cut
+     * output, a non-zero exit code, an {@code n-NOK} message and any other marker are classified
+     * as by {@link #classify(CliResult)}, except that a marker is never a success here.
+     */
+    public CliOutcome classifyTraceLevel(CliResult result) {
+        if (result.truncated()) {
+            return classify(result);
+        }
+        CliOutput output = parse(result);
+        String node = labels.map(names -> names.node().value()).orElse("the INUBIT server");
+        if (output.markers().stream().anyMatch(marker -> marker.code().equals(ACCESS_DENIED))) {
+            return new CliOutcome.Failure(error(ErrorCode.FORBIDDEN,
+                "The INUBIT account is not allowed to change log levels on " + node,
+                "The account lacks the INUBIT right to change the log level",
+                "Ask the INUBIT administrators for the right, or use another account"));
+        }
+        if (Stream.concat(output.outputLines().stream(), output.logLines().stream())
+            .anyMatch(line -> line.contains(MISSING_LOG_LEVEL))) {
+            return new CliOutcome.Failure(error(ErrorCode.UNEXPECTED_RESPONSE,
+                "StartCLI did not change the log level: " + MISSING_LOG_LEVEL,
+                "StartCLI did not take the level of the trace command; the INUBIT client may"
+                    + " name its options differently",
+                "Reset with reset_temporary_log_level; report the INUBIT version"));
+        }
+        if (result.exitCode() == 0 && output.nokMessages().isEmpty()
+            && output.markers().isEmpty()) {
+            boolean nine = result.clientMajor().isPresent()
+                && result.clientMajor().getAsInt() >= 9;
+            if (output.logLines().size() <= (nine ? 1 : 0) && output.logLines().stream()
+                    .allMatch(line -> NINE_CLIENT_DNS_RECORD.matcher(line).matches())
+                && output.outputLines().stream()
+                    .filter(line -> !isPreamble(line) && !line.strip().equals(PASSWORD_PROMPT))
+                    .count() == output.okMessages().size()) {
+                return new CliOutcome.Success(output);
+            }
+            return new CliOutcome.Failure(error(ErrorCode.UNEXPECTED_RESPONSE,
+                "StartCLI printed unexpected output for the log level change",
+                "StartCLI printed text where a change prints none, so the change may not have been"
+                    + " made",
+                "Reset with reset_temporary_log_level; report the INUBIT version")
+                .withExcerpt(masked(excerpt(output))));
+        }
+        CliOutcome outcome = classify(result);
+        if (outcome instanceof CliOutcome.Success) {
+            // only exit code 0 with an n-OK message and a marker gets here
+            return new CliOutcome.Failure(unexpected(result, output));
+        }
+        return outcome;
     }
 
     /** {@code bytes} as whole MiB where it is one, else in bytes. */
@@ -353,22 +431,26 @@ public final class CliOutputClassifier {
     }
 
     private ToolError unexpected(CliResult result, CliOutput output) {
-        // the command's own output first, then the log records without stack frames
+        return error(ErrorCode.UNEXPECTED_RESPONSE,
+            "Unrecognized StartCLI output (exit code " + result.exitCode() + ")",
+            "StartCLI reported a result this MCP server does not know how to interpret",
+            "See the excerpt; check the INUBIT system log for the time of the call")
+            .withExcerpt(masked(excerpt(output)));
+    }
+
+    /** The command's own output first, then the log records without stack frames. */
+    private static String excerpt(CliOutput output) {
         List<String> relevant = new ArrayList<>(output.outputLines());
         for (String line : output.logLines()) {
             if (!STACK_LINE.matcher(line).find()) {
                 relevant.add(line);
             }
         }
-        return error(ErrorCode.UNEXPECTED_RESPONSE,
-            "Unrecognized StartCLI output (exit code " + result.exitCode() + ")",
-            "StartCLI reported a result this MCP server does not know how to interpret",
-            "See the excerpt; check the INUBIT system log for the time of the call")
-            .withExcerpt(excerpt(String.join("\n", relevant)));
+        return String.join("\n", relevant);
     }
 
     /** {@code text} scrubbed of registered secrets, then with free-text secrets masked. */
-    private String excerpt(String text) {
+    private String masked(String text) {
         return SecretTextMasker.mask(scrubber.scrub(text));
     }
 

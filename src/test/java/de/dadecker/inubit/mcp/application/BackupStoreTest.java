@@ -259,6 +259,23 @@ class BackupStoreTest {
     }
 
     @Test
+    void aManifestWithANullNameOrHashIsNotRead() throws IOException {
+        // 024-T045 r1: the JSON reader now accepts null, a manifest must still hold text only
+        BackupStore store = store();
+        Path manifest = root().resolve(backup(store, "jdoe", "G1", 1) + ".json");
+        String json = Files.readString(manifest);
+
+        for (String tampered : List.of(json.replace("\"sha256:aa\"", "null"),
+            json.replace("\"Module-0009\"", "null"))) {
+            assertThat(tampered).isNotEqualTo(json);
+            Files.writeString(manifest, tampered);
+
+            assertThat(store.find(manifest.getFileName().toString().replace(".json", "")))
+                .isEmpty();
+        }
+    }
+
+    @Test
     void aManifestWhoseIdDiffersFromItsFileNameIsSkipped() throws IOException {
         BackupStore store = store();
         String old = backup(store, "jdoe", "G1", 40);

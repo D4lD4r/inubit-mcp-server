@@ -1,0 +1,43 @@
+{
+  "type": "object",
+  "required": ["target", "workflow", "processId"],
+  "properties": {
+    "target": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}/[a-z0-9][a-z0-9-]{0,31}$",
+      "description": "Id of exactly one {node} (`<{group}>/<{node}>`)"
+    },
+    "workflow": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^(?!.*(@@@|###))[^\\u0000-\\u001F\\u007F-\\u009F]{1,200}$",
+      "description": "Process (workflow) name as query_logs returns it"
+    },
+    "processId": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z_-]{1,64}$",
+      "description": "Process ID of the run as query_logs returns it"
+    },
+    "message": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22}$",
+      "description": "ref of one entry of this run's listing; returns that message"
+    },
+    "module": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]{1,200}$",
+      "description": "Lists only entries whose module name or module ID equals this text"
+    },
+    "maxChars": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100000,
+      "default": 20000,
+      "description": "Maximum characters of the returned message text (after masking)"
+    }
+  },
+  "additionalProperties": false
+}

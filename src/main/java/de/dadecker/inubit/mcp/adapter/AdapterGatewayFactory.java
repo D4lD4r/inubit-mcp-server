@@ -21,15 +21,19 @@ import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
+import de.dadecker.inubit.mcp.domain.port.ClusterNodePort;
 import de.dadecker.inubit.mcp.domain.port.ImportPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
+import de.dadecker.inubit.mcp.domain.port.IoLogPort;
+import de.dadecker.inubit.mcp.domain.port.LogLevelPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.ModelDetailPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
+import de.dadecker.inubit.mcp.domain.port.NodeConfigPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
@@ -79,8 +83,8 @@ import org.slf4j.LoggerFactory;
  * {@link VersionObserver} whenever ports are requested ({@link #processes}, {@link #logs},
  * {@link #inventory}, {@link #processControl}, {@link #artifacts}, {@link #imports},
  * {@link #tags}, {@link #partners}, {@link #queueEntryContent}, {@link #serverLogs},
- * {@link #serverSettings}, {@link #userDirectory}, {@link #modelDetails} and the gateway's port
- * methods).
+ * {@link #serverSettings}, {@link #userDirectory}, {@link #modelDetails}, {@link #clusterNodes},
+ * {@link #ioLog}, {@link #nodeConfig}, {@link #logLevel} and the gateway's port methods).
  * The selection itself never detects: the version gate detects before it admits a call, so the
  * ports requested after the admission belong to the detected version. The port set is built once
  * per selected range and rebuilt when the effective version moves to another range (e.g. after a
@@ -239,6 +243,26 @@ public final class AdapterGatewayFactory implements GatewayFactory, AutoCloseabl
     @Override
     public ModelDetailPort modelDetails(NodeId server) {
         return slot(server).ports().modelDetails();
+    }
+
+    @Override
+    public ClusterNodePort clusterNodes(NodeId server) {
+        return slot(server).ports().clusterNodes();
+    }
+
+    @Override
+    public IoLogPort ioLog(NodeId server) {
+        return slot(server).ports().ioLog();
+    }
+
+    @Override
+    public NodeConfigPort nodeConfig(NodeId server) {
+        return slot(server).ports().nodeConfig();
+    }
+
+    @Override
+    public LogLevelPort logLevel(NodeId server) {
+        return slot(server).ports().logLevel();
     }
 
     @Override
