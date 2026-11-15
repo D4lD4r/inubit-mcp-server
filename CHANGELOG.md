@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-15
+
+New read tools and options from features 021, 022 (user stories 1–3) and 024, and masking of
+free-text secrets in every error text built from INUBIT output.
+
 Feature 021: download the trace log or the web service log of one node into a local folder, with
 a masked excerpt in the result. The trace log is read through StartCLI's supported trace download,
 the web service log through an **unsupported, undocumented INUBIT interface**, off unless a group
@@ -1355,7 +1360,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.8.0...v0.8.1
