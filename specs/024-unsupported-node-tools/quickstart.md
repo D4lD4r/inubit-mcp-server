@@ -89,4 +89,13 @@ approved in the chat; raw output stays owner-only outside every repository.
 
 | Date | Version | Tool | Result | Notes |
 |---|---|---|---|---|
-| — | — | — | — | (filled by T068 / T069) |
+| 2026-11-14 | 8.1.17 | `list_cluster_nodes` | pass | T068; non-production test node `test/node1`; 12 nodes in 2.9 s (< 10 s, SC-001), answering node listed, details 23 pairs, masked |
+| 2026-11-14 | 8.1.17 | `get_node_config` | pass | T068; 20 values: 11 present, 9 absent, 0 failed |
+| 2026-11-14 | 8.1.17 | `set_temporary_log_level` | pass | T068; `INUBIT_LIVE_LOG_LEVEL=approved`; 1 logger at `INFO` for 1 minute, automatic reset after 90 s (within 2 minutes), lease `RESET`, 4 audit records |
+| 2026-11-14 | 8.1.17 | `read_io_log` | skipped | T068; no `INUBIT_LIVE_IO_PROCESS`; `io_log_read` not verified (T066 owner decision, pending with T032) |
+| 2026-11-14 | 8.1.17 | by hand | pass | T068; get_health `systemInfo` after the run: tracing enabled, `TracingLevel` unchanged (info); MCP server log contains no configuration value or message text |
+| 2026-11-15 | 9.0.10 | `list_cluster_nodes` | pass | T069; non-production test node, same set-up; 21 nodes in 3.2 s, details 23 pairs |
+| 2026-11-15 | 9.0.10 | `get_node_config` | pass | T069; 20 values: 11 present, 9 absent, 0 failed |
+| 2026-11-15 | 9.0.10 | `set_temporary_log_level` | pass | T069; `INUBIT_LIVE_LOG_LEVEL=approved`; 1 logger at `INFO` for 1 minute, automatic reset after 90 s, lease `RESET`, 4 audit records |
+| 2026-11-15 | 9.0.10 | `read_io_log` | skipped | T069; `io_log_read` not verified (T066 owner decision, pending with T063) |
+| 2026-11-15 | 9.0.10 | by hand | pass | T069; get_health `systemInfo` before and after: tracing enabled, `TracingLevel` unchanged (warn); MCP server log contains no values |

@@ -770,14 +770,18 @@ on 8.1 and 9.0 and is refused on 6.1 and unknown versions before any request.
   (feature 024)" plus a row in the tests table. Failing tests first in
   `live/NodeToolsLiveTestSupportTest.java` (env parsing; the write part never runs without the
   flag; production refused)
-- [ ] T068 **[LIVE] [OWNER]** 8.1 live check (quickstart "Live check" steps 1–4; after T025, T032,
+- [X] T068 **[LIVE] [OWNER]** 8.1 live check (quickstart "Live check" steps 1–4; after T025, T032,
   T038, T058, T067): after the operator approved the concrete run (non-production 8.1 test node of
   an opted-in test group with write access in a private copy of the profile; the write part only
   with the owner's approval of that run), `mvn -Plive -Dtest=NodeToolsLiveTest verify`; by hand:
   the persistent trace state unchanged (get_health `systemInfo`), the MCP server log contains no
   value or message text; result rows in the quickstart validation record (fictitious ids only)
-- [ ] T069 **[LIVE] [OWNER]** 9.0 live check (as T068 for every 9.0 capability enabled; after
+  Note (run 2026-11-14): reads and write part passed, see quickstart validation record; the I/O part
+  (`read_io_log`) is pending with T032 (owner decision T066).
+- [X] T069 **[LIVE] [OWNER]** 9.0 live check (as T068 for every 9.0 capability enabled; after
   T062–T065 or T066, T067)
+  Note (run 2026-11-15): reads and write part passed, see quickstart validation record; the I/O part
+  (`read_io_log`) is pending with T063 (owner decision T066).
 
 ### Documentation (D-31)
 
