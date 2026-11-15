@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.SecretTextMasker;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
@@ -71,8 +72,9 @@ import tools.jackson.databind.json.JsonMapper;
  *       timeouts → {@code TIMEOUT}, refused connections and unknown hosts →
  *       {@code UNREACHABLE}, TLS failures → {@code TLS_ERROR}. Statuses passed as
  *       {@code acceptedStatuses} are returned instead (e.g. 503 of {@code /ready}).
- *   <li>No message or excerpt contains a credential: the text is scrubbed, and exception
- *       messages are never forwarded (only their class names).
+ *   <li>No message or excerpt contains a credential: the text is scrubbed, an excerpt is also
+ *       masked by {@link SecretTextMasker}, and exception messages are never forwarded (only
+ *       their class names).
  * </ul>
  */
 public final class InubitHttpClient implements AutoCloseable {
@@ -603,14 +605,21 @@ public final class InubitHttpClient implements AutoCloseable {
 
     /**
      * The first {@value #EXCERPT_WINDOW} chars of the body, HTML tags removed and whitespace
-     * collapsed, scrubbed. The window is scrubbed together with an overlap before it is cut, so a
-     * secret crossing the cut is masked as a whole; ToolError cuts the result to 500 chars.
+     * collapsed, scrubbed of registered secrets and with free-text secrets masked
+     * ({@link SecretTextMasker}): on the raw text, where secret-named XML elements are still
+     * seen, and again on the stripped text, where markup no longer splits a credential. The
+     * window is scrubbed and masked together with an overlap before it is cut, so a secret
+     * crossing the cut is masked as a whole. Masking may shorten the window, so when the body was
+     * cut at the window's end, the last {@value #EXCERPT_OVERLAP} chars are always dropped: a
+     * secret cut there, too short to be recognized, never remains. ToolError cuts the result to
+     * 500 chars.
      */
     private String excerpt(RestResponse response) {
         String raw = jsonMessage(response.bodyText()).orElse(response.bodyText());
-        String window = scrubber.scrub(
-            raw.substring(0, Math.min(raw.length(), EXCERPT_WINDOW + EXCERPT_OVERLAP)));
-        String text = window.substring(0, Math.min(window.length(), EXCERPT_WINDOW));
+        int rawEnd = Math.min(raw.length(), EXCERPT_WINDOW + EXCERPT_OVERLAP);
+        String window = SecretTextMasker.mask(scrubber.scrub(raw.substring(0, rawEnd)));
+        int end = rawEnd < raw.length() ? window.length() - EXCERPT_OVERLAP : window.length();
+        String text = window.substring(0, Math.max(0, Math.min(end, EXCERPT_WINDOW)));
         boolean html = response.contentType()
             .map(type -> type.toLowerCase(Locale.ROOT).contains("html"))
             .orElse(text.stripLeading().startsWith("<html"));
@@ -618,7 +627,7 @@ public final class InubitHttpClient implements AutoCloseable {
             text = HTML_TAG.matcher(text).replaceAll(" ");
         }
         text = WHITESPACE.matcher(text).replaceAll(" ").strip();
-        return scrubber.scrub(text);
+        return SecretTextMasker.mask(scrubber.scrub(text));
     }
 
     /**

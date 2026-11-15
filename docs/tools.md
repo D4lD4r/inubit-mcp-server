@@ -463,11 +463,11 @@ other nodes are still reported.
 | Field | Meaning |
 |---|---|
 | `code` | one of the codes below |
-| `message` | what failed |
+| `message` | what failed; StartCLI text quoted in it (e.g. an `n-NOK` line) is scrubbed and masked like `excerpt` |
 | `likelyCause` | the most likely cause |
 | `nextStep` | what to do, e.g. which credential store entry, parameter or setting to fix |
 | `node` | the node id, when the error belongs to one node |
-| `excerpt` | at most 500 chars of the unexpected INUBIT or StartCLI output, scrubbed of secrets; never for a Partner Management export (`find_partners`, the partner usage of `get_inventory_item`), whose answer could quote partner data |
+| `excerpt` | at most 500 chars of the unexpected INUBIT or StartCLI output, scrubbed of the configured credentials and with free-text secrets masked as `${secret:…}` (values under secret names such as `password=` or `pwd=`, `Basic`/`Bearer` credentials, the password of a URL with user-info such as `jdbc:postgresql://user:password@host`) before it is cut; a secret under a neutral name may still appear; never for a Partner Management export (`find_partners`, the partner usage of `get_inventory_item`), whose answer could quote partner data |
 
 | `code` | Meaning |
 |---|---|
@@ -1679,7 +1679,8 @@ are, case-insensitive, `password`, `passwd`, `pwd`, `secret`, `token`, `apikey`,
   object or array as a whole; a cut-off element up to the next `<`);
 - a header-style line `name: value` whose name contains a term (e.g. `X-Api-Key:`) is masked to
   the end of the line;
-- every HTTP `Authorization` / `Proxy-Authorization` value and every `Basic`/`Bearer` credential
+- every HTTP `Authorization` / `Proxy-Authorization` value, every `Basic`/`Bearer` credential and
+  the password of a URL with user-info (`scheme://user:password@host`; scheme, user and host stay)
   becomes `${secret:authorization}`;
 - the known credentials of the profile are scrubbed as in every other result.
 
@@ -1841,13 +1842,13 @@ Variants:
 
 **Masking.** The text rules of `read_queue_entry` apply (see [its Masking](#read_queue_entry)):
 secret-named XML elements and attributes, JSON keys, `name=value` pairs and header-style lines
-become `${secret:data.<name>}`, every `Authorization` value and `Basic`/`Bearer` credential
-`${secret:authorization}`. In addition the known credentials of every configured node of the
-profile become `***`, not only those of the addressed node. Masking keeps every line break: a
-masked value spanning several lines leaves its token on the first line and empty lines for the
-lines it covered completely, so the line numbers stay exact. An end tag of a secret-named element
-whose start tag lies before the window masks every line from the window start up to that end
-tag. Limits:
+become `${secret:data.<name>}`, every `Authorization` value, `Basic`/`Bearer` credential and URL
+user-info password `${secret:authorization}`. In addition the known credentials of every
+configured node of the profile become `***`, not only those of the addressed node. Masking keeps
+every line break: a masked value spanning several lines leaves its token on the first line and
+empty lines for the lines it covered completely, so the line numbers stay exact. An end tag of a
+secret-named element whose start tag lies before the window masks every line from the window
+start up to that end tag. Limits:
 
 - a secret-named JSON value opened before the window is not detected;
 - the limits of `read_queue_entry` apply as well: a credential under a neutral name, inside

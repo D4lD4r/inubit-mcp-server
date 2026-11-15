@@ -805,8 +805,9 @@ Workbench's Queue Manager uses for "View file" (INUBIT 8.1: the Workbench's SOAP
   and the chat transcript. Credentials are masked only as described in the tool reference:
   variables and XML/JSON/`name=value`/header fields whose name contains `password`, `passwd`,
   `pwd`, `secret`, `token`, `apikey`, `api_key`, `credential`, `authorization`, `private`,
-  `keystore` or `cookie`, `Authorization` headers and `Basic`/`Bearer` credentials, and the
-  credentials of this profile. **Credentials in unusual places** (for example under a neutral
+  `keystore` or `cookie`, `Authorization` headers, `Basic`/`Bearer` credentials and the
+  password of a URL with user-info (`scheme://user:password@host`), and the credentials of this
+  profile. **Credentials in unusual places** (for example under a neutral
   element name such as INUBIT's `<Property name="password">`, or inside binary or encoded
   content) **may still appear in the result.**
 - **Read-only.** The tool uses only the read request of "View file"; it never restarts, kills,

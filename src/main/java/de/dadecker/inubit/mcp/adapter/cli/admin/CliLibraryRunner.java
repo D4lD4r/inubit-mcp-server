@@ -12,7 +12,6 @@ import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.LibraryEntry;
-import de.dadecker.inubit.mcp.domain.model.SecretTextMasker;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import java.util.Objects;
@@ -74,9 +73,7 @@ public final class CliLibraryRunner {
         if ((result.exitCode() != 0 || result.truncated()
             || CliOutputClassifier.isLoginFailure(result) || !output.nokMessages().isEmpty())
             && classifier.classify(result) instanceof CliOutcome.Failure failure) {
-            ToolError error = failure.error();
-            throw failed(new ToolError(error.code(), error.message(), error.likelyCause(),
-                error.nextStep(), error.node(), error.excerpt().map(SecretTextMasker::mask)));
+            throw failed(failure.error());
         }
         try {
             return LibraryListParser.parse(type, output.outputLines());

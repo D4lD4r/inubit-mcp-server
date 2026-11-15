@@ -14,7 +14,6 @@ import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.LoginEntry;
-import de.dadecker.inubit.mcp.domain.model.SecretTextMasker;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.UserFacts;
@@ -216,10 +215,9 @@ public final class CliUserRunner {
     }
 
     /**
-     * Throws the classifier's error, with its excerpt only if {@code withExcerpt}. The classifier
-     * scrubs only registered secrets, so secret-named values in the excerpt are masked here as in
-     * the parsers' excerpts ({@code UnknownOutput}, SC-005, T036). The output prints no n-OK
-     * message, so the classifier never calls it a success.
+     * Throws the classifier's error, with its excerpt (scrubbed and masked by the classifier) only
+     * if {@code withExcerpt}. The output prints no n-OK message, so the classifier never calls it
+     * a success.
      */
     private void throwFailure(CliResult result, boolean withExcerpt) {
         if (classifier.classify(result) instanceof CliOutcome.Failure failure) {
@@ -228,7 +226,7 @@ public final class CliUserRunner {
                 withExcerpt ? error.nextStep()
                     : error.nextStep().replace("See the excerpt; check", "Check"),
                 error.node(),
-                withExcerpt ? error.excerpt().map(SecretTextMasker::mask) : Optional.empty()));
+                withExcerpt ? error.excerpt() : Optional.empty()));
         }
     }
 

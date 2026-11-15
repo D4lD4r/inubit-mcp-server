@@ -8,7 +8,6 @@ import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.Names;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
-import de.dadecker.inubit.mcp.domain.model.SecretTextMasker;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
@@ -23,7 +22,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
@@ -259,14 +257,14 @@ public final class CliExportRunner {
      */
     public byte[] exportOwnerWithoutGroups(String owner, List<String> excludeGroups) {
         checkOwnerWithoutGroupsExport(owner, excludeGroups);
-        return masked(() -> export("owner.zip", this::readArchive,
+        return export("owner.zip", this::readArchive,
             file -> CliCommand.command("export")
                 .quoted("--exportWorkflowUser", owner)
                 .quoted("--exportWorkflowType", "technical")
                 .emptyQuoted("--exportWorkflowGroup")
                 .quotedList("--exportWorkflowGroupExclude", excludeGroups)
                 .path("--exportFile", file, runner.windows())
-                .build()));
+                .build());
     }
 
     /**
@@ -281,29 +279,13 @@ public final class CliExportRunner {
      */
     public byte[] exportMetadata(List<String> metadataNames) {
         checkMetadataExport(metadataNames);
-        return masked(() -> export("metadata.zip", this::readArchive, file -> {
+        return export("metadata.zip", this::readArchive, file -> {
             CliCommand.Builder command = CliCommand.command("export").flag("--exportMetadata");
             if (!metadataNames.isEmpty()) {
                 command.quotedList("--exportMetadataNames", metadataNames);
             }
             return command.path("--exportFile", file, runner.windows()).build();
-        }));
-    }
-
-    /**
-     * The export of feature 022, a failure's excerpt with secret-named values masked (research
-     * D-19), as for the library list: the owner export reads module files that hold secrets in
-     * clear text.
-     */
-    private static byte[] masked(Supplier<byte[]> export) {
-        try {
-            return export.get();
-        } catch (ToolErrorException e) {
-            ToolError error = e.error();
-            throw new ToolErrorException(new ToolError(error.code(), error.message(),
-                error.likelyCause(), error.nextStep(), error.node(),
-                error.excerpt().map(SecretTextMasker::mask)));
-        }
+        });
     }
 
     /** The checks of {@link #exportOwnerWithoutGroups}; see {@link #checkHistoryExport}. */

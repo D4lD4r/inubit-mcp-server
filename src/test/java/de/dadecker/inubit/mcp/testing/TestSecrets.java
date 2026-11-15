@@ -23,6 +23,25 @@ public final class TestSecrets {
     public static final String TRUST_STORE_PASSWORD = "trust-store-password-0001";
     /** Feature 020 (SC-003): a payload value under a credential-like name. */
     public static final String CREDENTIAL_PAYLOAD_VALUE = "credential-payload-value-0001";
+    /** Free-text secret of an INUBIT answer, printed as {@code password=<value>}. */
+    public static final String FREE_TEXT_PASSWORD = "free-text-password-0001";
+    /** Free-text secret of an INUBIT answer, printed as {@code pwd=<value>}. */
+    public static final String FREE_TEXT_PWD = "free-text-pwd-0001";
+    /** Free-text secret of an INUBIT answer, printed as a {@code Bearer} token. */
+    public static final String FREE_TEXT_BEARER = "free-text-bearer-token-0001";
+    /** Free-text secret of an INUBIT answer, printed as the password of a JDBC URL. */
+    public static final String FREE_TEXT_JDBC_PASSWORD = "free-text-jdbc-password-0001";
+    /** Free-text secret of an INUBIT answer, printed as the password of a URL's user-info. */
+    public static final String FREE_TEXT_URL_PASSWORD = "free-text-url-password-0001";
+    /**
+     * One line with each free-text secret in the form a server prints it; none of them is known
+     * to the {@code SecretScrubber}.
+     */
+    public static final String FREE_TEXT_SECRETS = "password=" + FREE_TEXT_PASSWORD + " pwd="
+        + FREE_TEXT_PWD + " sent Bearer " + FREE_TEXT_BEARER
+        + " url jdbc:sqlserver://db.example.test:1433;user=app;password="
+        + FREE_TEXT_JDBC_PASSWORD + " db jdbc:postgresql://app:" + FREE_TEXT_URL_PASSWORD
+        + "@db.example.test:5432/app";
 
     private TestSecrets() {
     }
@@ -33,7 +52,8 @@ public final class TestSecrets {
      */
     public static void assertNoLeak(String text) {
         assertThat(text).doesNotContain(CONFIGURED_PASSWORD, TRUST_STORE_PASSWORD,
-            CREDENTIAL_PAYLOAD_VALUE);
+            CREDENTIAL_PAYLOAD_VALUE, FREE_TEXT_PASSWORD, FREE_TEXT_PWD, FREE_TEXT_BEARER,
+            FREE_TEXT_JDBC_PASSWORD, FREE_TEXT_URL_PASSWORD);
     }
 
     /** A credential store double holding {@code entries} (account → value). */
