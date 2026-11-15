@@ -15,8 +15,9 @@ import java.util.regex.Pattern;
 
 /**
  * Masks the values of secret-named XML elements, XML attributes, JSON keys, header-style lines
- * and {@code name=value} pairs, and HTTP {@code Authorization} values and {@code Basic}/{@code
- * Bearer} credentials, in the text of a Queue Manager entry (feature 020, FR-011, D-11) and, with
+ * and {@code name=value} pairs, HTTP {@code Authorization} values and {@code Basic}/{@code
+ * Bearer} credentials, and the password of URL user-info ({@code scheme://user:password@host}),
+ * in the text of a Queue Manager entry (feature 020, FR-011, D-11) and, with
  * {@link #maskLines}, in a server-log window (feature 021, FR-010). Pure, without an XML or JSON
  * parser, so it works on cut-off and broken text; everything outside the masked values stays
  * unchanged.
@@ -77,6 +78,14 @@ public final class SecretTextMasker {
         Pattern.compile("\\bBasic\\s++([A-Za-z0-9+/]{4,}+={0,2}+)");
     private static final Pattern BEARER =
         Pattern.compile("\\bBearer\\s++([A-Za-z0-9._~+/-]{16,}+=*+)");
+    /**
+     * A user, a {@code :} and a password up to the last {@code @} before whitespace, {@code /},
+     * {@code ?} or {@code #} ({@code ;} is valid in user-info, so {@code ;}-parameters after a
+     * port and before an {@code @} are masked too); the password group backtracks over one
+     * character class only.
+     */
+    private static final Pattern URL_USER_INFO =
+        Pattern.compile("://[^\\s/?#@:]++:([^\\s/?#]+)@");
 
     private SecretTextMasker() {
     }
@@ -125,14 +134,14 @@ public final class SecretTextMasker {
         return "${secret:" + scope + "." + safe + "}";
     }
 
-    /** {@code text} with the secret values of rules 1–7 masked; linear in its length. */
+    /** {@code text} with the secret values of rules 1–8 masked; linear in its length. */
     public static String mask(String text) {
         Objects.requireNonNull(text, "text");
         return replace(text, ranges(text, false), false);
     }
 
     /**
-     * {@code window} with the secret values of rules 1–7 and the {@code known} credential spans
+     * {@code window} with the secret values of rules 1–8 and the {@code known} credential spans
      * (rule 0, {@link Masked#MASK_TOKEN}) masked, keeping every line (feature 021, FR-010, D-11):
      * a masked region becomes its replacement followed by every {@code \r} and {@code \n} of the
      * region in order, so line N of the result is line N of {@code window}. An end tag of a secret
@@ -151,7 +160,7 @@ public final class SecretTextMasker {
     }
 
     /**
-     * The ranges of rules 1–7 in {@code text}; with {@code windowStart}, rule 1 also masks from the
+     * The ranges of rules 1–8 in {@code text}; with {@code windowStart}, rule 1 also masks from the
      * start of {@code text} up to an end tag without start tag.
      */
     private static List<Range> ranges(String text, boolean windowStart) {
@@ -163,6 +172,7 @@ public final class SecretTextMasker {
         headerLines(text, ranges);
         nameValuePairs(text, ranges);
         basicAndBearer(text, ranges);
+        urlUserInfo(text, ranges);
         return ranges;
     }
 
@@ -418,6 +428,14 @@ public final class SecretTextMasker {
         Matcher bearer = BEARER.matcher(text);
         while (bearer.find()) {
             add(ranges, bearer.start(1), bearer.end(1), AUTHORIZATION, 7);
+        }
+    }
+
+    /** Rule 8: the password of URL user-info; scheme, user and host stay readable. */
+    private static void urlUserInfo(String text, List<Range> ranges) {
+        Matcher userInfo = URL_USER_INFO.matcher(text);
+        while (userInfo.find()) {
+            add(ranges, userInfo.start(1), userInfo.end(1), AUTHORIZATION, 8);
         }
     }
 

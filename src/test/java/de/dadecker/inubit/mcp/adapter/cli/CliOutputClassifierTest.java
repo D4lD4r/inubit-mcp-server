@@ -12,9 +12,11 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import de.dadecker.inubit.mcp.testing.V90Cases;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
@@ -458,6 +460,116 @@ class CliOutputClassifierTest {
             .hasSizeLessThanOrEqualTo(ToolError.MAX_EXCERPT_LENGTH)
             .startsWith("Something odd happened with ***")
             .doesNotContain("hunter2-secret", "JAVA_HOME is set"));
+    }
+
+    /**
+     * Free-text secrets the scrubber does not know (on stdout and in a log record on stderr) are
+     * masked in the excerpt after the registered ones are scrubbed; the rest stays as printed.
+     */
+    @Test
+    void freeTextSecretsInUnknownOutputAreMaskedInTheExcerpt() {
+        scrubber.register("hunter2-secret");
+        CliResult result = new CliResult(1,
+            PREAMBLE + "Odd answer " + TestSecrets.FREE_TEXT_SECRETS + " for hunter2-secret\n",
+            "ERROR 08:00:01,234 [main] Export failed: " + TestSecrets.FREE_TEXT_SECRETS + "\n",
+            Duration.ofSeconds(1), false, CliRunner.MAX_OUTPUT_BYTES);
+
+        ToolError error = failure(result);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt -> {
+            assertThat(excerpt).startsWith("Odd answer password=${secret:data.password} pwd=")
+                .contains("sent Bearer ${secret:authorization}", ";user=app;password=${secret:",
+                    "jdbc:postgresql://app:${secret:authorization}@db.example.test", " for ***",
+                    "Export failed: password=${secret:data.password}");
+            TestSecrets.assertNoLeak(excerpt);
+        });
+    }
+
+    @Test
+    void freeTextSecretsInCutOutputAreMaskedInTheExcerpt() {
+        CliResult truncated = new CliResult(0, PREAMBLE + "Odd answer "
+            + TestSecrets.FREE_TEXT_SECRETS + "\n", "", Duration.ZERO, true,
+            CliRunner.MAX_OUTPUT_BYTES);
+
+        ToolError error = failure(truncated);
+
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt -> {
+            assertThat(excerpt).startsWith("Odd answer password=${secret:data.password}");
+            TestSecrets.assertNoLeak(excerpt);
+        });
+    }
+
+    /**
+     * A token that starts before the excerpt's cut ({@link ToolError#MAX_EXCERPT_LENGTH}) and
+     * ends after it is masked as a whole before the cut, so no prefix of it is left.
+     */
+    @Test
+    void aFreeTextSecretAcrossTheExcerptCutIsMaskedAsAWhole() {
+        String filler = "x".repeat(ToolError.MAX_EXCERPT_LENGTH - 23);
+        CliResult result = result(1, PREAMBLE + filler + " sent Bearer "
+            + TestSecrets.FREE_TEXT_BEARER + " tail\n");
+
+        ToolError error = failure(result);
+
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
+            .hasSize(ToolError.MAX_EXCERPT_LENGTH).contains(filler + " sent Bearer ")
+            .doesNotContain(TestSecrets.FREE_TEXT_BEARER.substring(0, 6)));
+    }
+
+    /**
+     * An INUBIT text quoted in the message (here a {@code 2-NOK} line and a {@code LoginFailure}
+     * marker) has its free-text secrets masked after the registered ones are scrubbed.
+     */
+    @Test
+    void freeTextSecretsInAQuotedInubitTextAreMaskedInTheMessage() {
+        scrubber.register("hunter2-secret");
+        ToolError missing = failure(result(1, PREAMBLE + "1-OK: Login.\n"
+            + "2-NOK: Workflow group not found: GRP-01 " + TestSecrets.FREE_TEXT_SECRETS
+            + " hunter2-secret\n"));
+        ToolError login = failure(result(1, PREAMBLE + "com.inubit.ibis.cli.CliException:"
+            + " @Start@LoginFailure@@@Locked: " + TestSecrets.FREE_TEXT_SECRETS + "@End@\n"));
+
+        assertThat(missing.code()).isEqualTo(ErrorCode.NOT_FOUND);
+        assertThat(missing.message()).startsWith("StartCLI: Workflow group not found: GRP-01"
+            + " password=${secret:data.password} pwd=").endsWith(" ***");
+        assertThat(login.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(login.message()).startsWith("StartCLI login failed: Locked: password=${secret:");
+        for (ToolError error : List.of(missing, login)) {
+            TestSecrets.assertNoLeak(error.message());
+            assertThat(error.message()).doesNotContain("hunter2-secret");
+        }
+    }
+
+    /**
+     * The quoted INUBIT text is masked before the prefix is added, so a rule that needs the start
+     * of a line (a header-style {@code Password: <value>}) still applies to it.
+     */
+    @Test
+    void aQuotedHeaderStyleSecretIsMaskedBeforeThePrefixIsAdded() {
+        ToolError login = failure(result(1, PREAMBLE + "com.inubit.ibis.cli.CliException:"
+            + " @Start@LoginFailure@@@Password: " + TestSecrets.FREE_TEXT_PASSWORD + "@End@\n"));
+
+        assertThat(login.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(login.message())
+            .isEqualTo("StartCLI login failed: Password: ${secret:data.Password}");
+    }
+
+    /**
+     * The texts of the {@code n-OK}/{@code n-NOK} messages, which runners quote in their own
+     * messages, are masked when the output is parsed; other texts stay as printed.
+     */
+    @Test
+    void theParsedMessageTextsAreMasked() {
+        CliOutput output = classifier.parse(result(1, PREAMBLE + "1-OK: Login " + TestSecrets
+            .FREE_TEXT_SECRETS + "\n2-NOK: Import refused: " + TestSecrets.FREE_TEXT_SECRETS
+            + "\n3-NOK: Workflow group not found: GRP-01\n"));
+
+        assertThat(output.okMessages()).singleElement().asString()
+            .startsWith("Login password=${secret:data.password}");
+        assertThat(output.nokMessages()).hasSize(2).last()
+            .isEqualTo("Workflow group not found: GRP-01");
+        TestSecrets.assertNoLeak(output.okMessages() + " " + output.nokMessages());
     }
 
     @Test

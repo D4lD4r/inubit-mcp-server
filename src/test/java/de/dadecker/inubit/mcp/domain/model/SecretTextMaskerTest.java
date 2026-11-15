@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/** Feature 020 (T010, T011, FR-011, D-11): term test, placeholder, masking rules 1–7, merging. */
+/** Feature 020 (T010, T011, FR-011, D-11): term test, placeholder, masking rules 1–8, merging. */
 class SecretTextMaskerTest {
 
     private static final String SECRET = TestSecrets.CREDENTIAL_PAYLOAD_VALUE;
@@ -388,6 +388,82 @@ class SecretTextMaskerTest {
             + "BasicAuth " + BASIC + "; xBearer 1234567890123456";
 
         assertThat(SecretTextMasker.mask(text)).isEqualTo(text);
+    }
+
+    // rule 8: the password of URL user-info credentials
+
+    @ParameterizedTest
+    @ValueSource(strings = {"jdbc:postgresql://app:%s@db.example.test:5432/demodb",
+        "https://jdoe:%s@inubit.example.test:8443/ibis/rest", "ftp://jdoe:%s@files.example.test",
+        "sftp://jdoe:%s@files.example.test/in?mode=x#top"})
+    void rule8MasksThePasswordOfAUrlWithUserInfo(String url) {
+        String masked = SecretTextMasker.mask("connect to " + url.formatted(SECRET) + " failed");
+
+        assertThat(masked).isEqualTo("connect to " + url.formatted(AUTHORIZATION) + " failed");
+        TestSecrets.assertNoLeak(masked);
+    }
+
+    @Test
+    void rule8MasksAPasswordWithAColonOrAnAtSignAsAWhole() {
+        assertThat(SecretTextMasker.mask("https://jdoe:pa:ss@host and https://jdoe:p@ss@host x"))
+            .isEqualTo("https://jdoe:" + AUTHORIZATION + "@host and https://jdoe:"
+                + AUTHORIZATION + "@host x");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://inubit.example.test/path@x", "jdoe@example.test",
+        "mail jdoe@example.test: done", "https://jdoe@inubit.example.test/ibis",
+        "https://inubit.example.test:8443/ibis/rest", "https://inubit.example.test:8443",
+        "https://jdoe:@inubit.example.test", "jdbc:oracle:thin:app/pw@db.example.test:1521/x",
+        "see https://host:8443 or jdoe@example.test", "a://b:c d@e"})
+    void rule8LeavesUrlsWithoutAPasswordAndMailAddressesAlone(String text) {
+        assertThat(SecretTextMasker.mask(text)).isEqualTo(text);
+    }
+
+    /** A {@code ;} is valid in user-info, so a password containing one is masked as a whole. */
+    @ParameterizedTest
+    @ValueSource(strings = {"jdbc:postgresql://app:pa;ss-0001@db:5432/x",
+        "amqp://guest:Xy;9!k@mq.example"})
+    void rule8MasksAPasswordContainingASemicolon(String url) {
+        String masked = SecretTextMasker.mask(url);
+
+        assertThat(masked).isEqualTo(url.substring(0, url.indexOf(':', url.indexOf("://") + 3)
+            + 1) + AUTHORIZATION + url.substring(url.lastIndexOf('@')));
+        assertThat(masked).doesNotContain("pa;ss", "Xy;9");
+    }
+
+    /**
+     * Pinned, accepted over-masking: after a port, {@code ;}-parameters up to the last {@code @}
+     * read as a password; the host stays readable.
+     */
+    @Test
+    void rule8MasksSemicolonParametersAfterAPortUpToTheLastAtSign() {
+        assertThat(SecretTextMasker.mask("jdbc:sqlserver://srv.database.windows.net:1433;"
+            + "database=db;user=admin@srv;encrypt=true"))
+            .isEqualTo("jdbc:sqlserver://srv.database.windows.net:" + AUTHORIZATION
+                + "@srv;encrypt=true");
+        assertThat(SecretTextMasker.mask("ldap://ldap.example:389;cn=admin@example"))
+            .isEqualTo("ldap://ldap.example:" + AUTHORIZATION + "@example");
+    }
+
+    /**
+     * Pinned: a Windows file URL with a drive letter and an {@code @} in the path looks like
+     * user-info ({@code C} as user), so the path up to the {@code @} is masked.
+     */
+    @Test
+    void rule8MasksTheDrivePathOfAFileUrlWithAnAtSign() {
+        assertThat(SecretTextMasker.mask("file://C:\\Users\\jdoe@corp\\x.xml"))
+            .isEqualTo("file://C:" + AUTHORIZATION + "@corp\\x.xml");
+    }
+
+    @Test
+    void longUrlUserInfoIsMaskedInLinearTime() {
+        assertThat(maskInTime("https://jdoe:" + "a".repeat(10 * MIB) + "@host"))
+            .isEqualTo("https://jdoe:" + AUTHORIZATION + "@host");
+        String noAt = "https://jdoe:" + "a".repeat(10 * MIB);
+        assertThat(maskInTime(noAt)).isEqualTo(noAt);
+        String units = "://a:b".repeat(MIB);
+        assertThat(maskInTime(units)).isEqualTo(units);
     }
 
     // all rules together

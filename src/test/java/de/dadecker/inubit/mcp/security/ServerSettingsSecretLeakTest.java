@@ -76,6 +76,7 @@ import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestClientSelection;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.StringReader;
 import java.lang.reflect.Constructor;
@@ -423,6 +424,45 @@ class ServerSettingsSecretLeakTest {
         assertThat(entry(result).path("license").path("licensee").asString())
             .isEqualTo(Masked.MASK_TOKEN);
         assertNoLeak(List.of(result), List.of(reported(error)));
+    }
+
+    /**
+     * Free-text secrets the scrubber does not know ({@link TestSecrets#FREE_TEXT_SECRETS}) in a
+     * failed StartCLI session and in INUBIT's error bodies (HTML, JSON message, XML): the excerpts
+     * of the session's and the REST reads' errors carry them masked, and neither the result, the
+     * errors nor a log line carries one.
+     */
+    @Test
+    void freeTextSecretsInTheErrorExcerptsAreMasked() {
+        String planted = TestSecrets.FREE_TEXT_SECRETS;
+        launcher = FakeProcessLauncher.of("Password: " + PASSWORD + "\nOdd answer " + planted
+            + "\n", "ERROR 08:00:01,234 [main] Session aborted: " + planted + "\n", 1);
+        stub(LICENSE, aResponse().withStatus(500).withHeader("Content-Type", "text/html")
+            .withBody("<html><body><p>Odd " + planted + "</p></body></html>"));
+        stub(CONFIGURATIONS, aResponse().withStatus(502)
+            .withHeader("Content-Type", "application/json")
+            .withBody("{\"statusCode\": 502, \"message\": \"Odd " + planted + "\"}"));
+
+        JsonNode result = call(Map.of("target", "dev/node1"));
+        List<ToolError> errors = new ArrayList<>(adapterErrors());
+        stub(LICENSE, aResponse().withStatus(400).withHeader("Content-Type", "application/xml")
+            .withBody("<error><message>Odd " + planted + "</message></error>"));
+        errors.add(errorOf(adapter()::license));
+        errors.add(errorOf(() -> runner().read(CLI_PARTS)));
+
+        assertThat(reasons(result)).containsKeys(UnavailablePart.LICENSE,
+            UnavailablePart.THREADS);
+        assertThat(errors).hasSize(4).allSatisfy(error -> assertThat(error.excerpt())
+            .as(error.toString()).hasValueSatisfying(excerpt -> assertThat(excerpt)
+                .contains("password=${secret:data.password}", "Bearer ${secret:authorization}")));
+        String texts = errors.stream()
+            .map(error -> reported(error) + "\n" + error.excerpt().orElseThrow())
+            .collect(Collectors.joining("\n"));
+        TestSecrets.assertNoLeak(texts);
+        TestSecrets.assertNoLeak(result.toString());
+        TestSecrets.assertNoLeak(texts(result));
+        TestSecrets.assertNoLeak(logText());
+        assertNoLeak(List.of(result), List.of(texts));
     }
 
     /**

@@ -159,6 +159,17 @@ report is not offered: `fetchXSLT1.0` does not exist on INUBIT 8.1.17 and 9.0.10
 
 - Tests and live tests no longer write into `~/.inubit-mcp`; the server's state locations are
   unchanged.
+- The `excerpt` of every tool error built from StartCLI output or an INUBIT REST error body, and
+  the StartCLI text a tool error message quotes (e.g. an `n-NOK` line), now also mask free-text
+  secrets (values under secret names such as `password=` or `pwd=`, `Basic`/`Bearer`
+  credentials) before the excerpt is cut; before, only the configured credentials were removed
+  there, e.g. for `export_archives` with `content: workflows` or `list_inventory`. A secret cut
+  at the end of the read part of a long REST error body no longer remains in part.
+- Masking also replaces the password of a URL with user-info (`scheme://user:password@host`,
+  e.g. a JDBC URL) by `${secret:authorization}`, keeping scheme, user and host, in every masked
+  result: error excerpts and messages, `read_queue_entry`, `download_server_log`,
+  `read_model_details` values and library lines, and the failure details of the INUBIT client
+  helper.
 
 ## [0.9.1] - 2026-11-11
 

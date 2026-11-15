@@ -28,6 +28,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -52,6 +53,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /** T021: the REST client against WireMock over HTTPS (research R-5). */
 @Timeout(30)
@@ -629,6 +632,72 @@ class InubitHttpClientTest {
 
         assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
             .contains("ab").doesNotContain(PASSWORD.substring(0, 3)));
+    }
+
+    /**
+     * A Bearer token that starts before the 4 KB cut of the excerpt window and ends after it: the
+     * window is masked together with its overlap, so no prefix of the token survives the cut.
+     */
+    @Test
+    void aFreeTextSecretAcrossTheExcerptWindowBoundaryIsMaskedAsAWhole() {
+        // tags fill most of the first 4 KB, so after stripping, the cut lands in the excerpt
+        String tags = "<b></b>".repeat(570);
+        String body = tags + "x".repeat(4096 - tags.length() - 23) + " sent Bearer "
+            + TestSecrets.FREE_TEXT_BEARER + " tail";
+        stubStatus(500, "text/html", body);
+
+        ToolError error = errorOf(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(),
+            Map.of()));
+
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
+            .contains("sent Bearer").doesNotContain(TestSecrets.FREE_TEXT_BEARER.substring(0, 6)));
+    }
+
+    /**
+     * A long secret early in the body is masked to a short placeholder, so the masked window is
+     * shorter than {@value InubitHttpClient#EXCERPT_WINDOW} chars; a token cut at the raw window
+     * edge (window plus overlap) must still not reach the excerpt in part.
+     */
+    @Test
+    void aTokenCutAtTheRawWindowEdgeDoesNotSurviveWhenMaskingShortensTheWindow() {
+        String head = "<html><body><p password=\"" + "A".repeat(1000) + "\"></p>";
+        String tags = "<b></b>".repeat((4593 - head.length()) / 7);
+        String body = head + tags + " ".repeat(4593 - head.length() - tags.length())
+            + " Bearer abcdefghijklmnopqrstuvwxyz0123456789 tail";
+        assertThat(body.indexOf(" Bearer ")).isEqualTo(4593);
+        stubStatus(500, "text/html", body);
+
+        ToolError error = errorOf(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(),
+            Map.of()));
+
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
+            .doesNotContain("abcdefg", "AAAAAAAA"));
+    }
+
+    /**
+     * Free-text secrets in error bodies of each form (HTML, XML, the 9.0 JSON message, plain
+     * text) are masked in the excerpt after the registered ones are scrubbed.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "500|text/html|<html><body><h1>Error</h1><p>Odd %s for %s</p></body></html>",
+        "400|application/xml|<error><message>Odd %s for %s</message></error>",
+        "502|application/json|{\"statusCode\": 502, \"message\": \"Odd %s for %s\"}",
+        "503|text/plain|Odd %s for %s"})
+    void freeTextSecretsInAnErrorBodyAreMaskedInTheExcerpt(int status, String type,
+        String template) {
+        stubStatus(status, type, template.formatted(TestSecrets.FREE_TEXT_SECRETS, PASSWORD));
+
+        ToolError error = errorOf(() -> client().get(RestEndpoint.SYSTEM_INFO, List.of(),
+            Map.of()));
+
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt -> {
+            assertThat(excerpt).contains("Odd password=${secret:data.password} pwd=",
+                "sent Bearer ${secret:authorization}", ";user=app;password=${secret:",
+                "jdbc:postgresql://app:${secret:authorization}@db.example.test", " for ***");
+            TestSecrets.assertNoLeak(excerpt);
+            assertThat(excerpt).doesNotContain(PASSWORD);
+        });
     }
 
     @Test

@@ -20,6 +20,7 @@ import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
+import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -328,6 +329,21 @@ class CliVersionProbeTest {
     }
 
     /** FR-011 replaces the former {@code mismatchWarning}: compare on major.minor.patch. */
+    /** Free-text secrets the scrubber does not know are masked in the excerpt as well. */
+    @Test
+    void theExcerptOfAFailureMasksFreeTextSecrets() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of("JAVA_HOME is set\nError: "
+            + TestSecrets.FREE_TEXT_SECRETS + "\n", "", 1);
+
+        assertThatThrownBy(() -> probe(launcher).probe(ID, Optional.empty(), TIMEOUT).version())
+            .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error().excerpt()).hasValueSatisfying(excerpt -> {
+                    assertThat(excerpt).contains("Error: password=${secret:data.password}",
+                        "Bearer ${secret:authorization}");
+                    TestSecrets.assertNoLeak(excerpt);
+                }));
+    }
+
     @Test
     void theProbedClientIsComparedWithTheServerOnMajorMinorPatch() {
         ClientVersion client = probe(FakeProcessLauncher.replaying("version"))

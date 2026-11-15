@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ProbedClient;
+import de.dadecker.inubit.mcp.domain.model.SecretTextMasker;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
@@ -29,7 +30,10 @@ public final class CliVersionProbe implements ClientVersionPort {
     private static final Pattern SUPPORTED = Pattern.compile(
         "^Supported inubit Process Engine versions from (\\S+) to (\\S+?)\\.?$",
         Pattern.CASE_INSENSITIVE);
-    /** URLs are removed from a failure's excerpt (FR-016). */
+    /**
+     * URLs are removed from a failure's excerpt (FR-016), which is scrubbed and then masked by
+     * {@link SecretTextMasker} like every StartCLI excerpt.
+     */
     private static final Pattern URL = Pattern.compile("[A-Za-z][A-Za-z0-9+.-]*://\\S*");
     private static final String URL_REMOVED = "<url removed>";
 
@@ -83,7 +87,8 @@ public final class CliVersionProbe implements ClientVersionPort {
                     "Run " + runner.scriptName() + " -v in cliHome with that JDK and check the"
                         + " output")
                 .withNode(node)
-                .withExcerpt(URL.matcher(excerpt).replaceAll(URL_REMOVED)));
+                .withExcerpt(
+                    SecretTextMasker.mask(URL.matcher(excerpt).replaceAll(URL_REMOVED))));
         }
         // a range StartCLI printed in an unknown form is not evaluable, not a failed probe; only
         // major.minor counts (D-8)

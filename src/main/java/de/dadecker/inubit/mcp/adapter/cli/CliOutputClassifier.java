@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliOutput.Marker;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutput.Message;
 import de.dadecker.inubit.mcp.config.SecretLabels;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.SecretTextMasker;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.util.ArrayList;
@@ -36,7 +37,11 @@ import java.util.regex.Pattern;
  *       scrubbed excerpt of at most 500 chars. A success is never guessed.
  * </ol>
  *
- * <p>Every text that leaves this class is scrubbed of registered secrets.
+ * <p>Every text that leaves this class is scrubbed of registered secrets and then masked by
+ * {@link SecretTextMasker} (secret-named values, {@code Basic}/{@code Bearer} credentials, URL
+ * user-info passwords): an error message, the text of each {@code n-OK}/{@code n-NOK} message,
+ * and an excerpt, on the whole text before {@link ToolError} cuts it, so no secret crossing the
+ * cut survives in part.
  */
 public final class CliOutputClassifier {
 
@@ -180,7 +185,8 @@ public final class CliOutputClassifier {
             Matcher message = MESSAGE.matcher(line);
             if (message.matches()) {
                 messages.add(new Message(Integer.parseInt(message.group(1)),
-                    message.group(2).equals("OK"), message.group(3).strip()));
+                    message.group(2).equals("OK"),
+                    SecretTextMasker.mask(message.group(3).strip())));
             }
         }
         return new CliOutput(output, log, List.copyOf(markers), messages);
@@ -195,7 +201,7 @@ public final class CliOutputClassifier {
                     + " and was cut (exit code " + result.exitCode() + ")",
                 "The command printed far more than expected, so its result cannot be trusted",
                 "Check the INUBIT system log for the time of the call")
-                .withExcerpt(scrubber.scrub(String.join("\n", output.outputLines()))));
+                .withExcerpt(excerpt(String.join("\n", output.outputLines()))));
         }
         if (result.exitCode() == 0 && !output.okMessages().isEmpty()
             && output.nokMessages().isEmpty()) {
@@ -295,7 +301,7 @@ public final class CliOutputClassifier {
             if (message.startsWith("Workflow group not found:")
                 || message.startsWith(NO_TAGGED_GROUP)
                 || MISSING_MODULE.matcher(message).matches()) {
-                return Optional.of(error(ErrorCode.NOT_FOUND, "StartCLI: " + message,
+                return Optional.of(error(ErrorCode.NOT_FOUND, "StartCLI: " + quoted(message),
                     "The diagram group or module does not exist for this owner (names are"
                         + " case-sensitive), or it belongs to another owner",
                     "Check the name and owner with list_inventory, then retry"));
@@ -313,7 +319,7 @@ public final class CliOutputClassifier {
             return Optional.empty();
         }
         return Optional.of(error(ErrorCode.NOT_FOUND, "StartCLI: "
-                + firstLineWith(all, PATH_NOT_FOUND),
+                + quoted(firstLineWith(all, PATH_NOT_FOUND)),
             "The repository file or folder does not exist (paths are case-sensitive)",
             "Check the path below /Root/<owner> in the Workbench repository, then retry"));
     }
@@ -354,17 +360,21 @@ public final class CliOutputClassifier {
                 relevant.add(line);
             }
         }
-        String excerpt = String.join("\n", relevant);
         return error(ErrorCode.UNEXPECTED_RESPONSE,
             "Unrecognized StartCLI output (exit code " + result.exitCode() + ")",
             "StartCLI reported a result this MCP server does not know how to interpret",
             "See the excerpt; check the INUBIT system log for the time of the call")
-            .withExcerpt(scrubber.scrub(excerpt));
+            .withExcerpt(excerpt(String.join("\n", relevant)));
+    }
+
+    /** {@code text} scrubbed of registered secrets, then with free-text secrets masked. */
+    private String excerpt(String text) {
+        return SecretTextMasker.mask(scrubber.scrub(text));
     }
 
     /** @param nine whether the client was chosen for INUBIT 9 or later */
     private ToolError authFailed(String inubitText, boolean nine) {
-        return error(ErrorCode.AUTH_FAILED, "StartCLI login failed: " + inubitText,
+        return error(ErrorCode.AUTH_FAILED, "StartCLI login failed: " + quoted(inubitText),
             "Wrong username or password for this INUBIT server, or the account is locked",
             labels.map(SecretLabels::fixCredentials).orElse("Check the node's username and"
                 + " password with --check-config and correct them where they are stored")
@@ -395,7 +405,7 @@ public final class CliOutputClassifier {
     }
 
     private ToolError notFound(String inubitText) {
-        return error(ErrorCode.NOT_FOUND, "StartCLI: " + inubitText,
+        return error(ErrorCode.NOT_FOUND, "StartCLI: " + quoted(inubitText),
             "The process instance finished, was already restarted or killed, or the id is wrong",
             "Look the instance up again with find_processes");
     }
@@ -406,9 +416,18 @@ public final class CliOutputClassifier {
             "Use a value without spaces, or the REST-based tools");
     }
 
+    /**
+     * INUBIT text to quote in a message, scrubbed and masked before a prefix is added, so the
+     * rules that need the start of a line (e.g. {@code Password: <value>}) still apply.
+     */
+    private String quoted(String inubitText) {
+        return SecretTextMasker.mask(scrubber.scrub(inubitText));
+    }
+
     private ToolError error(ErrorCode code, String message, String likelyCause,
         String nextStep) {
-        return ToolError.of(code, scrubber.scrub(message), likelyCause, nextStep);
+        return ToolError.of(code, SecretTextMasker.mask(scrubber.scrub(message)), likelyCause,
+            nextStep);
     }
 
     private static String firstLineWith(String text, String fragment) {
