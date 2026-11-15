@@ -174,7 +174,7 @@ class V61LaunchGuardTest {
         ToolErrorException refused = catchThrowableOfType(ToolErrorException.class,
             () -> processes.find(new ProcessQuery(Set.of(ProcessState.ERROR), false,
                 Duration.ofMinutes(60), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty(), 0, 50, NOW)));
+                Optional.empty(), 0, 50, NOW, Optional.empty())));
 
         assertThat(refused).isNotNull();
         ToolError error = refused.error();

@@ -27,8 +27,9 @@ public record CoverageEntry(Channel channel, String entry, Kind kind, Area area,
     public static final List<String> STORIES =
         List.of("US1", "US2", "US3", "US4", "US5", "US6", "US7");
 
-    /** {@code L-1} … {@code L-18} (a live check) or {@code 9.0-pin}. */
-    private static final Pattern WAITS_ITEM = Pattern.compile("L-([1-9]|1[0-8])|9\\.0-pin");
+    /** {@code L-1} … {@code L-21} (a live check), {@code 9.0-pin} or {@code 9.0-followup}. */
+    private static final Pattern WAITS_ITEM =
+        Pattern.compile("L-([1-9]|1[0-9]|2[01])|9\\.0-(pin|followup)");
 
     /** What the entry does on the INUBIT side. */
     public enum Kind {

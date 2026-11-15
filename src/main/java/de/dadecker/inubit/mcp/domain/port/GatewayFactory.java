@@ -138,6 +138,14 @@ public interface GatewayFactory {
     }
 
     /**
+     * The model-detail port of {@code server} (feature 022, US3); the default asks the gateway,
+     * whose default throws {@code UNSUPPORTED_VERSION}.
+     */
+    default ModelDetailPort modelDetails(NodeId server) {
+        return forServer(server).modelDetails();
+    }
+
+    /**
      * The cluster-node port of {@code server} (feature 024); the default asks the gateway, whose
      * default throws {@code CLI_UNAVAILABLE}.
      */

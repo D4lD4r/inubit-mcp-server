@@ -37,8 +37,8 @@ class V90FixtureCatalogueTest {
         "rest_unavailable");
 
     /**
-     * The feature-022 administration recordings (research D-26; T024, T028b): recorded once by
-     * their live task, not by the recorder, and neutralized.
+     * The feature-022 administration recordings (research D-26; T024, T028b, T039a): recorded
+     * once by their live task, not by the recorder, and neutralized.
      */
     private static final Set<String> ADMINISTRATION = Set.of("admin-license",
         "admin-configurations", "admin-users", "admin-settings-session",
@@ -48,7 +48,14 @@ class V90FixtureCatalogueTest {
         "admin-users-session", "admin-users-user", "admin-users-finger",
         "admin-users-user-capitalized", "admin-users-finger-capitalized",
         "admin-users-user-underscore", "admin-users-finger-no-name", "admin-users-msglist-empty",
-        "admin-users-who", "admin-users-nwho");
+        "admin-users-who", "admin-users-nwho", "admin-model-node-by-model",
+        "admin-model-node-by-model-json-refused", "admin-model-node-by-model-is-connector",
+        "admin-model-node-by-model-missing", "admin-model-node-by-name-not-found",
+        "admin-model-metadata-not-found", "admin-model-isconnector-refused",
+        "admin-model-library-driver", "admin-model-library-plugin",
+        "admin-model-fetchxslt-not-found", "admin-model-export-metadata",
+        "admin-model-export-metadata-names", "admin-model-export-group-exclude",
+        "admin-model-session");
 
     private static final Set<String> NOT_RECORDABLE = Stream.concat(D10_EXEMPTIONS.stream(),
         ADMINISTRATION.stream()).collect(Collectors.toUnmodifiableSet());

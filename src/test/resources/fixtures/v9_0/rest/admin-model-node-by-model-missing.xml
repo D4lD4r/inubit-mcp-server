@@ -1,0 +1,1 @@
+<ApiError><statusCode>500</statusCode><message>Error while getting node by model</message><path>/ibis/rest/model/nodeByModel/Workflow-0301/999999</path><timestamp>2026-11-14T10:57:08.550</timestamp></ApiError>

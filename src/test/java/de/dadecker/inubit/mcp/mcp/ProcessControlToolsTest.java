@@ -156,17 +156,17 @@ class ProcessControlToolsTest {
     @Test
     void withoutEffectiveWriteAccessTheWriteToolsAreNotOffered() {
         // dev: write disabled (default); prod: write.enabled but no productionOptIn;
-        // feature 022 T025, T037: AUTO nodes may run 8.1, so get_server_settings and read_users
-        // are offered
+        // feature 022 T025, T037, T046: AUTO nodes may run 8.1, so get_server_settings,
+        // read_users and read_model_details are offered
         assertThat(toolNames(false)).containsExactlyInAnyOrder("list_nodes", "get_health",
             "read_knowledge", "record_knowledge", "find_processes", "query_logs",
-            "get_server_settings", "read_users", "list_inventory", "get_inventory_item",
-            "find_partners", "check_artifacts");
+            "get_server_settings", "read_users", "read_model_details", "list_inventory",
+            "get_inventory_item", "find_partners", "check_artifacts");
     }
 
     @Test
     void withWriteAccessOnEntBothWriteToolsAreOffered() {
-        assertThat(toolNames(true)).contains("restart_process", "kill_process").hasSize(14);
+        assertThat(toolNames(true)).contains("restart_process", "kill_process").hasSize(15);
     }
 
     @Test

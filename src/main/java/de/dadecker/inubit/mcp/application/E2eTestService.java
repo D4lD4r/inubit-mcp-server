@@ -367,7 +367,7 @@ public final class E2eTestService {
         try {
             Page<ProcessInstance> page = processes.find(new ProcessQuery(Set.of(), false,
                 threshold, workflow, Optional.empty(), Optional.of(since), Optional.of(until), 0,
-                MAX_ITEMS, now));
+                MAX_ITEMS, now, Optional.empty()));
             instances = page.items();
             truncated |= page.truncated() || page.nextOffset().isPresent();
         } catch (ToolErrorException e) {

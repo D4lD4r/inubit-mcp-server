@@ -46,6 +46,11 @@ public enum Capability {
      * over StartCLI (feature 022, US2, research D-20).
      */
     USER_DIRECTORY(Kind.READ, Set.of(Channel.REST, Channel.CLI)),
+    /**
+     * {@code read_model_details}: a module over REST, the libraries over StartCLI (feature 022,
+     * US3, research D-21).
+     */
+    MODEL_DETAILS(Kind.READ, Set.of(Channel.REST, Channel.CLI)),
     /** {@code list_cluster_nodes}: a helper on the INUBIT client (feature 024). */
     CLUSTER_NODES_READ(Kind.READ, Set.of(Channel.CLI)),
     /** {@code read_io_log}: a helper on the INUBIT client (feature 024). */
@@ -123,6 +128,7 @@ public enum Capability {
             case WEBSERVICE_LOG_READ -> "downloading the web service log";
             case SERVER_SETTINGS -> "reading server settings";
             case USER_DIRECTORY -> "reading users";
+            case MODEL_DETAILS -> "reading model details";
             case CLUSTER_NODES_READ -> "reading the cluster's node list";
             case IO_LOG_READ -> "reading module input/output logging";
             case NODE_CONFIG_READ -> "reading node configuration values";

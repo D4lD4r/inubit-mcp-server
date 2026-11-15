@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliTagRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliTraceRunner;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
+import de.dadecker.inubit.mcp.adapter.cli.admin.CliLibraryRunner;
 import de.dadecker.inubit.mcp.adapter.cli.admin.CliSettingsRunner;
 import de.dadecker.inubit.mcp.adapter.cli.admin.CliUserRunner;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
@@ -23,6 +24,7 @@ import de.dadecker.inubit.mcp.adapter.cli.v81.V81ImportAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81ProcessControlAdapter;
 import de.dadecker.inubit.mcp.adapter.cli.v81.V81TagAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81LogAdapter;
+import de.dadecker.inubit.mcp.adapter.rest.v81.V81ModelDetailAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81PartnerManagementAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81ProcessQueryAdapter;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81SettingsAdapter;
@@ -36,11 +38,11 @@ import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 
 /**
  * The 8.1 port set: the REST adapters on the server's client and the StartCLI adapters, the
- * settings and the user directory of feature 022 included; with a helper host, the queue-entry
- * helper of feature 020 (research D-17) and the server-log download of feature 021 (research
- * D-19) and the cluster's node list, the I/O log, the node configuration and the temporary log
- * level of feature 024 (research D-24) too. The set without helper host has no node tools: their
- * ports fail with {@code CLI_UNAVAILABLE} ({@link PortSet}).
+ * settings, the user directory and the model details of feature 022 included; with a helper
+ * host, the queue-entry helper of feature 020 (research D-17) and the server-log download of
+ * feature 021 (research D-19) and the cluster's node list, the I/O log, the node configuration and
+ * the temporary log level of feature 024 (research D-24) too. The set without helper host has no
+ * node tools: their ports fail with {@code CLI_UNAVAILABLE} ({@link PortSet}).
  */
 final class V81PortSet {
 
@@ -82,7 +84,7 @@ final class V81PortSet {
         return new PortSet(ports.processes(), ports.logs(), ports.inventory(),
             ports.processControl(), ports.artifacts(), ports.imports(), ports.tags(),
             ports.partners(), queueEntries, serverLogs, ports.serverSettings(),
-            ports.userDirectory(), clusterNodes, ioLog, nodeConfig, logLevel);
+            ports.userDirectory(), ports.modelDetails(), clusterNodes, ioLog, nodeConfig, logLevel);
     }
 
     /**
@@ -98,7 +100,9 @@ final class V81PortSet {
      * Every port but the node tools in one step. The settings read the REST parts on the server's
      * client and the StartCLI parts in one session of a {@link CliSettingsRunner} (feature 022,
      * research D-7); the user directory lists the logins on the server's client and reads the
-     * rest with a {@link CliUserRunner} (feature 022, research D-20).
+     * rest with a {@link CliUserRunner} (feature 022, research D-20); the model details read a
+     * module on the server's client and the libraries with a {@link CliLibraryRunner} (feature
+     * 022, research D-21).
      */
     private static PortSet create(PortSetRegistry.NodeResources node,
         QueueEntryContentPort queueEntries, ServerLogPort serverLogs) {
@@ -127,7 +131,10 @@ final class V81PortSet {
             new V81SettingsAdapter(node.server().id(), node.client(),
                 new CliSettingsRunner(node.server(), node.credentials(), node.guard(),
                     node.cliRunner(), classifier(node))::read),
-            new V81UserAdapter(node.server().id(), node.client(), users::read, users::logins));
+            new V81UserAdapter(node.server().id(), node.client(), users::read, users::logins),
+            new V81ModelDetailAdapter(node.server().id(), node.client(),
+                new CliLibraryRunner(node.server(), node.credentials(), node.guard(),
+                    node.cliRunner(), classifier(node))::list));
     }
 
     private static CliOutputClassifier classifier(PortSetRegistry.NodeResources node) {

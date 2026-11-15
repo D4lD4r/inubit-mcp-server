@@ -21,7 +21,8 @@ public enum RestEndpoint {
     MODEL_EXPORT(Method.GET, "/model/export/{name}"),
     LICENSE(Method.GET, "/license"),
     CONFIGURATIONS(Method.GET, "/configurations"),
-    USERS(Method.GET, "/user/users");
+    USERS(Method.GET, "/user/users"),
+    NODE_BY_MODEL(Method.GET, "/model/nodeByModel/{model}/{node}");
 
     /** The HTTP methods of the endpoints. */
     public enum Method { GET, POST }

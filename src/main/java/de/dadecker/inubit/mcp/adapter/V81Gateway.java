@@ -10,6 +10,7 @@ import de.dadecker.inubit.mcp.domain.port.InventoryPort;
 import de.dadecker.inubit.mcp.domain.port.IoLogPort;
 import de.dadecker.inubit.mcp.domain.port.LogLevelPort;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
+import de.dadecker.inubit.mcp.domain.port.ModelDetailPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.NodeConfigPort;
 import de.dadecker.inubit.mcp.domain.port.PartnerManagementPort;
@@ -143,6 +144,11 @@ final class V81Gateway implements Gateway {
     @Override
     public UserDirectoryPort userDirectory() {
         return ports.get().userDirectory();
+    }
+
+    @Override
+    public ModelDetailPort modelDetails() {
+        return ports.get().modelDetails();
     }
 
     @Override

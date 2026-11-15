@@ -14,7 +14,9 @@
     "since":    { "type": "string", "description": "ISO-8601 timestamp or duration (PT24H)" },
     "until":    { "type": "string" },
     "offset":   { "type": "integer", "minimum": 0, "maximum": 9999, "default": 0 },
-    "limit":    { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+    "limit":    { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 },
+    "userColumn": { "type": "integer", "minimum": 1, "maximum": 5,
+                  "description": "Show this user-defined Queue Manager column (userDefined1..5) per process" }
   },
   "additionalProperties": false
 }

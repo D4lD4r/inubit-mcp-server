@@ -1,0 +1,1 @@
+<ApiError><statusCode>404</statusCode><message>Resource Not Found</message><path>/ibis/rest/model/nodeByName/Workflow-0301/Demo-DB-Probe</path><timestamp>2026-11-14T10:57:08.973</timestamp></ApiError>

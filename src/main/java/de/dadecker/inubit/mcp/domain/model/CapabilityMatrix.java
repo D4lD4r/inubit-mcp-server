@@ -85,7 +85,8 @@ public final class CapabilityMatrix {
      * 8.1: everything; the server-log reads of feature 021 since their recordings (trace log T033,
      * web service log T046), reading the server settings of feature 022 since its recordings
      * (T014, contract tests T025), reading the users of feature 022 since its recordings (T028,
-     * contract tests T037); of the node tools of feature 024 the cluster's node list, the node
+     * contract tests T037), reading the model details of feature 022 since its recordings (T039,
+     * contract tests T046); of the node tools of feature 024 the cluster's node list, the node
      * configuration and the temporary log levels since their recordings (T025, T038, T058), the
      * I/O log not yet verified.
      */
@@ -98,10 +99,10 @@ public final class CapabilityMatrix {
      * 9.0 responses are under contract test (feature 018, FR-016, research D-7); reading Queue
      * Manager entries included since its recorded 9.0 error entry (feature 020, FR-019, research
      * D-20); the server-log reads of feature 021 since their recordings (trace log T051, web
-     * service log T052); reading the server settings and the users of feature 022 since their
-     * recordings (T024, T028b; contract tests T026, T037a); of the node tools of feature 024 the
-     * cluster's node list, the node configuration and the temporary log levels since their
-     * recordings (T062, T064, T065), the I/O log not yet verified.
+     * service log T052); reading the server settings, the users and the model details of feature
+     * 022 since their recordings (T024, T028b, T039a; contract tests T026, T037a, T046a); of the
+     * node tools of feature 024 the cluster's node list, the node configuration and the temporary
+     * log levels since their recordings (T062, T064, T065), the I/O log not yet verified.
      */
     private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0),
         unsupported(with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED),
@@ -110,14 +111,14 @@ public final class CapabilityMatrix {
 
     /**
      * Unknown versions: reading Queue Manager entries, the server logs, the server settings, the
-     * users (feature 022: the coverage gate knows 8.1 and 9.0 only) and the node tools is refused,
-     * not run with a warning.
+     * users and the model details (feature 022: the coverage gate knows 8.1 and 9.0 only) and the
+     * node tools is refused, not run with a warning.
      */
     private static final CapabilityMatrix PRODUCTION = new CapabilityMatrix(
         List.of(V6_1, V8_1, V9_0),
         unsupported(READS_UNVERIFIED, Set.of(Capability.QUEUE_ENTRY_READ,
             Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ,
-            Capability.SERVER_SETTINGS, Capability.USER_DIRECTORY,
+            Capability.SERVER_SETTINGS, Capability.USER_DIRECTORY, Capability.MODEL_DETAILS,
             Capability.CLUSTER_NODES_READ, Capability.IO_LOG_READ, Capability.NODE_CONFIG_READ,
             Capability.LOG_LEVEL_WRITE)));
 
@@ -152,11 +153,13 @@ public final class CapabilityMatrix {
      * unsupported. Feature 022 (research D-1): reading the server settings is supported on 8.1
      * and 9.0 since their contract tests (T025, T026), and unsupported on every other and on
      * unknown versions; reading the users (US2) is supported on 8.1 and 9.0 since their contract
-     * tests (T037, T037a), and unsupported on every other and on unknown versions. Feature 024
-     * (research D-4): of the node tools, reading the cluster's node list and the node
-     * configuration and changing temporary log levels is supported on 8.1 and 9.0 (T025, T062;
-     * T038, T064; T058, T065); reading the I/O log on 8.1 and 9.0 is unsupported with the note
-     * "not yet verified", as on any other and on unknown versions (without the note).
+     * tests (T037, T037a), and unsupported on every other and on unknown versions; reading the
+     * model details (US3) is supported on 8.1 and 9.0 since their contract tests (T046, T046a),
+     * and unsupported on every other and on unknown versions. Feature 024 (research D-4): of the
+     * node tools, reading the cluster's node list and the node configuration and changing
+     * temporary log levels is supported on 8.1 and 9.0 (T025, T062; T038, T064; T058, T065);
+     * reading the I/O log on 8.1 and 9.0 is unsupported with the note "not yet verified", as on
+     * any other and on unknown versions (without the note).
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;

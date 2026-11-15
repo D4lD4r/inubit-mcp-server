@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InterfaceCoverage;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
 import de.dadecker.inubit.mcp.domain.model.LogQuery;
@@ -41,6 +42,7 @@ import de.dadecker.inubit.mcp.domain.port.QueryRules;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.TestClientSelection;
+import java.io.StringReader;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -83,6 +85,13 @@ class DiagnosisServiceTest {
         InubitVersion.parse("6.1.0").orElseThrow(),
         Optional.of(InubitVersion.parse("4.0.1").orElseThrow()),
         Optional.of(InubitVersion.parse("6.1.0").orElseThrow()));
+
+    /** T045b: the {@code CLI ps -u} row as in interface-coverage.tsv (8.1 covered, 9.0 planned). */
+    private static final InterfaceCoverage COVERAGE = InterfaceCoverage.load(new StringReader("""
+        # delivered-stories:
+        channel\tentry\tkind\tarea\tstory\tv8_1\tv9_0\twaits
+        CLI\tps -u\tREAD\tD\tUS3\tcovered:find_processes\tplanned\t-
+        """));
 
     private final MutableClock clock = new MutableClock(NOW);
     private final Map<NodeId, FakeProcesses> processes = new ConcurrentHashMap<>();
@@ -200,32 +209,32 @@ class DiagnosisServiceTest {
                     probes.add(node);
                     return new ProbedClient(ClientKey.NONE, CLIENT_610);
                 }, TestClientSelection.of(withClient::contains), node -> cliTimeout,
-                Terminology.DEFAULT),
+                Terminology.DEFAULT, false, COVERAGE),
             secretTiming);
     }
 
     private static ProcessRequest processRequest(String target) {
         return new ProcessRequest(target, Set.of(), false, Optional.empty(), Optional.empty(),
-            Optional.empty(), Optional.empty(), Optional.empty(), 0, 50);
+            Optional.empty(), Optional.empty(), Optional.empty(), 0, 50, Optional.empty());
     }
 
     private static ProcessRequest withStates(ProcessRequest r, Set<ProcessState> states,
         boolean hangingOnly, Optional<Integer> threshold) {
         return new ProcessRequest(r.target(), states, hangingOnly, threshold, r.workflow(),
-            r.tag(), r.since(), r.until(), r.offset(), r.limit());
+            r.tag(), r.since(), r.until(), r.offset(), r.limit(), r.userColumn());
     }
 
     private static ProcessRequest withTimes(ProcessRequest r, Optional<String> since,
         Optional<String> until) {
         return new ProcessRequest(r.target(), r.states(), r.hangingOnly(),
             r.hangingThresholdMinutes(), r.workflow(), r.tag(), since, until, r.offset(),
-            r.limit());
+            r.limit(), r.userColumn());
     }
 
     private static ProcessRequest withPaging(ProcessRequest r, int offset, int limit) {
         return new ProcessRequest(r.target(), r.states(), r.hangingOnly(),
             r.hangingThresholdMinutes(), r.workflow(), r.tag(), r.since(), r.until(), offset,
-            limit);
+            limit, r.userColumn());
     }
 
     private static LogRequest logRequest(String target, LogType type) {
@@ -239,7 +248,8 @@ class DiagnosisServiceTest {
         return new ProcessInstance(server, id, Optional.of(id), state,
             state.rawValues().isEmpty() ? "Suspended" : state.rawValues().get(0), since,
             Duration.ZERO, false, Optional.of("W"), Optional.of("M"), Optional.empty(),
-            Optional.empty(), Optional.empty(), Optional.of("OWNERS"), Optional.of("normal"));
+            Optional.empty(), Optional.empty(), Optional.of("OWNERS"), Optional.of("normal"),
+            Optional.empty());
     }
 
     private static <T> Page<T> page(List<T> items, int offset, int limit, long total,
@@ -357,7 +367,7 @@ class DiagnosisServiceTest {
 
         ToolError error = errorOf(() -> service().findProcesses(new ProcessRequest("qa",
             Set.of(), false, Optional.empty(), Optional.of("W\u0001"), Optional.empty(),
-            Optional.empty(), Optional.empty(), 0, 5)));
+            Optional.empty(), Optional.empty(), 0, 5, Optional.empty())));
 
         assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
         assertThat(error.node()).isEmpty();
@@ -441,7 +451,7 @@ class DiagnosisServiceTest {
         service().findProcesses(new ProcessRequest("dev/node1",
             Set.of(ProcessState.ERROR, ProcessState.QUEUED), false, Optional.empty(),
             Optional.of("Order Import"), Optional.of("v2"), Optional.empty(), Optional.empty(),
-            20, 10));
+            20, 10, Optional.empty()));
 
         ProcessQuery query = processes(DEV).queries().get(0);
         assertThat(query.states()).containsExactlyInAnyOrder(ProcessState.ERROR,
@@ -869,7 +879,7 @@ class DiagnosisServiceTest {
     private static ProcessRequest withTag(ProcessRequest r, String tag) {
         return new ProcessRequest(r.target(), r.states(), r.hangingOnly(),
             r.hangingThresholdMinutes(), r.workflow(), Optional.of(tag), r.since(), r.until(),
-            r.offset(), r.limit());
+            r.offset(), r.limit(), r.userColumn());
     }
 
     @Test
@@ -988,6 +998,122 @@ class DiagnosisServiceTest {
             assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION));
         assertThat(processes(QA2).queries()).isEmpty();
         assertThat(probes).isEmpty();
+    }
+
+    // --- userColumn (T045b, research D-21) -----------------------------------------------------
+
+    @Test
+    void theUserColumnGoesWithTheQueryOfAnAdmittedServerAndItsValuesAreShown() {
+        processes(DEV).answer = query -> page(List.of(withUserColumnValue(
+            instance(DEV, "1", ProcessState.ERROR, NOW), "order 4711")), 0, 50, 1, false);
+
+        List<NodeResult<NodePage<ProcessInstance>>> results = service().findProcesses(
+            withUserColumn(processRequest("dev/node1"), 2));
+
+        assertThat(single(results).items()).singleElement().satisfies(item ->
+            assertThat(item.userColumnValue()).contains("order 4711"));
+        assertThat(results.get(0).payload().orElseThrow().warnings()).isEmpty();
+        assertThat(processes(DEV).queries()).singleElement().satisfies(query ->
+            assertThat(query.userColumn()).contains(2));
+    }
+
+    @Test
+    void inAStageWithA90ServerThe81ServerReadsTheColumnAndThe90ServerIsListedWithAWarning() {
+        versionLines.put(QA2, VersionSetting.V9_0);
+        processes(QA1).answer = query -> page(List.of(
+            instance(QA1, "1", ProcessState.ERROR, NOW)), 0, 50, 1, false);
+        processes(QA2).answer = query -> page(List.of(
+            instance(QA2, "2", ProcessState.ERROR, NOW)), 0, 50, 1, false);
+
+        List<NodeResult<NodePage<ProcessInstance>>> results = service().findProcesses(
+            withUserColumn(processRequest("qa"), 2));
+
+        assertThat(results).extracting(NodeResult::node).containsExactly(QA1, QA2);
+        assertThat(results.get(0).payload().orElseThrow().warnings()).isEmpty();
+        assertThat(processes(QA1).queries()).singleElement().satisfies(query ->
+            assertThat(query.userColumn()).contains(2));
+        NodePage<ProcessInstance> other = results.get(1).payload().orElseThrow();
+        assertThat(other.page().items()).extracting(ProcessInstance::processId)
+            .containsExactly("2");
+        assertThat(processes(QA2).queries()).singleElement().satisfies(query ->
+            assertThat(query.userColumn()).isEmpty());
+        assertThat(other.warnings()).singleElement().asString()
+            .startsWith("userColumn unavailable (UNSUPPORTED_VERSION): find_processes: INUBIT 9.0")
+            .contains("CLI ps -u is not yet verified for INUBIT 9.0");
+    }
+
+    @Test
+    void inAStageWithA61ServerThe61ServerIsListedWithAWarningAndWithoutTheColumn() {
+        matrix = with61();
+        versionLines.put(QA2, VersionSetting.V6_1);
+        withClient.add(QA2);
+        processes(QA2).answer = query -> page(List.of(
+            instance(QA2, "2", ProcessState.ERROR, NOW)), 0, 50, 1, false);
+
+        List<NodeResult<NodePage<ProcessInstance>>> results = service().findProcesses(
+            withUserColumn(processRequest("qa"), 2));
+
+        assertThat(processes(QA1).queries()).singleElement().satisfies(query ->
+            assertThat(query.userColumn()).contains(2));
+        NodePage<ProcessInstance> other = results.get(1).payload().orElseThrow();
+        assertThat(other.page().items()).hasSize(1);
+        assertThat(processes(QA2).queries()).singleElement().satisfies(query ->
+            assertThat(query.userColumn()).isEmpty());
+        assertThat(other.warnings()).anySatisfy(warning -> assertThat(warning)
+            .startsWith("userColumn unavailable (UNSUPPORTED_VERSION): find_processes: INUBIT 6.1")
+            .contains("CLI ps -u is not yet verified for INUBIT 6.1"));
+    }
+
+    @Test
+    void aSingle90Or61ServerAskedForTheColumnIsRefusedWithoutAQuery() {
+        matrix = with61();
+        versionLines.put(QA1, VersionSetting.V9_0);
+        versionLines.put(QA2, VersionSetting.V6_1);
+        withClient.add(QA2);
+
+        for (NodeId server : List.of(QA1, QA2)) {
+            List<NodeResult<NodePage<ProcessInstance>>> results = service().findProcesses(
+                withUserColumn(processRequest(server.value()), 1));
+
+            assertThat(results).singleElement().satisfies(result -> {
+                assertThat(result.payload()).isEmpty();
+                assertThat(result.error()).hasValueSatisfying(error -> {
+                    assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+                    assertThat(error.node()).contains(server);
+                    assertThat(error.message()).contains("CLI ps -u is not yet verified");
+                });
+            });
+            assertThat(processes(server).queries()).isEmpty();
+        }
+        assertThat(probes).as("refused before the 6.1 client is probed").isEmpty();
+    }
+
+    @Test
+    void withoutTheColumnA90ServerIsQueriedAsBefore() {
+        versionLines.put(QA1, VersionSetting.V9_0);
+        processes(QA1).answer = query -> page(List.of(
+            instance(QA1, "1", ProcessState.ERROR, NOW)), 0, 50, 1, false);
+
+        List<NodeResult<NodePage<ProcessInstance>>> results = service().findProcesses(
+            processRequest("qa/node1"));
+
+        assertThat(single(results).items()).singleElement().satisfies(item ->
+            assertThat(item.userColumnValue()).isEmpty());
+        assertThat(results.get(0).payload().orElseThrow().warnings()).isEmpty();
+        assertThat(processes(QA1).queries()).singleElement().satisfies(query ->
+            assertThat(query.userColumn()).isEmpty());
+    }
+
+    private static ProcessRequest withUserColumn(ProcessRequest r, int column) {
+        return new ProcessRequest(r.target(), r.states(), r.hangingOnly(),
+            r.hangingThresholdMinutes(), r.workflow(), r.tag(), r.since(), r.until(),
+            r.offset(), r.limit(), Optional.of(column));
+    }
+
+    private static ProcessInstance withUserColumnValue(ProcessInstance i, String value) {
+        return new ProcessInstance(i.node(), i.processId(), i.globalProcessId(), i.state(),
+            i.rawState(), i.since(), i.timeInState(), i.hanging(), i.workflow(), i.module(),
+            i.moduleType(), i.tag(), i.inubitNode(), i.owner(), i.priority(), Optional.of(value));
     }
 
     // --- query_logs ----------------------------------------------------------------------------

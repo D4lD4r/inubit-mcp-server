@@ -67,7 +67,11 @@ public final class ArchiveExportAudit {
     private final Dependencies d;
     private final UUID auditId;
     private final String target;
+    private final ArchiveExportRequest.Content content;
+    /** {@code null} unless {@code content} is {@code workflows}. */
     private final String diagramGroup;
+    private final List<String> excludeGroups;
+    private final List<String> metadataNames;
     private final String targetFolder;
     private final boolean acknowledgeClearTextSecrets;
     private final Optional<String> reason;
@@ -81,7 +85,7 @@ public final class ArchiveExportAudit {
     private boolean finished;
 
     /**
-     * Starts the audit of one call with its inputs as requested.
+     * Starts the audit of one {@code workflows} call with its inputs as requested.
      *
      * @param target    the group or node id as requested (also when unknown or malformed)
      * @param owner     the requested owner, if any ({@link #owner(String)} sets the default)
@@ -93,16 +97,31 @@ public final class ArchiveExportAudit {
         String diagramGroup, String targetFolder, List<String> workflows,
         boolean acknowledgeClearTextSecrets, Optional<String> reason,
         Optional<String> mcpClient) {
+        this(dependencies, new ArchiveExportRequest(target, owner,
+            Objects.requireNonNull(diagramGroup, "diagramGroup"), workflows, targetFolder,
+            acknowledgeClearTextSecrets, reason, mcpClient));
+    }
+
+    /**
+     * Starts the audit of one call of any {@code content} form (feature 022, research D-21) with
+     * its inputs as requested; a form other than {@code workflows} adds {@code content} and its
+     * {@code excludeGroup.<n>} or {@code metadataName.<n>} inputs; names only, never archive
+     * content.
+     */
+    public ArchiveExportAudit(Dependencies dependencies, ArchiveExportRequest request) {
         this.d = Objects.requireNonNull(dependencies, "dependencies");
         this.auditId = Objects.requireNonNull(d.ids().get(), "auditId");
-        this.target = Objects.requireNonNull(target, "target");
-        this.owner = Objects.requireNonNull(owner, "owner");
-        this.diagramGroup = Objects.requireNonNull(diagramGroup, "diagramGroup");
-        this.targetFolder = Objects.requireNonNull(targetFolder, "targetFolder");
-        this.workflows = List.copyOf(workflows);
-        this.acknowledgeClearTextSecrets = acknowledgeClearTextSecrets;
-        this.reason = Objects.requireNonNull(reason, "reason");
-        this.mcpClient = Objects.requireNonNull(mcpClient, "mcpClient");
+        this.target = request.target();
+        this.owner = request.owner();
+        this.content = request.content();
+        this.diagramGroup = request.diagramGroup();
+        this.excludeGroups = request.excludeGroups();
+        this.metadataNames = request.metadataNames();
+        this.targetFolder = request.targetFolder();
+        this.workflows = request.workflows();
+        this.acknowledgeClearTextSecrets = request.acknowledgeClearTextSecrets();
+        this.reason = request.reason();
+        this.mcpClient = request.mcpClient();
     }
 
     /** The id of every record of this call. */
@@ -219,11 +238,22 @@ public final class ArchiveExportAudit {
     /** The inputs in their fixed order (R-12). */
     private Map<String, String> inputs() {
         Map<String, String> inputs = new LinkedHashMap<>();
+        if (content != ArchiveExportRequest.Content.WORKFLOWS) {
+            inputs.put("content", content.key());
+        }
         owner.ifPresent(value -> inputs.put("owner", bounded(value)));
-        inputs.put("diagramGroup", bounded(diagramGroup));
+        if (diagramGroup != null) {
+            inputs.put("diagramGroup", bounded(diagramGroup));
+        }
         inputs.put("targetFolder", bounded(targetFolder));
         for (int i = 0; i < workflows.size(); i++) {
             inputs.put("workflow." + (i + 1), bounded(workflows.get(i)));
+        }
+        for (int i = 0; i < excludeGroups.size(); i++) {
+            inputs.put("excludeGroup." + (i + 1), bounded(excludeGroups.get(i)));
+        }
+        for (int i = 0; i < metadataNames.size(); i++) {
+            inputs.put("metadataName." + (i + 1), bounded(metadataNames.get(i)));
         }
         for (int i = 0; i < files.size(); i++) {
             inputs.put("file." + (i + 1), bounded(files.get(i)));

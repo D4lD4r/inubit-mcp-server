@@ -101,7 +101,7 @@ class V81ProcessQueryAdapterTest {
         Optional<String> workflow, Optional<String> tag, Optional<Instant> since,
         Optional<Instant> until, int offset, int limit) {
         return new ProcessQuery(states, hangingOnly, THRESHOLD, workflow, tag, since, until,
-            offset, limit, NOW);
+            offset, limit, NOW, Optional.empty());
     }
 
     private static ProcessQuery states(Set<ProcessState> states, int offset, int limit) {
@@ -198,6 +198,30 @@ class V81ProcessQueryAdapterTest {
         assertThat(page.offset()).isEqualTo(40);
         assertThat(page.nextOffset()).hasValue(45);
         assertThat(page.items().get(0).processId()).isEqualTo("110190387");
+    }
+
+    /**
+     * T045b (research D-21): the requested user column comes from the {@code userDefined<i>} of
+     * the rows the search reads anyway: the same single request, no other call.
+     */
+    @Test
+    void theRequestedUserColumnIsReadFromTheSameQueueLogRows() {
+        wireMock.stubFor(post(urlPathEqualTo(PATH))
+            .willReturn(RestFixtures.response("log_queueLog", "json")));
+        Page<ProcessInstance> plain = adapter().find(states(Set.of(), 0, 5));
+        String plainBody = bodies().get(0);
+        wireMock.resetRequests();
+
+        Page<ProcessInstance> page = adapter().find(new ProcessQuery(Set.of(), false, THRESHOLD,
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), 0, 5, NOW,
+            Optional.of(2)));
+
+        assertThat(bodies()).containsExactly(plainBody);
+        assertThat(page.items()).extracting(ProcessInstance::userColumnValue).containsExactly(
+            Optional.of("<message 1>"), Optional.of("<message 1>"), Optional.of("<message 1>"),
+            Optional.of("<message 3>"), Optional.of("<message 5>"));
+        assertThat(plain.items()).allSatisfy(item ->
+            assertThat(item.userColumnValue()).isEmpty());
     }
 
     @Test

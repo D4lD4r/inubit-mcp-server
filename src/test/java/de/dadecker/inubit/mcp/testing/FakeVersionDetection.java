@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.application.NodeVersions;
 import de.dadecker.inubit.mcp.application.VersionGate;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InterfaceCoverage;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
@@ -58,9 +59,16 @@ public final class FakeVersionDetection implements GatewayFactory {
      */
     public static VersionGate gateWithoutClients(NodeVersions versions, GatewayFactory gateways,
         CapabilityMatrix matrix) {
+        return gateWithoutClients(versions, gateways, matrix, InterfaceCoverage.empty());
+    }
+
+    /** As above, on the coverage list {@code coverage} (feature 022). */
+    public static VersionGate gateWithoutClients(NodeVersions versions, GatewayFactory gateways,
+        CapabilityMatrix matrix, InterfaceCoverage coverage) {
         return new VersionGate(versions, gateways, matrix, (node, version, timeout) -> {
             throw new AssertionError("no client probe expected for " + node);
-        }, TestClientSelection.none(), node -> Duration.ZERO, Terminology.DEFAULT);
+        }, TestClientSelection.none(), node -> Duration.ZERO, Terminology.DEFAULT, false,
+            coverage);
     }
 
     /** The detection of {@code node} finds {@code raw}, e.g. {@code 9.0.7}. */

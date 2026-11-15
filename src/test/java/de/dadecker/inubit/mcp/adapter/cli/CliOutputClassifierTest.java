@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.V90Cases;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -108,6 +109,22 @@ class CliOutputClassifierTest {
             + "1-OK: done.\n", "", Duration.ZERO, false, CliRunner.MAX_OUTPUT_BYTES));
 
         assertThat(output.outputLines()).containsExactly("1-OK: done.");
+    }
+
+    /**
+     * Feature 022 T046a: the 9.0.10 client prints a Netty log record between the hostname warnings
+     * of its script-mode preamble (T024, T039a); it is a log line, and the preamble goes on after
+     * it.
+     */
+    @Test
+    void theNettyRecordInsideThe90PreambleIsALogLineAndThePreambleGoesOnAfterIt() {
+        CliOutput empty = classifier.parse(V90Cases.cliResult("admin-model-library-driver"));
+        CliOutput ok = classifier.parse(V90Cases.cliResult("admin-model-export-metadata"));
+
+        assertThat(empty.outputLines()).isEmpty();
+        assertThat(empty.logLines()).singleElement().asString().startsWith("ERROR ")
+            .contains("DnsServerAddressStreamProviders");
+        assertThat(ok.outputLines()).containsExactly("1-OK: Metadata exported successfully.");
     }
 
     @Test

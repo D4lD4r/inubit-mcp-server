@@ -858,7 +858,7 @@ class MainTest {
         String refused = "available: none; refused: monitoring, process diagnosis, log"
             + " diagnosis, inventory, partner management, workspace export, development writes,"
             + " deployment, end-to-end test, process control, downloading the trace log, reading"
-            + " server settings, reading users)";
+            + " server settings, reading users, reading model details)";
         assertThat(out())
             .contains("dev/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI"
                 + " only; " + refused + ", client: 6.1.0 (4.0.1–6.1.0; options: no trust-store"
@@ -912,12 +912,12 @@ class MainTest {
         assertThat(out())
             .contains("dev/node1: read-only, cli: unavailable, inubit: V6_1 (INUBIT 6.1, StartCLI"
                 + " only; " + refused + ", reading Queue Manager entries, downloading the trace"
-                + " log, reading server settings, reading users), secrets: credentialStore"
-                + " (macOS Keychain), username ←")
+                + " log, reading server settings, reading users, reading model details), secrets:"
+                + " credentialStore (macOS Keychain), username ←")
             .contains("test/node1: read-only, cli: unavailable, inubit: V6_1 (INUBIT 6.1,"
                 + " StartCLI only; " + refused + ", downloading the trace log, downloading the web"
-                + " service log, reading server settings, reading users), secrets:"
-                + " credentialStore (macOS Keychain), username ←")
+                + " service log, reading server settings, reading users, reading model details),"
+                + " secrets: credentialStore (macOS Keychain), username ←")
             .contains("Result: OK")
             .doesNotContain("jsonrpc");
         TestSecrets.assertNoLeak(out());
@@ -1725,14 +1725,14 @@ class MainTest {
         // US1 (Phase 3), US2 (Phase 4), US3 (Phase 5) and check_artifacts (feature 003); no
         // write tool while write is disabled, no export without a CLI installation; feature 019
         // read_knowledge always, record_knowledge with knowledge.recording on (the default);
-        // feature 022 T025, T037: get_server_settings and read_users on an 8.1 node, also
-        // without a CLI installation
+        // feature 022 T025, T037, T046: get_server_settings, read_users and read_model_details
+        // on an 8.1 node, also without a CLI installation
         assertThat(tools.path("result").path("tools"))
             .extracting(tool -> tool.path("name").asString())
             .containsExactlyInAnyOrder("list_nodes", "get_health", "read_knowledge",
                 "record_knowledge", "find_processes", "query_logs", "get_server_settings",
-                "read_users", "list_inventory", "get_inventory_item", "find_partners",
-                "check_artifacts");
+                "read_users", "read_model_details", "list_inventory", "get_inventory_item",
+                "find_partners", "check_artifacts");
         JsonNode server = servers.path("result").path("structuredContent").path("groups").path(0)
             .path("nodes").path(0);
         assertThat(server.path("id").asString()).isEqualTo("dev/node1");
@@ -2303,13 +2303,14 @@ class MainTest {
     @Test
     void withoutAnOptInTheToolListIsUnchangedByFeature020() throws Exception {
         // feature 021 T033: the 8.1 node with a client home also announces download_server_log;
-        // feature 022 T025, T037: and get_server_settings and read_users
+        // feature 022 T025, T037, T046: and get_server_settings, read_users and
+        // read_model_details
         credentials();
         List<String> withoutFeature020 = List.of("list_nodes", "get_health",
             "read_knowledge", "record_knowledge", "find_processes", "query_logs",
-            "download_server_log", "get_server_settings", "read_users", "list_inventory",
-            "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
-            "check_artifacts");
+            "download_server_log", "get_server_settings", "read_users", "read_model_details",
+            "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
+            "export_archives", "check_artifacts");
 
         assertThat(announcedTools(configWithClientHome("")))
             .containsExactlyElementsOf(withoutFeature020);
@@ -2326,8 +2327,9 @@ class MainTest {
             "    unsupported:\n      queueEntryRead: true\n")))
             .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
                 "find_processes", "query_logs", "read_queue_entry", "download_server_log",
-                "get_server_settings", "read_users", "list_inventory", "get_inventory_item",
-                "find_partners", "export_artifacts", "export_archives", "check_artifacts");
+                "get_server_settings", "read_users", "read_model_details", "list_inventory",
+                "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+                "check_artifacts");
     }
 
     // --- feature 021 T031: download_server_log only once a version admits it (FR-002, SC-002) -
@@ -2336,12 +2338,14 @@ class MainTest {
     void sinceThe81TraceRecordingAnEightOneAndAnAutoNodeAnnounceTheDownload() throws Exception {
         // T033: the production matrix supports the trace log on 8.1, so an 8.1 node and an AUTO
         // node with a client home announce download_server_log; without a client home none does
-        // (feature 022 T025, T037: both also announce get_server_settings and read_users)
+        // (feature 022 T025, T037, T046: both also announce get_server_settings, read_users and
+        // read_model_details)
         credentials();
         List<String> withDownload = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
-            "get_server_settings", "read_users", "list_inventory", "get_inventory_item",
-            "find_partners", "export_artifacts", "export_archives", "check_artifacts");
+            "get_server_settings", "read_users", "read_model_details", "list_inventory",
+            "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+            "check_artifacts");
 
         assertThat(announcedTools(configWithClientHome("")))
             .containsExactlyElementsOf(withDownload);
@@ -2360,7 +2364,8 @@ class MainTest {
         credentials();
         List<String> reference = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
-            "get_server_settings", "read_users", "list_inventory", "get_inventory_item",
+            "get_server_settings", "read_users", "read_model_details",
+            "list_inventory", "get_inventory_item",
             "find_partners", "export_artifacts", "export_archives", "check_artifacts");
 
         assertThat(announcedTools(configWithClientHome("")))
@@ -2392,7 +2397,8 @@ class MainTest {
         credentials();
         List<String> withClusterNodes = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
-            "get_server_settings", "read_users", "list_cluster_nodes", "list_inventory",
+            "get_server_settings", "read_users", "read_model_details",
+            "list_cluster_nodes", "list_inventory",
             "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
             "check_artifacts");
 
@@ -2409,7 +2415,8 @@ class MainTest {
         credentials();
         List<String> reference = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
-            "get_server_settings", "read_users", "list_inventory", "get_inventory_item",
+            "get_server_settings", "read_users", "read_model_details",
+            "list_inventory", "get_inventory_item",
             "find_partners", "export_artifacts", "export_archives", "check_artifacts");
         List<String> withClusterNodes = new ArrayList<>(reference);
         withClusterNodes.add(reference.indexOf("list_inventory"), "list_cluster_nodes");
@@ -2434,7 +2441,8 @@ class MainTest {
         credentials();
         List<String> reference = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
-            "get_server_settings", "read_users", "list_inventory", "get_inventory_item",
+            "get_server_settings", "read_users", "read_model_details",
+            "list_inventory", "get_inventory_item",
             "find_partners", "export_artifacts", "export_archives", "check_artifacts");
 
         Path optedIn = configWithClientHome("    unsupported:\n      ioLogRead: true\n");
@@ -2453,7 +2461,8 @@ class MainTest {
         credentials();
         List<String> withNodeConfig = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
-            "get_server_settings", "read_users", "get_node_config", "list_inventory",
+            "get_server_settings", "read_users", "read_model_details",
+            "get_node_config", "list_inventory",
             "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
             "check_artifacts");
 
@@ -2470,7 +2479,8 @@ class MainTest {
         credentials();
         List<String> reference = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
-            "get_server_settings", "read_users", "list_inventory", "get_inventory_item",
+            "get_server_settings", "read_users", "read_model_details",
+            "list_inventory", "get_inventory_item",
             "find_partners", "export_artifacts", "export_archives", "check_artifacts");
         List<String> withNodeConfig = new ArrayList<>(reference);
         withNodeConfig.add(reference.indexOf("list_inventory"), "get_node_config");
@@ -2498,7 +2508,8 @@ class MainTest {
         credentials();
         List<String> withWrite = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
-            "get_server_settings", "read_users", "list_inventory", "get_inventory_item",
+            "get_server_settings", "read_users", "read_model_details",
+            "list_inventory", "get_inventory_item",
             "find_partners", "export_artifacts", "export_archives", "check_artifacts",
             "restart_process", "kill_process");
         List<String> withLogLevel = new ArrayList<>(withWrite);
@@ -2522,7 +2533,8 @@ class MainTest {
         credentials();
         List<String> withWrite = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
-            "get_server_settings", "read_users", "list_inventory", "get_inventory_item",
+            "get_server_settings", "read_users", "read_model_details",
+            "list_inventory", "get_inventory_item",
             "find_partners", "export_artifacts", "export_archives", "check_artifacts",
             "restart_process", "kill_process");
         List<String> withLogLevel = new ArrayList<>(withWrite);

@@ -8,8 +8,10 @@ import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.Names;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.SecretTextMasker;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -21,6 +23,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
@@ -61,6 +64,8 @@ import java.util.zip.ZipInputStream;
  *   <li>Feature 005 (research D-1, D-4): {@link #exportRelease} (the tagged diagram groups of an
  *       owner, the only export with the empty group list) and {@link #exportRepository} (a
  *       repository file or folder) return the whole archive as well.
+ *   <li>Feature 022 (research D-21): {@link #exportOwnerWithoutGroups} and
+ *       {@link #exportMetadata} return the whole archive as well, in the forms recorded in T039.
  * </ul>
  */
 public final class CliExportRunner {
@@ -238,6 +243,95 @@ public final class CliExportRunner {
             .repositoryPath("--exportRepositoryPath", path)
             .path("--exportFile", file, runner.windows())
             .build());
+    }
+
+    /**
+     * The owner export without groups of feature 022 (research D-21, owner decision 2026-11-14):
+     * the technical workflows of {@code owner} in every diagram group but {@code excludeGroups},
+     * as recorded in T039: {@code export --exportWorkflowUser '<owner>' --exportWorkflowType
+     * 'technical' --exportWorkflowGroup '' --exportWorkflowGroupExclude '<g1>,<g2>,…'
+     * --exportFile '<tmp>/owner.zip'}. Without the type and the empty group INUBIT answers
+     * {@code 2-NOK: Missing export option.}
+     *
+     * @throws ToolErrorException {@code INVALID_INPUT} for no or more than
+     *     {@value ArtifactPort#MAX_EXCLUDED_GROUPS} groups or a value StartCLI quoting cannot carry, before
+     *     anything is launched; otherwise as {@link #exportWorkflowGroup}
+     */
+    public byte[] exportOwnerWithoutGroups(String owner, List<String> excludeGroups) {
+        checkOwnerWithoutGroupsExport(owner, excludeGroups);
+        return masked(() -> export("owner.zip", this::readArchive,
+            file -> CliCommand.command("export")
+                .quoted("--exportWorkflowUser", owner)
+                .quoted("--exportWorkflowType", "technical")
+                .emptyQuoted("--exportWorkflowGroup")
+                .quotedList("--exportWorkflowGroupExclude", excludeGroups)
+                .path("--exportFile", file, runner.windows())
+                .build()));
+    }
+
+    /**
+     * The metadata registry export of feature 022 (research D-21), as recorded in T039:
+     * {@code export --exportMetadata --exportFile '<tmp>/metadata.zip'}, with
+     * {@code --exportMetadataNames '<n1>,<n2>,…'} before {@code --exportFile} for the named
+     * registry entries only (INUBIT accepts names that do not exist).
+     *
+     * @throws ToolErrorException {@code INVALID_INPUT} for more than
+     *     {@value ArtifactPort#MAX_METADATA_NAMES} names or a name StartCLI quoting cannot carry, before
+     *     anything is launched; otherwise as {@link #exportWorkflowGroup}
+     */
+    public byte[] exportMetadata(List<String> metadataNames) {
+        checkMetadataExport(metadataNames);
+        return masked(() -> export("metadata.zip", this::readArchive, file -> {
+            CliCommand.Builder command = CliCommand.command("export").flag("--exportMetadata");
+            if (!metadataNames.isEmpty()) {
+                command.quotedList("--exportMetadataNames", metadataNames);
+            }
+            return command.path("--exportFile", file, runner.windows()).build();
+        }));
+    }
+
+    /**
+     * The export of feature 022, a failure's excerpt with secret-named values masked (research
+     * D-19), as for the library list: the owner export reads module files that hold secrets in
+     * clear text.
+     */
+    private static byte[] masked(Supplier<byte[]> export) {
+        try {
+            return export.get();
+        } catch (ToolErrorException e) {
+            ToolError error = e.error();
+            throw new ToolErrorException(new ToolError(error.code(), error.message(),
+                error.likelyCause(), error.nextStep(), error.node(),
+                error.excerpt().map(SecretTextMasker::mask)));
+        }
+    }
+
+    /** The checks of {@link #exportOwnerWithoutGroups}; see {@link #checkHistoryExport}. */
+    public void checkOwnerWithoutGroupsExport(String owner, List<String> excludeGroups) {
+        if (excludeGroups == null || excludeGroups.isEmpty()
+            || excludeGroups.size() > ArtifactPort.MAX_EXCLUDED_GROUPS) {
+            throw invalid("The owner export without groups needs 1 to "
+                + ArtifactPort.MAX_EXCLUDED_GROUPS + " excluded diagram groups",
+                "Without an excluded group the export holds every diagram group of the owner");
+        }
+        quotable("Owner", owner);
+        for (String group : excludeGroups) {
+            quotable("Diagram group", group);
+        }
+        checkPreconditions();
+    }
+
+    /** The checks of {@link #exportMetadata}; see {@link #checkHistoryExport}. */
+    public void checkMetadataExport(List<String> metadataNames) {
+        if (metadataNames == null || metadataNames.size() > ArtifactPort.MAX_METADATA_NAMES) {
+            throw invalid("The metadata export takes at most "
+                + ArtifactPort.MAX_METADATA_NAMES + " names",
+                "Longer lists are not passed to StartCLI");
+        }
+        for (String name : metadataNames) {
+            quotable("Metadata name", name);
+        }
+        checkPreconditions();
     }
 
     /** The checks of {@link #exportRelease}; see {@link #checkHistoryExport}. */

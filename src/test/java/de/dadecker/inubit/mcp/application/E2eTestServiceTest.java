@@ -226,7 +226,7 @@ class E2eTestServiceTest {
         return new ProcessInstance(DEV, processId, Optional.empty(), state, state.name(),
             Instant.parse("2026-10-07T10:00:01Z"), Duration.ZERO, false,
             Optional.of(workflow), Optional.empty(), Optional.empty(), Optional.empty(),
-            Optional.empty(), Optional.of("jdoe"), Optional.empty());
+            Optional.empty(), Optional.of("jdoe"), Optional.empty(), Optional.empty());
     }
 
     private static LogEntry entry(LogType type, Severity severity, String processId,

@@ -149,7 +149,7 @@ class RefusingPortsTest {
         // feature 024 T015 (research D-24): not the CLI_UNAVAILABLE of a port set without adapter
         PortSet ports = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
             refusing, refusing, refusing, refusing, refusing, refusing, refusing, refusing,
-            refusing, refusing);
+            refusing, refusing, refusing);
 
         for (ThrowingCallable call : nodeToolCalls(ports)) {
             assertThatThrownBy(call)
@@ -242,6 +242,39 @@ class RefusingPortsTest {
                     e -> {
                         assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
                         assertThat(e.error().message()).contains("User reads");
+                    });
+            }
+        }
+    }
+
+    @Test
+    void modelDetailReadsRefuseWithTheSixOneRefusalWithoutContact() {
+        // feature 022 T042: no model detail reads on 6.1 (spec edge case "INUBIT 6.1")
+        for (Runnable call : List.<Runnable>of(() -> refusing.module("Workflow-0301", "100"),
+            () -> refusing.libraries("driver"))) {
+            assertThatThrownBy(call::run).isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error()).isEqualTo(refusing.refusal().error()));
+        }
+    }
+
+    @Test
+    void thePortSetCompatibilityConstructorsFillInARefusingModelDetailPort() {
+        // feature 022 T042: port sets built with the previous eight, eleven or twelve ports
+        PortSet eight = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing);
+        PortSet eleven = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing, refusing, refusing);
+        PortSet twelve = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing, refusing, refusing, refusing);
+
+        for (PortSet ports : List.of(eight, eleven, twelve)) {
+            for (Runnable call : List.<Runnable>of(
+                () -> ports.modelDetails().module("Workflow-0301", "100"),
+                () -> ports.modelDetails().libraries("driver"))) {
+                assertThatThrownBy(call::run).isInstanceOfSatisfying(ToolErrorException.class,
+                    e -> {
+                        assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+                        assertThat(e.error().message()).contains("Model details");
                     });
             }
         }

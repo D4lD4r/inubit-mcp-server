@@ -1,21 +1,21 @@
 {
   "type": "object",
-  "required": ["node", "owner", "diagramGroup", "targetFolder", "auditId", "clearTextSecrets",
-               "archives", "failed", "notWritten", "truncated", "warnings"],
+  "required": ["node", "targetFolder", "auditId", "archives", "failed", "notWritten",
+               "truncated", "warnings", "source"],
   "properties": {
     "node": { "type": "string" },
-    "owner": { "type": "string" },
-    "diagramGroup": { "type": "string" },
+    "owner": { "type": "string", "description": "The owner in effect; absent for content metadata" },
+    "diagramGroup": { "type": "string", "description": "Only for content workflows" },
     "targetFolder": { "type": "string", "description": "Absolute path of the folder" },
     "auditId": { "type": "string" },
-    "clearTextSecrets": { "type": "string" },
+    "clearTextSecrets": { "type": "string", "description": "Absent for content metadata" },
     "archives": { "type": "array", "items": {
       "type": "object",
       "required": ["workflow", "file", "path", "size", "moduleCount", "modules",
                    "missingModuleCount", "missingModules", "repositoryFileCount",
                    "repositoryPaths", "warnings"],
       "properties": {
-        "workflow": { "type": "string" },
+        "workflow": { "type": "string", "description": "The workflow; for content ownerWithoutGroups the owner, for metadata 'metadata registry' (one archive, its module and repository lists empty)" },
         "file": { "type": "string", "description": "File name in targetFolder" },
         "path": { "type": "string", "description": "Absolute path of the archive" },
         "size": { "type": "integer", "minimum": 0 },
@@ -40,7 +40,8 @@
       "additionalProperties": false } },
     "notWritten": { "type": "array", "items": { "type": "string" } },
     "truncated": { "type": "boolean" },
-    "warnings": { "type": "array", "items": { "type": "string" } }
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "source": { "const": "CLI", "description": "The channel the archives came from: StartCLI" }
   },
   "additionalProperties": false
 }

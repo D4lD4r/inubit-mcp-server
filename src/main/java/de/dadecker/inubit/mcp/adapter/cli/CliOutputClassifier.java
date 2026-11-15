@@ -22,7 +22,7 @@ import java.util.stream.Stream;
  *   <li>Leading preamble lines are dropped: {@code JAVA_HOME is set}, {@code Password: } (also
  *       when the prompt is followed by text on the same line), {@code SECURITY WARNING: Hostname
  *       verification is disabled…} and {@code Picked up JAVA_TOOL_OPTIONS: …} (stdout or
- *       stderr).
+ *       stderr), also after a log record header among them (INUBIT 9.0).
  *   <li>Log records are separated from the command output: a header line
  *       {@code ^(ERROR|WARN|INFO|DEBUG) hh:mm:ss,SSS [}, an optional exception line (continued
  *       while an {@code @Start@} marker is still open), and its {@code \tat …},
@@ -506,10 +506,15 @@ public final class CliOutputClassifier {
         return text.isEmpty() ? List.of() : List.of(text.split("\\R", -1));
     }
 
-    /** Drops the leading preamble lines; a prompt followed by text keeps the text. */
+    /**
+     * Drops the leading preamble lines; a prompt followed by text keeps the text. A log record
+     * header among them (the 9.0.10 client's Netty line between its hostname warnings, T024,
+     * T039a) is kept for {@link #separate}, and the preamble goes on after it.
+     */
     private static List<String> withoutPreamble(List<String> lines) {
         int start = 0;
         List<String> result = new ArrayList<>(lines);
+        List<String> logHeaders = new ArrayList<>();
         while (start < result.size()) {
             String line = result.get(start);
             if (line.startsWith(PASSWORD_PROMPT)) {
@@ -525,9 +530,15 @@ public final class CliOutputClassifier {
                 start++;
                 continue;
             }
+            if (LOG_HEADER.matcher(line).find()) {
+                logHeaders.add(line);
+                start++;
+                continue;
+            }
             break;
         }
-        return result.subList(start, result.size());
+        logHeaders.addAll(result.subList(start, result.size()));
+        return logHeaders;
     }
 
     private static boolean isPreamble(String line) {

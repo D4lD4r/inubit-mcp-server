@@ -88,6 +88,19 @@ public final class V90Cases {
         for (String rest : List.of("admin-license", "admin-configurations", "admin-users")) {
             cases.put(rest, Kind.REST);
         }
+        // feature 022 (T039a): the US3 model-detail recordings, see NOT_RECORDABLE.txt
+        for (String rest : List.of("admin-model-node-by-model",
+            "admin-model-node-by-model-json-refused", "admin-model-node-by-model-is-connector",
+            "admin-model-node-by-model-missing", "admin-model-node-by-name-not-found",
+            "admin-model-metadata-not-found", "admin-model-isconnector-refused")) {
+            cases.put(rest, Kind.REST);
+        }
+        for (String cli : List.of("admin-model-library-driver", "admin-model-library-plugin",
+            "admin-model-fetchxslt-not-found", "admin-model-export-metadata",
+            "admin-model-export-metadata-names", "admin-model-export-group-exclude",
+            "admin-model-session")) {
+            cases.put(cli, Kind.CLI);
+        }
         for (String cli : List.of("admin-settings-session", "admin-settings-threads-refused",
             "admin-settings-privileged-percentage-refused",
             "admin-settings-privileged-list-refused", "admin-settings-db-tolerance",

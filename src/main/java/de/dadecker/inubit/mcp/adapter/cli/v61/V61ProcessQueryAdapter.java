@@ -187,7 +187,7 @@ public final class V61ProcessQueryAdapter implements ProcessQueryPort {
         return new ProcessInstance(instance.node(), instance.processId(),
             instance.globalProcessId(), instance.state(), rawState, instance.since(),
             instance.timeInState(), instance.hanging(), workflow, module, instance.moduleType(),
-            instance.tag(), inubitNode, owner, priority);
+            instance.tag(), inubitNode, owner, priority, Optional.empty());
     }
 
     /**

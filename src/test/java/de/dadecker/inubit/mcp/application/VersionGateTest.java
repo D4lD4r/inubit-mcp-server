@@ -1047,6 +1047,8 @@ class VersionGateTest {
         expected.put(Capability.SERVER_SETTINGS, "reading server settings; " + other);
         // feature 022 (T033)
         expected.put(Capability.USER_DIRECTORY, "reading users; " + other);
+        // feature 022 (T042)
+        expected.put(Capability.MODEL_DETAILS, "reading model details; " + other);
         expected.put(Capability.CLUSTER_NODES_READ, "reading the cluster's node list; supported:"
             + " 8.1, 9.0; use the Workbench's Cluster Manager");
         expected.put(Capability.IO_LOG_READ, "reading module input/output logging; supported: 8.1,"
