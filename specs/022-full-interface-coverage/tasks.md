@@ -850,6 +850,9 @@ offered).
 
 ## Phase 6: User Story 4 – Operate a server (P2)
 
+> **Paused 2026-11-15 (owner decision).** US4–US7 and Phase 10 are moved to the backlog
+> (`docs/backlog.md`, "Feature 022: remaining user stories US4–US7"); work resumes here.
+
 **Goal**: `operate_server` (maintenance, readiness, trace, trace level, debug, midnight task,
 deleting processes in error) and `manage_tags` (active tag of a user; tag removal limited to a
 group or path if INUBIT allows it), each previewed, confirmed, audited (US4).
