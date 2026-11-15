@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "description": "Either node (reset the INUBIT node), or leaseId with forget: true (end a lease whose reset failed, without contacting INUBIT)",
+  "properties": {
+    "node": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}/[a-z0-9][a-z0-9-]{0,31}$",
+      "description": "Id of exactly one {node} (`<{group}>/<{node}>`) whose INUBIT node is reset"
+    },
+    "leaseId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "Id of a lease whose automatic reset failed; only with forget: true"
+    },
+    "forget": {
+      "const": true,
+      "description": "Ends the lease leaseId without contacting INUBIT; the level may stay raised until that node restarts"
+    },
+    "confirmationCode": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22}$",
+      "description": "The code of the preview; omit it on the first call"
+    }
+  },
+  "oneOf": [
+    {
+      "required": ["node"],
+      "not": { "anyOf": [{ "required": ["leaseId"] }, { "required": ["forget"] }] }
+    },
+    {
+      "required": ["leaseId", "forget"],
+      "not": { "required": ["node"] }
+    }
+  ],
+  "additionalProperties": false
+}

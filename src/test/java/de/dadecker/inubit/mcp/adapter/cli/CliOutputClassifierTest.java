@@ -15,11 +15,14 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.V90Cases;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
@@ -659,6 +662,372 @@ class CliOutputClassifierTest {
         assertThat(error.excerpt()).isEmpty();
         assertThat(String.join("\n", error.message(), error.likelyCause(), error.nextStep()))
             .doesNotContain("hunter2-secret", "/opt/");
+    }
+
+    // --- trace log level (feature 024, research D-11, D-20) ----------------------------------
+
+    /**
+     * {@code fixtures/node-tools/v8_1/log-level/<fixtureCase>.*} ({@code set_ok} and
+     * {@code reset_ok} recorded in T039, the others reconstructed in T041).
+     */
+    private static CliResult logLevelFixture(String fixtureCase) {
+        return logLevelFixture("v8_1", fixtureCase);
+    }
+
+    /**
+     * {@code fixtures/node-tools/<version>/log-level/<fixtureCase>.*} ({@code v9_0} {@code set_ok}
+     * and {@code reset_ok} recorded in T061).
+     */
+    private static CliResult logLevelFixture(String version, String fixtureCase) {
+        String base = "node-tools/" + version + "/log-level/" + fixtureCase;
+        return new CliResult(
+            Integer.parseInt(text(base + ".exit").strip()), text(base + ".stdout"),
+            text(base + ".stderr"), Duration.ofSeconds(3), false, CliRunner.MAX_OUTPUT_BYTES);
+    }
+
+    /** The recorded 9.0 log-level case {@code fixtureCase} as a run of the 9.0 client. */
+    private static CliResult nineZeroLogLevelFixture(String fixtureCase) {
+        return logLevelFixture("v9_0", fixtureCase).forClientMajor(OptionalInt.of(9));
+    }
+
+    private ToolError traceLevelFailure(CliOutputClassifier classifier, CliResult result) {
+        CliOutcome outcome = classifier.classifyTraceLevel(result);
+        assertThat(outcome).isInstanceOf(CliOutcome.Failure.class);
+        return ((CliOutcome.Failure) outcome).error();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"set_ok", "reset_ok"})
+    void theRecordedSilentAnswerIsASuccessInTheTraceLevelContext(String fixtureCase) {
+        // T039: exit code 0, only the client preamble on stdout and the JVM notice on stderr
+        CliOutcome outcome = classifier.classifyTraceLevel(logLevelFixture(fixtureCase));
+
+        assertThat(outcome).isInstanceOfSatisfying(CliOutcome.Success.class, success -> {
+            assertThat(success.output().outputLines()).isEmpty();
+            assertThat(success.output().logLines()).isEmpty();
+        });
+    }
+
+    @Test
+    void anOkConfirmationAfterThePreambleIsStillASuccess() {
+        CliOutcome outcome = classifier.classifyTraceLevel(result(0, PREAMBLE + "1-OK: OK\n"));
+
+        assertThat(outcome).isInstanceOfSatisfying(CliOutcome.Success.class, success ->
+            assertThat(success.output().okMessages()).containsExactly("OK"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"level changed\n", "1-OK: OK\nlevel changed\n"})
+    void anUnexpectedLineAfterThePreambleIsNoSuccess(String rest) {
+        ToolError error = traceLevelFailure(classifier, result(0, PREAMBLE + rest));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt ->
+            assertThat(excerpt).contains("level changed"));
+    }
+
+    @Test
+    void anUnexpectedStderrLineAfterTheNoticeIsNoSuccess() {
+        CliResult result = new CliResult(0, PREAMBLE, PICKED_UP + "level changed\n",
+            Duration.ofSeconds(1), false, CliRunner.MAX_OUTPUT_BYTES);
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "1-OK: OK\n"})
+    void aLogRecordAfterThePreambleIsNoSuccess(String confirmation) {
+        // with or without an n-OK message: the silent success prints no log record (T039)
+        CliResult result = result(0, PREAMBLE
+            + "WARN 10:00:00,000 [main      ] CLI                       trace\n" + confirmation);
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
+            .contains("WARN 10:00:00,000"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"set_ok", "reset_ok"})
+    void theRecorded90AnswerIsASuccessInTheTraceLevelContext(String fixtureCase) {
+        // T061: exit code 0, the 9.0 client's preamble with its netty log record and the
+        // hostname warning repeated around it and after the prompt; no confirmation
+        CliOutcome outcome = classifier.classifyTraceLevel(nineZeroLogLevelFixture(fixtureCase));
+
+        assertThat(outcome).isInstanceOfSatisfying(CliOutcome.Success.class, success -> {
+            assertThat(success.output().logLines()).singleElement().asString()
+                .contains("DnsServerAddressStreamProviders");
+            assertThat(success.output().okMessages()).isEmpty();
+        });
+    }
+
+    /** The netty log record of the recorded 9.0 {@code set_ok}. */
+    private static String recorded90DnsRecord() {
+        return nineZeroLogLevelFixture("set_ok").stdout().lines()
+            .filter(line -> line.startsWith("ERROR ")).findFirst().orElseThrow();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "WARN 10:00:00,000 [main      ] CLI                       trace",
+        "ERROR 10:00:00,000 [main      ] DnsServerAddressStreamProviders Default DNS servers"
+            + " could not be read",
+        "RECORDED"})
+    void anotherLogRecordBesideThe90PreambleIsNoSuccess(String record) {
+        // only the one recorded netty record is tolerated (T061), not another one, not twice
+        String line = record.equals("RECORDED") ? recorded90DnsRecord() : record;
+        CliResult recorded = nineZeroLogLevelFixture("set_ok");
+        CliResult result = new CliResult(0, recorded.stdout() + line + "\n", recorded.stderr(),
+            Duration.ofSeconds(3), false, CliRunner.MAX_OUTPUT_BYTES, OptionalInt.of(9));
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+    }
+
+    @Test
+    void anExtraLineBesideThe90PreambleIsNoSuccess() {
+        CliResult recorded = nineZeroLogLevelFixture("set_ok");
+        CliResult result = new CliResult(0, recorded.stdout().replace("Password: \n",
+            "Password: \nlevel changed\n"), recorded.stderr(), Duration.ofSeconds(3), false,
+            CliRunner.MAX_OUTPUT_BYTES, OptionalInt.of(9));
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt ->
+            assertThat(excerpt).contains("level changed"));
+    }
+
+    @Test
+    void theRecorded90RecordWithAStackLineIsNoSuccess() {
+        // the tolerated record is the one line; a stack trace below it makes it another record
+        CliResult recorded = nineZeroLogLevelFixture("set_ok");
+        String record = recorded90DnsRecord();
+        CliResult result = new CliResult(0, recorded.stdout().replace(record + "\n", record
+            + "\n\tat io.netty.resolver.dns.DnsServerAddressStreamProviders.<clinit>(Unknown"
+            + " Source)\n"), recorded.stderr(), Duration.ofSeconds(3), false,
+            CliRunner.MAX_OUTPUT_BYTES, OptionalInt.of(9));
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(result.stdout()).contains("\tat io.netty");
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+    }
+
+    static Stream<OptionalInt> notTheNineZeroClient() {
+        return Stream.of(OptionalInt.of(8), OptionalInt.empty());
+    }
+
+    @ParameterizedTest
+    @MethodSource("notTheNineZeroClient")
+    void theRecorded90RecordIsNoSuccessWithoutThe90Client(OptionalInt clientMajor) {
+        // only the 9.0 client prints the netty record (T061); from another client it is unexpected
+        CliResult result = logLevelFixture("v9_0", "set_ok").forClientMajor(clientMajor);
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
+            .contains("DnsServerAddressStreamProviders"));
+    }
+
+    @Test
+    void theTraceDownloadConfirmationIsNoLevelConfirmation() {
+        // exit code 0 with a line after the preamble: not the silent success of T039
+        ToolError error = traceLevelFailure(classifier, traceFixture("ok"));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+        assertThat(error.nextStep())
+            .isEqualTo("Reset with reset_temporary_log_level; report the INUBIT version");
+        assertThat(error.excerpt()).isEqualTo(failure(traceFixture("ok")).excerpt());
+    }
+
+    @Test
+    void theExcerptOfUnexpectedLevelChangeOutputIsScrubbed() {
+        scrubber.register("hunter2-secret");
+        CliResult result = result(0, PREAMBLE + "level set for hunter2-secret\n");
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
+            .contains("level set for").doesNotContain("hunter2-secret"));
+    }
+
+    @Test
+    void aMissingLogLevelIsAnUnexpectedResponseNamingStartCli() {
+        ToolError error = traceLevelFailure(classifier, logLevelFixture("missing_level"));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI did not change the log level: Missing log level.");
+        assertThat(error.nextStep())
+            .isEqualTo("Reset with reset_temporary_log_level; report the INUBIT version");
+        assertThat(error.excerpt()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1})
+    void aMissingLogLevelIsNeverASuccessEvenWithAnOkPrefix(int exitCode) {
+        // the reconstructed fixture is an error layout; StartCLI may print it as a command result
+        CliResult result = result(exitCode, PREAMBLE + "1-"
+            + (exitCode == 0 ? "OK" : "NOK") + ": Missing log level.\n");
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI did not change the log level: Missing log level.");
+    }
+
+    @Test
+    void anErrorMarkerBesideTheConfirmationIsNoSuccess() {
+        CliResult result = result(0, PREAMBLE
+            + "ERROR 10:00:00,000 [main      ] CLI                       ERROR\n"
+            + "com.inubit.ibis.utils.InubitException: @Start@IError@@@Internal INUBIT error!@End@\n"
+            + "1-OK: OK\n");
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(classifier.classify(result)).isInstanceOf(CliOutcome.Success.class);
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message()).isEqualTo("Unrecognized StartCLI output (exit code 0)");
+    }
+
+    @Test
+    void anExceptionWithoutMarkerBesideTheConfirmationIsNoSuccess() {
+        scrubber.register("hunter2-secret");
+        CliResult result = result(0, PREAMBLE
+            + "ERROR 10:00:00,000 [main      ] CLI                       ERROR\n"
+            + "java.lang.IllegalStateException: no node for hunter2-secret\n"
+            + "\tat com.inubit.ibis.cli.cmds.TraceCommand.execute(TraceCommand.java:1)\n"
+            + "1-OK: OK\n");
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(classifier.classify(result)).isInstanceOf(CliOutcome.Success.class);
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message())
+            .isEqualTo("StartCLI printed unexpected output for the log level change");
+        assertThat(error.excerpt()).hasValueSatisfying(excerpt -> assertThat(excerpt)
+            .contains("java.lang.IllegalStateException").doesNotContain("hunter2-secret"));
+        assertThat(String.join("\n", error.message(), error.likelyCause(), error.nextStep()))
+            .doesNotContain("hunter2-secret");
+    }
+
+    @Test
+    void aLoginFailureIsAuthFailedInTheTraceLevelContext() {
+        CliResult result = logLevelFixture("login_failure");
+
+        ToolError error = traceLevelFailure(classifier, result);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(error).isEqualTo(failure(result));
+    }
+
+    @Test
+    void anAccessDeniedMarkerIsForbiddenInTheTraceLevelContext() {
+        CliOutputClassifier forNode = new CliOutputClassifier(scrubber, NODE1, false);
+        CliResult refused = logLevelFixture("forbidden");
+
+        ToolError error = traceLevelFailure(forNode, refused);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.FORBIDDEN);
+        assertThat(error.message())
+            .isEqualTo("The INUBIT account is not allowed to change log levels on test/node1");
+        assertThat(error.excerpt()).isEmpty();
+        assertThat(String.join("\n", error.message(), error.likelyCause(), error.nextStep()))
+            .doesNotContain("jdoe");
+        // the export and trace-download contexts are unchanged
+        assertThat(failure(refused).message())
+            .isEqualTo("Unrecognized StartCLI output (exit code 1)");
+        assertThat(((CliOutcome.Failure) forNode.classifyTraceDownload(refused)).error()
+            .message()).isEqualTo("The INUBIT account is not allowed to download trace.log from"
+                + " test/node1");
+    }
+
+    @Test
+    void theOtherLogLevelCasesKeepTheirExportAndTraceDownloadClassification() {
+        // without an n-OK message the silent success is none for the commands that print one
+        assertThat(failure(logLevelFixture("set_ok")).message())
+            .isEqualTo("Unrecognized StartCLI output (exit code 0)");
+        assertThat(classifier.classifyTraceDownload(logLevelFixture("set_ok")))
+            .isInstanceOf(CliOutcome.Success.class);
+        assertThat(failure(logLevelFixture("missing_level")).message())
+            .isEqualTo("Unrecognized StartCLI output (exit code 1)");
+        assertThat(((CliOutcome.Failure) classifier.classifyTraceDownload(
+            logLevelFixture("missing_level"))).error())
+            .isEqualTo(failure(logLevelFixture("missing_level")));
+        assertThat(((CliOutcome.Failure) classifier.classifyTraceDownload(
+            logLevelFixture("login_failure"))).error().code()).isEqualTo(ErrorCode.AUTH_FAILED);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "login_failed, AUTH_FAILED",
+        "unreachable, UNREACHABLE",
+        "unknown_command, INTERNAL",
+        "import_nok, UNEXPECTED_RESPONSE"})
+    void theTraceLevelContextKeepsEveryOtherRule(String fixtureCase, ErrorCode expected) {
+        CliResult result = fixture(fixtureCase);
+
+        ToolError level = traceLevelFailure(classifier, result);
+
+        assertThat(level.code()).isEqualTo(expected);
+        assertThat(level).isEqualTo(failure(result));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"set_ok", "forbidden", "missing_level"})
+    void cutTraceLevelOutputIsNeverASuccessForbiddenOrMissingLevel(String fixtureCase) {
+        CliResult full = logLevelFixture(fixtureCase);
+        CliResult cut = new CliResult(full.exitCode(), full.stdout(), full.stderr(),
+            Duration.ZERO, true, CliRunner.MAX_OUTPUT_BYTES);
+
+        ToolError error = traceLevelFailure(classifier, cut);
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.message()).contains("exceeded 1 MiB");
+    }
+
+    @Test
+    void theTraceLevelFailuresLeakNoSecret() {
+        scrubber.register("hunter2-secret");
+        CliOutputClassifier forNode = new CliOutputClassifier(scrubber, NODE1, false);
+        String leak = "INFO 10:00:00,000 [main      ] CLI                       connecting to"
+            + " https://jdoe:hunter2-secret@node1.example.test\n";
+        CliResult missing = result(1, PREAMBLE + leak + "EXECUTION ERROR\nMissing log level.\n");
+        CliResult refused = result(1, PREAMBLE + leak
+            + "com.inubit.ibis.utils.InubitException: @Start@AccessDenied@@@hunter2-secret@End@\n");
+        CliResult marker = result(0, PREAMBLE + leak
+            + "com.inubit.ibis.utils.InubitException: @Start@IError@@@hunter2-secret@End@\n"
+            + "1-OK: OK\n");
+
+        for (CliResult result : List.of(missing, refused, marker)) {
+            ToolError error = traceLevelFailure(forNode, result);
+            assertThat(String.join("\n", error.message(), error.likelyCause(), error.nextStep(),
+                error.excerpt().orElse(""))).doesNotContain("hunter2-secret");
+        }
     }
 
     @Test

@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
+import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
+import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript;
 import de.dadecker.inubit.mcp.testing.FakeInubitScript.Call;
@@ -27,6 +29,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -37,11 +40,12 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * The stdin request of the client helper (research D-4, data-model "Helper request"): its
- * encoding for both operations, its validation and its {@code toString}, and a round trip through
- * the helper itself (loaded as in {@link ClientHelperTest}), so the server writes exactly what the
- * helper accepts. Public because {@code QueueEntryHelperClassifierTest} (another package since
- * feature 021, D-3) builds its requests with {@link #request}.
+ * The stdin request of the client helper (research D-4, data-model "Helper request"; feature
+ * 024 D-2): its encoding for every operation, its validation and its {@code toString}, and a
+ * round trip through the helper itself (loaded as in {@link ClientHelperTest}), so the server
+ * writes exactly what the helper accepts. Public because
+ * {@code QueueEntryHelperClassifierTest} (another package since feature 021, D-3) builds its
+ * requests with {@link #request}.
  */
 @Timeout(60)
 public class HelperRequestTest {
@@ -57,6 +61,11 @@ public class HelperRequestTest {
     private static final String OBJECT_TYPE = "queue_manager@@@Workflow-0001@@@error";
     private static final String FILE = "Order-0001.xml";
     private static final Path LOG_OUT = Path.of("/var/qe-0001/out/webservice.log");
+    private static final Path LIST_OUT = Path.of("/var/qe-0001/out/io.list");
+    private static final Path MESSAGE_OUT = Path.of("/var/qe-0001/out/message.bin");
+    private static final String PROCESS_ID = "P-0001_a";
+    private static final String WORKFLOW = "Workflow \u00fc@0001";
+    private static final IoMessageRef REF = new IoMessageRef("AbCdEfGhIjKlMnOpQr_-01");
 
     private static URLClassLoader loader;
     private static Class<?> helper;
@@ -422,6 +431,237 @@ public class HelperRequestTest {
         TestSecrets.assertNoLeak(frames.toString());
     }
 
+    // --- the node-tool operations (feature 024, D-2, D-3) ----------------------------------
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("nodeToolEncodings")
+    void encodesANodeToolRequestWithItsOperationSecondAndItsKeysBeforeTheUser(String label,
+        HelperRequest.Operation operation, String op, String keys) {
+        String text = new String(request(r -> { }, operation).encode(), StandardCharsets.UTF_8);
+
+        assertThat(text).isEqualTo("qe=1\n"
+            + "op=" + op + "\n"
+            + "nonce=" + NONCE + "\n"
+            + "variant=SOAP_81\n"
+            + "url=https%3A%2F%2Finubit.example.test%3A8443%2Fibis%2Fservlet%2FIBIS\n"
+            + "trustStore=" + encoded(TRUST_STORE) + "\n"
+            + "trustStorePassword=" + TestSecrets.TRUST_STORE_PASSWORD + "\n"
+            + "hostnameVerification=true\n"
+            + keys
+            + "user=jdoe\n"
+            + "password=" + TestSecrets.CONFIGURED_PASSWORD + "\n"
+            + "end\n");
+    }
+
+    static Stream<Arguments> nodeToolEncodings() {
+        return Stream.of(
+            Arguments.of("own node", new HelperRequest.OwnNode(), "ownNode", ""),
+            Arguments.of("cluster nodes without details",
+                new HelperRequest.ClusterNodes(Optional.empty()), "clusterNodes", "details=\n"),
+            Arguments.of("cluster nodes with details",
+                new HelperRequest.ClusterNodes(Optional.of("inubit-node-01.zone:a_b")),
+                "clusterNodes", "details=inubit-node-01.zone%3Aa_b\n"),
+            Arguments.of("node config", new HelperRequest.NodeConfig(List.of(
+                    NodeConfigName.OPERATION_MODE, NodeConfigName.NODE_NAME,
+                    NodeConfigName.RETRY_INTERVAL)), "nodeConfig",
+                "names=OperationMode%2CNodeName%2CretryInterval\n"),
+            Arguments.of("io log listing", ioLog(Optional.empty(), Optional.empty()), "ioLog",
+                "processId=" + PROCESS_ID + "\n"
+                    + "workflow=Workflow%20%C3%BC%400001\n"
+                    + "ref=\n"
+                    + "listOut=" + encoded(LIST_OUT) + "\n"
+                    + "messageOut=\n"),
+            Arguments.of("io log message", ioLog(Optional.of(REF), Optional.of(MESSAGE_OUT)),
+                "ioLog",
+                "processId=" + PROCESS_ID + "\n"
+                    + "workflow=Workflow%20%C3%BC%400001\n"
+                    + "ref=" + REF.value() + "\n"
+                    + "listOut=" + encoded(LIST_OUT) + "\n"
+                    + "messageOut=" + encoded(MESSAGE_OUT) + "\n"));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidNodeToolOperations")
+    void anInvalidNodeToolOperationIsRefusedNamingTheFieldButNoValue(String label,
+        ThrowingCallable create, String field) {
+        assertThatThrownBy(create)
+            .isInstanceOfAny(IllegalArgumentException.class, NullPointerException.class)
+            .hasMessageContaining(field)
+            .satisfies(e -> assertThat(String.valueOf(e.getMessage())).doesNotContain("marker"));
+    }
+
+    static Stream<Arguments> invalidNodeToolOperations() {
+        Optional<IoMessageRef> ref = Optional.of(REF);
+        Optional<Path> messageOut = Optional.of(MESSAGE_OUT);
+        return Stream.of(
+            invalidOperation("null details", () -> new HelperRequest.ClusterNodes(null),
+                "details"),
+            invalidOperation("empty details instead of none",
+                () -> new HelperRequest.ClusterNodes(Optional.of("")), "details"),
+            invalidOperation("details with a space",
+                () -> new HelperRequest.ClusterNodes(Optional.of("node marker")), "details"),
+            invalidOperation("details with a slash",
+                () -> new HelperRequest.ClusterNodes(Optional.of("node/marker")), "details"),
+            invalidOperation("details of 129 characters", () -> new HelperRequest.ClusterNodes(
+                Optional.of("marker" + "n".repeat(123))), "details"),
+            invalidOperation("null names", () -> new HelperRequest.NodeConfig(null), "names"),
+            invalidOperation("no names", () -> new HelperRequest.NodeConfig(List.of()), "names"),
+            invalidOperation("a null name", () -> new HelperRequest.NodeConfig(Arrays.asList(
+                NodeConfigName.OPERATION_MODE, null)), "names"),
+            invalidOperation("a repeated name", () -> new HelperRequest.NodeConfig(List.of(
+                NodeConfigName.NODE_NAME, NodeConfigName.ZONE_NAME, NodeConfigName.NODE_NAME)),
+                "names"),
+            invalidOperation("null processId", () -> new HelperRequest.IoLog(null, WORKFLOW,
+                Optional.empty(), LIST_OUT, Optional.empty()), "processId"),
+            invalidOperation("empty processId", () -> new HelperRequest.IoLog("", WORKFLOW,
+                Optional.empty(), LIST_OUT, Optional.empty()), "processId"),
+            invalidOperation("processId of 65 characters", () -> new HelperRequest.IoLog(
+                "marker" + "p".repeat(59), WORKFLOW, Optional.empty(), LIST_OUT,
+                Optional.empty()), "processId"),
+            invalidOperation("processId with a dot", () -> new HelperRequest.IoLog("marker.0001",
+                WORKFLOW, Optional.empty(), LIST_OUT, Optional.empty()), "processId"),
+            invalidOperation("null workflow", () -> new HelperRequest.IoLog(PROCESS_ID, null,
+                Optional.empty(), LIST_OUT, Optional.empty()), "workflow"),
+            invalidOperation("empty workflow", () -> new HelperRequest.IoLog(PROCESS_ID, "",
+                Optional.empty(), LIST_OUT, Optional.empty()), "workflow"),
+            invalidOperation("workflow of 201 characters", () -> new HelperRequest.IoLog(
+                PROCESS_ID, "marker" + "w".repeat(195), Optional.empty(), LIST_OUT,
+                Optional.empty()), "workflow"),
+            invalidOperation("workflow with a line break", () -> new HelperRequest.IoLog(
+                PROCESS_ID, "Workflow\nmarker", Optional.empty(), LIST_OUT, Optional.empty()),
+                "workflow"),
+            invalidOperation("workflow with a C1 control character", () -> new HelperRequest.IoLog(
+                PROCESS_ID, "Workflow\u0085marker", Optional.empty(), LIST_OUT,
+                Optional.empty()), "workflow"),
+            invalidOperation("workflow with the entry separator", () -> new HelperRequest.IoLog(
+                PROCESS_ID, "Workflow@@@marker", Optional.empty(), LIST_OUT, Optional.empty()),
+                "workflow"),
+            invalidOperation("workflow with the download separator",
+                () -> new HelperRequest.IoLog(PROCESS_ID, "Workflow###marker", Optional.empty(),
+                    LIST_OUT, Optional.empty()), "workflow"),
+            invalidOperation("workflow not valid Unicode", () -> new HelperRequest.IoLog(
+                PROCESS_ID, "Workflow-marker\uD800", Optional.empty(), LIST_OUT,
+                Optional.empty()), "workflow"),
+            invalidOperation("null ref", () -> new HelperRequest.IoLog(PROCESS_ID, WORKFLOW, null,
+                LIST_OUT, Optional.empty()), "ref"),
+            invalidOperation("null listOut", () -> new HelperRequest.IoLog(PROCESS_ID, WORKFLOW,
+                Optional.empty(), null, Optional.empty()), "listOut"),
+            invalidOperation("empty listOut", () -> new HelperRequest.IoLog(PROCESS_ID, WORKFLOW,
+                Optional.empty(), Path.of(""), Optional.empty()), "listOut"),
+            invalidOperation("null messageOut", () -> new HelperRequest.IoLog(PROCESS_ID,
+                WORKFLOW, ref, LIST_OUT, null), "messageOut"),
+            invalidOperation("messageOut without ref", () -> new HelperRequest.IoLog(PROCESS_ID,
+                WORKFLOW, Optional.empty(), LIST_OUT, messageOut), "messageOut"),
+            invalidOperation("ref without messageOut", () -> new HelperRequest.IoLog(PROCESS_ID,
+                WORKFLOW, ref, LIST_OUT, Optional.empty()), "messageOut"),
+            invalidOperation("empty messageOut", () -> new HelperRequest.IoLog(PROCESS_ID,
+                WORKFLOW, ref, LIST_OUT, Optional.of(Path.of(""))), "messageOut"));
+    }
+
+    @Test
+    void theLimitsOfTheNodeToolOperationsAreAccepted() {
+        String details = "inubit-node_01.zone:" + "n".repeat(108);
+        String processId = "P".repeat(64);
+        String workflow = "Workflow ü " + "w".repeat(189);
+
+        assertThat(new HelperRequest.ClusterNodes(Optional.of(details)).details())
+            .contains(details);
+        assertThat(new HelperRequest.NodeConfig(List.of(NodeConfigName.values())).names())
+            .containsExactly(NodeConfigName.values());
+        HelperRequest.IoLog log = new HelperRequest.IoLog(processId, workflow, Optional.empty(),
+            LIST_OUT, Optional.empty());
+        assertThat(log.processId()).hasSize(64);
+        assertThat(log.workflow()).hasSize(200);
+    }
+
+    @Test
+    void toStringOfANodeToolRequestNamesTheOperationButNeitherUserNorPasswords() {
+        HelperRequest request = request(r -> r.user = "jdoe-0001",
+            ioLog(Optional.of(REF), Optional.of(MESSAGE_OUT)));
+
+        assertThat(request.toString())
+            .contains(NONCE, PROCESS_ID, WORKFLOW, REF.value(), LIST_OUT.toString(),
+                MESSAGE_OUT.toString())
+            .doesNotContain("jdoe-0001", "user", "password");
+        TestSecrets.assertNoLeak(request.toString());
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("variants")
+    void theHelperAcceptsTheEncodedOwnNodeRequestAndReceivesEveryValueUnchanged(String variant,
+        URI url) throws Exception {
+        String password = TestSecrets.CONFIGURED_PASSWORD + " %+&=\n€";
+        String trustStorePassword = TestSecrets.TRUST_STORE_PASSWORD + "/+=";
+        FakeInubitScript script = new FakeInubitScript().node("inubit-node-01");
+        HelperRequest request = request(r -> {
+            r.variant = variant;
+            r.url = url;
+            r.trustStore = Optional.of(new HelperRequest.TrustStore(dir.resolve("trust ü.p12"),
+                Secret.of(trustStorePassword)));
+            r.user = "jdoe ü";
+            r.password = Secret.of(password);
+        }, new HelperRequest.OwnNode());
+
+        Run run = run(script, request.encode());
+
+        assertThat(run.exit()).as(run.out()).isZero();
+        HelperFrames frames = HelperFrames.parse(NONCE, run.out());
+        assertThat(frames.problem()).isEmpty();
+        assertThat(frames.frames()).containsExactly(new HelperFrames.Start(variant),
+            new HelperFrames.LoginOk(), new HelperFrames.NodeOk("inubit-node-01"),
+            new HelperFrames.End());
+        String client = variant.equals("SOAP_81") ? "IBISSoapClient" : "RestClient";
+        assertThat(script.calls()).contains(
+            call(client + ".loginUserCli", "jdoe ü", password),
+            call("ClusterClient.<init>", client, "jdoe ü", "fake-client-uid-0001", "null"),
+            call("ClusterClient.getNode"));
+        TestSecrets.assertNoLeak(run.out());
+    }
+
+    /**
+     * Every node-tool request the server encodes passes the helper's request check: without any
+     * vendor class the helper gets past it to the API check (exit 4), never to exit 2.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("acceptedNodeToolOperations")
+    void theHelperFindsTheEncodedNodeToolRequestWellFormed(String label,
+        HelperRequest.Operation operation) throws Exception {
+        Run run = runWithout(request(r -> r.password = Secret.of(
+            TestSecrets.CONFIGURED_PASSWORD + " %+&=\n€"), operation).encode());
+
+        assertThat(run.exit()).as(run.out()).isEqualTo(4);
+        assertThat(HelperFrames.parse(NONCE, run.out()).frames()).hasSize(1);
+    }
+
+    static Stream<Arguments> acceptedNodeToolOperations() {
+        return Stream.of(
+            Arguments.of("own node", new HelperRequest.OwnNode()),
+            Arguments.of("cluster nodes without details",
+                new HelperRequest.ClusterNodes(Optional.empty())),
+            Arguments.of("cluster nodes with 128 characters of details",
+                new HelperRequest.ClusterNodes(Optional.of("inubit-node_01.zone:"
+                    + "n".repeat(108)))),
+            Arguments.of("node config with one name",
+                new HelperRequest.NodeConfig(List.of(NodeConfigName.CLUSTER_BIND_ADDRESS))),
+            Arguments.of("node config with all twenty names",
+                new HelperRequest.NodeConfig(List.of(NodeConfigName.values()))),
+            Arguments.of("io log listing", ioLog(Optional.empty(), Optional.empty())),
+            Arguments.of("io log message", ioLog(Optional.of(REF), Optional.of(MESSAGE_OUT))),
+            Arguments.of("io log at its limits", new HelperRequest.IoLog("P".repeat(64),
+                "Workflow ü " + "w".repeat(189), Optional.of(REF), Path.of("/var/io ü.list"),
+                Optional.of(Path.of("/var/message ü.bin")))));
+    }
+
+    private static HelperRequest.IoLog ioLog(Optional<IoMessageRef> ref,
+        Optional<Path> messageOut) {
+        return new HelperRequest.IoLog(PROCESS_ID, WORKFLOW, ref, LIST_OUT, messageOut);
+    }
+
+    private static Arguments invalidOperation(String label, ThrowingCallable create,
+        String field) {
+        return Arguments.of(label, create, field);
+    }
+
     // --- helpers ---------------------------------------------------------------------------
 
     /**
@@ -460,6 +700,14 @@ public class HelperRequestTest {
             r.user, r.password, new HelperRequest.ServerLogRead(r.kind, r.logOut));
     }
 
+    /** A valid 8.1 request of {@code operation} with the connection fields changed by an edit. */
+    static HelperRequest request(Consumer<Builder> edit, HelperRequest.Operation operation) {
+        Builder r = new Builder();
+        edit.accept(r);
+        return new HelperRequest(r.nonce, r.variant, r.url, r.trustStore, r.hostnameVerification,
+            r.user, r.password, operation);
+    }
+
     static Call call(String name, String... arguments) {
         return new Call(name, List.of(arguments));
     }
@@ -476,6 +724,18 @@ public class HelperRequestTest {
                 HelperRequestTest.class.getClassLoader());
             return new Run(exit, bytes.toString(StandardCharsets.UTF_8));
         }
+    }
+
+    /** Calls {@code ClientHelper.run} in-process without any vendor class. */
+    static Run runWithout(byte[] stdin) throws Exception {
+        Method run = helper.getDeclaredMethod("run", InputStream.class, PrintStream.class,
+            ClassLoader.class);
+        run.setAccessible(true);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        int exit = (int) run.invoke(null, new ByteArrayInputStream(stdin),
+            new PrintStream(bytes, true, StandardCharsets.UTF_8),
+            ClassLoader.getPlatformClassLoader());
+        return new Run(exit, bytes.toString(StandardCharsets.UTF_8));
     }
 
     record Run(int exit, String out) {

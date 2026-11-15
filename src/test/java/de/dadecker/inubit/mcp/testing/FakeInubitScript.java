@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -25,8 +26,11 @@ import java.util.Set;
  * What the fake vendor classes under {@code src/test/java/com/inubit/ibis} do (feature 020,
  * research D-19): the login result, the content or failure per downloaded file name, vendor noise
  * printed to stdout at login and an optional lingering non-daemon thread (as the 9.0 client
- * leaves), and (feature 021, D-22) the cluster node name or its failure and a failure thrown by
- * {@code clusterDownload} itself; it records every call the fakes receive.
+ * leaves), (feature 021, D-22) the cluster node name or its failure and a failure thrown by
+ * {@code clusterDownload} itself, and (feature 024, D-27) the cluster members, the node
+ * information per node, the node configuration properties and the answers of
+ * {@code getObject}, each or its failure; it records every call the fakes receive, including a
+ * call of a method the helper must never make, which also fails the test.
  *
  * <p>In-process, a test {@linkplain #activate() activates} a script. In a child JVM, whose
  * class path holds the {@code lib/ibis.jar} of a {@link FakeInubitClient}, the fakes load the
@@ -67,6 +71,40 @@ public final class FakeInubitScript implements Serializable {
     private record Download(byte[] content, List<Failure> failure) implements Serializable {
     }
 
+    /**
+     * A cluster member as {@code ClusterClient.getNodes()} lists it: {@code status} names a
+     * {@code Node.Status} constant; {@code null} texts and uptime 0 are a member that did not
+     * answer.
+     */
+    public record Member(String name, String status, String version, String zone, String nodeId,
+        long uptimeMs) implements Serializable {
+
+        /** A test-setup error, not a vendor failure: the status must be a vendor constant or null. */
+        public Member {
+            if (status != null && !java.util.Set.of("ACTIVE", "MAINTENANCE", "OFFLINE")
+                .contains(status)) {
+                throw new IllegalArgumentException("Member status must be ACTIVE, MAINTENANCE,"
+                    + " OFFLINE or null, not " + status);
+            }
+        }
+
+        /** A member that did not answer: listed with its name only. */
+        public static Member unanswered(String name) {
+            return new Member(name, null, null, null, null, 0);
+        }
+    }
+
+    /** A node configuration property as {@code getNodeConfigurationProperty} answers it. */
+    public record Property(Class<?> type, String value, String displayName,
+        String shortDescription, String category, boolean editable, boolean deprecated)
+        implements Serializable {
+    }
+
+    /** A scripted answer ({@code null} allowed) or, if the chain is not empty, its failure. */
+    private record Answer<T extends Serializable>(T value, List<Failure> failure)
+        implements Serializable {
+    }
+
     /** The call of the node lookup that {@link #nodeLookupReturnsNull} makes return null. */
     public enum NullFrom {
         /** {@code ClusterClient.getNode()}. */
@@ -83,6 +121,11 @@ public final class FakeInubitScript implements Serializable {
     private NullFrom nodeLookupNull;
     private final List<Failure> clusterDownloadFailure = new ArrayList<>();
     private final Map<String, Download> files = new HashMap<>();
+    private Answer<ArrayList<Member>> members;
+    private final Map<String, Answer<LinkedHashMap<String, Serializable>>> nodeInformation =
+        new HashMap<>();
+    private final Map<String, Answer<Property>> properties = new HashMap<>();
+    private final Map<String, Answer<String>> objects = new HashMap<>();
     private final List<String> loginNoise = new ArrayList<>();
     private final Set<String> failingInitializers = new HashSet<>();
     private boolean lingeringThread;
@@ -122,6 +165,61 @@ public final class FakeInubitScript implements Serializable {
     public FakeInubitScript clusterDownloadFails(Failure... chain) {
         clusterDownloadFailure.clear();
         clusterDownloadFailure.addAll(chain(chain));
+        return this;
+    }
+
+    /** {@code ClusterClient.getNodes} lists {@code members} in this order. */
+    public FakeInubitScript members(Member... members) {
+        this.members = new Answer<>(new ArrayList<>(List.of(members)), List.of());
+        return this;
+    }
+
+    /** {@code ClusterClient.getNodes} fails with the exception chain {@code chain}. */
+    public FakeInubitScript membersFail(Failure... chain) {
+        members = new Answer<>(null, chain(chain));
+        return this;
+    }
+
+    /**
+     * {@code ClusterClient.getNode(NodeName)} of {@code nodeName} returns a node whose
+     * information map holds {@code entries} in their iteration order: a value is a text,
+     * {@code null}, or a nested map of the same kind (a nested {@code MapProperty}).
+     */
+    public FakeInubitScript nodeInformation(String nodeName, Map<String, ?> entries) {
+        nodeInformation.put(nodeName, new Answer<>(entriesCopy(entries), List.of()));
+        return this;
+    }
+
+    /** {@code ClusterClient.getNode(NodeName)} of {@code nodeName} fails with {@code chain}. */
+    public FakeInubitScript nodeInformationFails(String nodeName, Failure... chain) {
+        nodeInformation.put(nodeName, new Answer<>(null, chain(chain)));
+        return this;
+    }
+
+    /**
+     * {@code getNodeConfigurationProperty} of {@code name} answers {@code property}; a name
+     * without a scripted property answers {@code null}, as the server does for an unknown name.
+     */
+    public FakeInubitScript property(String name, Property property) {
+        properties.put(name, new Answer<>(property, List.of()));
+        return this;
+    }
+
+    /** {@code getNodeConfigurationProperty} of {@code name} fails with {@code chain}. */
+    public FakeInubitScript propertyFails(String name, Failure... chain) {
+        properties.put(name, new Answer<>(null, chain(chain)));
+        return this;
+    }
+
+    /** The client's {@code getObject(objectName, user, objectType)} answers {@code answer}. */
+    public FakeInubitScript object(String objectName, String objectType, String answer) {
+        objects.put(objectName + "|" + objectType, new Answer<>(answer, List.of()));
+        return this;
+    }
+
+    /** The client's {@code getObject(objectName, user, objectType)} fails with {@code chain}. */
+    public FakeInubitScript objectFails(String objectName, String objectType, Failure... chain) {
+        objects.put(objectName + "|" + objectType, new Answer<>(null, chain(chain)));
         return this;
     }
 
@@ -280,6 +378,56 @@ public final class FakeInubitScript implements Serializable {
     }
 
     /**
+     * For the fakes: the scripted members, or their scripted failure (not {@code members()},
+     * which would be the setter with no member).
+     */
+    public List<Member> scriptedMembers() throws Exception {
+        if (members == null) {
+            throw new IllegalStateException("FakeInubitScript: no members scripted");
+        }
+        return List.copyOf(value(members));
+    }
+
+    /**
+     * For the fakes: the scripted node information entries of {@code nodeName} (values: text,
+     * {@code null} or a nested map), or their scripted failure.
+     */
+    public Map<String, ?> nodeInformation(String nodeName) throws Exception {
+        Answer<LinkedHashMap<String, Serializable>> answer = nodeInformation.get(nodeName);
+        if (answer == null) {
+            throw new IllegalStateException(
+                "FakeInubitScript: no node information scripted for " + nodeName);
+        }
+        return value(answer);
+    }
+
+    /** For the fakes: the scripted property {@code name}, its failure, or {@code null}. */
+    public Property property(String name) throws Exception {
+        Answer<Property> answer = properties.get(name);
+        return answer == null ? null : value(answer);
+    }
+
+    /** For the fakes: the scripted answer of {@code getObject}, or its scripted failure. */
+    public String object(String objectName, String objectType) throws Exception {
+        Answer<String> answer = objects.get(objectName + "|" + objectType);
+        if (answer == null) {
+            throw new IllegalStateException("FakeInubitScript: nothing scripted for "
+                + objectName + " of type " + objectType);
+        }
+        return value(answer);
+    }
+
+    /**
+     * For the fakes: records the call {@code name} of a method the helper must never make
+     * (research D-27) and returns the test failure the fake throws. The record stays even if the
+     * helper catches the failure, so a test comparing the calls fails as well.
+     */
+    public AssertionError forbidden(String name, Object... arguments) {
+        record(name, arguments);
+        return new AssertionError("FakeInubitScript: forbidden vendor call " + name);
+    }
+
+    /**
      * For the fakes: the scripted content of {@code fileName}, its scripted failure, or
      * {@code null} for {@link #fileFailsWithoutException}.
      */
@@ -316,6 +464,31 @@ public final class FakeInubitScript implements Serializable {
             throw new IllegalArgumentException("A failure needs at least one exception");
         }
         return List.of(chain);
+    }
+
+    private static <T extends Serializable> T value(Answer<T> answer) throws Exception {
+        if (!answer.failure().isEmpty()) {
+            throw exception(answer.failure());
+        }
+        return answer.value();
+    }
+
+    /** A serializable copy of node information entries, nested maps included, order kept. */
+    private static LinkedHashMap<String, Serializable> entriesCopy(Map<String, ?> entries) {
+        LinkedHashMap<String, Serializable> copy = new LinkedHashMap<>();
+        entries.forEach((key, value) -> {
+            if (value == null || value instanceof String) {
+                copy.put(key, (String) value);
+            } else if (value instanceof Map<?, ?> nested) {
+                @SuppressWarnings("unchecked")
+                Map<String, ?> inner = (Map<String, ?>) nested;
+                copy.put(key, entriesCopy(inner));
+            } else {
+                throw new IllegalArgumentException("A node information value is a text, null or"
+                    + " a map: " + key);
+            }
+        });
+        return copy;
     }
 
     private static Exception exception(List<Failure> chain) throws ReflectiveOperationException {

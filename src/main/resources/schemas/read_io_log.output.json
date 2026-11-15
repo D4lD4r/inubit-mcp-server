@@ -1,0 +1,53 @@
+{
+  "type": "object",
+  "required": ["node", "inubitNode", "workflow", "processId", "total", "matching", "entries", "truncated", "hints", "warnings"],
+  "properties": {
+    "node": { "type": "string" },
+    "inubitNode": { "type": "string", "description": "The INUBIT cluster member that answered" },
+    "workflow": { "type": "string" },
+    "processId": { "type": "string" },
+    "total": { "type": "integer", "minimum": 0, "description": "All logged messages of the run" },
+    "matching": { "type": "integer", "minimum": 0, "description": "The logged messages after the module filter" },
+    "entries": {
+      "type": "array",
+      "maxItems": 500,
+      "description": "The logged messages in INUBIT's order, after the module filter",
+      "items": {
+        "type": "object",
+        "required": ["ref", "moduleName", "direction", "index"],
+        "properties": {
+          "ref": { "type": "string", "pattern": "^[A-Za-z0-9_-]{22}$", "description": "Pass as message to read this message" },
+          "moduleName": { "type": "string" },
+          "moduleId": { "type": "string", "description": "Absent when the module part has an unexpected form" },
+          "direction": { "enum": ["INPUT", "OUTPUT"] },
+          "index": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "truncated": { "type": "boolean", "description": "true when entries lists only the first 500 matching messages" },
+    "message": {
+      "type": "object",
+      "description": "Only with message: the logged message",
+      "required": ["ref", "moduleName", "direction", "index", "kind", "sizeBytes"],
+      "properties": {
+        "ref": { "type": "string", "pattern": "^[A-Za-z0-9_-]{22}$" },
+        "moduleName": { "type": "string" },
+        "moduleId": { "type": "string" },
+        "direction": { "enum": ["INPUT", "OUTPUT"] },
+        "index": { "type": "integer", "minimum": 1 },
+        "kind": { "enum": ["text", "binary", "empty", "tooLarge"] },
+        "charset": { "enum": ["UTF-8", "ISO-8859-1"] },
+        "detected": { "enum": ["ZIP", "GZIP", "PDF", "PNG", "JPEG", "GIF", "JAVA_SERIALIZED"] },
+        "sizeBytes": { "type": "integer", "minimum": 0, "description": "The full size of the message" },
+        "textChars": { "type": "integer", "minimum": 0, "description": "Characters of the masked text before the cut" },
+        "text": { "type": "string", "description": "Masked; at most maxChars characters" },
+        "cut": { "type": "boolean", "description": "true when the text was cut at maxChars" }
+      },
+      "additionalProperties": false
+    },
+    "hints": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}

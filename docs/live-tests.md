@@ -9,9 +9,12 @@ read-only except the development live test of feature 004 (see
 [Development live test](#development-live-test-feature-004)), which writes to dedicated test
 workflows of a personal diagram group on a development node only, and with its repository case
 (see [Repository files](#repository-files-feature-008)) to one probe file in a personal test
-repository folder of that node, and the deployment live test of
+repository folder of that node, the deployment live test of
 feature 005 (see [Deployment live test](#deployment-live-test-feature-005)), which deploys one
-test diagram group into an approved, non-production test target group.
+test diagram group into an approved, non-production test target group, and the write part of the
+node tools live test of feature 024 (see
+[Unsupported node tools](#unsupported-node-tools-feature-024)), which raises one INUBIT logger on
+a test node for one minute, only with the owner's approval of that run.
 
 ## Run
 
@@ -77,6 +80,7 @@ Only non-production groups (e.g. development or test stages) may be used.
 | `live/HealthLiveTest` (T063) | `get_health` for `INUBIT_LIVE_NODE` through the real MCP server with the production wiring (`Wiring`, via the test helper `TestWiring`): `reachable`, `ready`, `version` starting with `8.1`, answer within 5 s (SC-002) | `GET /healthcheck`, `/ready`, `/system/info`, `/metrics?format=json` (read-only) |
 | `live/QueueEntryLiveTest` (feature 020, T033) | runs only with `INUBIT_LIVE_QUEUE_ENTRY` (an existing ERROR entry) on a node whose group sets `unsupported.queueEntryRead: true`: `read_queue_entry` through the real MCP server with the production wiring; the entry's queue row has the same state, `startTime`, `fileSize` and `fileName` before and after (SC-004); data and variables are available; neither the captured log nor the result contains an original masked value or a known secret, and the log contains none of the returned values (SC-003). See [Queue entry read](#queue-entry-read-feature-020) | `POST /ibis/rest/log/queueLog?format=json` before and after (read-only queries); the version detection (`/system/info`); one run of the queue-entry helper, which logs in with the INUBIT client of the node's version (8.1: SOAP servlet, 9.0: REST) and downloads the entry's data and variables into a private temporary directory that is deleted afterwards (read-only); with `INUBIT_LIVE_RECORD_DIR` a second helper run for a fictitious file name |
 | `live/ServerLogLiveTest` (feature 021, T054) | runs only with `INUBIT_LIVE_LOG_FOLDER` (a private folder outside every repository): `download_server_log` with `log: trace` and, if the node's group sets `unsupported.serverLogRead: true`, with `log: webservice`, through the real MCP server with the production wiring; each result matches the output schema and its file lies in the folder with the reported size and `rw-------`; a trace download through a copy of the configuration with a closed loopback port fails and leaves no file in the folder; the captured log contains no excerpt line. See [Server log download](#server-log-download-feature-021) | the version detection (`/system/info`); StartCLI `trace --download '<private dir>/trace.log'` (downloads the trace log without switching the trace state); with the opt-in one run of the INUBIT client helper that downloads `webservice.log`; both into a private temporary directory that is deleted after the file was placed in the folder (read-only); the forced failure contacts only `127.0.0.1` |
+| `live/NodeToolsLiveTest` (feature 024, T067) | on a node whose group sets `unsupported.nodeStatusRead` and `unsupported.nodeConfigRead`: `list_cluster_nodes` through the real MCP server with the production wiring within 10 s (SC-001), naming the answering node among the listed ones, then with `nodeName` the details of that node; `get_node_config` with all 20 allowed names in list order; each result matches its output schema, and no detail or value contains a known secret. Only with `INUBIT_LIVE_IO_PROCESS` (and `unsupported.ioLogRead`): `read_io_log` lists that run and reads its first message, masked. Only with `INUBIT_LIVE_LOG_LEVEL=approved` (write access and `unsupported.logLevelWrite`): `set_temporary_log_level` for one logger at `INFO` for 1 minute, `get_health` shows the lease, the automatic reset within 2 minutes, the lease `RESET`, the audit records of the set and of the reset. See [Unsupported node tools](#unsupported-node-tools-feature-024) | the version detection (`/system/info`); runs of the INUBIT client helper that read the cluster's node list, the node details, the configuration values and the input/output logging (read-only); with the approval StartCLI `trace --nodelevel INFO --package 'com.inubit.ibis.cli'` and, at expiry, `trace --reset`, each after a helper lookup of the answering node |
 
 Each test prints one summary line without secrets or business data to stderr, e.g.
 `[live] test/node1: version 8.1.17, status OK, maintenanceMode false, load 51.7% memory, unavailable [], 699 ms`
@@ -364,6 +368,60 @@ helper's stdout) and `.exit`. `<case>` is `ok`, `empty` (a 0-byte log) or `error
 failed). The stdin of either process, which carries the password, is never recorded. The files
 hold **raw server output**: neutralize them as in research D-21 before anything is copied into
 the repository, and delete them afterwards.
+
+## Unsupported node tools (feature 024)
+
+`live/NodeToolsLiveTest` calls the five unsupported node tools of one node through the real MCP
+server (quickstart "Live check"). Run it once per INUBIT version (8.1 and 9.0 test servers), only
+after the concrete run was approved:
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
+  INUBIT_LIVE_IO_PROCESS='Orders-Inbound/4711' \
+  mvn verify -Plive -Dtest=NodeToolsLiveTest
+```
+
+- **Reads** (always with `INUBIT_LIVE_NODE`; the node's group must set
+  `unsupported.nodeStatusRead: true` and `unsupported.nodeConfigRead: true`, [setup.md](setup.md)
+  "Unsupported functions", and the node needs a client home for its version): `list_cluster_nodes`
+  must answer within 10 s (SC-001) and name the answering INUBIT node among the listed nodes; with
+  `nodeName` set to that node, its details must be available; `get_node_config` without `names`
+  must return the 20 allowed names in list order with at least one present. Each result must match
+  its output schema, carry the unsupported-interface warning, and no detail or configuration value
+  may contain a secret the scrubber knows (the credentials read for the run).
+- **I/O logging**, only with `INUBIT_LIVE_IO_PROCESS=<workflow>/<processId>` (as `query_logs`
+  returns them, of a run whose process and modules have input/output logging switched on; split
+  at the last `/`) and `unsupported.ioLogRead: true`: `read_io_log` lists that run, which must have
+  at least one entry, then reads the first entry's message; its text may contain no known secret.
+  A malformed value fails naming the variable, without echoing it. Without the variable this part
+  is skipped.
+- **Write part**, only with `INUBIT_LIVE_LOG_LEVEL=approved`, set only after the owner approved
+  exactly this run. Without the variable this part is skipped before the configuration is even
+  read; any other value fails. Production nodes are refused as for every live test; the node needs
+  write access (`write.enabled: true`) and `unsupported.logLevelWrite: true`, best in a private
+  copy of the profile. The test starts the lease scheduler as the server does, raises the logger
+  `com.inubit.ibis.cli` to `INFO` for 1 minute (the preview must name exactly that logger, level
+  and duration; then the confirmation, whose `expiresAt` must be 1 minute after the set, ± 2 s),
+  checks that `get_health` shows the lease as `ACTIVE` with that one logger, waits until the
+  scheduler has reset it (at most 2 minutes after the set, SC-004), then checks that the lease is
+  `RESET` in the lease store of the live state directory, that `get_health` shows no lease any
+  more, and that the audit holds a `PENDING` and an `EXECUTED` record of the set and of the
+  automatic reset (trigger `expiry`; polled within the same 2 minutes, because the reset record is
+  written after the lease state). If the test fails before, closing the wiring resets the open
+  lease. The reset restores
+  every temporary log level on that INUBIT node, also those other users set.
+- It prints counts and timings only, never a node detail, value, workflow, logger or message text,
+  e.g. `[live] list_cluster_nodes test/node1: 2 node(s) in 1.8 s, details 37 pair(s)`,
+  `[live] get_node_config test/node1: 20 values, 18 present, 2 absent, 0 failed`,
+  `[live] read_io_log test/node1: 4 entries, one message: text, 1834 bytes` and
+  `[live] set_temporary_log_level test/node1: 1 logger at INFO for 1 min; automatic reset after
+  83 s, lease RESET, 4 audit records`.
+- To be checked by hand afterwards (quickstart "Live check" step 4): the persistent trace state is
+  unchanged (`get_health` with `includeSystemInfo`), and the MCP server log contains no value or
+  message text.
+- The parsing of the variables, the refusal without the approval and on production, and the
+  checks themselves are covered offline by `live/NodeToolsLiveTestSupportTest`, which runs in the
+  default build.
 
 ## Credential store live check (feature 011)
 

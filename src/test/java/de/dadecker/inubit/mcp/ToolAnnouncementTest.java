@@ -41,6 +41,13 @@ import org.junit.jupiter.api.io.TempDir;
  * {@code get_server_settings}; the production matrix admits it on no version before T037.
  * T043: {@code read_model_details} likewise for a node that may read the model details, right
  * after {@code read_users}; the production matrix admits it on 8.1 since T046.
+ * Feature 024 (T023, FR-002, SC-005, D-6): {@code list_cluster_nodes} only for a node of a group
+ * with {@code unsupported.nodeStatusRead} that may list the cluster's nodes and has a client home;
+ * T030: {@code read_io_log} the same with {@code unsupported.ioLogRead}; T036:
+ * {@code get_node_config} the same with {@code unsupported.nodeConfigRead}; T054:
+ * {@code set_temporary_log_level} and {@code reset_temporary_log_level} only for a node with
+ * effective write access, {@code unsupported.logLevelWrite} and a client home that may change the
+ * log level.
  */
 class ToolAnnouncementTest {
 
@@ -446,6 +453,334 @@ class ToolAnnouncementTest {
         // lab has a client home on 8.1 but no opt-in
         assertThat(webServiceTools("V6_1", true)).doesNotContain("download_server_log");
         assertThat(webServiceTools("V8_1", false)).doesNotContain("download_server_log");
+    }
+
+    // --- feature 024 T023: list_cluster_nodes (FR-002, SC-005, research D-6) -----------------
+
+    /** The T001 reference (SC-005): the tools of a client home on 8.1 or AUTO without opt-in. */
+    private static final List<String> REFERENCE = List.of("list_nodes", "get_health",
+        "read_knowledge", "record_knowledge", "find_processes", "query_logs", "download_server_log",
+        "get_server_settings", "read_users", "read_model_details",
+        "list_inventory", "get_inventory_item",
+        "find_partners", "export_artifacts", "export_archives", "check_artifacts");
+
+    private static String nodeStatusOptIn(String value) {
+        return "    unsupported:\n      nodeStatusRead: " + value;
+    }
+
+    @Test
+    void anOptedInNodeWithAClientHomeAnnouncesListClusterNodes() {
+        // TraceMatrix admits every capability on 8.1 but the web service log, the cluster's
+        // node list included
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V8_1", nodeStatusOptIn("true") + "\n" + cliHome(), false,
+            matrix)).containsExactly("list_nodes", "get_health", "read_knowledge",
+                "record_knowledge", "find_processes", "query_logs", "download_server_log",
+                "get_server_settings", "read_users", "read_model_details",
+                "list_cluster_nodes", "list_inventory",
+                "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+                "check_artifacts");
+        assertThat(groupTools("AUTO", nodeStatusOptIn("true") + "\n" + cliHome(), false,
+            matrix)).as("an AUTO node may run 8.1").contains("list_cluster_nodes");
+        assertThat(groupTools("V8_1", "    production: true\n    write:\n      enabled: false\n"
+            + nodeStatusOptIn("true") + "\n" + cliHome(), false, matrix))
+            .as("read-only, independent of write.*").contains("list_cluster_nodes");
+    }
+
+    @Test
+    void withoutTheOptInOrAClientHomeListClusterNodesIsNotAnnounced() {
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V8_1", cliHome(), false, matrix))
+            .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V8_1", nodeStatusOptIn("false") + "\n" + cliHome(), false,
+            matrix)).containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V8_1", nodeStatusOptIn("true"), false, matrix))
+            .doesNotContain("list_cluster_nodes", "export_artifacts");
+    }
+
+    @Test
+    void aNodePinnedToSixOneDoesNotAnnounceListClusterNodes() {
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V6_1", nodeStatusOptIn("true") + "\n" + cliHome(), false,
+            matrix)).doesNotContain("list_cluster_nodes");
+        // the opt-in on the 6.1 group, the 8.1 client home on another group without it
+        String yaml = """
+            profile:
+              name: acme
+            workspace: %s
+            groups:
+              - name: legacy
+                versionLine: V6_1
+                unsupported:
+                  nodeStatusRead: true
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: https://localhost:1
+              - name: test
+                versionLine: V8_1
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: https://localhost:2
+            """.formatted(temp.resolve("workspace"), temp.resolve("cli-legacy"),
+            temp.resolve("cli-test"));
+        assertThat(toolNames(yaml, matrix)).contains("download_server_log")
+            .doesNotContain("list_cluster_nodes");
+    }
+
+    @Test
+    void onTheProductionMatrixListClusterNodesIsAnnouncedForAnOptedInNodeOf81Or90OrAuto() {
+        // since T025 the production matrix supports CLUSTER_NODES_READ on 8.1, since T062 on 9.0
+        CapabilityMatrix production = CapabilityMatrix.production();
+        List<String> withClusterNodes = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "get_server_settings", "read_users", "read_model_details",
+            "list_cluster_nodes", "list_inventory",
+            "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+            "check_artifacts");
+        assertThat(groupTools("V8_1", nodeStatusOptIn("true") + "\n" + cliHome(), false,
+            production)).containsExactlyElementsOf(withClusterNodes);
+        assertThat(groupTools("AUTO", nodeStatusOptIn("true") + "\n" + cliHome(), false,
+            production)).containsExactlyElementsOf(withClusterNodes);
+        assertThat(groupTools("V9_0", nodeStatusOptIn("true"), true, production))
+            .containsExactlyElementsOf(withClusterNodes);
+        assertThat(groupTools("V9_0", "", true, production))
+            .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V9_0", nodeStatusOptIn("true"), false, production))
+            .as("without a 9.0 client").doesNotContain("list_cluster_nodes");
+        assertThat(groupTools("V8_1", cliHome(), false, production))
+            .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("AUTO", cliHome(), false, production))
+            .containsExactlyElementsOf(REFERENCE);
+    }
+
+    // --- feature 024 T030: read_io_log (FR-002, SC-005, research D-6) --------------------------
+
+    private static String ioLogOptIn(String value) {
+        return "    unsupported:\n      ioLogRead: " + value;
+    }
+
+    @Test
+    void anOptedInNodeWithAClientHomeAnnouncesReadIoLog() {
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V8_1", ioLogOptIn("true") + "\n" + cliHome(), false, matrix))
+            .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
+                "find_processes", "query_logs", "download_server_log",
+                "get_server_settings", "read_users", "read_model_details",
+                "read_io_log",
+                "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
+                "export_archives", "check_artifacts");
+        assertThat(groupTools("V8_1", "    unsupported:\n      nodeStatusRead: true\n"
+            + "      ioLogRead: true\n" + cliHome(), false, matrix))
+            .as("after list_cluster_nodes")
+            .containsSubsequence("list_cluster_nodes", "read_io_log", "list_inventory");
+        assertThat(groupTools("AUTO", ioLogOptIn("true") + "\n" + cliHome(), false, matrix))
+            .as("an AUTO node may run 8.1").contains("read_io_log");
+        assertThat(groupTools("V8_1", "    production: true\n    write:\n      enabled: false\n"
+            + ioLogOptIn("true") + "\n" + cliHome(), false, matrix))
+            .as("read-only, independent of write.*").contains("read_io_log");
+    }
+
+    @Test
+    void withoutTheOptInOrAClientHomeReadIoLogIsNotAnnounced() {
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V8_1", ioLogOptIn("false") + "\n" + cliHome(), false, matrix))
+            .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V8_1", ioLogOptIn("true"), false, matrix))
+            .doesNotContain("read_io_log", "export_artifacts");
+        assertThat(groupTools("V8_1", nodeStatusOptIn("true") + "\n" + cliHome(), false,
+            matrix)).as("another node-tool opt-in").doesNotContain("read_io_log");
+        assertThat(groupTools("V6_1", ioLogOptIn("true") + "\n" + cliHome(), false, matrix))
+            .as("pinned to 6.1").doesNotContain("read_io_log");
+    }
+
+    @Test
+    void onTheProductionMatrixReadIoLogIsNotAnnouncedBeforeItsRecording() {
+        // IO_LOG_READ stays unsupported on 8.1 and 9.0 until T032
+        CapabilityMatrix production = CapabilityMatrix.production();
+        assertThat(groupTools("V8_1", ioLogOptIn("true") + "\n" + cliHome(), false, production))
+            .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("AUTO", ioLogOptIn("true") + "\n" + cliHome(), false, production))
+            .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V9_0", ioLogOptIn("true"), true, production))
+            .containsExactlyElementsOf(REFERENCE);
+    }
+
+    // --- feature 024 T036: get_node_config (FR-002, SC-005, research D-6) ----------------------
+
+    private static String nodeConfigOptIn(String value) {
+        return "    unsupported:\n      nodeConfigRead: " + value;
+    }
+
+    @Test
+    void anOptedInNodeWithAClientHomeAnnouncesGetNodeConfig() {
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V8_1", nodeConfigOptIn("true") + "\n" + cliHome(), false, matrix))
+            .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
+                "find_processes", "query_logs", "download_server_log",
+                "get_server_settings", "read_users", "read_model_details",
+                "get_node_config",
+                "list_inventory", "get_inventory_item", "find_partners", "export_artifacts",
+                "export_archives", "check_artifacts");
+        assertThat(groupTools("V8_1", "    unsupported:\n      nodeStatusRead: true\n"
+            + "      ioLogRead: true\n      nodeConfigRead: true\n" + cliHome(), false, matrix))
+            .as("after list_cluster_nodes and read_io_log")
+            .containsSubsequence("list_cluster_nodes", "read_io_log", "get_node_config",
+                "list_inventory");
+        assertThat(groupTools("AUTO", nodeConfigOptIn("true") + "\n" + cliHome(), false, matrix))
+            .as("an AUTO node may run 8.1").contains("get_node_config");
+        assertThat(groupTools("V8_1", "    production: true\n    write:\n      enabled: false\n"
+            + nodeConfigOptIn("true") + "\n" + cliHome(), false, matrix))
+            .as("read-only, independent of write.*").contains("get_node_config");
+    }
+
+    @Test
+    void withoutTheOptInOrAClientHomeGetNodeConfigIsNotAnnounced() {
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V8_1", nodeConfigOptIn("false") + "\n" + cliHome(), false, matrix))
+            .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V8_1", nodeConfigOptIn("true"), false, matrix))
+            .doesNotContain("get_node_config", "export_artifacts");
+        assertThat(groupTools("V8_1", ioLogOptIn("true") + "\n" + cliHome(), false, matrix))
+            .as("another node-tool opt-in").doesNotContain("get_node_config");
+        assertThat(groupTools("V6_1", nodeConfigOptIn("true") + "\n" + cliHome(), false, matrix))
+            .as("pinned to 6.1").doesNotContain("get_node_config");
+    }
+
+    @Test
+    void onTheProductionMatrixGetNodeConfigIsAnnouncedForAnOptedInNodeOf81Or90OrAuto() {
+        // since T038 the production matrix supports NODE_CONFIG_READ on 8.1, since T064 on 9.0
+        CapabilityMatrix production = CapabilityMatrix.production();
+        List<String> withNodeConfig = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "get_server_settings", "read_users", "read_model_details",
+            "get_node_config", "list_inventory",
+            "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+            "check_artifacts");
+        assertThat(groupTools("V8_1", nodeConfigOptIn("true") + "\n" + cliHome(), false,
+            production)).containsExactlyElementsOf(withNodeConfig);
+        assertThat(groupTools("AUTO", nodeConfigOptIn("true") + "\n" + cliHome(), false,
+            production)).containsExactlyElementsOf(withNodeConfig);
+        assertThat(groupTools("V9_0", nodeConfigOptIn("true"), true, production))
+            .containsExactlyElementsOf(withNodeConfig);
+        assertThat(groupTools("V9_0", "", true, production))
+            .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V9_0", nodeConfigOptIn("true"), false, production))
+            .as("without a 9.0 client").doesNotContain("get_node_config");
+        assertThat(groupTools("V8_1", cliHome(), false, production))
+            .containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("AUTO", cliHome(), false, production))
+            .containsExactlyElementsOf(REFERENCE);
+    }
+
+    // --- feature 024 T054: the log-level tools (FR-002, FR-040, SC-005, research D-6) ----------
+
+    private static final List<String> LOG_LEVEL_TOOLS = List.of("set_temporary_log_level",
+        "reset_temporary_log_level");
+
+    private static String writeEnabled(boolean enabled) {
+        return "    write:\n      enabled: " + enabled + "\n";
+    }
+
+    private static String logLevelOptIn(String value) {
+        return "    unsupported:\n      logLevelWrite: " + value + "\n";
+    }
+
+    @Test
+    void aNodeWithWriteAccessTheOptInAndAClientHomeAnnouncesBothLogLevelTools() {
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V8_1", writeEnabled(true) + logLevelOptIn("true") + cliHome(),
+            false, matrix))
+            .containsExactly("list_nodes", "get_health", "read_knowledge", "record_knowledge",
+                "find_processes", "query_logs", "download_server_log",
+                "get_server_settings", "read_users", "read_model_details",
+                "list_inventory",
+                "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+                "check_artifacts", "restart_process", "kill_process", "set_temporary_log_level",
+                "reset_temporary_log_level");
+        assertThat(groupTools("AUTO", writeEnabled(true) + logLevelOptIn("true") + cliHome(),
+            false, matrix)).as("an AUTO node may run 8.1").containsAll(LOG_LEVEL_TOOLS);
+        assertThat(groupTools("V8_1", "    production: true\n    write:\n      enabled: true\n"
+            + "      productionOptIn: true\n" + logLevelOptIn("true") + cliHome(), false, matrix))
+            .as("production with write.productionOptIn").containsAll(LOG_LEVEL_TOOLS);
+    }
+
+    @Test
+    void withoutWriteAccessTheOptInOrAClientHomeTheLogLevelToolsAreNotAnnounced() {
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V8_1", writeEnabled(false) + logLevelOptIn("true") + cliHome(),
+            false, matrix)).as("write disabled").containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V8_1", logLevelOptIn("true") + cliHome(), false, matrix))
+            .as("write not configured").containsExactlyElementsOf(REFERENCE);
+        assertThat(groupTools("V8_1", "    production: true\n" + writeEnabled(true)
+            + logLevelOptIn("true") + cliHome(), false, matrix))
+            .as("production without write.productionOptIn")
+            .doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+        assertThat(groupTools("V8_1", writeEnabled(true) + logLevelOptIn("false") + cliHome(),
+            false, matrix)).as("without the opt-in").contains("restart_process")
+            .doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+        assertThat(groupTools("V8_1", writeEnabled(true) + cliHome(), false, matrix))
+            .as("opt-in not set").doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+        assertThat(groupTools("V8_1", writeEnabled(true) + logLevelOptIn("true"), false, matrix))
+            .as("without a client home").contains("restart_process")
+            .doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+        assertThat(groupTools("V6_1", writeEnabled(true) + logLevelOptIn("true") + cliHome(),
+            false, matrix)).as("pinned to 6.1").doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+    }
+
+    @Test
+    void theWriteAccessTheOptInAndTheClientHomeMustBeOnTheSameNode() {
+        String yaml = """
+            profile:
+              name: acme
+            workspace: %s
+            groups:
+              - name: test
+                versionLine: V8_1
+                write:
+                  enabled: true
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: https://localhost:1
+              - name: lab
+                versionLine: V8_1
+                unsupported:
+                  logLevelWrite: true
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: https://localhost:2
+            """.formatted(temp.resolve("workspace"), temp.resolve("cli-test"),
+            temp.resolve("cli-lab"));
+
+        assertThat(toolNames(yaml, TraceMatrix.admittingEightOne())).contains("restart_process")
+            .doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+    }
+
+    @Test
+    void onTheProductionMatrixTheLogLevelToolsAreAnnouncedForAnOptedInNodeOf81Or90OrAuto() {
+        // since T058 the production matrix supports LOG_LEVEL_WRITE on 8.1, since T065 on 9.0
+        CapabilityMatrix production = CapabilityMatrix.production();
+        for (String line : List.of("V8_1", "AUTO")) {
+            assertThat(groupTools(line, writeEnabled(true) + logLevelOptIn("true") + cliHome(),
+                false, production)).as(line).containsAll(LOG_LEVEL_TOOLS);
+            assertThat(groupTools(line, writeEnabled(true) + cliHome(), false, production))
+                .as(line + " without the opt-in").doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+        }
+        assertThat(groupTools("V9_0", writeEnabled(true) + logLevelOptIn("true"), true,
+            production)).containsAll(LOG_LEVEL_TOOLS);
+        assertThat(groupTools("V9_0", writeEnabled(true), true, production))
+            .as("9.0 without the opt-in").doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+        assertThat(groupTools("V9_0", logLevelOptIn("true"), true, production))
+            .as("9.0 without write access").doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
+        assertThat(groupTools("V9_0", writeEnabled(true) + logLevelOptIn("true"), false,
+            production)).as("without a 9.0 client").doesNotContainAnyElementsOf(LOG_LEVEL_TOOLS);
     }
 
     // --- feature 022 T022: get_server_settings (contracts/mcp-tools-delta.md "Announcement") --

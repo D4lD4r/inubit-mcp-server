@@ -62,7 +62,12 @@
           }
         },
         "error": { "$ref": "#/$defs/ToolError" },
-        "warnings": { "type": "array", "items": { "type": "string" } }
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "temporaryLogLevels": {
+          "type": "array",
+          "description": "The open temporary log level leases of the {node}, whether write tools are on or off; absent when it has none",
+          "items": { "$ref": "#/$defs/LeaseSummary" }
+        }
       },
       "additionalProperties": false
     },
@@ -139,6 +144,43 @@
         "nextStep": { "type": "string" },
         "node": { "type": "string" },
         "excerpt": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "Logger": {
+      "type": "object",
+      "required": ["name", "level"],
+      "properties": {
+        "name": { "type": "string" },
+        "level": { "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"] }
+      },
+      "additionalProperties": false
+    },
+    "LeaseSummary": {
+      "type": "object",
+      "required": ["leaseId", "inubitNode", "loggers", "setAt", "expiresAt", "state"],
+      "properties": {
+        "leaseId": { "type": "string" },
+        "inubitNode": { "type": "string" },
+        "loggers": { "type": "array", "items": { "$ref": "#/$defs/Logger" } },
+        "setAt": { "type": "string", "description": "ISO-8601 UTC" },
+        "expiresAt": { "type": "string", "description": "ISO-8601 UTC" },
+        "state": {
+          "enum": ["ACTIVE", "RESET_FAILED"],
+          "description": "RESET_FAILED: the automatic reset failed; the level may still be raised"
+        },
+        "lastAttempt": {
+          "type": "object",
+          "description": "The last reset attempt that did not end the lease",
+          "required": ["at", "outcome"],
+          "properties": {
+            "at": { "type": "string", "description": "ISO-8601 UTC" },
+            "outcome": { "type": "string" },
+            "code": { "type": "string" },
+            "reason": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     }

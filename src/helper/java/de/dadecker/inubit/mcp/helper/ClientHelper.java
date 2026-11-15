@@ -14,9 +14,16 @@ import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,20 +31,24 @@ import java.util.Set;
 
 /**
  * Reads through the INUBIT client installation whose class path it runs on: one queue manager
- * entry (feature 020, research D-1, D-2, D-4) or the web service log of the node it reaches
- * (feature 021, D-2, D-4, D-5). The server starts it in a child JVM; it is compiled for Java 17,
- * uses JDK classes only and is a single class without nested or anonymous classes, because it is
- * shipped as one class-file resource.
+ * entry (feature 020, research D-1, D-2, D-4), the web service log of the node it reaches
+ * (feature 021, D-2, D-4, D-5), the name of that node, the cluster's nodes, the node's
+ * configuration or the I/O logging of a process run (feature 024, D-2, D-3, D-7 … D-10). The
+ * server starts it in a child JVM; it is
+ * compiled for Java 17, uses JDK classes only and is a single class without nested or anonymous
+ * classes, because it is shipped as one class-file resource.
  *
  * <p>Protocol: the request arrives on stdin (UTF-8, {@code qe=1} first, one {@code key=value} per
  * line with every value percent-encoded, {@code end} last; the optional key {@code op} names the
- * operation, {@code queueEntry} (also when absent) or {@code serverLog}, each with its own keys,
- * feature 021 D-4); results are the stdout lines that start with {@code #QE1:<nonce> }, followed
- * by space-separated percent-encoded tokens, so output of the vendor libraries cannot forge one;
- * an empty token is written as {@code -}. Exit codes: 0 after {@code end}, 1 anything else (also
- * any unexpected {@link Throwable}), 2 malformed request, 3 login failed (also a vendor class
- * that fails to initialize while the client is created), 4 vendor API missing. The request, the
- * passwords and the content are never printed.
+ * operation, {@code queueEntry} (also when absent), {@code serverLog} (feature 021 D-4) or
+ * {@code ownNode}, {@code clusterNodes}, {@code nodeConfig}, {@code ioLog} (feature 024 D-2),
+ * each with its own keys);
+ * results are the stdout lines that start with {@code #QE1:<nonce> }, followed by space-separated
+ * percent-encoded tokens, so output of the vendor libraries cannot forge one; an empty token is
+ * written as {@code -}. Exit codes: 0 after {@code end}, 1 anything else (also any unexpected
+ * {@link Throwable}), 2 malformed request, 3 login failed (also a vendor class that fails to
+ * initialize while the client is created), 4 vendor API missing. The request, the passwords and
+ * the content are never printed.
  *
  * <p>Vendor classes are resolved only through the {@link ClassLoader} given to {@link #run} and
  * used only by reflection: 8.1 ({@code SOAP_81}) through {@code IBISSoapClient}, 9.0
@@ -46,8 +57,13 @@ import java.util.Set;
  * {@code MultipartDownloadThread} (the Workbench's "View file", FR-007); the web service log
  * through a {@code ClusterClient}, as the Workbench's Cluster Manager does: the answering node
  * from {@code getNode()}, then {@code clusterDownload} of the constant {@code webservice.log}
- * from that node (FR-006). 8.1 logs out at the end. Client methods are looked up on
- * {@code I_IBISClientInterface}, because the 9.0 client is a private class.
+ * from that node (FR-006); the own node through the same {@code getNode()}, the cluster's nodes
+ * through {@code getNodes()} and one node's information through {@code getNode(NodeName)}
+ * (FR-010, FR-011), the own node's configuration through
+ * {@code getNodeConfigurationProperty} (FR-030, FR-032), a run's I/O logging through the client's
+ * {@code getObject} and one {@code MultipartDownloadThread} of a listed entry (FR-020, FR-021).
+ * 8.1 logs out at the end. Client methods
+ * are looked up on {@code I_IBISClientInterface}, because the 9.0 client is a private class.
  */
 public final class ClientHelper {
 
@@ -62,13 +78,42 @@ public final class ClientHelper {
     private static final String OP = "op";
     private static final String QUEUE_ENTRY = "queueEntry";
     private static final String SERVER_LOG = "serverLog";
+    private static final String OWN_NODE = "ownNode";
+    private static final String CLUSTER_NODES = "clusterNodes";
+    private static final String NODE_CONFIG = "nodeConfig";
+    private static final String IO_LOG = "ioLog";
     private static final List<String> SHARED_KEYS = List.of("qe", OP, "nonce", "variant", "url",
         "trustStore", "trustStorePassword", "hostnameVerification", "user", "password");
-    private static final List<String> QUEUE_ENTRY_KEYS = List.of("objectType", "fileName",
-        "parts", "dataOut", "variablesOut");
-    private static final List<String> SERVER_LOG_KEYS = List.of("log", "logOut");
+    /** The keys of each operation, every one required exactly once (021 D-4, 024 D-2). */
+    private static final Map<String, List<String>> OPERATION_KEYS = Map.of(
+        QUEUE_ENTRY, List.of("objectType", "fileName", "parts", "dataOut", "variablesOut"),
+        SERVER_LOG, List.of("log", "logOut"),
+        OWN_NODE, List.of(),
+        CLUSTER_NODES, List.of("details"),
+        NODE_CONFIG, List.of("names"),
+        IO_LOG, List.of("processId", "workflow", "ref", "listOut", "messageOut"));
     private static final List<String> NOT_EMPTY = List.of("url", "objectType", "fileName",
-        "variablesOut", "logOut", "user", "password");
+        "variablesOut", "logOut", "names", "processId", "workflow", "listOut", "user",
+        "password");
+    /**
+     * The node configuration names {@code nodeConfig} may read, the helper's own list (024 D-10):
+     * no name outside it reaches the server.
+     */
+    private static final List<String> NODE_CONFIG_NAMES = List.of("OperationMode", "ClusterName",
+        "ZoneName", "NodeName", "LocalMaintenanceMode", "ActivateClusterManager", "ClusterDebug",
+        "ContainerShutdownOnNodeFailure", "RegisterMBeans", "RegisterInternalMBeans",
+        "RuntimeDataCacheXMXPercentage", "socketTimeoutInMillisecs", "indexEnabled",
+        "iterationCount", "DataSourceLocation", "LogsDBDataSourceLocation",
+        "RepositoryDataSourceLocation", "ClusterBindAddress", "noOfRetries", "retryInterval");
+    private static final int MAX_WORKFLOW_CHARS = 200;
+    /** The object type of a run's I/O logging listing (research "Static facts"). */
+    private static final String IO_LISTING = "inputOutputMessageDetails";
+    /** The download type of one logged I/O message (research "Static facts"). */
+    private static final String IO_DOWNLOAD = "InputOutputLogging";
+    /** The separator of the listing's entries and of the download name's two parts. */
+    private static final String IO_SEPARATOR = "###";
+    /** The bytes of SHA-256 a message reference keeps (024 D-8). */
+    private static final int REF_BYTES = 16;
     /** The only server log the helper reads, a constant so no request names a file (D-2). */
     private static final String WEBSERVICE_LOG = "webservice.log";
     private static final char[] HEX = "0123456789ABCDEF".toCharArray();
@@ -83,10 +128,35 @@ public final class ClientHelper {
     private static final String CLUSTER_CLIENT = "com.inubit.ibis.server.cluster.ClusterClient";
     private static final String NODE = "com.inubit.ibis.server.cluster.data.Node";
     private static final String NODE_NAME = "com.inubit.ibis.server.cache.NodeName";
+    private static final String NODE_INFORMATION =
+        "com.inubit.ibis.server.datafacade.NodeInformation";
+    private static final String MAP_PROPERTY = "com.inubit.ibis.utils.property.type.MapProperty";
+    private static final String IBIS_PROPERTY = "com.inubit.ibis.utils.property.type.IBISProperty";
     private static final String CURRENT_USER = "com.inubit.ibis.common.CurrentUser";
     private static final int MESSAGE_LIMIT = 1_000;
     private static final String MASK = "******";
     private static final String EMPTY_TOKEN = "-";
+    /** The {@code member} frames of {@code clusterNodes} at most (024 D-2, D-7). */
+    private static final int MAX_MEMBERS = 200;
+    private static final int MAX_MEMBER_CHARS = 200;
+    /**
+     * The bytes of one percent-encoded {@code member} token at most: never cuts 200 ASCII
+     * characters (3 bytes each at most) and keeps a {@code member} frame at about 3,070 bytes, so
+     * 200 of them stay below 600 KiB (024 D-2).
+     */
+    private static final int MAX_MEMBER_TOKEN_BYTES = 600;
+    private static final int MAX_DETAILS = 500;
+    private static final int MAX_DETAIL_KEY_CHARS = 200;
+    private static final int MAX_DETAIL_VALUE_CHARS = 4_000;
+    /** The encoded {@code detail} frames together (whole lines) at most (024 D-2). */
+    private static final int DETAILS_BUDGET_BYTES = 256 * 1024;
+    private static final int MAX_CONFIG_TEXT_CHARS = 4_000;
+    /**
+     * The bytes of one percent-encoded {@code config} text at most: never cuts 4,000 ASCII
+     * characters (3 bytes each at most) and keeps 20 {@code config} frames of four texts each
+     * below the 1 MiB stdout cap (020).
+     */
+    private static final int MAX_CONFIG_TEXT_BYTES = 12_000;
 
     private ClientHelper() {
     }
@@ -172,20 +242,27 @@ public final class ClientHelper {
             api.put("InubitClientFactory", factory.getConstructor());
             api.put("getRestInstance", factory.getMethod("getRestInstance", data));
         }
-        Class<?> download = Class.forName(DOWNLOAD_THREAD, false, vendor);
-        if (!Thread.class.isAssignableFrom(download)) {
-            throw new ClassNotFoundException(DOWNLOAD_THREAD + " as a Thread");
-        }
-        api.put("exceptionOccured", download.getMethod("exceptionOccured"));
-        api.put("getException", download.getMethod("getException"));
         if (QUEUE_ENTRY.equals(request.get(OP))) {
+            Class<?> download = downloadThread(api, vendor);
             api.put("MultipartDownloadThread", sixArgumentConstructor(download));
             api.put("setOutputFile", download.getMethod("setOutputFile", File.class));
         } else {
-            // NodeName and Node first: clusterDownload's parameter type is the NodeName found here
+            boolean serverLog = SERVER_LOG.equals(request.get(OP));
+            if (serverLog) {
+                // first, as in feature 021, so the same member is named when several are missing
+                downloadThread(api, vendor);
+            }
+            if (IO_LOG.equals(request.get(OP))) {
+                // first as well: getObject is a member of the client interface, checked before
+                // the cluster classes that refer to that interface
+                ioLogApi(api, vendor, client);
+            }
+            // every other operation starts with the node lookup (021 D-5, 024 D-3); NodeName and
+            // Node first: clusterDownload's parameter type is the NodeName found here
             Class<?> nodeName = Class.forName(NODE_NAME, false, vendor);
             api.put("getName", nodeName.getMethod("getName"));
-            api.put("getNodeName", Class.forName(NODE, false, vendor).getMethod("getNodeName"));
+            Class<?> node = Class.forName(NODE, false, vendor);
+            api.put("getNodeName", node.getMethod("getNodeName"));
             Class<?> currentUser = Class.forName(CURRENT_USER, false, vendor);
             api.put("getClientUID", currentUser.getMethod("getClientUID"));
             api.put("getUsedAdditionalUserGroup",
@@ -194,10 +271,80 @@ public final class ClientHelper {
             api.put("ClusterClient", cluster.getConstructor(client, String.class, String.class,
                 String.class));
             api.put("getNode", cluster.getMethod("getNode"));
-            api.put("clusterDownload", cluster.getMethod("clusterDownload", File.class, nodeName,
-                String.class));
+            if (serverLog) {
+                api.put("clusterDownload", cluster.getMethod("clusterDownload", File.class,
+                    nodeName, String.class));
+            }
+            if (CLUSTER_NODES.equals(request.get(OP))) {
+                clusterNodesApi(api, vendor, cluster, nodeName, node);
+            }
+            if (NODE_CONFIG.equals(request.get(OP))) {
+                nodeConfigApi(api, vendor, cluster, nodeName);
+            }
         }
         return api;
+    }
+
+    /**
+     * The members {@code clusterNodes} calls beyond the node lookup (024 D-2); the named node's
+     * {@code getNode} is keyed {@code getNamedNode}.
+     */
+    private static void clusterNodesApi(Map<String, Executable> api, ClassLoader vendor,
+        Class<?> cluster, Class<?> nodeName, Class<?> node) throws ReflectiveOperationException {
+        api.put("nodeName", nodeName.getMethod("nodeName", String.class));
+        api.put("getNodes", cluster.getMethod("getNodes"));
+        api.put("getNamedNode", cluster.getMethod("getNode", nodeName));
+        for (String getter : List.of("getStatus", "getVersion", "getZoneName", "getNodeID",
+            "getUptime", "getNodeInformation")) {
+            api.put(getter, node.getMethod(getter));
+        }
+        api.put("getNodeInformationMap", Class.forName(NODE_INFORMATION, false, vendor)
+            .getMethod("getNodeInformationMap"));
+        api.put("getStringValue", Class.forName(IBIS_PROPERTY, false, vendor)
+            .getMethod("getStringValue"));
+        Class<?> map = Class.forName(MAP_PROPERTY, false, vendor);
+        api.put("getPropertyNames", map.getMethod("getPropertyNames"));
+        api.put("get", map.getMethod("get", String.class));
+    }
+
+    /**
+     * The members {@code nodeConfig} calls beyond the node lookup (024 D-10); never
+     * {@code setNodeConfigurationProperty} (FR-032).
+     */
+    private static void nodeConfigApi(Map<String, Executable> api, ClassLoader vendor,
+        Class<?> cluster, Class<?> nodeName) throws ReflectiveOperationException {
+        api.put("getNodeConfigurationProperty", cluster.getMethod("getNodeConfigurationProperty",
+            nodeName, String.class));
+        Class<?> property = Class.forName(IBIS_PROPERTY, false, vendor);
+        for (String getter : List.of("getType", "getStringValue", "getDisplayName",
+            "getShortDescription", "getCategory", "isEditable", "isDeprecated")) {
+            api.put(getter, property.getMethod(getter));
+        }
+    }
+
+    /**
+     * The members {@code ioLog} calls beyond the node lookup (024 D-2, D-9): the client's
+     * {@code getObject} and the 020 download thread.
+     */
+    private static void ioLogApi(Map<String, Executable> api, ClassLoader vendor,
+        Class<?> client) throws ReflectiveOperationException {
+        api.put("getObject", client.getMethod("getObject", String.class, String.class,
+            String.class));
+        Class<?> download = downloadThread(api, vendor);
+        api.put("MultipartDownloadThread", sixArgumentConstructor(download));
+        api.put("setOutputFile", download.getMethod("setOutputFile", File.class));
+    }
+
+    /** The download thread class and the members that report its result. */
+    private static Class<?> downloadThread(Map<String, Executable> api, ClassLoader vendor)
+        throws ReflectiveOperationException {
+        Class<?> download = Class.forName(DOWNLOAD_THREAD, false, vendor);
+        if (!Thread.class.isAssignableFrom(download)) {
+            throw new ClassNotFoundException(DOWNLOAD_THREAD + " as a Thread");
+        }
+        api.put("exceptionOccured", download.getMethod("exceptionOccured"));
+        api.put("getException", download.getMethod("getException"));
+        return download;
     }
 
     /**
@@ -223,7 +370,8 @@ public final class ClientHelper {
     }
 
     /**
-     * Logs in, reads the requested parts or the web service log and logs out (8.1); returns the
+     * Logs in, reads the requested parts, the web service log, the own node, the cluster's
+     * nodes, the own node's configuration or a run's I/O logging and logs out (8.1); returns the
      * exit code.
      */
     private static int read(Map<String, String> request, Map<String, Executable> api,
@@ -248,6 +396,14 @@ public final class ClientHelper {
             frame(out, nonce, "login", "ok");
             if (SERVER_LOG.equals(request.get(OP))) {
                 readServerLog(api, client, request, out, secrets);
+            } else if (OWN_NODE.equals(request.get(OP))) {
+                lookUpNode(api, client, request, out, secrets);
+            } else if (CLUSTER_NODES.equals(request.get(OP))) {
+                listClusterNodes(api, client, request, out, secrets);
+            } else if (NODE_CONFIG.equals(request.get(OP))) {
+                readNodeConfig(api, client, request, out, secrets);
+            } else if (IO_LOG.equals(request.get(OP))) {
+                readIoLog(api, client, request, out, secrets);
             } else {
                 if (request.get("parts").startsWith("data")) {
                     download(api, client, request, "data", request.get("fileName"),
@@ -304,13 +460,36 @@ public final class ClientHelper {
 
     /**
      * Looks up the answering node and downloads its {@code webservice.log} into {@code logOut},
-     * naming that node explicitly (D-5); writes the {@code node} frame and, after
-     * {@code node ok}, the {@code part log} frame. A lookup that yields no node or no node name
-     * is a {@code node error}.
+     * naming that node explicitly (D-5); after {@code node ok}, writes the {@code part log}
+     * frame.
      */
     private static void readServerLog(Map<String, Executable> api, Object client,
         Map<String, String> request, PrintStream out, List<String> secrets)
         throws ReflectiveOperationException, InterruptedException {
+        Object[] node = lookUpNode(api, client, request, out, secrets);
+        if (node == null) {
+            return;
+        }
+        String nonce = request.get("nonce");
+        File file = new File(request.get("logOut"));
+        try {
+            Thread thread = (Thread) call(api, "clusterDownload", node[0], file, node[1],
+                WEBSERVICE_LOG);
+            transfer(api, thread, file, nonce, "log", out, secrets);
+        } catch (InvocationTargetException | LinkageError e) {
+            partError(out, nonce, "log", vendorFailure(e), secrets);
+        }
+    }
+
+    /**
+     * Creates the {@code ClusterClient}, asks it for the answering node ({@code getNode()}) and
+     * writes the {@code node} frame (021 D-5, 024 D-3). Returns the cluster client and the
+     * node's {@code NodeName}, in this order, after {@code node ok}; {@code null} after
+     * {@code node error}. A lookup that yields no node or no node name is a {@code node error}.
+     */
+    private static Object[] lookUpNode(Map<String, Executable> api, Object client,
+        Map<String, String> request, PrintStream out, List<String> secrets)
+        throws ReflectiveOperationException {
         String nonce = request.get("nonce");
         Object cluster;
         Object node;
@@ -324,24 +503,330 @@ public final class ClientHelper {
         } catch (InvocationTargetException | LinkageError e) {
             Throwable failure = vendorFailure(e);
             frame(out, nonce, "node", "error", chain(failure), messages(failure, secrets));
-            return;
+            return null;
         }
         if (name == null) {
-            // a node lookup without a node name is a failed one: no node to download from;
+            // a node lookup without a node name is a failed one: no node to work with;
             // nothing was thrown, so the frame carries no exception chain
             frame(out, nonce, "node", "error", "",
                 "the cluster client returned no node or node name");
-            return;
+            return null;
         }
         frame(out, nonce, "node", "ok", name);
-        File file = new File(request.get("logOut"));
-        try {
-            Thread thread = (Thread) call(api, "clusterDownload", cluster, file, node,
-                WEBSERVICE_LOG);
-            transfer(api, thread, file, nonce, "log", out, secrets);
-        } catch (InvocationTargetException | LinkageError e) {
-            partError(out, nonce, "log", vendorFailure(e), secrets);
+        return new Object[] {cluster, node};
+    }
+
+    /**
+     * Looks up the answering node, lists the cluster's members ({@code getNodes()}) and, if
+     * {@code details} names one of them, writes that node's information (024 D-2, D-7). The
+     * members are read before the first {@code member} frame, so a failure or a {@code null}
+     * node list gives {@code members error} alone.
+     */
+    private static void listClusterNodes(Map<String, Executable> api, Object client,
+        Map<String, String> request, PrintStream out, List<String> secrets)
+        throws ReflectiveOperationException {
+        Object[] node = lookUpNode(api, client, request, out, secrets);
+        if (node == null) {
+            return;
         }
+        String nonce = request.get("nonce");
+        String details = request.get("details");
+        List<String[]> members = new ArrayList<>();
+        int count = 0;
+        boolean listed = false;
+        Object nodes;
+        try {
+            nodes = call(api, "getNodes", node[0]);
+            for (Object member : nodes == null ? List.of() : (Iterable<?>) nodes) {
+                Object nodeName = call(api, "getNodeName", member);
+                String name = nodeName == null ? null : (String) call(api, "getName", nodeName);
+                listed |= !details.isEmpty() && details.equals(name);
+                if (count++ < MAX_MEMBERS) {
+                    members.add(member(api, member, name));
+                }
+            }
+        } catch (InvocationTargetException | LinkageError e) {
+            Throwable failure = vendorFailure(e);
+            frame(out, nonce, "members", "error", chain(failure), messages(failure, secrets));
+            return;
+        }
+        if (nodes == null) {
+            // nothing was thrown, so the frame carries no exception chain
+            frame(out, nonce, "members", "error", "", "the cluster client returned no node list");
+            return;
+        }
+        for (String[] member : members) {
+            frame(out, nonce, member);
+        }
+        frame(out, nonce, "members", "ok", Integer.toString(count));
+        if (details.isEmpty()) {
+            return;
+        }
+        if (!listed) {
+            // the name never reaches the server unless it is a listed member (D-7)
+            frame(out, nonce, "details", "unknown");
+            return;
+        }
+        writeDetails(api, node[0], details, nonce, out, secrets);
+    }
+
+    /**
+     * The tokens of the {@code member} frame of {@code member}: the status constant's
+     * {@code name()}; a member without status did not answer, so its uptime (a primitive, 0)
+     * is none; every token cut by {@link #cut} at 200 characters and 600 encoded bytes.
+     */
+    private static String[] member(Map<String, Executable> api, Object member, String name)
+        throws ReflectiveOperationException {
+        Object status = call(api, "getStatus", member);
+        String[] tokens = {"member", name, status == null ? null : ((Enum<?>) status).name(),
+            (String) call(api, "getVersion", member), (String) call(api, "getZoneName", member),
+            (String) call(api, "getNodeID", member),
+            status == null ? null : String.valueOf(call(api, "getUptime", member))};
+        for (int i = 1; i < tokens.length; i++) {
+            tokens[i] = tokens[i] == null ? ""
+                : cut(tokens[i], MAX_MEMBER_CHARS, MAX_MEMBER_TOKEN_BYTES);
+        }
+        return tokens;
+    }
+
+    /**
+     * Asks for the node {@code name} ({@code getNode(NodeName)}) and writes its node information
+     * as {@code detail} frames: at most 500, key and value cut (token {@code cut}), and only as
+     * long as the frames stay within the 256 KiB budget; then {@code details ok} (D-2). The
+     * entries are read before the first {@code detail} frame, so a failure gives
+     * {@code details error} alone.
+     */
+    private static void writeDetails(Map<String, Executable> api, Object cluster, String name,
+        String nonce, PrintStream out, List<String> secrets) throws ReflectiveOperationException {
+        List<String[]> entries = new ArrayList<>();
+        Object map = null;
+        try {
+            Object node = call(api, "getNamedNode", cluster, call(api, "nodeName", null, name));
+            Object information = node == null ? null : call(api, "getNodeInformation", node);
+            map = information == null ? null : call(api, "getNodeInformationMap", information);
+            if (map != null) {
+                flatten(api, map, "", entries);
+            }
+        } catch (InvocationTargetException | LinkageError e) {
+            Throwable failure = vendorFailure(e);
+            frame(out, nonce, "details", "error", chain(failure), messages(failure, secrets));
+            return;
+        }
+        if (map == null) {
+            // nothing was thrown, so the frame carries no exception chain
+            frame(out, nonce, "details", "error", "",
+                "the cluster client returned no node information");
+            return;
+        }
+        int written = 0;
+        int budget = DETAILS_BUDGET_BYTES;
+        boolean truncated = false;
+        for (String[] entry : entries) {
+            String key = cut(entry[0], MAX_DETAIL_KEY_CHARS, Integer.MAX_VALUE);
+            String value = cut(entry[1], MAX_DETAIL_VALUE_CHARS, Integer.MAX_VALUE);
+            // percent-encoded, so its length is its size in bytes
+            String line = key.length() < entry[0].length() || value.length() < entry[1].length()
+                ? line(nonce, "detail", key, value, "cut") : line(nonce, "detail", key, value);
+            if (written == MAX_DETAILS || line.length() > budget) {
+                truncated = true;
+                break;
+            }
+            out.print(line);
+            out.flush();
+            budget -= line.length();
+            written++;
+        }
+        frame(out, nonce, "details", "ok", Integer.toString(written), Boolean.toString(truncated));
+    }
+
+    /**
+     * Adds the entries of the map property {@code map} to {@code entries} as key and value (empty
+     * for none), in the map's order; the entries of a nested map property as
+     * {@code <outer>.<inner>}.
+     */
+    private static void flatten(Map<String, Executable> api, Object map, String prefix,
+        List<String[]> entries) throws ReflectiveOperationException {
+        for (Object name : (Iterable<?>) call(api, "getPropertyNames", map)) {
+            String key = prefix + name;
+            Object property = call(api, "get", map, name);
+            if (property != null && isMapProperty(property)) {
+                flatten(api, property, key + ".", entries);
+            } else {
+                Object value = property == null ? null : call(api, "getStringValue", property);
+                entries.add(new String[] {key, value == null ? "" : (String) value});
+            }
+        }
+    }
+
+    private static boolean isMapProperty(Object property) {
+        for (Class<?> type = property.getClass(); type != null; type = type.getSuperclass()) {
+            if (MAP_PROPERTY.equals(type.getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Looks up the answering node and asks it for each requested configuration property, in the
+     * request's order, writing one {@code config} frame per name (024 D-10): {@code ok} with the
+     * type's simple name, the flags and the texts, {@code absent} for a {@code null} answer,
+     * {@code error} for a failed request, after which the other names are still read. Only names
+     * of {@link #NODE_CONFIG_NAMES} get here (checked with the request).
+     */
+    private static void readNodeConfig(Map<String, Executable> api, Object client,
+        Map<String, String> request, PrintStream out, List<String> secrets)
+        throws ReflectiveOperationException {
+        Object[] node = lookUpNode(api, client, request, out, secrets);
+        if (node == null) {
+            return;
+        }
+        String nonce = request.get("nonce");
+        for (String name : request.get("names").split(",")) {
+            String[] tokens;
+            try {
+                tokens = config(api, name,
+                    call(api, "getNodeConfigurationProperty", node[0], node[1], name));
+            } catch (InvocationTargetException | LinkageError e) {
+                Throwable failure = vendorFailure(e);
+                frame(out, nonce, "config", name, "error", chain(failure),
+                    messages(failure, secrets));
+                continue;
+            }
+            frame(out, nonce, tokens);
+        }
+    }
+
+    /**
+     * Looks up the answering node, lists the I/O logging entries of the run
+     * ({@code getObject("<processId>@@@<workflow>", user, "inputOutputMessageDetails")}, entries
+     * separated by {@code ###}, empty pieces being no entry) into {@code listOut}, one per line in
+     * the answer's order, and writes {@code io list} (024 D-2, D-8); a {@code null} answer is an
+     * {@code io list error} without chain and nothing more. With a message reference, the
+     * first listed entry whose {@linkplain #reference reference} it is gets {@code io match} and
+     * is downloaded into {@code messageOut}, named {@code <workflow>###<entry>} from the request's
+     * workflow and that listed entry only, never from the reference (FR-021, D-9); no such entry
+     * gives {@code io match none} and no download.
+     */
+    private static void readIoLog(Map<String, Executable> api, Object client,
+        Map<String, String> request, PrintStream out, List<String> secrets)
+        throws ReflectiveOperationException, InterruptedException {
+        if (lookUpNode(api, client, request, out, secrets) == null) {
+            return;
+        }
+        String nonce = request.get("nonce");
+        String user = request.get("user");
+        String workflow = request.get("workflow");
+        List<String> entries = new ArrayList<>();
+        try {
+            String answer = (String) call(api, "getObject", client,
+                request.get("processId") + "@@@" + workflow, user, IO_LISTING);
+            if (answer == null) {
+                // a listing request without a listing is a failed one; nothing was thrown, so
+                // the frame carries no exception chain (as the node lookup)
+                frame(out, nonce, "io", "list", "error", "", "the client returned no I/O listing");
+                return;
+            }
+            StringBuilder listing = new StringBuilder();
+            for (String entry : answer.split(IO_SEPARATOR)) {
+                if (!entry.isEmpty()) {
+                    entries.add(entry);
+                    listing.append(entry).append('\n');
+                }
+            }
+            Files.writeString(Path.of(request.get("listOut")), listing, StandardCharsets.UTF_8);
+        } catch (InvocationTargetException | LinkageError | IOException e) {
+            Throwable failure = vendorFailure(e);
+            frame(out, nonce, "io", "list", "error", chain(failure), messages(failure, secrets));
+            return;
+        }
+        frame(out, nonce, "io", "list", "ok", Integer.toString(entries.size()));
+        String ref = request.get("ref");
+        if (ref.isEmpty()) {
+            return;
+        }
+        String match = null;
+        for (String entry : entries) {
+            if (reference(entry).equals(ref)) {
+                match = entry;
+                break;
+            }
+        }
+        if (match == null) {
+            frame(out, nonce, "io", "match", "none");
+            return;
+        }
+        frame(out, nonce, "io", "match", match);
+        File file = new File(request.get("messageOut"));
+        try {
+            Thread thread = (Thread) call(api, "MultipartDownloadThread", null, client, user,
+                workflow + IO_SEPARATOR + match, IO_DOWNLOAD, null,
+                call(api, "getUsedAdditionalUserGroup", null));
+            call(api, "setOutputFile", thread, file);
+            transfer(api, thread, file, nonce, "message", out, secrets);
+        } catch (InvocationTargetException | LinkageError e) {
+            partError(out, nonce, "message", vendorFailure(e), secrets);
+        }
+    }
+
+    /**
+     * The message reference of a listed {@code entry} (contracts/helper-protocol-delta.md
+     * "Message reference", as {@code IoMessageRef.of}): Base64url without padding of the first
+     * 16 bytes of SHA-256 over its UTF-8 bytes.
+     */
+    private static String reference(String entry) {
+        MessageDigest sha256;
+        try {
+            sha256 = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            // every Java platform has SHA-256
+            throw new IllegalStateException(e);
+        }
+        byte[] digest = sha256.digest(entry.getBytes(StandardCharsets.UTF_8));
+        return Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(Arrays.copyOf(digest, REF_BYTES));
+    }
+
+    /**
+     * The tokens of the {@code config} frame of the property {@code name}; every text cut by
+     * {@link #cut} at 4,000 characters and 12,000 encoded bytes, empty for none.
+     */
+    private static String[] config(Map<String, Executable> api, String name, Object property)
+        throws ReflectiveOperationException {
+        if (property == null) {
+            return new String[] {"config", name, "absent"};
+        }
+        Class<?> type = (Class<?>) call(api, "getType", property);
+        String[] tokens = {"config", name, "ok", type == null ? "" : type.getSimpleName(),
+            String.valueOf(call(api, "isEditable", property)),
+            String.valueOf(call(api, "isDeprecated", property)),
+            (String) call(api, "getDisplayName", property),
+            (String) call(api, "getCategory", property),
+            (String) call(api, "getShortDescription", property),
+            (String) call(api, "getStringValue", property)};
+        for (int i = 6; i < tokens.length; i++) {
+            tokens[i] = tokens[i] == null ? ""
+                : cut(tokens[i], MAX_CONFIG_TEXT_CHARS, MAX_CONFIG_TEXT_BYTES);
+        }
+        return tokens;
+    }
+
+    /**
+     * {@code text} cut, whole characters only, at {@code maxChars} characters and at
+     * {@code maxEncodedBytes} bytes of its percent-encoded form.
+     */
+    private static String cut(String text, int maxChars, int maxEncodedBytes) {
+        int end = 0;
+        int bytes = 0;
+        while (end < text.length()) {
+            int next = text.offsetByCodePoints(end, 1);
+            bytes += encode(text.substring(end, next)).length();
+            if (next > maxChars || bytes > maxEncodedBytes) {
+                break;
+            }
+            end = next;
+        }
+        return text.substring(0, end);
     }
 
     /**
@@ -452,8 +937,8 @@ public final class ClientHelper {
             }
             int equals = line.indexOf('=');
             String key = equals < 0 ? "" : line.substring(0, equals);
-            if ((!SHARED_KEYS.contains(key) && !QUEUE_ENTRY_KEYS.contains(key)
-                && !SERVER_LOG_KEYS.contains(key)) || request.containsKey(key)) {
+            if ((!SHARED_KEYS.contains(key) && !isOperationKey(key))
+                || request.containsKey(key)) {
                 throw new IllegalArgumentException("unknown or repeated key");
             }
             request.put(key, decode(line.substring(equals + 1)));
@@ -464,13 +949,22 @@ public final class ClientHelper {
         return request;
     }
 
+    private static boolean isOperationKey(String key) {
+        for (List<String> keys : OPERATION_KEYS.values()) {
+            if (keys.contains(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Checks the keys of the operation, each exactly once, and their values. */
     private static void validate(Map<String, String> request) {
-        boolean queueEntry = QUEUE_ENTRY.equals(request.get(OP));
-        if (!queueEntry && !SERVER_LOG.equals(request.get(OP))) {
+        String op = request.get(OP);
+        List<String> operationKeys = OPERATION_KEYS.get(op);
+        if (operationKeys == null) {
             throw new IllegalArgumentException("unknown operation");
         }
-        List<String> operationKeys = queueEntry ? QUEUE_ENTRY_KEYS : SERVER_LOG_KEYS;
         if (request.size() != SHARED_KEYS.size() + operationKeys.size()
             || !request.keySet().containsAll(SHARED_KEYS)
             || !request.keySet().containsAll(operationKeys)) {
@@ -486,16 +980,52 @@ public final class ClientHelper {
             || !List.of("true", "false").contains(request.get("hostnameVerification"))) {
             throw new IllegalArgumentException("invalid value");
         }
-        if (queueEntry) {
-            String parts = request.get("parts");
-            if (!List.of("data,variables", "variables").contains(parts)
-                || parts.startsWith("data") && request.get("dataOut").isEmpty()) {
-                throw new IllegalArgumentException("invalid value");
-            }
-        } else if (!"webservice".equals(request.get("log"))) {
+        boolean valid = switch (op) {
+            case QUEUE_ENTRY -> List.of("data,variables", "variables").contains(
+                request.get("parts"))
+                && !(request.get("parts").startsWith("data") && request.get("dataOut").isEmpty());
             // the only kind; the helper maps it to the constant file name (D-2, D-4)
+            case SERVER_LOG -> "webservice".equals(request.get("log"));
+            case CLUSTER_NODES -> request.get("details").isEmpty()
+                || request.get("details").matches("[A-Za-z0-9_.:-]{1,128}");
+            case NODE_CONFIG -> validNames(request.get("names"));
+            case IO_LOG -> validIoLog(request);
+            default -> true;
+        };
+        if (!valid) {
             throw new IllegalArgumentException("invalid value");
         }
+    }
+
+    /** Comma-separated, distinct names of {@link #NODE_CONFIG_NAMES} (at most all of them). */
+    private static boolean validNames(String names) {
+        Set<String> seen = new HashSet<>();
+        for (String name : names.split(",", -1)) {
+            if (!NODE_CONFIG_NAMES.contains(name) || !seen.add(name)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The {@code ioLog} values (024 D-2, D-8): a process id, a workflow name that cannot change
+     * the object or download name it is put into, a message reference with its target file or
+     * neither.
+     */
+    private static boolean validIoLog(Map<String, String> request) {
+        String workflow = request.get("workflow");
+        for (int i = 0; i < workflow.length(); i++) {
+            if (Character.isISOControl(workflow.charAt(i))) {
+                return false;
+            }
+        }
+        String ref = request.get("ref");
+        return request.get("processId").matches("[0-9A-Za-z_-]{1,64}")
+            && workflow.length() <= MAX_WORKFLOW_CHARS
+            && !workflow.contains("@@@") && !workflow.contains("###")
+            && (ref.isEmpty() || ref.matches("[A-Za-z0-9_-]{22}"))
+            && ref.isEmpty() == request.get("messageOut").isEmpty();
     }
 
     /**
@@ -504,12 +1034,17 @@ public final class ClientHelper {
      * that is just {@code -} carries nothing either).
      */
     static void frame(PrintStream out, String nonce, String... tokens) {
+        out.print(line(nonce, tokens));
+        out.flush();
+    }
+
+    /** The line of the frame {@code tokens}, with its line feed, as {@link #frame} writes it. */
+    private static String line(String nonce, String... tokens) {
         StringBuilder line = new StringBuilder(FRAME_PREFIX).append(nonce);
         for (String token : tokens) {
             line.append(' ').append(token.isEmpty() ? EMPTY_TOKEN : encode(token));
         }
-        out.print(line.append('\n'));
-        out.flush();
+        return line.append('\n').toString();
     }
 
     private static String encode(String token) {

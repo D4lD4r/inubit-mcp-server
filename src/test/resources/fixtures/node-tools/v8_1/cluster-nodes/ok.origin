@@ -1,0 +1,2 @@
+recorded 2026-11-13 8.1.17 neutralized
+The T018 recording of ClientHelper op=clusterNodes (no details) on a non-production 8.1.17 node: 17 frames on stdout, exit 0; the cluster keeps 12 nodes, 1 ACTIVE (the answering node) and 11 OFFLINE (version "-", uptime 0), zone and node ID "-" for every member. Neutralized as in research D-26: the node names are replaced by node1 ... node12 in the recorded order (node1 = the answering node), the uptime of the ACTIVE node by a fictitious 86400000 ms; the nonce is the fixed fixture nonce; the version 8.1.17 and the statuses are kept.

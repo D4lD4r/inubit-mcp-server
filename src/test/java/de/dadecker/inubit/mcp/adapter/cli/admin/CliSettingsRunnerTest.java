@@ -448,6 +448,7 @@ class CliSettingsRunnerTest {
             server.cliExportTimeout(), server.hangingThreshold(), server.confirmationTtl(),
             server.credentialPrefix(), server.development(), server.secretPlan(),
             server.archivesProductionOptIn(), server.queueEntryRead(), server.serverLogRead(),
-            server.cliSources());
+            server.nodeStatusRead(), server.ioLogRead(), server.nodeConfigRead(),
+            server.logLevelWrite(), server.cliSources());
     }
 }

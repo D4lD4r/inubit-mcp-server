@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.config;
 
+import de.dadecker.inubit.mcp.application.nodetools.LeaseScheduler;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
@@ -14,6 +15,8 @@ import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
 import de.dadecker.inubit.mcp.domain.model.StageChain;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.node.Lease;
+import de.dadecker.inubit.mcp.domain.port.LeaseView;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
@@ -22,7 +25,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Text printed by {@code --check-config}: the profile, its terminology, credential store entry
@@ -51,7 +57,11 @@ import java.util.function.Predicate;
  * has {@code unsupported.queueEntryRead: true}, every group line ends with
  * {@code , queueEntryRead: off} or {@code , queueEntryRead: enabled (unsupported)}; feature 021
  * (FR-016) likewise appends {@code , serverLogRead: …} once some group has
- * {@code unsupported.serverLogRead: true}.
+ * {@code unsupported.serverLogRead: true}; feature 024 (FR-003, research D-5) then appends
+ * {@code nodeStatusRead}, {@code ioLogRead}, {@code nodeConfigRead} and {@code logLevelWrite} the
+ * same way, each only once some group sets it; and (FR-045, research D-23) a
+ * {@code Temporary log levels:} section with one line per open lease of the lease store, which is
+ * only read.
  * Groups and nodes are named with the profile's display names (FR-007). Values and URLs are never
  * printed.
  */
@@ -99,7 +109,7 @@ public final class ConfigSummary {
         ParameterCheck.Result parameters, EntryCheck.Result entries,
         List<CheckedClient> checked) {
         return render(loaded, report, clients, options, parameters, entries, checked,
-            Optional.empty());
+            Optional.empty(), List.of(), List.of());
     }
 
     /**
@@ -111,13 +121,38 @@ public final class ConfigSummary {
         ParameterCheck.Result parameters, EntryCheck.Result entries,
         List<CheckedClient> checked, KnowledgeStatus knowledge) {
         return render(loaded, report, clients, options, parameters, entries, checked,
-            Optional.of(knowledge));
+            Optional.of(knowledge), List.of(), List.of());
+    }
+
+    /**
+     * @param leases    the lease store of the profile (feature 024, FR-045, research D-23), read
+     *                  once: a section {@code Temporary log levels:} after the node lines with one
+     *                  line per open lease, or a warning if it cannot be read
+     * @param leaseFile the store's file, named in that warning
+     */
+    public String render(LoadedConfig loaded, ValidationReport report,
+        Map<NodeId, ClientVersion> clients, Map<NodeId, CliClientOptions> options,
+        ParameterCheck.Result parameters, EntryCheck.Result entries,
+        List<CheckedClient> checked, KnowledgeStatus knowledge, LeaseView leases,
+        Path leaseFile) {
+        return switch (leases.leases()) {
+            case LeaseView.Snapshot.Leases stored -> render(loaded, report, clients, options,
+                parameters, entries, checked, Optional.of(knowledge),
+                leaseLines(stored.leases(), loaded.config()), List.of());
+            case LeaseView.Snapshot.Unreadable unreadable -> render(loaded, report, clients,
+                options, parameters, entries, checked, Optional.of(knowledge), List.of(),
+                List.of("The temporary log level leases in " + leaseFile + " cannot be read ("
+                    + unreadable.reason() + "); setting a temporary log level and forgetting a"
+                    + " lease are refused until the file is fixed or moved;"
+                    + " reset_temporary_log_level with node still resets the node"));
+        };
     }
 
     private String render(LoadedConfig loaded, ValidationReport report,
         Map<NodeId, ClientVersion> clients, Map<NodeId, CliClientOptions> options,
         ParameterCheck.Result parameters, EntryCheck.Result entries,
-        List<CheckedClient> checked, Optional<KnowledgeStatus> knowledge) {
+        List<CheckedClient> checked, Optional<KnowledgeStatus> knowledge,
+        List<String> leaseLines, List<String> leaseWarnings) {
         ProfileConfig config = loaded.config();
         Terminology terms = config.terminology().effectiveOrDefault();
         StringBuilder out = new StringBuilder();
@@ -164,6 +199,15 @@ public final class ConfigSummary {
         // feature 021 (FR-016, D-17): the same for serverLogRead, after the queueEntryRead state
         boolean serverLogRead = config.groups().stream().anyMatch(g -> g.unsupported()
             .serverLogRead().orElse(Defaults.BUILTIN_SERVER_LOG_READ));
+        // feature 024 (FR-003, D-5): the node-tool opt-ins likewise, in this order after them
+        boolean nodeStatusRead = config.groups().stream().anyMatch(g -> g.unsupported()
+            .nodeStatusRead().orElse(Defaults.BUILTIN_NODE_STATUS_READ));
+        boolean ioLogRead = config.groups().stream().anyMatch(g -> g.unsupported()
+            .ioLogRead().orElse(Defaults.BUILTIN_IO_LOG_READ));
+        boolean nodeConfigRead = config.groups().stream().anyMatch(g -> g.unsupported()
+            .nodeConfigRead().orElse(Defaults.BUILTIN_NODE_CONFIG_READ));
+        boolean logLevelWrite = config.groups().stream().anyMatch(g -> g.unsupported()
+            .logLevelWrite().orElse(Defaults.BUILTIN_LOG_LEVEL_WRITE));
         GroupId group = null;
         for (EffectiveNodeConfig server : config.resolvableNodes()) {
             if (!server.id().group().equals(group)) {
@@ -172,7 +216,12 @@ public final class ConfigSummary {
                     .append(server.production() ? " (production)" : "").append(": archives: ")
                     .append(archives(server))
                     .append(queueEntryRead ? queueEntryRead(server) : "")
-                    .append(serverLogRead ? serverLogRead(server) : "").append('\n');
+                    .append(serverLogRead ? serverLogRead(server) : "")
+                    .append(nodeStatusRead ? optIn("nodeStatusRead", server.nodeStatusRead()) : "")
+                    .append(ioLogRead ? optIn("ioLogRead", server.ioLogRead()) : "")
+                    .append(nodeConfigRead ? optIn("nodeConfigRead", server.nodeConfigRead()) : "")
+                    .append(logLevelWrite ? optIn("logLevelWrite", server.logLevelWrite()) : "")
+                    .append('\n');
             }
             out.append("  ").append(terms.render("{Node} ")).append(server.id()).append(": ")
                 .append(writeFlag(server))
@@ -199,12 +248,33 @@ public final class ConfigSummary {
             out.append('\n');
         }
         checked.forEach(client -> out.append(client.line()).append('\n'));
-        appendList(out, "Warnings:", report.warnings());
+        if (!leaseLines.isEmpty()) {
+            out.append("Temporary log levels:\n");
+            leaseLines.forEach(line -> out.append("  ").append(line).append('\n'));
+        }
+        appendList(out, "Warnings:", Stream.concat(report.warnings().stream(),
+            leaseWarnings.stream()).toList());
         appendList(out, "Errors:", report.errors());
         out.append(report.hasErrors()
             ? "Result: FAILED (" + report.errors().size() + " error(s))"
             : "Result: OK").append('\n');
         return out.toString();
+    }
+
+    /**
+     * One line per open lease (FR-045, contracts/configuration-delta.md); a lease of a server not
+     * in {@code config} names the day it is forgotten ({@link LeaseScheduler#forgetDate}).
+     */
+    private static List<String> leaseLines(List<Lease> leases, ProfileConfig config) {
+        Set<NodeId> configured = config.resolvableNodes().stream().map(EffectiveNodeConfig::id)
+            .collect(Collectors.toSet());
+        return leases.stream().filter(lease -> lease.state().open())
+            .map(lease -> lease.server() + " (INUBIT node " + lease.inubitNode() + "): "
+                + lease.loggers().size() + " logger(s), until " + lease.expiresAt() + ", "
+                + lease.state() + (configured.contains(lease.server()) ? ""
+                    : " (server no longer configured; forgotten automatically on "
+                        + LeaseScheduler.forgetDate(lease) + ")"))
+            .toList();
     }
 
     /**
@@ -352,7 +422,7 @@ public final class ConfigSummary {
      * capability runs only if the matrix declares it {@code SUPPORTED}. Reading Queue Manager
      * entries is listed only for a group with {@code unsupported.queueEntryRead} (feature 020),
      * downloading the web service log only for one with {@code unsupported.serverLogRead}
-     * (feature 021).
+     * (feature 021), each node tool only for one with its own opt-in (feature 024, research D-5).
      */
     private String cliOnly(EffectiveNodeConfig server) {
         Optional<InubitVersion> pin =
@@ -363,8 +433,7 @@ public final class ConfigSummary {
         List<String> available = new ArrayList<>();
         List<String> refused = new ArrayList<>();
         for (Capability capability : Capability.values()) {
-            if (capability == Capability.QUEUE_ENTRY_READ && !server.queueEntryRead()
-                || capability == Capability.WEBSERVICE_LOG_READ && !server.serverLogRead()) {
+            if (!optedIn(server, capability)) {
                 continue;
             }
             (matrix.state(pin, capability) == SupportState.SUPPORTED ? available : refused)
@@ -373,6 +442,21 @@ public final class ConfigSummary {
         InubitVersion version = pin.orElseThrow();
         return " (INUBIT " + version.major() + "." + version.minor() + ", StartCLI only;"
             + " available: " + names(available) + "; refused: " + names(refused) + ")";
+    }
+
+    /** Whether the group of {@code server} has the opt-in a capability needs, if any. */
+    private static boolean optedIn(EffectiveNodeConfig server, Capability capability) {
+        return switch (capability) {
+            case QUEUE_ENTRY_READ -> server.queueEntryRead();
+            case WEBSERVICE_LOG_READ -> server.serverLogRead();
+            case CLUSTER_NODES_READ -> server.nodeStatusRead();
+            case IO_LOG_READ -> server.ioLogRead();
+            case NODE_CONFIG_READ -> server.nodeConfigRead();
+            case LOG_LEVEL_WRITE -> server.logLevelWrite();
+            case MONITORING, PROCESS_DIAGNOSIS, LOG_DIAGNOSIS, INVENTORY, PARTNER_MANAGEMENT,
+                WORKSPACE_EXPORT, DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL,
+                TRACE_LOG_READ, SERVER_SETTINGS, USER_DIRECTORY, MODEL_DETAILS -> true;
+        };
     }
 
     private static String names(List<String> names) {
@@ -432,6 +516,11 @@ public final class ConfigSummary {
     private static String serverLogRead(EffectiveNodeConfig server) {
         return server.serverLogRead() ? ", serverLogRead: enabled (unsupported)"
             : ", serverLogRead: off";
+    }
+
+    /** Feature 024 (FR-003): the state of a group's node-tool opt-in {@code key}. */
+    private static String optIn(String key, boolean enabled) {
+        return ", " + key + (enabled ? ": enabled (unsupported)" : ": off");
     }
 
     private static String writeFlag(EffectiveNodeConfig server) {

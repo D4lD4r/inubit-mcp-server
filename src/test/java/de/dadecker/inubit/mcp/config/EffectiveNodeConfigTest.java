@@ -16,6 +16,8 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Feature 008 (T009, research D-1, D-2): the effective {@code development.repository}. It is
@@ -36,6 +38,10 @@ import org.junit.jupiter.api.io.TempDir;
  * <p>Feature 021 (T008, research D-17): {@code serverLogRead()} is the group's
  * {@code unsupported.serverLogRead}, built-in {@code false}, kept by every copy and independent
  * of {@code queueEntryRead()}.
+ *
+ * <p>Feature 024 (T003, research D-5): {@code nodeStatusRead()}, {@code ioLogRead()},
+ * {@code nodeConfigRead()} and {@code logLevelWrite()} are the group's {@code unsupported} values,
+ * built-in {@code false}, reach every node of the group and are kept by every copy.
  */
 class EffectiveNodeConfigTest {
 
@@ -229,11 +235,13 @@ class EffectiveNodeConfigTest {
     }
 
     private static UnsupportedConfig queueEntryRead(boolean value) {
-        return new UnsupportedConfig(Optional.of(value), Optional.empty());
+        return new UnsupportedConfig(Optional.of(value), Optional.empty(), Optional.empty(),
+            Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     private static UnsupportedConfig serverLogRead(boolean value) {
-        return new UnsupportedConfig(Optional.empty(), Optional.of(value));
+        return new UnsupportedConfig(Optional.empty(), Optional.of(value), Optional.empty(),
+            Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     @Test
@@ -285,7 +293,8 @@ class EffectiveNodeConfigTest {
     @Test
     void theConstructorWithoutCliSourcesIsNotOptedIn() {
         EffectiveNodeConfig o = withUnsupported(
-            new UnsupportedConfig(Optional.of(true), Optional.of(true)));
+            new UnsupportedConfig(Optional.of(true), Optional.of(true), Optional.of(true),
+                Optional.of(true), Optional.of(true), Optional.of(true)));
 
         EffectiveNodeConfig built = new EffectiveNodeConfig(o.id(), o.production(), o.baseUrl(),
             o.allowInsecureHttp(), o.versionLine(), o.write(), o.tls(), o.cli(), o.inventory(),
@@ -295,6 +304,49 @@ class EffectiveNodeConfigTest {
 
         assertThat(built.queueEntryRead()).isFalse();
         assertThat(built.serverLogRead()).isFalse();
+        for (String key : NodeToolOptIns.KEYS) {
+            assertThat(NodeToolOptIns.of(o, key)).as(key).isTrue();
+            assertThat(NodeToolOptIns.of(built, key)).as(key).isFalse();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"nodeStatusRead", "ioLogRead", "nodeConfigRead", "logLevelWrite"})
+    void aNodeToolOptInIsTheGroupValueOnEveryNodeAndFalseByDefault(String key) {
+        NodeConfig first = node(null);
+        NodeConfig second = new NodeConfig("node2",
+            Optional.of(URI.create("https://inubit2.example.test:8443")), false, null, null, null,
+            null, null, null, null, null, null, null, null, null, null, null);
+        GroupConfig group = new GroupConfig("prod", true, List.of(first, second), null, null,
+            null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+            NodeToolOptIns.only(key, true));
+
+        assertThat(NodeToolOptIns.of(resolve(Defaults.EMPTY, group, first), key)).isTrue();
+        assertThat(NodeToolOptIns.of(resolve(Defaults.EMPTY, group, second), key)).isTrue();
+        assertThat(NodeToolOptIns.of(withUnsupported(null), key)).isFalse();
+        assertThat(NodeToolOptIns.of(withUnsupported(UnsupportedConfig.EMPTY), key)).isFalse();
+        assertThat(NodeToolOptIns.of(withUnsupported(NodeToolOptIns.only(key, false)), key))
+            .isFalse();
+        EffectiveNodeConfig optedIn = withUnsupported(NodeToolOptIns.only(key, true));
+        assertThat(optedIn.queueEntryRead()).isFalse();
+        assertThat(optedIn.serverLogRead()).isFalse();
+        NodeToolOptIns.KEYS.stream().filter(k -> !k.equals(key))
+            .forEach(k -> assertThat(NodeToolOptIns.of(optedIn, k)).as(k).isFalse());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"nodeStatusRead", "ioLogRead", "nodeConfigRead", "logLevelWrite"})
+    void aNodeToolOptInSurvivesEveryCopy(String key) {
+        EffectiveNodeConfig optedIn = withUnsupported(NodeToolOptIns.only(key, true));
+        EffectiveNodeConfig.Cli other = new EffectiveNodeConfig.Cli(
+            URI.create("https://other.example.test:8443/cli"), Optional.empty(), Optional.empty());
+
+        assertThat(NodeToolOptIns.of(optedIn.withTimeout(Duration.ofSeconds(1)), key)).isTrue();
+        assertThat(NodeToolOptIns.of(optedIn.withCli(other), key)).isTrue();
+        assertThat(NodeToolOptIns.of(
+            optedIn.entryProbe(Path.of("client"), Optional.empty()), key)).isTrue();
+        assertThat(NodeToolOptIns.of(withUnsupported(null).withTimeout(Duration.ofSeconds(1))
+            .withCli(other).entryProbe(Path.of("client"), Optional.empty()), key)).isFalse();
     }
 
     private static final String PIN_A =

@@ -4,7 +4,13 @@ import static de.dadecker.inubit.mcp.testing.FakeVersionDetection.gateWithoutCli
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
+import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
@@ -28,11 +34,20 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.node.Lease;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseAttempt;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseOwner;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseReason;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseState;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseSummary;
+import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
+import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
+import de.dadecker.inubit.mcp.domain.port.LeaseView;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
@@ -47,12 +62,16 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -66,6 +85,7 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.slf4j.LoggerFactory;
 
 /**
  * T054: the health service on a fake {@link MonitoringPort} (research R-10, R-15, FR-005 –
@@ -120,6 +140,8 @@ class HealthServiceTest {
         new ArrayList<>());
     /** Feature 012: the StartCLI health port of each CLI-only node (none if absent). */
     private final Map<NodeId, CliHealthPort> cliPorts = new ConcurrentHashMap<>();
+    /** Feature 024: the lease store as {@code get_health} reads it (empty by default). */
+    private volatile LeaseView leaseView = () -> new LeaseView.Snapshot.Leases(List.of());
 
     private FakeMonitoring monitoring(NodeId server) {
         return monitorings.computeIfAbsent(server, s -> new FakeMonitoring());
@@ -214,13 +236,14 @@ class HealthServiceTest {
                 clients.getOrDefault(server, () -> CLIENT_8117).get());
         };
         VersionGate gate = gateWithoutClients(versions, gateways, matrix);
+        LeaseView leases = () -> leaseView.leases();
         return singleCliBudget == null
             ? new HealthService(gateways, new TargetResolver(SERVERS), new FanOut(),
                 server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC), gate, versions, probe,
-                TestClientSelection.of(withClient::contains))
+                TestClientSelection.of(withClient::contains), server -> Optional.empty(), leases)
             : new HealthService(gateways, new TargetResolver(SERVERS), new FanOut(),
                 server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC), gate, versions, probe,
-                TestClientSelection.of(withClient::contains), server -> Optional.empty(),
+                TestClientSelection.of(withClient::contains), server -> Optional.empty(), leases,
                 singleCliBudget, overviewBudget);
     }
 
@@ -1630,6 +1653,128 @@ class HealthServiceTest {
         assertThat(next.version()).contains("8.1.17");
         assertThat(next.load()).contains(LOAD);
         assertThat(next.error()).isEmpty();
+    }
+
+    // --- feature 024, T055: the temporary log level leases (FR-045, research D-23) -----------
+
+    private static final String LEASES_UNREADABLE =
+        "The temporary log level leases could not be read (";
+
+    private static Lease lease(NodeId server, String setAt, LeaseState state) {
+        Instant set = Instant.parse(setAt);
+        SortedMap<LoggerName, TemporaryLevel> loggers =
+            new TreeMap<>(Comparator.comparing(LoggerName::value));
+        loggers.put(new LoggerName("com.inubit.ibis.acme.Orders"), TemporaryLevel.DEBUG);
+        Optional<LeaseAttempt> attempt = state == LeaseState.ACTIVE ? Optional.empty()
+            : Optional.of(new LeaseAttempt(set.plusSeconds(630), AuditOutcome.FAILED,
+                Optional.of(ErrorCode.UNREACHABLE), Optional.of(LeaseReason.NODE_UNREACHABLE)));
+        return new Lease(UUID.randomUUID(), 2, server, "node1", loggers, set,
+            set.plus(Duration.ofMinutes(10)), new LeaseOwner(4711, Optional.of(set)), state,
+            UUID.randomUUID(), attempt,
+            state.open() ? Optional.empty() : Optional.of(set.plusSeconds(700)));
+    }
+
+    @Test
+    void openAndFailedLeasesAreShownPerNodeEndedOnesAndOtherServersNot() {
+        Lease active = lease(DEV, "2026-10-01T07:50:00Z", LeaseState.ACTIVE);
+        Lease failed = lease(DEV, "2026-10-01T07:20:00Z", LeaseState.RESET_FAILED);
+        Lease onFailedNode = lease(QA2, "2026-10-01T07:55:00Z", LeaseState.ACTIVE);
+        List<Lease> stored = List.of(active,
+            lease(DEV, "2026-10-01T06:00:00Z", LeaseState.RESET),
+            lease(QA1, "2026-10-01T06:00:00Z", LeaseState.FORGOTTEN), failed, onFailedNode,
+            lease(NodeId.parse("old/node1"), "2026-10-01T07:00:00Z", LeaseState.ACTIVE));
+        leaseView = () -> new LeaseView.Snapshot.Leases(stored);
+        gatewayFailures.put(QA2, error(ErrorCode.UNREACHABLE, QA2, "No connection"));
+
+        List<HealthReport> reports = service().check(Optional.empty(), false);
+
+        assertThat(reports).extracting(HealthReport::node).containsExactly(DEV, QA1, QA2);
+        assertThat(reports.get(0).temporaryLogLevels()).as("in store order")
+            .containsExactly(LeaseSummary.of(active), LeaseSummary.of(failed));
+        assertThat(reports.get(1).temporaryLogLevels()).as("a forgotten lease is ended")
+            .isEmpty();
+        assertThat(reports.get(2).reachable()).isFalse();
+        assertThat(reports.get(2).temporaryLogLevels()).as("also on a failed report")
+            .containsExactly(LeaseSummary.of(onFailedNode));
+        assertThat(reports).allSatisfy(report -> assertThat(report.warnings())
+            .noneMatch(warning -> warning.startsWith(LEASES_UNREADABLE)));
+    }
+
+    @Test
+    void withoutLeasesTheReportsHaveNoneAndNoWarning() {
+        List<HealthReport> reports = service().check(Optional.empty(), false);
+
+        assertThat(reports).allSatisfy(report -> {
+            assertThat(report.temporaryLogLevels()).isEmpty();
+            assertThat(report.warnings()).isEmpty();
+        });
+    }
+
+    @Test
+    void anUnreadableStoreIsAWarningInEveryReportNotAnError() {
+        leaseView = () -> new LeaseView.Snapshot.Unreadable("lease 2: invalid auditId");
+
+        List<HealthReport> reports = service().check(Optional.empty(), false);
+
+        assertThat(reports).hasSize(3).allSatisfy(report -> {
+            assertThat(report.temporaryLogLevels()).isEmpty();
+            assertThat(report.warnings()).contains(
+                "The temporary log level leases could not be read (lease 2: invalid auditId)");
+        });
+        assertThat(reports.get(0).reachable()).isTrue();
+        assertThat(reports.get(0).error()).isEmpty();
+    }
+
+    @Test
+    void aStoreReadThatFailsIsAWarningNotAnErrorAndIsLogged() {
+        leaseView = () -> {
+            throw new IllegalStateException("broken lease detail");
+        };
+        LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
+        Logger logger = context.getLogger(HealthService.class);
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logs.setContext(context);
+        logs.start();
+        logger.addAppender(logs);
+        HealthReport report;
+        try {
+            report = checkOne(DEV, false);
+        } finally {
+            logger.detachAppender(logs);
+            logs.stop();
+        }
+
+        assertThat(report.error()).isEmpty();
+        assertThat(report.warnings()).as("only the class name, not the message")
+            .containsExactly(LEASES_UNREADABLE + "IllegalStateException)");
+        assertThat(logs.list).singleElement().satisfies(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage())
+                .isEqualTo("Reading the temporary log level leases failed unexpectedly");
+            assertThat(event.getThrowableProxy().getClassName())
+                .isEqualTo(IllegalStateException.class.getName());
+        });
+    }
+
+    @Test
+    void aStoreReadIsAwaitedAtMostTwoSeconds() {
+        CountDownLatch release = new CountDownLatch(1);
+        leaseView = () -> {
+            awaitQuietly(release);
+            return new LeaseView.Snapshot.Leases(List.of());
+        };
+        try {
+            long start = System.nanoTime();
+            HealthReport report = checkOne(DEV, false);
+            Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+            assertThat(elapsed).isLessThan(Duration.ofSeconds(2).plus(SLACK));
+            assertThat(report.reachable()).isTrue();
+            assertThat(report.warnings()).containsExactly(LEASES_UNREADABLE
+                + "not read within 2 s)");
+        } finally {
+            release.countDown();
+        }
     }
 
     // --- fakes -----------------------------------------------------------------------------

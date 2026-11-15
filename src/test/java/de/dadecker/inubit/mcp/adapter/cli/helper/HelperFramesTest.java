@@ -2,10 +2,24 @@ package de.dadecker.inubit.mcp.adapter.cli.helper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.ApiMissing;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.ConfigAbsent;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.ConfigError;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.ConfigOk;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Detail;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.DetailsError;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.DetailsOk;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.DetailsUnknown;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.End;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.IoListError;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.IoListOk;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.IoMatch;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.LoginError;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.LoginOk;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Member;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.MembersError;
+import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.MembersOk;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.NodeError;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.NodeOk;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Part;
@@ -15,9 +29,11 @@ import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Problem;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperFrames.Start;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -29,8 +45,9 @@ import org.junit.jupiter.params.provider.MethodSource;
  * The stdout frames of the client helper (research D-4, data-model "Helper frames"): only
  * lines of the call's nonce count, tokens are percent-decoded, {@code -} is an empty token, and
  * an unknown or malformed frame, a frame after {@code end} or a missing {@code end} is reported.
- * Feature 021 adds {@code node ok|error} and the part {@code log}; the recorded 020 fixtures
- * parse as before.
+ * Feature 021 adds {@code node ok|error} and the part {@code log}; feature 024 (research D-2)
+ * adds the frames of {@code clusterNodes}, {@code nodeConfig} and {@code ioLog} and the part
+ * {@code message}; the recorded 020 fixtures parse as before.
  */
 class HelperFramesTest {
 
@@ -221,7 +238,223 @@ class HelperFramesTest {
             Arguments.of("escape not hex", P + "api missing a%G1"),
             Arguments.of("escape with non-ASCII digits", P + "api missing a%\u0663\u0663"),
             Arguments.of("escape decodes to invalid UTF-8", P + "api missing a%FF"),
-            Arguments.of("carriage return before the line end", P + "login ok\r"));
+            Arguments.of("carriage return before the line end", P + "login ok\r"),
+            Arguments.of("member with five tokens", P + "member a ACTIVE 8.1 z id"),
+            Arguments.of("member with seven tokens", P + "member a ACTIVE 8.1 z id 1 x"),
+            Arguments.of("member with negative uptime", P + "member a ACTIVE 8.1 z id -1"),
+            Arguments.of("member with uptime not a number", P + "member a ACTIVE 8.1 z id 1s"),
+            Arguments.of("member with uptime beyond long",
+                P + "member a ACTIVE 8.1 z id 99999999999999999999"),
+            Arguments.of("member with an unescaped name", P + "member a+b - - - - -"),
+            Arguments.of("members without outcome", P + "members"),
+            Arguments.of("members with unknown outcome", P + "members listed 2"),
+            Arguments.of("members ok without count", P + "members ok"),
+            Arguments.of("members ok with count -", P + "members ok -"),
+            Arguments.of("members ok with negative count", P + "members ok -1"),
+            Arguments.of("members ok with count beyond int", P + "members ok 9999999999"),
+            Arguments.of("members ok with two counts", P + "members ok 1 2"),
+            Arguments.of("members error without message", P + "members error a"),
+            Arguments.of("members error chain with an empty class",
+                P + "members error a%3E%3Eb msg"),
+            Arguments.of("detail without value", P + "detail key"),
+            Arguments.of("detail with a fourth token", P + "detail key value cut x"),
+            Arguments.of("detail with a third token other than cut", P + "detail key value cuts"),
+            Arguments.of("detail with an escaped cut marker", P + "detail key value %63ut"),
+            Arguments.of("details without outcome", P + "details"),
+            Arguments.of("details with unknown outcome", P + "details found 1 false"),
+            Arguments.of("details ok without truncated", P + "details ok 1"),
+            Arguments.of("details ok with truncated not a flag", P + "details ok 1 yes"),
+            Arguments.of("details ok with truncated -", P + "details ok 1 -"),
+            Arguments.of("details ok with flag in upper case", P + "details ok 1 TRUE"),
+            Arguments.of("details ok with count not a number", P + "details ok x false"),
+            Arguments.of("details ok with an extra token", P + "details ok 1 false x"),
+            Arguments.of("details error without message", P + "details error a"),
+            Arguments.of("details unknown with a token", P + "details unknown node-0002"),
+            Arguments.of("config without name", P + "config"),
+            Arguments.of("config without outcome", P + "config ClusterName"),
+            Arguments.of("config with unknown outcome", P + "config ClusterName missing"),
+            Arguments.of("config ok with six tokens",
+                P + "config ClusterName ok String true false Name Cluster -"),
+            Arguments.of("config ok with eight tokens",
+                P + "config ClusterName ok String true false Name Cluster - v x"),
+            Arguments.of("config ok with editable not a flag",
+                P + "config ClusterName ok String yes false Name Cluster - v"),
+            Arguments.of("config ok with deprecated -",
+                P + "config ClusterName ok String true - Name Cluster - v"),
+            Arguments.of("config absent with a token", P + "config ClusterName absent x"),
+            Arguments.of("config error without message", P + "config ClusterName error a"),
+            Arguments.of("config error with extra token", P + "config ClusterName error a b c"),
+            Arguments.of("io without subtype", P + "io"),
+            Arguments.of("io with unknown subtype", P + "io read ok 1"),
+            Arguments.of("io list without outcome", P + "io list"),
+            Arguments.of("io list ok without count", P + "io list ok"),
+            Arguments.of("io list ok with count -", P + "io list ok -"),
+            Arguments.of("io list error without message", P + "io list error a"),
+            Arguments.of("io match without entry", P + "io match"),
+            Arguments.of("io match with an empty entry", P + "io match -"),
+            Arguments.of("io match with two entries", P + "io match a b"),
+            Arguments.of("part message without bytes", P + "part message ok"),
+            Arguments.of("part message error without message", P + "part message error a"));
+    }
+
+    @Test
+    void parsesTheFramesOfAClusterNodesCallWithDetails() {
+        HelperFrames frames = HelperFrames.parse(NONCE, ""
+            + P + "start SOAP_81\n"
+            + P + "login ok\n"
+            + P + "node ok node-0001\n"
+            + P + "member node-0001 ACTIVE 8.1.17 zone-a%20%C3%BC id-0001 3600000\n"
+            + P + "member node-0002 - - - - -\n"
+            + P + "member node-0003 JOINING 8.1.17 zone-a id-0003 0\n"
+            + P + "members ok 4\n"
+            + P + "detail Server.Version 8.1.17\n"
+            + P + "detail JDK.Home %2Fopt%2Fjava cut\n"
+            + P + "detail Empty -\n"
+            + P + "details ok 3 true\n"
+            + P + "end\n");
+
+        assertThat(frames.frames()).containsExactly(new Start("SOAP_81"), new LoginOk(),
+            new NodeOk("node-0001"),
+            new Member("node-0001", "ACTIVE", "8.1.17", "zone-a ü", "id-0001",
+                Optional.of(3_600_000L)),
+            new Member("node-0002", "", "", "", "", Optional.empty()),
+            new Member("node-0003", "JOINING", "8.1.17", "zone-a", "id-0003", Optional.of(0L)),
+            new MembersOk(4),
+            new Detail("Server.Version", "8.1.17", false),
+            new Detail("JDK.Home", "/opt/java", true),
+            new Detail("Empty", "", false),
+            new DetailsOk(3, true), new End());
+        assertThat(frames.problem()).isEmpty();
+    }
+
+    @Test
+    void decodesTheErrorAndUnknownFramesOfClusterNodes() {
+        HelperFrames frames = HelperFrames.parse(NONCE, ""
+            + P + "start REST_90\n"
+            + P + "login ok\n"
+            + P + "node ok node-0001\n"
+            + P + "members error java.io.IOException%3Ejava.net.ConnectException "
+            + "cluster%20unavailable\n"
+            + P + "members ok 0\n"
+            + P + "details unknown\n"
+            + P + "details ok 0 false\n"
+            + P + "details error com.example.FakeException -\n"
+            + P + "end\n");
+
+        assertThat(frames.frames()).containsExactly(new Start("REST_90"), new LoginOk(),
+            new NodeOk("node-0001"),
+            new MembersError(List.of("java.io.IOException", "java.net.ConnectException"),
+                "cluster unavailable"),
+            new MembersOk(0), new DetailsUnknown(), new DetailsOk(0, false),
+            new DetailsError(List.of("com.example.FakeException"), ""), new End());
+        assertThat(frames.problem()).isEmpty();
+    }
+
+    @Test
+    void parsesTheFramesOfANodeConfigCall() {
+        HelperFrames frames = HelperFrames.parse(NONCE, ""
+            + P + "start SOAP_81\n"
+            + P + "login ok\n"
+            + P + "node ok node-0001\n"
+            + P + "config ClusterName ok String true false Cluster%20name Cluster "
+            + "Name%20of%20the%20cluster cluster-a\n"
+            + P + "config ZoneName ok String false true - - - -\n"
+            + P + "config noOfRetries absent\n"
+            + P + "config indexEnabled error java.lang.IllegalStateException not%20readable\n"
+            + P + "end\n");
+
+        assertThat(frames.frames()).containsExactly(new Start("SOAP_81"), new LoginOk(),
+            new NodeOk("node-0001"),
+            new ConfigOk("ClusterName", "String", true, false, "Cluster name", "Cluster",
+                "Name of the cluster", "cluster-a"),
+            new ConfigOk("ZoneName", "String", false, true, "", "", "", ""),
+            new ConfigAbsent("noOfRetries"),
+            new ConfigError("indexEnabled", List.of("java.lang.IllegalStateException"),
+                "not readable"),
+            new End());
+        assertThat(frames.problem()).isEmpty();
+    }
+
+    @Test
+    void parsesTheFramesOfAnIoLogCall() {
+        HelperFrames frames = HelperFrames.parse(NONCE, ""
+            + P + "start SOAP_81\n"
+            + P + "login ok\n"
+            + P + "node ok node-0001\n"
+            + P + "io list ok 2\n"
+            + P + "io match p-0001%40%40%40Mapper%28m-1%29%40%40%40Input.1\n"
+            + P + "part message ok 0\n"
+            + P + "io match none\n"
+            + P + "io list error java.io.IOException -\n"
+            + P + "part message error java.io.IOException no%20data\n"
+            + P + "end\n");
+
+        assertThat(frames.frames()).containsExactly(new Start("SOAP_81"), new LoginOk(),
+            new NodeOk("node-0001"), new IoListOk(2),
+            new IoMatch(Optional.of("p-0001@@@Mapper(m-1)@@@Input.1")),
+            new PartOk(Part.MESSAGE, 0), new IoMatch(Optional.empty()),
+            new IoListError(List.of("java.io.IOException"), ""),
+            new PartError(Part.MESSAGE, List.of("java.io.IOException"), "no data"), new End());
+        assertThat(frames.problem()).isEmpty();
+    }
+
+    @Test
+    void newFramesOfAnotherNonceAreIgnoredAndAfterEndAreReported() {
+        HelperFrames frames = HelperFrames.parse(NONCE, ""
+            + "#QE1:" + OTHER_NONCE + " member a - - - - -\n"
+            + "#QE1:" + OTHER_NONCE + " progress 1\n"
+            + P + "start SOAP_81\n"
+            + P + "end\n"
+            + P + "details ok 0 false\n");
+
+        assertThat(frames.frames()).containsExactly(new Start("SOAP_81"), new End());
+        assertThat(frames.problem()).contains(Problem.FRAME_AFTER_END);
+    }
+
+    @Test
+    void anUnknownFrameTypeAmongTheNewFramesIsReported() {
+        HelperFrames frames = HelperFrames.parse(NONCE,
+            P + "start SOAP_81\n" + P + "nodes ok 1\n" + P + "end\n");
+
+        assertThat(frames.problem()).contains(Problem.UNKNOWN_FRAME_TYPE);
+        assertThat(frames.frames()).containsExactly(new Start("SOAP_81"));
+    }
+
+    /**
+     * The 1 MiB stdout cap of 020 is unchanged, and the largest {@code clusterNodes} answer with
+     * ASCII tokens (200 {@code member} frames with tokens of 200 characters, {@code detail} frames
+     * up to the 256 KiB budget) stays below it and parses; the bound for non-ASCII tokens is T011's.
+     */
+    @Test
+    void theLargestClusterNodesAnswerStaysBelowTheUnchangedOneMibCap() {
+        assertThat(ProcessRun.MAX_OUTPUT_BYTES).isEqualTo(1 << 20);
+        String token = "n".repeat(200);
+        StringBuilder stdout = new StringBuilder()
+            .append(P).append("start SOAP_81\n")
+            .append(P).append("login ok\n")
+            .append(P).append("node ok node-0001\n");
+        for (int i = 0; i < 200; i++) {
+            stdout.append(P).append("member ").append(String.join(" ", token, token, token, token,
+                token)).append(" 999999999999999999\n");
+        }
+        stdout.append(P).append("members ok 100000\n");
+        String detail = P + "detail " + "k".repeat(200) + " " + "v".repeat(4_000) + " cut\n";
+        int details = 0;
+        for (int budget = 256 * 1024; budget >= detail.length(); budget -= detail.length()) {
+            stdout.append(detail);
+            details++;
+        }
+        stdout.append(P).append("details ok ").append(details).append(" true\n")
+            .append(P).append("end\n");
+
+        HelperFrames frames = HelperFrames.parse(NONCE, stdout.toString());
+
+        assertThat(stdout.toString().getBytes(StandardCharsets.UTF_8).length)
+            .isLessThan(ProcessRun.MAX_OUTPUT_BYTES);
+        assertThat(frames.problem()).isEmpty();
+        assertThat(frames.ended()).isTrue();
+        assertThat(frames.frames()).filteredOn(Member.class::isInstance).hasSize(200);
+        assertThat(frames.frames()).filteredOn(Detail.class::isInstance).hasSize(details);
     }
 
     @ParameterizedTest(name = "{0}")

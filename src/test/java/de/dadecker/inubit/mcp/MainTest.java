@@ -10,6 +10,7 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessContainment;
 import de.dadecker.inubit.mcp.adapter.os.NoJob;
 import de.dadecker.inubit.mcp.application.ReleaseSource;
 import de.dadecker.inubit.mcp.application.UpdateCheck;
+import de.dadecker.inubit.mcp.application.nodetools.LeaseStore;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.FailureKind;
@@ -17,6 +18,16 @@ import de.dadecker.inubit.mcp.config.ParameterType;
 import de.dadecker.inubit.mcp.config.StoreLocation;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.domain.model.SemVer;
+import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.node.Lease;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseAttempt;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseOwner;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseReason;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseState;
+import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
+import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.infra.BuildInfo;
 import de.dadecker.inubit.mcp.infra.FileUpdateCache;
 import de.dadecker.inubit.mcp.infra.LogLevels;
@@ -42,14 +53,22 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.SortedMap;
+import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -59,6 +78,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -2335,6 +2355,203 @@ class MainTest {
         assertThat(announcedTools(validConfig())).doesNotContain("download_server_log");
     }
 
+    // --- feature 024 T023, T025, T062: list_cluster_nodes only under its opt-in (FR-002, SC-005,
+    // D-6)
+
+    @Test
+    void withoutANodeToolOptInTheToolListEqualsTheReference() throws Exception {
+        // SC-005: the T001 reference of an 8.1 or AUTO node with a client home
+        credentials();
+        List<String> reference = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "get_server_settings", "read_users", "read_model_details",
+            "list_inventory", "get_inventory_item",
+            "find_partners", "export_artifacts", "export_archives", "check_artifacts");
+
+        assertThat(announcedTools(configWithClientHome("")))
+            .containsExactlyElementsOf(reference);
+        Path optedOut = configWithClientHome("    unsupported:\n      nodeStatusRead: false\n");
+        assertThat(announcedTools(optedOut)).containsExactlyElementsOf(reference);
+        assertThat(announcedTools(config(Files.readString(optedOut)
+            .replace("versionLine: V8_1", "versionLine: AUTO"))))
+            .containsExactlyElementsOf(reference);
+        // T030
+        Path ioLogOptedOut = configWithClientHome("    unsupported:\n      ioLogRead: false\n");
+        assertThat(announcedTools(ioLogOptedOut)).containsExactlyElementsOf(reference);
+        // T036, T038
+        Path nodeConfigOptedOut =
+            configWithClientHome("    unsupported:\n      nodeConfigRead: false\n");
+        assertThat(announcedTools(nodeConfigOptedOut)).containsExactlyElementsOf(reference);
+        assertThat(announcedTools(config(Files.readString(nodeConfigOptedOut)
+            .replace("versionLine: V8_1", "versionLine: AUTO"))))
+            .containsExactlyElementsOf(reference);
+        // T054: the log-level opt-in without write access
+        Path logLevelWithoutWrite =
+            configWithClientHome("    unsupported:\n      logLevelWrite: true\n");
+        assertThat(announcedTools(logLevelWithoutWrite)).containsExactlyElementsOf(reference);
+    }
+
+    @Test
+    void anOptedInEightOneOrAutoNodeWithAClientHomeAnnouncesListClusterNodes() throws Exception {
+        // T025: the production matrix supports the cluster's node list on 8.1 since its recording
+        credentials();
+        List<String> withClusterNodes = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "get_server_settings", "read_users", "read_model_details",
+            "list_cluster_nodes", "list_inventory",
+            "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+            "check_artifacts");
+
+        Path optedIn = configWithClientHome("    unsupported:\n      nodeStatusRead: true\n");
+        assertThat(announcedTools(optedIn)).containsExactlyElementsOf(withClusterNodes);
+        assertThat(announcedTools(config(Files.readString(optedIn)
+            .replace("versionLine: V8_1", "versionLine: AUTO"))))
+            .containsExactlyElementsOf(withClusterNodes);
+    }
+
+    @Test
+    void anOptedInNineZeroNodeWithANineZeroClientAnnouncesListClusterNodes() throws Exception {
+        // T062: the production matrix supports the cluster's node list on 9.0 since its recording
+        credentials();
+        List<String> reference = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "get_server_settings", "read_users", "read_model_details",
+            "list_inventory", "get_inventory_item",
+            "find_partners", "export_artifacts", "export_archives", "check_artifacts");
+        List<String> withClusterNodes = new ArrayList<>(reference);
+        withClusterNodes.add(reference.indexOf("list_inventory"), "list_cluster_nodes");
+
+        for (String optIn : List.of("true", "false")) {
+            Path file = config(Files.readString(validConfig())
+                .replace("versionLine: V8_1", "versionLine: V9_0")
+                .replace("groups:\n", "defaults:\n  cliClients:\n    \"9.0\":\n      home: "
+                    + home.resolve("client-9.0") + "\ngroups:\n")
+                .replace("  - name: dev\n", "  - name: dev\n    unsupported:\n"
+                    + "      nodeStatusRead: " + optIn + "\n"));
+            assertThat(announcedTools(file)).as(optIn).containsExactlyElementsOf(
+                optIn.equals("true") ? withClusterNodes : reference);
+        }
+    }
+
+    // --- feature 024 T030: read_io_log only under its opt-in (FR-002, SC-005, D-6)
+
+    @Test
+    void anOptedInNodeDoesNotAnnounceReadIoLogBeforeItsRecording() throws Exception {
+        // the production matrix keeps IO_LOG_READ unsupported on 8.1 and 9.0 until T032
+        credentials();
+        List<String> reference = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "get_server_settings", "read_users", "read_model_details",
+            "list_inventory", "get_inventory_item",
+            "find_partners", "export_artifacts", "export_archives", "check_artifacts");
+
+        Path optedIn = configWithClientHome("    unsupported:\n      ioLogRead: true\n");
+        assertThat(announcedTools(optedIn)).containsExactlyElementsOf(reference);
+        assertThat(announcedTools(config(Files.readString(optedIn)
+            .replace("versionLine: V8_1", "versionLine: AUTO"))))
+            .containsExactlyElementsOf(reference);
+    }
+
+    // --- feature 024 T036, T038, T064: get_node_config only under its opt-in (FR-002, SC-005,
+    // D-6)
+
+    @Test
+    void anOptedInEightOneOrAutoNodeWithAClientHomeAnnouncesGetNodeConfig() throws Exception {
+        // T038: the production matrix supports the node configuration on 8.1 since its recording
+        credentials();
+        List<String> withNodeConfig = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "get_server_settings", "read_users", "read_model_details",
+            "get_node_config", "list_inventory",
+            "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
+            "check_artifacts");
+
+        Path optedIn = configWithClientHome("    unsupported:\n      nodeConfigRead: true\n");
+        assertThat(announcedTools(optedIn)).containsExactlyElementsOf(withNodeConfig);
+        assertThat(announcedTools(config(Files.readString(optedIn)
+            .replace("versionLine: V8_1", "versionLine: AUTO"))))
+            .containsExactlyElementsOf(withNodeConfig);
+    }
+
+    @Test
+    void anOptedInNineZeroNodeWithANineZeroClientAnnouncesGetNodeConfig() throws Exception {
+        // T064: the production matrix supports the node configuration on 9.0 since its recording
+        credentials();
+        List<String> reference = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "get_server_settings", "read_users", "read_model_details",
+            "list_inventory", "get_inventory_item",
+            "find_partners", "export_artifacts", "export_archives", "check_artifacts");
+        List<String> withNodeConfig = new ArrayList<>(reference);
+        withNodeConfig.add(reference.indexOf("list_inventory"), "get_node_config");
+
+        for (String optIn : List.of("true", "false")) {
+            Path file = config(Files.readString(validConfig())
+                .replace("versionLine: V8_1", "versionLine: V9_0")
+                .replace("groups:\n", "defaults:\n  cliClients:\n    \"9.0\":\n      home: "
+                    + home.resolve("client-9.0") + "\ngroups:\n")
+                .replace("  - name: dev\n", "  - name: dev\n    unsupported:\n"
+                    + "      nodeConfigRead: " + optIn + "\n"));
+            assertThat(announcedTools(file)).as(optIn).containsExactlyElementsOf(
+                optIn.equals("true") ? withNodeConfig : reference);
+        }
+    }
+
+    // --- feature 024 T054, T058, T065: the log-level tools only with write access and their
+    // opt-in (FR-002, FR-040, SC-005, D-6)
+
+    @Test
+    void aWriteEnabledOptedInEightOneOrAutoNodeAnnouncesTheLogLevelTools() throws Exception {
+        // T058: the production matrix supports LOG_LEVEL_WRITE on 8.1 since its recording; with
+        // write access and without the opt-in only restart_process and kill_process are added to
+        // the reference
+        credentials();
+        List<String> withWrite = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "get_server_settings", "read_users", "read_model_details",
+            "list_inventory", "get_inventory_item",
+            "find_partners", "export_artifacts", "export_archives", "check_artifacts",
+            "restart_process", "kill_process");
+        List<String> withLogLevel = new ArrayList<>(withWrite);
+        withLogLevel.addAll(List.of("set_temporary_log_level", "reset_temporary_log_level"));
+
+        for (String optIn : List.of("true", "false")) {
+            List<String> expected = optIn.equals("true") ? withLogLevel : withWrite;
+            Path file = configWithClientHome("    write:\n      enabled: true\n"
+                + "    unsupported:\n      logLevelWrite: " + optIn + "\n");
+            assertThat(announcedTools(file)).as(optIn).containsExactlyElementsOf(expected);
+            assertThat(announcedTools(config(Files.readString(file)
+                .replace("versionLine: V8_1", "versionLine: AUTO"))))
+                .as(optIn).containsExactlyElementsOf(expected);
+        }
+    }
+
+    @Test
+    void aWriteEnabledOptedInNineZeroNodeWithANineZeroClientAnnouncesTheLogLevelTools()
+        throws Exception {
+        // T065: the production matrix supports LOG_LEVEL_WRITE on 9.0 since its recording
+        credentials();
+        List<String> withWrite = List.of("list_nodes", "get_health", "read_knowledge",
+            "record_knowledge", "find_processes", "query_logs", "download_server_log",
+            "get_server_settings", "read_users", "read_model_details",
+            "list_inventory", "get_inventory_item",
+            "find_partners", "export_artifacts", "export_archives", "check_artifacts",
+            "restart_process", "kill_process");
+        List<String> withLogLevel = new ArrayList<>(withWrite);
+        withLogLevel.addAll(List.of("set_temporary_log_level", "reset_temporary_log_level"));
+
+        for (String optIn : List.of("true", "false")) {
+            Path file = config(Files.readString(validConfig())
+                .replace("versionLine: V8_1", "versionLine: V9_0")
+                .replace("groups:\n", "defaults:\n  cliClients:\n    \"9.0\":\n      home: "
+                    + home.resolve("client-9.0") + "\ngroups:\n")
+                .replace("  - name: dev\n", "  - name: dev\n    write:\n      enabled: true\n"
+                    + "    unsupported:\n      logLevelWrite: " + optIn + "\n"));
+            assertThat(announcedTools(file)).as(optIn).containsExactlyElementsOf(
+                optIn.equals("true") ? withLogLevel : withWrite);
+        }
+    }
+
     @Test
     void aProfileWithoutAMarkedStageLogsNoPinPerServerLine() throws Exception {
         credentials();
@@ -2343,6 +2560,130 @@ class MainTest {
 
         assertThat(lines).anyMatch(line -> line.contains("started for profile acme"));
         assertThat(lines).noneMatch(line -> line.contains("pinPerServer"));
+    }
+
+    @Test
+    void theStartLogsTheOpenLeasesAndWarnsAboutFailedResetsAndUnconfiguredServers()
+        throws Exception {
+        // feature 024 T053 (FR-045, research D-17): leases of another running instance, so that
+        // neither the startup tick nor the shutdown touches them
+        credentials();
+        ProcessHandle parent = ProcessHandle.current().parent().orElseThrow();
+        LeaseOwner other = new LeaseOwner(parent.pid(), parent.info().startInstant()
+            .map(start -> start.truncatedTo(ChronoUnit.MILLIS)));
+        Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        Lease active = lease("dev/node1", other, now.plus(Duration.ofMinutes(10)));
+        Lease failed = lease("dev/node1", other, now.minus(Duration.ofMinutes(1)))
+            .failed(new LeaseAttempt(now, AuditOutcome.FAILED, Optional.of(ErrorCode.UNREACHABLE),
+                Optional.of(LeaseReason.NODE_UNREACHABLE)));
+        Lease unconfigured = lease("gone/node9", other, now.minus(Duration.ofDays(1)));
+        Lease ended = lease("dev/node1", other, now.minus(Duration.ofMinutes(5)))
+            .reset(now.minus(Duration.ofMinutes(4)));
+        Path leases = LeaseStore.defaultDirectory(home, "acme");
+        new LeaseStore(leases, PrivateFiles.forHost(), Clock.systemUTC()).update(
+            stored -> List.of(active, failed, unconfigured, ended), Duration.ofSeconds(5));
+
+        List<String> lines = startupLogOfAnInitializedServer(validConfig());
+
+        assertThat(lines).filteredOn(line -> line.contains("lease")).containsExactly(
+            "3 temporary log level lease(s) open",
+            "Temporary log level lease " + failed.leaseId() + " of dev/node1 (INUBIT node node1):"
+                + " the last reset failed (node unreachable); the level may still be raised until"
+                + " the reset is retried",
+            "Temporary log level lease " + unconfigured.leaseId() + " of gone/node9 (INUBIT node"
+                + " node1): the server is no longer configured, so the level is not reset; the"
+                + " lease is forgotten automatically on "
+                + now.minus(Duration.ofDays(1)).plus(Duration.ofDays(7)).atZone(ZoneOffset.UTC)
+                    .toLocalDate());
+    }
+
+    @Test
+    void withoutALeaseStoreTheStartLogsNoLeaseLineAndCreatesNoFile() throws Exception {
+        // feature 024 T053 (research D-12, D-17)
+        credentials();
+
+        List<String> lines = startupLogOfAnInitializedServer(validConfig());
+
+        assertThat(lines).anyMatch(line -> line.contains("started for profile acme"))
+            .noneMatch(line -> line.contains("lease"));
+        assertThat(LeaseStore.defaultDirectory(home, "acme")).doesNotExist();
+    }
+
+    @Test
+    void checkConfigListsTheOpenLeasesWithoutResettingOrTakingThemOver() throws Exception {
+        // feature 024 T056 (FR-045, research D-23): an expired lease of an owner that no longer
+        // runs would be taken over and reset by a server; --check-config only reads the store
+        credentials();
+        LeaseOwner gone = new LeaseOwner(ProcessHandle.current().pid(),
+            Optional.of(Instant.EPOCH));
+        Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        Lease expired = lease("dev/node1", gone, now.minus(Duration.ofMinutes(1)));
+        Lease unconfigured = lease("gone/node9", gone, now.minus(Duration.ofDays(1)));
+        Path leases = LeaseStore.defaultDirectory(home, "acme");
+        new LeaseStore(leases, PrivateFiles.forHost(), Clock.systemUTC()).update(
+            stored -> List.of(expired, unconfigured), Duration.ofSeconds(5));
+        Path file = leases.resolve(LeaseStore.FILE);
+        byte[] before = Files.readAllBytes(file);
+        FileTime modified = Files.getLastModifiedTime(file);
+        List<Path> entries;
+        try (Stream<Path> listed = Files.list(leases)) {
+            entries = listed.sorted().toList();
+        }
+
+        run("--check-config", "--config", validConfig().toString());
+
+        assertThat(out()).contains("\nTemporary log levels:\n"
+            + "  dev/node1 (INUBIT node node1): 1 logger(s), until " + expired.expiresAt()
+            + ", ACTIVE\n"
+            + "  gone/node9 (INUBIT node node1): 1 logger(s), until " + unconfigured.expiresAt()
+            + ", ACTIVE (server no longer configured; forgotten automatically on "
+            + unconfigured.expiresAt().plus(Duration.ofDays(7)).atZone(ZoneOffset.UTC)
+                .toLocalDate() + ")\n");
+        assertThat(Files.readAllBytes(file)).isEqualTo(before);
+        assertThat(Files.getLastModifiedTime(file)).isEqualTo(modified);
+        try (Stream<Path> listed = Files.list(leases)) {
+            assertThat(listed.sorted().toList()).isEqualTo(entries);
+        }
+    }
+
+    @Test
+    void checkConfigWithAnInvalidProfileNameReadsNoLeaseStore() throws Exception {
+        // feature 024 T056 (review): an invalid profile name is never part of a path; the summary
+        // with the error is still printed
+        credentials();
+        Files.createDirectories(home.resolve(".inubit-mcp"));
+        Path other = LeaseStore.defaultDirectory(home, "../other").normalize();
+        new LeaseStore(other, PrivateFiles.forHost(), Clock.systemUTC()).update(
+            stored -> List.of(lease("dev/node1", new LeaseOwner(4711, Optional.empty()),
+                Instant.now().plus(Duration.ofMinutes(10)))), Duration.ofSeconds(5));
+
+        for (String name : List.of("\"../other\"", "\"ac\\0me\"")) {
+            stdout.reset();
+            String yaml = Files.readString(validConfig()).replace("name: acme", "name: " + name);
+            List<Path> before;
+            try (Stream<Path> walked = Files.walk(home)) {
+                before = walked.sorted().toList();
+            }
+
+            int exit = run("--check-config", "--config", config(yaml).toString());
+
+            assertThat(exit).as(name).isEqualTo(1);
+            assertThat(out()).as(name).contains("Invalid profile.name", "Result: FAILED")
+                .doesNotContain("Temporary log levels");
+            try (Stream<Path> walked = Files.walk(home)) {
+                assertThat(walked.sorted().toList()).as(name).isEqualTo(before);
+            }
+        }
+    }
+
+    /** A lease of {@code server} on INUBIT node node1 that expires at {@code expiresAt}. */
+    private static Lease lease(String server, LeaseOwner owner, Instant expiresAt) {
+        SortedMap<LoggerName, TemporaryLevel> loggers =
+            new TreeMap<>(Comparator.comparing(LoggerName::value));
+        loggers.put(new LoggerName("com.inubit.ibis.acme.Orders"), TemporaryLevel.DEBUG);
+        return new Lease(UUID.randomUUID(), 1, NodeId.parse(server), "node1", loggers,
+            expiresAt.minus(Duration.ofMinutes(10)), expiresAt, owner, LeaseState.ACTIVE,
+            UUID.randomUUID(), Optional.empty(), Optional.empty());
     }
 
     @Test

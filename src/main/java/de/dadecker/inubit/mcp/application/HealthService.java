@@ -21,11 +21,13 @@ import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseSummary;
 import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
 import de.dadecker.inubit.mcp.domain.port.ClientSelectionPort;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
+import de.dadecker.inubit.mcp.domain.port.LeaseView;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort.Healthcheck;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort.Metrics;
 import de.dadecker.inubit.mcp.domain.port.MonitoringPort.Readiness;
@@ -46,6 +48,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
@@ -121,6 +124,11 @@ import org.slf4j.LoggerFactory;
  *       {@link #OVERVIEW_BUDGET}; the node's session and probe get that bound less
  *       {@link #FAN_OUT_GRACE}, and a session still running then is {@code TIMEOUT} worded for
  *       that budget. Other nodes keep their timeout + {@link #FAN_OUT_GRACE}.
+ *   <li>Temporary log levels (feature 024, FR-045, research D-23): once per call the
+ *       {@link LeaseView} is read in parallel with the servers and awaited at most
+ *       {@link #LEASE_WAIT} from the start; every report gets the open ({@code ACTIVE},
+ *       {@code RESET_FAILED}) leases of its node, whether write tools are on or off. A store that
+ *       cannot be read in time or at all is a warning in every report, never an error.
  * </ul>
  */
 public final class HealthService {
@@ -133,6 +141,8 @@ public final class HealthService {
     static final Duration CLI_ONLY_SINGLE_NODE_BUDGET = Duration.ofSeconds(15);
     /** FR-009 (SC-002 of feature 001): a call for several nodes returns within this. */
     static final Duration OVERVIEW_BUDGET = Duration.ofSeconds(10);
+    /** Research D-23: how long a call waits for the lease store. */
+    static final Duration LEASE_WAIT = Duration.ofSeconds(2);
 
     /** The client state of a probe that did not finish in time (FR-002). */
     private static final String NOT_YET_DETECTED = "not yet detected (timeout)";
@@ -151,6 +161,7 @@ public final class HealthService {
     private final Function<NodeId, Optional<String>> credentialStores;
     private final Duration singleCliBudget;
     private final Duration overviewBudget;
+    private final LeaseView leases;
 
     /** As below; every node reads its secrets from AWS Parameter Store (feature 010 texts). */
     public HealthService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
@@ -178,15 +189,28 @@ public final class HealthService {
         NodeVersions versions, ClientVersionPort clients, ClientSelectionPort selection,
         Function<NodeId, Optional<String>> credentialStores) {
         this(gateways, targets, fanOut, timeouts, clock, gate, versions, clients, selection,
-            credentialStores, CLI_ONLY_SINGLE_NODE_BUDGET, OVERVIEW_BUDGET);
+            credentialStores, () -> new LeaseView.Snapshot.Leases(List.of()));
+    }
+
+    /**
+     * As above, with the temporary log level leases of the profile.
+     *
+     * @param leases the lease store, read once per call (feature 024, research D-23)
+     */
+    public HealthService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
+        Function<NodeId, Duration> timeouts, Clock clock, VersionGate gate,
+        NodeVersions versions, ClientVersionPort clients, ClientSelectionPort selection,
+        Function<NodeId, Optional<String>> credentialStores, LeaseView leases) {
+        this(gateways, targets, fanOut, timeouts, clock, gate, versions, clients, selection,
+            credentialStores, leases, CLI_ONLY_SINGLE_NODE_BUDGET, OVERVIEW_BUDGET);
     }
 
     /** As above, with other budgets for CLI-only nodes (tests scale them down). */
     HealthService(GatewayFactory gateways, TargetResolver targets, FanOut fanOut,
         Function<NodeId, Duration> timeouts, Clock clock, VersionGate gate,
         NodeVersions versions, ClientVersionPort clients, ClientSelectionPort selection,
-        Function<NodeId, Optional<String>> credentialStores, Duration singleCliBudget,
-        Duration overviewBudget) {
+        Function<NodeId, Optional<String>> credentialStores, LeaseView leases,
+        Duration singleCliBudget, Duration overviewBudget) {
         this.gateways = Objects.requireNonNull(gateways, "gateways");
         this.targets = Objects.requireNonNull(targets, "targets");
         this.fanOut = Objects.requireNonNull(fanOut, "fanOut");
@@ -197,6 +221,7 @@ public final class HealthService {
         this.clients = Objects.requireNonNull(clients, "clients");
         this.selection = Objects.requireNonNull(selection, "selection");
         this.credentialStores = Objects.requireNonNull(credentialStores, "credentialStores");
+        this.leases = Objects.requireNonNull(leases, "leases");
         this.singleCliBudget = Objects.requireNonNull(singleCliBudget, "singleCliBudget");
         this.overviewBudget = Objects.requireNonNull(overviewBudget, "overviewBudget");
     }
@@ -210,6 +235,9 @@ public final class HealthService {
      */
     public List<HealthReport> check(Optional<String> target, boolean includeSystemInfo) {
         List<NodeId> servers = target.map(targets::resolve).orElseGet(targets::all);
+        long leaseDeadline = System.nanoTime() + LEASE_WAIT.toNanos();
+        FutureTask<LeaseView.Snapshot> leaseRead = new FutureTask<>(leases::leases);
+        Thread.ofVirtual().name("health-leases").start(leaseRead);
         // decided before any contact; a refusal is the report's error (FR-001, research D-11)
         Map<NodeId, Outcome<Channel>> accesses = new HashMap<>();
         servers.forEach(server -> accesses.put(server, access(server)));
@@ -220,10 +248,52 @@ public final class HealthService {
                 : timeouts.apply(server).plus(FAN_OUT_GRACE),
             server -> checkServer(server, accesses.get(server), includeSystemInfo, cliBudget,
                 overview));
+        LeaseView.Snapshot snapshot = awaitLeases(leaseRead, leaseDeadline);
         return results.stream()
             .map(result -> result.payload()
                 .orElseGet(() -> failed(result.node(), result.error().orElseThrow())))
+            .map(report -> withLeases(report, snapshot))
             .toList();
+    }
+
+    /** The lease store as read by {@code deadline}, or why it was not (research D-23). */
+    private static LeaseView.Snapshot awaitLeases(FutureTask<LeaseView.Snapshot> read,
+        long deadline) {
+        try {
+            return read.get(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException e) {
+            read.cancel(true);
+            return new LeaseView.Snapshot.Unreadable(
+                "not read within " + LEASE_WAIT.toSeconds() + " s");
+        } catch (ExecutionException e) {
+            LOG.warn("Reading the temporary log level leases failed unexpectedly", e.getCause());
+            return new LeaseView.Snapshot.Unreadable(e.getCause().getClass().getSimpleName());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new LeaseView.Snapshot.Unreadable("interrupted");
+        }
+    }
+
+    /** {@code report} with the open leases of its node, or the warning that none could be read. */
+    private static HealthReport withLeases(HealthReport report, LeaseView.Snapshot snapshot) {
+        List<LeaseSummary> open = List.of();
+        List<String> warnings = report.warnings();
+        switch (snapshot) {
+            case LeaseView.Snapshot.Leases stored -> open = stored.leases().stream()
+                .filter(lease -> lease.server().equals(report.node()) && lease.state().open())
+                .map(LeaseSummary::of)
+                .toList();
+            case LeaseView.Snapshot.Unreadable unreadable -> {
+                warnings = new ArrayList<>(warnings);
+                warnings.add("The temporary log level leases could not be read ("
+                    + unreadable.reason() + ")");
+            }
+        }
+        return new HealthReport(report.node(), report.group(), report.checkedAt(),
+            report.reachable(), report.status(), report.ready(), report.readyMessage(),
+            report.maintenanceMode(), report.version(), report.systemInfo(), report.load(),
+            report.processCounts(), report.client(), report.unavailable(), report.error(),
+            warnings, open);
     }
 
     /** How {@code server} is reached, or its refusal ({@link VersionGate#monitoringAccess}). */

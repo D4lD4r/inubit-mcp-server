@@ -1,0 +1,27 @@
+#QE1:0123456789abcdef0123456789abcdef start REST_90
+2026-11-14T14:21:31.981821Z main ERROR Unable to load io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider, fallback to system defaults. This may result in incorrect DNS resolutions on MacOS. Check whether you have a dependency on 'io.netty:netty-resolver-dns-native-macos'. Use DEBUG level to see the full stack: java.lang.UnsatisfiedLinkError: failed to load the required native library
+#QE1:0123456789abcdef0123456789abcdef login ok
+#QE1:0123456789abcdef0123456789abcdef node ok node1
+#QE1:0123456789abcdef0123456789abcdef member node1 ACTIVE 9.0.10 - - 86400000
+#QE1:0123456789abcdef0123456789abcdef member node2 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node3 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node4 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node5 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node6 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node7 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node8 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node9 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node10 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node11 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node12 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node13 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node14 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node15 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node16 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node17 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node18 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node19 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node20 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef member node21 OFFLINE - - - 0
+#QE1:0123456789abcdef0123456789abcdef members ok 21
+#QE1:0123456789abcdef0123456789abcdef end

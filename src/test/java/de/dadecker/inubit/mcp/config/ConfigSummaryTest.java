@@ -2,14 +2,24 @@ package de.dadecker.inubit.mcp.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
+import de.dadecker.inubit.mcp.domain.model.node.Lease;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseAttempt;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseOwner;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseReason;
+import de.dadecker.inubit.mcp.domain.model.node.LeaseState;
+import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
+import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
+import de.dadecker.inubit.mcp.domain.port.LeaseView;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
@@ -17,18 +27,24 @@ import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
+import java.util.UUID;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 
 class ConfigSummaryTest {
@@ -497,6 +513,150 @@ class ConfigSummaryTest {
         assertThat(summary).doesNotContain("Group qa");
     }
 
+    // --- feature 024 T005: the four node-tool opt-ins (FR-003, D-5, SC-005) ---------------------
+
+    @Test
+    void nodeToolOptInsSetToFalseAreTheSameAsNone() {
+        String unset = CONFIG.replace("    production: true\n", "    production: true\n"
+            + "    unsupported:\n      nodeStatusRead: false\n      ioLogRead: false\n"
+            + "      nodeConfigRead: false\n      logLevelWrite: false\n");
+
+        assertThat(unset).isNotEqualTo(CONFIG);
+        assertThat(render(unset)).isEqualTo(render(CONFIG));
+        for (String key : NodeToolOptIns.KEYS) {
+            assertThat(render(CONFIG)).doesNotContain(key);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"nodeStatusRead", "ioLogRead", "nodeConfigRead", "logLevelWrite"})
+    void aNodeToolOptInAppendsOnlyItsStateToEveryGroupLine(String key) {
+        String summary = render(CONFIG.replace("    cli:\n      home: /opt/client\n",
+            "    unsupported:\n      " + key + ": true\n    cli:\n      home: /opt/client\n"));
+
+        assertThat(summary).isEqualTo(render(CONFIG)
+            .replace("\nGroup test: archives: allowed\n",
+                "\nGroup test: archives: allowed, " + key + ": enabled (unsupported)\n")
+            .replace("\nGroup prod (production): archives: refused (no"
+                + " archives.productionOptIn)\n", "\nGroup prod (production): archives:"
+                + " refused (no archives.productionOptIn), " + key + ": off\n"));
+        TestSecrets.assertNoLeak(summary);
+    }
+
+    @Test
+    void theOptInStatesFollowTheOrderOfTheKeys() {
+        String summary = render(CONFIG
+            .replace("    cli:\n      home: /opt/client\n", "    unsupported:\n"
+                + "      logLevelWrite: true\n      ioLogRead: true\n      queueEntryRead: true\n"
+                + "    cli:\n      home: /opt/client\n")
+            .replace("    production: true\n", "    production: true\n    unsupported:\n"
+                + "      nodeConfigRead: true\n      serverLogRead: true\n"
+                + "      nodeStatusRead: true\n"));
+
+        assertThat(summary).contains("\nGroup test: archives: allowed,"
+                + " queueEntryRead: enabled (unsupported), serverLogRead: off,"
+                + " nodeStatusRead: off, ioLogRead: enabled (unsupported), nodeConfigRead: off,"
+                + " logLevelWrite: enabled (unsupported)\n",
+            "\nGroup prod (production): archives: refused (no archives.productionOptIn),"
+                + " queueEntryRead: off, serverLogRead: enabled (unsupported),"
+                + " nodeStatusRead: enabled (unsupported), ioLogRead: off,"
+                + " nodeConfigRead: enabled (unsupported), logLevelWrite: off\n");
+    }
+
+    // --- feature 024 T056: the temporary log level leases (FR-045, D-23) ------------------------
+
+    private static final String LEASE_CONFIG = """
+        profile:
+          name: acme
+        groups:
+          - name: test
+            nodes:
+              - name: node1
+                baseUrl: https://inubit-test-01.example.test:8443
+        """;
+    private static final Path LEASE_FILE = HOME.resolve(".inubit-mcp/acme/log-levels/leases.json");
+    private static final LeaseOwner OWNER = new LeaseOwner(4711, Optional.empty());
+
+    /** The summary with the knowledge line and the leases of {@code leases}. */
+    private String render(String yaml, LeaseView leases) {
+        LoadedConfig loaded = new ConfigLoader(Map.of(), HOME, false).parse(yaml, SOURCE);
+        ValidationReport report = new ConfigValidator(exists, env, false,
+            Path.of(System.getProperty("java.io.tmpdir")), source -> List.of(), NO_DISK)
+            .validate(loaded);
+        KnowledgeStatus knowledge = new KnowledgeStatus(HOME.resolve(".inubit-mcp/acme/knowledge"),
+            KnowledgeStatus.State.OK, Optional.empty(), false, 0);
+        ConfigSummary summary = new ConfigSummary(exists, windows);
+        EntryCheck.Result entries = EntryCheck.Result.none(StoreKind.KEYCHAIN);
+        return leases == null
+            ? summary.render(loaded, report, Map.of(), Map.of(), ParameterCheck.Result.NONE,
+                entries, List.of(), knowledge)
+            : summary.render(loaded, report, Map.of(), Map.of(), ParameterCheck.Result.NONE,
+                entries, List.of(), knowledge, leases, LEASE_FILE);
+    }
+
+    /** A lease of {@code server} on INUBIT node {@code inubitNode} with {@code loggers} loggers. */
+    private static Lease lease(String server, String inubitNode, int loggers, Instant expiresAt) {
+        SortedMap<LoggerName, TemporaryLevel> levels =
+            new TreeMap<>(Comparator.comparing(LoggerName::value));
+        for (int i = 1; i <= loggers; i++) {
+            levels.put(new LoggerName("com.inubit.ibis.acme.Logger" + i), TemporaryLevel.DEBUG);
+        }
+        return new Lease(UUID.randomUUID(), 1, NodeId.parse(server), inubitNode, levels,
+            expiresAt.minus(Duration.ofMinutes(10)), expiresAt, OWNER, LeaseState.ACTIVE,
+            UUID.randomUUID(), Optional.empty(), Optional.empty());
+    }
+
+    @Test
+    void withoutOpenLeasesTheSummaryHasNoLeaseSection() {
+        Instant expiry = Instant.parse("2026-11-12T08:25:31Z");
+        String without = render(LEASE_CONFIG, (LeaseView) null);
+
+        assertThat(render(LEASE_CONFIG, () -> new LeaseView.Snapshot.Leases(List.of())))
+            .isEqualTo(without);
+        assertThat(render(LEASE_CONFIG, () -> new LeaseView.Snapshot.Leases(List.of(
+            lease("test/node1", "node1", 1, expiry).reset(expiry),
+            lease("gone/node9", "node9", 1, expiry).forgotten(expiry)))))
+            .isEqualTo(without);
+        assertThat(without).doesNotContain("Temporary log levels");
+    }
+
+    @Test
+    void theOpenLeasesAreListedWithTheForgetDateOfUnconfiguredServers() {
+        // the golden lines of docs/setup.md section 6 (contracts/configuration-delta.md)
+        Lease active = lease("test/node1", "node1", 1, Instant.parse("2026-11-12T08:25:31Z"));
+        Lease failed = lease("legacy/node2", "node2", 2, Instant.parse("2026-11-10T09:00:00Z"))
+            .failed(new LeaseAttempt(Instant.parse("2026-11-10T09:00:05Z"), AuditOutcome.FAILED,
+                Optional.of(ErrorCode.UNREACHABLE), Optional.of(LeaseReason.NODE_UNREACHABLE)));
+        Lease ended = lease("test/node1", "node1", 3, Instant.parse("2026-11-11T08:00:00Z"))
+            .reset(Instant.parse("2026-11-11T08:00:01Z"));
+
+        String summary = render(LEASE_CONFIG,
+            () -> new LeaseView.Snapshot.Leases(List.of(active, ended, failed)));
+
+        assertThat(summary).contains("\nTemporary log levels:\n"
+            + "  test/node1 (INUBIT node node1): 1 logger(s), until 2026-11-12T08:25:31Z,"
+            + " ACTIVE\n"
+            + "  legacy/node2 (INUBIT node node2): 2 logger(s), until 2026-11-10T09:00:00Z,"
+            + " RESET_FAILED (server no longer configured; forgotten automatically on"
+            + " 2026-11-17)\n"
+            + "Result: OK\n");
+        assertThat(summary.replaceAll("(?s)\nTemporary log levels:\n.*\nResult: ", "\nResult: "))
+            .isEqualTo(render(LEASE_CONFIG, (LeaseView) null));
+    }
+
+    @Test
+    void anUnreadableStoreIsAWarning() {
+        String summary = render(LEASE_CONFIG,
+            () -> new LeaseView.Snapshot.Unreadable("lease 2: invalid auditId"));
+
+        assertThat(summary).doesNotContain("Temporary log levels:").contains("Warnings:\n"
+            + "  - The temporary log level leases in " + LEASE_FILE + " cannot be read (lease 2:"
+            + " invalid auditId); setting a temporary log level and forgetting a lease are"
+            + " refused until the file is fixed or moved; reset_temporary_log_level with node"
+            + " still resets the node\n"
+            + "Result: OK\n");
+    }
+
     @Test
     void showsTheCredentialPrefixAndTheAuditDirectoryOfTheProfile() {
         // 002 US2: what keeps this profile apart from others running side by side
@@ -801,6 +961,31 @@ class ConfigSummaryTest {
                 + " credentialStore (macOS Keychain), username ←");
         assertThat(summary).contains("Result: OK");
         TestSecrets.assertNoLeak(summary);
+    }
+
+    /** Feature 024 (T004, D-5): each node tool only for a group with its own opt-in. */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "nodeStatusRead | reading the cluster's node list",
+        "ioLogRead      | reading module input/output logging",
+        "nodeConfigRead | reading node configuration values",
+        "logLevelWrite  | changing temporary log levels"})
+    void aV61NodeOfAGroupWithANodeToolOptInAlsoRefusesThatNodeTool(String key, String label) {
+        String optedIn = render(V6_1.replace("    nodes:",
+            "    unsupported:\n      " + key + ": true\n    nodes:"));
+        String without = render(V6_1);
+
+        String refused = "test/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1,"
+            + " StartCLI only; available: none; refused: monitoring, process diagnosis, log"
+            + " diagnosis, inventory, partner management, workspace export, development writes,"
+            + " deployment, end-to-end test, process control, downloading the trace log, reading"
+            + " server settings, reading users, reading model details";
+        assertThat(optedIn).contains(refused + ", " + label + "),");
+        assertThat(without).contains(refused + "),").doesNotContain(label);
+        assertThat(optedIn).as("8.1 lines are unchanged")
+            .contains("test/node3: read-only, cli: available, inubit: V8_1, secrets:"
+                + " credentialStore (macOS Keychain), username ←");
+        TestSecrets.assertNoLeak(optedIn);
     }
 
     @Test
