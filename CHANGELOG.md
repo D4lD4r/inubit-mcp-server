@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-16
+
+Fix for StartCLI on Windows with INUBIT 8.1 clients, found in the Windows live check of
+feature 013.
+
 ### Fixed
 
 - Windows: StartCLI-backed tools on INUBIT 8.1 nodes no longer end in `TIMEOUT` at the password
@@ -1373,7 +1378,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.8.1...v0.9.0
