@@ -152,7 +152,10 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
 
 ## Requirements
 
-- A **Java 21** (or newer) runtime to run the server.
+- A **Java 21** (or newer) runtime to run the server. On Windows, if none is installed:
+  `winget install EclipseAdoptium.Temurin.21.JDK` (on Windows on ARM a native ARM64 JDK such as
+  `winget install Microsoft.OpenJDK.21 --architecture arm64` is much faster than an emulated x64
+  one).
 - **INUBIT 8.1** or **INUBIT 9.0** servers reachable over HTTPS, and an INUBIT account per group
   or node with rights to read logs, monitoring and models; where the development tools or
   deployments are used, also with rights to export, import and tag the owner's diagrams and
@@ -182,10 +185,12 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
   ([StartCLI client per INUBIT version](docs/setup.md#startcli-client-per-inubit-version-defaultscliclients)).
   On INUBIT 9 the StartCLI user must exist in INUBIT's internal user management. The INUBIT client is **not included** in this project. Without it, the
   REST-based tools work and CLI-based parts report `CLI_UNAVAILABLE`. On Windows the CLI-based
-  tools work as on macOS, with a few rules for paths and characters
-  ([StartCLI on Windows](docs/setup.md#startcli-on-windows)).
+  tools work as on macOS (from 0.10.1 also with the INUBIT 8.1 client), with a few rules for
+  paths and characters; the Workbench installation brings its own Java runtime, which is the one
+  to configure ([StartCLI on Windows](docs/setup.md#startcli-on-windows)).
 - Only for the artifact workspace (`export_artifacts`, the development tools and
-  `deploy_release`): **git 2.32** or newer on `PATH`.
+  `deploy_release`): **git 2.32** or newer on `PATH` (Windows: `winget install Git.Git`). The
+  server sees the `PATH` of the client that started it: after installing git, restart the client.
 - For the credentials: the credential store of the system — the macOS Keychain and the Windows
   Credential Manager are built in; on Linux `secret-tool` (package `libsecret-tools` or
   `libsecret`) and a running Secret Service (e.g. GNOME Keyring) in the desktop session.
@@ -326,6 +331,11 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
    ```powershell
    claude mcp add --scope user inubit-acme -- (Get-Command java).Source -jar "$env:LOCALAPPDATA\inubit-mcp\inubit-mcp-server-$VERSION.jar" --profile acme
    ```
+
+   If `java` is not on `PATH`, use the full path of the JDK's `java.exe` instead. Without the
+   `claude` command (e.g. only the Claude desktop app is installed), add the same registration to
+   `mcpServers` in `%USERPROFILE%\.claude.json` while the client is closed, see
+   [Register without the claude command](docs/setup.md#register-without-the-claude-command).
 
    No environment variable and no start script are needed, so the same registration works for a
    client started from a terminal or from the desktop. (The optional start-up check for changed
