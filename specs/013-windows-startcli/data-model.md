@@ -29,7 +29,8 @@ read time for a StartCLI call; `AUTH_FAILED`, not a failed login). The password:
 
 POSIX: unchanged. Windows: the allowlist of research R-5, case-insensitive names; `ComSpec` set to
 the interpreter; `PATH` = `<JAVA_HOME>\bin;<system dir>`; `NoDefaultCurrentDirectoryInExePath=1`; `JAVA_TOOL_OPTIONS` = `-Duser.language=en -Duser.country=US -Dfile.encoding=UTF-8
--Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8`.
+-Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8 -Djline.terminal=jline.UnsupportedTerminal`
+(the last one so that jline 2 in clients up to 8.1 reads the password from standard input).
 
 ## ProcessContainment (adapter/cli port, adapter/os implementation)
 

@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -398,6 +399,61 @@ class ConfigValidatorCliClientsTest {
                     + " interpreter interprets (semicolon); CLI-backed capabilities report"
                     + " CLI_UNAVAILABLE");
         }
+
+        /** {@code java_home_path_setter.cmd} next to the client directory {@code home}. */
+        private Path setter(String home, String content) {
+            Path setter = Path.of(home).getParent().resolve("java_home_path_setter.cmd");
+            releases.put(setter, content);
+            return setter;
+        }
+
+        @Test
+        void aJavaHomeSetterNamingAnotherRuntimeIsNamedOncePerClient() {
+            // 013 T031: startcli.bat of the INUBIT clients calls it first, and it sets JAVA_HOME
+            Path setter = setter("/opt/c81", "rem ################\r\n"
+                + "rem # JAVA_HOME=<path_to_jdk>\r\n"
+                + "set JAVA_HOME=C:\\inubit\\_jvm\r\n"
+                + "set JRE_HOME=%JAVA_HOME%\r\n");
+
+            List<String> warnings = warnings(profile("""
+                cliHome: /opt/c81
+                cliJavaHome: /opt/jdk-17
+                cliClients:
+                  "8.1": { home: /opt/c81, javaHome: /opt/jdk-17 }
+                """, ""));
+
+            assertThat(warnings).containsExactly(setter + " sets JAVA_HOME to C:\\inubit\\_jvm,"
+                + " so StartCLI of the client in " + Path.of("/opt/c81") + " runs with that"
+                + " runtime, not with " + Path.of("/opt/jdk-17") + "; set cliJavaHome / javaHome"
+                + " to it or change the file");
+        }
+
+        @Test
+        void aJavaHomeSetterNamingTheConfiguredRuntimeIsNoWarning() {
+            // the same directory, written with another case, slashes and a trailing separator
+            setter("/opt/c81", "set \"JAVA_HOME=" + Path.of("/opt/jdk-17").toString()
+                .toUpperCase(Locale.ROOT).replace('\\', '/') + "/\"\r\n");
+
+            assertThat(warnings(profile("""
+                cliClients:
+                  "8.1": { home: /opt/c81, javaHome: /opt/jdk-17 }
+                """, ""))).isEmpty();
+        }
+
+        @Test
+        void aJavaHomeSetterWithoutJavaHomeIsNoWarning() {
+            setter("/opt/c81", "rem set JAVA_HOME=C:\\elsewhere\r\nset JRE_HOME=C:\\x\r\n");
+
+            assertThat(warnings(profile(ENTRIES, ""))).isEmpty();
+        }
+    }
+
+    @Test
+    void offWindowsAJavaHomeSetterIsNotRead() {
+        releases.put(Path.of("/opt").resolve("java_home_path_setter.cmd"),
+            "set JAVA_HOME=C:\\inubit\\_jvm\r\n");
+
+        assertThat(warnings(profile(ENTRIES, ""))).isEmpty();
     }
 
     @Nested

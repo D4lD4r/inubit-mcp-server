@@ -33,10 +33,15 @@ public final class StartCliEnvironment {
 
     /**
      * {@link #JAVA_TOOL_OPTIONS} plus UTF-8 for the client's default charset, {@code System.out}
-     * and {@code System.err}, whatever the console code page (research R-6).
+     * and {@code System.err}, whatever the console code page (research R-6), plus the jline 2
+     * terminal that reads standard input: clients up to 8.1 read the password through jline 2,
+     * whose default Windows terminal reads the console directly and ignores redirected standard
+     * input, so StartCLI waited at its password prompt (research R-6, T031). Clients from 9.0 do
+     * not read the password through jline 2 and are not affected.
      */
     public static final String WINDOWS_JAVA_TOOL_OPTIONS = JAVA_TOOL_OPTIONS
-        + " -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8";
+        + " -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8"
+        + " -Djline.terminal=jline.UnsupportedTerminal";
 
     /** Copied from the server's environment on macOS and Linux, if set (names case-sensitive). */
     static final List<String> POSIX_VARIABLES =

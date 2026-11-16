@@ -35,6 +35,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -1308,6 +1309,60 @@ public final class ConfigValidator {
             findings.warning(id + ": neither cliJavaHome / cli.javaHome nor JAVA_HOME is set;"
                 + " CLI-backed capabilities report CLI_UNAVAILABLE");
         }
+        if (windows) {
+            server.cli().home().ifPresent(home -> checkJavaHomeSetter(home,
+                server.cli().javaHome().map(Path::toString).or(this::serverJavaHome), findings));
+        }
+    }
+
+    /** The file {@code startcli.bat} of the INUBIT clients calls first if it exists. */
+    static final String JAVA_HOME_SETTER = "java_home_path_setter.cmd";
+
+    private static final Pattern SET_JAVA_HOME = Pattern.compile(
+        "^\\s*set\\s+\"?JAVA_HOME=([^\"\\r\\n]*)\"?\\s*$",
+        Pattern.MULTILINE | Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Windows (013 T031): {@code startcli.bat} of the INUBIT clients first calls {@code
+     * <home>\..\java_home_path_setter.cmd} if it exists, which sets {@code JAVA_HOME} itself, so
+     * StartCLI runs with that runtime and not with the configured one. Warns once per client
+     * home when the file sets another directory than {@code javaHome}; nothing when the file is
+     * absent, sets no {@code JAVA_HOME}, or no runtime is configured.
+     */
+    private void checkJavaHomeSetter(Path home, Optional<String> javaHome, Findings findings) {
+        Path parent = home.getParent();
+        if (parent == null || javaHome.isEmpty()) {
+            return;
+        }
+        Path setter = parent.resolve(JAVA_HOME_SETTER);
+        Optional<String> text = releaseReader.apply(setter);
+        if (text.isEmpty()) {
+            return;
+        }
+        String set = null;
+        Matcher matcher = SET_JAVA_HOME.matcher(text.get());
+        while (matcher.find()) {
+            set = matcher.group(1).strip();
+        }
+        if (set == null || sameDirectory(set, javaHome.get())) {
+            return;
+        }
+        findings.warningOnce(setter + " sets JAVA_HOME to " + set + ", so StartCLI of the"
+            + " client in " + home + " runs with that runtime, not with " + javaHome.get()
+            + "; set cliJavaHome / javaHome to it or change the file");
+    }
+
+    /** Two Windows directory names compared ignoring case, {@code /} and a trailing separator. */
+    private static boolean sameDirectory(String a, String b) {
+        return normalizedDirectory(a).equalsIgnoreCase(normalizedDirectory(b));
+    }
+
+    private static String normalizedDirectory(String path) {
+        String slashed = path.strip().replace('/', '\\');
+        while (slashed.endsWith("\\") && slashed.length() > 1) {
+            slashed = slashed.substring(0, slashed.length() - 1);
+        }
+        return slashed;
     }
 
     /**
@@ -1357,6 +1412,7 @@ public final class ConfigValidator {
                     client.home().toString()), findings);
                 client.javaHome().map(Path::toString).ifPresent(javaHome ->
                     refusedOnWindows(subject, "javaHome", javaRefusal(javaHome), findings));
+                checkJavaHomeSetter(client.home(), entryJdk, findings);
             }
         });
     }
@@ -1590,6 +1646,13 @@ public final class ConfigValidator {
 
         void warning(String message) {
             warnings.add(message);
+        }
+
+        /** As {@link #warning}, unless the same message is already there. */
+        void warningOnce(String message) {
+            if (!warnings.contains(message)) {
+                warnings.add(message);
+            }
         }
 
         void termError(String template, Object... values) {

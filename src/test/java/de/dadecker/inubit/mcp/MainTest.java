@@ -1942,8 +1942,10 @@ class MainTest {
 
         assertThat(run("--profile", "acme", "--check-config")).as(out()).isZero();
 
+        // the group is named as Windows names it in its language (BUILTIN\Users, VORDEFINIERT\
+        // Benutzer, ...); the remedy run below proves that it is the entry of WindowsAcl.USERS
         Matcher remedy = Pattern.compile("the audit directory " + Pattern.quote(audit.toString())
-            + " grants access to [^;]*Users[^;]*; the server does not change it\\. Restrict it"
+            + " grants access to [^;]+; the server does not change it\\. Restrict it"
             + " to [^ ]+ and SYSTEM with: icacls (.*)").matcher(out());
         assertThat(remedy.find()).as(out()).isTrue();
         assertThat(WindowsAcl.readBack(audit).entries()).as("not changed")
