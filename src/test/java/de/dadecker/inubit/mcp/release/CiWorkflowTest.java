@@ -55,6 +55,17 @@ class CiWorkflowTest {
     }
 
     @Test
+    void theWindowsJobRunsUnderTheWatchScriptWithATimeLimit() {
+        // several Windows jobs lost their runner without a log; the watch script leaves traces
+        JsonNode windows = workflow().path("jobs").path("windows");
+
+        assertThat(windows.path("timeout-minutes").asInt()).isPositive();
+        assertThat(steps(windows)).anySatisfy(step -> assertThat(step.path("run").asString())
+            .isEqualTo("./.github/scripts/windows-build.ps1 mvn -B -ntp clean verify"));
+        assertThat(Path.of(".github/scripts/windows-build.ps1")).isRegularFile();
+    }
+
+    @Test
     void theWorkflowCanBeStartedByHand() {
         assertThat(workflow().path("on").has("workflow_dispatch")).isTrue();
     }

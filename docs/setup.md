@@ -593,11 +593,18 @@ Since feature 013 the StartCLI-backed tools run on Windows as on macOS and Linux
   interpreter of the system directory (`cmd.exe /d /v:off /s /c`), never through `PATH` or the
   working directory. A `cli.home` on a network path (`\\server\share\…`, UNC) is refused: the
   interpreter does not accept it as its working directory.
-- Set `cli.javaHome` (`cliJavaHome`) to a Java 17 runtime, e.g.
-  `C:\Program Files\Eclipse Adoptium\jdk-17…`, for the INUBIT 8.1 client and to a Java 21
-  runtime for the INUBIT 9.0 client (e.g. as the `javaHome` of `defaults.cliClients."9.0"`,
+- Set `cli.javaHome` (`cliJavaHome`) to a Java 17 runtime for the INUBIT 8.1 client and to a
+  Java 21 runtime for the INUBIT 9.0 client (e.g. as the `javaHome` of
+  `defaults.cliClients."9.0"`,
   [StartCLI client per INUBIT version](#startcli-client-per-inubit-version-defaultscliclients));
   without it the server's `JAVA_HOME` is used. Spaces in these paths are fine.
+- **Workbench installations bring their own runtime.** The INUBIT Workbench installer puts a Java
+  runtime next to the client (`<installation>\_jvm`) and a `java_home_path_setter.cmd` that
+  `bin\startcli.bat` calls first; it sets `JAVA_HOME` to that runtime, so StartCLI runs with it
+  whatever `cliJavaHome` says. Configure that directory: for an installation in
+  `C:\inubit\workbench_8.1.17`, `cliHome: C:/inubit/workbench_8.1.17/inubit/client` and
+  `cliJavaHome: C:/inubit/workbench_8.1.17/_jvm` (the same for 9.0 in `defaults.cliClients`).
+  `--check-config` warns when the setter names another runtime than the configured one.
 - `--check-config` runs the client check (`startcli.bat -v`) and prints `cli: available` as on
   macOS.
 
@@ -613,9 +620,11 @@ Rules the server applies on Windows only, before any process starts:
   credential entry (never the value), without counting as a failed login. Space, `'`, `(`, `)`,
   `;`, `,`, `=`, `\`, `*` and `?` reach StartCLI unchanged.
 - **Password.** The password reaches StartCLI only through its standard input (UTF-8, then a line
-  break), never as a process argument, environment variable or file. Until the live check has
-  shown that a password outside ASCII reaches the client unchanged, use a password of ASCII
-  characters: another one is refused with `AUTH_FAILED` naming the entry.
+  break), never as a process argument, environment variable or file. The INUBIT 8.1 client reads
+  it through jline 2, so the server also sets `-Djline.terminal=jline.UnsupportedTerminal`;
+  before 0.10.1 every StartCLI call on an 8.1 node ended in `TIMEOUT` at the password prompt.
+  Until the live check has shown that a password outside ASCII reaches the client unchanged, use
+  a password of ASCII characters: another one is refused with `AUTH_FAILED` naming the entry.
 - **Paths inside the command.** A file path inside a StartCLI command (the temporary export and
   import data) must be an absolute path with a drive letter, of ASCII letters, digits, `_`, `.`,
   `-` and spaces, with `/` separators, without `.` or `..` and at most 259 characters; an 8.3
@@ -649,7 +658,9 @@ Rules the server applies on Windows only, before any process starts:
   not changed: the server warns at startup and in `--check-config` and names the `icacls` command
   that restricts it. An existing workspace is used as is.
 - **git.** Git for Windows (2.32 or newer) on `PATH`; the server runs it with
-  `core.longpaths=true`, so repository paths longer than 260 characters work.
+  `core.longpaths=true`, so repository paths longer than 260 characters work. The server gets the
+  `PATH` of the client that started it: after installing git, restart the client, else the
+  workspace tools report `PRECONDITION_FAILED` "git not found".
 - **INUBIT 6.1.** The StartCLI sessions of INUBIT 6.1 nodes (feature 012) follow the same rules:
   `bin\startcli.bat` through the interpreter, the password and the session commands on standard
   input, the same refusals. A trust store that reaches a 6.1 client through `JAVA_TOOL_OPTIONS`
@@ -2664,6 +2675,31 @@ claude mcp add --scope user inubit-acme -- (Get-Command java).Source -jar "$env:
 
 `claude mcp get inubit-acme` shows the registered command and arguments; check that the path of
 `java` is absolute.
+
+### Register without the claude command
+
+The `claude` command may be missing, e.g. when only the Claude desktop app is installed. The
+registration is then an entry under `mcpServers` at the top level of `~/.claude.json` (Windows:
+`%USERPROFILE%\.claude.json`), the file `claude mcp add --scope user` writes. Close the client
+first, keep every other entry of the file, and check afterwards that the file is still valid JSON
+(PowerShell: `Get-Content "$env:USERPROFILE\.claude.json" -Raw | ConvertFrom-Json | Out-Null`).
+On Windows, with `\` doubled in JSON:
+
+```json
+{
+  "mcpServers": {
+    "inubit-acme": {
+      "type": "stdio",
+      "command": "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.5.11-hotspot\\bin\\java.exe",
+      "args": ["-jar", "C:\\Users\\jdoe\\AppData\\Local\\inubit-mcp\\inubit-mcp-server-0.10.1.jar",
+        "--profile", "acme"],
+      "env": {}
+    }
+  }
+}
+```
+
+Then start the client (a new session in the desktop app's Code tab); `/mcp` shows the server.
 
 `--profile acme` reads `~/.config/inubit-mcp/acme.yaml` (Windows: `%APPDATA%\inubit-mcp\acme.yaml`);
 `--config <path>` works for a file elsewhere. Without either, the server reads `config.yaml` in
