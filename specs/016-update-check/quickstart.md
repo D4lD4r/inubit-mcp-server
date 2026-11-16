@@ -34,3 +34,23 @@ java -jar /private/tmp/inubit-mcp-server.jar --version     # inubit-mcp-server <
    before `-jar` in the registration; step 1 must work.
 8. Without network: start must be as fast as before, tools work, no WARN/ERROR from the check
    (only DEBUG with `logLevel: DEBUG`).
+
+## Validation record
+
+2026-11-16, Windows 11 Pro 25H2 (10.0.26200, ARM64, German), release 0.10.0 (JAR from the
+release page, checksum verified), run with JDK 23; MCP client Claude Code and a minimal stdio
+client. Newest GitHub release at the time: 0.10.0.
+
+| Step | Result |
+|---|---|
+| Manifest (`Implementation-Version`), also from a copied JAR | PASS: 0.10.0 |
+| 1, 2: real GitHub query, `get_health` on a development node | PASS: cache written, no WARN; `serverUpdate` with `currentVersion` 0.10.0, `latestVersion` 0.10.0, `updateAvailable: false`, `releaseUrl` of v0.10.0 |
+| Cache directory `%USERPROFILE%\.inubit-mcp` (`icacls`) | PASS: the account and SYSTEM only, explicit `(OI)(CI)(F)`, not inherited; the cache file inherits these two entries |
+| 3, 4: newer release known (cache set to 0.11.0, GitHub unreachable through a dead proxy) | PASS: `instructions` end with "A newer inubit-mcp-server 0.11.0 is available (installed 0.10.0) …"; the first tool result has the note block, the second not; `get_health` shows `updateAvailable: true` with the notice; start-up as fast as online |
+| 5: elicitation dialog | SKIPPED (optional on Windows; the minimal client declares no elicitation) |
+| 6: opt-out by `INUBIT_MCP_UPDATE_CHECK=off`, by `updateCheck.enabled: false`, unrecognised value `maybe` | PASS: INFO "Update check is off (INUBIT_MCP_UPDATE_CHECK)" resp. "(updateCheck.enabled: false)", no sentence, no note, cache untouched; `maybe` gives the WARN "has an unrecognised value; use off or on (the update check stays on)" |
+| 7: proxy | SKIPPED (no proxy on the test machine) |
+| 8: offline | PASS: start-up as fast as online, no WARN/ERROR, no cache written |
+
+The cache file was deleted afterwards. Observation, not investigated: `serverUpdate.checkedAt`
+of one `get_health` call was a few minutes later than the time stored in the cache file.

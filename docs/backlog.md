@@ -142,3 +142,20 @@ share a tool. The order is the expected benefit for operations.
 Write access found in the same comparison (`maintenance on|off`, `processdelete error`,
 `tag --tagSetActive|--tagDelete`, user, library and configuration changes) is not part of this
 entry.
+
+## Windows live check follow-ups (013 T031, 2026-11-16)
+
+Found in the Windows live check (record in `specs/013-windows-startcli/quickstart.md`); the
+StartCLI password fix and the `--check-config` warning about `java_home_path_setter.cmd` are done.
+
+- **Argument forwarding of the Virtimo clients is not measured directly.** Their `startcli.bat`
+  starts `"%JAVA_HOME%\bin\java.exe"` after `java_home_path_setter.cmd` sets `JAVA_HOME`, so the
+  `win_argv` recorder cannot replace the runtime. A recorder that runs a copy of `startcli.bat`
+  in its private directory (with a dump runtime in place of `java.exe`) would measure the
+  forwarding and the length `startcli.bat` adds (R-4 margin).
+- **`cli.javaHome` has no effect for clients with `java_home_path_setter.cmd`.** Today
+  `--check-config` warns when the file sets another directory. Decide whether the setup docs should
+  say so, or whether the profile should drop `cliJavaHome` for such clients.
+- **jline prints `null` lines** after the password prompt of client 8.1 with
+  `jline.terminal=jline.UnsupportedTerminal`. The classification copes today; a recording of a
+  real login (`win_modules`) should confirm that no parser is misled.

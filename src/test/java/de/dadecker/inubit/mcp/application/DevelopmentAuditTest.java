@@ -145,6 +145,7 @@ class DevelopmentAuditTest {
     }
 
     @Test
+    @Timeout(180) // 25 exports with many git calls: over 60 s on a slow Windows VM (013 T031)
     void aLongChangeSetIsCutInTheAudit() throws IOException {
         ImportHarness harness = new ImportHarness(temp, ExportHarness.large(25, 100), "jdoe",
             "GRP-01");

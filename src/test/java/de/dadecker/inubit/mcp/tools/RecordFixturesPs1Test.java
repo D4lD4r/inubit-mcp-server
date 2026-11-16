@@ -163,6 +163,15 @@ class RecordFixturesPs1Test {
         return builder.start();
     }
 
+    /**
+     * The script's console log: Windows PowerShell 5.1 writes it in the console code page, which
+     * on a non-English Windows has non-ASCII messages that are no UTF-8; read leniently, so that a
+     * failing run shows its message instead of a MalformedInputException.
+     */
+    private static String log(Path log) throws IOException {
+        return new String(Files.readAllBytes(log), StandardCharsets.UTF_8);
+    }
+
     @Test
     @EnabledOnOs(OS.WINDOWS)
     @Timeout(180)
@@ -177,7 +186,7 @@ class RecordFixturesPs1Test {
         Process process = record(cliHome, "dev", out, log, "-NeutralizeMap", map.toString());
 
         assertThat(process.waitFor(150, TimeUnit.SECONDS)).isTrue();
-        assertThat(process.exitValue()).as(Files.readString(log)).isZero();
+        assertThat(process.exitValue()).as(log(log)).isZero();
         assertThat(out.resolve("win_help.stdout")).exists();
         assertThat(Files.readString(out.resolve("win_version.stdout")))
             .contains("Supported inubit Process Engine versions");
@@ -202,7 +211,7 @@ class RecordFixturesPs1Test {
 
         assertThat(process.waitFor(100, TimeUnit.SECONDS)).isTrue();
         assertThat(process.exitValue()).isNotZero();
-        assertThat(Files.readString(log)).contains("RECORD_ALLOWED_GROUPS");
+        assertThat(log(log)).contains("RECORD_ALLOWED_GROUPS");
         assertThat(cliHome.resolve("argv-record.json")).doesNotExist();
     }
 }

@@ -75,6 +75,52 @@ Offline (T033, commit cd27b2a):
 - Table: SC-002, SC-003, SC-004 and FR-007 green through the tests above; SC-005 (recordings in
   code pages 850, 1252, 65001) follows with T031/T032.
 
-Open: recording and live check on Windows (T031, T032) and the 6.1 session on Windows (T028)
-run in the joint live test on the 0.8.0 branch (features 012 and 013 together), by the
-person's decision; T033 is completed there with the SC-005 row and the live record.
+Live check on Windows (T031, 2026-11-16), by the Windows user with approval per step, against a
+development node (INUBIT 8.1); no production node was contacted:
+
+- Machine: Windows 11 Pro 25H2 (10.0.26200), ARM64, German; console code page 65001, OEM code
+  page 850, ANSI code page 1252. Server: release 0.10.0 and the fix below, JDK 23. Clients:
+  Workbench 8.1.17 and 9.0.11, each with its bundled Temurin runtime (17.0.18 and 21.0.12, x64).
+- Step 1, `--check-config`: `cli: available` on every node, both clients detected
+  (`CLI 8.1.17 (4.0.1–8.1.17)`, `CLI 9.0.11 (4.0.1–9.0.11)`), no Windows warning.
+- **Password from stdin: no for 8.1.17 (FR-003 stop), yes for 9.0.11.** With 0.10.0 every
+  StartCLI call on the 8.1 node ended in `TIMEOUT` with the password prompt as last output, with
+  `\n` and with `\r\n`. Cause: client 8.1.17 reads the password through jline 2, whose default
+  Windows terminal reads the console and ignores redirected stdin (research R-6). Fix: the
+  Windows `JAVA_TOOL_OPTIONS` add `-Djline.terminal=jline.UnsupportedTerminal`
+  (`StartCliEnvironment`). Against an unreachable address with a dummy password, 8.1.17 then
+  reads stdin and does not echo it; 9.0.11 is unchanged. With the fix, on the development node:
+  `list_inventory` of modules, `export_artifacts` of one module (paths with spaces, `C:/` paths
+  in the command), `InventoryLiveTest` and `ArtifactExportLiveTest` (one diagram group) pass;
+  afterwards no StartCLI process and no `inubit-mcp-export-*` directory.
+- Step 5, `DevelopmentLiveTest` on the development node with a disposable test diagram group and
+  workflow: `importRestoreActivateAndTagOnATestDiagramGroup` passes (import preview and
+  execution, `restore_backup`, `set_active`, `tag_artifacts`); the repository case is skipped
+  (no `INUBIT_LIVE_DEV_REPOSITORY_FOLDER`). Each backup file (ZIP and JSON) has the account of
+  the server and SYSTEM only, not inherited (FR-007).
+- Output encoding: UTF-8 through `JAVA_TOOL_OPTIONS`, decoded without error. With the jline
+  setting, client 8.1.17 prints `null` lines after the password prompt; the classification is not
+  affected (the live tests above pass).
+- Argument forwarding and the R-4 margin: `startcli.bat` of both clients passes `%*` unchanged
+  and starts `"%JAVA_HOME%\bin\java.exe"` after calling `java_home_path_setter.cmd`, which sets
+  `JAVA_HOME` itself. So `win_argv` cannot put its recording runtime in place and is not recorded
+  (the script now writes the reason); `cli.javaHome` has no effect for these clients, which
+  `--check-config` now names when the setter points elsewhere. Indirectly, client 9.0.11 named
+  each of the twelve contract test values unchanged as one argument ("Keystore file not found or
+  is not a valid file: <value>"). The length `startcli.bat` adds stays the default margin.
+- `\` inside a quoted value (`win_backslash`) and module names with umlauts (`win_modules`): not
+  recorded (the cases ask for credentials interactively).
+- Recordings: `win_version`, `win_help`, `win_failure`, `win_argv` of client 8.1.17 under
+  `src/test/resources/fixtures/windows/` (no credentials, neutralised, `NoCustomerIdentifiersTest`
+  20 tests, 0 skipped).
+- Offline build on this machine: green except for tests that depended on an English Windows
+  (`MainTest`, group names) and on x64 (`SystemProcessLauncherTest`, `PROCESSOR_ARCHITECTURE`,
+  which Windows on ARM64 sets in every new process), both adjusted;
+  `DevelopmentAuditTest.aLongChangeSetIsCutInTheAudit` exceeded the 60 s class limit on this VM
+  and now has 180 s.
+- Not run: `CredentialStoreLiveTest` (no test entries), `DeploymentLiveTest` (no deploy target
+  approved), the 6.1 session (T028).
+
+Open: `win_modules` and `win_backslash` recordings, `CredentialStoreLiveTest` and
+`DeploymentLiveTest` on Windows (T031); the Windows recordings in the offline suite (T032); the
+6.1 session on Windows (T028); T033 is completed with the SC-005 row after T032.

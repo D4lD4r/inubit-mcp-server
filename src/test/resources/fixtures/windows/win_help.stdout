@@ -1,0 +1,178 @@
+usage: CLI [OPTIONS] [Url]
+Opens a shell to the inubit Process Engine.
+     -a                                             List IPv4 addresses for local host
+     -c,--check                                     Check if the inubit server is alive
+        --debug                                     Enables debug output to the console
+        --disableHostNameVerification               Hostname Verification Disabled
+        --encryptString <secret>                    Encrypt a given string, may be used for
+                                                    passwords.
+        --execCommand <command>                     Executes interactive command
+        --execMode <mode>                           Executes interactive command in specific mode
+                                                    e.g. CACHE or default mode.
+     -h,--help                                      Displays this help and exit
+        --keyStoreFilePath <arg>                    Keystore File Path
+        --keyStoreFilePwd <arg>                     Keystore File Password
+     -l <arg>                                       Limits listings to X rows
+        --licenseTimeout                            License timeout in seconds
+        --maintenance <arg>                         [on|off] manages maintenance mode
+        --maintenanceState                          Maintenance mode state
+     -n                                             Do not output the trailing newline
+     -ne                                            Number failed workflows
+     -nq                                            Number queued workflows
+     -nw                                            Number waiting workflows
+        --nwho                                      Number logged in users
+     -nx                                            Number processing workflows
+     -p,--password <arg>                            Password to use
+        --pctmem                                    Used JVM memory in percent
+     -q                                             List internal queue
+        --searchClass <path> <name>                 Search for file names inside Jars in the given
+                                                    directory
+     -sv                                            Prints server version
+     -t,--timeout <arg>                             Connection timeout in seconds, default 300
+        --trustStoreFilePath <arg>                  Truststore File Path
+     -u,--user <arg>                                User for login
+     -v,--version                                   Print version information
+        --who                                       List logged in users
+     -x                                             List processing workflows
+
+As default Url 'http://localhost:8000/ibis/servlet/IBISSoapServlet' is used
+Script Mode Example: startcli.sh -u root -p inubit --execCommand "[Command] [option(s)] [arg(s)]"
+Interactive Mode Login: startcli -u root -p inubit [Url] and Execute as : <command> <options> <args>
+
+Command: tag [OPTIONS]
+Handle tags assigned to resources in the Process Engine
+Options:
+        --tagDelete <arg>                             Removes the tag from diagram, modules and
+                                                      repository if it is available
+        --tagDiagram <arg>                            Name of diagram
+        --tagMove <arg>                               Tag move/set operation
+        --tagRemove <arg>                             Removes the tag only from repository
+        --tagRemoveActive                             Removes active tag from user
+        --tagRepositoryPath <arg>                     Path inside repository
+        --tagSetActive <arg>                          Sets active tag to user
+        --tagUser <arg>                               User for the corresponding operation
+        --tagWorkflowGroup <arg>                      Name of workflow group(s), comma separated,
+                                                      use "" for all
+        --tagWorkflowGroupExclude <arg>               Exclude these groups from tagging
+        --tagWorkflowType <arg>                       Workflow type [technical | organigram |
+                                                      systemdiagram | constraintsdiagram | bpd |
+                                                      processmap]
+
+Command: rename [OPTIONS]
+Rename resources of the Process Engine such as modules, workflows, and metadata
+Options:
+        --renameDirectory <arg>               Repository Directory to rename
+        --renameFile <arg>                    Repository File to rename
+        --renameMetadata <arg>                Metadata to rename
+        --renameModule <arg>                  Module to rename
+        --renameTo <arg>                      Name to rename to
+        --renameWorkflow <arg>                Workflow to rename
+
+Command: delete [OPTIONS]
+Delete workflows, modules, users, or user groups of the inubit Process Engine
+Options:
+        --deleteModule <arg>                  Remove the module with given name
+        --deleteUser <arg>                    Remove user with with given name
+        --deleteUserGroup <arg>               Remove user group with given name
+        --deleteWorkflow <arg>                Remove workflow with given name
+
+Command: export [OPTIONS]
+Capability to export data of the inubit Process Engine to files
+Options:
+        --exportFile <arg>                               Output file for export
+        --exportMetadata                                 Export metadata registry
+        --exportMetadataNames <arg>                      Metadata names to export, comma separated
+        --exportModule <arg>                             Option to export modules
+        --exportModuleGroup <arg>                        Option to export modules under a module
+                                                         group type
+        --exportModuleUser <arg>                         Option to export modules under user or user
+                                                         group name
+        --exportRepositoryPath <arg>                     Repository export: Repository path to
+                                                         object or directory
+        --exportTag <arg>                                Tag name for export
+        --exportWorkflowGroup <arg>                      Name of workflow group(s), comma separated,
+                                                         use "" for all
+        --exportWorkflowGroupExclude <arg>               Exclude these groups from export
+        --exportWorkflowType <arg>                       Workflow type to export [technical |
+                                                         organigram | systemdiagram |
+                                                         constraintsdiagram | bpd | processmap |
+                                                         all]
+        --exportWorkflowUser <arg>                       Owning user of this workflow(group)
+        --includeHistory                                 Option to export version history
+
+Command: import [OPTIONS]
+Capability to import workflows, metadata, repository files, user, and user groups into the inubit
+Process Engine.
+Options:
+        --importFile <arg>                         File path to the import archive: Mandatory for
+                                                   user mode, repository mode, metadata mode, and
+                                                   workflow mode.
+        --importLDAPDetails                        Enables user to import LDAP server details
+        --importMetadata                           Enable metadata mode.
+        --importModule                             Enable module mode.
+        --importRepositoryPath <arg>               Enable repository mode, argument is path to the
+                                                   owner e.g. /Root/<user>.
+        --importUser <arg>                         Enables user mode: argument specifies parent
+                                                   group's name, or: if workflow mode is set:
+                                                   specifies target user of workflow.
+        --importUserGroup <arg>                    Enables user group mode: argument specifies
+                                                   parent group's name, or if workflow mode is set:
+                                                   specifies target user group of workflow.
+        --importWorkflow                           Enable workflow mode.
+        --importWorkflowActive                     Optional for workflow mode: If set, imported
+                                                   workflows are activated.
+        --importWorkflowInactive                   Optional for workflow mode: If set, imported
+                                                   workflows are deactivated.
+        --overwriteUserRoles <arg>                 Optional for user/user group mode: If true, roles
+                                                   that are already present in the Process Engine
+                                                   will be overwritten by roles in the imported
+                                                   file.
+        --returnProtocol                           Returns the list of protocol result.
+        --syncLDAPUsers                            Enables user to sync LDAP user details with
+                                                   inubit
+
+Command: backup [OPTIONS]
+Capability to backup server resources such as repository data
+Options:
+        --backupFile <arg>               Output file for backup
+        --backupRepository               Backup the whole repository
+
+Command: deploy [OPTIONS]
+Use of different deployment functions
+Options:
+        --deployConfiguration <arg>                  Property configuration file for deployment
+                                                     (ibis_deploy.xml)
+        --deployCreateProperties <arg>               File name for deployment properties created
+                                                     from export archive
+        --deployMergedArchive <arg>                  Modified archive for deployment
+        --deployMergedProperties <arg>               File name of merged properties
+        --deployPortalArchive <arg>                  Input Portal Archive name for deployment
+        --deploySourceProperties <arg>               File name of deployment properties for merging
+        --deploySystemName <arg>                     Name of the corresponding system e.g. server
+                                                     name
+        --deployTargetProperties <arg>               File name of deployment properties for merging
+        --deployUser <arg>                           Target user or group for deployment
+        --deployWorkflowArchive <arg>                Input file for deployment
+
+Command: restore [OPTIONS]
+Restore repository data from a backup file
+Options:
+        --restoreFile <arg>               Input file for restore
+        --restoreRepository               Restore repository data from backup file
+
+Command: process export (absolutePath | filename) [--excludeModel] [--filterExpression <expression>
+         | --filterProcessIds <(absolutePath | filename)>] |
+ import filepath |
+ deleteBlocked operationId |
+ listBlocked operationId |
+ resume operationId |
+ validateExport filepath
+Capability of exporting and importing process data.
+Options:
+     -f,--filterExpression <expression>                              Defines a filter condition for
+                                                                     process data being exported.
+        --filterProcessIds <(absolutePath | filename)>               Defines a path to a file
+                                                                     containing a list of PIDs to
+                                                                     export.
+     -m,--excludeModel                                               Do not export model data like
+                                                                     diagrams and modules.

@@ -144,7 +144,8 @@ class StartCliEnvironmentTest {
         expected.put("NoDefaultCurrentDirectoryInExePath", "1");
         expected.put("JAVA_HOME", JAVA_HOME);
         expected.put("JAVA_TOOL_OPTIONS", "-Duser.language=en -Duser.country=US"
-            + " -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8");
+            + " -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8"
+            + " -Djline.terminal=jline.UnsupportedTerminal");
 
         assertThat(StartCliEnvironment.windows(windowsParent(), JAVA_HOME, SYSTEM))
             .containsExactlyInAnyOrderEntriesOf(expected);

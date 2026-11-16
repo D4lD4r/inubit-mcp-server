@@ -1,0 +1,36 @@
+Password: null                                                   nullnull                                                   nullERROR 12:56:54,496 [main      ] IBISHTTPUtils             post: 
+java.net.ConnectException: Connection refused: connect
+	at sun.nio.ch.Net.connect0(Native Method) ~[?:?]
+	at sun.nio.ch.Net.connect(Net.java:591) ~[?:?]
+	at sun.nio.ch.Net.connect(Net.java:580) ~[?:?]
+	at sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:593) ~[?:?]
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:327) ~[?:?]
+	at java.net.Socket.connect(Socket.java:633) ~[?:?]
+	at sun.security.ssl.SSLSocketImpl.connect(SSLSocketImpl.java:304) ~[?:?]
+	at sun.security.ssl.SSLSocketImpl.<init>(SSLSocketImpl.java:163) ~[?:?]
+	at sun.security.ssl.SSLSocketFactoryImpl.createSocket(SSLSocketFactoryImpl.java:88) ~[?:?]
+	at com.inubit.ibis.utils.IBISSSLUtils.buildSSLSocket(IBISSSLUtils.java:99) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.utils.IBISHTTPUtils.buildSocket(IBISHTTPUtils.java:332) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.utils.IBISHTTPUtils.post(IBISHTTPUtils.java:115) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.utils.IBISSOAPHTTPConnection.send(IBISSOAPHTTPConnection.java:391) ~[ibis.jar:8.1.17]
+	at org.apache.soap.rpc.Call.invoke(Call.java:248) ~[ibis_tools.jar:8.1.17]
+	at com.inubit.ibis.soap.IBISSoapClient.doSoapCall(IBISSoapClient.java:387) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.soap.IBISSoapClient.loginUserCli(IBISSoapClient.java:538) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.CLI.execute(CLI.java:222) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.CLI.main(CLI.java:86) ~[ibis.jar:8.1.17]
+ERROR 12:56:54,529 [main      ] IBISSOAPHTTPConnection    IllegalArgumentException 
+ERROR 12:56:54,530 [main      ] IBISSOAPHTTPConnection    send: 
+java.lang.IllegalArgumentException: Error opening socket: java.net.ConnectException: Connection refused: connect
+	at com.inubit.ibis.utils.IBISHTTPUtils.post(IBISHTTPUtils.java:145) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.utils.IBISSOAPHTTPConnection.send(IBISSOAPHTTPConnection.java:391) ~[ibis.jar:8.1.17]
+	at org.apache.soap.rpc.Call.invoke(Call.java:248) ~[ibis_tools.jar:8.1.17]
+	at com.inubit.ibis.soap.IBISSoapClient.doSoapCall(IBISSoapClient.java:387) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.soap.IBISSoapClient.loginUserCli(IBISSoapClient.java:538) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.CLI.execute(CLI.java:222) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.CLI.main(CLI.java:86) ~[ibis.jar:8.1.17]
+ERROR 12:56:54,630 [main      ] CLI                       ERROR
+com.inubit.ibis.cli.CliConnectionException: @Start@LoginFailed@@@Login to the server failed.@End@Error opening socket: java.net.ConnectException: Connection refused: connect
+	at com.inubit.ibis.cli.CLI.execute(CLI.java:233) ~[ibis.jar:8.1.17]
+	at com.inubit.ibis.cli.CLI.main(CLI.java:86) ~[ibis.jar:8.1.17]
+CONNECTION ERROR
+Login to the server failed. : Error opening socket: java.net.ConnectException: Connection refused: connect

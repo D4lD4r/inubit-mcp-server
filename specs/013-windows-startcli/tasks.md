@@ -413,6 +413,11 @@ the chat for each step.
   fill its "Validation record". If the client does not read the password from redirected stdin:
   stop and ask the person (FR-003). If separator, `\` handling, encoding or the R-4 margin differ
   from the defaults: update spec, research R-3/R-4/R-6 and the code in a follow-up task.
+  - **Note (2026-11-16)**: run on Windows 11 ARM64 against a development node (record in
+    quickstart.md). Client 8.1.17 did not read the password from redirected stdin; fixed with the
+    jline setting of research R-6, after which the read-only live tests and `DevelopmentLiveTest`
+    pass. Still open: `win_modules`, `win_backslash`, `CredentialStoreLiveTest`,
+    `DeploymentLiveTest`.
 - [ ] T032 [US6] Windows recordings in the offline suite (SC-005): parse tests over the Windows
   recordings, transcoded into 850, 1252 and 65001, equal the macOS results; the substitute of T002
   is adjusted to the recorded argument forwarding. Test first: `WindowsRecordingsTest` (new).

@@ -27,6 +27,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -271,7 +272,11 @@ class SystemProcessLauncherTest {
 
         run(cli.recorderCommand(), Map.of("ONLY_THIS", "1"), "");
 
-        assertThat(cli.record().environment())
+        Map<String, String> received = new HashMap<>(cli.record().environment());
+        // Windows on ARM64 sets PROCESSOR_ARCHITECTURE in every new process itself (ARM64, or
+        // AMD64 for an emulated x64 runtime), whatever the parent passes; it names no secret
+        received.remove("PROCESSOR_ARCHITECTURE");
+        assertThat(received)
             .as("nothing inherited; the JDK adds SystemRoot to every Windows child environment")
             .containsExactlyInAnyOrderEntriesOf(Map.of("ONLY_THIS", "1",
                 "SystemRoot", systemRoot()));

@@ -39,7 +39,10 @@ writes outside the work directory (win_backslash) is listed and deleted. Afterwa
 NoCustomerIdentifiersTest.
 
 win_argv runs a small Java program in source-file mode and needs a JDK (bin\javac.exe): -JavaHome
-if it is one, else -DumpJavaHome.
+if it is one, else -DumpJavaHome. It only works with a startcli.bat that runs java from PATH: a
+client whose startcli.bat starts %JAVA_HOME%\bin\java.exe, or that has a java_home_path_setter.cmd
+setting JAVA_HOME next to its directory (the Virtimo clients 8.1 and 9.0), is not recorded and
+the case writes the reason instead.
 
 .EXAMPLE
 $env:RECORD_ALLOWED_GROUPS = 'dev'; $env:RECORD_ALLOWED_HOSTS = 'dev-node1.example.test'
@@ -92,7 +95,7 @@ $Cases = [ordered]@{
 
 # Same as StartCliEnvironment.WINDOWS_VARIABLES and WINDOWS_JAVA_TOOL_OPTIONS (research R-6).
 $AllowedVariables = @('SystemRoot', 'windir', 'SystemDrive', 'PATHEXT', 'TEMP', 'TMP', 'USERPROFILE', 'USERNAME', 'USERDOMAIN', 'APPDATA', 'LOCALAPPDATA', 'ProgramData', 'OS', 'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS')
-$JavaToolOptions = '-Duser.language=en -Duser.country=US -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8'
+$JavaToolOptions = '-Duser.language=en -Duser.country=US -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8 -Djline.terminal=jline.UnsupportedTerminal'
 
 # The server's limits (WindowsCommandLine): 8191 minus a margin of 2048, and the path rule.
 $MaxLineLength = 6143
@@ -397,8 +400,32 @@ public class ArgvDump {
 }
 '@
 
+# Why the wrapper runtime of win_argv cannot take the place of the client's java, or $null: the
+# Virtimo clients call <cli.home>\..\java_home_path_setter.cmd first, which sets JAVA_HOME itself,
+# and start "%JAVA_HOME%\bin\java.exe" by its full name (013 T031).
+function Get-ArgvObstacle {
+    $setter = Join-Path (Split-Path -Parent $CliHome) 'java_home_path_setter.cmd'
+    if ((Test-Path -LiteralPath $setter) -and
+        ([IO.File]::ReadAllText($setter) -match '(?im)^\s*set\s+"?JAVA_HOME=')) {
+        return 'java_home_path_setter.cmd next to the client directory sets JAVA_HOME itself'
+    }
+    $batch = Join-Path $CliHome 'bin\startcli.bat'
+    if ([IO.File]::ReadAllText($batch) -match '(?i)%JAVA_HOME%\\bin\\java\.exe') {
+        return 'bin\startcli.bat starts %JAVA_HOME%\bin\java.exe, not java from PATH'
+    }
+    return $null
+}
+
 function Invoke-CaseArgv {
     $prefix = Join-Path $script:RawDirectory $script:CaseName
+    $obstacle = Get-ArgvObstacle
+    if ($obstacle) {
+        Write-Warning "win_argv not recorded: $obstacle"
+        [IO.File]::WriteAllText($prefix + '.stdout', "not recorded: $obstacle`n", $Utf8)
+        [IO.File]::WriteAllText($prefix + '.stderr', '', $Utf8)
+        [IO.File]::WriteAllText($prefix + '.exit', "skipped`n")
+        return
+    }
     $wrapperHome = Join-Path $script:PrivateDirectory 'argv-java'
     $wrapperBin = Join-Path $wrapperHome 'bin'
     New-Item -ItemType Directory -Path $wrapperBin | Out-Null

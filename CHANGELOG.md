@@ -7,6 +7,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows: StartCLI-backed tools on INUBIT 8.1 nodes no longer end in `TIMEOUT` at the password
+  prompt. Client 8.1 reads the password through jline 2, whose default Windows terminal ignored
+  the redirected standard input; the server now starts StartCLI with
+  `-Djline.terminal=jline.UnsupportedTerminal`. Clients from 9.0 were not affected.
+
+### Added
+
+- Windows: `--check-config` warns when the `java_home_path_setter.cmd` of an INUBIT client sets
+  another `JAVA_HOME` than the configured `cliJavaHome` / `javaHome`; `startcli.bat` uses that
+  runtime.
+
 ## [0.10.0] - 2026-11-15
 
 New read tools and options from features 021, 022 (user stories 1–3) and 024, and masking of

@@ -87,7 +87,8 @@ confirm. Code references are to `main` at `18344e2`.
   `USERPROFILE`, `USERNAME`, `USERDOMAIN`, `APPDATA`, `LOCALAPPDATA`, `ProgramData`, `OS`,
   `PROCESSOR_ARCHITECTURE`, `NUMBER_OF_PROCESSORS` (copied if set), `JAVA_HOME` (as today),
   `JAVA_TOOL_OPTIONS` = today's value plus the Windows-only
-  `-Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8` (R-6), and two
+  `-Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8
+  -Djline.terminal=jline.UnsupportedTerminal` (R-6), and two
   values the server sets instead of copying:
   - `PATH` = `<JAVA_HOME>\bin;<system dir>` (not the server's `PATH`), so an unqualified `java` in
     `startcli.bat` finds only the configured runtime; the effective Java home (`cli.javaHome`, else
@@ -117,6 +118,13 @@ confirm. Code references are to `main` at `18344e2`.
   recordings.
 - **To confirm in R-13**: that the client honours the settings (output of a module list with
   umlauts), and that it reads the password from redirected stdin.
+- **Finding (T031, 2026-11-16)**: client 8.1.17 did not read the password from redirected stdin
+  (with `\n` or `\r\n`): it reads it through jline 2 (`ConsoleReader` on `TerminalFactory.get()`),
+  whose default Windows terminal reads the console directly, so every StartCLI call ended in
+  `TIMEOUT` at the password prompt. Client 9.0.11 read it. Decision: the Windows
+  `JAVA_TOOL_OPTIONS` add `-Djline.terminal=jline.UnsupportedTerminal`, with which jline 2 reads
+  `System.in`; checked against an unreachable address with a dummy password: 8.1.17 then reads
+  stdin and does not echo it, 9.0.11 is unchanged.
 
 ## R-7 Process tree, timeouts and forced termination
 
