@@ -2135,7 +2135,7 @@ ignores `x-*` keys):
 ```yaml
 x-cert-check:
   java: /Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home/bin/java  # keytool: same directory
-  serverJar: ~/lib/inubit-mcp-server-0.10.1.jar
+  serverJar: ~/lib/inubit-mcp-server-0.10.2.jar
 ```
 
 Update `serverJar` together with the JAR the registration (or the start script below) runs, and
@@ -2691,7 +2691,7 @@ On Windows, with `\` doubled in JSON:
     "inubit-acme": {
       "type": "stdio",
       "command": "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.5.11-hotspot\\bin\\java.exe",
-      "args": ["-jar", "C:\\Users\\jdoe\\AppData\\Local\\inubit-mcp\\inubit-mcp-server-0.10.1.jar",
+      "args": ["-jar", "C:\\Users\\jdoe\\AppData\\Local\\inubit-mcp\\inubit-mcp-server-0.10.2.jar",
         "--profile", "acme"],
       "env": {}
     }
