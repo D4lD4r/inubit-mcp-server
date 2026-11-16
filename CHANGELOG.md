@@ -7,6 +7,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-11-16
+
+Documentation for installing on Windows and a watched Windows CI job; no change to the server.
+
+### Documentation
+
+- README and `docs/setup.md`: installing a Java 21 runtime and git on Windows with `winget`
+  (with a native ARM64 JDK on Windows on ARM), restarting the client after installing git,
+  registering without the `claude` command (`mcpServers` in `~/.claude.json`), and configuring the
+  Java runtime the INUBIT Workbench installation brings (`<installation>\_jvm`) as
+  `cliJavaHome`, since its `startcli.bat` sets `JAVA_HOME` through `java_home_path_setter.cmd`.
+
+### CI
+
+- The Windows job runs under `.github/scripts/windows-build.ps1` with a time limit of 75 minutes:
+  time-stamped Maven output, a status line per minute (free memory, CPU, Java processes), and a
+  stop with the largest processes listed when memory runs low, so that a lost runner leaves a log.
+
 ## [0.10.1] - 2026-11-16
 
 Fix for StartCLI on Windows with INUBIT 8.1 clients, found in the Windows live check of
@@ -1378,7 +1396,8 @@ First public release.
 - Version-specific REST and StartCLI adapters; an offline test suite with recorded fixtures.
 - Migration guide for configuration files of the earlier `stages`/`servers` format.
 
-[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.10.2...HEAD
+[0.10.2]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/D4lD4r/inubit-mcp-server/compare/v0.9.0...v0.9.1
