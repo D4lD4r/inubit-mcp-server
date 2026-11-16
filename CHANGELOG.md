@@ -24,6 +24,8 @@ Documentation for installing on Windows and a watched Windows CI job; no change 
 - The Windows job runs under `.github/scripts/windows-build.ps1` with a time limit of 75 minutes:
   time-stamped Maven output, a status line per minute (free memory, CPU, Java processes), and a
   stop with the largest processes listed when memory runs low, so that a lost runner leaves a log.
+- A test that exceeds its time limit prints a thread dump of the test JVM
+  (`src/test/resources/junit-platform.properties`).
 
 ## [0.10.1] - 2026-11-16
 
