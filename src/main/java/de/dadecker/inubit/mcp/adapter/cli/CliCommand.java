@@ -4,12 +4,14 @@ import de.dadecker.inubit.mcp.config.CliPaths;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.TraceLevel;
 import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
 import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.domain.port.ArtifactPort;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -48,7 +50,15 @@ import java.util.regex.Pattern;
  *       ({@link #traceNodeLevel}; the level only from {@link TemporaryLevel} through
  *       {@link Builder#nodeLevel}, the logger only as a {@link LoggerName} through
  *       {@link Builder#loggerPackage}) and {@code trace --reset} ({@link #traceReset}). Never
- *       {@code on}, {@code off}, {@code -l}, {@code --level} or the short option names.
+ *       {@code --level} or the short option names.
+ *   <li>Feature 022 (research D-22), the operation forms, each only through its own method and
+ *       never through the {@link Builder} nor combined with another option:
+ *       {@code maintenance}, {@code maintenance -s}, {@code maintenance on|off} and
+ *       {@code maintenance on -eq true|false} ({@link #maintenanceSwitch}; {@code -eq} only with
+ *       {@code on}); {@code trace on|off} ({@link #traceSwitch}) and {@code trace -l <level>}
+ *       ({@link #traceLevel}, a {@link TraceLevel}); {@code debug on|off};
+ *       {@code triggerMidnightTask}; {@code processdelete error}. {@code OPTIONS} lists them as
+ *       the coverage list writes them.
  *   <li>Process ids are 1–19 decimal digits without leading zero ({@code ^[1-9][0-9]{0,18}$}).
  *   <li>Every other value (workflow, type, group, owner) must match
  *       {@link #VALUE} (no leading {@code -}) and is wrapped in single quotes; a value with
@@ -78,26 +88,47 @@ public final class CliCommand {
     private static final Pattern PROCESS_ID = Pattern.compile("^[1-9][0-9]{0,18}$");
 
     /** Commands and the options each of them accepts. */
-    private static final Map<String, Set<String>> OPTIONS = Map.of(
-        "processErrorStart", Set.of(),
-        "kill", Set.of(),
-        "export", Set.of(
+    private static final Map<String, Set<String>> OPTIONS = Map.ofEntries(
+        Map.entry("processErrorStart", Set.of()),
+        Map.entry("kill", Set.of()),
+        Map.entry("export", Set.of(
             "--exportWorkflowUser", "--exportWorkflowType", "--exportWorkflowGroup",
             "--includeHistory", "--exportFile",
             "--exportModule", "--exportModuleGroup", "--exportModuleUser",
             // feature 005 (research D-1, D-4)
             "--exportTag", "--exportRepositoryPath",
             // feature 022 (research D-21)
-            "--exportWorkflowGroupExclude", "--exportMetadata", "--exportMetadataNames"),
+            "--exportWorkflowGroupExclude", "--exportMetadata", "--exportMetadataNames")),
         // feature 004 (research D-8): no metadata; feature 005 (D-1): the repository mode
-        "import", Set.of("--importFile", "--importWorkflow", "--importWorkflowActive",
+        Map.entry("import", Set.of("--importFile", "--importWorkflow", "--importWorkflowActive",
             "--importWorkflowInactive", "--importModule", "--importUser", "--returnProtocol",
-            "--importRepositoryPath"),
-        "tag", Set.of("--tagMove", "--tagWorkflowGroup", "--tagWorkflowType", "--tagUser"),
-        // feature 021 (research D-1), feature 024 (D-11): never on, off, -l, --level, -nl, -p, -r
-        "trace", Set.of("--download", "--nodelevel", "--package", "--reset"),
+            "--importRepositoryPath")),
+        Map.entry("tag",
+            Set.of("--tagMove", "--tagWorkflowGroup", "--tagWorkflowType", "--tagUser")),
+        // feature 021 (research D-1), feature 024 (D-11), feature 022 (D-22: on|off and -l
+        // through traceSwitch() and traceLevel() only); never --level, -nl, -p, -r
+        Map.entry("trace",
+            Set.of("--download", "--nodelevel", "--package", "--reset", "on|off", "-l")),
         // feature 022 (research D-21): built through libraryList() only
-        "library", Set.of("--list", "--type"));
+        Map.entry("library", Set.of("--list", "--type")),
+        // feature 022 (research D-22): built through their factory methods only
+        Map.entry("maintenance", Set.of("-s", "on|off", "-eq true|false")),
+        Map.entry("debug", Set.of("on|off")),
+        Map.entry("triggerMidnightTask", Set.of()),
+        Map.entry("processdelete", Set.of("error")));
+    /**
+     * The commands of the operation forms (feature 022, research D-22): the {@link Builder}
+     * refuses to build them, so they exist only as their factory methods.
+     */
+    private static final Set<String> OPERATION_COMMANDS =
+        Set.of("maintenance", "debug", "triggerMidnightTask", "processdelete");
+    /**
+     * The entries of {@link #OPTIONS} that name an operation form the way the coverage list
+     * writes it ({@code trace on|off}, {@code maintenance -eq true|false}); they are no options
+     * the {@link Builder} takes.
+     */
+    private static final Set<String> OPERATION_OPTIONS =
+        Set.of("-s", "on|off", "-eq true|false", "-l", "error");
     /** The options without value ({@link Builder#flag}); every other option takes one. */
     private static final Set<String> FLAGS = Set.of("--includeHistory", "--importWorkflow",
         "--importWorkflowActive", "--importWorkflowInactive", "--importModule",
@@ -189,6 +220,71 @@ public final class CliCommand {
     /** {@code trace --reset}: reset the node's log levels (feature 024, FR-007, D-11). */
     public static CliCommand traceReset() {
         return command("trace").flag("--reset").build();
+    }
+
+    /** {@code maintenance}: the maintenance state as StartCLI shows it (feature 022, D-22). */
+    public static CliCommand maintenance() {
+        return new CliCommand(List.of("maintenance"));
+    }
+
+    /** {@code maintenance -s}: the maintenance state (feature 022, research D-22). */
+    public static CliCommand maintenanceState() {
+        return new CliCommand(List.of("maintenance", "-s"));
+    }
+
+    /**
+     * {@code maintenance on|off}, and with {@code executeQueued} {@code maintenance on -eq
+     * true|false} (feature 022, research D-22); {@code null} sends no {@code -eq}, which only
+     * {@code on} takes.
+     */
+    public static CliCommand maintenanceSwitch(boolean on, Boolean executeQueued) {
+        if (executeQueued == null) {
+            return new CliCommand(List.of("maintenance", onOff(on)));
+        }
+        if (!on) {
+            throw invalid("-eq is only allowed with maintenance on",
+                "Whether queued processes are executed applies only when maintenance is switched"
+                    + " on (research D-22)");
+        }
+        return new CliCommand(List.of("maintenance", "on", "-eq", executeQueued.toString()));
+    }
+
+    /** {@code trace on|off}: switch the server's trace (feature 022, research D-22). */
+    public static CliCommand traceSwitch(boolean on) {
+        return new CliCommand(List.of("trace", onOff(on)));
+    }
+
+    /**
+     * {@code trace -l <level>}: the server's trace level, the enum name in lower case (feature
+     * 022, research D-22).
+     */
+    public static CliCommand traceLevel(TraceLevel level) {
+        if (level == null) {
+            throw invalid("The trace level is missing", "Use one of the levels of trace -l");
+        }
+        return new CliCommand(List.of("trace", "-l", level.name().toLowerCase(Locale.ROOT)));
+    }
+
+    /** {@code debug on|off}: switch the server's debug mode (feature 022, research D-22). */
+    public static CliCommand debugSwitch(boolean on) {
+        return new CliCommand(List.of("debug", onOff(on)));
+    }
+
+    /** {@code triggerMidnightTask}: run the midnight task now (feature 022, research D-22). */
+    public static CliCommand triggerMidnightTask() {
+        return new CliCommand(List.of("triggerMidnightTask"));
+    }
+
+    /**
+     * {@code processdelete error}: delete the process instances in state ERROR (feature 022,
+     * research D-22); no other argument is ever sent.
+     */
+    public static CliCommand processDeleteError() {
+        return new CliCommand(List.of("processdelete", "error"));
+    }
+
+    private static String onOff(boolean on) {
+        return on ? "on" : "off";
     }
 
     /** The command name, e.g. {@code export}. */
@@ -407,11 +503,16 @@ public final class CliCommand {
                 throw invalid("The StartCLI command " + name + " needs a process id",
                     "processErrorStart and kill take exactly one process id");
             }
+            if (OPERATION_COMMANDS.contains(name)) {
+                throw invalid("The StartCLI command " + name + " is built by its own method only",
+                    "Only the operation forms of research D-22 are sent");
+            }
             if (name.equals("trace") && !traceForm()) {
                 throw invalid("The StartCLI command trace takes exactly one of --download,"
                         + " --nodelevel with --package, or --reset",
-                    "Every other trace form switches or shows the trace state or sets more than"
-                        + " one logger (research D-1, D-11)");
+                    "The trace switch and level are built by traceSwitch() and traceLevel()"
+                        + " alone; every other form shows the trace state or sets more than one"
+                        + " logger (research D-1, D-11, D-22)");
             }
             if (name.equals("library")) {
                 throw invalid("The StartCLI command library is only the library list",
@@ -500,6 +601,11 @@ public final class CliCommand {
             if (!OPTIONS.get(name).contains(option)) {
                 throw invalid("The StartCLI option is not allow-listed",
                     "Only the documented options of " + name + " can be used");
+            }
+            if (OPERATION_OPTIONS.contains(option)) {
+                throw invalid("The StartCLI operation form " + name + " " + option
+                        + " is not built option by option",
+                    "Use its own method (research D-22)");
             }
             return option;
         }

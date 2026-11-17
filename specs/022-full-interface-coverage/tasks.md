@@ -935,7 +935,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
 
 ### operate_server
 
-- [ ] T056 [US4] `CliCommand` operation forms:
+- [X] T056 [US4] `CliCommand` operation forms:
   - `maintenance` (no option, `-s`, `on`, `off`, `on -eq true|false`; `-eq` only with `on`);
   - `trace on|off`, `trace -l <level>` (level enum from T054; until then the vendor list
     `error|warn|info|debug` reconstructed and marked in `research.md`), with `trace --download`

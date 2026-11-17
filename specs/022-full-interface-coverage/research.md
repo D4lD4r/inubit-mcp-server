@@ -637,6 +637,18 @@ The two REST reads without a working form stay planned rather than guessed.
 `CliCommand.OPTIONS["trace"]` keeps `--download` (feature 021) and gains `on`, `off` and `-l`. The
 `trace --download` path stays a separate builder method.
 
+Implemented in T056: every operation form is its own factory method of `CliCommand`
+(`maintenance`, `maintenanceState`, `maintenanceSwitch`, `traceSwitch`, `traceLevel`,
+`debugSwitch`, `triggerMidnightTask`, `processDeleteError`), never built option by option and
+never combined with `--download`. `OPTIONS` lists the forms as the coverage list writes them
+(`trace on|off`, `trace -l`, `maintenance -s`, `maintenance on|off`, `maintenance -eq true|false`,
+`debug on|off`, `triggerMidnightTask`, `processdelete error`), so check 1 of the coverage list
+sees them.
+
+**Trace levels (reconstructed)**: `TraceLevel` holds `error|warn|info|debug`, the reconstructed
+vendor list of T056, sent in lower case. It is not recorded: L-3 (T054) records the list from
+`trace --help` and replaces this one.
+
 Switching maintenance off uses StartCLI over the SOAP servlet, which the vendor does not list
 among the answers blocked in maintenance mode (L-2). The read before the change accepts
 `MAINTENANCE_MODE` from REST as "on".

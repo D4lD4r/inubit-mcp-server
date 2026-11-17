@@ -7,11 +7,13 @@ import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Built;
 import de.dadecker.inubit.mcp.config.CliPaths;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.TraceLevel;
 import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
 import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.testing.Platform;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -703,5 +705,95 @@ class CliCommandTest {
             assertInvalidInput(() -> CliCommand.command("trace").nodeLevel(TemporaryLevel.DEBUG)
                 .quoted(raw, "com.inubit.ibis.acme"));
         }
+    }
+
+    // --- feature 022 (T056, research D-22): the operation forms of operate_server -------------
+
+    @Test
+    void maintenanceHasTheFiveForms() {
+        assertThat(CliCommand.maintenance().commandLine()).isEqualTo("maintenance");
+        assertThat(CliCommand.maintenanceState().commandLine()).isEqualTo("maintenance -s");
+        assertThat(CliCommand.maintenanceSwitch(true, null).commandLine())
+            .isEqualTo("maintenance on");
+        assertThat(CliCommand.maintenanceSwitch(false, null).commandLine())
+            .isEqualTo("maintenance off");
+        assertThat(CliCommand.maintenanceSwitch(true, true).commandLine())
+            .isEqualTo("maintenance on -eq true");
+        assertThat(CliCommand.maintenanceSwitch(true, false).commandLine())
+            .isEqualTo("maintenance on -eq false");
+        assertThat(CliCommand.maintenanceSwitch(true, false).name()).isEqualTo("maintenance");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void executeQueuedWithOffIsRejected(boolean executeQueued) {
+        assertInvalidInput(() -> CliCommand.maintenanceSwitch(false, executeQueued));
+    }
+
+    @Test
+    void traceSwitchAndLevelAreTheirOwnForms() {
+        assertThat(CliCommand.traceSwitch(true).commandLine()).isEqualTo("trace on");
+        assertThat(CliCommand.traceSwitch(false).commandLine()).isEqualTo("trace off");
+        assertThat(CliCommand.traceSwitch(true).name()).isEqualTo("trace");
+        assertThat(CliCommand.traceLevel(TraceLevel.WARN).commandLine()).isEqualTo("trace -l warn");
+    }
+
+    @ParameterizedTest
+    @EnumSource(TraceLevel.class)
+    void everyTraceLevelIsPassedInLowerCase(TraceLevel level) {
+        assertThat(CliCommand.traceLevel(level).commandLine())
+            .isEqualTo("trace -l " + level.name().toLowerCase(Locale.ROOT));
+    }
+
+    @Test
+    void theTraceLevelsAreTheReconstructedVendorList() {
+        // research D-22: error|warn|info|debug until T054 records the list from trace --help
+        assertThat(TraceLevel.values()).extracting(Enum::name)
+            .containsExactly("ERROR", "WARN", "INFO", "DEBUG");
+    }
+
+    @Test
+    void theTraceSwitchAndLevelAreNeverCombinedWithTheDownload() {
+        Path log = file("/tmp/x/trace.log");
+        for (String raw : List.of("on", "off", "on|off", "-l")) {
+            assertInvalidInput(() -> CliCommand.command("trace").path("--download", log, WINDOWS)
+                .flag(raw));
+            assertInvalidInput(() -> CliCommand.command("trace").path("--download", log, WINDOWS)
+                .quoted(raw, "info"));
+            assertInvalidInput(() -> CliCommand.command("trace").quoted(raw, "info"));
+        }
+        assertInvalidInput(() -> CliCommand.traceLevel(null));
+    }
+
+    @Test
+    void debugMidnightTaskAndProcessDeleteHaveOneFormEach() {
+        assertThat(CliCommand.debugSwitch(true).commandLine()).isEqualTo("debug on");
+        assertThat(CliCommand.debugSwitch(false).commandLine()).isEqualTo("debug off");
+        assertThat(CliCommand.triggerMidnightTask().commandLine())
+            .isEqualTo("triggerMidnightTask");
+        assertThat(CliCommand.processDeleteError().commandLine()).isEqualTo("processdelete error");
+        assertThat(CliCommand.processDeleteError().name()).isEqualTo("processdelete");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"error", "all", "-a", "--all", "on|off", "-s", "-eq true|false"})
+    void processDeleteTakesNoOtherArgument(String argument) {
+        assertInvalidInput(() -> CliCommand.command("processdelete").flag(argument));
+        assertInvalidInput(() -> CliCommand.command("processdelete").quoted(argument, "error"));
+        assertInvalidInput(() -> CliCommand.command("processdelete").emptyQuoted(argument));
+    }
+
+    @Test
+    void theOperationCommandsAreBuiltByTheirOwnMethodsOnly() {
+        assertInvalidInput(() -> CliCommand.command("processdelete").build());
+        assertInvalidInput(() -> CliCommand.command("processdelete").processId("110190387"));
+        for (String name : List.of("maintenance", "debug", "triggerMidnightTask")) {
+            assertInvalidInput(() -> CliCommand.command(name).build());
+        }
+        for (String option : List.of("-s", "on|off", "-eq true|false")) {
+            assertInvalidInput(() -> CliCommand.command("maintenance").flag(option));
+            assertInvalidInput(() -> CliCommand.command("maintenance").quoted(option, "true"));
+        }
+        assertInvalidInput(() -> CliCommand.command("debug").quoted("on|off", "on"));
     }
 }
