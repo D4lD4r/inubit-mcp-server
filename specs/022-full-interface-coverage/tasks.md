@@ -903,7 +903,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
     message text ≤ 200 characters;
   - `NOTHING_TO_DO` audited as `EXECUTED` with details `nothing-to-do`.
   - Failing tests first: `ChangeAuditTest.java` with `RecordingAuditPort`; leak check.
-- [ ] T053 [US4] Backup kind (D-15): `application/BackupStore.java` gains `Manifest.Kind.ADMINISTRATION`:
+- [X] T053 [US4] Backup kind (D-15): `application/BackupStore.java` gains `Manifest.Kind.ADMINISTRATION`:
   - scope node, object kind (`WORKFLOW`, `MODULE`, `METADATA`, `REPOSITORY`, `TAG_LIST`), name;
   - `auditId`, `contents`;
   - `writeTagList(scope, List<TaggedVersion>)` as JSON;
