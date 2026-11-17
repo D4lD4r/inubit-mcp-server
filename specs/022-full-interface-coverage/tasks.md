@@ -879,7 +879,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - Every refusal is audited `REFUSED`.
   - Failing tests first: `application/ChangeGuardTest.java`, one test per step and per code, plus
     the order (production refusal wins over write off).
-- [ ] T050 [P] [US4] `application/ChangeLocks.java` (D-17): `try (var lock =
+- [X] T050 [P] [US4] `application/ChangeLocks.java` (D-17): `try (var lock =
   locks.acquire(node, area, object))`; a key already held gives `PRECONDITION_FAILED`; released in
   `finally`.
   - Failing tests first: `ChangeLocksTest.java` (parallel threads; release after exception).
