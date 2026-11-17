@@ -72,6 +72,7 @@ import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.ServerLogAudit;
 import de.dadecker.inubit.mcp.application.ServerLogService;
+import de.dadecker.inubit.mcp.application.ServerOperationService;
 import de.dadecker.inubit.mcp.application.ServerSettingsService;
 import de.dadecker.inubit.mcp.application.TagService;
 import de.dadecker.inubit.mcp.application.TargetFolderRules;
@@ -272,7 +273,8 @@ final class Wiring implements AutoCloseable {
     /** Feature 022 (research D-2): the tool actions of the coverage gate; stories add theirs. */
     private final ActionCatalog actions = new ActionCatalog(Stream.of(
         Stream.of(ServerSettingsService.SPEC), UserReadService.SPECS.stream(),
-        ModelDetailService.SPECS.stream(), ArchiveExportService.SPECS.stream())
+        ModelDetailService.SPECS.stream(), ArchiveExportService.SPECS.stream(),
+        ServerOperationService.SPECS.stream())
         .flatMap(specs -> specs).toList());
     private final ExportArtifactsTool exportArtifacts;
     /** Feature 015: offered under the condition of {@code export_artifacts} (research R-16). */

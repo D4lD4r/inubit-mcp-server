@@ -959,7 +959,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - adds the capability `SERVER_OPERATION` the way T011 added `SERVER_SETTINGS` (label, matrix "not yet
     verified", `NodeOverview`, `list_nodes` enum), with `CapabilityMatrixTest` and `ListNodesToolTest`;
   - Failing tests first: adapter tests, `WiringAuditTest`.
-- [ ] T059 [US4] `application/ServerOperationService.java`, switch actions:
+- [X] T059 [US4] `application/ServerOperationService.java`, switch actions:
   - `setMaintenance`, `setReadiness`, `setTrace`, `setTraceLevel`, `setDebug`,
     `triggerMidnightTask`, per `contracts/mcp-tools-delta.md`;
   - the before state read first (`MAINTENANCE_MODE` from REST counts as "on");

@@ -663,6 +663,14 @@ Switching maintenance off uses StartCLI over the SOAP servlet, which the vendor 
 among the answers blocked in maintenance mode (L-2). The read before the change accepts
 `MAINTENANCE_MODE` from REST as "on".
 
+**Version gate in maintenance mode** (Decided in T059 round 2, execution agent): on
+`versionLine: AUTO`, the write re-detection reads REST `GET /system/info`, which answers 503 in
+maintenance mode. When that detection failed with `MAINTENANCE_MODE`, `setMaintenance` with
+`on: false`, and no other action or error code, is judged on the node's last detected or observed
+version, however old, under every other gate rule (`VersionGate.admitCall(…, leavingMaintenance)`);
+if no version of the node was ever known, it is refused `UNSUPPORTED_VERSION` with the next step
+to pin `versionLine` for the node.
+
 **Port (T058)**: `ServerOperationPort`, in the 8.1 port set (9.0 reuses it) as
 `V81ServerOperationAdapter`, capability `SERVER_OPERATION` (REST and StartCLI, "not yet verified"
 until T054). The states before and after come from the port (`maintenance -s`) and from

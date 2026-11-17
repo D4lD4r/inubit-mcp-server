@@ -139,6 +139,11 @@ public final class ChangeChallenges {
         return registry.redeem(code, tool, node, fingerprint);
     }
 
+    /** Withdraws {@code code}, e.g. when the audit record of its preview could not be written. */
+    public void discard(String code) {
+        registry.discard(code);
+    }
+
     /**
      * Returns if the state read again right before sending is the state of the preview.
      * Otherwise issues a fresh code for the re-read state and refuses.

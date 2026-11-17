@@ -155,6 +155,18 @@ class ChangeChallengesTest {
         assertThat(error.code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);
     }
 
+    /** A code whose preview could not be audited is withdrawn (T059). */
+    @Test
+    void aDiscardedCodeIsConfirmationInvalid() {
+        String code = issue();
+
+        challenges.discard(code);
+
+        assertThat(errorOf(() -> challenges.redeem(code, TOOL, NODE1,
+            ChangeChallenges.fingerprint(INPUT))).code())
+            .isEqualTo(ErrorCode.CONFIRMATION_INVALID);
+    }
+
     // ---- confirmOrConflict -----------------------------------------------------------------
 
     private static ChangePreview preview(String before) {

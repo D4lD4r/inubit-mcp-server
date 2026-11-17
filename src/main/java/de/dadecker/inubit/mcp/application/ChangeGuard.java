@@ -83,6 +83,17 @@ public final class ChangeGuard {
      */
     public WritePolicy admit(String tool, String node, ActionSpec spec,
         Map<String, Object> input) {
+        return admit(tool, node, spec, input, false);
+    }
+
+    /**
+     * {@link #admit(String, String, ActionSpec, Map)}; {@code leavingMaintenance} only for the
+     * call that switches maintenance mode off, which step 5 admits on the node's last known
+     * version when the version detection failed with {@code MAINTENANCE_MODE}
+     * ({@link VersionGate#admitCall(String, NodeId, ActionSpec, Set, boolean)}).
+     */
+    public WritePolicy admit(String tool, String node, ActionSpec spec,
+        Map<String, Object> input, boolean leavingMaintenance) {
         Objects.requireNonNull(tool, "tool");
         Objects.requireNonNull(spec, "spec");
         Objects.requireNonNull(input, "input");
@@ -94,7 +105,8 @@ public final class ChangeGuard {
                 throw notConfigured(tool, id, spec.area());
             }
             Set<CoverageKey> entries = spec.entries(input);
-            VersionGate.Admission admission = gate.admitCall(tool, id, spec, entries);
+            VersionGate.Admission admission = gate.admitCall(tool, id, spec, entries,
+                leavingMaintenance);
             if (entries.stream().anyMatch(entry -> entry.channel() == Channel.CLI)) {
                 gateways.processControl(id).checkAvailable();
             }
