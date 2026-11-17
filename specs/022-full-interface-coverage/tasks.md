@@ -896,7 +896,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - `CLIENT` mode is honoured only for `Area.OPERATION`.
   - Failing tests first: `ChangeChallengesTest.java` (wrong tool, node or input →
     `CONFIRMATION_INVALID`; changed state → `CONFLICT`; administration areas ignore `CLIENT`).
-- [ ] T052 [US4] `application/ChangeAudit.java`:
+- [X] T052 [US4] `application/ChangeAudit.java`:
   - the records `REFUSED`, `CHALLENGE_ISSUED`, `PENDING` (forced to disk before sending; a
     failure gives `INTERNAL` and sends nothing), `EXECUTED`/`FAILED` with the same audit id;
   - inputs bounded (500 characters), `secretEntry` by name, uploads by path, size and SHA-256,

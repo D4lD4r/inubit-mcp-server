@@ -1,29 +1,23 @@
 package de.dadecker.inubit.mcp.application;
 
-import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
 import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.CoverageKey;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
-import de.dadecker.inubit.mcp.domain.model.Target;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
-import de.dadecker.inubit.mcp.domain.port.AuditPort;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
-import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,12 +39,12 @@ import org.slf4j.LoggerFactory;
  *       ({@code CLI_UNAVAILABLE}, {@code AUTH_FAILED}).
  * </ol>
  *
- * <p>Steps 1–3 are those of {@link WriteGuard}. Every refusal is audited as {@code REFUSED}.
+ * <p>Steps 1–3 are those of {@link WriteGuard}. Every refusal is audited as {@code REFUSED}
+ * through {@link ChangeAudit}, with the action and a presented confirmation code as inputs.
  */
 public final class ChangeGuard {
 
     private static final Logger LOG = LoggerFactory.getLogger(ChangeGuard.class);
-    private static final int MAX_AUDITED_INPUT = 500;
 
     private final TargetResolver targets;
     private final Function<NodeId, WritePolicy> policies;
@@ -58,10 +52,7 @@ public final class ChangeGuard {
     private final GatewayFactory gateways;
     private final VersionGate gate;
     private final WriteGuard writes;
-    private final AuditPort audit;
-    private final String profile;
-    private final Clock clock;
-    private final Supplier<UUID> ids;
+    private final ChangeAudit audit;
 
     /**
      * @param policies       the write settings of each configured server ({@code null}: no write
@@ -71,7 +62,7 @@ public final class ChangeGuard {
      */
     public ChangeGuard(TargetResolver targets, Function<NodeId, WritePolicy> policies,
         BiPredicate<NodeId, ActionSpec.Area> administration, GatewayFactory gateways,
-        VersionGate gate, AuditPort audit, String profile, Clock clock, Supplier<UUID> ids) {
+        VersionGate gate, ChangeAudit audit) {
         this.targets = Objects.requireNonNull(targets, "targets");
         this.policies = Objects.requireNonNull(policies, "policies");
         this.administration = Objects.requireNonNull(administration, "administration");
@@ -79,9 +70,6 @@ public final class ChangeGuard {
         this.gate = Objects.requireNonNull(gate, "gate");
         this.writes = new WriteGuard(targets, policies, gateways, gate);
         this.audit = Objects.requireNonNull(audit, "audit");
-        this.profile = Objects.requireNonNull(profile, "profile");
-        this.clock = Objects.requireNonNull(clock, "clock");
-        this.ids = Objects.requireNonNull(ids, "ids");
     }
 
     /**
@@ -139,56 +127,37 @@ public final class ChangeGuard {
         return key.toString();
     }
 
-    /** Audits {@code error} as {@code REFUSED}. */
+    /**
+     * Audits {@code error} as {@code REFUSED}: in the step {@code EXECUTE} if the call carried a
+     * confirmation code or needs none ({@link ChangeChallenges#needsCode}), else {@code PREVIEW}.
+     */
     private ToolErrorException refused(String tool, String node, ActionSpec spec,
         Map<String, Object> input, ToolError error) {
-        Map<String, String> inputs = new LinkedHashMap<>();
-        inputs.put("action", spec.action());
+        Map<String, Object> inputs = new LinkedHashMap<>();
         Object code = input.get(AuditRecord.CONFIRMATION_CODE);
         if (code != null) {
-            inputs.put(AuditRecord.CONFIRMATION_CODE, bounded(code.toString()));
+            inputs.put(AuditRecord.CONFIRMATION_CODE, code);
         }
-        try {
-            audit.append(new AuditRecord(ids.get(), clock.instant(), profile, bounded(node),
-                group(node), tool, code != null ? AuditRecord.Step.EXECUTE
-                    : AuditRecord.Step.PREVIEW, inputs, account(node), AuditOutcome.REFUSED,
-                Optional.of(error.code() + ": " + error.message()), Optional.empty()));
-        } catch (RuntimeException e) {
-            LOG.error("Audit record of a refusal ({}) could not be written ({})", error.code(),
-                e.getClass().getSimpleName());
-            return new ToolErrorException(ToolError.of(ErrorCode.INTERNAL,
-                "The audit record could not be written; the call was refused anyway ("
-                    + error.code() + ": " + error.message() + ") and nothing was changed",
-                "The audit directory is not writable, full, or not owned by this user",
-                "Fix the audit directory (auditDirectory in the configuration), then retry"));
+        Optional<WritePolicy> known = known(node);
+        boolean execute = code != null
+            || known.map(policy -> !ChangeChallenges.needsCode(policy, spec.area())).orElse(false);
+        ChangeAudit.Call call = audit.call(tool, node, spec.action(), inputs, Optional.empty());
+        call.account(known.flatMap(WritePolicy::account));
+        ToolErrorException refusal = call.refused(execute ? AuditRecord.Step.EXECUTE
+            : AuditRecord.Step.PREVIEW, error);
+        if (refusal.error() == error) {
+            LOG.info("{} {}: REFUSED ({}, audit id {})", tool, spec.action(), error.code(),
+                call.auditId());
         }
-        LOG.info("{} {} on {}: REFUSED ({})", tool, spec.action(), bounded(node), error.code());
-        return new ToolErrorException(error);
+        return refusal;
     }
 
-    /** The account of a configured server, if known. */
-    private Optional<String> account(String node) {
+    /** The policy of a configured server, if {@code node} is one. */
+    private Optional<WritePolicy> known(String node) {
         try {
-            return Optional.ofNullable(policies.apply(NodeId.parse(node)))
-                .flatMap(WritePolicy::account);
+            return Optional.ofNullable(policies.apply(NodeId.parse(node)));
         } catch (RuntimeException e) {
             return Optional.empty();
         }
-    }
-
-    private static Optional<String> group(String node) {
-        try {
-            return Optional.of(switch (Target.parse(node)) {
-                case Target.Group group -> group.id().value();
-                case Target.Node server -> server.id().group().value();
-            });
-        } catch (RuntimeException e) {
-            return Optional.empty();
-        }
-    }
-
-    private static String bounded(String value) {
-        return value.length() <= MAX_AUDITED_INPUT ? value
-            : value.substring(0, MAX_AUDITED_INPUT);
     }
 }

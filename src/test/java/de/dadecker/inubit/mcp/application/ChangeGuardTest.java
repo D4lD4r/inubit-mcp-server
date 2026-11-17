@@ -49,6 +49,7 @@ class ChangeGuardTest {
     /** Pinned to 9.0, where {@code maintenance on|off} is still {@code planned}. */
     private static final NodeId NEW = NodeId.parse("dev/node2");
     private static final NodeId TEST = NodeId.parse("test/node1");
+    private static final NodeId TEST_CLIENT = NodeId.parse("test/node2");
     private static final NodeId PROD = NodeId.parse("prod/node1");
     private static final NodeId PROD_OFF = NodeId.parse("prod/node2");
     private static final NodeId PROD_CLIENT = NodeId.parse("prod/node3");
@@ -104,6 +105,7 @@ class ChangeGuardTest {
         DEV, policy(DEV, false, true, false, Confirmation.SERVER),
         NEW, policy(NEW, false, true, false, Confirmation.SERVER),
         TEST, policy(TEST, false, false, false, Confirmation.SERVER),
+        TEST_CLIENT, policy(TEST_CLIENT, false, false, false, Confirmation.CLIENT),
         PROD, policy(PROD, true, true, false, Confirmation.SERVER),
         PROD_OFF, policy(PROD_OFF, true, false, false, Confirmation.SERVER),
         PROD_CLIENT, policy(PROD_CLIENT, true, true, true, Confirmation.CLIENT),
@@ -132,7 +134,8 @@ class ChangeGuardTest {
             policies::get, (node, area) -> {
                 areaLookups.add(area);
                 return enabledAreas.contains(area);
-            }, gateways, gate, audit, "acme", Clock.fixed(NOW, ZoneOffset.UTC), () -> AUDIT_ID);
+            }, gateways, gate, new ChangeAudit(audit, Clock.fixed(NOW, ZoneOffset.UTC), "acme",
+                () -> AUDIT_ID));
     }
 
     private WritePolicy admit(String node, ActionSpec spec, Map<String, Object> input) {
@@ -355,6 +358,31 @@ class ChangeGuardTest {
 
         assertThat(execute.step()).isEqualTo(AuditRecord.Step.EXECUTE);
         assertThat(execute.inputs()).containsEntry(AuditRecord.CONFIRMATION_CODE, "ABC123");
+    }
+
+    /** Under {@code CLIENT} the first call of an {@code OPERATION} action executes (D-13). */
+    @Test
+    void theRefusalOfACallThatNeedsNoCodeIsInTheExecuteStep() {
+        refusal("test/node2", MAINTENANCE, Map.of("enabled", true));
+        assertThat(records.get(0).step()).isEqualTo(AuditRecord.Step.EXECUTE);
+
+        records.clear();
+        refusal("test/node2", objects(Set.of(QUERY)), Map.of());
+        assertThat(records.get(0).step()).isEqualTo(AuditRecord.Step.PREVIEW);
+    }
+
+    @Test
+    void theRefusalRecordKeepsAtMost500CharactersOfTheReasonAndTheNode() {
+        gateways.unavailable = new ToolErrorException(ToolError.of(ErrorCode.CLI_UNAVAILABLE,
+            "x".repeat(600), "cause", "next").withNode(DEV));
+        refusal("dev/node1");
+
+        assertThat(records.get(0).reason()).hasValueSatisfying(reason ->
+            assertThat(reason).hasSize(500));
+
+        records.clear();
+        refusal("y".repeat(600), MAINTENANCE, Map.of());
+        assertThat(records.get(0).node()).hasSize(500);
     }
 
     @Test
