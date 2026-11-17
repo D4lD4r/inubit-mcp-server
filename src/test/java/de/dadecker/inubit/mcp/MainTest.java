@@ -2505,15 +2505,15 @@ class MainTest {
     @Test
     void aWriteEnabledOptedInEightOneOrAutoNodeAnnouncesTheLogLevelTools() throws Exception {
         // T058: the production matrix supports LOG_LEVEL_WRITE on 8.1 since its recording; with
-        // write access and without the opt-in only restart_process and kill_process are added to
-        // the reference
+        // write access and without the opt-in only restart_process, kill_process and operate_server
+        // (feature 022 T061) are added to the reference
         credentials();
         List<String> withWrite = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
             "get_server_settings", "read_users", "read_model_details",
             "list_inventory", "get_inventory_item",
             "find_partners", "export_artifacts", "export_archives", "check_artifacts",
-            "restart_process", "kill_process");
+            "restart_process", "kill_process", "operate_server");
         List<String> withLogLevel = new ArrayList<>(withWrite);
         withLogLevel.addAll(List.of("set_temporary_log_level", "reset_temporary_log_level"));
 
@@ -2538,7 +2538,7 @@ class MainTest {
             "get_server_settings", "read_users", "read_model_details",
             "list_inventory", "get_inventory_item",
             "find_partners", "export_artifacts", "export_archives", "check_artifacts",
-            "restart_process", "kill_process");
+            "restart_process", "kill_process", "operate_server");
         List<String> withLogLevel = new ArrayList<>(withWrite);
         withLogLevel.addAll(List.of("set_temporary_log_level", "reset_temporary_log_level"));
 

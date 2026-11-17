@@ -981,7 +981,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - lock key `node|OPERATION|deleteErrorProcesses`.
   - Failing tests first: `application/ServerOperationDeleteErrorsTest.java` (AS4, empty set,
     changed set, more than 10,000 ids → count only).
-- [ ] T061 [US4] Tool `mcp/tools/OperateServerTool.java`:
+- [X] T061 [US4] Tool `mcp/tools/OperateServerTool.java`:
   - schemas `operate_server.{input,output}.json`;
   - `ToolHints.destructive(title)`;
   - announced when `anyWriteEnabled`;

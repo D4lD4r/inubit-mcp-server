@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
+import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
@@ -108,6 +109,55 @@ class ResultMapperTest {
         assertThat(payload.path("error").path("nextStep").asString()).isEqualTo("See excerpt");
         assertThat(payload.path("error").path("node").asString()).isEqualTo("dev/node1");
         assertThat(payload.path("error").path("excerpt").asString()).isEqualTo("<html>x");
+    }
+
+    /**
+     * Feature 022 (T061, contracts/mcp-tools-delta.md "Errors"): the details of a tool error,
+     * e.g. the new preview of a {@code CONFLICT}, are rendered as JSON and scrubbed.
+     */
+    @Test
+    void theDetailsOfAToolErrorAreRenderedAndScrubbed() {
+        scrubber.register(SECRET);
+        ToolHandler tool = new ToolHandler() {
+            @Override
+            public String name() {
+                return "conflict_test";
+            }
+
+            @Override
+            public String descriptionText() {
+                return "Fails with a conflict";
+            }
+
+            @Override
+            public ToolHints annotations() {
+                return ToolHints.destructive("Conflict");
+            }
+
+            @Override
+            public Object handle(Map<String, Object> arguments) {
+                throw new ToolErrorException(ToolError.of(ErrorCode.CONFLICT, "State changed",
+                    "Someone else changed it", "Check the new preview in the error details"),
+                    Map.of("preview", new Item(NodeId.parse("dev/node1"),
+                        Instant.parse("2026-10-01T08:00:00Z"), Optional.of("was " + SECRET),
+                        Optional.empty(), List.of())));
+            }
+        };
+
+        CallToolResult result = mapper.invoke(tool, Map.of());
+
+        assertThat(result.isError()).isTrue();
+        assertThat(result.structuredContent()).isNull();
+        JsonNode error = JSON.readTree(text(result)).path("error");
+        assertThat(error.path("code").asString()).isEqualTo("CONFLICT");
+        assertThat(error.path("details").toString()).isEqualTo("{\"preview\":{\"node\":"
+            + "\"dev/node1\",\"at\":\"2026-10-01T08:00:00Z\",\"note\":\"was ***\",\"tags\":[]}}");
+        assertThat(JSON.readTree(text(mapper.error(error(ErrorCode.CONFLICT)))).path("error")
+            .has("details")).as("an error without details").isFalse();
+    }
+
+    private static ToolError error(ErrorCode code) {
+        return ToolError.of(code, "m", "c", "n");
     }
 
     @Test

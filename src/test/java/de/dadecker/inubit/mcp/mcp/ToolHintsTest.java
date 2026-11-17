@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.mcp.tools.OperateServerTool;
 import org.junit.jupiter.api.Test;
 
 /** T023: read-only tools that are not idempotent (export_artifacts records a history entry). */
@@ -42,6 +43,23 @@ class ToolHintsTest {
         assertThat(hints.title()).isEqualTo("Export archives");
         assertThat(hints.readOnly()).isFalse();
         assertThat(hints.destructive()).isFalse();
+        assertThat(hints.idempotent()).isFalse();
+        assertThat(hints.openWorld()).isTrue();
+    }
+
+    /**
+     * Feature 022 (T061, contracts/mcp-tools-delta.md "Annotations"): every change tool, e.g.
+     * operate_server, is destructive and not idempotent.
+     */
+    @Test
+    void operateServerIsDestructiveNotIdempotentAndOpenWorld() {
+        ToolHints hints = new OperateServerTool(request -> {
+            throw new AssertionError("not called");
+        }).annotations();
+
+        assertThat(hints).isEqualTo(ToolHints.destructive("Operate an INUBIT {node}"));
+        assertThat(hints.readOnly()).isFalse();
+        assertThat(hints.destructive()).isTrue();
         assertThat(hints.idempotent()).isFalse();
         assertThat(hints.openWorld()).isTrue();
     }

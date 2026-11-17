@@ -130,8 +130,8 @@ class TemplateGrammarTest {
         // record_knowledge; feature 020 read_queue_entry; feature 021 download_server_log;
         // feature 022 get_server_settings, read_users and read_model_details; feature 024
         // list_cluster_nodes, read_io_log, get_node_config, set_temporary_log_level and
-        // reset_temporary_log_level
-        assertThat(Files.list(SCHEMAS).count()).isEqualTo(60);
+        // reset_temporary_log_level; feature 022 T061 operate_server
+        assertThat(Files.list(SCHEMAS).count()).isEqualTo(62);
         assertThat(schemaTemplates()).filteredOn(t -> PLACEHOLDER.matcher(t).find())
             .hasSizeGreaterThan(15);
     }

@@ -166,7 +166,9 @@ class ProcessControlToolsTest {
 
     @Test
     void withWriteAccessOnEntBothWriteToolsAreOffered() {
-        assertThat(toolNames(true)).contains("restart_process", "kill_process").hasSize(15);
+        // feature 022 T061: operate_server is announced under the same condition
+        assertThat(toolNames(true)).contains("restart_process", "kill_process", "operate_server")
+            .hasSize(16);
     }
 
     @Test

@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import tools.jackson.core.JacksonException;
@@ -27,7 +28,8 @@ import tools.jackson.databind.node.ObjectNode;
  *   <li>Failure: a {@link ToolError} becomes {@code isError: true} with the text block
  *       {@code {"error": ToolError}}. There is deliberately no {@code structuredContent}: clients
  *       validate structured content against the tool's output schema, which an error does not
- *       match.
+ *       match. The {@link ToolErrorException#details()} of the error, if any, are added as
+ *       {@code error.details} (feature 022: the new preview of a {@code CONFLICT}).
  *   <li>Any other exception becomes an {@code INTERNAL} error without message or stack trace;
  *       the exception is logged to stderr (scrubbed by the log encoder).
  *   <li>Every string value passes through the {@link SecretScrubber} (Constitution II) before
@@ -60,7 +62,7 @@ public final class ResultMapper {
             return success(handler.handle(arguments == null ? Map.of() : arguments,
                 context == null ? CallContext.NONE : context));
         } catch (ToolErrorException e) {
-            return error(e.error());
+            return error(e.error(), e.details());
         } catch (RuntimeException e) {
             LOG.error("Tool {} failed unexpectedly", handler.name(), e);
             return error(internal("The tool " + handler.name() + " failed unexpectedly ("
@@ -93,6 +95,11 @@ public final class ResultMapper {
 
     /** {@code isError: true} with the text {@code {"error": ToolError}}. */
     public CallToolResult error(ToolError error) {
+        return error(error, Optional.empty());
+    }
+
+    /** As {@link #error(ToolError)}, with {@code details} as {@code error.details}. */
+    private CallToolResult error(ToolError error, Optional<Object> details) {
         ObjectNode payload = JsonNodeFactory.instance.objectNode();
         ObjectNode node = payload.putObject("error");
         node.put("code", error.code().name());
@@ -101,6 +108,15 @@ public final class ResultMapper {
         node.put("nextStep", error.nextStep());
         error.node().ifPresent(id -> node.put("node", id.value()));
         error.excerpt().ifPresent(excerpt -> node.put("excerpt", excerpt));
+        if (details.isPresent()) {
+            try {
+                node.set("details", json.valueToTree(details.get()));
+            } catch (JacksonException e) {
+                LOG.error("Tool error details cannot be serialized ({})",
+                    e.getClass().getSimpleName());
+                return error(internal("The tool error cannot be serialized"));
+            }
+        }
         return CallToolResult.builder()
             .addTextContent(json.writeValueAsString(scrub(payload)))
             .isError(true)
