@@ -25,6 +25,7 @@ import de.dadecker.inubit.mcp.domain.model.RawEntryContent;
 import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.TraceLevel;
 import de.dadecker.inubit.mcp.domain.model.UserFacts;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.model.node.ClusterNodes;
@@ -50,6 +51,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
+import de.dadecker.inubit.mcp.domain.port.ServerOperationPort;
 import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
@@ -69,7 +71,7 @@ import java.util.Set;
 public final class RefusingPorts implements ProcessQueryPort, LogPort, InventoryPort,
     ProcessControlPort, ArtifactPort, ImportPort, TagPort, PartnerManagementPort,
     QueueEntryContentPort, ServerLogPort, ServerSettingsPort, UserDirectoryPort, ModelDetailPort,
-    ClusterNodePort, IoLogPort, NodeConfigPort, LogLevelPort {
+    ClusterNodePort, IoLogPort, NodeConfigPort, LogLevelPort, ServerOperationPort {
 
     private final NodeId node;
 
@@ -293,6 +295,62 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
 
     @Override
     public void resetAll(InubitVersion version, Duration timeout) {
+        throw refusal();
+    }
+
+    @Override
+    public boolean maintenanceState() {
+        throw refusal();
+    }
+
+    @Override
+    public boolean switchMaintenance(boolean on, Optional<Boolean> executeQueued,
+        WritePermit permit) {
+        throw refusal();
+    }
+
+    @Override
+    public void switchReadiness(boolean ready, WritePermit permit) {
+        throw refusal();
+    }
+
+    @Override
+    public boolean switchTrace(boolean on, WritePermit permit) {
+        throw refusal();
+    }
+
+    @Override
+    public Optional<TraceLevel> traceLevel() {
+        throw refusal();
+    }
+
+    @Override
+    public TraceLevel setTraceLevel(TraceLevel level, WritePermit permit) {
+        throw refusal();
+    }
+
+    @Override
+    public Optional<Boolean> debugState() {
+        throw refusal();
+    }
+
+    @Override
+    public boolean switchDebug(boolean on, WritePermit permit) {
+        throw refusal();
+    }
+
+    @Override
+    public String triggerMidnightTask(WritePermit permit) {
+        throw refusal();
+    }
+
+    @Override
+    public ErrorProcesses errorProcesses(Instant now) {
+        throw refusal();
+    }
+
+    @Override
+    public long deleteErrorProcesses(WritePermit permit) {
         throw refusal();
     }
 }

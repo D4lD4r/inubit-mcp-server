@@ -16,8 +16,9 @@ import java.util.Optional;
  * {@link #artifacts()}, feature 004 {@link #imports()} and {@link #tags()}, feature 018
  * {@link #partners()}, feature 020 {@link #queueEntryContent()}, feature 021
  * {@link #serverLogs()}, feature 022 {@link #serverSettings()}, {@link #userDirectory()} and
- * {@link #modelDetails()}, and feature 024 {@link #clusterNodes()}, {@link #ioLog()},
- * {@link #nodeConfig()} and {@link #logLevel()}, implemented by the version-specific adapters.
+ * {@link #modelDetails()} and {@link #serverOperation()}, and feature 024 {@link #clusterNodes()},
+ * {@link #ioLog()}, {@link #nodeConfig()} and {@link #logLevel()}, implemented by the
+ * version-specific adapters.
  * Application services obtain gateways only through {@link GatewayFactory}, so supporting 9.x is an
  * adapter change, not a change of the tool logic.
  */
@@ -176,6 +177,20 @@ public interface Gateway {
         throw new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
             "Model details are not available for this INUBIT version on " + node(),
             "This adapter line has no model detail adapter",
+            "Call list_nodes for what this node supports").withNode(node()));
+    }
+
+    /**
+     * The operation of this server, over StartCLI and REST (feature 022, US4). The default is for
+     * gateways without a server operation adapter.
+     *
+     * @throws ToolErrorException {@code UNSUPPORTED_VERSION} with the server id, unless the
+     *     version-specific gateway provides an adapter
+     */
+    default ServerOperationPort serverOperation() {
+        throw new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
+            "Server operations are not available for this INUBIT version on " + node(),
+            "This adapter line has no server operation adapter",
             "Call list_nodes for what this node supports").withNode(node()));
     }
 

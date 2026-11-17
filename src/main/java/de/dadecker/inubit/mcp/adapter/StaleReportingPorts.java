@@ -25,6 +25,7 @@ import de.dadecker.inubit.mcp.domain.model.RawEntryContent;
 import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.TraceLevel;
 import de.dadecker.inubit.mcp.domain.model.UserFacts;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.model.node.ClusterNodes;
@@ -51,6 +52,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
+import de.dadecker.inubit.mcp.domain.port.ServerOperationPort;
 import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
@@ -96,7 +98,8 @@ final class StaleReportingPorts {
             new ServerLogs(ports.serverLogs()), new ServerSettings(ports.serverSettings()),
             new UserDirectory(ports.userDirectory()), new ModelDetails(ports.modelDetails()),
             new ClusterNodeList(ports.clusterNodes()), new IoLog(ports.ioLog()),
-            new NodeConfig(ports.nodeConfig()), new LogLevel(ports.logLevel()));
+            new NodeConfig(ports.nodeConfig()), new LogLevel(ports.logLevel()),
+            new ServerOperation(ports.serverOperation()));
     }
 
     private <T> T call(Supplier<T> call) {
@@ -536,6 +539,70 @@ final class StaleReportingPorts {
         @Override
         public void resetAll(InubitVersion version, Duration timeout) {
             run(() -> delegate.resetAll(version, timeout));
+        }
+    }
+
+    final class ServerOperation implements ServerOperationPort {
+        private final ServerOperationPort delegate;
+
+        ServerOperation(ServerOperationPort delegate) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public boolean maintenanceState() {
+            return call(delegate::maintenanceState);
+        }
+
+        @Override
+        public boolean switchMaintenance(boolean on, Optional<Boolean> executeQueued,
+            WritePermit permit) {
+            return write(permit, () -> delegate.switchMaintenance(on, executeQueued, permit));
+        }
+
+        @Override
+        public void switchReadiness(boolean ready, WritePermit permit) {
+            runWrite(permit, () -> delegate.switchReadiness(ready, permit));
+        }
+
+        @Override
+        public boolean switchTrace(boolean on, WritePermit permit) {
+            return write(permit, () -> delegate.switchTrace(on, permit));
+        }
+
+        @Override
+        public Optional<TraceLevel> traceLevel() {
+            return call(delegate::traceLevel);
+        }
+
+        @Override
+        public TraceLevel setTraceLevel(TraceLevel level, WritePermit permit) {
+            return write(permit, () -> delegate.setTraceLevel(level, permit));
+        }
+
+        @Override
+        public Optional<Boolean> debugState() {
+            return call(delegate::debugState);
+        }
+
+        @Override
+        public boolean switchDebug(boolean on, WritePermit permit) {
+            return write(permit, () -> delegate.switchDebug(on, permit));
+        }
+
+        @Override
+        public String triggerMidnightTask(WritePermit permit) {
+            return write(permit, () -> delegate.triggerMidnightTask(permit));
+        }
+
+        @Override
+        public ErrorProcesses errorProcesses(Instant now) {
+            return call(() -> delegate.errorProcesses(now));
+        }
+
+        @Override
+        public long deleteErrorProcesses(WritePermit permit) {
+            return write(permit, () -> delegate.deleteErrorProcesses(permit));
         }
     }
 }

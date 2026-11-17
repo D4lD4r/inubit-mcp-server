@@ -235,6 +235,14 @@ public final class CliRunner {
     }
 
     /**
+     * The lock this runner's writes are handed off under; the REST writes of the same node use it
+     * too (feature 022, US4: {@code POST /ready/{status}}).
+     */
+    public WriteLock writeLock() {
+        return writeLock;
+    }
+
+    /**
      * The StartCLI choice for one call (feature 017, research D-4, D-5, D-19).
      *
      * @param server         the node with the chosen {@code cli} settings

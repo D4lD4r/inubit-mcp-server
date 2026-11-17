@@ -61,7 +61,13 @@ public enum Capability {
      * {@code set_temporary_log_level} and {@code reset_temporary_log_level}: StartCLI
      * {@code trace -nl}/{@code -r} (feature 024).
      */
-    LOG_LEVEL_WRITE(Kind.WRITE, Set.of(Channel.CLI));
+    LOG_LEVEL_WRITE(Kind.WRITE, Set.of(Channel.CLI)),
+    /**
+     * {@code operate_server}: maintenance, trace, debug, the midnight task and deleting the
+     * processes in ERROR over StartCLI, the readiness and the set of processes in ERROR over REST
+     * (feature 022, US4, research D-22).
+     */
+    SERVER_OPERATION(Kind.WRITE, Set.of(Channel.REST, Channel.CLI));
 
     /** Whether the capability only reads from INUBIT or changes it. */
     public enum Kind {
@@ -133,6 +139,7 @@ public enum Capability {
             case IO_LOG_READ -> "reading module input/output logging";
             case NODE_CONFIG_READ -> "reading node configuration values";
             case LOG_LEVEL_WRITE -> "changing temporary log levels";
+            case SERVER_OPERATION -> "operating the server";
         };
     }
 }

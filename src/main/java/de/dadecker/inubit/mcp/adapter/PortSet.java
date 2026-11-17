@@ -11,7 +11,9 @@ import de.dadecker.inubit.mcp.domain.model.LoginEntry;
 import de.dadecker.inubit.mcp.domain.model.ModuleDetail;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.TraceLevel;
 import de.dadecker.inubit.mcp.domain.model.UserFacts;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.model.node.ClusterNodes;
 import de.dadecker.inubit.mcp.domain.model.node.IoLogListing;
 import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
@@ -33,10 +35,12 @@ import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
+import de.dadecker.inubit.mcp.domain.port.ServerOperationPort;
 import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -46,8 +50,9 @@ import java.util.Set;
  * The version-specific ports of one server: US2 (REST), US3 (REST and CLI exports), US4 (CLI),
  * feature 003 (CLI exports), feature 004 (CLI imports and tags), feature 018 (REST partner
  * management), feature 020 (queue-entry content over the StartCLI client), feature 021 (server
- * log downloads), feature 022 (server settings, US1, the user directory, US2, and the model
- * details, US3, each over REST and StartCLI) and feature 024 (the node tools). Built by a
+ * log downloads), feature 022 (server settings, US1, the user directory, US2, the model
+ * details, US3, and the server operation, US4, each over REST and StartCLI) and feature 024 (the
+ * node tools). Built by a
  * {@link PortSetRegistry.Factory} chosen for the node's effective version (feature 009 research
  * D-16); the monitoring port is not part of it.
  */
@@ -56,7 +61,8 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
     TagPort tags, PartnerManagementPort partners, QueueEntryContentPort queueEntryContent,
     ServerLogPort serverLogs, ServerSettingsPort serverSettings,
     UserDirectoryPort userDirectory, ModelDetailPort modelDetails, ClusterNodePort clusterNodes,
-    IoLogPort ioLog, NodeConfigPort nodeConfig, LogLevelPort logLevel) {
+    IoLogPort ioLog, NodeConfigPort nodeConfig, LogLevelPort logLevel,
+    ServerOperationPort serverOperation) {
 
     /**
      * The queue-entry port of port sets without a queue-entry adapter (before feature 020): it
@@ -130,6 +136,68 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
         }
     };
 
+    /**
+     * The server operation port of port sets without a server operation adapter (before feature
+     * 022, US4).
+     */
+    private static final ServerOperationPort NO_SERVER_OPERATION = new ServerOperationPort() {
+        @Override
+        public boolean maintenanceState() {
+            throw noServerOperation();
+        }
+
+        @Override
+        public boolean switchMaintenance(boolean on, Optional<Boolean> executeQueued,
+            WritePermit permit) {
+            throw noServerOperation();
+        }
+
+        @Override
+        public void switchReadiness(boolean ready, WritePermit permit) {
+            throw noServerOperation();
+        }
+
+        @Override
+        public boolean switchTrace(boolean on, WritePermit permit) {
+            throw noServerOperation();
+        }
+
+        @Override
+        public Optional<TraceLevel> traceLevel() {
+            throw noServerOperation();
+        }
+
+        @Override
+        public TraceLevel setTraceLevel(TraceLevel level, WritePermit permit) {
+            throw noServerOperation();
+        }
+
+        @Override
+        public Optional<Boolean> debugState() {
+            throw noServerOperation();
+        }
+
+        @Override
+        public boolean switchDebug(boolean on, WritePermit permit) {
+            throw noServerOperation();
+        }
+
+        @Override
+        public String triggerMidnightTask(WritePermit permit) {
+            throw noServerOperation();
+        }
+
+        @Override
+        public ErrorProcesses errorProcesses(Instant now) {
+            throw noServerOperation();
+        }
+
+        @Override
+        public long deleteErrorProcesses(WritePermit permit) {
+            throw noServerOperation();
+        }
+    };
+
     public PortSet {
         Objects.requireNonNull(processes, "processes");
         Objects.requireNonNull(logs, "logs");
@@ -148,11 +216,29 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
         Objects.requireNonNull(ioLog, "ioLog");
         Objects.requireNonNull(nodeConfig, "nodeConfig");
         Objects.requireNonNull(logLevel, "logLevel");
+        Objects.requireNonNull(serverOperation, "serverOperation");
+    }
+
+    /**
+     * The ports before feature 022, US4: a server operation fails with
+     * {@code UNSUPPORTED_VERSION}, as the default of {@code Gateway#serverOperation()}. Used by
+     * port sets without a server operation adapter.
+     */
+    public PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort inventory,
+        ProcessControlPort processControl, ArtifactPort artifacts, ImportPort imports,
+        TagPort tags, PartnerManagementPort partners, QueueEntryContentPort queueEntryContent,
+        ServerLogPort serverLogs, ServerSettingsPort serverSettings,
+        UserDirectoryPort userDirectory, ModelDetailPort modelDetails, ClusterNodePort clusterNodes,
+        IoLogPort ioLog, NodeConfigPort nodeConfig, LogLevelPort logLevel) {
+        this(processes, logs, inventory, processControl, artifacts, imports, tags, partners,
+            queueEntryContent, serverLogs, serverSettings, userDirectory, modelDetails,
+            clusterNodes, ioLog, nodeConfig, logLevel, NO_SERVER_OPERATION);
     }
 
     /**
      * The ports before feature 024: every node-tool call fails with {@code CLI_UNAVAILABLE}
-     * (research D-24). Used by port sets without node-tool adapters.
+     * (research D-24), a server operation as by the previous constructor. Used by port sets
+     * without node-tool adapters.
      */
     public PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort inventory,
         ProcessControlPort processControl, ArtifactPort artifacts, ImportPort imports,
@@ -242,6 +328,13 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
         return new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
             "User reads are not available on this adapter line",
             "This port set has no user directory adapter",
+            "Call list_nodes for what this node supports"));
+    }
+
+    private static ToolErrorException noServerOperation() {
+        return new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
+            "Server operations are not available on this adapter line",
+            "This port set has no server operation adapter",
             "Call list_nodes for what this node supports"));
     }
 

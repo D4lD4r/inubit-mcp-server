@@ -8,23 +8,28 @@ import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
+import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.ScriptedProcessLauncher;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.TraceLevel;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
+import de.dadecker.inubit.mcp.domain.port.ClientCheckLookup;
+import de.dadecker.inubit.mcp.domain.port.WriteLock;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.Platform;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.RecordingWriteLock;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestPermits;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
@@ -33,8 +38,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,8 +62,7 @@ import org.junit.jupiter.api.io.TempDir;
 class CliOperationRunnerTest {
 
     private static final NodeId DEV = NodeId.parse("dev/node1");
-    /** {@code SERVER_OPERATION} arrives with the port in T058; the runner checks only the node. */
-    private static final WritePermit PERMIT = TestPermits.of(DEV, Capability.PROCESS_CONTROL);
+    private static final WritePermit PERMIT = TestPermits.of(DEV, Capability.SERVER_OPERATION);
     private static final String USER = "jdoe";
     private static final String PASSWORD = TestSecrets.CONFIGURED_PASSWORD;
     private static final String CLI_URL =
@@ -82,13 +90,24 @@ class CliOperationRunnerTest {
     }
 
     private CliOperationRunner runner(EffectiveNodeConfig server, ScriptedProcessLauncher cli) {
+        return runner(server, TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
+            new CliResources("acme", PrivateFiles.forHost())));
+    }
+
+    /** With {@code lock} as the write lock of the runner; the node runs 8.1.17. */
+    private CliOperationRunner runner(EffectiveNodeConfig server, ScriptedProcessLauncher cli,
+        WriteLock lock) {
+        return runner(server, TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
+            new CliResources("acme", PrivateFiles.forHost()),
+            id -> Optional.of(TestPermits.V8_1_17), ClientCheckLookup.NONE, lock));
+    }
+
+    private CliOperationRunner runner(EffectiveNodeConfig server, CliRunner cliRunner) {
         NodeCredentials credentials = new NodeCredentials(DEV,
             Optional.of(new SourcedValue<>(USER, "INUBIT_DEV_USERNAME")),
             Optional.of(new SourcedValue<>(Secret.of(PASSWORD), "INUBIT_DEV_PASSWORD")),
             Optional.empty(), Optional.empty());
-        return new CliOperationRunner(server, credentials, guard,
-            TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
-                new CliResources("acme", PrivateFiles.forHost())),
+        return new CliOperationRunner(server, credentials, guard, cliRunner,
             new CliOutputClassifier(new SecretScrubber(), storeLabels("INUBIT", DEV), false));
     }
 
@@ -201,12 +220,63 @@ class CliOperationRunnerTest {
         cli.verifyComplete();
     }
 
+    // --- the write hand-off (feature 017, research D-24; T057 review) ---------------------------
+
+    @Test
+    void eachChangeStartsInsideTheHandOffOfItsPermitAndTheStateReadOutside() {
+        AtomicBoolean handingOff = new AtomicBoolean();
+        RecordingWriteLock lock = new RecordingWriteLock(new WriteLock() {
+            @Override
+            public <T> T handOff(WritePermit permit,
+                Function<Optional<InubitVersion>, T> action) {
+                handingOff.set(true);
+                try {
+                    return action.apply(Optional.of(permit.admitted()));
+                } finally {
+                    handingOff.set(false);
+                }
+            }
+        });
+        List<String> inside = new ArrayList<>();
+        List<String> outside = new ArrayList<>();
+        ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
+        for (String[] form : List.of(new String[] {"maintenance -s", "Maintenance mode: on"},
+            new String[] {"maintenance off", "Maintenance mode: off"},
+            new String[] {"trace on", "Trace: on"},
+            new String[] {"trace -l warn", "Trace level: warn"},
+            new String[] {"debug on", "Debug mode: on"},
+            new String[] {"triggerMidnightTask", "Midnight task triggered."},
+            new String[] {"processdelete error", "Deleted processes: 2"})) {
+            cli.expect(Pattern.compile(Pattern.quote(form[0])))
+                .then(spec -> (handingOff.get() ? inside : outside)
+                    .add(ScriptedProcessLauncher.execCommand(spec)))
+                .replying(PREAMBLE + form[1] + "\n", "", 0);
+        }
+        CliOperationRunner runner = runner(node().build(), cli, lock);
+
+        runner.maintenanceState();
+        runner.switchMaintenance(false, null, PERMIT);
+        runner.switchTrace(true, PERMIT);
+        runner.setTraceLevel(TraceLevel.WARN, PERMIT);
+        runner.switchDebug(true, PERMIT);
+        runner.triggerMidnightTask(PERMIT);
+        runner.deleteErrorProcesses(PERMIT);
+
+        cli.verifyComplete();
+        assertThat(inside).containsExactly("maintenance off", "trace on", "trace -l warn",
+            "debug on", "triggerMidnightTask", "processdelete error");
+        assertThat(outside).as("the state read is no write").containsExactly("maintenance -s");
+        assertThat(lock.permits()).hasSize(6).allSatisfy(permit ->
+            assertThat(permit).isSameAs(PERMIT));
+    }
+
     // --- refused before the launch -----------------------------------------------------------
 
     @Test
     void aPermitForAnotherNodeLaunchesNothing() {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
-        WritePermit other = TestPermits.of(NodeId.parse("dev/node2"), Capability.PROCESS_CONTROL);
+        WritePermit other = TestPermits.of(NodeId.parse("dev/node2"),
+            Capability.SERVER_OPERATION);
 
         assertThatThrownBy(() -> runner(cli).switchDebug(true, other))
             .isInstanceOf(IllegalArgumentException.class);

@@ -663,6 +663,18 @@ Switching maintenance off uses StartCLI over the SOAP servlet, which the vendor 
 among the answers blocked in maintenance mode (L-2). The read before the change accepts
 `MAINTENANCE_MODE` from REST as "on".
 
+**Port (T058)**: `ServerOperationPort`, in the 8.1 port set (9.0 reuses it) as
+`V81ServerOperationAdapter`, capability `SERVER_OPERATION` (REST and StartCLI, "not yet verified"
+until T054). The states before and after come from the port (`maintenance -s`) and from
+`MonitoringPort`, the source of `get_health`: readiness `GET /ready`, trace on/off
+`tracingEnabled`, maintenance `healthcheck`. No read form is known for the trace level and the
+debug mode: `traceLevel()` and `debugState()` answer "unknown" (empty) without contacting the
+server until L-3 finds one. `POST /ready/{status}` is handed off under the node's write lock like
+the StartCLI writes (`InubitHttpClient.post(…, WritePermit, WriteLock)`, `sendAsync` inside the
+hand-off, the answer awaited outside); its answer is not read. The set of `processdelete error`
+is the `find_processes` query of state `ERROR`, 1,000 rows per request up to 10,000 rows, its ids
+and workflows distinct and sorted; with more rows the count only (D-14).
+
 ## D-23 Settings changes (US6, settings area)
 
 **Decision**: `change_server_settings` actions:

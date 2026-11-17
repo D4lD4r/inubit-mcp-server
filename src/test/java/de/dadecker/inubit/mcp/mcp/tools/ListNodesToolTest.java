@@ -1268,6 +1268,59 @@ class ListNodesToolTest {
         assertThat(notUsable(prod)).doesNotContain("model_details");
     }
 
+    // --- feature 022 T058: server_operation not yet verified on 8.1 and 9.0 (D-1) ---------------
+
+    @Test
+    void serverOperationIsListedForWriteNodesAsNotYetVerified() {
+        // test and lab have write access, prod has not; until its recordings (T054) no version
+        // runs it
+        String baseUrl = "https://localhost:" + wireMock.httpsPort();
+        String yaml = """
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            groups:
+              - name: test
+                versionLine: V8_1
+                write:
+                  enabled: true
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+              - name: lab
+                versionLine: V9_0
+                write:
+                  enabled: true
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+              - name: prod
+                versionLine: V8_1
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+            """.formatted(temp.resolve("audit"), temp.resolve("workspace"), CLI_HOME, baseUrl,
+            baseUrl, baseUrl);
+        ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
+            .parse(yaml, temp.resolve("config.yaml")).config();
+
+        Map<String, JsonNode> versions = traceVersions(config, CapabilityMatrix.production());
+
+        for (String node : List.of("test/node1", "lab/node1")) {
+            JsonNode version = versions.get(node);
+            assertThat(usable(version)).as(node).doesNotContain("server_operation");
+            assertThat(notUsable(version)).as(node).contains("server_operation");
+            assertThat(reason(version, "server_operation")).as(node)
+                .contains(node + ": operating the server is not yet verified for INUBIT");
+        }
+        JsonNode prod = versions.get("prod/node1");
+        assertThat(usable(prod)).as("no write access").doesNotContain("server_operation");
+        assertThat(notUsable(prod)).doesNotContain("server_operation");
+    }
+
     @Test
     void anIncompatibleClientMakesQueueEntryReadNotUsableAsAWhole() {
         // read_queue_entry is admitted for REST and StartCLI in one call, so a client the gate

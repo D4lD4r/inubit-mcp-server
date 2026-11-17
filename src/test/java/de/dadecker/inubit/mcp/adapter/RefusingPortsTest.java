@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.EntryPart;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
@@ -11,16 +12,21 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
 import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.TraceLevel;
 import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.model.node.IoMessageRef;
 import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
 import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
 import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
+import de.dadecker.inubit.mcp.domain.port.ServerOperationPort;
+import de.dadecker.inubit.mcp.testing.TestPermits;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -57,7 +63,8 @@ class RefusingPortsTest {
         assertThat(method.getDeclaringClass()).isAssignableFrom(RefusingPorts.class);
 
         Object[] args = Stream.of(method.getParameterTypes())
-            .map(type -> type == long.class ? (Object) 0L : type == int.class ? (Object) 0 : null)
+            .map(type -> type == long.class ? (Object) 0L : type == int.class ? (Object) 0
+                : type == boolean.class ? (Object) false : null)
             .toArray();
         Throwable thrown = catchThrowable(() -> method.invoke(refusing, args));
 
@@ -275,6 +282,48 @@ class RefusingPortsTest {
                     e -> {
                         assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
                         assertThat(e.error().message()).contains("Model details");
+                    });
+            }
+        }
+    }
+
+    /** One call of every method of the server operation port of feature 022 (US4). */
+    private static List<ThrowingCallable> serverOperationCalls(ServerOperationPort port) {
+        WritePermit permit = TestPermits.of(NODE, Capability.SERVER_OPERATION);
+        return List.of(port::maintenanceState,
+            () -> port.switchMaintenance(true, Optional.of(false), permit),
+            () -> port.switchReadiness(false, permit), () -> port.switchTrace(true, permit),
+            port::traceLevel, () -> port.setTraceLevel(TraceLevel.DEBUG, permit),
+            port::debugState, () -> port.switchDebug(true, permit),
+            () -> port.triggerMidnightTask(permit),
+            () -> port.errorProcesses(Instant.parse("2026-11-17T08:00:00Z")),
+            () -> port.deleteErrorProcesses(permit));
+    }
+
+    @Test
+    void serverOperationsRefuseWithTheSixOneRefusalWithoutContact() {
+        // feature 022 T058: no server operation on 6.1 (spec edge case "INUBIT 6.1")
+        for (ThrowingCallable call : serverOperationCalls(refusing)) {
+            assertThatThrownBy(call).isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error()).isEqualTo(refusing.refusal().error()));
+        }
+    }
+
+    @Test
+    void thePortSetCompatibilityConstructorsFillInARefusingServerOperationPort() {
+        // feature 022 T058: port sets built with the previous eight or seventeen ports
+        PortSet eight = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing);
+        PortSet seventeen = new PortSet(refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing, refusing);
+
+        for (PortSet ports : List.of(eight, seventeen)) {
+            for (ThrowingCallable call : serverOperationCalls(ports.serverOperation())) {
+                assertThatThrownBy(call).isInstanceOfSatisfying(ToolErrorException.class,
+                    e -> {
+                        assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+                        assertThat(e.error().message()).contains("Server operations");
                     });
             }
         }

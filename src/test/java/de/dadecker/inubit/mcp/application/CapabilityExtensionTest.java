@@ -482,7 +482,7 @@ class CapabilityExtensionTest {
             .containsExactly("process_diagnosis", "log_diagnosis", "process_control");
         assertThat(notUsable(version)).containsExactly("monitoring", "inventory",
             "partner_management", "workspace_export", "development_writes", "deployment",
-            "e2e_test");
+            "e2e_test", "server_operation");
     }
 
     // --- the declared versions are unchanged -------------------------------------------------
@@ -497,10 +497,12 @@ class CapabilityExtensionTest {
         assertThat(texts(health(NODE_81).path("warnings"))).isEmpty();
 
         JsonNode version = listVersions().get("qa/node1");
-        assertThat(version.path("status").asString()).isEqualTo("supported");
+        // feature 022 T058: operating the server is not yet verified on 8.1 (T054)
+        assertThat(version.path("status").asString()).isEqualTo("partially_supported");
         assertThat(texts(version.path("capabilities").path("usable"))).containsExactly(
             "monitoring", "process_diagnosis", "log_diagnosis", "inventory", "partner_management",
             "workspace_export", "development_writes", "deployment", "e2e_test", "process_control");
+        assertThat(notUsable(version)).containsExactly("server_operation");
         assertThat(built79).isEmpty();
         assertThat(calls79).isEmpty();
     }
@@ -538,7 +540,7 @@ class CapabilityExtensionTest {
                 "partner_management");
         assertThat(notUsable(version)).containsExactly("inventory (StartCLI parts)",
             "workspace_export", "development_writes", "deployment", "e2e_test",
-            "process_control");
+            "process_control", "server_operation");
         assertThat(requests(on91)).as("only the detection and the REST read")
             .containsExactly("GET " + SYSTEM_INFO, "POST " + QUEUE_LOG);
         assertThat(built79).isEmpty();

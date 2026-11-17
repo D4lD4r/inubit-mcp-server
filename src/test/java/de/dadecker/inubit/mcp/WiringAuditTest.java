@@ -1,13 +1,16 @@
 package de.dadecker.inubit.mcp;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.containing;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.adapter.archive.v81.ArtifactFixtures;
@@ -21,16 +24,24 @@ import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigLocation;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
 import de.dadecker.inubit.mcp.config.StoreLocation;
+import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LicenseFacts;
 import de.dadecker.inubit.mcp.domain.model.ListedUser;
 import de.dadecker.inubit.mcp.domain.model.ModuleDetail;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
+import de.dadecker.inubit.mcp.domain.port.ServerOperationPort;
+import de.dadecker.inubit.mcp.domain.port.ServerOperationPort.ErrorProcesses;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.TestPermits;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -394,6 +405,47 @@ class WiringAuditTest {
         inubit.verify(1, getRequestedFor(urlPathEqualTo(module))
             .withHeader("Accept", equalTo("application/xml, */*;q=0.1"))
             .withHeader("Authorization", matching("Basic .+")));
+        assertThat(auditRecords()).as("audit records").isEmpty();
+    }
+
+    @Test
+    void theErrorProcessSetThroughTheProductionWiringIsReadFromTheQueueLog() throws IOException {
+        // feature 022 T058 (D-14): the production 8.1 port set reads the processes in ERROR
+        // over POST /log/queueLog with the node's credentials; reads are not audited
+        startEnvironmentServer();
+
+        ErrorProcesses errors = wiring.gateways().serverOperation(NodeId.parse("dev/node1"))
+            .errorProcesses(clock.instant());
+
+        assertThat(errors).isEqualTo(new ErrorProcesses(1, List.of(PID), List.of("W")));
+        inubit.verify(1, postRequestedFor(urlPathEqualTo(QUEUE_LOG))
+            .withRequestBody(containing("Error"))
+            .withHeader("Authorization", matching("Basic .+")));
+        assertThat(auditRecords()).as("audit records").isEmpty();
+    }
+
+    @Test
+    void aReadinessSwitchThroughTheProductionWiringIsHandedOffUnderTheNodesVersion()
+        throws IOException {
+        // feature 022 T058 (research D-22, feature 017 D-24): the production port set hands the
+        // POST /ready/{status} off under the node's write lock: a permit of the pinned 8.1 is
+        // sent, one admitted on 9.0 is refused and sends nothing; the port audits nothing
+        inubit.stubFor(post(urlPathEqualTo("/ibis/rest/ready/off"))
+            .willReturn(aResponse().withStatus(200)));
+        startEnvironmentServer();
+        ServerOperationPort operation = wiring.gateways()
+            .serverOperation(NodeId.parse("dev/node1"));
+
+        operation.switchReadiness(false, TestPermits.of("dev/node1",
+            Capability.SERVER_OPERATION));
+        Throwable refused = catchThrowable(() -> operation.switchReadiness(false,
+            new WritePermit(NodeId.parse("dev/node1"), Capability.SERVER_OPERATION,
+                InubitVersion.parse("9.0.7").orElseThrow())));
+
+        inubit.verify(1, postRequestedFor(urlPathEqualTo("/ibis/rest/ready/off"))
+            .withHeader("Authorization", matching("Basic .+")));
+        assertThat(refused).isInstanceOfSatisfying(ToolErrorException.class, e ->
+            assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION));
         assertThat(auditRecords()).as("audit records").isEmpty();
     }
 

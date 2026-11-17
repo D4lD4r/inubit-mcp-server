@@ -952,7 +952,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   `RestEndpoint` + `POST /ready/{state}`.
   - Failing tests first: runner test with scripted runs; parser tests with reconstructed cases;
     leak check.
-- [ ] T058 [US4] Port and wiring: `domain/port/ServerOperationPort.java`, adapters, the
+- [X] T058 [US4] Port and wiring: `domain/port/ServerOperationPort.java`, adapters, the
   `Gateway`/`PortSet` set. The `processdelete error` preview set comes from
   `ProcessQueryPort` (REST `POST /log/queueLog`, states `ERROR`, all pages up to 10,000 ids; more →
   count only, D-14).

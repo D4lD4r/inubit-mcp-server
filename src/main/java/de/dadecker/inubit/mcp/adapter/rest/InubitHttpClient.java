@@ -10,6 +10,8 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.SecretTextMasker;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.WritePermit;
+import de.dadecker.inubit.mcp.domain.port.WriteLock;
 import de.dadecker.inubit.mcp.infra.Secret;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import java.io.ByteArrayInputStream;
@@ -39,8 +41,11 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.StringJoiner;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Flow;
 import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
@@ -360,6 +365,25 @@ public final class InubitHttpClient implements AutoCloseable {
             acceptedStatuses);
     }
 
+    /**
+     * {@code POST} without a body as a write (feature 022, US4; feature 017 research D-24): the
+     * request is built outside the node's write lock, handed to the HTTP client inside
+     * {@link WriteLock#handOff} with {@code permit} and its answer awaited outside the lock; a
+     * refused hand-off ({@code UNSUPPORTED_VERSION}) sends nothing. A 404 means a missing endpoint
+     * ({@link ResourceKind#ENDPOINT}); otherwise as {@link #get}.
+     *
+     * @throws IllegalArgumentException for a permit of another node; nothing is sent
+     */
+    public RestResponse post(RestEndpoint endpoint, List<String> params, WritePermit permit,
+        WriteLock lock) {
+        permit.requireFor(server);
+        String path = path(endpoint, params);
+        return send("POST", path, HttpRequest.newBuilder(uri(path, Map.of()))
+            .POST(HttpRequest.BodyPublishers.noBody()), true, ResourceKind.ENDPOINT, ACCEPT,
+            new int[0], request -> awaited(lock.handOff(permit,
+                version -> client.sendAsync(request, info -> new LimitedBody(maxBodyBytes)))));
+    }
+
     private static String path(RestEndpoint endpoint, List<String> params) {
         return endpoint.path(params.toArray(String[]::new));
     }
@@ -382,18 +406,31 @@ public final class InubitHttpClient implements AutoCloseable {
         return "InubitHttpClient[" + server + "]";
     }
 
+    /** How a built request reaches the HTTP client: sent at once, or handed off as a write. */
+    @FunctionalInterface
+    private interface Transfer {
+        HttpResponse<byte[]> send(HttpRequest request) throws IOException, InterruptedException;
+    }
+
     private RestResponse send(String method, String path, HttpRequest.Builder builder,
         boolean authenticate, ResourceKind kind, String accept, int[] acceptedStatuses) {
+        return send(method, path, builder, authenticate, kind, accept, acceptedStatuses,
+            request -> client.send(request, info -> new LimitedBody(maxBodyBytes)));
+    }
+
+    private RestResponse send(String method, String path, HttpRequest.Builder builder,
+        boolean authenticate, ResourceKind kind, String accept, int[] acceptedStatuses,
+        Transfer transfer) {
         Objects.requireNonNull(kind, "kind");
         builder.timeout(timeout).header("Accept", accept);
         if (!authenticate || credentials.isEmpty()) {
-            return evaluate(method, path, exchange(method, path, builder), kind,
+            return evaluate(method, path, exchange(method, path, builder, transfer), kind,
                 acceptedStatuses);
         }
         // at most one failed login per server and pause (Phase 3 review M2)
         try (CredentialGuard.Permit permit = guard.acquire()) {
             builder.header("Authorization", basicAuth(credentials.get()));
-            HttpResponse<byte[]> response = exchange(method, path, builder);
+            HttpResponse<byte[]> response = exchange(method, path, builder, transfer);
             int status = response.statusCode();
             if (status == 401) {
                 permit.rejected();
@@ -410,9 +447,9 @@ public final class InubitHttpClient implements AutoCloseable {
     }
 
     private HttpResponse<byte[]> exchange(String method, String path,
-        HttpRequest.Builder builder) {
+        HttpRequest.Builder builder, Transfer transfer) {
         try {
-            return client.send(builder.build(), info -> new LimitedBody(maxBodyBytes));
+            return transfer.send(builder.build());
         } catch (IOException e) {
             if (hasCause(e, ResponseTooLargeException.class)) {
                 throw tooLarge(method, path);
@@ -424,6 +461,37 @@ public final class InubitHttpClient implements AutoCloseable {
                 method + " " + path + " was cancelled before INUBIT answered",
                 "The overall deadline of the request expired",
                 "Retry, or raise the timeout in the configuration"));
+        }
+    }
+
+    /**
+     * The response of a request handed off with {@code sendAsync}; its failure is thrown as the
+     * {@link IOException} (or unchecked exception) {@code HttpClient.send} would throw.
+     */
+    private static HttpResponse<byte[]> awaited(CompletableFuture<HttpResponse<byte[]>> pending)
+        throws IOException, InterruptedException {
+        try {
+            return pending.get();
+        } catch (InterruptedException e) {
+            pending.cancel(true);
+            throw e;
+        } catch (CancellationException e) {
+            throw new InterruptedException("cancelled");
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            while (cause instanceof CompletionException && cause.getCause() != null) {
+                cause = cause.getCause();
+            }
+            if (cause instanceof IOException io) {
+                throw io;
+            }
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IOException(cause);
         }
     }
 

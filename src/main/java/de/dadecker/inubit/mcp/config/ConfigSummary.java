@@ -455,7 +455,8 @@ public final class ConfigSummary {
             case LOG_LEVEL_WRITE -> server.logLevelWrite();
             case MONITORING, PROCESS_DIAGNOSIS, LOG_DIAGNOSIS, INVENTORY, PARTNER_MANAGEMENT,
                 WORKSPACE_EXPORT, DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL,
-                TRACE_LOG_READ, SERVER_SETTINGS, USER_DIRECTORY, MODEL_DETAILS -> true;
+                TRACE_LOG_READ, SERVER_SETTINGS, USER_DIRECTORY, MODEL_DETAILS,
+                SERVER_OPERATION -> true;
         };
     }
 

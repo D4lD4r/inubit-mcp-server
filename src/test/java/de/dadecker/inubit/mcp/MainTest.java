@@ -858,7 +858,7 @@ class MainTest {
         String refused = "available: none; refused: monitoring, process diagnosis, log"
             + " diagnosis, inventory, partner management, workspace export, development writes,"
             + " deployment, end-to-end test, process control, downloading the trace log, reading"
-            + " server settings, reading users, reading model details)";
+            + " server settings, reading users, reading model details, operating the server)";
         assertThat(out())
             .contains("dev/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI"
                 + " only; " + refused + ", client: 6.1.0 (4.0.1–6.1.0; options: no trust-store"
@@ -912,12 +912,12 @@ class MainTest {
         assertThat(out())
             .contains("dev/node1: read-only, cli: unavailable, inubit: V6_1 (INUBIT 6.1, StartCLI"
                 + " only; " + refused + ", reading Queue Manager entries, downloading the trace"
-                + " log, reading server settings, reading users, reading model details), secrets:"
-                + " credentialStore (macOS Keychain), username ←")
+                + " log, reading server settings, reading users, reading model details, operating"
+                + " the server), secrets: credentialStore (macOS Keychain), username ←")
             .contains("test/node1: read-only, cli: unavailable, inubit: V6_1 (INUBIT 6.1,"
                 + " StartCLI only; " + refused + ", downloading the trace log, downloading the web"
-                + " service log, reading server settings, reading users, reading model details),"
-                + " secrets: credentialStore (macOS Keychain), username ←")
+                + " service log, reading server settings, reading users, reading model details,"
+                + " operating the server), secrets: credentialStore (macOS Keychain), username ←")
             .contains("Result: OK")
             .doesNotContain("jsonrpc");
         TestSecrets.assertNoLeak(out());

@@ -18,6 +18,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
+import de.dadecker.inubit.mcp.domain.port.ServerOperationPort;
 import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
@@ -149,6 +150,11 @@ final class V81Gateway implements Gateway {
     @Override
     public ModelDetailPort modelDetails() {
         return ports.get().modelDetails();
+    }
+
+    @Override
+    public ServerOperationPort serverOperation() {
+        return ports.get().serverOperation();
     }
 
     @Override
