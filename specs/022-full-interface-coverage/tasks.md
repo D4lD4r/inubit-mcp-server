@@ -883,7 +883,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   locks.acquire(node, area, object))`; a key already held gives `PRECONDITION_FAILED`; released in
   `finally`.
   - Failing tests first: `ChangeLocksTest.java` (parallel threads; release after exception).
-- [ ] T051 [US4] Confirmation with preview state (D-13, D-14):
+- [X] T051 [US4] Confirmation with preview state (D-13, D-14):
   - `application/ChangeChallenges.java` wraps `WriteChallengeRegistry`:
     - `issue(tool, NodeId, fingerprint, previewState, ttl)`, where `fingerprint` is SHA-256 of the
       canonical inputs without `confirmationCode` and `reason`;
