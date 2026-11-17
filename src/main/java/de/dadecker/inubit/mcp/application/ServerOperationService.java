@@ -40,9 +40,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The switch actions of {@code operate_server} on one server (feature 022, US4, research D-12,
- * D-13, D-14, D-17, D-22; contracts/mcp-tools-delta.md → operate_server): maintenance mode,
- * readiness, trace, trace level, debug mode and the midnight task. A call runs in this order:
+ * The actions of {@code operate_server} on one server (feature 022, US4, research D-12, D-13,
+ * D-14, D-17, D-22; contracts/mcp-tools-delta.md → operate_server): the switches of maintenance
+ * mode, readiness, trace, trace level and debug mode, the midnight task, and the deletion of the
+ * processes in state ERROR. A call runs in this order:
  *
  * <ol>
  *   <li>the inputs are checked, before anything is read ({@code INVALID_INPUT}, FR-020);
@@ -51,7 +52,9 @@ import org.slf4j.LoggerFactory;
  *       with {@code MAINTENANCE_MODE} (D-22);
  *   <li>the key {@code node|OPERATION|<action>} is taken for the rest of the call
  *       ({@link ChangeLocks}, D-17; held: {@code PRECONDITION_FAILED});
- *   <li>the state before is read;
+ *   <li>the state before is read; for {@code deleteErrorProcesses} an empty set ends the call
+ *       with {@code NOTHING_TO_DO}, audited, nothing sent (spec edge case; a code given is
+ *       redeemed first);
  *   <li>under server-side confirmation the first call returns the {@link ChangePreview} with a code
  *       (audited {@code CHALLENGE_ISSUED}); the call with the code compares the state read now
  *       with the state of the preview ({@code CONFLICT} with a fresh preview, D-14). Under
@@ -67,7 +70,9 @@ import org.slf4j.LoggerFactory;
  * from the metrics; readiness from {@code GET /ready}; trace on/off from the system information;
  * the trace level and the debug mode from the port, which knows no read form for them yet, so they
  * are shown as unknown with a warning, and the result says the re-read failed; the midnight task's
- * {@code MidnightTaskTriggerTime} from {@code GET /configurations}, if INUBIT reports it.
+ * {@code MidnightTaskTriggerTime} from {@code GET /configurations}, if INUBIT reports it; the
+ * processes in state ERROR from {@link ServerOperationPort#errorProcesses}, compared by a hash of
+ * their sorted ids, or by their count when INUBIT lists no ids (D-14, FR-017).
  * Every refusal after the admission is audited {@code REFUSED}.
  */
 public final class ServerOperationService {
@@ -80,6 +85,7 @@ public final class ServerOperationService {
     static final String SET_TRACE_LEVEL = "setTraceLevel";
     static final String SET_DEBUG = "setDebug";
     static final String TRIGGER_MIDNIGHT_TASK = "triggerMidnightTask";
+    static final String DELETE_ERROR_PROCESSES = "deleteErrorProcesses";
 
     static final String ON = "on";
     static final String EXECUTE_QUEUED = "executeQueued";
@@ -109,6 +115,11 @@ public final class ServerOperationService {
         "INUBIT offers no known command that reads the trace level";
     private static final String NO_DEBUG_READ =
         "INUBIT offers no known command that reads the debug mode";
+    private static final List<String> DELETE_ERROR_PROCESSES_EFFECTS = List.of(
+        "The processes in state ERROR are deleted and cannot be restored.",
+        "processdelete error deletes every process in state ERROR when it runs, also one that"
+            + " entered the state after the preview; the result names the count INUBIT reports.");
+    private static final String NO_ERROR_PROCESS = "no process in state ERROR";
     private static final String REST_IN_MAINTENANCE = "maintenance mode is on and INUBIT's REST"
         + " API answers \"service unavailable\"";
 
@@ -125,10 +136,16 @@ public final class ServerOperationService {
     public static final ActionSpec SET_DEBUG_SPEC = spec(SET_DEBUG, Set.of(cli("debug on|off")));
     public static final ActionSpec TRIGGER_MIDNIGHT_TASK_SPEC = spec(TRIGGER_MIDNIGHT_TASK,
         Set.of(cli("triggerMidnightTask")));
+    public static final ActionSpec DELETE_ERROR_PROCESSES_SPEC = new ActionSpec(TOOL,
+        DELETE_ERROR_PROCESSES, Capability.SERVER_OPERATION, ActionSpec.Area.OPERATION,
+        ActionSpec.Kind.CHANGE, Set.of(cli("processdelete error")),
+        input -> Set.of(cli("processdelete error")), Set.of(), true, Optional.empty(),
+        ActionSpec.RestartNotice.NONE);
 
-    /** The specs of the switch actions, for the coverage gate (research D-2). */
+    /** The specs of the actions, for the coverage gate (research D-2). */
     public static final List<ActionSpec> SPECS = List.of(SET_MAINTENANCE_SPEC, SET_READINESS_SPEC,
-        SET_TRACE_SPEC, SET_TRACE_LEVEL_SPEC, SET_DEBUG_SPEC, TRIGGER_MIDNIGHT_TASK_SPEC);
+        SET_TRACE_SPEC, SET_TRACE_LEVEL_SPEC, SET_DEBUG_SPEC, TRIGGER_MIDNIGHT_TASK_SPEC,
+        DELETE_ERROR_PROCESSES_SPEC);
 
     private final ChangeGuard guard;
     private final ChangeLocks locks;
@@ -193,9 +210,15 @@ public final class ServerOperationService {
 
     /**
      * A state as read: {@code compared} is the preview state of research D-14, {@code shown} the
-     * text of {@code before} / {@code after}; {@code unknown} says why INUBIT's state is not known.
+     * text of {@code before} / {@code after}; {@code unknown} says why INUBIT's state is not known;
+     * {@code affected} holds the processes in state ERROR of {@code deleteErrorProcesses}.
      */
-    private record State(String compared, String shown, Optional<String> unknown) {
+    private record State(String compared, String shown, Optional<String> unknown,
+        Optional<ChangePreview.Affected> affected) {
+
+        State(String compared, String shown, Optional<String> unknown) {
+            this(compared, shown, unknown, Optional.empty());
+        }
 
         static State known(String value) {
             return new State(value, value, Optional.empty());
@@ -251,6 +274,17 @@ public final class ServerOperationService {
             canonical.put("action", spec.action());
             String fingerprint = ChangeChallenges.fingerprint(canonical);
             ChangePreview preview = preview(spec, request, node, before, policy);
+            if (before.affected().filter(affected -> affected.count() == 0).isPresent()) {
+                if (needsCode && request.confirmationCode().isPresent()) {
+                    try {
+                        challenges.redeem(request.confirmationCode().get(), TOOL, node,
+                            fingerprint);
+                    } catch (ToolErrorException e) {
+                        throw refuse(call, step, e);
+                    }
+                }
+                return nothingToDo(call, spec, node, before, policy);
+            }
             if (needsCode && request.confirmationCode().isEmpty()) {
                 return new Response.Preview(issue(call, step, preview, before, fingerprint,
                     policy));
@@ -293,6 +327,18 @@ public final class ServerOperationService {
             preview.effects(), preview.backup(), Optional.of(confirmation), preview.warnings());
     }
 
+    /** The result of a call whose set was empty; nothing is sent (spec edge case). */
+    private static Response.Completed nothingToDo(ChangeAudit.Call call, ActionSpec spec,
+        NodeId node, State before, WritePolicy policy) {
+        String action = spec.action();
+        call.nothingToDo("No process is in state ERROR on " + node + "; nothing was sent");
+        LOG.info("{} {} on {}: NOTHING_TO_DO (audit id {})", TOOL, action, node, call.auditId());
+        return new Response.Completed(new ChangeResult(node, TOOL, action, target(action),
+            ChangeOutcome.NOTHING_TO_DO, before.shown(), "nothing was sent",
+            Optional.of(before.shown()), Optional.empty(), OptionalInt.empty(), Optional.empty(),
+            ChangeResult.RestartNeeded.FALSE, call.auditId()), warnings(policy, action, before));
+    }
+
     private Response.Completed run(ChangeAudit.Call call, ActionSpec spec, Request request,
         NodeId node, State before, WritePolicy policy) {
         String action = spec.action();
@@ -301,8 +347,16 @@ public final class ServerOperationService {
         String sentAt = clock.instant().toString();
         ChangeOutcome outcome;
         String answer;
+        OptionalInt affectedCount = OptionalInt.empty();
         try {
-            answer = send(action, request.fields(), node, policy.permit());
+            if (action.equals(DELETE_ERROR_PROCESSES)) {
+                long deleted = gateways.serverOperation(node).deleteErrorProcesses(
+                    policy.permit());
+                affectedCount = OptionalInt.of((int) Math.min(deleted, Integer.MAX_VALUE));
+                answer = "INUBIT reports " + processes(deleted) + " deleted";
+            } else {
+                answer = send(action, request.fields(), node, policy.permit());
+            }
             outcome = ChangeOutcome.EXECUTED;
         } catch (ToolErrorException e) {
             answer = e.error().code() + ": " + e.error().message();
@@ -342,7 +396,7 @@ public final class ServerOperationService {
         List<String> warnings = new ArrayList<>(warnings(policy, action, before));
         auditWarning.ifPresent(warnings::add);
         return new Response.Completed(new ChangeResult(node, TOOL, action, target(action),
-            outcome, before.shown(), answer, after, reReadFailed, OptionalInt.empty(),
+            outcome, before.shown(), answer, after, reReadFailed, affectedCount,
             Optional.empty(), ChangeResult.RestartNeeded.FALSE, call.auditId()), warnings);
     }
 
@@ -387,8 +441,46 @@ public final class ServerOperationService {
                 .orElseGet(() -> State.unknown(NO_DEBUG_READ));
             case TRIGGER_MIDNIGHT_TASK -> new State(TRIGGER_MIDNIGHT_TASK, startTime(node),
                 Optional.empty());
+            case DELETE_ERROR_PROCESSES -> errorProcesses(port.errorProcesses(clock.instant()));
             default -> throw new IllegalArgumentException("Unknown action " + action);
         };
+    }
+
+    /**
+     * The processes in state ERROR, compared by a SHA-256 of their sorted ids, or by their count
+     * when INUBIT lists no ids: more than {@link ServerOperationPort#MAX_ERROR_PROCESS_IDS} rows
+     * (research D-14) or a count without rows. The set is empty, and {@code affected} counts 0,
+     * exactly when INUBIT reports no row. The preview names at most
+     * {@link ChangePreview.Affected#MAX_IDS} ids and workflows.
+     */
+    private static State errorProcesses(ServerOperationPort.ErrorProcesses set) {
+        if (set.count() == 0) {
+            return new State("none", NO_ERROR_PROCESS, Optional.empty(),
+                Optional.of(new ChangePreview.Affected(0, List.of(), false)));
+        }
+        List<String> ids = set.ids();
+        if (set.countOnly() || ids.isEmpty()) {
+            return new State("count " + set.count(), set.count() + " Queue Manager rows in state"
+                + " ERROR; " + (set.countOnly() ? "with more than "
+                    + ServerOperationPort.MAX_ERROR_PROCESS_IDS + " rows the process ids and"
+                    + " workflows are not listed"
+                    : "INUBIT listed none of their process ids and workflows"), Optional.empty(),
+                Optional.of(new ChangePreview.Affected(Math.toIntExact(set.count()), List.of(),
+                    true)));
+        }
+        List<String> workflows = set.workflows();
+        int listed = Math.min(workflows.size(), ChangePreview.Affected.MAX_IDS);
+        String shown = processes(ids.size()) + " in state ERROR"
+            + (set.count() != ids.size() ? " (" + set.count() + " Queue Manager rows)" : "")
+            + " in the workflow" + (workflows.size() == 1 ? " " : "s ")
+            + String.join(", ", workflows.subList(0, listed))
+            + (workflows.size() > listed ? " and " + (workflows.size() - listed) + " more" : "");
+        return new State(ChangeChallenges.fingerprint(Map.of("ids", ids)), shown,
+            Optional.empty(), Optional.of(ChangePreview.Affected.of(ids)));
+    }
+
+    private static String processes(long count) {
+        return count + (count == 1 ? " process" : " processes");
     }
 
     private static boolean maintenanceOn(ServerOperationPort port) {
@@ -480,8 +572,10 @@ public final class ServerOperationService {
         String action = spec.action();
         return new ChangePreview(node, TOOL, action,
             spec.area().name().toLowerCase(Locale.ROOT), target(action), before.shown(),
-            requested(action, request.fields()), Optional.empty(),
-            effects(action, request.fields()), "none: nothing is removed or replaced",
+            requested(action, request.fields()), before.affected(),
+            effects(action, request.fields()), action.equals(DELETE_ERROR_PROCESSES)
+                ? "none: the processes are not exported before they are deleted"
+                : "none: nothing is removed or replaced",
             Optional.empty(), warnings(policy, action, before));
     }
 
@@ -504,6 +598,7 @@ public final class ServerOperationService {
             case SET_TRACE -> "trace";
             case SET_TRACE_LEVEL -> "trace level";
             case SET_DEBUG -> "debug mode";
+            case DELETE_ERROR_PROCESSES -> "processes in state ERROR";
             default -> "midnight task";
         };
     }
@@ -517,6 +612,7 @@ public final class ServerOperationService {
             case SET_READINESS -> readiness(flag(fields, READY));
             case SET_TRACE, SET_DEBUG -> onOff(flag(fields, ON));
             case SET_TRACE_LEVEL -> name(level(fields));
+            case DELETE_ERROR_PROCESSES -> "delete every process in state ERROR";
             default -> "run now";
         };
     }
@@ -541,6 +637,7 @@ public final class ServerOperationService {
             case SET_DEBUG -> List.of(flag(fields, ON)
                 ? "Debug output stays on until it is switched off."
                 : "Debug output stays off until it is switched on.");
+            case DELETE_ERROR_PROCESSES -> DELETE_ERROR_PROCESSES_EFFECTS;
             default -> MIDNIGHT_TASK_EFFECTS;
         };
     }

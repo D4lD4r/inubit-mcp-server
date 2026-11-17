@@ -972,7 +972,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
     - `CLIENT` mode on non-production executes on the first call;
     - maintenance off while REST answers 503;
     - a second call on the same key → `PRECONDITION_FAILED`.
-- [ ] T060 [US4] `application/ServerOperationService.java`, `deleteErrorProcesses` (after T059):
+- [X] T060 [US4] `application/ServerOperationService.java`, `deleteErrorProcesses` (after T059):
   - the preview lists the count, ≤ 50 ids and the workflows concerned (AS4);
   - an empty set gives `NOTHING_TO_DO` (audited);
   - the set is re-read right before sending, and a different set gives `CONFLICT` with a new

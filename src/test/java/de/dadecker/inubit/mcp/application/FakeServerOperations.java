@@ -26,15 +26,17 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Supplier;
 
 /**
  * Test double for {@code operate_server} (feature 022, US4): one INUBIT server whose maintenance
- * mode, readiness, trace, trace level and debug mode are fields the switches change, with the
- * reads of {@link MonitoringPort} and {@link ServerSettingsPort} the service takes its states
- * from. While maintenance mode is on, the REST reads other than {@code GET /ready} fail with
+ * mode, readiness, trace, trace level, debug mode and processes in state ERROR are fields the
+ * switches and {@code processdelete error} change, with the reads of {@link MonitoringPort} and
+ * {@link ServerSettingsPort} the service takes its states from. While maintenance mode is on, the
+ * REST reads other than {@code GET /ready} (the processes in ERROR included) fail with
  * {@code MAINTENANCE_MODE}, as INUBIT answers them with HTTP 503; {@code GET /ready} answers
  * NOT READY.
  */
@@ -62,6 +64,14 @@ final class FakeServerOperations implements GatewayFactory {
     volatile Optional<String> midnightTaskTriggerTime =
         Optional.of("Sat Oct 31 00:00:00 CET 2026");
     volatile String midnightTaskAnswer = "Midnight task triggered.";
+    /** The processes in state ERROR as {@code POST /log/queueLog} lists them; none by default. */
+    volatile ServerOperationPort.ErrorProcesses errorProcesses =
+        new ServerOperationPort.ErrorProcesses(0, List.of(), List.of());
+    /**
+     * The count {@code processdelete error} answers with; empty: the count of
+     * {@link #errorProcesses}. The deletion empties {@link #errorProcesses} in any case.
+     */
+    volatile OptionalLong deletedCount = OptionalLong.empty();
     volatile MonitoringPort.Metrics metrics = new MonitoringPort.Metrics.Available(
         new LoadFigures(512, 512, 1024, Optional.empty(), Optional.of(3L), Optional.of(10L),
             Optional.of(10L), Optional.of(12L), Optional.of(100L), Optional.empty()));
@@ -172,12 +182,17 @@ final class FakeServerOperations implements GatewayFactory {
 
             @Override
             public ErrorProcesses errorProcesses(Instant now) {
-                throw new AssertionError("not used by the switch actions (T060)");
+                restRead(node, "GET /log/queueLog ERROR");
+                return errorProcesses;
             }
 
             @Override
             public long deleteErrorProcesses(WritePermit permit) {
-                throw new AssertionError("not used by the switch actions (T060)");
+                return change("processdelete error", permit, () -> {
+                    long deleted = deletedCount.orElse(errorProcesses.count());
+                    errorProcesses = new ErrorProcesses(0, List.of(), List.of());
+                    return deleted;
+                });
             }
         };
     }
@@ -277,7 +292,7 @@ final class FakeServerOperations implements GatewayFactory {
 
     @Override
     public ProcessQueryPort processes(NodeId node) {
-        throw new AssertionError("not used by the switch actions (T060)");
+        throw new AssertionError("the processes in ERROR come from the operation port");
     }
 
     @Override
