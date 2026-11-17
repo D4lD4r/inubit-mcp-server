@@ -864,7 +864,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - `affected` holds ≤ 50 ids with `truncated`; `inubitAnswer` is masked, ≤ 2,000 characters;
     `reReadFailed` holds a reason.
   - Failing tests first: `domain/model/ChangeRecordsTest.java`.
-- [ ] T049 [US4] `application/ChangeGuard.java` (D-12):
+- [X] T049 [US4] `application/ChangeGuard.java` (D-12):
   - `admit(tool, nodeId, ActionSpec, input)` in exactly this order:
     1. group id → `INVALID_INPUT`, unknown → `TARGET_UNKNOWN`;
     2. production without opt-in, or production with `CLIENT` → `PRODUCTION_PROTECTED`;

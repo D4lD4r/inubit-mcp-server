@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.config;
 
+import de.dadecker.inubit.mcp.application.ActionSpec;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.config.CliChoice.AddressKind;
 import de.dadecker.inubit.mcp.config.CliChoice.HomeSource;
@@ -260,6 +261,22 @@ public record EffectiveNodeConfig(
         return new DevelopmentPolicy(id, production, development.enabled(),
             WritePolicy.Confirmation.valueOf(development.confirmation().name()), confirmationTtl,
             development.e2eTests(), development.soapBaseUrl(), development.repositoryWrite());
+    }
+
+    /**
+     * Feature 022 (research D-12 step 4, data-model.md → AdministrationConfig): the
+     * administration opt-ins of this node's group. Stub until the {@code administration}
+     * settings exist (T067): only {@code OPERATION} and {@code READ}, which need no opt-in, are
+     * enabled.
+     */
+    public Administration administration() {
+        return area -> area == ActionSpec.Area.OPERATION || area == ActionSpec.Area.READ;
+    }
+
+    /** Whether the changes of an area are enabled (research D-12 step 4). */
+    @FunctionalInterface
+    public interface Administration {
+        boolean enabled(ActionSpec.Area area);
     }
 
     /** The same settings with another REST {@code timeout} (e.g. for short probes). */
