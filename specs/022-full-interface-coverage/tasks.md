@@ -859,7 +859,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
 
 ### Shared change infrastructure (first used here; reused by US5–US7)
 
-- [ ] T048 [P] [US4] Domain `domain/model/ChangePreview.java`, `ChangeResult.java` and
+- [X] T048 [P] [US4] Domain `domain/model/ChangePreview.java`, `ChangeResult.java` and
   `ChangeOutcome` (`EXECUTED`, `NOTHING_TO_DO`, `FAILED`), per data-model "Changes".
   - `affected` holds ≤ 50 ids with `truncated`; `inubitAnswer` is masked, ≤ 2,000 characters;
     `reReadFailed` holds a reason.
