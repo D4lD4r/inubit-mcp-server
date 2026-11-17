@@ -265,6 +265,13 @@ reads (`admin-settings-threads-reconstructed`, `admin-settings-privileged-percen
 only their refusal, and their coverage rows are `excluded:needs the INUBIT root user` (owner
 decision 2026-11-13).
 
+The `admin-operate-*-reconstructed` cases (T057, US4) are SYNTHETIC: one answer block each, written
+by hand before the live check T054 (L-2, L-3) and described in their own `.README`. They hold the
+assumed answers of `maintenance -s` (`Maintenance mode: on`), `trace on` (`Trace: on`),
+`trace -l debug` (`Trace level: debug`), `debug on` (`Debug mode: on`), `triggerMidnightTask`
+(`Midnight task triggered.`) and `processdelete error` (`Deleted processes: 40`). T054 records the
+real answers as `admin-operate-*` and replaces them together with the parsers' forms.
+
 Neutralization of the T028 cases (recorded 2026-11-13 on the same server and account; raw outputs
 private, never committed). Every value was replaced in one pass, the same way in every file:
 

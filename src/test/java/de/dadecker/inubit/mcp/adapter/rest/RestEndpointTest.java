@@ -16,6 +16,7 @@ class RestEndpointTest {
             .containsExactlyInAnyOrder(
                 "GET /healthcheck",
                 "GET /ready",
+                "POST /ready/{status}",
                 "GET /system/info",
                 "GET /metrics",
                 "POST /log/{name}",
@@ -40,6 +41,14 @@ class RestEndpointTest {
     void theUserListEndpointOfFeature022() {
         assertThat(RestEndpoint.USERS.path()).isEqualTo("/ibis/rest/user/users");
         assertThat(RestEndpoint.USERS.method()).isEqualTo(Method.GET);
+    }
+
+    /** The coverage-list row {@code REST POST /ready/{status}} (US4, research D-22). */
+    @Test
+    void theReadinessSwitchOfFeature022TakesOnOrOffAsItsSegment() {
+        assertThat(RestEndpoint.READY_SWITCH.path("off")).isEqualTo("/ibis/rest/ready/off");
+        assertThat(RestEndpoint.READY_SWITCH.path("on")).isEqualTo("/ibis/rest/ready/on");
+        assertThat(RestEndpoint.READY_SWITCH.method()).isEqualTo(Method.POST);
     }
 
     @Test

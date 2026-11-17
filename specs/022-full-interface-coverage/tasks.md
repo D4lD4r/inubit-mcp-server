@@ -946,7 +946,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - Failing tests first in `CliCommandTest.java`: allowed forms; `-eq` with `off` rejected;
     `trace --download` combined with `on` rejected; `processdelete` with any other argument
     rejected.
-- [ ] T057 [US4] `adapter/cli/admin/CliOperationRunner.java` and parsers
+- [X] T057 [US4] `adapter/cli/admin/CliOperationRunner.java` and parsers
   `MaintenanceStateParser.java`, `TraceStateParser.java`, `DebugStateParser.java`,
   `MidnightTaskAnswerParser.java`, `ProcessDeleteAnswerParser.java` (the count INUBIT reports);
   `RestEndpoint` + `POST /ready/{state}`.

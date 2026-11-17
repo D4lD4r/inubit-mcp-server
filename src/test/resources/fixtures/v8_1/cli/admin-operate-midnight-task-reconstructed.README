@@ -1,0 +1,6 @@
+SYNTHETIC – reconstructed answer of `triggerMidnightTask`; not recorded yet
+Hand-written fixture for MidnightTaskAnswerParser (tasks.md T057): one answer block, the lines
+after the client's preamble (no .stderr/.exit: a block is not a run). No answer of the
+command is known yet, so the form "Midnight task triggered." is an assumption, kept in
+MidnightTaskAnswerParser. The live check T054 records the real answer (only if the owner approves
+running the midnight task) and replaces this case.

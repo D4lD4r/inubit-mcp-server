@@ -1,0 +1,5 @@
+SYNTHETIC – reconstructed answer of `debug on` (the form also assumed for `debug off`); not recorded yet
+Hand-written fixture for DebugStateParser (tasks.md T057): one answer block, the lines after the
+client's preamble (no .stderr/.exit: a block is not a run). No answer of the command is known
+yet, so the form "Debug mode: on|off" is an assumption, kept in DebugStateParser. The live
+check T054 (L-3) records the real answers of `debug on` and `debug off` and replaces this case.

@@ -649,6 +649,16 @@ sees them.
 vendor list of T056, sent in lower case. It is not recorded: L-3 (T054) records the list from
 `trace --help` and replaces this one.
 
+**Answer forms (reconstructed, T057)**: `CliOperationRunner` runs each form once in script mode
+(the changes inside `WriteLock.handOff`) and reads its answer with a parser of assumed form; any
+other answer is `UNEXPECTED_RESPONSE`, never guessed. Assumed until T054 (L-2, L-3) records them:
+`maintenance -s` and `maintenance on|off` → `Maintenance mode: on|off`; `trace on|off` →
+`Trace: on|off`; `trace -l <level>` → `Trace level: <level>`; `debug on|off` →
+`Debug mode: on|off`; `triggerMidnightTask` → `Midnight task triggered.`; `processdelete error` →
+`Deleted processes: <n>`. Fixtures `fixtures/v8_1/cli/admin-operate-*-reconstructed` (SYNTHETIC).
+The readiness switch is `RestEndpoint.READY_SWITCH`, `POST /ready/{status}` as the coverage list
+writes it.
+
 Switching maintenance off uses StartCLI over the SOAP servlet, which the vendor does not list
 among the answers blocked in maintenance mode (L-2). The read before the change accepts
 `MAINTENANCE_MODE` from REST as "on".

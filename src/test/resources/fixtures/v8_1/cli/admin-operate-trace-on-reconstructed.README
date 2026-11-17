@@ -1,0 +1,5 @@
+SYNTHETIC – reconstructed answer of `trace on` (the form also assumed for `trace off`); not recorded yet
+Hand-written fixture for TraceStateParser (tasks.md T057): one answer block, the lines after the
+client's preamble (no .stderr/.exit: a block is not a run). No answer of the command is known
+yet, so the form "Trace: on|off" is an assumption, kept in TraceStateParser. The live check
+T054 (L-3) records the real answers of `trace on` and `trace off` and replaces this case.
