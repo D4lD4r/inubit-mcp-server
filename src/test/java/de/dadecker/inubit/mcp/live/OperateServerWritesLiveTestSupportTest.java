@@ -60,6 +60,9 @@ class OperateServerWritesLiveTestSupportTest {
 
     private static final NodeId NODE = NodeId.of("test", "node1");
     private static final String STEP_LIST = "W1,W2a,W2b,W3,W2u,W4,W5,W6,W7,W7b,W8,W8b,W9,W10";
+    private static final String SUBSET_LIST = "W5,W6,W7,W7b,W8,W8b,W9,W10";
+    private static final List<Step> FULL = OperateServerWritesLiveTestSupport.STEPS;
+    private static final List<Step> SUBSET = OperateServerWritesLiveTestSupport.W5_TO_W10;
     private static final String RAW_LINE = "mail.smtp.password=example-only-0001";
     /** The answers of {@code GET /ready} recorded in live run 1 (INUBIT 8.1.17): maintenance on. */
     private static final String IN_MAINTENANCE =
@@ -149,16 +152,50 @@ class OperateServerWritesLiveTestSupportTest {
         Set<Property> all = OperateServerWritesLiveTestSupport.ALL;
         State baseline = OperateServerWritesLiveTestSupport.BASELINE;
 
-        assertThat(OperateServerWritesLiveTestSupport.restorePlan(baseline, all)).isEmpty();
-        assertThat(OperateServerWritesLiveTestSupport.restorePlan(State.NONE, all))
+        assertThat(OperateServerWritesLiveTestSupport.restorePlan(baseline, all, FULL)).isEmpty();
+        assertThat(OperateServerWritesLiveTestSupport.restorePlan(State.NONE, all, FULL))
             .extracting(Step::form).containsExactly("maintenance off", "POST /ready/on",
                 "trace on", "trace -l info", "debug off");
         assertThat(OperateServerWritesLiveTestSupport.restorePlan(baseline
-            .with(Property.TRACE_LEVEL, "debug").with(Property.READINESS, "not READY"), all))
-            .extracting(Step::form).containsExactly("POST /ready/on", "trace -l info");
+            .with(Property.TRACE_LEVEL, "debug").with(Property.READINESS, "not READY"), all,
+            FULL)).extracting(Step::form).containsExactly("POST /ready/on", "trace -l info");
         assertThat(OperateServerWritesLiveTestSupport.restorePlan(State.NONE,
-            Set.of(Property.MAINTENANCE))).extracting(Step::form)
+            Set.of(Property.MAINTENANCE), FULL)).extracting(Step::form)
             .containsExactly("maintenance off");
+    }
+
+    /** The second approved list: W5–W10 of the set, unchanged; W5 then finds the node READY. */
+    @Test
+    void theSubsetIsW5ToW10OfTheSetInOrderAndForm() {
+        assertThat(SUBSET).extracting(Step::id).containsExactly(SUBSET_LIST.split(","));
+        assertThat(SUBSET).containsExactlyElementsOf(FULL.subList(FULL.indexOf(step("W5")),
+            FULL.size()));
+        assertThat(SUBSET).extracting(Step::form)
+            .containsExactly("POST /ready/on", "trace on", "trace off", "trace on",
+                "trace -l debug", "trace -l info", "debug on", "debug off");
+        assertThat(SUBSET)
+            .extracting(step -> step.expected().describe(step.expected().properties()))
+            .containsExactly("ready READY", "trace on, trace level info", "trace off",
+                "trace on", "trace level debug", "trace level info", "debug on", "debug off");
+        assertThat(SUBSET).noneMatch(Step::onlyIfNeeded);
+        assertThat(OperateServerWritesLiveTestSupport.accepts(step("W5"), 503)).isFalse();
+    }
+
+    /** For W5–W10 the restore sends only commands of that list: never {@code maintenance off}. */
+    @Test
+    void theRestorePlanOfTheSubsetUsesOnlyItsCommands() {
+        Set<Property> all = OperateServerWritesLiveTestSupport.ALL;
+        Set<String> catalogue = new HashSet<>(SUBSET.stream().map(Step::form).toList());
+
+        assertThat(OperateServerWritesLiveTestSupport.restorePlan(State.NONE, all, SUBSET))
+            .extracting(Step::form)
+            .containsExactly("POST /ready/on", "trace on", "trace -l info", "debug off")
+            .allMatch(catalogue::contains);
+        assertThat(OperateServerWritesLiveTestSupport.restorePlan(
+            OperateServerWritesLiveTestSupport.BASELINE.with(Property.MAINTENANCE, "on"), all,
+            SUBSET)).isEmpty();
+        assertThat(OperateServerWritesLiveTestSupport.restorePlan(State.NONE,
+            Set.of(Property.MAINTENANCE), SUBSET)).isEmpty();
     }
 
     @Test
@@ -188,12 +225,34 @@ class OperateServerWritesLiveTestSupportTest {
     @Test
     void theFullStepListPasses() {
         env.put("INUBIT_LIVE_T054_WRITES", STEP_LIST);
-        assertThatCode(() -> OperateServerWritesLiveTestSupport.requireApproval(env))
-            .doesNotThrowAnyException();
+        assertThat(OperateServerWritesLiveTestSupport.requireApproval(env)).isSameAs(FULL);
 
         env.put("INUBIT_LIVE_T054_WRITES", " " + STEP_LIST.replace(",", ", ") + " ");
-        assertThatCode(() -> OperateServerWritesLiveTestSupport.requireApproval(env))
-            .doesNotThrowAnyException();
+        assertThat(OperateServerWritesLiveTestSupport.requireApproval(env)).isSameAs(FULL);
+    }
+
+    @Test
+    void theSubsetW5ToW10PassesOnlyExactly() {
+        env.put("INUBIT_LIVE_T054_WRITES", SUBSET_LIST);
+        assertThat(OperateServerWritesLiveTestSupport.requireApproval(env)).isSameAs(SUBSET);
+
+        env.put("INUBIT_LIVE_T054_WRITES", " " + SUBSET_LIST.replace(",", ", ") + " ");
+        assertThat(OperateServerWritesLiveTestSupport.requireApproval(env)).isSameAs(SUBSET);
+
+        for (String value : List.of("W5", "W5,W6", "W6,W7,W7b,W8,W8b,W9,W10",
+            SUBSET_LIST.replace(",W10", ""), "W4," + SUBSET_LIST, SUBSET_LIST + ",W4",
+            SUBSET_LIST.replace("W7,W7b", "W7b,W7"), SUBSET_LIST.replace("W9,W10", "W10,W9"),
+            "W9,W10", "W1,W2a,W2b,W3,W2u", SUBSET_LIST + ",",
+            SUBSET_LIST.toLowerCase(Locale.ROOT))) {
+            env.put("INUBIT_LIVE_T054_WRITES", value);
+
+            assertThatThrownBy(() -> OperateServerWritesLiveTestSupport.requireApproval(env))
+                .as(value)
+                .isInstanceOf(AssertionError.class)
+                .hasMessageContaining("INUBIT_LIVE_T054_WRITES must list exactly " + STEP_LIST
+                    + " or " + SUBSET_LIST)
+                .hasMessageContaining("nothing was run");
+        }
     }
 
     @Test
@@ -386,7 +445,7 @@ class OperateServerWritesLiveTestSupportTest {
     void aCleanRunRunsEveryStepOnceInOrderAndRestoresNothing() throws IOException {
         SimulatedNode node = new SimulatedNode();
 
-        Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node, FULL);
 
         assertThat(node.ran).containsExactly(STEP_LIST.split(","));
         assertThat(node.reads).containsExactly("B0", "W1-after", "W2b-after", "W3-after",
@@ -408,7 +467,7 @@ class OperateServerWritesLiveTestSupportTest {
         SimulatedNode node = new SimulatedNode();
         node.readySwitchInMaintenanceAnswers503 = false;
 
-        Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node, FULL);
 
         assertThat(outcome.stop()).isEmpty();
         assertThat(node.records).contains(
@@ -426,7 +485,7 @@ class OperateServerWritesLiveTestSupportTest {
             node.readySwitchInMaintenanceAnswers503 = answers503;
             node.withoutEffect = "W2b";
 
-            Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+            Outcome outcome = OperateServerWritesLiveTestSupport.run(node, FULL);
 
             String answer = answers503 ? "503" : "2xx";
             assertThat(outcome.stop()).as(answer).contains(new Stop("W2b", "DEVIATION (ready not"
@@ -446,7 +505,7 @@ class OperateServerWritesLiveTestSupportTest {
         SimulatedNode node = new SimulatedNode();
         node.unreachable = "W2b";
 
-        Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node, FULL);
 
         assertThat(outcome.stop()).contains(new Stop("W2b", "UNREACHABLE"));
         assertThat(node.records).contains("W2b before ready READY; after ready not READY");
@@ -460,7 +519,7 @@ class OperateServerWritesLiveTestSupportTest {
             SimulatedNode node = new SimulatedNode();
             node.answering503 = step;
 
-            Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+            Outcome outcome = OperateServerWritesLiveTestSupport.run(node, FULL);
 
             assertThat(outcome.stop()).as(step).contains(new Stop(step, "UNREACHABLE"));
             assertThat(node.ran).as(step).doesNotContain("W6");
@@ -475,7 +534,7 @@ class OperateServerWritesLiveTestSupportTest {
         SimulatedNode node = new SimulatedNode();
         node.maintenanceOffMakesReady = true;
 
-        Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node, FULL);
 
         assertThat(node.ran).doesNotContain("W2u").contains("W3", "W4");
         assertThat(node.records).contains("W2u not needed (ready READY)");
@@ -487,7 +546,7 @@ class OperateServerWritesLiveTestSupportTest {
         SimulatedNode node = new SimulatedNode();
         node.server.put(Property.DEBUG, "on");
 
-        assertThatThrownBy(() -> OperateServerWritesLiveTestSupport.run(node))
+        assertThatThrownBy(() -> OperateServerWritesLiveTestSupport.run(node, FULL))
             .isInstanceOf(AssertionError.class)
             .hasMessage("the baseline does not hold before W1 (debug on, expected debug off);"
                 + " nothing was written");
@@ -520,7 +579,7 @@ class OperateServerWritesLiveTestSupportTest {
         SimulatedNode node = new SimulatedNode();
         node.failing = step;
 
-        Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node, FULL);
 
         List<String> ids = List.of(STEP_LIST.split(","));
         List<String> expected = restores == null ? List.of() : List.of(restores.split(", "));
@@ -543,7 +602,7 @@ class OperateServerWritesLiveTestSupportTest {
         SimulatedNode node = new SimulatedNode();
         node.withoutEffect = "W7";
 
-        Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node, FULL);
 
         assertThat(outcome.stop()).contains(new Stop("W7", "DEVIATION (trace on, expected trace"
             + " off)"));
@@ -556,7 +615,7 @@ class OperateServerWritesLiveTestSupportTest {
         SimulatedNode node = new SimulatedNode();
         node.withoutEffect = "W8";
 
-        Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node, FULL);
 
         assertThat(outcome.stop()).contains(new Stop("W8", "DEVIATION (trace level info,"
             + " expected trace level debug)"));
@@ -570,7 +629,7 @@ class OperateServerWritesLiveTestSupportTest {
             SimulatedNode node = new SimulatedNode();
             node.failingAfterEffect = step;
 
-            Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+            Outcome outcome = OperateServerWritesLiveTestSupport.run(node, FULL);
 
             assertThat(outcome.stop()).as(step).contains(new Stop(step, "exit 1"));
             assertThat(outcome.restored()).as(step).containsExactly(switch (step) {
@@ -589,7 +648,7 @@ class OperateServerWritesLiveTestSupportTest {
         SimulatedNode node = new SimulatedNode();
         node.throwingAfterEffect = "W9";
 
-        Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node, FULL);
 
         assertThat(outcome.stop()).contains(new Stop("W9", "IOException"));
         assertThat(outcome.restored()).containsExactly("debug off");
@@ -601,7 +660,7 @@ class OperateServerWritesLiveTestSupportTest {
         node.failing = "W4";
         node.unreadable = "X2";
 
-        Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node, FULL);
 
         assertThat(outcome.restored()).containsExactly("POST /ready/on", "trace on",
             "trace -l info", "debug off");
@@ -617,7 +676,7 @@ class OperateServerWritesLiveTestSupportTest {
         node.failingAfterEffect = "W1";
         node.restoresFail = true;
 
-        Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node, FULL);
 
         assertThat(outcome.restored()).containsExactly("maintenance off failed: TIMEOUT",
             "POST /ready/on failed: TIMEOUT", "trace on failed: TIMEOUT",
@@ -640,7 +699,7 @@ class OperateServerWritesLiveTestSupportTest {
         node.failing = "W7b";
         node.unreadable = "B1";
 
-        Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node, FULL);
 
         assertThat(outcome.end()).isEqualTo(State.NONE);
         assertThat(node.reads).endsWith("X1", "X2", "B1");
@@ -661,6 +720,126 @@ class OperateServerWritesLiveTestSupportTest {
             .isInstanceOf(AssertionError.class)
             .hasMessage("T054 write set ran to the end, but the baseline does not hold (trace"
                 + " level debug, expected trace level info)");
+    }
+
+    @Test
+    void aCleanSubsetRunRunsW5ToW10OnceInOrderAndRestoresNothing() throws IOException {
+        SimulatedNode node = new SimulatedNode();
+
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node, SUBSET);
+
+        assertThat(node.ran).containsExactly(SUBSET_LIST.split(","));
+        assertThat(node.reads).containsExactly("B0", "W5-after", "W6-after", "W7-after",
+            "W7b-after", "W8-after", "W8b-after", "W9-after", "W10-after", "B1");
+        assertThat(outcome).isEqualTo(new Outcome(Optional.empty(), List.of(),
+            OperateServerWritesLiveTestSupport.BASELINE.withReadyMessage("Ready to serve.")));
+        assertThat(node.records).contains("W5 before ready READY; after ready READY",
+            "W6 before trace on, trace level info; after trace on, trace level info");
+    }
+
+    @Test
+    void withoutTheBaselineTheSubsetWritesNothing() {
+        SimulatedNode node = new SimulatedNode();
+        node.server.put(Property.MAINTENANCE, "on");
+
+        assertThatThrownBy(() -> OperateServerWritesLiveTestSupport.run(node, SUBSET))
+            .isInstanceOf(AssertionError.class)
+            .hasMessageStartingWith("the baseline does not hold before W5 (maintenance on,")
+            .hasMessageEndingWith("; nothing was written");
+        assertThat(node.ran).isEmpty();
+    }
+
+    /** W5 of the subset counts a 2xx only, even though the node stays READY. */
+    @Test
+    void w5OfTheSubsetStopsAtA503() throws IOException {
+        SimulatedNode node = new SimulatedNode();
+        node.answering503 = "W5";
+
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node, SUBSET);
+
+        assertThat(outcome.stop()).contains(new Stop("W5", "UNREACHABLE"));
+        assertThat(node.ran).containsExactly("W5");
+        assertThat(outcome.restored()).isEmpty();
+    }
+
+    /**
+     * An error at each step of the subset: the steps before it ran once each, none after it, and
+     * only what is then off the baseline is restored, with commands of the subset.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "W5  |",
+        "W6  |",
+        "W7  |",
+        "W7b | trace on",
+        "W8  |",
+        "W8b | trace -l info",
+        "W9  |",
+        "W10 | debug off"})
+    void anErrorInTheSubsetStopsAndRestoresOnlyWhatIsOffTheBaseline(String step,
+        String restores) throws IOException {
+        SimulatedNode node = new SimulatedNode();
+        node.failing = step;
+
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node, SUBSET);
+
+        List<String> ids = List.of(SUBSET_LIST.split(","));
+        List<String> expected = restores == null ? List.of() : List.of(restores.split(", "));
+        assertThat(node.ran).containsExactlyElementsOf(
+            concat(ids.subList(0, ids.indexOf(step) + 1), expected));
+        assertThat(outcome.stop()).contains(new Stop(step, "TIMEOUT"));
+        assertThat(outcome.restored()).containsExactlyElementsOf(expected);
+        assertThat(outcome.end().values())
+            .isEqualTo(OperateServerWritesLiveTestSupport.BASELINE.values());
+    }
+
+    /** At each step of the subset, with nothing readable, the restore stays within the subset. */
+    @Test
+    void theRestoreAtEachSubsetStepSendsOnlyCommandsOfTheSubset() throws IOException {
+        for (Step step : SUBSET) {
+            SimulatedNode node = new SimulatedNode();
+            node.failing = step.id();
+            node.unreadable = "X2";
+
+            Outcome outcome = OperateServerWritesLiveTestSupport.run(node, SUBSET);
+
+            assertThat(outcome.restored()).as(step.id())
+                .containsExactly("POST /ready/on", "trace on", "trace -l info", "debug off");
+            assertThat(node.ran).as(step.id()).doesNotContain("maintenance off");
+        }
+    }
+
+    /**
+     * Maintenance found on (or unknown) during the restore of the subset: {@code maintenance off}
+     * is not in that list, so it is not sent but reported for the owner.
+     */
+    @Test
+    void maintenanceFoundOnInTheSubsetIsReportedNotRestored() throws IOException {
+        SimulatedNode node = new SimulatedNode();
+        node.maintenanceOnAt = "W7";
+
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node, SUBSET);
+
+        assertThat(outcome.stop()).contains(new Stop("W7", "DEVIATION (trace unknown, expected"
+            + " trace off)"));
+        assertThat(outcome.restored()).containsExactly("DEVIATION maintenance on not restored:"
+            + " maintenance off is not in the approved list, the owner must fix it",
+            "POST /ready/on failed: UNREACHABLE", "trace on", "trace -l info");
+        assertThat(node.ran).containsExactly("W5", "W6", "W7", "POST /ready/on", "trace on",
+            "trace -l info");
+        assertThatThrownBy(() -> OperateServerWritesLiveTestSupport.assertOutcome(outcome))
+            .isInstanceOf(AssertionError.class)
+            .hasMessageContaining("restored: DEVIATION maintenance on not restored")
+            .hasMessageContaining("the baseline does not hold (maintenance on,");
+
+        SimulatedNode unknown = new SimulatedNode();
+        unknown.failing = "W10";
+        unknown.unreadable = "X1";
+
+        assertThat(OperateServerWritesLiveTestSupport.run(unknown, SUBSET).restored())
+            .containsExactly("DEVIATION maintenance unknown not restored: maintenance off is"
+                + " not in the approved list, the owner must fix it", "debug off");
+        assertThat(unknown.ran).doesNotContain("maintenance off");
     }
 
     // --- task folder and records -----------------------------------------------------------------
@@ -838,6 +1017,8 @@ class OperateServerWritesLiveTestSupportTest {
         String unreachable = "";
         /** A step whose {@code POST /ready/on|off} is answered with 503 outside maintenance. */
         String answering503 = "";
+        /** A step after which the node is in maintenance (switched on by someone else). */
+        String maintenanceOnAt = "";
         boolean readySwitchInMaintenanceAnswers503 = true;
         boolean restoresFail;
 
@@ -894,6 +1075,9 @@ class OperateServerWritesLiveTestSupportTest {
             boolean maintenance = maintenance();
             if (!step.id().equals(withoutEffect)) {
                 apply(step.form());
+            }
+            if (step.id().equals(maintenanceOnAt)) {
+                server.put(Property.MAINTENANCE, "on");
             }
             if (step.id().equals(throwingAfterEffect)) {
                 throw new IOException(RAW_LINE);

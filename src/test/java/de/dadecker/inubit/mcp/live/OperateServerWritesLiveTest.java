@@ -54,17 +54,20 @@ import org.junit.jupiter.api.Timeout;
  * after each step is read with the reads R1 ({@code maintenance -s}), R3 ({@code GET /ready}), R6
  * ({@code debug}) and R8 ({@code GET /system/info}) of the read set.
  *
- * <p>The baseline (maintenance off, READY, trace on at level info, debug off) must hold before W1,
- * else nothing is written. At the first error or deviation the sequence stops, the properties off
- * the baseline are restored with commands of the set, each once, and the test fails naming the
- * step and the code; at the end the full baseline is read again. W2b alone also counts an
- * answered 503, which the production write request reports as {@code UNREACHABLE}, if its effect
- * shows ({@link OperateServerWritesLiveTestSupport#readyOffTookEffect}).
+ * <p>The baseline (maintenance off, READY, trace on at level info, debug off) must hold before the
+ * first step, else nothing is written. At the first error or deviation the sequence stops, the
+ * properties off the baseline are restored with commands of the approved list, each once, and the
+ * test fails naming the step and the code; at the end the full baseline is read again. W2b alone
+ * also counts an answered 503, which the production write request reports as
+ * {@code UNREACHABLE}, if its effect shows
+ * ({@link OperateServerWritesLiveTestSupport#readyOffTookEffect}).
  *
  * <p>Run with {@code INUBIT_MCP_PROFILE=<profile> INUBIT_LIVE_NODE=<group>/<node>
  * INUBIT_LIVE_T054_WRITES=W1,W2a,W2b,W3,W2u,W4,W5,W6,W7,W7b,W8,W8b,W9,W10
  * INUBIT_LIVE_RECORD_DIR=<private dir> mvn verify -Plive -Dtest=OperateServerWritesLiveTest}, only
- * after the owner approved each command; skipped without any of the three variables. Prints one
+ * after the owner approved each command; skipped without any of the three variables. The owner may
+ * approve W5–W10 alone instead ({@code INUBIT_LIVE_T054_WRITES=W5,W6,W7,W7b,W8,W8b,W9,W10},
+ * {@link OperateServerWritesLiveTestSupport#W5_TO_W10}), from the same baseline. Prints one
  * line per command with its exit code or status and byte counts, and the derived states; never
  * output.
  */
@@ -76,7 +79,7 @@ class OperateServerWritesLiveTest {
     void theWritesOfL2AndL3RunOnceEachAndLeaveTheBaseline() throws IOException {
         LiveTarget live = LiveTarget.resolve();
         Map<String, String> environment = System.getenv();
-        OperateServerWritesLiveTestSupport.requireApproval(environment);
+        List<Step> steps = OperateServerWritesLiveTestSupport.requireApproval(environment);
         Path recordDirectory = OperateServerReadsLiveTestSupport.recordDirectory(environment,
             Path.of("").toAbsolutePath());
         NodeId node = live.node();
@@ -97,7 +100,8 @@ class OperateServerWritesLiveTest {
             outcome = OperateServerWritesLiveTestSupport.run(new LiveNode(connection,
                 connection.cli(version), new CliOutputClassifier(live.scrubber(),
                     server.secretLabels(), live.windows()),
-                new WritePermit(node, Capability.SERVER_OPERATION, version), files, directory));
+                new WritePermit(node, Capability.SERVER_OPERATION, version), files, directory),
+                steps);
         }
         OperateServerWritesLiveTestSupport.assertOutcome(outcome);
     }

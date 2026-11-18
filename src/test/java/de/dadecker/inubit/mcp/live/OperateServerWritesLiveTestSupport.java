@@ -43,7 +43,8 @@ import org.w3c.dom.Element;
 /**
  * The offline parts of {@link OperateServerWritesLiveTest} (feature 022 T054, write set W1–W10 of
  * the live checks L-2 and L-3), tested by {@link OperateServerWritesLiveTestSupportTest}: the
- * owner-approved steps in their order and forms, the gate, the derived state of the four state
+ * owner-approved steps in their order and forms, the approved lists (all steps, or W5–W10), the
+ * gate, the derived state of the four state
  * reads, the expected after-states, the sequence with its stop and restore, the state records and
  * their lines. The case files and summary lines of each command are those of
  * {@link OperateServerReadsLiveTestSupport}. Failure messages and lines name steps, codes, byte
@@ -272,8 +273,16 @@ final class OperateServerWritesLiveTestSupport {
         step("W10", "debug-off", CliCommand.debugSwitch(false), Property.DEBUG, OFF));
 
     /**
+     * The second owner-approved list: W5–W10 of {@link #STEPS} alone, from the same baseline (W5
+     * then finds the node READY and leaves it so).
+     */
+    static final List<Step> W5_TO_W10 =
+        STEPS.stream().dropWhile(step -> !step.id().equals("W5")).toList();
+
+    /**
      * The command that brings each property back to its baseline: each one is a command of
-     * {@link #STEPS} (W3, W5, W6, W8b, W10).
+     * {@link #STEPS} (W3, W5, W6, W8b, W10); a run sends only those of its own list
+     * ({@link #restorePlan}).
      */
     static final Map<Property, Step> RESTORE = restoreSteps();
 
@@ -291,20 +300,28 @@ final class OperateServerWritesLiveTestSupport {
 
     /**
      * Skips without {@link #APPROVAL_VARIABLE}; fails unless it lists exactly the ids of
-     * {@link #STEPS} in their order, comma-separated.
+     * {@link #STEPS} or of {@link #W5_TO_W10} in their order, comma-separated.
+     *
+     * @return the steps it lists
      */
-    static void requireApproval(Map<String, String> environment) {
+    static List<Step> requireApproval(Map<String, String> environment) {
         String value = environment.get(APPROVAL_VARIABLE);
-        String steps = STEPS.stream().map(Step::id).collect(Collectors.joining(","));
+        String steps = ids(STEPS) + " or " + ids(W5_TO_W10);
         Assumptions.assumeTrue(value != null && !value.isBlank(), APPROVAL_VARIABLE + " is not set"
             + " (" + steps + ", only after the owner approved each command); the T054 write set is"
             + " skipped");
         List<String> listed = Arrays.stream(value.split(",", -1)).map(String::strip).toList();
-        if (!listed.equals(STEPS.stream().map(Step::id).toList())) {
-            fail(APPROVAL_VARIABLE + " must list exactly " + steps + " (only after the owner"
-                + " approved each command), or be unset to skip the T054 write set; nothing was"
-                + " run");
+        for (List<Step> approved : List.of(STEPS, W5_TO_W10)) {
+            if (listed.equals(approved.stream().map(Step::id).toList())) {
+                return approved;
+            }
         }
+        return fail(APPROVAL_VARIABLE + " must list exactly " + steps + " (only after the owner"
+            + " approved each command), or be unset to skip the T054 write set; nothing was run");
+    }
+
+    private static String ids(List<Step> steps) {
+        return steps.stream().map(Step::id).collect(Collectors.joining(","));
     }
 
     /** Fails unless the profile enables writes on {@code node}. */
@@ -520,25 +537,26 @@ final class OperateServerWritesLiveTestSupport {
     }
 
     /**
-     * Runs the write set on {@code node}: the baseline must hold (else it fails with nothing
-     * written); then each step once, in order, its expected state read afterwards. At the first
-     * error or deviation the sequence stops and {@link #restore} brings back the baseline. At the
-     * end the full state is read again.
+     * Runs the approved {@code steps} on {@code node}: the baseline must hold (else it fails with
+     * nothing written); then each step once, in order, its expected state read afterwards. At the
+     * first error or deviation the sequence stops and {@link #restore} brings back the baseline
+     * with commands of {@code steps}. At the end the full state is read again.
      *
      * <p>W2b also counts an answered 503 ({@link #accepts}), and in either case is done only if
      * its effect shows ({@link #readyOffTookEffect}); its state record notes which case occurred.
      */
-    static Outcome run(Node node) throws IOException {
+    static Outcome run(Node node, List<Step> steps) throws IOException {
         State baseline = node.read("B0", ALL);
         List<Property> off = baseline.offBaseline(ALL);
         if (!off.isEmpty()) {
-            fail("the baseline does not hold before W1 (" + baseline.describe(off) + ", expected "
-                + BASELINE.describe(off) + "); nothing was written");
+            fail("the baseline does not hold before " + steps.get(0).id() + " ("
+                + baseline.describe(off) + ", expected " + BASELINE.describe(off)
+                + "); nothing was written");
         }
         State known = baseline;
         Optional<String> inMaintenance = Optional.empty();
         Optional<Stop> stop = Optional.empty();
-        for (Step step : STEPS) {
+        for (Step step : steps) {
             Set<Property> checked = step.expected().properties();
             try {
                 if (step.onlyIfNeeded()) {
@@ -584,7 +602,7 @@ final class OperateServerWritesLiveTestSupport {
                 break;
             }
         }
-        List<String> restored = stop.isPresent() ? restore(node) : List.of();
+        List<String> restored = stop.isPresent() ? restore(node, steps) : List.of();
         State end;
         try {
             end = node.read("B1", ALL);
@@ -597,11 +615,13 @@ final class OperateServerWritesLiveTestSupport {
     /**
      * Brings back the baseline after a stop: per round of {@link #RESTORE_ROUNDS} it reads the
      * round's properties and runs the {@link #restorePlan} for them, each command once; a failed
-     * command is not retried. An unreadable property counts as off the baseline.
+     * command is not retried. An unreadable property counts as off the baseline. A property whose
+     * restore command is not in {@code steps} (maintenance for {@link #W5_TO_W10}) is not
+     * restored but reported as a deviation for the owner.
      *
-     * @return the commands that ran, each with its failure
+     * @return the commands that ran, each with its failure, and the deviations not restored
      */
-    static List<String> restore(Node node) {
+    static List<String> restore(Node node, List<Step> steps) {
         List<String> restored = new ArrayList<>();
         for (int round = 0; round < RESTORE_ROUNDS.size(); round++) {
             Set<Property> properties = RESTORE_ROUNDS.get(round);
@@ -611,7 +631,15 @@ final class OperateServerWritesLiveTestSupport {
             } catch (IOException | RuntimeException | AssertionError e) {
                 observed = State.NONE;
             }
-            for (Step step : restorePlan(observed, properties)) {
+            List<Step> plan = restorePlan(observed, properties, steps);
+            for (Property property : observed.offBaseline(properties)) {
+                Step step = RESTORE.get(property);
+                if (!plan.contains(step)) {
+                    restored.add("DEVIATION " + observed.describe(Set.of(property)) + " not"
+                        + " restored: " + step.form() + " is not in the approved list, the owner"
+                        + " must fix it");
+                    continue;
+                }
                 Optional<String> failure;
                 try {
                     failure = node.run(step).failure();
@@ -626,10 +654,13 @@ final class OperateServerWritesLiveTestSupport {
 
     /**
      * The restore commands for those {@code properties} that {@code observed} shows off the
-     * baseline or not at all, in property order: only commands of {@link #RESTORE}.
+     * baseline or not at all, in property order: only commands of {@link #RESTORE} whose form is
+     * a command of {@code steps}.
      */
-    static List<Step> restorePlan(State observed, Set<Property> properties) {
-        return observed.offBaseline(properties).stream().map(RESTORE::get).toList();
+    static List<Step> restorePlan(State observed, Set<Property> properties, List<Step> steps) {
+        Set<String> catalogue = steps.stream().map(Step::form).collect(Collectors.toSet());
+        return observed.offBaseline(properties).stream().map(RESTORE::get)
+            .filter(step -> catalogue.contains(step.form())).toList();
     }
 
     /** Fails if the sequence stopped or the baseline does not hold at the end. */
