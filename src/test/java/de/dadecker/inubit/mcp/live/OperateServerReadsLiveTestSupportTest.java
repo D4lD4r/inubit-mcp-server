@@ -176,13 +176,13 @@ class OperateServerReadsLiveTestSupportTest {
         Path records = temp.resolve("records/022");
 
         Path directory = OperateServerReadsLiveTestSupport.taskDirectory(PrivateFiles.forHost(),
-            records);
+            records, "T054");
 
         assertThat(directory).isEqualTo(records.resolve("T054"));
         assertOwnerOnly(records, "rwx------");
         assertOwnerOnly(directory, "rwx------");
         assertThatThrownBy(() -> OperateServerReadsLiveTestSupport.taskDirectory(
-            PrivateFiles.forHost(), records))
+            PrivateFiles.forHost(), records, "T054"))
             .isInstanceOf(AssertionError.class)
             .hasMessageContaining("T054 already exists")
             .hasMessageContaining("nothing was run");
@@ -192,12 +192,14 @@ class OperateServerReadsLiveTestSupportTest {
     void anEarlierRecordingIsRefusedBeforeAnythingIsCreated() throws IOException {
         Path records = temp.resolve("records/022");
 
-        assertThatCode(() -> OperateServerReadsLiveTestSupport.requireNoTaskDirectory(records))
+        assertThatCode(() -> OperateServerReadsLiveTestSupport.requireNoTaskDirectory(records,
+            "T054"))
             .doesNotThrowAnyException();
         assertThat(records).doesNotExist();
 
         Files.createDirectories(records.resolve("T054"));
-        assertThatThrownBy(() -> OperateServerReadsLiveTestSupport.requireNoTaskDirectory(records))
+        assertThatThrownBy(() -> OperateServerReadsLiveTestSupport.requireNoTaskDirectory(records,
+            "T054"))
             .isInstanceOf(AssertionError.class)
             .hasMessageContaining("T054 already exists")
             .hasMessageContaining("nothing was run");
@@ -326,7 +328,7 @@ class OperateServerReadsLiveTestSupportTest {
 
     private Path taskDirectory() throws IOException {
         return OperateServerReadsLiveTestSupport.taskDirectory(PrivateFiles.forHost(),
-            temp.resolve("records"));
+            temp.resolve("records"), OperateServerReadsLiveTestSupport.TASK_DIRECTORY);
     }
 
     private static CliRead cliRead(String id) {

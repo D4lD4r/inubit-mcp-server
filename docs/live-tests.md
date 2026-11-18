@@ -82,6 +82,7 @@ Only non-production groups (e.g. development or test stages) may be used.
 | `live/ServerLogLiveTest` (feature 021, T054) | runs only with `INUBIT_LIVE_LOG_FOLDER` (a private folder outside every repository): `download_server_log` with `log: trace` and, if the node's group sets `unsupported.serverLogRead: true`, with `log: webservice`, through the real MCP server with the production wiring; each result matches the output schema and its file lies in the folder with the reported size and `rw-------`; a trace download through a copy of the configuration with a closed loopback port fails and leaves no file in the folder; the captured log contains no excerpt line. See [Server log download](#server-log-download-feature-021) | the version detection (`/system/info`); StartCLI `trace --download '<private dir>/trace.log'` (downloads the trace log without switching the trace state); with the opt-in one run of the INUBIT client helper that downloads `webservice.log`; both into a private temporary directory that is deleted after the file was placed in the folder (read-only); the forced failure contacts only `127.0.0.1` |
 | `live/NodeToolsLiveTest` (feature 024, T067) | on a node whose group sets `unsupported.nodeStatusRead` and `unsupported.nodeConfigRead`: `list_cluster_nodes` through the real MCP server with the production wiring within 10 s (SC-001), naming the answering node among the listed ones, then with `nodeName` the details of that node; `get_node_config` with all 20 allowed names in list order; each result matches its output schema, and no detail or value contains a known secret. Only with `INUBIT_LIVE_IO_PROCESS` (and `unsupported.ioLogRead`): `read_io_log` lists that run and reads its first message, masked. Only with `INUBIT_LIVE_LOG_LEVEL=approved` (write access and `unsupported.logLevelWrite`): `set_temporary_log_level` for one logger at `INFO` for 1 minute, `get_health` shows the lease, the automatic reset within 2 minutes, the lease `RESET`, the audit records of the set and of the reset. See [Unsupported node tools](#unsupported-node-tools-feature-024) | the version detection (`/system/info`); runs of the INUBIT client helper that read the cluster's node list, the node details, the configuration values and the input/output logging (read-only); with the approval StartCLI `trace --nodelevel INFO --package 'com.inubit.ibis.cli'` and, at expiry, `trace --reset`, each after a helper lookup of the answering node |
 | `live/OperateServerReadsLiveTest` (feature 022, T054 read set) | runs only with `INUBIT_LIVE_T054_READS=approved` and `INUBIT_LIVE_RECORD_DIR`, on an INUBIT 8.1 node: the nine owner-approved reads R1–R9 of the live checks L-2 and L-3, each once, in order, their raw output recorded owner-only. See [Read set of L-2 and L-3](#read-set-of-l-2-and-l-3-t054) | the version read (`/system/info`) before R1; StartCLI `maintenance -s`, `maintenance`, `trace`, `trace --help`, `debug`, `debug --help`; `GET /ready`, `/system/info`, `/configurations` (read-only: nothing is switched) |
+| `live/OperateServerWritesLiveTest` (feature 022, T054 write set) | runs only with `INUBIT_LIVE_T054_WRITES` set to the full step list and `INUBIT_LIVE_RECORD_DIR`, on an INUBIT 8.1 node whose profile enables writes, after the owner approved each command: the writes W1–W10 of the live checks L-2 and L-3, each once, in order, with the state read after each; stops at the first error or deviation and restores the baseline. See [Write set of L-2 and L-3](#write-set-of-l-2-and-l-3-t054) | the version read (`/system/info`); StartCLI `maintenance on -eq false`, `maintenance off`, `trace on`, `trace off`, `trace -l debug`, `trace -l info`, `debug on`, `debug off`; `POST /ready/off`, `POST /ready/on`; the state reads `maintenance -s`, `debug`, `GET /ready`, `GET /system/info`. **Changes the node** and brings it back to the baseline |
 
 Each test prints one summary line without secrets or business data to stderr, e.g.
 `[live] test/node1: version 8.1.17, status OK, maintenanceMode false, load 51.7% memory, unavailable [], 699 ms`
@@ -764,3 +765,73 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 INUBIT_LIVE_T054_READS=appro
   `[live] T054 R5 trace --help on test/node1: exit 0, stdout 812 bytes, stderr 0 bytes`. The case
   files hold **raw server output**, R9 the configuration values: neutralize them as above before
   anything is copied into the repository, and delete them afterwards.
+
+### Write set of L-2 and L-3 (T054)
+
+`live/OperateServerWritesLiveTest` runs the write part of T054 on one non-production INUBIT 8.1
+node whose profile enables writes. The tool `operate_server` still refuses 8.1 until T066 flips
+the coverage rows, so the test sends the commands raw: the StartCLI writes are the production
+command forms through the production StartCLI runner with a write permit, `POST /ready/on|off` is
+the production write request of the REST client. Each step runs once, in this order:
+
+| Step | Command | Expected after-state | Case files |
+|---|---|---|---|
+| W1 | StartCLI `maintenance on -eq false` | maintenance on | `W1-maintenance-on-eq-false.*` |
+| W2a | `GET /ready` (while maintenance is on) | recorded only | `W2a-get-ready.*` |
+| W2b | `POST /ready/off` | not READY | `W2b-post-ready-off.*` |
+| W3 | StartCLI `maintenance off` | maintenance off | `W3-maintenance-off.*` |
+| W2u | `POST /ready/on`, only if `GET /ready` is not READY after W3 | READY | `W2u-post-ready-on.*` |
+| W4 | `POST /ready/off` | not READY | `W4-post-ready-off.*` |
+| W5 | `POST /ready/on` | READY | `W5-post-ready-on.*` |
+| W6 | StartCLI `trace on` | trace on, level info (no change) | `W6-trace-on.*` |
+| W7 | StartCLI `trace off` | trace off | `W7-trace-off.*` |
+| W7b | StartCLI `trace on` | trace on | `W7b-trace-on.*` |
+| W8 | StartCLI `trace -l debug` | level debug | `W8-trace-l-debug.*` |
+| W8b | StartCLI `trace -l info` | level info | `W8b-trace-l-info.*` |
+| W9 | StartCLI `debug on` | debug on | `W9-debug-on.*` |
+| W10 | StartCLI `debug off` | debug off | `W10-debug-off.*` |
+
+The state is read with the reads of the read set: maintenance with `maintenance -s` (R1, answer
+`on` or `off`), readiness with `GET /ready` (R3: 200 with status `READY` is READY, 503 is not
+READY), trace and level with `GET /system/info` (R8: `TracingIsActive`, `TracingLevel`), debug
+with `debug` (R6: `Debug mode is currently on.` or `off.`). Any other answer is "unknown".
+
+Before the run the owner approves each raw command in the chat with one `APPROVE` line (see
+[Approval of a [LIVE-W] command](#approval-of-a-live-w-command)), one line per row of the table,
+on the node of the run. `INUBIT_LIVE_T054_WRITES` is the operator's statement that all of them are
+approved:
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
+  INUBIT_LIVE_T054_WRITES=W1,W2a,W2b,W3,W2u,W4,W5,W6,W7,W7b,W8,W8b,W9,W10 \
+  INUBIT_LIVE_RECORD_DIR=~/inubit-mcp-recordings/022 \
+  mvn verify -Plive -Dtest=OperateServerWritesLiveTest
+```
+
+- Without `INUBIT_LIVE_NODE`, `INUBIT_LIVE_T054_WRITES` or `INUBIT_LIVE_RECORD_DIR` the test is
+  skipped. `INUBIT_LIVE_T054_WRITES` must list exactly the steps above, in this order; anything
+  else fails before anything is contacted. Production groups are refused as for every live test,
+  and so is a node whose profile does not enable writes (`write.enabled`).
+- The test creates `<INUBIT_LIVE_RECORD_DIR>/T054-writes/` owner-only (`rwx------`) and fails,
+  before anything is contacted, if it exists. The read set's `T054/` is not touched.
+- Before W1 it reads the node's version from `/system/info`; a node that is not INUBIT 8.1, or a
+  failed read, fails the test and nothing else runs.
+- Baseline: maintenance off, READY, trace on at level info, debug off. The test reads it first
+  (`B0-*`); if it does not hold, the test fails and nothing is written.
+- After each step it reads the properties of the step's expected after-state (`<step>-after-*`)
+  and writes `<step>-<slug>.state` with the before, after and expected state. Before W2u it reads
+  `GET /ready` (`W2u-check-*`); if that is READY, W2u is recorded as not needed.
+- No step is retried. At the first error (an error code, or a StartCLI exit code other than 0) or
+  deviation from the expected after-state, the sequence stops. The test then reads maintenance
+  (`X1-*`) and, after restoring it, the other properties (`X2-*`), and runs for each property
+  that is not at the baseline, or unknown, its restore command once: `maintenance off`,
+  `POST /ready/on`, `trace on`, `trace -l info`, `debug off` (`restore-<slug>.*`). A restore command can be the same command as the failed step (e.g. `maintenance off` after W3 timed out); it is still sent at most once. Nothing
+  outside the table runs. The test then fails naming the step, its code and the restore commands.
+- At the end it reads the full state again (`B1-*`) and fails if the baseline does not hold.
+- Per command, owner-only (`rw-------`): StartCLI `.stdout`, `.stderr` and `.exit`; REST
+  `.status` and `.body`; a command that ended in an error also `.error` with the code. The
+  password goes to StartCLI on stdin, never as an argument, and is never recorded.
+- The console shows one line per command with the exit code or status and byte counts, and one
+  line per state read with the derived states only, e.g.
+  `[live] T054 W1-after state on test/node1: maintenance on`. Neutralize the case files as above
+  before anything is copied into the repository, and delete them afterwards.

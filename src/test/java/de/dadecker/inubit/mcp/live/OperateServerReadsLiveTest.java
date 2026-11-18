@@ -1,30 +1,13 @@
 package de.dadecker.inubit.mcp.live;
 
-import static org.assertj.core.api.Assertions.fail;
-
-import de.dadecker.inubit.mcp.adapter.CredentialGuard;
-import de.dadecker.inubit.mcp.adapter.NodeSecrets;
-import de.dadecker.inubit.mcp.adapter.aws.SsmParameterStore;
-import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
-import de.dadecker.inubit.mcp.adapter.cli.HandshakeStartCliPinProbe;
-import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
-import de.dadecker.inubit.mcp.adapter.os.NoJob;
 import de.dadecker.inubit.mcp.adapter.os.OsPrivateFileSystem;
-import de.dadecker.inubit.mcp.adapter.os.PosixSystem;
-import de.dadecker.inubit.mcp.adapter.os.WindowsSystem;
-import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
-import de.dadecker.inubit.mcp.adapter.rest.MaintenanceProbe;
-import de.dadecker.inubit.mcp.adapter.rest.v81.V81VersionDetector;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
-import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
-import de.dadecker.inubit.mcp.infra.Secret;
-import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.CliRead;
 import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.Read;
 import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.RestRead;
@@ -32,7 +15,6 @@ import de.dadecker.inubit.mcp.live.ServerLogLiveTestSupport.ProcessRecorder;
 import de.dadecker.inubit.mcp.live.ServerLogLiveTestSupport.Run;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,10 +32,9 @@ import org.junit.jupiter.api.Timeout;
  *
  * <p>The StartCLI reads run on the production path ({@link CliRunner#run}: the client chosen for
  * the detected 8.1 version, the allowlisted environment, the password on stdin, the node's
- * {@code cliTimeout} and trust store); the REST reads on the production client of the node
- * ({@link InubitHttpClient#create}: base URL, TLS trust store or pin, Basic credentials). Both
- * share one credential guard, and the credentials come from the credential store (or AWS
- * Parameter Store) as the server reads them. Before R1 the node's version is read from
+ * {@code cliTimeout} and trust store); the REST reads on the production client of the node (base
+ * URL, TLS trust store or pin, Basic credentials); both through
+ * {@link OperateServerLiveConnection}. Before R1 the node's version is read from
  * {@code /system/info} as the version detection does; a node that is not 8.1 fails the test
  * before anything else runs.
  *
@@ -78,36 +59,16 @@ class OperateServerReadsLiveTest {
             .filter(candidate -> candidate.id().equals(node)).findFirst().orElseThrow();
         PrivateFileSystem files = OsPrivateFileSystem.forHost();
         // refuse an earlier recording before any contact; create the folder only after the 8.1 gate
-        OperateServerReadsLiveTestSupport.requireNoTaskDirectory(recordDirectory);
-
-        // the node's secrets, guard and clients as the wiring builds them (Wiring,
-        // AdapterGatewayFactory); StartCLI's processes count as contained, as in every wiring test
-        SecretScrubber scrubber = live.scrubber();
-        Clock clock = Clock.systemUTC();
-        NodeSecrets secrets = server.secretPlan().aws()
-            ? NodeSecrets.aws(server.secretPlan(), new SsmParameterStore(), scrubber, clock)
-            : NodeSecrets.credentialStore(server, LiveTarget.store(), scrubber, clock);
-        NodeCredentials credentials = secrets.current(secrets.timeout());
-        if (!credentials.complete()) {
-            fail(node + " has no INUBIT username and password; nothing was run");
-        }
-        CredentialGuard guard =
-            new CredentialGuard(server.secretLabels(), clock, secrets).bind(credentials);
-        ProcessRecorder recorder = new ProcessRecorder(new SystemProcessLauncher());
+        OperateServerReadsLiveTestSupport.requireNoTaskDirectory(recordDirectory,
+            OperateServerReadsLiveTestSupport.TASK_DIRECTORY);
         Map<String, ErrorCode> failed = new LinkedHashMap<>();
-        // no maintenance probe: a 503 must not trigger a request outside the approved read set
-        try (InubitHttpClient http = InubitHttpClient.create(server, credentials,
-                MaintenanceProbe.NONE, scrubber, guard)) {
-            InubitVersion version = OperateServerReadsLiveTestSupport.requireV81(node,
-                reportedVersion(node, http));
+        try (OperateServerLiveConnection connection =
+                OperateServerLiveConnection.open(live, server, environment, files)) {
+            InubitVersion version = connection.requireV81();
             Path directory = OperateServerReadsLiveTestSupport.taskDirectory(files,
-                recordDirectory);
-            CliRunner cli = new CliRunner(recorder, environment, live.windows(),
-                live.windows() ? new WindowsSystem() : new PosixSystem(), new NoJob(),
-                new CliResources(live.loaded().config().profileInfo().name(), files),
-                new HandshakeStartCliPinProbe(), id -> Optional.of(version));
-            String username = credentials.username().orElseThrow().value();
-            Secret password = credentials.password().orElseThrow().value();
+                recordDirectory, OperateServerReadsLiveTestSupport.TASK_DIRECTORY);
+            CliRunner cli = connection.cli(version);
+            ProcessRecorder recorder = connection.recorder;
             for (Read read : OperateServerReadsLiveTestSupport.READS) {
                 String line = switch (read) {
                     case CliRead cliRead -> {
@@ -115,8 +76,8 @@ class OperateServerReadsLiveTest {
                         Optional<ErrorCode> error = Optional.empty();
                         try {
                             cli.checkAvailable(server);
-                            cli.run(server, username, password, cliRead.command(),
-                                server.cliTimeout(), guard);
+                            cli.run(server, connection.username, connection.password,
+                                cliRead.command(), server.cliTimeout(), connection.guard);
                         } catch (ToolErrorException e) {
                             error = Optional.of(e.error().code());
                             failed.put(read.id(), e.error().code());
@@ -128,7 +89,7 @@ class OperateServerReadsLiveTest {
                     case RestRead restRead -> {
                         try {
                             yield OperateServerReadsLiveTestSupport.recordRest(files, directory,
-                                node, restRead, restRead.get(http));
+                                node, restRead, restRead.get(connection.http));
                         } catch (ToolErrorException e) {
                             failed.put(read.id(), e.error().code());
                             yield OperateServerReadsLiveTestSupport.recordRestFailure(files,
@@ -140,18 +101,5 @@ class OperateServerReadsLiveTest {
             }
         }
         OperateServerReadsLiveTestSupport.assertNoFailure(failed);
-    }
-
-    /**
-     * The version {@code node} reports on {@code /system/info}, read as the version detection
-     * does; a failure names only its code (the message may quote the answer).
-     */
-    private static String reportedVersion(NodeId node, InubitHttpClient http) {
-        try {
-            return V81VersionDetector.detect(node, http);
-        } catch (ToolErrorException e) {
-            throw new AssertionError("the version read of " + node + " before R1 failed: "
-                + e.error().code() + "; nothing else was run");
-        }
     }
 }

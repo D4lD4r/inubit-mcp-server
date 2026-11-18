@@ -31,7 +31,8 @@ import org.junit.jupiter.api.Assumptions;
  * checks L-2 and L-3), tested by {@link OperateServerReadsLiveTestSupportTest}: the nine reads
  * R1–R9 in their order, the opt-in and record directory variables, the owner-only task directory,
  * the 8.1 gate, the case files of each read and the summary lines. Failure messages and summary
- * lines name reads, codes and byte counts, never output.
+ * lines name reads, codes and byte counts, never output. The write set
+ * ({@link OperateServerWritesLiveTestSupport}) records its cases with the same helpers.
  */
 final class OperateServerReadsLiveTestSupport {
 
@@ -46,19 +47,23 @@ final class OperateServerReadsLiveTestSupport {
     private static final int[] ANY_STATUS =
         IntStream.range(100, 600).filter(status -> status < 200 || status >= 300).toArray();
 
-    /** One read of the set; its case files are {@code <id>-<slug>.*}. */
-    sealed interface Read permits CliRead, RestRead {
+    /** One recorded command; its case files are {@code <id>-<slug>.*}. */
+    interface Case {
 
         String id();
 
         String slug();
 
-        /** The command line or {@code GET <path>}: fixed text, never output. */
+        /** The command line or {@code <method> <path>}: fixed text, never output. */
         String form();
 
         default String stem() {
             return id() + "-" + slug();
         }
+    }
+
+    /** One read of the set. */
+    sealed interface Read extends Case permits CliRead, RestRead {
     }
 
     /** A StartCLI run of {@code command} through the production {@code CliRunner.run}. */
@@ -131,33 +136,37 @@ final class OperateServerReadsLiveTestSupport {
         String variable = QueueEntryLiveTestSupport.RECORD_DIR_VARIABLE;
         String value = environment.get(variable);
         Assumptions.assumeTrue(value != null && !value.isBlank(), variable + " is not set (a"
-            + " private directory outside every repository); the T054 read set is skipped");
+            + " private directory outside every repository); the T054 live test is skipped");
         return QueueEntryLiveTestSupport.privateDirectory(variable, value, repository,
             "the recording holds raw StartCLI output and REST bodies, configuration values"
                 + " included");
     }
 
     /**
-     * Creates {@code recordDirectory} (owner-only where missing) and below it the new owner-only
-     * {@link #TASK_DIRECTORY}; an existing one is refused, so no earlier recording is
-     * overwritten. Without POSIX permissions or Windows access lists nothing is created.
+     * Refuses a run whose task folder {@code name} exists already, before anything is contacted.
      */
-    /** Refuses a run whose task folder exists already, before anything is contacted. */
-    static void requireNoTaskDirectory(Path recordDirectory) {
-        if (Files.exists(recordDirectory.resolve(TASK_DIRECTORY), LinkOption.NOFOLLOW_LINKS)) {
-            throw new AssertionError(TASK_DIRECTORY + " already exists below "
+    static void requireNoTaskDirectory(Path recordDirectory, String name) {
+        if (Files.exists(recordDirectory.resolve(name), LinkOption.NOFOLLOW_LINKS)) {
+            throw new AssertionError(name + " already exists below "
                 + QueueEntryLiveTestSupport.RECORD_DIR_VARIABLE + ": move the earlier recording"
                 + " away; nothing was run");
         }
     }
 
-    static Path taskDirectory(PrivateFileSystem files, Path recordDirectory) throws IOException {
-        Path directory = recordDirectory.resolve(TASK_DIRECTORY);
+    /**
+     * Creates {@code recordDirectory} (owner-only where missing) and below it the new owner-only
+     * task folder {@code name} ({@link #TASK_DIRECTORY} for the read set); an existing one is
+     * refused, so no earlier recording is overwritten. Without POSIX permissions or Windows access
+     * lists nothing is created.
+     */
+    static Path taskDirectory(PrivateFileSystem files, Path recordDirectory, String name)
+        throws IOException {
+        Path directory = recordDirectory.resolve(name);
         try {
             files.createDirectories(recordDirectory);
             return files.createDirectory(directory);
         } catch (FileAlreadyExistsException e) {
-            throw new AssertionError(TASK_DIRECTORY + " already exists below "
+            throw new AssertionError(name + " already exists below "
                 + QueueEntryLiveTestSupport.RECORD_DIR_VARIABLE + ": move the earlier recording"
                 + " away; nothing was run", e);
         } catch (UnsupportedOperationException e) {
@@ -167,11 +176,14 @@ final class OperateServerReadsLiveTestSupport {
         }
     }
 
-    /** The version {@code node} reports, if it is INUBIT 8.1; else the test fails before R1. */
+    /**
+     * The version {@code node} reports, if it is INUBIT 8.1; else the test fails before its first
+     * command.
+     */
     static InubitVersion requireV81(NodeId node, String reported) {
         Optional<InubitVersion> version = InubitVersion.parse(reported);
         if (version.isEmpty() || version.get().major() != 8 || version.get().minor() != 1) {
-            fail(node + " reports INUBIT " + reported + "; the T054 read set runs on 8.1 only;"
+            fail(node + " reports INUBIT " + reported + "; the T054 live test runs on 8.1 only;"
                 + " nothing was run");
         }
         return version.get();
@@ -186,7 +198,7 @@ final class OperateServerReadsLiveTestSupport {
      * @param runs the StartCLI runs the read started: none (refused before the launch) or one
      * @return the summary line
      */
-    static String recordCli(PrivateFileSystem files, Path directory, NodeId node, CliRead read,
+    static String recordCli(PrivateFileSystem files, Path directory, NodeId node, Case read,
         List<Run> runs, Optional<ErrorCode> error) throws IOException {
         if (runs.size() > 1) {
             fail(read.id() + " started " + runs.size() + " StartCLI runs, expected one");
@@ -212,7 +224,7 @@ final class OperateServerReadsLiveTestSupport {
     }
 
     /** Writes the answer to {@code read} as {@code <stem>.status} and {@code .body}, owner-only. */
-    static String recordRest(PrivateFileSystem files, Path directory, NodeId node, RestRead read,
+    static String recordRest(PrivateFileSystem files, Path directory, NodeId node, Case read,
         RestResponse response) throws IOException {
         write(files, directory.resolve(read.stem() + ".status"), line(response.status()));
         write(files, directory.resolve(read.stem() + ".body"), response.body());
@@ -222,7 +234,7 @@ final class OperateServerReadsLiveTestSupport {
 
     /** Writes {@code error} of a REST read without answer as {@code <stem>.error}, owner-only. */
     static String recordRestFailure(PrivateFileSystem files, Path directory, NodeId node,
-        RestRead read, ErrorCode error) throws IOException {
+        Case read, ErrorCode error) throws IOException {
         write(files, directory.resolve(read.stem() + ".error"), line(error));
         return summary(node, read, "error " + error);
     }
@@ -236,15 +248,15 @@ final class OperateServerReadsLiveTestSupport {
         }
     }
 
-    private static String summary(NodeId node, Read read, String outcome) {
+    static String summary(NodeId node, Case read, String outcome) {
         return "[live] T054 " + read.id() + " " + read.form() + " on " + node + ": " + outcome;
     }
 
-    private static byte[] line(Object value) {
+    static byte[] line(Object value) {
         return (value + "\n").getBytes(StandardCharsets.US_ASCII);
     }
 
-    private static void write(PrivateFileSystem files, Path file, byte[] content)
+    static void write(PrivateFileSystem files, Path file, byte[] content)
         throws IOException {
         files.createFile(file);
         Files.write(file, content);
