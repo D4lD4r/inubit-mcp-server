@@ -21,6 +21,13 @@ IMC-10 (T054), IMC-11 (T055).
   secret leak). Full `mvn clean verify` green after every task.
 
 ## Next step
+- 2026-11-18: T054 done (40238211): recorded 8.1.17 answer forms as neutralized fixtures; ready-off
+  503 "No Service." counts as success; trace level from `/system/info` TracingLevel; delete answer
+  without count (no invented count; IMC-8 untouched); `setDebug` excluded (4e7841a0). Next: T055
+  (Owner action IMC-11), then T066 after IMC-7/IMC-8. Full `mvn clean verify` still due before the
+  PR (several production changes since T065). Still open: full body of `POST /ready/off` unrecorded
+  (both forms accepted); get_health fixture `ready_not_ready.json` uses `NOT_READY` (real form
+  `NOT READY`/`No Service.`); concurrent queueLog reads → HTTP 500 MonitoringLockedByOtherClient.
 - 2026-11-18: run 4 (a1d525ac): W11 `triggerMidnightTask` exit 0, no text, trigger time field
   unchanged; W12 `processdelete error` on the approved ERROR set (256 ids, equal before the delete)
   exit 0, answer "Process with status [error] has been deleted." (no count), ERROR set empty after.

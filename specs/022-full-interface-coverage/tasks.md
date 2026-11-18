@@ -913,7 +913,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
 
 ### Live checks for US4
 
-- [ ] T054 [LIVE-W] [OWNER] [US4] L-2 and L-3 on the 8.1 test server, each command approved:
+- [X] T054 [LIVE-W] [OWNER] [US4] L-2 and L-3 on the 8.1 test server, each command approved:
   - `maintenance` / `maintenance -s`;
   - `maintenance on -eq false`, `maintenance off`;
   - `GET /ready` and `POST /ready/off`, `POST /ready/on`, including once while maintenance is on;
