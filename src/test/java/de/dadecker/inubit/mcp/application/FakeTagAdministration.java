@@ -15,6 +15,7 @@ import de.dadecker.inubit.mcp.domain.port.MonitoringPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.TagAdministrationPort;
+import de.dadecker.inubit.mcp.domain.port.WriteLock;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -46,6 +47,11 @@ final class FakeTagAdministration implements GatewayFactory {
     volatile ToolErrorException changeFailure;
     /** Runs inside every read before it answers (e.g. to start a second call). */
     volatile Runnable duringRead = () -> { };
+    /**
+     * If set, the changes are handed off under this lock like the StartCLI adapter does
+     * (research D-17, D-24); a refused hand-off records the permit but no call.
+     */
+    volatile WriteLock lock;
 
     /** The calls that changed (or tried to change) state. */
     List<String> changes() {
@@ -63,6 +69,18 @@ final class FakeTagAdministration implements GatewayFactory {
 
     private void change(String call, WritePermit permit, Runnable apply) {
         permits.add(permit);
+        WriteLock current = lock;
+        if (current != null) {
+            current.handOff(permit, version -> {
+                change(call, apply);
+                return null;
+            });
+            return;
+        }
+        change(call, apply);
+    }
+
+    private void change(String call, Runnable apply) {
         calls.add(call);
         if (changeFailure != null) {
             throw changeFailure;

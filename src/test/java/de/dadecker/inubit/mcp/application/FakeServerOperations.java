@@ -21,6 +21,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.ServerOperationPort;
 import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
+import de.dadecker.inubit.mcp.domain.port.WriteLock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -79,6 +80,11 @@ final class FakeServerOperations implements GatewayFactory {
     volatile ToolErrorException switchFailure;
     /** Runs inside every switch before it answers (e.g. to start a second call). */
     volatile Runnable duringSwitch = () -> { };
+    /**
+     * If set, the switches are handed off under this lock like the StartCLI adapter does
+     * (research D-17, D-24); a refused hand-off records the permit but no call.
+     */
+    volatile WriteLock lock;
 
     /** The calls that changed (or tried to change) state. */
     List<String> switches() {
@@ -101,6 +107,14 @@ final class FakeServerOperations implements GatewayFactory {
 
     private <T> T change(String call, WritePermit permit, Supplier<T> apply) {
         permits.add(permit);
+        WriteLock current = lock;
+        if (current != null) {
+            return current.handOff(permit, version -> change(call, apply));
+        }
+        return change(call, apply);
+    }
+
+    private <T> T change(String call, Supplier<T> apply) {
         calls.add(call);
         duringSwitch.run();
         if (switchFailure != null) {

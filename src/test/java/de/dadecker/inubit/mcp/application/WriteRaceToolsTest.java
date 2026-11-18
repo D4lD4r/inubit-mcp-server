@@ -19,6 +19,7 @@ import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.DeploymentPreview;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.domain.model.E2ePolicy;
+import de.dadecker.inubit.mcp.domain.model.InterfaceCoverage;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
 import de.dadecker.inubit.mcp.domain.model.LogQuery;
@@ -29,17 +30,21 @@ import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.ProcessState;
+import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WriteOutcome;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.model.WritePolicy;
+import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.RecordingWriteLock;
 import java.io.IOException;
+import java.io.StringReader;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -66,6 +71,9 @@ import org.junit.jupiter.params.provider.EnumSource;
  * admitted and before its first write is handed off. The write is refused with the contract's
  * {@code UNSUPPORTED_VERSION} text, nothing is launched or sent, and every permit the call
  * handed to the lock carries the admitted node, version and the tool's write capability.
+ *
+ * <p>Feature 022 T065 (research D-17) adds the change tools {@code operate_server} and
+ * {@code manage_tags}; each later change tool adds itself here.
  */
 @Timeout(value = 60, unit = TimeUnit.SECONDS)
 class WriteRaceToolsTest extends DeployExecution {
@@ -75,6 +83,19 @@ class WriteRaceToolsTest extends DeployExecution {
         + " this call; the write was admitted for INUBIT 8.1; nothing was sent";
     private static final NodeId DEV = ImportHarness.DEV;
     private static final String PID = "110190387";
+    /**
+     * The coverage rows of the {@code operate_server} and {@code manage_tags} calls, reachable on
+     * 8.1 only in this test; the production list keeps them {@code planned} until the live checks
+     * T054/T055.
+     */
+    private static final String CHANGE_COVERAGE = """
+        # delivered-stories:
+        channel\tentry\tkind\tarea\tstory\tv8_1\tv9_0\twaits
+        CLI\tmaintenance on|off\tWRITE\tA\tUS4\treachable:operate_server/setMaintenance\tplanned\t-
+        CLI\tmaintenance -eq true|false\tWRITE\tA\tUS4\treachable:operate_server/setMaintenance\tplanned\t-
+        CLI\ttag --tagUser\tWRITE\tE\t-\treachable:tag_artifacts/default\treachable:tag_artifacts/default\t-
+        CLI\ttag --tagSetActive\tWRITE\tE\tUS4\treachable:manage_tags/setActiveTag\tplanned\t-
+        """;
     private static WireMockServer wireMock;
 
     enum Tool {
@@ -85,7 +106,9 @@ class WriteRaceToolsTest extends DeployExecution {
         RUN_E2E_TEST(Capability.E2E_TEST),
         DEPLOY_RELEASE(Capability.DEPLOYMENT),
         RESTART_PROCESS(Capability.PROCESS_CONTROL),
-        KILL_PROCESS(Capability.PROCESS_CONTROL);
+        KILL_PROCESS(Capability.PROCESS_CONTROL),
+        OPERATE_SERVER(Capability.SERVER_OPERATION),
+        MANAGE_TAGS(Capability.TAG_ADMINISTRATION);
 
         final Capability capability;
 
@@ -123,6 +146,8 @@ class WriteRaceToolsTest extends DeployExecution {
             case DEPLOY_RELEASE -> deployRelease();
             case RESTART_PROCESS -> processControl(ProcessAction.RESTART);
             case KILL_PROCESS -> processControl(ProcessAction.KILL);
+            case OPERATE_SERVER -> operateServer();
+            case MANAGE_TAGS -> manageTags();
         };
 
         assertThat(race.answer()).contains(REFUSAL.formatted(race.node()));
@@ -275,7 +300,69 @@ class WriteRaceToolsTest extends DeployExecution {
         return new Race(DEV, answer, ports.actions().size(), lock.permits());
     }
 
-    // --- run_e2e_test (SOAP) -------------------------------------------------------------------
+    // --- operate_server, manage_tags (feature 022) ---------------------------------------------
+
+    /**
+     * The guard of a change on {@link #DEV} (AUTO, detected as 8.1.17, {@code CLIENT}
+     * confirmation, so the first call executes) with {@code capability} supported.
+     */
+    private static ChangeGuard changeGuard(NodeVersions versions, Capability capability,
+        GatewayFactory ports, ChangeAudit audit) {
+        FakeVersionDetection detection = new FakeVersionDetection(versions);
+        detection.answer(DEV, "8.1.17");
+        WritePolicy policy = new WritePolicy(DEV, false, true, false,
+            WritePolicy.Confirmation.CLIENT, Duration.ofMinutes(5), Optional.of("jdoe"));
+        return new ChangeGuard(new TargetResolver(List.of(DEV)), Map.of(DEV, policy)::get,
+            (node, area) -> true, ports, gateWithoutClients(versions, detection,
+                new CapabilityMatrix(List.of(), Map.of(capability, SupportState.SUPPORTED)),
+                InterfaceCoverage.load(new StringReader(CHANGE_COVERAGE))), audit);
+    }
+
+    private Race operateServer() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-11-18T08:00:00Z"));
+        NodeVersions versions = new NodeVersions(clock, node -> VersionSetting.AUTO,
+            node -> Duration.ofMinutes(10));
+        RecordingWriteLock lock = new RecordingWriteLock(versions);
+        lock.changeBefore(1, () -> versions.detected(DEV, V9_0_7));
+        FakeServerOperations server = new FakeServerOperations();
+        server.lock = lock;
+        List<AuditRecord> audit = new CopyOnWriteArrayList<>();
+        ChangeAudit changes = new ChangeAudit(audit::add, clock, "acme", UUID::randomUUID);
+        ServerOperationService service = new ServerOperationService(changeGuard(versions,
+            Capability.SERVER_OPERATION, server, changes), new ChangeLocks(),
+            new ChangeChallenges(new WriteChallengeRegistry(clock)), changes, server, clock);
+
+        String answer = answer(() -> service.execute(new ServerOperationService.Request(
+            "dev/node1", "setMaintenance", Map.of("on", true), "night window", Optional.empty(),
+            Optional.empty())));
+
+        return new Race(DEV, answer, server.switches().size(), lock.permits());
+    }
+
+    private Race manageTags() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-11-18T08:00:00Z"));
+        NodeVersions versions = new NodeVersions(clock, node -> VersionSetting.AUTO,
+            node -> Duration.ofMinutes(10));
+        RecordingWriteLock lock = new RecordingWriteLock(versions);
+        lock.changeBefore(1, () -> versions.detected(DEV, V9_0_7));
+        FakeTagAdministration server = new FakeTagAdministration();
+        server.lock = lock;
+        List<AuditRecord> audit = new CopyOnWriteArrayList<>();
+        ChangeAudit changes = new ChangeAudit(audit::add, clock, "acme", UUID::randomUUID);
+        TagAdministrationService service = new TagAdministrationService(changeGuard(versions,
+            Capability.TAG_ADMINISTRATION, server, changes), new ChangeLocks(),
+            new ChangeChallenges(new WriteChallengeRegistry(clock)), changes, server,
+            new BackupStore(temp.resolve("tag-backups"), clock, PrivateFiles.forHost()),
+            node -> Optional.of("acme-dev"));
+
+        String answer = answer(() -> service.execute(new TagAdministrationService.Request(
+            "dev/node1", "setActiveTag", Map.of("user", "jdoe", "tag", "REL-2"),
+            "switch to the next release", Optional.empty(), Optional.empty())));
+
+        return new Race(DEV, answer, server.changes().size(), lock.permits());
+    }
+
+    // --- run_e2e_test (SOAP)-------------------------------------------------------------------
 
     private Race runE2eTest() throws IOException {
         wireMock.resetAll();

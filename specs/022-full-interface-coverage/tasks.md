@@ -1019,7 +1019,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
     call on the same key gives `PRECONDITION_FAILED` (test);
   - Failing tests first: `TagAdministrationServiceTest.java` (AS12–AS14, backup failure → nothing
     sent), `ManageTagsToolTest.java`.
-- [ ] T065 [US4] Cross-cutting safety tests for the two tools:
+- [X] T065 [US4] Cross-cutting safety tests for the two tools:
   - `application/WriteRaceToolsTest.java` +2 (version change → refused, nothing sent);
   - new `application/ChangeToolsProductionRefusalTest.java`: a production refusal test for every
     action of every change tool, parameterized over `ActionCatalog` (SC-004); later stories add
