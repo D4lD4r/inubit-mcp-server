@@ -82,7 +82,7 @@ Only non-production groups (e.g. development or test stages) may be used.
 | `live/ServerLogLiveTest` (feature 021, T054) | runs only with `INUBIT_LIVE_LOG_FOLDER` (a private folder outside every repository): `download_server_log` with `log: trace` and, if the node's group sets `unsupported.serverLogRead: true`, with `log: webservice`, through the real MCP server with the production wiring; each result matches the output schema and its file lies in the folder with the reported size and `rw-------`; a trace download through a copy of the configuration with a closed loopback port fails and leaves no file in the folder; the captured log contains no excerpt line. See [Server log download](#server-log-download-feature-021) | the version detection (`/system/info`); StartCLI `trace --download '<private dir>/trace.log'` (downloads the trace log without switching the trace state); with the opt-in one run of the INUBIT client helper that downloads `webservice.log`; both into a private temporary directory that is deleted after the file was placed in the folder (read-only); the forced failure contacts only `127.0.0.1` |
 | `live/NodeToolsLiveTest` (feature 024, T067) | on a node whose group sets `unsupported.nodeStatusRead` and `unsupported.nodeConfigRead`: `list_cluster_nodes` through the real MCP server with the production wiring within 10 s (SC-001), naming the answering node among the listed ones, then with `nodeName` the details of that node; `get_node_config` with all 20 allowed names in list order; each result matches its output schema, and no detail or value contains a known secret. Only with `INUBIT_LIVE_IO_PROCESS` (and `unsupported.ioLogRead`): `read_io_log` lists that run and reads its first message, masked. Only with `INUBIT_LIVE_LOG_LEVEL=approved` (write access and `unsupported.logLevelWrite`): `set_temporary_log_level` for one logger at `INFO` for 1 minute, `get_health` shows the lease, the automatic reset within 2 minutes, the lease `RESET`, the audit records of the set and of the reset. See [Unsupported node tools](#unsupported-node-tools-feature-024) | the version detection (`/system/info`); runs of the INUBIT client helper that read the cluster's node list, the node details, the configuration values and the input/output logging (read-only); with the approval StartCLI `trace --nodelevel INFO --package 'com.inubit.ibis.cli'` and, at expiry, `trace --reset`, each after a helper lookup of the answering node |
 | `live/OperateServerReadsLiveTest` (feature 022, T054 read set) | runs only with `INUBIT_LIVE_T054_READS=approved` and `INUBIT_LIVE_RECORD_DIR`, on an INUBIT 8.1 node: the nine owner-approved reads R1–R9 of the live checks L-2 and L-3, each once, in order, their raw output recorded owner-only. See [Read set of L-2 and L-3](#read-set-of-l-2-and-l-3-t054) | the version read (`/system/info`) before R1; StartCLI `maintenance -s`, `maintenance`, `trace`, `trace --help`, `debug`, `debug --help`; `GET /ready`, `/system/info`, `/configurations` (read-only: nothing is switched) |
-| `live/OperateServerWritesLiveTest` (feature 022, T054 write set) | runs only with `INUBIT_LIVE_T054_WRITES` set to the full step list (or to W5–W10 alone) and `INUBIT_LIVE_RECORD_DIR`, on an INUBIT 8.1 node whose profile enables writes, after the owner approved each command: the writes W1–W10 of the live checks L-2 and L-3, each once, in order, with the state read after each; stops at the first error or deviation and restores the baseline. See [Write set of L-2 and L-3](#write-set-of-l-2-and-l-3-t054) | the version read (`/system/info`); StartCLI `maintenance on -eq false`, `maintenance off`, `trace on`, `trace off`, `trace -l debug`, `trace -l info`, `debug on`, `debug off`; `POST /ready/off`, `POST /ready/on`; the state reads `maintenance -s`, `debug`, `GET /ready`, `GET /system/info`. **Changes the node** and brings it back to the baseline |
+| `live/OperateServerWritesLiveTest` (feature 022, T054 write set) | runs only with `INUBIT_LIVE_T054_WRITES` set to the full step list (or to W5–W10 alone, or to W11, W12 or W11,W12) and `INUBIT_LIVE_RECORD_DIR`, on an INUBIT 8.1 node whose profile enables writes, after the owner approved each command: the writes W1–W10 of the live checks L-2 and L-3, each once, in order, with the state read after each; stops at the first error or deviation and restores the baseline. The owner-gated W11 and W12 run alone, without restore; W12 also needs `INUBIT_LIVE_T054_ERROR_IDS` and deletes nothing if the ERROR set changed. See [Write set of L-2 and L-3](#write-set-of-l-2-and-l-3-t054) | the version read (`/system/info`); StartCLI `maintenance on -eq false`, `maintenance off`, `trace on`, `trace off`, `trace -l debug`, `trace -l info`, `debug on`, `debug off`; `POST /ready/off`, `POST /ready/on`; the state reads `maintenance -s`, `debug`, `GET /ready`, `GET /system/info`. **Changes the node** and brings it back to the baseline. W11: StartCLI `triggerMidnightTask` and `GET /configurations`; W12: StartCLI `processdelete error` (**deletes every process in state ERROR**, no undo) and the `find_processes` query `POST /ibis/rest/log/queueLog` |
 | `live/OperateServerDebugSessionLiveTest` (feature 022, T054 debug clarification) | runs only with `INUBIT_LIVE_T054_DEBUG_SESSION=approved` and `INUBIT_LIVE_RECORD_DIR`, on an INUBIT 8.1 node: one interactive StartCLI session with `debug`, `debug on`, `debug`, `debug off`, `debug`, `exit`, then one `debug` read in a new process, to tell whether `debug on|off` switches the session or the server; transcripts recorded owner-only. See [Debug session of L-3](#debug-session-of-l-3-t054) | the version read (`/system/info`); one StartCLI session `debug`, `debug on`, `debug`, `debug off`, `debug`, `exit`; StartCLI `debug`. Switches debug on and off within the session |
 
 Each test prints one summary line without secrets or business data to stderr, e.g.
@@ -840,10 +840,63 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
   mvn verify -Plive -Dtest=OperateServerWritesLiveTest
 ```
 
+The owner-gated writes W11 and W12 (Jira IMC-10) run only as their own list,
+`INUBIT_LIVE_T054_WRITES=W11`, `W12` or `W11,W12` (in this order), never together with the steps
+above. Neither has an undo, so nothing is restored. No baseline is required beyond the 8.1 gate:
+the full state is read before (`B0-*`) and after (`B1-*`) as information only and never fails the
+test. Each runs once, not retried; if W11 fails, W12 does not run.
+
+| Step | Command | Before and after | Case files |
+|---|---|---|---|
+| W11 | StartCLI `triggerMidnightTask` (runs the midnight task now), only with its own `APPROVE` line | `MidnightTaskTriggerTime` read from `GET /configurations` (R9) before and after; recorded, not judged | `W11-before-R9-get-configurations.*`, `W11-trigger-midnight-task.*`, `W11-after-R9-get-configurations.*` |
+| W12 | StartCLI `processdelete error` (deletes **every** process in state ERROR on the node) | the ERROR set read before and after | `W12-before-find-processes-error.*`, `W12-processdelete-error.*`, `W12-after-find-processes-error.*` |
+
+- W11 is done with exit 0; any other exit code or error is a step error. Of the
+  `/configurations` answer only `MidnightTaskTriggerTime` is read (a timestamp such as
+  `Sat Oct 31 00:00:00 CET 2026`); the body goes to the owner-only `.body` file only, as for the
+  read set. `W11-trigger-midnight-task.state` holds `MidnightTaskTriggerTime before <time>; after
+  <time>` (`unknown` if not shown).
+- W12 needs `INUBIT_LIVE_T054_ERROR_IDS`: the ids of the processes in state ERROR the owner saw
+  in the preview (`find_processes` with `states=[ERROR]`, ids and count) and approved,
+  comma-separated, or `none` for an empty set. Without it, or with an id listed twice or anything
+  that is not a process id, the test fails before anything is contacted.
+- W12 reads the ERROR set through the production 8.1 process query of `find_processes`
+  (`states=[ERROR]`, pages of 100 within its window of 10000 rows) and takes the distinct process
+  ids. The total counts rows (a process with sub-workflows has several rows with its id), so every
+  page must report the same total and the rows of all pages together must be exactly that total;
+  otherwise the set counts as not read whole. Only if the ids are exactly the approved ids does it
+  run `processdelete error`, once. If the set changed, it does not delete: it records the current
+  ids and count and fails with `ERROR set changed: approved <n>, now <m>; new preview needed`; the
+  owner then sees a new preview and approves again. A set that cannot be read whole is not
+  deleted either. An approved `none` with an empty set is recorded as `nothing to delete` and
+  `processdelete error` is not run.
+- `processdelete error` has no id filter: it deletes every process in ERROR when it runs. A
+  process that enters ERROR between the `W12-before` read and the command is deleted too, and the
+  read after the command cannot show it. The test therefore records the number INUBIT reports as
+  deleted (read with the production parser of the answer; `deleted unknown` if the answer has
+  another form, which is no failure by itself) and fails with a deviation if it is larger than the
+  number of approved ids.
+- After `processdelete error` the ERROR set is read again. An approved id still in ERROR is a
+  deviation; ids in ERROR after the command (they entered ERROR after it ran) are reported
+  (`new in ERROR after the delete`), and the test does not delete them. `W12-processdelete-error.state`
+  holds the before ids and count, the deleted count and the after ids and count; each read writes
+  its ids to `<label>-find-processes-error.ids`.
+- The console shows the trigger times, the process ids with their count and the deleted count,
+  besides exit codes, statuses and byte counts; never output.
+
+Run 4, for example (W12 with the ids the owner approved):
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
+  INUBIT_LIVE_T054_WRITES=W11,W12 INUBIT_LIVE_T054_ERROR_IDS=1001,1002 INUBIT_LIVE_T054_RUN=4 \
+  INUBIT_LIVE_RECORD_DIR=~/inubit-mcp-recordings/022 \
+  mvn verify -Plive -Dtest=OperateServerWritesLiveTest
+```
+
 - Without `INUBIT_LIVE_NODE`, `INUBIT_LIVE_T054_WRITES` or `INUBIT_LIVE_RECORD_DIR` the test is
-  skipped. `INUBIT_LIVE_T054_WRITES` must list exactly the steps above, or exactly W5–W10, in
-  this order; anything else (another subset, another order) fails before anything is
-  contacted. Production groups are refused as for every live test,
+  skipped. `INUBIT_LIVE_T054_WRITES` must list exactly the steps above, or exactly W5–W10, or
+  exactly W11, W12 or W11,W12, in this order; anything else (another subset, another order) fails
+  before anything is contacted. Production groups are refused as for every live test,
   and so is a node whose profile does not enable writes (`write.enabled`).
 - The test creates `<INUBIT_LIVE_RECORD_DIR>/T054-writes/` owner-only (`rwx------`) and fails,
   before anything is contacted, if it exists. The read set's `T054/` is not touched. A later run
@@ -854,7 +907,8 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
   failed read, fails the test and nothing else runs.
 - Baseline: maintenance off, READY, trace on at level info, debug off. The test reads it first
   (`B0-*`); if it does not hold, the test fails and nothing is written. The same baseline holds
-  for W5–W10 alone.
+  for W5–W10 alone. W11 and W12 read it as information only (see above); the stop, restore and
+  final check below apply to the other lists.
 - After each step it reads the properties of the step's expected after-state (`<step>-after-*`)
   and writes `<step>-<slug>.state` with the before, after and expected state. Before W2u it reads
   `GET /ready` (`W2u-check-*`); if that is READY, W2u is recorded as not needed.

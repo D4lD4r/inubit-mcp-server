@@ -11,11 +11,19 @@ import de.dadecker.inubit.mcp.adapter.rest.RestResponse;
 import de.dadecker.inubit.mcp.adapter.rest.TransportErrorTexts;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.Page;
+import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
+import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
+import de.dadecker.inubit.mcp.domain.model.ProcessState;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.TraceLevel;
 import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.Read;
+import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.RestRead;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Answer;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.CliWrite;
+import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Deletion;
+import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.ErrorSetRead;
+import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.GatedNode;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Node;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Outcome;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Property;
@@ -33,7 +41,10 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -41,6 +52,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -53,8 +66,9 @@ import org.opentest4j.TestAbortedException;
  * Feature 022 T054 (write set of L-2, L-3): the offline parts of
  * {@link OperateServerWritesLiveTest} — the steps and their order and forms, the gate, the
  * derived state of the four state reads, the sequence with its stop and restore at every step, the
- * W2u condition, the task folder and the state records. A plain unit test (not tagged
- * {@code live}): fake environments, a simulated node and temporary directories; nothing is
+ * W2u condition, the owner-gated W11 and W12 (their list, W12's approved ERROR set and its
+ * comparison, the trigger time), the task folder and the state records. A plain unit test (not
+ * tagged {@code live}): fake environments, a simulated node and temporary directories; nothing is
  * contacted.
  */
 class OperateServerWritesLiveTestSupportTest {
@@ -64,6 +78,9 @@ class OperateServerWritesLiveTestSupportTest {
     private static final String SUBSET_LIST = "W5,W6,W7,W7b,W8,W8b,W9,W10";
     private static final List<Step> FULL = OperateServerWritesLiveTestSupport.STEPS;
     private static final List<Step> SUBSET = OperateServerWritesLiveTestSupport.W5_TO_W10;
+    private static final Step W11 = OperateServerWritesLiveTestSupport.W11;
+    private static final Step W12 = OperateServerWritesLiveTestSupport.W12;
+    private static final List<Step> OWNER_GATED = OperateServerWritesLiveTestSupport.OWNER_GATED;
     private static final String RAW_LINE = "mail.smtp.password=example-only-0001";
     /** The answers of {@code GET /ready} recorded in live run 1 (INUBIT 8.1.17): maintenance on. */
     private static final String IN_MAINTENANCE =
@@ -844,6 +861,478 @@ class OperateServerWritesLiveTestSupportTest {
         assertThat(unknown.ran).doesNotContain("maintenance off");
     }
 
+    // --- the owner-gated writes W11 and W12 ------------------------------------------------------
+
+    @Test
+    void theOwnerGatedStepsAreTheProductionFormsOutsideTheSet() {
+        assertThat(OWNER_GATED).extracting(Step::id).containsExactly("W11", "W12");
+        assertThat(OWNER_GATED).extracting(Step::stem)
+            .containsExactly("W11-trigger-midnight-task", "W12-processdelete-error");
+        assertThat(OWNER_GATED).extracting(step -> ((CliWrite) step.action()).command()
+            .commandLine()).containsExactly(CliCommand.triggerMidnightTask().commandLine(),
+                CliCommand.processDeleteError().commandLine());
+        assertThat(OWNER_GATED).extracting(Step::form)
+            .containsExactly("triggerMidnightTask", "processdelete error");
+        assertThat(FULL).doesNotContainAnyElementsOf(OWNER_GATED);
+        assertThat(OperateServerWritesLiveTestSupport.CONFIGURATIONS_READ).isSameAs(read("R9"));
+    }
+
+    @Test
+    void theOwnerGatedListsPassOnlyExactly() {
+        env.put("INUBIT_LIVE_T054_WRITES", "W11");
+        assertThat(OperateServerWritesLiveTestSupport.requireApproval(env)).containsExactly(W11);
+        env.put("INUBIT_LIVE_T054_WRITES", " W12 ");
+        assertThat(OperateServerWritesLiveTestSupport.requireApproval(env)).containsExactly(W12);
+        env.put("INUBIT_LIVE_T054_WRITES", "W11,W12");
+        assertThat(OperateServerWritesLiveTestSupport.requireApproval(env)).isSameAs(OWNER_GATED);
+        env.put("INUBIT_LIVE_T054_WRITES", " W11 , W12 ");
+        assertThat(OperateServerWritesLiveTestSupport.requireApproval(env)).isSameAs(OWNER_GATED);
+
+        for (String value : List.of("W12,W11", "W11,W11", "W11,W12,", "W11 W12", "w11",
+            "W11,W12,W1", "W10,W11", SUBSET_LIST + ",W11", STEP_LIST + ",W11,W12", "W13")) {
+            env.put("INUBIT_LIVE_T054_WRITES", value);
+
+            assertThatThrownBy(() -> OperateServerWritesLiveTestSupport.requireApproval(env))
+                .as(value)
+                .isInstanceOf(AssertionError.class)
+                .hasMessageContaining("INUBIT_LIVE_T054_WRITES must list exactly " + STEP_LIST
+                    + " or " + SUBSET_LIST + " or W11, W12 or W11,W12")
+                .hasMessageContaining("nothing was run");
+        }
+    }
+
+    @Test
+    void withoutW12TheErrorIdsAreNotRead() {
+        for (List<Step> steps : List.of(List.of(W11), FULL, SUBSET)) {
+            assertThat(OperateServerWritesLiveTestSupport.approvedErrorIds(env, steps)).isEmpty();
+            env.put("INUBIT_LIVE_T054_ERROR_IDS", "x");
+            assertThat(OperateServerWritesLiveTestSupport.approvedErrorIds(env, steps)).isEmpty();
+            env.remove("INUBIT_LIVE_T054_ERROR_IDS");
+        }
+    }
+
+    @Test
+    void w12FailsBeforeContactWithoutTheApprovedErrorIds() {
+        for (List<Step> steps : List.of(List.of(W12), OWNER_GATED)) {
+            env.remove("INUBIT_LIVE_T054_ERROR_IDS");
+            assertThatThrownBy(() -> OperateServerWritesLiveTestSupport.approvedErrorIds(env,
+                steps)).isInstanceOf(AssertionError.class)
+                .hasMessageContaining("INUBIT_LIVE_T054_ERROR_IDS must hold the ids of the"
+                    + " processes in state ERROR the owner approved for W12, comma-separated, or"
+                    + " none for none; it is not set; nothing was run");
+            env.put("INUBIT_LIVE_T054_ERROR_IDS", " ");
+            assertThatThrownBy(() -> OperateServerWritesLiveTestSupport.approvedErrorIds(env,
+                steps)).isInstanceOf(AssertionError.class).hasMessageContaining("it is not set");
+        }
+    }
+
+    @Test
+    void theApprovedErrorIdsAreNoneOrDistinctProcessIds() {
+        env.put("INUBIT_LIVE_T054_ERROR_IDS", "none");
+        assertThat(OperateServerWritesLiveTestSupport.approvedErrorIds(env, List.of(W12)))
+            .contains(Set.of());
+        env.put("INUBIT_LIVE_T054_ERROR_IDS", " none ");
+        assertThat(OperateServerWritesLiveTestSupport.approvedErrorIds(env, OWNER_GATED))
+            .contains(Set.of());
+        env.put("INUBIT_LIVE_T054_ERROR_IDS", "1002, 1001,17");
+        Set<String> ids = OperateServerWritesLiveTestSupport.approvedErrorIds(env, List.of(W12))
+            .orElseThrow();
+        assertThat(ids).isEqualTo(Set.of("17", "1001", "1002"));
+        assertThat(OperateServerWritesLiveTestSupport.describeIds(ids))
+            .isEqualTo("3 (17, 1001, 1002)");
+        assertThat(OperateServerWritesLiveTestSupport.describeIds(Set.of())).isEqualTo("0 (none)");
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "1001,1001|it lists 1001 twice",
+        "1001, 1002 ,1001|it lists 1001 twice",
+        "abc|entry 1 is not a process id",
+        "1001,|entry 2 is not a process id",
+        ",1001|entry 1 is not a process id",
+        "1001;1002|entry 1 is not a process id",
+        "1001 1002|entry 1 is not a process id",
+        "none,1001|entry 1 is not a process id",
+        "NONE|entry 1 is not a process id",
+        "-1|entry 1 is not a process id",
+        "12345678901234567890|entry 1 is not a process id"})
+    void anyOtherErrorIdListFailsBeforeContact(String value, String reason) {
+        env.put("INUBIT_LIVE_T054_ERROR_IDS", value);
+
+        assertThatThrownBy(() -> OperateServerWritesLiveTestSupport.approvedErrorIds(env,
+            List.of(W12)))
+            .isInstanceOf(AssertionError.class)
+            .hasMessageContaining("INUBIT_LIVE_T054_ERROR_IDS must hold")
+            .hasMessageContaining("; " + reason + "; nothing was run")
+            .hasMessageNotContaining("abc");
+    }
+
+    @Test
+    void theTriggerTimeIsReadFromTheConfigurationsAnswerAlone() {
+        String time = "Sat Oct 31 00:00:00 CET 2026";
+        assertThat(midnight(200, fixture("admin-configurations.json"))).contains(time);
+        assertThat(midnight(200, "{\"MidnightTaskTriggerTime\":\"" + time + "\"}")).contains(time);
+        assertThat(midnight(200, "{\"ServerConfiguration\":{\"Mail\":\"" + RAW_LINE
+            + "\",\"MidnightTaskTriggerTime\":\"" + time + "\"}}")).contains(time);
+        for (String body : List.of("", "not json", "{}", "{\"MidnightTaskTriggerTime\":1}",
+            "{\"MidnightTaskTriggerTime\":null}", "[\"MidnightTaskTriggerTime\"]")) {
+            assertThat(midnight(200, body)).as(body).isEmpty();
+        }
+        assertThat(midnight(401, "{\"MidnightTaskTriggerTime\":\"" + time + "\"}")).isEmpty();
+        assertThat(midnight(503, "{\"MidnightTaskTriggerTime\":\"" + time + "\"}")).isEmpty();
+    }
+
+    @Test
+    void theErrorQueryIsFindProcessesWithStateErrorAlone() {
+        Instant now = Instant.parse("2026-11-18T12:00:00Z");
+        ProcessQuery query = OperateServerWritesLiveTestSupport.errorQuery(200, 100, now);
+
+        assertThat(query.states()).containsExactly(ProcessState.ERROR);
+        assertThat(query.hangingOnly()).isFalse();
+        assertThat(query.workflow()).isEmpty();
+        assertThat(query.tag()).isEmpty();
+        assertThat(query.since()).isEmpty();
+        assertThat(query.until()).isEmpty();
+        assertThat(query.userColumn()).isEmpty();
+        assertThat(query.offset()).isEqualTo(200);
+        assertThat(query.limit()).isEqualTo(100);
+        assertThat(query.now()).isEqualTo(now);
+    }
+
+    @Test
+    void theErrorSetIsPagedWholeWithTheLimitsOfFindProcesses() {
+        List<String> asked = new ArrayList<>();
+        List<String> first = new ArrayList<>();
+        for (int i = 1; i <= 100; i++) {
+            first.add(String.valueOf(1000 + i));
+        }
+
+        Optional<Set<String>> ids = OperateServerWritesLiveTestSupport.errorIds((offset, limit) -> {
+            asked.add(offset + "+" + limit);
+            // rows of sub-workflows repeat their process id
+            return offset == 0 ? page(0, limit, 150, first)
+                : page(offset, limit, 150, concat(List.of("1001", "2001"),
+                    Collections.nCopies(48, "2002")));
+        });
+
+        assertThat(asked).containsExactly("0+100", "100+100");
+        assertThat(ids).hasValueSatisfying(set -> assertThat(set).hasSize(102)
+            .contains("1001", "1100", "2001", "2002"));
+
+        asked.clear();
+        assertThat(OperateServerWritesLiveTestSupport.errorIds((offset, limit) -> {
+            asked.add(offset + "+" + limit);
+            return page(offset, limit, 0, List.of());
+        })).contains(Set.of());
+        assertThat(asked).containsExactly("0+100");
+    }
+
+    @Test
+    void anErrorSetThatCannotBeReadWholeIsUnknown() {
+        List<String> asked = new ArrayList<>();
+        // more rows than find_processes can page
+        assertThat(OperateServerWritesLiveTestSupport.errorIds((offset, limit) -> {
+            asked.add(offset + "+" + limit);
+            return page(offset, limit, 10_001, List.of("1001"));
+        })).isEmpty();
+        assertThat(asked).containsExactly("0+100");
+        // no total
+        assertThat(OperateServerWritesLiveTestSupport.errorIds((offset, limit) ->
+            new Page<>(List.of(errorProcess("1001")), offset, limit, OptionalLong.empty(), true,
+                false, OptionalInt.empty()))).isEmpty();
+        // a page that does not advance
+        assertThat(OperateServerWritesLiveTestSupport.errorIds((offset, limit) ->
+            new Page<>(List.of(), offset, limit, OptionalLong.of(5), false, false,
+                OptionalInt.of(offset)))).isEmpty();
+        // a total that changes between pages (a process entered ERROR while paging)
+        List<String> hundred = Collections.nCopies(100, "1001");
+        assertThat(OperateServerWritesLiveTestSupport.errorIds((offset, limit) ->
+            offset == 0 ? page(0, limit, 150, hundred)
+                : page(offset, limit, 151, Collections.nCopies(51, "1002")))).isEmpty();
+        // fewer rows than the total (a process left ERROR while paging)
+        assertThat(OperateServerWritesLiveTestSupport.errorIds((offset, limit) ->
+            new Page<>(List.of(errorProcess("1001")), offset, limit, OptionalLong.of(2), false,
+                false, OptionalInt.empty()))).isEmpty();
+        // more rows than the total
+        assertThat(OperateServerWritesLiveTestSupport.errorIds((offset, limit) ->
+            new Page<>(List.of(errorProcess("1001"), errorProcess("1001")), offset, limit,
+                OptionalLong.of(1), false, false, OptionalInt.empty()))).isEmpty();
+    }
+
+    @Test
+    void w12DeletesTheApprovedSetOnceAndReportsNewErrorProcesses() throws IOException {
+        SimulatedGatedNode node = new SimulatedGatedNode();
+        node.errorSet = Optional.of(Set.of("1001", "1002"));
+        node.afterDelete = Optional.of(Set.of("1003"));
+        node.deleted = OptionalLong.of(2);
+
+        Optional<Stop> stop = OperateServerWritesLiveTestSupport.runOwnerGated(node, List.of(W12),
+            Optional.of(Set.of("1002", "1001")));
+
+        assertThat(stop).isEmpty();
+        assertThat(node.calls).containsExactly("B0", "W12-before", "W12", "W12-after", "B1");
+        assertThat(node.notes).containsExactly("W12: before 2 (1001, 1002); deleted 2; after 1"
+            + " (1003); approved still in ERROR 0 (none); new in ERROR after the delete 1 (1003)");
+        assertThatCode(() -> OperateServerWritesLiveTestSupport.assertOwnerGated(stop))
+            .doesNotThrowAnyException();
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "1001,1002|1001,1002,1003|2|3|now 3 (1001, 1002, 1003)",
+        "1001,1002|1001|2|1|now 1 (1001)",
+        "1001|1002|1|1|now 1 (1002)",
+        "none|1001|0|1|now 1 (1001)",
+        "1001|none|1|0|now 0 (none)"})
+    void aChangedErrorSetIsNotDeletedAndNeedsANewPreview(String approved, String current,
+        int approvedCount, int currentCount, String recorded) throws IOException {
+        SimulatedGatedNode node = new SimulatedGatedNode();
+        node.errorSet = Optional.of(ids(current));
+
+        Optional<Stop> stop = OperateServerWritesLiveTestSupport.runOwnerGated(node, List.of(W12),
+            Optional.of(ids(approved)));
+
+        String code = "ERROR set changed: approved " + approvedCount + ", now " + currentCount
+            + "; new preview needed";
+        assertThat(stop).contains(new Stop("W12", code));
+        assertThat(node.calls).containsExactly("B0", "W12-before", "B1");
+        assertThat(node.notes).singleElement().asString().startsWith("W12: approved ")
+            .contains("; " + recorded + "; not run, new preview needed");
+        assertThatThrownBy(() -> OperateServerWritesLiveTestSupport.assertOwnerGated(stop))
+            .isInstanceOf(AssertionError.class)
+            .hasMessage("T054 write W12 stopped the sequence: " + code + "; nothing is restored"
+                + " (W11 and W12 have no undo)");
+    }
+
+    @Test
+    void anApprovedEmptySetThatIsStillEmptyIsSkipped() throws IOException {
+        SimulatedGatedNode node = new SimulatedGatedNode();
+
+        Optional<Stop> stop = OperateServerWritesLiveTestSupport.runOwnerGated(node, List.of(W12),
+            Optional.of(Set.of()));
+
+        assertThat(stop).isEmpty();
+        assertThat(node.calls).containsExactly("B0", "W12-before", "B1");
+        assertThat(node.notes)
+            .containsExactly("W12: nothing to delete (approved none, now none); not run");
+    }
+
+    @Test
+    void anUnreadableErrorSetIsNotDeleted() throws IOException {
+        SimulatedGatedNode node = new SimulatedGatedNode();
+        node.errorSet = Optional.empty();
+
+        Optional<Stop> stop = OperateServerWritesLiveTestSupport.runOwnerGated(node, List.of(W12),
+            Optional.of(Set.of("1001")));
+
+        assertThat(stop).contains(new Stop("W12",
+            "ERROR set unknown; processdelete error was not run"));
+        assertThat(node.calls).containsExactly("B0", "W12-before", "B1");
+        assertThat(node.notes).containsExactly("W12: approved 1 (1001); now unknown; not run");
+    }
+
+    @Test
+    void anApprovedIdStillInErrorAfterTheDeleteIsADeviation() throws IOException {
+        SimulatedGatedNode node = new SimulatedGatedNode();
+        node.errorSet = Optional.of(Set.of("1001", "1002"));
+        node.afterDelete = Optional.of(Set.of("1002", "1003"));
+
+        Optional<Stop> stop = OperateServerWritesLiveTestSupport.runOwnerGated(node, List.of(W12),
+            Optional.of(Set.of("1001", "1002")));
+
+        assertThat(stop).contains(new Stop("W12",
+            "DEVIATION (approved ids still in ERROR: 1 (1002))"));
+        assertThat(node.calls).containsExactly("B0", "W12-before", "W12", "W12-after", "B1");
+        assertThat(node.notes).containsExactly("W12: before 2 (1001, 1002); deleted unknown; after"
+            + " 2 (1002, 1003); approved still in ERROR 1 (1002); new in ERROR after the delete 1"
+            + " (1003)");
+    }
+
+    @Test
+    void aFailedDeleteStopsWithItsCodeAndTheSetAfterIsStillRecorded() throws IOException {
+        SimulatedGatedNode node = new SimulatedGatedNode();
+        node.errorSet = Optional.of(Set.of("1001"));
+        node.failures.put("W12", "exit 1");
+
+        Optional<Stop> stop = OperateServerWritesLiveTestSupport.runOwnerGated(node, List.of(W12),
+            Optional.of(Set.of("1001")));
+
+        assertThat(stop).contains(new Stop("W12", "exit 1"));
+        assertThat(node.calls).containsExactly("B0", "W12-before", "W12", "W12-after", "B1");
+        assertThat(node.notes).containsExactly("W12: before 1 (1001); deleted unknown; after 0"
+            + " (none); approved still in ERROR 0 (none); new in ERROR after the delete 0 (none)");
+
+        SimulatedGatedNode unread = new SimulatedGatedNode();
+        unread.errorSet = Optional.of(Set.of("1001"));
+        unread.afterDelete = Optional.empty();
+        assertThat(OperateServerWritesLiveTestSupport.runOwnerGated(unread, List.of(W12),
+            Optional.of(Set.of("1001"))))
+            .contains(new Stop("W12", "ERROR set after processdelete error unknown"));
+        assertThat(unread.notes)
+            .containsExactly("W12: before 1 (1001); deleted unknown; after unknown");
+    }
+
+    /**
+     * {@code processdelete error} has no id filter: a process that entered ERROR between the read
+     * and the command is deleted too; only the count INUBIT reports can show it.
+     */
+    @Test
+    void moreDeletedThanApprovedIsADeviationAndAnUnknownCountIsRecordedOnly() throws IOException {
+        SimulatedGatedNode node = new SimulatedGatedNode();
+        node.errorSet = Optional.of(Set.of("1001", "1002"));
+        node.deleted = OptionalLong.of(3);
+
+        Optional<Stop> stop = OperateServerWritesLiveTestSupport.runOwnerGated(node, List.of(W12),
+            Optional.of(Set.of("1001", "1002")));
+
+        assertThat(stop).contains(new Stop("W12",
+            "DEVIATION (INUBIT deleted 3 processes, approved 2)"));
+        assertThat(node.calls).containsExactly("B0", "W12-before", "W12", "W12-after", "B1");
+        assertThat(node.notes).containsExactly("W12: before 2 (1001, 1002); deleted 3; after 0"
+            + " (none); approved still in ERROR 0 (none); new in ERROR after the delete 0 (none)");
+
+        for (OptionalLong count : List.of(OptionalLong.of(2), OptionalLong.of(1),
+            OptionalLong.empty())) {
+            SimulatedGatedNode within = new SimulatedGatedNode();
+            within.errorSet = Optional.of(Set.of("1001", "1002"));
+            within.deleted = count;
+            assertThat(OperateServerWritesLiveTestSupport.runOwnerGated(within, List.of(W12),
+                Optional.of(Set.of("1001", "1002")))).as(count.toString()).isEmpty();
+        }
+    }
+
+    @Test
+    void theDeletedCountIsReadByTheProductionParserOrUnknown() {
+        assertThat(OperateServerWritesLiveTestSupport.deletedCount(
+            List.of("Deleted processes: 2"))).hasValue(2);
+        assertThat(OperateServerWritesLiveTestSupport.deletedCount(
+            List.of(" Deleted processes: 0 "))).hasValue(0);
+        for (List<String> lines : List.of(List.<String>of(), List.of(RAW_LINE),
+            List.of("Deleted processes: 2", "Deleted processes: 3"),
+            List.of("Deleted processes: x"))) {
+            assertThat(OperateServerWritesLiveTestSupport.deletedCount(lines)).as(lines.toString())
+                .isEmpty();
+        }
+    }
+
+    @Test
+    void w11RunsTheMidnightTaskOnceAndRecordsTheTriggerTimeBeforeAndAfter() throws IOException {
+        SimulatedGatedNode node = new SimulatedGatedNode();
+
+        Optional<Stop> stop = OperateServerWritesLiveTestSupport.runOwnerGated(node, List.of(W11),
+            Optional.empty());
+
+        assertThat(stop).isEmpty();
+        assertThat(node.calls).containsExactly("B0", "W11-before", "W11", "W11-after", "B1");
+        assertThat(node.notes).containsExactly("W11: MidnightTaskTriggerTime before Sat Oct 31"
+            + " 00:00:00 CET 2026; after Sun Nov 01 00:00:00 CET 2026");
+
+        // an unchanged or unreadable time is recorded, not judged
+        SimulatedGatedNode same = new SimulatedGatedNode();
+        same.timeAfter = same.timeBefore;
+        same.timeBefore = Optional.empty();
+        assertThat(OperateServerWritesLiveTestSupport.runOwnerGated(same, List.of(W11),
+            Optional.empty())).isEmpty();
+        assertThat(same.notes).containsExactly("W11: MidnightTaskTriggerTime before unknown;"
+            + " after Sat Oct 31 00:00:00 CET 2026");
+    }
+
+    @Test
+    void aFailedW11StopsBeforeW12() throws IOException {
+        SimulatedGatedNode node = new SimulatedGatedNode();
+        node.errorSet = Optional.of(Set.of("1001"));
+        node.failures.put("W11", "exit 2");
+
+        Optional<Stop> stop = OperateServerWritesLiveTestSupport.runOwnerGated(node, OWNER_GATED,
+            Optional.of(Set.of("1001")));
+
+        assertThat(stop).contains(new Stop("W11", "exit 2"));
+        assertThat(node.calls).containsExactly("B0", "W11-before", "W11", "W11-after", "B1");
+    }
+
+    @Test
+    void bothRunOnceInOrderAndTheFullStateIsInformationOnly() throws IOException {
+        SimulatedGatedNode node = new SimulatedGatedNode();
+        node.errorSet = Optional.of(Set.of("1001"));
+        node.unreadableEnd = true;
+
+        Optional<Stop> stop = OperateServerWritesLiveTestSupport.runOwnerGated(node, OWNER_GATED,
+            Optional.of(Set.of("1001")));
+
+        // B0 shows maintenance on and the rest unknown, B1 fails: neither stops anything
+        assertThat(stop).isEmpty();
+        assertThat(node.calls).containsExactly("B0", "W11-before", "W11", "W11-after",
+            "W12-before", "W12", "W12-after", "B1");
+    }
+
+    @Test
+    void eachSequenceRunsOnlyItsOwnSteps() {
+        SimulatedNode simulated = new SimulatedNode();
+        for (List<Step> steps : List.of(List.of(W11), List.of(W12), concat(SUBSET, List.of(W12)))) {
+            assertThatThrownBy(() -> OperateServerWritesLiveTestSupport.run(simulated, steps))
+                .isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThat(simulated.reads).isEmpty();
+        assertThat(simulated.ran).isEmpty();
+
+        SimulatedGatedNode node = new SimulatedGatedNode();
+        for (List<Step> steps : List.of(List.<Step>of(), SUBSET, List.of(W11, step("W5")))) {
+            assertThatThrownBy(() -> OperateServerWritesLiveTestSupport.runOwnerGated(node, steps,
+                Optional.of(Set.of()))).isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThatThrownBy(() -> OperateServerWritesLiveTestSupport.runOwnerGated(node,
+            List.of(W12), Optional.empty())).isInstanceOf(IllegalArgumentException.class);
+        assertThat(node.calls).isEmpty();
+    }
+
+    @Test
+    void theOwnerGatedRecordsGoToTheirRunFolderAndTheirLinesHoldNoOutput() throws IOException {
+        env.put("INUBIT_LIVE_T054_RUN", "4");
+        Path records = temp.resolve("records/022");
+        Path directory = OperateServerReadsLiveTestSupport.taskDirectory(PrivateFiles.forHost(),
+            records, OperateServerWritesLiveTestSupport.taskDirectory(env));
+        assertThat(directory).isEqualTo(records.resolve("T054-writes-4"));
+        byte[] body = ("{\"ServerConfiguration\":{\"Mail\":\"" + RAW_LINE
+            + "\",\"MidnightTaskTriggerTime\":\"Sat Oct 31 00:00:00 CET 2026\"}}")
+            .getBytes(StandardCharsets.UTF_8);
+        RestRead r9 = OperateServerWritesLiveTestSupport.CONFIGURATIONS_READ;
+
+        String configurations = OperateServerReadsLiveTestSupport.recordRest(
+            PrivateFiles.forHost(), directory, NODE, new RestRead("W11-before-R9", r9.slug(),
+                r9.endpoint(), r9.authenticated(), r9.range()),
+            new RestResponse(200, Optional.empty(), body));
+        String time = OperateServerWritesLiveTestSupport.midnightTriggerTime(200, body)
+            .orElseThrow();
+        String note = OperateServerWritesLiveTestSupport.recordNote(PrivateFiles.forHost(),
+            directory, NODE, W11, "MidnightTaskTriggerTime before " + time + "; after " + time);
+        String before = OperateServerWritesLiveTestSupport.recordErrorSet(PrivateFiles.forHost(),
+            directory, NODE, new ErrorSetRead("W12-before"), Optional.of(Set.of("1002", "1001")));
+        String unknown = OperateServerWritesLiveTestSupport.recordErrorSet(PrivateFiles.forHost(),
+            directory, NODE, new ErrorSetRead("W12-after"), Optional.empty());
+
+        assertThat(fileNames(directory)).containsExactlyInAnyOrder(
+            "W11-before-R9-get-configurations.status", "W11-before-R9-get-configurations.body",
+            "W11-trigger-midnight-task.state", "W12-before-find-processes-error.ids");
+        assertThat(directory.resolve("W11-trigger-midnight-task.state")).hasContent(
+            "MidnightTaskTriggerTime before Sat Oct 31 00:00:00 CET 2026; after Sat Oct 31"
+                + " 00:00:00 CET 2026\n");
+        assertThat(directory.resolve("W12-before-find-processes-error.ids"))
+            .hasContent("1001\n1002\n");
+        assertOwnerOnly(directory.resolve("W11-trigger-midnight-task.state"), "rw-------");
+        assertOwnerOnly(directory.resolve("W12-before-find-processes-error.ids"), "rw-------");
+        assertThat(configurations).isEqualTo("[live] T054 W11-before-R9 GET /configurations on"
+            + " test/node1: status 200, body " + body.length + " bytes");
+        assertThat(note).isEqualTo("[live] T054 W11 triggerMidnightTask on test/node1:"
+            + " MidnightTaskTriggerTime before Sat Oct 31 00:00:00 CET 2026; after Sat Oct 31"
+            + " 00:00:00 CET 2026");
+        assertThat(before).isEqualTo("[live] T054 W12-before find_processes states=[ERROR] on"
+            + " test/node1: ERROR set 2 (1001, 1002)");
+        assertThat(unknown).isEqualTo("[live] T054 W12-after find_processes states=[ERROR] on"
+            + " test/node1: not read whole (no total, more than 10000 rows, or a page that does"
+            + " not advance)");
+        assertThat(configurations + note + before + unknown).doesNotContain(RAW_LINE);
+    }
+
     // --- task folder and records -----------------------------------------------------------------
 
     @Test
@@ -1136,10 +1625,107 @@ class OperateServerWritesLiveTestSupportTest {
         }
     }
 
-    private static List<String> concat(List<String> first, List<String> second) {
-        List<String> all = new ArrayList<>(first);
+    /**
+     * A node for the owner-gated writes: the trigger time changes once W11 ran, the ERROR set is
+     * {@code errorSet} until W12 ran and {@code afterDelete} afterwards; every call is listed.
+     */
+    private static final class SimulatedGatedNode implements GatedNode {
+
+        final List<String> calls = new ArrayList<>();
+        final List<String> notes = new ArrayList<>();
+        /** The failure each step answers with, by step id; none: done. */
+        final Map<String, String> failures = new HashMap<>();
+        Optional<String> timeBefore = Optional.of("Sat Oct 31 00:00:00 CET 2026");
+        Optional<String> timeAfter = Optional.of("Sun Nov 01 00:00:00 CET 2026");
+        Optional<Set<String>> errorSet = Optional.of(Set.of());
+        Optional<Set<String>> afterDelete = Optional.of(Set.of());
+        /** The count {@code processdelete error} reports; empty: an answer of another form. */
+        OptionalLong deleted = OptionalLong.empty();
+        boolean unreadableEnd;
+        private boolean triggered;
+        private boolean ranDelete;
+
+        /** Off the baseline: the owner-gated sequence must not care. */
+        @Override
+        public State read(String label, Set<Property> properties) throws IOException {
+            calls.add(label);
+            if (unreadableEnd && label.equals("B1")) {
+                throw new IOException("unreadable");
+            }
+            return State.NONE.with(Property.MAINTENANCE, "on");
+        }
+
+        @Override
+        public Answer run(Step step) {
+            calls.add(step.id());
+            triggered |= step.equals(W11);
+            return Answer.of(Optional.ofNullable(failures.get(step.id())));
+        }
+
+        @Override
+        public Deletion delete() {
+            calls.add(W12.id());
+            ranDelete = true;
+            Optional<String> failure = Optional.ofNullable(failures.get(W12.id()));
+            return new Deletion(failure, failure.isPresent() ? OptionalLong.empty() : deleted);
+        }
+
+        @Override
+        public void recordStates(Step step, State before, State after, Optional<String> note) {
+            throw new AssertionError("not part of the owner-gated sequence");
+        }
+
+        @Override
+        public void recordNotNeeded(Step step, State check) {
+            throw new AssertionError("not part of the owner-gated sequence");
+        }
+
+        @Override
+        public Optional<String> midnightTriggerTime(String label) {
+            calls.add(label);
+            return triggered ? timeAfter : timeBefore;
+        }
+
+        @Override
+        public Optional<Set<String>> errorProcesses(String label) {
+            calls.add(label);
+            return ranDelete ? afterDelete : errorSet;
+        }
+
+        @Override
+        public void recordNote(Step step, String text) {
+            notes.add(step.id() + ": " + text);
+        }
+    }
+
+    private static <T> List<T> concat(List<T> first, List<T> second) {
+        List<T> all = new ArrayList<>(first);
         all.addAll(second);
         return all;
+    }
+
+    private static Optional<String> midnight(int status, String body) {
+        return OperateServerWritesLiveTestSupport.midnightTriggerTime(status,
+            body.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** {@code none} or comma-separated ids, as the owner approves them. */
+    private static Set<String> ids(String list) {
+        return list.equals("none") ? Set.of() : Set.of(list.split(","));
+    }
+
+    /** A page as the 8.1 process query builds it from {@code total} rows. */
+    private static Page<ProcessInstance> page(int offset, int limit, long total,
+        List<String> ids) {
+        int next = offset + ids.size();
+        return new Page<>(ids.stream().map(OperateServerWritesLiveTestSupportTest::errorProcess)
+            .toList(), offset, limit, OptionalLong.of(total), false, false,
+            next < total ? OptionalInt.of(next) : OptionalInt.empty());
+    }
+
+    private static ProcessInstance errorProcess(String id) {
+        return new ProcessInstance(NODE, id, Optional.empty(), ProcessState.ERROR, "ERROR",
+            Instant.EPOCH, Duration.ZERO, false, null, null, null, null, null, null, null, null);
     }
 
     private static Step step(String id) {

@@ -921,7 +921,8 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - `debug on`, `debug off` (recorded: no observable server effect; excluded, owner decision
     2026-11-18);
   - `triggerMidnightTask` (only if the owner approves running the midnight task);
-  - `processdelete error` with exactly one prepared test process in error.
+  - `processdelete error` on the whole ERROR set the owner approved after a
+    `find_processes` preview (owner decision 2026-11-18, IMC-10; no prepared test process).
 
   Neutralize into `fixtures/v8_1/{cli,rest}/admin-operate-*`.
 - [ ] T055 [LIVE-W] [OWNER] [US4] L-4 on the 8.1 test server, with approval:

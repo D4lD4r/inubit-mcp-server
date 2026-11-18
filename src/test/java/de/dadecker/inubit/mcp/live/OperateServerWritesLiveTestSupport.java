@@ -7,10 +7,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.MissingNode;
 import de.dadecker.inubit.mcp.adapter.cli.CliCommand;
 import de.dadecker.inubit.mcp.adapter.cli.UnlistedWriteCommand;
+import de.dadecker.inubit.mcp.adapter.cli.admin.ProcessDeleteAnswerParser;
 import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.adapter.rest.XmlSupport;
+import de.dadecker.inubit.mcp.application.DiagnosisService;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.Page;
+import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
+import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
+import de.dadecker.inubit.mcp.domain.model.ProcessState;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.TraceLevel;
@@ -21,10 +27,12 @@ import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.RestRead;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashSet;
@@ -33,7 +41,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.function.BiFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -44,12 +55,14 @@ import org.w3c.dom.Element;
 /**
  * The offline parts of {@link OperateServerWritesLiveTest} (feature 022 T054, write set W1–W10 of
  * the live checks L-2 and L-3), tested by {@link OperateServerWritesLiveTestSupportTest}: the
- * owner-approved steps in their order and forms, the approved lists (all steps, or W5–W10), the
- * gate, the derived state of the four state
- * reads, the expected after-states, the sequence with its stop and restore, the state records and
+ * owner-approved steps in their order and forms, the approved lists (all steps, W5–W10, or the
+ * owner-gated W11/W12), the gate, the derived state of the four state
+ * reads, the expected after-states, the sequence with its stop and restore, the owner-gated
+ * sequence with W12's ERROR-set check, the state records and
  * their lines. The case files and summary lines of each command are those of
  * {@link OperateServerReadsLiveTestSupport}. Failure messages and lines name steps, codes, byte
- * counts and derived states (on/off, READY/not READY, level), never output.
+ * counts, derived states (on/off, READY/not READY, level), the midnight task's trigger time and
+ * process ids with their count, never output.
  */
 final class OperateServerWritesLiveTestSupport {
 
@@ -70,6 +83,15 @@ final class OperateServerWritesLiveTestSupport {
      * 8.1.17 answered it so during maintenance, yet switched the readiness off.
      */
     static final String READY_OFF_IN_MAINTENANCE = "W2b";
+    /**
+     * W12's approval: the ids of the processes in state ERROR the owner saw (through
+     * {@code find_processes}) and approved for deletion, comma-separated, or {@link #NO_IDS}.
+     */
+    static final String ERROR_IDS_VARIABLE = "INUBIT_LIVE_T054_ERROR_IDS";
+    /** The value of {@link #ERROR_IDS_VARIABLE} for an approved empty set. */
+    static final String NO_IDS = "none";
+    /** The largest page of {@code find_processes} (its input schema). */
+    static final int PAGE_LIMIT = 100;
 
     static final String ON = "on";
     static final String OFF = "off";
@@ -80,6 +102,12 @@ final class OperateServerWritesLiveTestSupport {
     private static final Pattern DEBUG_ANSWER =
         Pattern.compile("Debug mode is currently (on|off)\\.");
     private static final Pattern RUN_NUMBER = Pattern.compile("[2-9]|[1-9][0-9]+");
+    /** A process id as {@code find_processes} shows it. */
+    private static final Pattern PROCESS_ID = Pattern.compile("[0-9]{1,19}");
+    /** Numeric order for ids of digits without leading zeros. */
+    private static final Comparator<String> ID_ORDER =
+        Comparator.comparingInt(String::length).thenComparing(Comparator.naturalOrder());
+    private static final String MIDNIGHT_TASK_TRIGGER_TIME = "MidnightTaskTriggerTime";
     /**
      * The likely cause of the client's {@code UNREACHABLE} for an HTTP 503 without maintenance
      * probe (pinned by {@code InubitHttpClientTest}); a connection failure has another.
@@ -281,6 +309,26 @@ final class OperateServerWritesLiveTestSupport {
         STEPS.stream().dropWhile(step -> !step.id().equals("W5")).toList();
 
     /**
+     * Owner-gated (Jira IMC-10), never part of {@link #STEPS}: runs the midnight task now; there
+     * is nothing to undo ({@link #runOwnerGated}).
+     */
+    static final Step W11 = new Step("W11", "trigger-midnight-task",
+        new CliWrite(CliCommand.triggerMidnightTask()), State.NONE, false);
+    /**
+     * Owner-gated (Jira IMC-10), never part of {@link #STEPS}: deletes every process in state
+     * ERROR on the node, only if that set is still the one the owner approved
+     * ({@link #ERROR_IDS_VARIABLE}, {@link #runOwnerGated}).
+     */
+    static final Step W12 = new Step("W12", "processdelete-error",
+        new CliWrite(CliCommand.processDeleteError()), State.NONE, false);
+    /** The third owner-approved list: W11, W12 or both, in this order. */
+    static final List<Step> OWNER_GATED = List.of(W11, W12);
+    private static final List<List<Step>> APPROVED_LISTS =
+        List.of(STEPS, W5_TO_W10, List.of(W11), List.of(W12), OWNER_GATED);
+    /** R9 of the read set: W11 reads {@code MidnightTaskTriggerTime} from its answer. */
+    static final RestRead CONFIGURATIONS_READ = restRead("R9");
+
+    /**
      * The command that brings each property back to its baseline: each one is a command of
      * {@link #STEPS} (W3, W5, W6, W8b, W10); a run sends only those of its own list
      * ({@link #restorePlan}).
@@ -301,18 +349,20 @@ final class OperateServerWritesLiveTestSupport {
 
     /**
      * Skips without {@link #APPROVAL_VARIABLE}; fails unless it lists exactly the ids of
-     * {@link #STEPS} or of {@link #W5_TO_W10} in their order, comma-separated.
+     * {@link #STEPS}, of {@link #W5_TO_W10}, or W11, W12 or W11,W12 ({@link #OWNER_GATED}) in
+     * their order, comma-separated.
      *
      * @return the steps it lists
      */
     static List<Step> requireApproval(Map<String, String> environment) {
         String value = environment.get(APPROVAL_VARIABLE);
-        String steps = ids(STEPS) + " or " + ids(W5_TO_W10);
+        String steps = ids(STEPS) + " or " + ids(W5_TO_W10) + " or " + W11.id() + ", " + W12.id()
+            + " or " + ids(OWNER_GATED);
         Assumptions.assumeTrue(value != null && !value.isBlank(), APPROVAL_VARIABLE + " is not set"
             + " (" + steps + ", only after the owner approved each command); the T054 write set is"
             + " skipped");
         List<String> listed = Arrays.stream(value.split(",", -1)).map(String::strip).toList();
-        for (List<Step> approved : List.of(STEPS, W5_TO_W10)) {
+        for (List<Step> approved : APPROVED_LISTS) {
             if (listed.equals(approved.stream().map(Step::id).toList())) {
                 return approved;
             }
@@ -331,6 +381,40 @@ final class OperateServerWritesLiveTestSupport {
             fail(node + " does not have write enabled in the profile; the T054 write set runs only"
                 + " on a node with write enabled; nothing was run");
         }
+    }
+
+    /**
+     * The ERROR set the owner approved for W12, from {@link #ERROR_IDS_VARIABLE}: {@link #NO_IDS}
+     * (none) or distinct process ids, comma-separated. Empty if {@code steps} has no W12; fails
+     * before contact if it has W12 and the variable is missing, lists an id twice or holds
+     * anything else.
+     */
+    static Optional<Set<String>> approvedErrorIds(Map<String, String> environment,
+        List<Step> steps) {
+        if (!steps.contains(W12)) {
+            return Optional.empty();
+        }
+        String form = ERROR_IDS_VARIABLE + " must hold the ids of the processes in state ERROR the"
+            + " owner approved for W12, comma-separated, or " + NO_IDS + " for none";
+        String value = environment.get(ERROR_IDS_VARIABLE);
+        if (value == null || value.isBlank()) {
+            fail(form + "; it is not set; nothing was run");
+        }
+        if (value.strip().equals(NO_IDS)) {
+            return Optional.of(Set.of());
+        }
+        String[] entries = value.split(",", -1);
+        Set<String> ids = new TreeSet<>(ID_ORDER);
+        for (int i = 0; i < entries.length; i++) {
+            String id = entries[i].strip();
+            if (!PROCESS_ID.matcher(id).matches()) {
+                fail(form + "; entry " + (i + 1) + " is not a process id; nothing was run");
+            }
+            if (!ids.add(id)) {
+                fail(form + "; it lists " + id + " twice; nothing was run");
+            }
+        }
+        return Optional.of(Collections.unmodifiableSet(ids));
     }
 
     /**
@@ -461,6 +545,75 @@ final class OperateServerWritesLiveTestSupport {
     }
 
     /**
+     * The {@code MidnightTaskTriggerTime} of a 200 answer to {@code GET /configurations} (R9), a
+     * timestamp such as {@code Sat Oct 31 00:00:00 CET 2026}; empty for any other answer. Nothing
+     * else of the body is kept.
+     */
+    static Optional<String> midnightTriggerTime(int status, byte[] body) {
+        if (status != 200) {
+            return Optional.empty();
+        }
+        JsonNode value;
+        try {
+            value = JSON.readTree(body).findValue(MIDNIGHT_TASK_TRIGGER_TIME);
+        } catch (IOException e) {
+            return Optional.empty();
+        }
+        return value != null && value.isTextual() ? Optional.of(value.asText()) : Optional.empty();
+    }
+
+    /**
+     * The query of {@code find_processes} with {@code states=[ERROR]} and nothing else, for one
+     * page.
+     */
+    static ProcessQuery errorQuery(int offset, int limit, Instant now) {
+        return new ProcessQuery(Set.of(ProcessState.ERROR), false,
+            DiagnosisService.DEFAULT_HANGING_THRESHOLD, Optional.empty(), Optional.empty(),
+            Optional.empty(), Optional.empty(), offset, limit, now, Optional.empty());
+    }
+
+    /**
+     * The distinct process ids of the ERROR set, paged as {@code find_processes} allows: pages of
+     * {@link #PAGE_LIMIT} from offset 0, fetched by {@code pages} (offset, limit), within
+     * {@link DiagnosisService#MAX_WINDOW}. The total counts rows, not processes (a process with
+     * sub-workflows has several rows with its id), so the rows of all pages together must be
+     * exactly the total of the first page, and every page must report that total. Empty if the
+     * set cannot be read whole: no total, a total beyond the window, a total that changes between
+     * pages, fewer or more rows than the total, or a page that does not advance.
+     */
+    static Optional<Set<String>> errorIds(
+        BiFunction<Integer, Integer, Page<ProcessInstance>> pages) {
+        Set<String> ids = new HashSet<>();
+        OptionalLong total = OptionalLong.empty();
+        long rows = 0;
+        int offset = 0;
+        while (true) {
+            Page<ProcessInstance> page =
+                pages.apply(offset, Math.min(PAGE_LIMIT, DiagnosisService.MAX_WINDOW - offset));
+            if (page.total().isEmpty() || page.total().getAsLong() > DiagnosisService.MAX_WINDOW
+                || total.isPresent() && !total.equals(page.total())) {
+                return Optional.empty();
+            }
+            total = page.total();
+            rows += page.items().size();
+            page.items().forEach(item -> ids.add(item.processId()));
+            if (page.nextOffset().isEmpty()) {
+                return rows == total.getAsLong() ? Optional.of(Set.copyOf(ids)) : Optional.empty();
+            }
+            if (page.nextOffset().getAsInt() <= offset) {
+                return Optional.empty();
+            }
+            offset = page.nextOffset().getAsInt();
+        }
+    }
+
+    /** E.g. {@code 2 (1001, 1002)} or {@code 0 (none)}: the count, then the ids in order. */
+    static String describeIds(Set<String> ids) {
+        return ids.size() + " (" + (ids.isEmpty() ? NO_IDS
+            : ids.stream().sorted(ID_ORDER).collect(Collectors.joining(", "))) + ")";
+    }
+
+    /**
      * The failure of a command: its error code, or the exit code of a StartCLI run that ended
      * other than 0; empty if it succeeded.
      */
@@ -547,6 +700,9 @@ final class OperateServerWritesLiveTestSupport {
      * its effect shows ({@link #readyOffTookEffect}); its state record notes which case occurred.
      */
     static Outcome run(Node node, List<Step> steps) throws IOException {
+        if (steps.stream().anyMatch(OWNER_GATED::contains)) {
+            throw new IllegalArgumentException("W11 and W12 run only through runOwnerGated");
+        }
         State baseline = node.read("B0", ALL);
         List<Property> off = baseline.offBaseline(ALL);
         if (!off.isEmpty()) {
@@ -681,6 +837,164 @@ final class OperateServerWritesLiveTestSupport {
         }
     }
 
+    // --- the owner-gated writes W11 and W12 ------------------------------------------------------
+
+    /** The node of {@link #runOwnerGated}: {@link Node} and the reads W11 and W12 need. */
+    interface GatedNode extends Node {
+
+        /**
+         * Reads {@code MidnightTaskTriggerTime} once with R9, recorded as {@code <label>-R9};
+         * empty if the answer does not show it.
+         */
+        Optional<String> midnightTriggerTime(String label) throws IOException;
+
+        /**
+         * Reads the ERROR set once as {@code find_processes} does ({@link #errorIds}), recorded
+         * as {@code <label>-find-processes-error}; empty if it cannot be read whole.
+         */
+        Optional<Set<String>> errorProcesses(String label) throws IOException;
+
+        /**
+         * Runs W12's {@code processdelete error} once, never retried, recorded as its case files:
+         * its failure and the number INUBIT reports as deleted ({@link #deletedCount}).
+         */
+        Deletion delete() throws IOException;
+
+        /** Records {@code text} as the {@code .state} note of {@code step}. */
+        void recordNote(Step step, String text) throws IOException;
+    }
+
+    /**
+     * What {@code processdelete error} answered: its failure, if any, and the number of deleted
+     * processes INUBIT reports, empty if it failed or its answer has another form.
+     */
+    record Deletion(Optional<String> failure, OptionalLong deleted) {
+    }
+
+    /**
+     * The number of processes {@code processdelete error} reports as deleted, read from its output
+     * lines (after the client's preamble) by the production
+     * {@link ProcessDeleteAnswerParser#parse}; empty if they have another form.
+     */
+    static OptionalLong deletedCount(List<String> outputLines) {
+        try {
+            return OptionalLong.of(ProcessDeleteAnswerParser.parse(outputLines));
+        } catch (ToolErrorException e) {
+            return OptionalLong.empty();
+        }
+    }
+
+    /**
+     * Runs the owner-gated {@code steps} (W11, W12 or both, in this order) on {@code node}, each
+     * once and never retried; nothing is restored, neither has an undo. The full state is read
+     * before ({@code B0}) and after ({@code B1}) as information only. At the first failure the
+     * sequence stops.
+     *
+     * <p>W11: reads {@code MidnightTaskTriggerTime} before and after {@code triggerMidnightTask}
+     * and records both; exit 0 is done, anything else a failure. W12: reads the ERROR set; only if
+     * it equals {@code approvedErrorIds} and is not empty it runs {@code processdelete error}, then
+     * reads the set again: an approved id still there is a deviation, an id in ERROR after the
+     * delete is reported only. The command has no id filter: a process that entered ERROR between
+     * the read and the command is deleted too, and no read can show it afterwards; so the number
+     * INUBIT reports as deleted is recorded, and one above the approved count is a deviation (an
+     * answer of another form records it as unknown, no failure by itself). A changed set is a
+     * failure without delete (a new preview is needed); an approved empty set that is still empty
+     * is skipped.
+     *
+     * @return where and why the sequence stopped, if it did
+     */
+    static Optional<Stop> runOwnerGated(GatedNode node, List<Step> steps,
+        Optional<Set<String>> approvedErrorIds) throws IOException {
+        if (steps.isEmpty() || !OWNER_GATED.containsAll(steps)
+            || steps.contains(W12) && approvedErrorIds.isEmpty()) {
+            throw new IllegalArgumentException("runOwnerGated takes W11 and W12 only, W12 with"
+                + " its approved ERROR set");
+        }
+        node.read("B0", ALL);
+        Optional<Stop> stop = Optional.empty();
+        for (Step step : steps) {
+            try {
+                Optional<String> failure = step.equals(W11) ? triggerMidnightTask(node)
+                    : deleteErrorProcesses(node, approvedErrorIds.orElseThrow());
+                stop = failure.map(code -> new Stop(step.id(), code));
+            } catch (IOException | RuntimeException | AssertionError e) {
+                stop = Optional.of(new Stop(step.id(), e.getClass().getSimpleName()));
+            }
+            if (stop.isPresent()) {
+                break;
+            }
+        }
+        try {
+            node.read("B1", ALL);
+        } catch (IOException | RuntimeException | AssertionError e) {
+            // information only, as B0
+        }
+        return stop;
+    }
+
+    private static Optional<String> triggerMidnightTask(GatedNode node) throws IOException {
+        Optional<String> before = node.midnightTriggerTime(W11.id() + "-before");
+        Answer answer = node.run(W11);
+        Optional<String> after = node.midnightTriggerTime(W11.id() + "-after");
+        node.recordNote(W11, MIDNIGHT_TASK_TRIGGER_TIME + " before " + before.orElse("unknown")
+            + "; after " + after.orElse("unknown"));
+        return answer.failure();
+    }
+
+    private static Optional<String> deleteErrorProcesses(GatedNode node, Set<String> approved)
+        throws IOException {
+        Optional<Set<String>> read = node.errorProcesses(W12.id() + "-before");
+        if (read.isEmpty()) {
+            node.recordNote(W12, "approved " + describeIds(approved) + "; now unknown; not run");
+            return Optional.of("ERROR set unknown; processdelete error was not run");
+        }
+        Set<String> now = read.get();
+        if (!now.equals(approved)) {
+            node.recordNote(W12, "approved " + describeIds(approved) + "; now " + describeIds(now)
+                + "; not run, new preview needed");
+            return Optional.of("ERROR set changed: approved " + approved.size() + ", now "
+                + now.size() + "; new preview needed");
+        }
+        if (now.isEmpty()) {
+            node.recordNote(W12, "nothing to delete (approved " + NO_IDS + ", now " + NO_IDS
+                + "); not run");
+            return Optional.empty();
+        }
+        Deletion deletion = node.delete();
+        Optional<Set<String>> after = node.errorProcesses(W12.id() + "-after");
+        Set<String> remaining = new HashSet<>(after.orElse(Set.of()));
+        remaining.retainAll(approved);
+        Set<String> appeared = new HashSet<>(after.orElse(Set.of()));
+        appeared.removeAll(approved);
+        String deleted = deletion.deleted().isPresent()
+            ? String.valueOf(deletion.deleted().getAsLong()) : "unknown";
+        node.recordNote(W12, "before " + describeIds(now) + "; deleted " + deleted + "; after "
+            + after.map(OperateServerWritesLiveTestSupport::describeIds).orElse("unknown")
+            + after.map(ids -> "; approved still in ERROR " + describeIds(remaining)
+                + "; new in ERROR after the delete " + describeIds(appeared)).orElse(""));
+        if (deletion.failure().isPresent()) {
+            return deletion.failure();
+        }
+        if (deletion.deleted().isPresent() && deletion.deleted().getAsLong() > approved.size()) {
+            return Optional.of("DEVIATION (INUBIT deleted " + deleted + " processes, approved "
+                + approved.size() + ")");
+        }
+        if (after.isEmpty()) {
+            return Optional.of("ERROR set after processdelete error unknown");
+        }
+        return remaining.isEmpty() ? Optional.empty()
+            : Optional.of("DEVIATION (approved ids still in ERROR: " + describeIds(remaining)
+                + ")");
+    }
+
+    /** Fails if the owner-gated sequence stopped; nothing was restored. */
+    static void assertOwnerGated(Optional<Stop> stop) {
+        if (stop.isPresent()) {
+            fail("T054 write " + stop.get().step() + " stopped the sequence: " + stop.get().code()
+                + "; nothing is restored (W11 and W12 have no undo)");
+        }
+    }
+
     // --- records and lines -----------------------------------------------------------------------
 
     /** The line of a state read labelled {@code label}: derived states only. */
@@ -735,10 +1049,56 @@ final class OperateServerWritesLiveTestSupport {
     /** Writes that {@code step} was not needed, with the state {@code check} showed, owner-only. */
     static String recordNotNeeded(PrivateFileSystem files, Path directory, NodeId node, Step step,
         State check) throws IOException {
-        String text = "not needed (" + check.describe(step.expected().properties()) + ")";
+        return recordNote(files, directory, node, step,
+            "not needed (" + check.describe(step.expected().properties()) + ")");
+    }
+
+    /**
+     * Writes {@code text} (states, timestamps, ids and counts only) as {@code <stem>.state} of
+     * {@code step}, owner-only.
+     *
+     * @return its line
+     */
+    static String recordNote(PrivateFileSystem files, Path directory, NodeId node, Step step,
+        String text) throws IOException {
         OperateServerReadsLiveTestSupport.write(files, directory.resolve(step.stem() + ".state"),
-            (text + "\n").getBytes(StandardCharsets.US_ASCII));
+            (text + "\n").getBytes(StandardCharsets.UTF_8));
         return OperateServerReadsLiveTestSupport.summary(node, step, text);
+    }
+
+    /** A read of the ERROR set by W12, as a case: {@code <id>-find-processes-error.*}. */
+    record ErrorSetRead(String id) implements Case {
+
+        @Override
+        public String slug() {
+            return "find-processes-error";
+        }
+
+        @Override
+        public String form() {
+            return "find_processes states=[ERROR]";
+        }
+    }
+
+    /**
+     * Writes the ids of an ERROR set read whole as {@code <stem>.ids}, one per line in order,
+     * owner-only; a set not read whole records nothing.
+     *
+     * @return its line: the count and the ids
+     */
+    static String recordErrorSet(PrivateFileSystem files, Path directory, NodeId node, Case read,
+        Optional<Set<String>> ids) throws IOException {
+        if (ids.isEmpty()) {
+            return OperateServerReadsLiveTestSupport.summary(node, read, "not read whole (no"
+                + " total, more than " + DiagnosisService.MAX_WINDOW + " rows, or a page that does"
+                + " not advance)");
+        }
+        String lines = ids.get().stream().sorted(ID_ORDER).map(id -> id + "\n")
+            .collect(Collectors.joining());
+        OperateServerReadsLiveTestSupport.write(files, directory.resolve(read.stem() + ".ids"),
+            lines.getBytes(StandardCharsets.US_ASCII));
+        return OperateServerReadsLiveTestSupport.summary(node, read,
+            "ERROR set " + describeIds(ids.get()));
     }
 
     // --- construction ----------------------------------------------------------------------------
@@ -754,8 +1114,12 @@ final class OperateServerWritesLiveTestSupport {
     }
 
     private static RestRead readyRead() {
+        return restRead(Property.READINESS.readId);
+    }
+
+    private static RestRead restRead(String id) {
         return OperateServerReadsLiveTestSupport.READS.stream()
-            .filter(read -> read.id().equals(Property.READINESS.readId))
+            .filter(read -> read.id().equals(id))
             .map(RestRead.class::cast).findFirst().orElseThrow();
     }
 

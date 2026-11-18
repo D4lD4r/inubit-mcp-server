@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.os.OsPrivateFileSystem;
 import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.adapter.rest.RestResponse;
+import de.dadecker.inubit.mcp.adapter.rest.v81.V81ProcessQueryAdapter;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -15,24 +16,30 @@ import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
+import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.Case;
 import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.CliRead;
 import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.Read;
 import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.RestRead;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Answer;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.CliWrite;
+import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Deletion;
+import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.ErrorSetRead;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Outcome;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Property;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.ReadyRead;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.ReadySwitch;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.State;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Step;
+import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Stop;
 import de.dadecker.inubit.mcp.live.ServerLogLiveTestSupport.Run;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -70,6 +77,15 @@ import org.junit.jupiter.api.Timeout;
  * {@link OperateServerWritesLiveTestSupport#W5_TO_W10}), from the same baseline. Prints one
  * line per command with its exit code or status and byte counts, and the derived states; never
  * output.
+ *
+ * <p>The owner-gated writes (Jira IMC-10) run only as their own list,
+ * {@code INUBIT_LIVE_T054_WRITES=W11}, {@code W12} or {@code W11,W12}
+ * ({@link OperateServerWritesLiveTestSupport#runOwnerGated}): W11 {@code triggerMidnightTask}
+ * with {@code MidnightTaskTriggerTime} read by R9 before and after; W12
+ * {@code processdelete error} only if the ERROR set, read through the production 8.1 process
+ * query of {@code find_processes}, is exactly {@code INUBIT_LIVE_T054_ERROR_IDS}. No baseline is
+ * required and nothing is restored; B0 and B1 are read as information. Besides the above they
+ * print the trigger time and the process ids with their count.
  */
 @Tag("live")
 @Timeout(3600)
@@ -80,6 +96,9 @@ class OperateServerWritesLiveTest {
         LiveTarget live = LiveTarget.resolve();
         Map<String, String> environment = System.getenv();
         List<Step> steps = OperateServerWritesLiveTestSupport.requireApproval(environment);
+        Optional<Set<String>> approvedErrorIds =
+            OperateServerWritesLiveTestSupport.approvedErrorIds(environment, steps);
+        boolean ownerGated = OperateServerWritesLiveTestSupport.OWNER_GATED.containsAll(steps);
         Path recordDirectory = OperateServerReadsLiveTestSupport.recordDirectory(environment,
             Path.of("").toAbsolutePath());
         NodeId node = live.node();
@@ -91,23 +110,32 @@ class OperateServerWritesLiveTest {
         PrivateFileSystem files = OsPrivateFileSystem.forHost();
         // refuse an earlier recording before any contact; create the folder only after the 8.1 gate
         OperateServerReadsLiveTestSupport.requireNoTaskDirectory(recordDirectory, taskDirectory);
-        Outcome outcome;
+        Outcome outcome = null;
+        Optional<Stop> stop = Optional.empty();
         try (OperateServerLiveConnection connection =
                 OperateServerLiveConnection.open(live, server, environment, files)) {
             InubitVersion version = connection.requireV81();
             Path directory = OperateServerReadsLiveTestSupport.taskDirectory(files,
                 recordDirectory, taskDirectory);
-            outcome = OperateServerWritesLiveTestSupport.run(new LiveNode(connection,
-                connection.cli(version), new CliOutputClassifier(live.scrubber(),
-                    server.secretLabels(), live.windows()),
-                new WritePermit(node, Capability.SERVER_OPERATION, version), files, directory),
-                steps);
+            LiveNode liveNode = new LiveNode(connection, connection.cli(version),
+                new CliOutputClassifier(live.scrubber(), server.secretLabels(), live.windows()),
+                new WritePermit(node, Capability.SERVER_OPERATION, version), files, directory);
+            if (ownerGated) {
+                stop = OperateServerWritesLiveTestSupport.runOwnerGated(liveNode, steps,
+                    approvedErrorIds);
+            } else {
+                outcome = OperateServerWritesLiveTestSupport.run(liveNode, steps);
+            }
         }
-        OperateServerWritesLiveTestSupport.assertOutcome(outcome);
+        if (ownerGated) {
+            OperateServerWritesLiveTestSupport.assertOwnerGated(stop);
+        } else {
+            OperateServerWritesLiveTestSupport.assertOutcome(outcome);
+        }
     }
 
     /** The node of the sequence: every call records its case files and prints its line. */
-    private static final class LiveNode implements OperateServerWritesLiveTestSupport.Node {
+    private static final class LiveNode implements OperateServerWritesLiveTestSupport.GatedNode {
 
         private final OperateServerLiveConnection connection;
         private final CliRunner cli;
@@ -220,6 +248,66 @@ class OperateServerWritesLiveTest {
         public void recordNotNeeded(Step step, State check) throws IOException {
             print(OperateServerWritesLiveTestSupport.recordNotNeeded(files, directory, node, step,
                 check));
+        }
+
+        @Override
+        public Optional<String> midnightTriggerTime(String label) throws IOException {
+            RestRead read = OperateServerWritesLiveTestSupport.CONFIGURATIONS_READ;
+            RestRead labelled = new RestRead(label + "-" + read.id(), read.slug(),
+                read.endpoint(), read.authenticated(), read.range());
+            try {
+                RestResponse response = read.get(connection.http);
+                Optional<String> time = OperateServerWritesLiveTestSupport.midnightTriggerTime(
+                    response.status(), response.body());
+                print(OperateServerReadsLiveTestSupport.recordRest(files, directory, node,
+                    labelled, response) + ", MidnightTaskTriggerTime " + time.orElse("unknown"));
+                return time;
+            } catch (ToolErrorException e) {
+                print(OperateServerReadsLiveTestSupport.recordRestFailure(files, directory, node,
+                    labelled, e.error().code()));
+                return Optional.empty();
+            }
+        }
+
+        /** The ERROR set through the production 8.1 process query of {@code find_processes}. */
+        @Override
+        public Optional<Set<String>> errorProcesses(String label) throws IOException {
+            ErrorSetRead read = new ErrorSetRead(label);
+            ProcessQueryPort processes = new V81ProcessQueryAdapter(node, connection.http);
+            Instant now = Instant.now();
+            try {
+                Optional<Set<String>> ids = OperateServerWritesLiveTestSupport.errorIds(
+                    (offset, limit) -> processes.find(
+                        OperateServerWritesLiveTestSupport.errorQuery(offset, limit, now)));
+                print(OperateServerWritesLiveTestSupport.recordErrorSet(files, directory, node,
+                    read, ids));
+                return ids;
+            } catch (ToolErrorException e) {
+                print(OperateServerReadsLiveTestSupport.recordRestFailure(files, directory, node,
+                    read, e.error().code()));
+                return Optional.empty();
+            }
+        }
+
+        @Override
+        public Deletion delete() throws IOException {
+            Step step = OperateServerWritesLiveTestSupport.W12;
+            Attempt attempt = runCli(step, ((CliWrite) step.action()).command(),
+                Optional.of(permit));
+            // the count only of an answer that exited 0
+            Optional<CliResult> answered =
+                attempt.result().filter(result -> result.exitCode() == 0);
+            return new Deletion(OperateServerWritesLiveTestSupport.failure(attempt.error(),
+                    attempt.result().map(CliResult::exitCode)),
+                answered.isEmpty() ? OptionalLong.empty()
+                    : OperateServerWritesLiveTestSupport.deletedCount(
+                        classifier.parse(answered.get()).outputLines()));
+        }
+
+        @Override
+        public void recordNote(Step step, String text) throws IOException {
+            print(OperateServerWritesLiveTestSupport.recordNote(files, directory, node, step,
+                text));
         }
 
         /** One StartCLI run of {@code command}, recorded as the case {@code recorded}. */
