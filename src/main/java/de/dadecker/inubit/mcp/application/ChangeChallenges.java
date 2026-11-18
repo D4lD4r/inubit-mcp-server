@@ -178,7 +178,11 @@ public final class ChangeChallenges {
                 + fresh.expiresAt()).withNode(node), preview);
     }
 
-    /** The {@code CONFLICT} of {@link #confirmOrConflict}, with the fresh preview and code. */
+    /**
+     * The {@code CONFLICT} of {@link #confirmOrConflict}, with the fresh preview and code; its
+     * {@link #details()} carry the preview as {@code preview}, so the tool error shows it as
+     * {@code error.details.preview} (contracts "Errors").
+     */
     public static final class Conflict extends ToolErrorException {
 
         private static final long serialVersionUID = 1L;
@@ -186,7 +190,7 @@ public final class ChangeChallenges {
         private final transient ChangePreview preview;
 
         private Conflict(ToolError error, ChangePreview preview) {
-            super(error);
+            super(error, Map.of("preview", preview));
             this.preview = preview;
         }
 

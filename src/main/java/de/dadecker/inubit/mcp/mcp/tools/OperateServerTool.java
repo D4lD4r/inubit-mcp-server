@@ -1,10 +1,8 @@
 package de.dadecker.inubit.mcp.mcp.tools;
 
-import de.dadecker.inubit.mcp.application.ChangeChallenges;
 import de.dadecker.inubit.mcp.application.ServerOperationService;
 import de.dadecker.inubit.mcp.application.ServerOperationService.Request;
 import de.dadecker.inubit.mcp.application.ServerOperationService.Response;
-import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.mcp.CallContext;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import de.dadecker.inubit.mcp.mcp.ToolHints;
@@ -23,7 +21,8 @@ import java.util.function.Function;
  * repeats every input check. The output is the service's {@link Response}:
  * {@code {"preview": ChangePreview}} or {@code {"result": ChangeResult, "warnings": […]}}.
  * Refusals are tool errors; a {@code CONFLICT} carries the fresh preview as
- * {@code error.details.preview} (contracts "Errors").
+ * {@code error.details.preview} (contracts "Errors"), from the details of
+ * {@link de.dadecker.inubit.mcp.application.ChangeChallenges.Conflict}.
  *
  * <p>Announced if some server has write access.
  */
@@ -86,12 +85,7 @@ public final class OperateServerTool implements ToolHandler {
         ToolArguments args = new ToolArguments(arguments);
         Map<String, Object> fields = new LinkedHashMap<>(arguments);
         fields.keySet().removeAll(COMMON_INPUTS);
-        try {
-            return execute.apply(new Request(args.string("node"), args.string("action"), fields,
-                args.string("reason"), args.optionalString("confirmationCode"),
-                context.client()));
-        } catch (ChangeChallenges.Conflict conflict) {
-            throw new ToolErrorException(conflict.error(), Map.of("preview", conflict.preview()));
-        }
+        return execute.apply(new Request(args.string("node"), args.string("action"), fields,
+            args.string("reason"), args.optionalString("confirmationCode"), context.client()));
     }
 }

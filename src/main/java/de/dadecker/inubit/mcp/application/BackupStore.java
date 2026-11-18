@@ -491,7 +491,8 @@ public final class BackupStore {
         Files.write(file, content, StandardOpenOption.TRUNCATE_EXISTING);
     }
 
-    private Path manifestFile(String auditId) {
+    /** The manifest of the backup {@code auditId}, e.g. for a change result to name it. */
+    Path manifestFile(String auditId) {
         return root.resolve(auditId + MANIFEST);
     }
 

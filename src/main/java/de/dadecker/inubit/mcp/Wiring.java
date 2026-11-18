@@ -78,6 +78,7 @@ import de.dadecker.inubit.mcp.application.ServerLogAudit;
 import de.dadecker.inubit.mcp.application.ServerLogService;
 import de.dadecker.inubit.mcp.application.ServerOperationService;
 import de.dadecker.inubit.mcp.application.ServerSettingsService;
+import de.dadecker.inubit.mcp.application.TagAdministrationService;
 import de.dadecker.inubit.mcp.application.TagService;
 import de.dadecker.inubit.mcp.application.TargetFolderRules;
 import de.dadecker.inubit.mcp.application.TargetResolver;
@@ -162,6 +163,7 @@ import de.dadecker.inubit.mcp.mcp.tools.ReadIoLogTool;
 import de.dadecker.inubit.mcp.mcp.tools.ReadKnowledgeTool;
 import de.dadecker.inubit.mcp.mcp.tools.RecordKnowledgeTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
+import de.dadecker.inubit.mcp.mcp.tools.ManageTagsTool;
 import de.dadecker.inubit.mcp.mcp.tools.OperateServerTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
 import de.dadecker.inubit.mcp.mcp.tools.ReadQueueEntryTool;
@@ -272,8 +274,10 @@ final class Wiring implements AutoCloseable {
     /** Feature 018: offered where partner management is possibly available (FR-001). */
     private final FindPartnersTool findPartners;
     private final ProcessControlService processControl;
-    /** Feature 022 (US4): announced as {@code restart_process}. */
+    /** Feature 022 (US4): announced where some node has write access, as restart_process. */
     private final OperateServerTool operateServer;
+    /** Feature 022 (US4): announced as {@link #operateServer}. */
+    private final ManageTagsTool manageTags;
     /** Feature 020: built for every configuration; announced only under its opt-in. */
     private final ReadQueueEntryTool readQueueEntry;
     private final ClientSelectionPort clientSelection;
@@ -281,7 +285,7 @@ final class Wiring implements AutoCloseable {
     private final ActionCatalog actions = new ActionCatalog(Stream.of(
         Stream.of(ServerSettingsService.SPEC), UserReadService.SPECS.stream(),
         ModelDetailService.SPECS.stream(), ArchiveExportService.SPECS.stream(),
-        ServerOperationService.SPECS.stream())
+        ServerOperationService.SPECS.stream(), TagAdministrationService.SPECS.stream())
         .flatMap(specs -> specs).toList());
     private final ExportArtifactsTool exportArtifacts;
     /** Feature 015: offered under the condition of {@code export_artifacts} (research R-16). */
@@ -749,9 +753,18 @@ final class Wiring implements AutoCloseable {
         ChangeGuard changeGuard = new ChangeGuard(targets, policies,
             (id, area) -> byId.get(id).administration().enabled(area), gateways, versionGate,
             changeAudit);
+        ChangeLocks changeLocks = new ChangeLocks();
+        ChangeChallenges changeChallenges = new ChangeChallenges(challenges);
         this.operateServer = new OperateServerTool(new ServerOperationService(changeGuard,
-            new ChangeLocks(), new ChangeChallenges(challenges), changeAudit, gateways,
-            clock.clock())::execute);
+            changeLocks, changeChallenges, changeAudit, gateways, clock.clock())::execute);
+        // the removals take their tag list backup in the backup directory and read the diagram
+        // groups of inventory.owner (research D-15, D-18); the description offers them only
+        // where their coverage rows are reachable
+        this.manageTags = new ManageTagsTool(new TagAdministrationService(changeGuard,
+            changeLocks, changeChallenges, changeAudit, gateways,
+            new BackupStore(backups, clock.clock(), privateFiles),
+            id -> byId.get(id).inventory().owner())::execute,
+            TagAdministrationService.offeredRemovals(InterfaceCoverage.production()));
         // last step (N2): SIGTERM (and System.exit) stop running StartCLI work and delete the
         // export directories
         Runtime.getRuntime().addShutdownHook(cleanupHook);
@@ -863,6 +876,7 @@ final class Wiring implements AutoCloseable {
             handlers.add(new RestartProcessTool(processControl));
             handlers.add(new KillProcessTool(processControl));
             handlers.add(operateServer);
+            handlers.add(manageTags);
         }
         if (anyLogLevelNode()) {
             handlers.add(new SetTemporaryLogLevelTool(logLevels::set));

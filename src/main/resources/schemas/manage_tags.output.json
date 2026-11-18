@@ -1,0 +1,104 @@
+{
+  "type": "object",
+  "description": "Either the preview of a first call (preview) or the result of an executed call (result, warnings); refusals are tool errors, and a CONFLICT error carries a new preview as error.details.preview",
+  "properties": {
+    "preview": {
+      "$ref": "#/$defs/ChangePreview"
+    },
+    "result": {
+      "$ref": "#/$defs/ChangeResult"
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "E.g. a StartCLI client that differs from the INUBIT version, or a backup manifest that could not be updated"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": ["preview"],
+      "not": { "anyOf": [{ "required": ["result"] }, { "required": ["warnings"] }] }
+    },
+    {
+      "required": ["result", "warnings"],
+      "not": { "required": ["preview"] }
+    }
+  ],
+  "$defs": {
+    "Action": {
+      "enum": ["setActiveTag", "removeActiveTag", "removeTag", "deleteTag"]
+    },
+    "ChangePreview": {
+      "type": "object",
+      "description": "Nothing was changed; with confirmation, call the tool again with the same inputs and confirmation.code before confirmation.expiresAt to execute",
+      "required": ["node", "tool", "action", "area", "target", "before", "requested", "effects", "backup", "warnings"],
+      "properties": {
+        "node": { "type": "string" },
+        "tool": { "const": "manage_tags" },
+        "action": { "$ref": "#/$defs/Action" },
+        "area": { "const": "operation" },
+        "target": { "type": "string", "description": "What changes, e.g. the active tag of a user or a tag in one diagram group" },
+        "before": { "type": "string", "description": "The current state as read, masked: the active tag, or the number of versions carrying the tag in the diagram group and outside it" },
+        "requested": { "type": "string", "description": "The requested state, masked" },
+        "affected": {
+          "type": "object",
+          "description": "removeTag, deleteTag: the number of workflow and module versions carrying the tag in the diagram group and up to 50 of them",
+          "required": ["count", "ids", "truncated"],
+          "properties": {
+            "count": { "type": "integer", "minimum": 0 },
+            "ids": { "type": "array", "items": { "type": "string" }, "maxItems": 50 },
+            "truncated": { "type": "boolean", "description": "true if ids lists fewer than count" }
+          },
+          "additionalProperties": false
+        },
+        "effects": { "type": "array", "items": { "type": "string" } },
+        "backup": { "type": "string", "description": "What is stored first, or none: <reason>" },
+        "confirmation": {
+          "type": "object",
+          "description": "Absent under write.confirmation CLIENT, where the first call executes",
+          "required": ["code", "expiresAt"],
+          "properties": {
+            "code": { "type": "string", "pattern": "^[A-Za-z0-9_-]{22}$", "description": "One-time code, bound to this {node}, tool and inputs" },
+            "expiresAt": { "type": "string", "description": "ISO-8601 UTC" }
+          },
+          "additionalProperties": false
+        },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "ChangeResult": {
+      "type": "object",
+      "required": ["node", "tool", "action", "target", "outcome", "before", "inubitAnswer", "restartNeeded", "auditId"],
+      "properties": {
+        "node": { "type": "string" },
+        "tool": { "const": "manage_tags" },
+        "action": { "$ref": "#/$defs/Action" },
+        "target": { "type": "string" },
+        "outcome": { "enum": ["EXECUTED", "FAILED"] },
+        "before": { "type": "string", "description": "The state before, masked" },
+        "inubitAnswer": { "type": "string", "maxLength": 2000, "description": "INUBIT's answer, masked" },
+        "after": { "type": "string", "description": "The state read again after the change, masked" },
+        "reReadFailed": { "type": "string", "description": "Instead of after: why the state could not be read again" },
+        "backup": {
+          "type": "object",
+          "description": "removeTag, deleteTag: the tag list stored before sending (manifest path and id); restore_backup does not restore it",
+          "required": ["path", "manifestId"],
+          "properties": {
+            "path": { "type": "string" },
+            "manifestId": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "restartNeeded": { "enum": ["TRUE", "FALSE", "UNKNOWN"] },
+        "auditId": { "type": "string" }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["after"], "not": { "required": ["reReadFailed"] } },
+        { "required": ["reReadFailed"], "not": { "required": ["after"] } }
+      ]
+    }
+  }
+}

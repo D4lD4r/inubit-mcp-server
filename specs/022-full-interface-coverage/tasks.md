@@ -1007,7 +1007,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - adds the capability `TAG_ADMINISTRATION` the way T011 added `SERVER_SETTINGS` (label, matrix "not yet
     verified", `NodeOverview`, `list_nodes` enum), with `CapabilityMatrixTest` and `ListNodesToolTest`;
   - Failing tests first: runner and port tests with scripted runs.
-- [ ] T064 [US4] `application/TagAdministrationService.java` and tool `mcp/tools/ManageTagsTool.java`:
+- [X] T064 [US4] `application/TagAdministrationService.java` and tool `mcp/tools/ManageTagsTool.java`:
   - schemas `manage_tags.{input,output}.json`;
   - a missing scope gives `INVALID_INPUT` before any read (AS13);
   - before a removal the backup is the tag list (T053), and nothing is sent if it fails;

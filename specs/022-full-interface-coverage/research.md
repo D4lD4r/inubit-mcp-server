@@ -530,6 +530,28 @@ group also tags the repository files the group references (spike "Tags"), and St
 `--tagRemove` "Removes the tag only from repository" (`win_help.stdout`). A removal in one group
 may therefore touch referenced repository files that other groups reference too.
 
+**Service and tool (T064)**: `TagAdministrationService` and `manage_tags`.
+- **Owner**: the removal sends no `--tagUser`; the preview, backup and re-read read the diagram
+  group of `inventory.owner`, the owner `tag_artifacts` tags for by default. Without it a removal
+  is `NOT_CONFIGURED` before any read. T055 confirms that a removal without `--tagUser` acts on
+  that owner's group (or names the owner it acts on); the contract input stays `{tag, scope}`.
+- **Repository path**: the backup (FR-018) needs the tagged repository files, and `tagged` has no
+  read form for them, so a `{repositoryPath}` removal is refused (`UNSUPPORTED_VERSION`, "not
+  supported yet") after the admission and before any read; nothing is sent. The owner decides on
+  this scope with T055.
+- **Rows**: the gate refuses each removal while its rows are not `reachable`. The description
+  names `removeTag`/`deleteTag` only for the rows that are `reachable` in a diagram group
+  (`offeredRemovals`), otherwise it says they are not offered yet. Offline tests use a test
+  coverage list.
+- **Missing scope**: the input schema does not require `scope`, so the call reaches the service and
+  gets `INVALID_INPUT` before any read (AS13).
+- **Order of a removal**: tag list backup (`BackupStore.writeTagList`, scope name
+  `<tag>@<type>/<group>`), then `PENDING`, send, re-read; a failed backup is `INTERNAL`, audited
+  `REFUSED`, nothing sent. The manifest gets the outcome. An empty list is still sent, not
+  `NOTHING_TO_DO`: `--tagRemove` acts on repository files the list does not show.
+- **Locks** (D-17): `node|OPERATION|activeTag:<user>`, `node|OPERATION|tag:<tag>@<scope>` (scope
+  `<type>/<group>` or the path); `removeTag` and `deleteTag` share the key.
+
 ## D-19 Secret rules for configuration, modules and users (FR-010)
 
 **Decision**: the feature-018 rules move from `adapter/archive/v81/PartnerSecretRules` into a

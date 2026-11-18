@@ -1,0 +1,79 @@
+{
+  "type": "object",
+  "required": ["node", "action", "reason"],
+  "properties": {
+    "node": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}/[a-z0-9][a-z0-9-]{0,31}$",
+      "description": "Id of exactly one {node} (`<{group}>/<{node}>`); {group} ids are rejected"
+    },
+    "action": {
+      "enum": ["setActiveTag", "removeActiveTag", "removeTag", "deleteTag"],
+      "description": "The change; each action takes only its own fields"
+    },
+    "user": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
+      "description": "The INUBIT user whose active tag is set or removed; required for and only allowed with `setActiveTag` and `removeActiveTag`"
+    },
+    "tag": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
+      "description": "The tag, e.g. REL-2026-10-07; required for `setActiveTag`, `removeTag` and `deleteTag`"
+    },
+    "scope": {
+      "type": "object",
+      "description": "Where `removeTag` and `deleteTag` act: one diagram group with its type, or one repository path; required for them (a call without it is refused with INVALID_INPUT before anything is read)",
+      "properties": {
+        "diagramGroup": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
+          "description": "The diagram group, with `diagramType`"
+        },
+        "diagramType": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
+          "description": "The type of the diagram group; only a technical diagram group can be read for the preview"
+        },
+        "repositoryPath": {
+          "type": "string",
+          "pattern": "^/Root(/[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199})+$",
+          "description": "A repository path below /Root; refused until the tagged repository files can be read for the backup"
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["diagramGroup", "diagramType"], "not": { "required": ["repositoryPath"] } },
+        { "required": ["repositoryPath"], "not": { "anyOf": [{ "required": ["diagramGroup"] }, { "required": ["diagramType"] }] } }
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "pattern": "^[^\\r\\n]{1,500}$",
+      "description": "Why the change is made, one line of 1 to 500 characters; stored in the audit log"
+    },
+    "confirmationCode": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22}$",
+      "description": "The code from the preview of the first call, with the same inputs; executes the change"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "properties": { "action": { "const": "setActiveTag" } },
+      "required": ["user", "tag"],
+      "not": { "required": ["scope"] }
+    },
+    {
+      "properties": { "action": { "const": "removeActiveTag" } },
+      "required": ["user"],
+      "not": { "anyOf": [{ "required": ["tag"] }, { "required": ["scope"] }] }
+    },
+    {
+      "properties": { "action": { "enum": ["removeTag", "deleteTag"] } },
+      "required": ["tag"],
+      "not": { "required": ["user"] }
+    }
+  ]
+}
