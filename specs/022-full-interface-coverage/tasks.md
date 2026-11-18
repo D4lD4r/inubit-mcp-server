@@ -990,7 +990,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
 
 ### manage_tags
 
-- [ ] T062 [US4] `CliCommand` tag forms (D-18):
+- [X] T062 [US4] `CliCommand` tag forms (D-18):
   - `tag` admits `--tagSetActive`, `--tagRemoveActive`, `--tagDelete`, `--tagRemove`,
     `--tagRepositoryPath`;
   - builder methods `tagSetActive(tag, user)`, `tagRemoveActive(user)`, and

@@ -25,8 +25,9 @@ import java.util.regex.Pattern;
  *   <li>Command names come from a fixed allowlist, and each command accepts only its own
  *       options: {@code processErrorStart} and {@code kill} take exactly one process id and no
  *       option, {@code export} takes the export options and no process id; feature 004 adds
- *       {@code import} and {@code tag} with their options (research D-8; never metadata,
- *       {@code --tagDiagram}, {@code --tagRemove} or a repository path for {@code tag}).
+ *       {@code import} and {@code tag} with their options (research D-8; never metadata or
+ *       {@code --tagDiagram}; through the {@link Builder} {@code tag} takes {@code --tagMove}
+ *       with the group, type and owner only).
  *   <li>Feature 005 (research D-1, D-4): {@code --exportTag} (a {@link #VALUE}) and the
  *       repository paths of {@code --exportRepositoryPath} and {@code --importRepositoryPath}
  *       ({@link #REPOSITORY_PATH}, through {@link Builder#repositoryPath} only). The empty
@@ -59,6 +60,13 @@ import java.util.regex.Pattern;
  *       ({@link #traceLevel}, a {@link TraceLevel}); {@code debug on|off};
  *       {@code triggerMidnightTask}; {@code processdelete error}. {@code OPTIONS} lists them as
  *       the coverage list writes them.
+ *   <li>Feature 022 (research D-18), the tag forms of {@code manage_tags}, each only through
+ *       its own method and never through the {@link Builder}: {@code tag --tagSetActive '<tag>'
+ *       --tagUser '<user>'} ({@link #tagSetActive}), {@code tag --tagRemoveActive --tagUser
+ *       '<user>'} ({@link #tagRemoveActive}), and {@code tag --tagRemove|--tagDelete '<tag>'}
+ *       with exactly one {@link TagScope}: {@code --tagWorkflowGroup '<group>'
+ *       --tagWorkflowType '<type>'} or {@code --tagRepositoryPath '<path>'}
+ *       ({@link #tagRemoval}). Never {@code --tagDiagram} or {@code --tagWorkflowGroupExclude}.
  *   <li>Process ids are 1–19 decimal digits without leading zero ({@code ^[1-9][0-9]{0,18}$}).
  *   <li>Every other value (workflow, type, group, owner) must match
  *       {@link #VALUE} (no leading {@code -}) and is wrapped in single quotes; a value with
@@ -103,8 +111,12 @@ public final class CliCommand {
         Map.entry("import", Set.of("--importFile", "--importWorkflow", "--importWorkflowActive",
             "--importWorkflowInactive", "--importModule", "--importUser", "--returnProtocol",
             "--importRepositoryPath")),
+        // feature 022 (research D-18): the TAG_FORM_OPTIONS through their factory methods only;
+        // never --tagDiagram or --tagWorkflowGroupExclude
         Map.entry("tag",
-            Set.of("--tagMove", "--tagWorkflowGroup", "--tagWorkflowType", "--tagUser")),
+            Set.of("--tagMove", "--tagWorkflowGroup", "--tagWorkflowType", "--tagUser",
+                "--tagSetActive", "--tagRemoveActive", "--tagDelete", "--tagRemove",
+                "--tagRepositoryPath")),
         // feature 021 (research D-1), feature 024 (D-11), feature 022 (D-22: on|off and -l
         // through traceSwitch() and traceLevel() only); never --level, -nl, -p, -r
         Map.entry("trace",
@@ -129,6 +141,13 @@ public final class CliCommand {
      */
     private static final Set<String> OPERATION_OPTIONS =
         Set.of("-s", "on|off", "-eq true|false", "-l", "error");
+    /**
+     * The options of the tag forms of {@code manage_tags} (feature 022, research D-18): the
+     * {@link Builder} refuses them, so they are sent only by {@link #tagSetActive},
+     * {@link #tagRemoveActive} and {@link #tagRemoval}.
+     */
+    private static final Set<String> TAG_FORM_OPTIONS = Set.of("--tagSetActive",
+        "--tagRemoveActive", "--tagDelete", "--tagRemove", "--tagRepositoryPath");
     /** The options without value ({@link Builder#flag}); every other option takes one. */
     private static final Set<String> FLAGS = Set.of("--includeHistory", "--importWorkflow",
         "--importWorkflowActive", "--importWorkflowInactive", "--importModule",
@@ -283,6 +302,100 @@ public final class CliCommand {
         return new CliCommand(List.of("processdelete", "error"));
     }
 
+    /** The two removals of StartCLI's {@code tag} command (feature 022, research D-18). */
+    public enum TagRemovalKind {
+        /** {@code --tagRemove}: "Removes the tag only from repository". */
+        REMOVE("--tagRemove"),
+        /** {@code --tagDelete}: "Removes the tag from diagram, modules and repository". */
+        DELETE("--tagDelete");
+
+        private final String option;
+
+        TagRemovalKind(String option) {
+            this.option = option;
+        }
+    }
+
+    /**
+     * The scope of a tag removal (feature 022, research D-18): one diagram group of one diagram
+     * type, or one repository path. Without it StartCLI acts on the whole owner, so a removal
+     * always takes one.
+     */
+    public sealed interface TagScope {
+
+        /** {@code --tagWorkflowGroup '<group>' --tagWorkflowType '<type>'}: one group. */
+        record DiagramGroup(String group, String type) implements TagScope {
+        }
+
+        /** {@code --tagRepositoryPath '<path>'}, a {@link #REPOSITORY_PATH}. */
+        record RepositoryPath(String path) implements TagScope {
+        }
+    }
+
+    /**
+     * {@code tag --tagSetActive '<tag>' --tagUser '<user>'}: set the active tag of a user
+     * (feature 022, research D-18).
+     */
+    public static CliCommand tagSetActive(String tag, String user) {
+        return new CliCommand(List.of("tag", "--tagSetActive", quotedValue("--tagSetActive", tag),
+            "--tagUser", quotedValue("--tagUser", user)));
+    }
+
+    /**
+     * {@code tag --tagRemoveActive --tagUser '<user>'}: remove the active tag of a user (feature
+     * 022, research D-18).
+     */
+    public static CliCommand tagRemoveActive(String user) {
+        return new CliCommand(List.of("tag", "--tagRemoveActive", "--tagUser",
+            quotedValue("--tagUser", user)));
+    }
+
+    /**
+     * {@code tag --tagRemove|--tagDelete '<tag>'} limited to {@code scope} (feature 022, research
+     * D-18). The group is one {@link #VALUE}, so never the empty list ("all groups") nor a comma
+     * list; a repository path scope takes no {@code --tagUser}, which StartCLI refuses with it.
+     */
+    public static CliCommand tagRemoval(TagRemovalKind kind, String tag, TagScope scope) {
+        if (kind == null) {
+            throw invalid("The kind of tag removal is missing",
+                "Use REMOVE (--tagRemove) or DELETE (--tagDelete)");
+        }
+        if (scope == null) {
+            throw invalid("A tag removal needs a diagram group or a repository path",
+                "Without a scope StartCLI removes the tag for the whole owner (research D-18)");
+        }
+        List<String> tokens = new ArrayList<>(
+            List.of("tag", kind.option, quotedValue(kind.option, tag)));
+        switch (scope) {
+            case TagScope.DiagramGroup group -> tokens.addAll(List.of(
+                "--tagWorkflowGroup", quotedValue("--tagWorkflowGroup", group.group()),
+                "--tagWorkflowType", quotedValue("--tagWorkflowType", group.type())));
+            case TagScope.RepositoryPath path -> tokens.addAll(List.of("--tagRepositoryPath",
+                quotedRepositoryPath("--tagRepositoryPath", path.path())));
+        }
+        return new CliCommand(tokens);
+    }
+
+    /** {@code '<value>'}; the value for {@code option} must match {@link #VALUE}. */
+    private static String quotedValue(String option, String value) {
+        if (value == null || !VALUE.matcher(value).matches()) {
+            throw invalid("The value for " + option + " cannot be passed to StartCLI safely",
+                "It must match " + VALUE.pattern() + " (no quotes, at most 200 chars)");
+        }
+        return "'" + value + "'";
+    }
+
+    /** {@code '<path>'}; the path for {@code option} must be {@link #repositoryPathPassable}. */
+    private static String quotedRepositoryPath(String option, String path) {
+        if (!repositoryPathPassable(path)) {
+            throw invalid("The repository path for " + option + " cannot be passed to StartCLI"
+                    + " safely",
+                "It must match " + REPOSITORY_PATH.pattern() + " and contain no '.' or '..'"
+                    + " segment");
+        }
+        return "'" + path + "'";
+    }
+
     private static String onOff(boolean on) {
         return on ? "on" : "off";
     }
@@ -359,13 +472,9 @@ public final class CliCommand {
         /** {@code <option> '<value>'}; the value must match {@link #VALUE}. */
         public Builder quoted(String option, String value) {
             String checked = textOption(option);
-            if (value == null || !VALUE.matcher(value).matches()) {
-                throw invalid("The value for " + checked + " cannot be passed to StartCLI"
-                        + " safely",
-                    "It must match " + VALUE.pattern() + " (no quotes, at most 200 chars)");
-            }
+            String quotedValue = quotedValue(checked, value);
             tokens.add(checked);
-            tokens.add("'" + value + "'");
+            tokens.add(quotedValue);
             if (checked.equals("--exportTag")) {
                 tagged = true;
             }
@@ -422,14 +531,9 @@ public final class CliCommand {
                 throw invalid("The StartCLI option " + checked + " takes no repository path",
                     "Only --exportRepositoryPath and --importRepositoryPath take one");
             }
-            if (!repositoryPathPassable(path)) {
-                throw invalid("The repository path for " + checked + " cannot be passed to"
-                        + " StartCLI safely",
-                    "It must match " + REPOSITORY_PATH.pattern() + " and contain no '.' or"
-                        + " '..' segment");
-            }
+            String quotedPath = quotedRepositoryPath(checked, path);
             tokens.add(checked);
-            tokens.add("'" + path + "'");
+            tokens.add(quotedPath);
             return this;
         }
 
@@ -606,6 +710,10 @@ public final class CliCommand {
                 throw invalid("The StartCLI operation form " + name + " " + option
                         + " is not built option by option",
                     "Use its own method (research D-22)");
+            }
+            if (TAG_FORM_OPTIONS.contains(option)) {
+                throw invalid("The StartCLI option " + option + " is built by its tag form only",
+                    "Use tagSetActive(), tagRemoveActive() or tagRemoval() (research D-18)");
             }
             return option;
         }
