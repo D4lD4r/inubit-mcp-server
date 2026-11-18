@@ -21,6 +21,13 @@ IMC-10 (T054), IMC-11 (T055).
   secret leak). Full `mvn clean verify` green after every task.
 
 ## Next step
+- 2026-11-18: run 4 (a1d525ac): W11 `triggerMidnightTask` exit 0, no text, trigger time field
+  unchanged; W12 `processdelete error` on the approved ERROR set (256 ids, equal before the delete)
+  exit 0, answer "Process with status [error] has been deleted." (no count), ERROR set empty after.
+  T054 live checks done (W9/W10 excluded). Open before T066: production fixes — ready-off answers
+  503 although it switches; `ProcessDeleteAnswerParser` form (no count); trace level readable from
+  `/system/info` (TracingLevel); neutralize recordings into fixtures; mark T054 done. Owner: remove
+  the test group's `write` block, re-enable the AWS LB health check. Then T055 (IMC-11).
 - 2026-11-18: debug session (06eb387d): one interactive session `debug; debug on; debug; debug off;
   debug` → off/off/off, after session off; `debug on|off` has no observable effect on 8.1 (vendor
   help 6.1: trace switch of the interactive CLI mode). Proposal pending with the owner: exclude
