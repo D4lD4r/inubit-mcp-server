@@ -7,10 +7,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import de.dadecker.inubit.mcp.adapter.cli.CliCommand;
 import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.adapter.rest.RestResponse;
+import de.dadecker.inubit.mcp.adapter.rest.TransportErrorTexts;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.TraceLevel;
 import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.Read;
+import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Answer;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.CliWrite;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Node;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Outcome;
@@ -58,6 +61,15 @@ class OperateServerWritesLiveTestSupportTest {
     private static final NodeId NODE = NodeId.of("test", "node1");
     private static final String STEP_LIST = "W1,W2a,W2b,W3,W2u,W4,W5,W6,W7,W7b,W8,W8b,W9,W10";
     private static final String RAW_LINE = "mail.smtp.password=example-only-0001";
+    /** The answers of {@code GET /ready} recorded in live run 1 (INUBIT 8.1.17): maintenance on. */
+    private static final String IN_MAINTENANCE =
+        "{\"status\":\"NOT READY\",\"message\":\"No Service - Maintenance mode active.\"}";
+    /** After {@code POST /ready/off}, with maintenance on or off. */
+    private static final String READY_OFF =
+        "{\"status\":\"NOT READY\",\"message\":\"No Service.\"}";
+    /** After {@code POST /ready/on}. */
+    private static final String READY_ON =
+        "{\"status\":\"READY\",\"message\":\"Ready to serve.\"}";
 
     @TempDir(factory = GitFreeTempDir.class)
     Path temp;
@@ -239,15 +251,86 @@ class OperateServerWritesLiveTestSupportTest {
 
     @Test
     void getReadyIsReadyOnlyWith200AndStatusReady() {
+        State ready = State.NONE.with(Property.READINESS, "READY");
+        State notReady = State.NONE.with(Property.READINESS, "not READY");
+
         assertThat(rest("R3", 200, fixture("ready.json")))
-            .isEqualTo(State.NONE.with(Property.READINESS, "READY"));
+            .isEqualTo(ready.withReadyMessage("Ready to serve."));
         assertThat(rest("R3", 503, fixture("ready_not_ready.json")))
-            .isEqualTo(State.NONE.with(Property.READINESS, "not READY"));
-        assertThat(rest("R3", 503, "<html>maintenance</html>"))
-            .isEqualTo(State.NONE.with(Property.READINESS, "not READY"));
+            .isEqualTo(notReady.withReadyMessage("Not ready to serve."));
+        assertThat(rest("R3", 503, "<html>maintenance</html>")).isEqualTo(notReady);
         assertThat(rest("R3", 200, fixture("ready_not_ready.json"))).isEqualTo(State.NONE);
         assertThat(rest("R3", 200, "<html/>")).isEqualTo(State.NONE);
         assertThat(rest("R3", 404, fixture("ready.json"))).isEqualTo(State.NONE);
+    }
+
+    @Test
+    void getReadyKeepsTheMessageOfTheAnswersOfLiveRun1() {
+        assertThat(rest("R3", 503, IN_MAINTENANCE)).isEqualTo(State.NONE
+            .with(Property.READINESS, "not READY")
+            .withReadyMessage("No Service - Maintenance mode active."));
+        assertThat(rest("R3", 503, READY_OFF)).isEqualTo(State.NONE
+            .with(Property.READINESS, "not READY").withReadyMessage("No Service."));
+        assertThat(rest("R3", 200, READY_ON)).isEqualTo(State.NONE
+            .with(Property.READINESS, "READY").withReadyMessage("Ready to serve."));
+        assertThat(rest("R3", 503, IN_MAINTENANCE).describe(OperateServerWritesLiveTestSupport.ALL))
+            .doesNotContain("No Service");
+    }
+
+    @Test
+    void theReadyOffShowsOnlyAsNotReadyWithAnotherMessageThanMaintenance() {
+        Optional<String> inMaintenance = rest("R3", 503, IN_MAINTENANCE).readyMessage();
+
+        assertThat(OperateServerWritesLiveTestSupport.readyOffTookEffect(inMaintenance,
+            rest("R3", 503, READY_OFF))).isTrue();
+        assertThat(OperateServerWritesLiveTestSupport.readyOffTookEffect(inMaintenance,
+            rest("R3", 503, IN_MAINTENANCE))).isFalse();
+        assertThat(OperateServerWritesLiveTestSupport.readyOffTookEffect(inMaintenance,
+            rest("R3", 200, READY_ON))).isFalse();
+        assertThat(OperateServerWritesLiveTestSupport.readyOffTookEffect(inMaintenance,
+            rest("R3", 503, "<html>maintenance</html>"))).isFalse();
+        assertThat(OperateServerWritesLiveTestSupport.readyOffTookEffect(Optional.empty(),
+            rest("R3", 503, READY_OFF))).isFalse();
+    }
+
+    @Test
+    void onlyW2bAlsoAccepts503() {
+        List<Step> steps = new ArrayList<>(OperateServerWritesLiveTestSupport.STEPS);
+        steps.addAll(OperateServerWritesLiveTestSupport.RESTORE.values());
+
+        for (Step step : steps) {
+            for (int status : new int[] {200, 204, 299}) {
+                assertThat(OperateServerWritesLiveTestSupport.accepts(step, status))
+                    .as(step.id() + " " + status).isTrue();
+            }
+            for (int status : new int[] {199, 300, 404, 500, 502, 504}) {
+                assertThat(OperateServerWritesLiveTestSupport.accepts(step, status))
+                    .as(step.id() + " " + status).isFalse();
+            }
+            assertThat(OperateServerWritesLiveTestSupport.accepts(step, 503)).as(step.id())
+                .isEqualTo(step.id().equals("W2b"));
+        }
+    }
+
+    /** The client's errors for {@code POST /ready/off}, as {@code InubitHttpClient} builds them. */
+    @Test
+    void a503IsReadFromTheClientsErrorAndAConnectionFailureIsNot() {
+        ToolError answered = ToolError.of(ErrorCode.UNREACHABLE,
+            "INUBIT is not serving (HTTP 503 for POST /ready/off)", "INUBIT answered 503: starting"
+                + " up, overloaded, or behind a proxy that is not serving", "run get_health");
+        ToolError refused = ToolError.of(ErrorCode.UNREACHABLE,
+            "Cannot connect to the node for POST /ready/off (ConnectException)",
+            TransportErrorTexts.UNREACHABLE_LIKELY_CAUSE, "Check baseUrl, DNS and the VPN");
+        ToolError interrupted = ToolError.of(ErrorCode.UNREACHABLE,
+            "Cannot connect to the node for POST /ready/off (IOException)",
+            TransportErrorTexts.INTERRUPTED_LIKELY_CAUSE, "Check baseUrl, DNS and the VPN");
+        ToolError timeout = ToolError.of(ErrorCode.TIMEOUT, "no answer",
+            TransportErrorTexts.TIMEOUT_LIKELY_CAUSE, TransportErrorTexts.TIMEOUT_NEXT_STEP);
+
+        assertThat(OperateServerWritesLiveTestSupport.answeredStatus(answered)).contains(503);
+        assertThat(OperateServerWritesLiveTestSupport.answeredStatus(refused)).isEmpty();
+        assertThat(OperateServerWritesLiveTestSupport.answeredStatus(interrupted)).isEmpty();
+        assertThat(OperateServerWritesLiveTestSupport.answeredStatus(timeout)).isEmpty();
     }
 
     @Test
@@ -310,13 +393,81 @@ class OperateServerWritesLiveTestSupportTest {
             "W2u-check", "W2u-after", "W4-after", "W5-after", "W6-after", "W7-after",
             "W7b-after", "W8-after", "W8b-after", "W9-after", "W10-after", "B1");
         assertThat(outcome).isEqualTo(new Outcome(Optional.empty(), List.of(),
-            OperateServerWritesLiveTestSupport.BASELINE));
+            OperateServerWritesLiveTestSupport.BASELINE.withReadyMessage("Ready to serve.")));
         assertThatCode(() -> OperateServerWritesLiveTestSupport.assertOutcome(outcome))
             .doesNotThrowAnyException();
         assertThat(node.records).contains(
             "W1 before maintenance off; after maintenance on",
-            "W2b before ready READY; after ready not READY",
+            "W2b before ready READY; after ready not READY; answer 503, message changed: yes",
             "W6 before trace on, trace level info; after trace on, trace level info");
+    }
+
+    /** As live run 1, but INUBIT answers W2b's {@code POST /ready/off} with 2xx. */
+    @Test
+    void w2bIsDoneWith2xxIfItsEffectShows() throws IOException {
+        SimulatedNode node = new SimulatedNode();
+        node.readySwitchInMaintenanceAnswers503 = false;
+
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+
+        assertThat(outcome.stop()).isEmpty();
+        assertThat(node.records).contains(
+            "W2b before ready READY; after ready not READY; answer 2xx, message changed: yes");
+    }
+
+    /**
+     * W2b answered (503 or 2xx) but {@code GET /ready} still shows the maintenance message: a
+     * deviation; only maintenance is restored, as the readiness stayed READY.
+     */
+    @Test
+    void aW2bWhoseEffectDoesNotShowIsADeviation() throws IOException {
+        for (boolean answers503 : new boolean[] {true, false}) {
+            SimulatedNode node = new SimulatedNode();
+            node.readySwitchInMaintenanceAnswers503 = answers503;
+            node.withoutEffect = "W2b";
+
+            Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+
+            String answer = answers503 ? "503" : "2xx";
+            assertThat(outcome.stop()).as(answer).contains(new Stop("W2b", "DEVIATION (ready not"
+                + " READY, message changed: no, expected ready not READY, message changed: yes)"));
+            assertThat(node.records).as(answer).contains("W2b before ready READY; after ready not"
+                + " READY; answer " + answer + ", message changed: no");
+            assertThat(node.ran).as(answer).containsExactly("W1", "W2a", "W2b",
+                "maintenance off");
+            assertThat(outcome.restored()).as(answer).containsExactly("maintenance off");
+            assertThat(outcome.end().values()).as(answer)
+                .isEqualTo(OperateServerWritesLiveTestSupport.BASELINE.values());
+        }
+    }
+
+    @Test
+    void aConnectionFailureAtW2bStopsTheSequence() throws IOException {
+        SimulatedNode node = new SimulatedNode();
+        node.unreachable = "W2b";
+
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+
+        assertThat(outcome.stop()).contains(new Stop("W2b", "UNREACHABLE"));
+        assertThat(node.records).contains("W2b before ready READY; after ready not READY");
+        assertThat(outcome.restored()).containsExactly("maintenance off");
+    }
+
+    /** W4 and W5 switch the readiness, but INUBIT answers 503: both count only a 2xx. */
+    @Test
+    void w4AndW5StopAtA503EvenWithEffect() throws IOException {
+        for (String step : List.of("W4", "W5")) {
+            SimulatedNode node = new SimulatedNode();
+            node.answering503 = step;
+
+            Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+
+            assertThat(outcome.stop()).as(step).contains(new Stop(step, "UNREACHABLE"));
+            assertThat(node.ran).as(step).doesNotContain("W6");
+            assertThat(outcome.restored()).as(step)
+                .containsExactlyElementsOf(step.equals("W4") ? List.of("POST /ready/on")
+                    : List.of());
+        }
     }
 
     @Test
@@ -377,7 +528,8 @@ class OperateServerWritesLiveTestSupportTest {
             concat(ids.subList(0, ids.indexOf(step) + 1), expected));
         assertThat(outcome.stop()).contains(new Stop(step, "TIMEOUT"));
         assertThat(outcome.restored()).containsExactlyElementsOf(expected);
-        assertThat(outcome.end()).isEqualTo(OperateServerWritesLiveTestSupport.BASELINE);
+        assertThat(outcome.end().values())
+            .isEqualTo(OperateServerWritesLiveTestSupport.BASELINE.values());
         assertThat(node.reads).endsWith("X1", "X2", "B1");
         assertThatThrownBy(() -> OperateServerWritesLiveTestSupport.assertOutcome(outcome))
             .isInstanceOf(AssertionError.class)
@@ -427,7 +579,8 @@ class OperateServerWritesLiveTestSupportTest {
                 case "W8" -> "trace -l info";
                 default -> "debug off";
             });
-            assertThat(outcome.end()).isEqualTo(OperateServerWritesLiveTestSupport.BASELINE);
+            assertThat(outcome.end().values())
+            .isEqualTo(OperateServerWritesLiveTestSupport.BASELINE.values());
         }
     }
 
@@ -481,6 +634,25 @@ class OperateServerWritesLiveTestSupportTest {
     }
 
     @Test
+    void aFailedFinalReadLeavesTheEndUnknownAndStillNamesTheStopAndTheRestores()
+        throws IOException {
+        SimulatedNode node = new SimulatedNode();
+        node.failing = "W7b";
+        node.unreadable = "B1";
+
+        Outcome outcome = OperateServerWritesLiveTestSupport.run(node);
+
+        assertThat(outcome.end()).isEqualTo(State.NONE);
+        assertThat(node.reads).endsWith("X1", "X2", "B1");
+        assertThatThrownBy(() -> OperateServerWritesLiveTestSupport.assertOutcome(outcome))
+            .isInstanceOf(AssertionError.class)
+            .hasMessage("T054 write W7b stopped the sequence: TIMEOUT; restored: trace on; the"
+                + " baseline does not hold (maintenance unknown, ready unknown, trace unknown,"
+                + " trace level unknown, debug unknown, expected maintenance off, ready READY,"
+                + " trace on, trace level info, debug off)");
+    }
+
+    @Test
     void aRunThatEndsOffTheBaselineFails() {
         Outcome outcome = new Outcome(Optional.empty(), List.of(),
             OperateServerWritesLiveTestSupport.BASELINE.with(Property.TRACE_LEVEL, "debug"));
@@ -515,6 +687,76 @@ class OperateServerWritesLiveTestSupportTest {
     }
 
     @Test
+    void aLaterRunRecordsInItsOwnFolderAndLeavesTheEarlierRunUntouched() throws IOException {
+        assertThat(OperateServerWritesLiveTestSupport.taskDirectory(env)).isEqualTo("T054-writes");
+        env.put("INUBIT_LIVE_T054_RUN", " ");
+        assertThat(OperateServerWritesLiveTestSupport.taskDirectory(env)).isEqualTo("T054-writes");
+        env.put("INUBIT_LIVE_T054_RUN", "12");
+        assertThat(OperateServerWritesLiveTestSupport.taskDirectory(env))
+            .isEqualTo("T054-writes-12");
+        for (String value : List.of("1", "0", "02", "-2", "x", "../2", "2/x")) {
+            env.put("INUBIT_LIVE_T054_RUN", value);
+            assertThatThrownBy(() -> OperateServerWritesLiveTestSupport.taskDirectory(env))
+                .as(value).isInstanceOf(AssertionError.class)
+                .hasMessageContaining("INUBIT_LIVE_T054_RUN must be the number of the run")
+                .hasMessageContaining("nothing was run");
+        }
+        env.put("INUBIT_LIVE_T054_RUN", "2");
+        String name = OperateServerWritesLiveTestSupport.taskDirectory(env);
+        Path records = temp.resolve("records/022");
+        Path run1 = Files.createDirectories(records.resolve("T054-writes"));
+        Files.writeString(run1.resolve("W1-maintenance-on-eq-false.exit"), "0\n");
+
+        assertThatCode(() -> OperateServerReadsLiveTestSupport.requireNoTaskDirectory(records,
+            name)).doesNotThrowAnyException();
+        Path directory = OperateServerReadsLiveTestSupport.taskDirectory(PrivateFiles.forHost(),
+            records, name);
+
+        assertThat(directory).isEqualTo(records.resolve("T054-writes-2"));
+        assertThat(fileNames(run1)).containsExactly("W1-maintenance-on-eq-false.exit");
+        assertThatThrownBy(() -> OperateServerReadsLiveTestSupport.requireNoTaskDirectory(records,
+            name)).isInstanceOf(AssertionError.class)
+            .hasMessageContaining("T054-writes-2 already exists");
+    }
+
+    /**
+     * W2b's {@code POST /ready/off} answered with 503 is recorded with its status beside the
+     * client's code; a connection failure only with the code.
+     */
+    @Test
+    void anAnswered503OfASwitchIsRecordedWithItsStatusAndNoOutputInItsLine()
+        throws IOException {
+        Path directory = OperateServerReadsLiveTestSupport.taskDirectory(PrivateFiles.forHost(),
+            temp.resolve("records"), OperateServerWritesLiveTestSupport.TASK_DIRECTORY);
+        String excerpt = "No Service. " + RAW_LINE;
+        ToolError answered = ToolError.of(ErrorCode.UNREACHABLE,
+            "INUBIT is not serving (HTTP 503 for POST /ready/off)", "INUBIT answered 503: starting"
+                + " up, overloaded, or behind a proxy that is not serving", "run get_health")
+            .withExcerpt(excerpt);
+        ToolError refused = ToolError.of(ErrorCode.UNREACHABLE,
+            "Cannot connect to the node for POST /ready/on (ConnectException)",
+            TransportErrorTexts.UNREACHABLE_LIKELY_CAUSE, "Check baseUrl, DNS and the VPN");
+
+        String line = OperateServerWritesLiveTestSupport.recordSwitchFailure(
+            PrivateFiles.forHost(), directory, NODE, step("W2b"), answered);
+        String failed = OperateServerWritesLiveTestSupport.recordSwitchFailure(
+            PrivateFiles.forHost(), directory, NODE, step("W5"), refused);
+
+        assertThat(fileNames(directory)).containsExactlyInAnyOrder("W2b-post-ready-off.error",
+            "W2b-post-ready-off.status", "W2b-post-ready-off.excerpt", "W5-post-ready-on.error");
+        assertThat(directory.resolve("W2b-post-ready-off.status")).hasContent("503\n");
+        assertThat(directory.resolve("W2b-post-ready-off.error")).hasContent("UNREACHABLE\n");
+        assertThat(directory.resolve("W2b-post-ready-off.excerpt")).hasContent(excerpt);
+        assertThat(directory.resolve("W5-post-ready-on.error")).hasContent("UNREACHABLE\n");
+        assertOwnerOnly(directory.resolve("W2b-post-ready-off.excerpt"), "rw-------");
+        assertThat(line).isEqualTo("[live] T054 W2b POST /ready/off on " + NODE + ": status 503,"
+            + " error UNREACHABLE, excerpt " + excerpt.length() + " bytes");
+        assertThat(failed).isEqualTo("[live] T054 W5 POST /ready/on on " + NODE
+            + ": error UNREACHABLE");
+        assertThat(line).doesNotContain(RAW_LINE).doesNotContain("No Service");
+    }
+
+    @Test
     void theStatesOfAStepAreRecordedOwnerOnlyAndItsLineHoldsDerivedStatesOnly()
         throws IOException {
         Path directory = OperateServerReadsLiveTestSupport.taskDirectory(PrivateFiles.forHost(),
@@ -522,15 +764,23 @@ class OperateServerWritesLiveTestSupportTest {
 
         String line = OperateServerWritesLiveTestSupport.recordStates(PrivateFiles.forHost(),
             directory, NODE, step("W1"), State.NONE.with(Property.MAINTENANCE, "off"),
-            State.NONE.with(Property.MAINTENANCE, "on"));
+            State.NONE.with(Property.MAINTENANCE, "on"), Optional.empty());
+        String readyOff = OperateServerWritesLiveTestSupport.recordStates(PrivateFiles.forHost(),
+            directory, NODE, step("W2b"), rest("R3", 200, READY_ON), rest("R3", 503, READY_OFF),
+            Optional.of("answer 503, message changed: yes"));
         String skipped = OperateServerWritesLiveTestSupport.recordNotNeeded(
             PrivateFiles.forHost(), directory, NODE, step("W2u"),
             State.NONE.with(Property.READINESS, "READY"));
 
         assertThat(fileNames(directory)).containsExactlyInAnyOrder(
-            "W1-maintenance-on-eq-false.state", "W2u-post-ready-on.state");
+            "W1-maintenance-on-eq-false.state", "W2b-post-ready-off.state",
+            "W2u-post-ready-on.state");
         assertThat(directory.resolve("W1-maintenance-on-eq-false.state"))
             .hasContent("before maintenance off; after maintenance on; expected maintenance on\n");
+        assertThat(directory.resolve("W2b-post-ready-off.state")).hasContent("before ready READY;"
+            + " after ready not READY; expected ready not READY; answer 503, message changed: yes\n");
+        assertThat(readyOff).endsWith(": before ready READY; after ready not READY; expected ready"
+            + " not READY; answer 503, message changed: yes").doesNotContain("Service");
         assertThat(directory.resolve("W2u-post-ready-on.state"))
             .hasContent("not needed (ready READY)\n");
         assertOwnerOnly(directory.resolve("W1-maintenance-on-eq-false.state"), "rw-------");
@@ -565,8 +815,10 @@ class OperateServerWritesLiveTestSupportTest {
     // --- helpers ---------------------------------------------------------------------------------
 
     /**
-     * A node that applies the commands of the set to its state. While maintenance is on, {@code
-     * GET /ready} answers not READY and {@code /system/info} is unreadable.
+     * A node that applies the commands of the set to its state, as live run 1 showed: while
+     * maintenance is on, {@code GET /ready} answers not READY (with the maintenance message unless
+     * the readiness is off), {@code POST /ready/on|off} is answered with 503 yet takes effect, and
+     * {@code /system/info} is unreadable.
      */
     private static final class SimulatedNode implements Node {
 
@@ -582,6 +834,11 @@ class OperateServerWritesLiveTestSupportTest {
         String throwingAfterEffect = "";
         String withoutEffect = "";
         String unreadable = "";
+        /** A step whose request finds no connection: nothing is sent. */
+        String unreachable = "";
+        /** A step whose {@code POST /ready/on|off} is answered with 503 outside maintenance. */
+        String answering503 = "";
+        boolean readySwitchInMaintenanceAnswers503 = true;
         boolean restoresFail;
 
         @Override
@@ -597,11 +854,24 @@ class OperateServerWritesLiveTestSupportTest {
                     state = state.with(property, value.get());
                 }
             }
-            return state;
+            return properties.contains(Property.READINESS)
+                ? state.withReadyMessage(readyMessage()) : state;
+        }
+
+        private boolean maintenance() {
+            return server.get(Property.MAINTENANCE).equals("on");
+        }
+
+        /** The message of {@code GET /ready}: the readiness off wins over maintenance. */
+        private String readyMessage() {
+            if (server.get(Property.READINESS).equals("not READY")) {
+                return "No Service.";
+            }
+            return maintenance() ? "No Service - Maintenance mode active." : "Ready to serve.";
         }
 
         private Optional<String> visible(Property property) {
-            boolean maintenance = server.get(Property.MAINTENANCE).equals("on");
+            boolean maintenance = maintenance();
             return switch (property) {
                 case READINESS -> Optional.of(maintenance ? "not READY"
                     : server.get(Property.READINESS));
@@ -612,19 +882,36 @@ class OperateServerWritesLiveTestSupportTest {
         }
 
         @Override
-        public Optional<String> run(Step step) throws IOException {
+        public Answer run(Step step) throws IOException {
             boolean restore = step.id().equals("restore");
             ran.add(restore ? step.form() : step.id());
             if (restore && restoresFail || step.id().equals(failing)) {
-                return Optional.of("TIMEOUT");
+                return Answer.of(Optional.of("TIMEOUT"));
             }
+            if (step.id().equals(unreachable)) {
+                return Answer.of(Optional.of("UNREACHABLE"));
+            }
+            boolean maintenance = maintenance();
             if (!step.id().equals(withoutEffect)) {
                 apply(step.form());
             }
             if (step.id().equals(throwingAfterEffect)) {
                 throw new IOException(RAW_LINE);
             }
-            return step.id().equals(failingAfterEffect) ? Optional.of("exit 1") : Optional.empty();
+            if (step.action() instanceof ReadyRead) {
+                return new Answer(Optional.empty(), Optional.of(maintenance ? 503 : 200),
+                    State.NONE.with(Property.READINESS, visible(Property.READINESS).orElseThrow())
+                        .withReadyMessage(readyMessage()));
+            }
+            if (step.action() instanceof ReadySwitch) {
+                // the production write request reports a 503 as UNREACHABLE
+                return maintenance && readySwitchInMaintenanceAnswers503
+                    || step.id().equals(answering503)
+                    ? new Answer(Optional.of("UNREACHABLE"), Optional.of(503), State.NONE)
+                    : new Answer(Optional.empty(), Optional.of(200), State.NONE);
+            }
+            return Answer.of(step.id().equals(failingAfterEffect) ? Optional.of("exit 1")
+                : Optional.empty());
         }
 
         private void apply(String form) {
@@ -650,9 +937,10 @@ class OperateServerWritesLiveTestSupportTest {
         }
 
         @Override
-        public void recordStates(Step step, State before, State after) {
+        public void recordStates(Step step, State before, State after, Optional<String> note) {
             records.add(step.id() + " before " + before.describe(step.expected().properties())
-                + "; after " + after.describe(step.expected().properties()));
+                + "; after " + after.describe(step.expected().properties())
+                + note.map(added -> "; " + added).orElse(""));
         }
 
         @Override

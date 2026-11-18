@@ -2,12 +2,15 @@ package de.dadecker.inubit.mcp.live;
 
 import static org.assertj.core.api.Assertions.fail;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.MissingNode;
 import de.dadecker.inubit.mcp.adapter.cli.CliCommand;
 import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.adapter.rest.XmlSupport;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.TraceLevel;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
@@ -27,6 +30,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -54,6 +58,16 @@ final class OperateServerWritesLiveTestSupport {
      * set's {@code T054} stays untouched.
      */
     static final String TASK_DIRECTORY = "T054-writes";
+    /**
+     * The number of a later run ({@code 2}, {@code 3}, …): its case files go to
+     * {@code T054-writes-<n>}, so the recording of an earlier run stays as it is.
+     */
+    static final String RUN_VARIABLE = "INUBIT_LIVE_T054_RUN";
+    /**
+     * The step whose {@code POST /ready/off} may also be answered with 503: in live run 1 INUBIT
+     * 8.1.17 answered it so during maintenance, yet switched the readiness off.
+     */
+    static final String READY_OFF_IN_MAINTENANCE = "W2b";
 
     static final String ON = "on";
     static final String OFF = "off";
@@ -63,6 +77,12 @@ final class OperateServerWritesLiveTestSupport {
     /** The answer of {@code debug} (recorded by R6). */
     private static final Pattern DEBUG_ANSWER =
         Pattern.compile("Debug mode is currently (on|off)\\.");
+    private static final Pattern RUN_NUMBER = Pattern.compile("[2-9]|[1-9][0-9]+");
+    /**
+     * The likely cause of the client's {@code UNREACHABLE} for an HTTP 503 without maintenance
+     * probe (pinned by {@code InubitHttpClientTest}); a connection failure has another.
+     */
+    private static final String ANSWERED_503 = "INUBIT answered 503:";
     private static final ObjectMapper JSON = new ObjectMapper();
 
     /** A server state the write set changes, with its value at the baseline. */
@@ -93,16 +113,20 @@ final class OperateServerWritesLiveTestSupport {
 
     /**
      * Derived values per property (on/off, READY/not READY, a level); a property that was not
-     * read or whose answer is not one of the recorded forms is missing ("unknown").
+     * read or whose answer is not one of the recorded forms is missing ("unknown"). Beside them the
+     * {@code message} of a {@code GET /ready} answer, used only to tell W2b's effect from
+     * maintenance ({@link OperateServerWritesLiveTestSupport#readyOffTookEffect}); never
+     * described, printed or recorded.
      */
-    record State(Map<Property, String> values) {
+    record State(Map<Property, String> values, Optional<String> readyMessage) {
 
-        static final State NONE = new State(Map.of());
+        static final State NONE = new State(Map.of(), Optional.empty());
 
         State {
             EnumMap<Property, String> copy = new EnumMap<>(Property.class);
             copy.putAll(values);
             values = Collections.unmodifiableMap(copy);
+            Objects.requireNonNull(readyMessage, "readyMessage");
         }
 
         Optional<String> get(Property property) {
@@ -113,15 +137,19 @@ final class OperateServerWritesLiveTestSupport {
             EnumMap<Property, String> next = new EnumMap<>(Property.class);
             next.putAll(values);
             next.put(property, value);
-            return new State(next);
+            return new State(next, readyMessage);
         }
 
-        /** This state with every value of {@code other} put over it. */
+        State withReadyMessage(String message) {
+            return new State(values, Optional.of(message));
+        }
+
+        /** This state with every value (and the message) of {@code other} put over it. */
         State with(State other) {
             EnumMap<Property, String> next = new EnumMap<>(Property.class);
             next.putAll(values);
             next.putAll(other.values);
-            return new State(next);
+            return new State(next, other.readyMessage.or(() -> readyMessage));
         }
 
         State only(Set<Property> properties) {
@@ -131,7 +159,8 @@ final class OperateServerWritesLiveTestSupport {
                     kept.put(property, value);
                 }
             });
-            return new State(kept);
+            return new State(kept, properties.contains(Property.READINESS) ? readyMessage
+                : Optional.empty());
         }
 
         Set<Property> properties() {
@@ -286,6 +315,23 @@ final class OperateServerWritesLiveTestSupport {
         }
     }
 
+    /**
+     * The task folder of this run: {@link #TASK_DIRECTORY}, or {@code T054-writes-<n>} with
+     * {@link #RUN_VARIABLE} {@code <n>} (a number from 2); any other value fails before contact.
+     */
+    static String taskDirectory(Map<String, String> environment) {
+        String value = environment.get(RUN_VARIABLE);
+        if (value == null || value.isBlank()) {
+            return TASK_DIRECTORY;
+        }
+        if (!RUN_NUMBER.matcher(value.strip()).matches()) {
+            fail(RUN_VARIABLE + " must be the number of the run, from 2 (its case files go to "
+                + TASK_DIRECTORY + "-<number>), or be unset for " + TASK_DIRECTORY
+                + "; nothing was run");
+        }
+        return TASK_DIRECTORY + "-" + value.strip();
+    }
+
     // --- state reads -----------------------------------------------------------------------------
 
     /** The reads of the read set that show {@code properties}, in the read set's order. */
@@ -325,20 +371,39 @@ final class OperateServerWritesLiveTestSupport {
         };
     }
 
-    /** 200 with {@code "status": "READY"} is READY, 503 is not READY, anything else unknown. */
+    /**
+     * 200 with {@code "status": "READY"} is READY, 503 is not READY, anything else unknown; with
+     * a known readiness the string {@code message} of a JSON body is kept as its message.
+     */
     private static State parseReady(int status, byte[] body) {
-        if (status == 503) {
-            return State.NONE.with(Property.READINESS, NOT_READY);
-        }
-        if (status != 200) {
-            return State.NONE;
-        }
+        JsonNode json;
         try {
-            return JSON.readTree(body).path("status").asText().equals(READY)
-                ? State.NONE.with(Property.READINESS, READY) : State.NONE;
+            json = JSON.readTree(body);
         } catch (IOException e) {
+            json = null;
+        }
+        JsonNode answer = json == null ? MissingNode.getInstance() : json;
+        State state;
+        if (status == 503) {
+            state = State.NONE.with(Property.READINESS, NOT_READY);
+        } else if (status == 200 && answer.path("status").asText().equals(READY)) {
+            state = State.NONE.with(Property.READINESS, READY);
+        } else {
             return State.NONE;
         }
+        JsonNode message = answer.path("message");
+        return message.isTextual() ? state.withReadyMessage(message.asText()) : state;
+    }
+
+    /**
+     * Whether W2b's {@code POST /ready/off} took effect: {@code after} is not READY with a message
+     * other than {@code inMaintenance}, the message W2a saw while maintenance was on (so the
+     * not READY is not just maintenance). Without either message it cannot tell: no.
+     */
+    static boolean readyOffTookEffect(Optional<String> inMaintenance, State after) {
+        return after.get(Property.READINESS).equals(Optional.of(NOT_READY))
+            && inMaintenance.isPresent() && after.readyMessage().isPresent()
+            && !after.readyMessage().equals(inMaintenance);
     }
 
     /**
@@ -388,6 +453,26 @@ final class OperateServerWritesLiveTestSupport {
         return exit.filter(code -> code != 0).map(code -> "exit " + code);
     }
 
+    /**
+     * The HTTP status behind the client's {@code error} for {@code POST /ready/on|off}, if it
+     * shows one: 503 for its {@code UNREACHABLE} of an answered 503. The production write request
+     * takes no accepted statuses, so the status is read from the error; a connection failure or
+     * any other error shows none.
+     */
+    static Optional<Integer> answeredStatus(ToolError error) {
+        return error.code() == ErrorCode.UNREACHABLE && error.likelyCause().startsWith(ANSWERED_503)
+            ? Optional.of(503) : Optional.empty();
+    }
+
+    /**
+     * Whether {@code step} counts the HTTP {@code status} of its answer as done: every step a
+     * 2xx, {@link #READY_OFF_IN_MAINTENANCE} also 503 (it then still needs its effect).
+     */
+    static boolean accepts(Step step, int status) {
+        return status >= 200 && status < 300
+            || status == 503 && step.id().equals(READY_OFF_IN_MAINTENANCE);
+    }
+
     // --- the sequence ----------------------------------------------------------------------------
 
     /** The node as the sequence sees it; each call contacts it once and records what it got. */
@@ -399,14 +484,28 @@ final class OperateServerWritesLiveTestSupport {
          */
         State read(String label, Set<Property> properties) throws IOException;
 
-        /** Runs the command of {@code step} once, never retried: its failure, if any. */
-        Optional<String> run(Step step) throws IOException;
+        /** Runs the command of {@code step} once, never retried: what it answered. */
+        Answer run(Step step) throws IOException;
 
-        /** Records the before and after state of {@code step}. */
-        void recordStates(Step step, State before, State after) throws IOException;
+        /** Records the before and after state of {@code step}, with W2b's {@code note}. */
+        void recordStates(Step step, State before, State after, Optional<String> note)
+            throws IOException;
 
         /** Records that {@code step} was not needed: {@code check} shows its expected state. */
         void recordNotNeeded(Step step, State check) throws IOException;
+    }
+
+    /**
+     * What a command answered: its failure, if any; the HTTP status of a REST command, if known
+     * (its 2xx, or a 503 read from the error by {@link #answeredStatus}); and for W2a the state its
+     * answer shows.
+     */
+    record Answer(Optional<String> failure, Optional<Integer> status, State shown) {
+
+        /** The answer of a StartCLI command. */
+        static Answer of(Optional<String> failure) {
+            return new Answer(failure, Optional.empty(), State.NONE);
+        }
     }
 
     /** Where and why the sequence stopped: a code, or {@code DEVIATION} with the states. */
@@ -415,7 +514,7 @@ final class OperateServerWritesLiveTestSupport {
 
     /**
      * The end of a run: where it stopped, the restore commands that ran (each with its failure),
-     * and the state at the end.
+     * and the state at the end (all unknown if its read failed).
      */
     record Outcome(Optional<Stop> stop, List<String> restored, State end) {
     }
@@ -425,6 +524,9 @@ final class OperateServerWritesLiveTestSupport {
      * written); then each step once, in order, its expected state read afterwards. At the first
      * error or deviation the sequence stops and {@link #restore} brings back the baseline. At the
      * end the full state is read again.
+     *
+     * <p>W2b also counts an answered 503 ({@link #accepts}), and in either case is done only if
+     * its effect shows ({@link #readyOffTookEffect}); its state record notes which case occurred.
      */
     static Outcome run(Node node) throws IOException {
         State baseline = node.read("B0", ALL);
@@ -434,6 +536,7 @@ final class OperateServerWritesLiveTestSupport {
                 + BASELINE.describe(off) + "); nothing was written");
         }
         State known = baseline;
+        Optional<String> inMaintenance = Optional.empty();
         Optional<Stop> stop = Optional.empty();
         for (Step step : STEPS) {
             Set<Property> checked = step.expected().properties();
@@ -446,14 +549,31 @@ final class OperateServerWritesLiveTestSupport {
                         continue;
                     }
                 }
-                Optional<String> failure = node.run(step);
+                Answer answer = node.run(step);
+                if (step.action() instanceof ReadyRead) {
+                    inMaintenance = answer.shown().readyMessage();
+                }
+                boolean accepted = answer.status().filter(status -> accepts(step, status))
+                    .isPresent();
+                Optional<String> failure = accepted ? Optional.empty() : answer.failure();
                 if (!checked.isEmpty()) {
                     State after = node.read(step.id() + "-after", checked);
-                    node.recordStates(step, known.only(checked), after);
+                    boolean effect = readyOffTookEffect(inMaintenance, after);
+                    Optional<String> note = Optional.empty();
+                    if (failure.isEmpty() && step.id().equals(READY_OFF_IN_MAINTENANCE)) {
+                        note = Optional.of("answer "
+                            + (answer.status().equals(Optional.of(503)) ? "503" : "2xx")
+                            + ", message changed: " + (effect ? "yes" : "no"));
+                    }
+                    node.recordStates(step, known.only(checked), after, note);
                     known = known.with(after);
                     if (failure.isEmpty() && !after.matches(step.expected())) {
                         failure = Optional.of("DEVIATION (" + after.describe(checked)
                             + ", expected " + step.expected().describe(checked) + ")");
+                    } else if (note.isPresent() && !effect) {
+                        failure = Optional.of("DEVIATION (" + after.describe(checked)
+                            + ", message changed: no, expected "
+                            + step.expected().describe(checked) + ", message changed: yes)");
                     }
                 }
                 stop = failure.map(code -> new Stop(step.id(), code));
@@ -465,7 +585,13 @@ final class OperateServerWritesLiveTestSupport {
             }
         }
         List<String> restored = stop.isPresent() ? restore(node) : List.of();
-        return new Outcome(stop, restored, node.read("B1", ALL));
+        State end;
+        try {
+            end = node.read("B1", ALL);
+        } catch (IOException | RuntimeException | AssertionError e) {
+            end = State.NONE;
+        }
+        return new Outcome(stop, restored, end);
     }
 
     /**
@@ -488,7 +614,7 @@ final class OperateServerWritesLiveTestSupport {
             for (Step step : restorePlan(observed, properties)) {
                 Optional<String> failure;
                 try {
-                    failure = node.run(step);
+                    failure = node.run(step).failure();
                 } catch (IOException | RuntimeException | AssertionError e) {
                     failure = Optional.of(e.getClass().getSimpleName());
                 }
@@ -531,19 +657,47 @@ final class OperateServerWritesLiveTestSupport {
     }
 
     /**
-     * Writes the before, after and expected state of {@code step} as {@code <stem>.state},
-     * owner-only.
+     * Writes the before, after and expected state of {@code step} (and W2b's {@code note}: its
+     * answer and whether the message changed) as {@code <stem>.state}, owner-only.
      *
      * @return its line
      */
     static String recordStates(PrivateFileSystem files, Path directory, NodeId node, Step step,
-        State before, State after) throws IOException {
+        State before, State after, Optional<String> note) throws IOException {
         Set<Property> checked = step.expected().properties();
         String text = "before " + before.describe(checked) + "; after " + after.describe(checked)
-            + "; expected " + step.expected().describe(checked);
+            + "; expected " + step.expected().describe(checked)
+            + note.map(added -> "; " + added).orElse("");
         OperateServerReadsLiveTestSupport.write(files, directory.resolve(step.stem() + ".state"),
             (text + "\n").getBytes(StandardCharsets.US_ASCII));
         return OperateServerReadsLiveTestSupport.summary(node, step, text);
+    }
+
+    /**
+     * Writes the {@code error} the client gave for {@code POST /ready/on|off} as
+     * {@code <stem>.error}; if it shows an answered status ({@link #answeredStatus}) also that as
+     * {@code .status} and the client's excerpt of the body, if any, as {@code .excerpt}; owner-only.
+     *
+     * @return its line: codes and byte counts, never the excerpt
+     */
+    static String recordSwitchFailure(PrivateFileSystem files, Path directory, NodeId node,
+        Step step, ToolError error) throws IOException {
+        String line = OperateServerReadsLiveTestSupport.recordRestFailure(files, directory, node,
+            step, error.code());
+        Optional<Integer> status = answeredStatus(error);
+        if (status.isEmpty()) {
+            return line;
+        }
+        OperateServerReadsLiveTestSupport.write(files, directory.resolve(step.stem() + ".status"),
+            OperateServerReadsLiveTestSupport.line(status.get()));
+        String outcome = "status " + status.get() + ", error " + error.code();
+        if (error.excerpt().isPresent()) {
+            byte[] excerpt = error.excerpt().get().getBytes(StandardCharsets.UTF_8);
+            OperateServerReadsLiveTestSupport.write(files,
+                directory.resolve(step.stem() + ".excerpt"), excerpt);
+            outcome += ", excerpt " + excerpt.length + " bytes";
+        }
+        return OperateServerReadsLiveTestSupport.summary(node, step, outcome);
     }
 
     /** Writes that {@code step} was not needed, with the state {@code check} showed, owner-only. */

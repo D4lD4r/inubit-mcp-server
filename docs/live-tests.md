@@ -778,9 +778,9 @@ the production write request of the REST client. Each step runs once, in this or
 |---|---|---|---|
 | W1 | StartCLI `maintenance on -eq false` | maintenance on | `W1-maintenance-on-eq-false.*` |
 | W2a | `GET /ready` (while maintenance is on) | recorded only | `W2a-get-ready.*` |
-| W2b | `POST /ready/off` | not READY | `W2b-post-ready-off.*` |
+| W2b | `POST /ready/off` (2xx or 503, see below) | not READY, with another message than at W2a | `W2b-post-ready-off.*` |
 | W3 | StartCLI `maintenance off` | maintenance off | `W3-maintenance-off.*` |
-| W2u | `POST /ready/on`, only if `GET /ready` is not READY after W3 | READY | `W2u-post-ready-on.*` |
+| W2u | `POST /ready/on`, only if `GET /ready` is not READY after W3 (expected: run 1 showed the readiness stays off after `maintenance off`) | READY | `W2u-post-ready-on.*` |
 | W4 | `POST /ready/off` | not READY | `W4-post-ready-off.*` |
 | W5 | `POST /ready/on` | READY | `W5-post-ready-on.*` |
 | W6 | StartCLI `trace on` | trace on, level info (no change) | `W6-trace-on.*` |
@@ -795,6 +795,19 @@ The state is read with the reads of the read set: maintenance with `maintenance 
 `on` or `off`), readiness with `GET /ready` (R3: 200 with status `READY` is READY, 503 is not
 READY), trace and level with `GET /system/info` (R8: `TracingIsActive`, `TracingLevel`), debug
 with `debug` (R6: `Debug mode is currently on.` or `off.`). Any other answer is "unknown".
+
+W2b is the one step that also counts an HTTP 503. In run 1 (INUBIT 8.1.17) INUBIT answered
+`POST /ready/off` during maintenance in a way the client reported as `UNREACHABLE`, yet the switch
+took effect: `GET /ready` then answered 503 `No Service.` instead of the maintenance message
+`No Service - Maintenance mode active.` seen at W2a, and stayed so after `maintenance off` until
+`POST /ready/on`. The production write request accepts no other status than 2xx, so the test reads
+an answered 503 from the client's error (its `UNREACHABLE` whose likely cause is the 503); a
+connection failure or any other error stays a step error. W2b counts as done if it was answered
+with 2xx or 503 and `GET /ready` afterwards is not READY with a `message` other than the one W2a
+saw; otherwise (503 or 2xx without that effect) it is a deviation and the sequence stops and
+restores as below. `W2b-post-ready-off.state` notes the case: `answer 2xx` or `answer 503`, and
+`message changed: yes` or `no`. The messages themselves are only compared, never shown. W4, W5,
+W2u and the restore count a 2xx only.
 
 Before the run the owner approves each raw command in the chat with one `APPROVE` line (see
 [Approval of a [LIVE-W] command](#approval-of-a-live-w-command)), one line per row of the table,
@@ -813,7 +826,10 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
   else fails before anything is contacted. Production groups are refused as for every live test,
   and so is a node whose profile does not enable writes (`write.enabled`).
 - The test creates `<INUBIT_LIVE_RECORD_DIR>/T054-writes/` owner-only (`rwx------`) and fails,
-  before anything is contacted, if it exists. The read set's `T054/` is not touched.
+  before anything is contacted, if it exists. The read set's `T054/` is not touched. A later run
+  sets `INUBIT_LIVE_T054_RUN=<n>` (a number from 2) and records in `T054-writes-<n>/` instead
+  (run 2: `T054-writes-2/`), refused in the same way if it exists; the earlier recording stays as
+  it is. Any other value fails before anything is contacted.
 - Before W1 it reads the node's version from `/system/info`; a node that is not INUBIT 8.1, or a
   failed read, fails the test and nothing else runs.
 - Baseline: maintenance off, READY, trace on at level info, debug off. The test reads it first
@@ -827,9 +843,13 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
   that is not at the baseline, or unknown, its restore command once: `maintenance off`,
   `POST /ready/on`, `trace on`, `trace -l info`, `debug off` (`restore-<slug>.*`). A restore command can be the same command as the failed step (e.g. `maintenance off` after W3 timed out); it is still sent at most once. Nothing
   outside the table runs. The test then fails naming the step, its code and the restore commands.
-- At the end it reads the full state again (`B1-*`) and fails if the baseline does not hold.
+- At the end it reads the full state again (`B1-*`) and fails if the baseline does not hold. If
+  that read itself fails, the end state counts as unknown, and the test still fails naming the
+  stop and the restore commands.
 - Per command, owner-only (`rw-------`): StartCLI `.stdout`, `.stderr` and `.exit`; REST
-  `.status` and `.body`; a command that ended in an error also `.error` with the code. The
+  `.status` and `.body`; a command that ended in an error also `.error` with the code. A
+  `POST /ready/on|off` answered with 503 has `.error`, `.status` (`503`) and, if the client kept
+  one, `.excerpt` (its scrubbed excerpt of the body) instead of `.body`. The
   password goes to StartCLI on stdin, never as an argument, and is never recorded.
 - The console shows one line per command with the exit code or status and byte counts, and one
   line per state read with the derived states only, e.g.

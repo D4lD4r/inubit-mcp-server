@@ -19,6 +19,7 @@ import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.Case;
 import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.CliRead;
 import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.Read;
 import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.RestRead;
+import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Answer;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.CliWrite;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Outcome;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Property;
@@ -42,7 +43,8 @@ import org.junit.jupiter.api.Timeout;
  * owner-approved writes W1–W10 ({@link OperateServerWritesLiveTestSupport#STEPS}) against a real,
  * <b>non-production</b> INUBIT 8.1 node whose profile enables writes (opt-in, Constitution III),
  * each run once in that order, and their raw output with the before and after state recorded
- * owner-only in {@code <INUBIT_LIVE_RECORD_DIR>/T054-writes/}.
+ * owner-only in {@code <INUBIT_LIVE_RECORD_DIR>/T054-writes/} (a later run with
+ * {@code INUBIT_LIVE_T054_RUN=<n>} in {@code T054-writes-<n>/}).
  *
  * <p>The tool {@code operate_server} still refuses 8.1 until the coverage rows are flipped (T066,
  * which waits for this check), so the commands run raw: the StartCLI writes are the production
@@ -55,7 +57,9 @@ import org.junit.jupiter.api.Timeout;
  * <p>The baseline (maintenance off, READY, trace on at level info, debug off) must hold before W1,
  * else nothing is written. At the first error or deviation the sequence stops, the properties off
  * the baseline are restored with commands of the set, each once, and the test fails naming the
- * step and the code; at the end the full baseline is read again.
+ * step and the code; at the end the full baseline is read again. W2b alone also counts an
+ * answered 503, which the production write request reports as {@code UNREACHABLE}, if its effect
+ * shows ({@link OperateServerWritesLiveTestSupport#readyOffTookEffect}).
  *
  * <p>Run with {@code INUBIT_MCP_PROFILE=<profile> INUBIT_LIVE_NODE=<group>/<node>
  * INUBIT_LIVE_T054_WRITES=W1,W2a,W2b,W3,W2u,W4,W5,W6,W7,W7b,W8,W8b,W9,W10
@@ -80,16 +84,16 @@ class OperateServerWritesLiveTest {
             .filter(candidate -> candidate.id().equals(node)).findFirst().orElseThrow();
         OperateServerWritesLiveTestSupport.requireWriteEnabled(node,
             server.effectiveWriteEnabled());
+        String taskDirectory = OperateServerWritesLiveTestSupport.taskDirectory(environment);
         PrivateFileSystem files = OsPrivateFileSystem.forHost();
         // refuse an earlier recording before any contact; create the folder only after the 8.1 gate
-        OperateServerReadsLiveTestSupport.requireNoTaskDirectory(recordDirectory,
-            OperateServerWritesLiveTestSupport.TASK_DIRECTORY);
+        OperateServerReadsLiveTestSupport.requireNoTaskDirectory(recordDirectory, taskDirectory);
         Outcome outcome;
         try (OperateServerLiveConnection connection =
                 OperateServerLiveConnection.open(live, server, environment, files)) {
             InubitVersion version = connection.requireV81();
             Path directory = OperateServerReadsLiveTestSupport.taskDirectory(files,
-                recordDirectory, OperateServerWritesLiveTestSupport.TASK_DIRECTORY);
+                recordDirectory, taskDirectory);
             outcome = OperateServerWritesLiveTestSupport.run(new LiveNode(connection,
                 connection.cli(version), new CliOutputClassifier(live.scrubber(),
                     server.secretLabels(), live.windows()),
@@ -161,23 +165,27 @@ class OperateServerWritesLiveTest {
         }
 
         @Override
-        public Optional<String> run(Step step) throws IOException {
+        public Answer run(Step step) throws IOException {
             return switch (step.action()) {
                 case CliWrite write -> {
                     Attempt attempt = runCli(step, write.command(), Optional.of(permit));
-                    yield OperateServerWritesLiveTestSupport.failure(attempt.error(),
-                        attempt.result().map(CliResult::exitCode));
+                    yield Answer.of(OperateServerWritesLiveTestSupport.failure(attempt.error(),
+                        attempt.result().map(CliResult::exitCode)));
                 }
                 case ReadySwitch ready -> {
                     try {
+                        RestResponse response = connection.http.post(RestEndpoint.READY_SWITCH,
+                            List.of(ready.state()), permit, cli.writeLock());
                         print(OperateServerReadsLiveTestSupport.recordRest(files, directory, node,
-                            step, connection.http.post(RestEndpoint.READY_SWITCH,
-                                List.of(ready.state()), permit, cli.writeLock())));
-                        yield Optional.empty();
+                            step, response));
+                        yield new Answer(Optional.empty(), Optional.of(response.status()),
+                            State.NONE);
                     } catch (ToolErrorException e) {
-                        print(OperateServerReadsLiveTestSupport.recordRestFailure(files,
-                            directory, node, step, e.error().code()));
-                        yield Optional.of(e.error().code().name());
+                        print(OperateServerWritesLiveTestSupport.recordSwitchFailure(files,
+                            directory, node, step, e.error()));
+                        yield new Answer(Optional.of(e.error().code().name()),
+                            OperateServerWritesLiveTestSupport.answeredStatus(e.error()),
+                            State.NONE);
                     }
                 }
                 case ReadyRead get -> {
@@ -187,20 +195,21 @@ class OperateServerWritesLiveTest {
                             response.status(), response.body());
                         print(OperateServerReadsLiveTestSupport.recordRest(files, directory, node,
                             step, response) + ", " + shown.describe(Set.of(Property.READINESS)));
-                        yield Optional.empty();
+                        yield new Answer(Optional.empty(), Optional.of(response.status()), shown);
                     } catch (ToolErrorException e) {
                         print(OperateServerReadsLiveTestSupport.recordRestFailure(files,
                             directory, node, step, e.error().code()));
-                        yield Optional.of(e.error().code().name());
+                        yield Answer.of(Optional.of(e.error().code().name()));
                     }
                 }
             };
         }
 
         @Override
-        public void recordStates(Step step, State before, State after) throws IOException {
+        public void recordStates(Step step, State before, State after, Optional<String> note)
+            throws IOException {
             print(OperateServerWritesLiveTestSupport.recordStates(files, directory, node, step,
-                before, after));
+                before, after, note));
         }
 
         @Override
