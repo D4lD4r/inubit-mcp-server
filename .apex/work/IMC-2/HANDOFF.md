@@ -6,7 +6,8 @@ implementer → reviewer loop (reviews in `specs/022-full-interface-coverage/rev
 committed and pushed on `claude/022-us4-operate-server-1b63fe` (last task commit `ecf76f77`).
 Spec `specs/022-full-interface-coverage/` US4 @ `915f2aef`. No PR yet (T066 opens it).
 Open: T054, T055 (live write checks, owner-gated) and T066 (blocked by both).
-IMC-2 is flagged Blocked by the Question cards IMC-7 and IMC-8.
+IMC-2 is flagged Blocked by the Question cards IMC-7, IMC-8 and the Owner action cards
+IMC-10 (T054), IMC-11 (T055).
 
 ## Done since last handoff
 - Change infrastructure: change records, ChangeGuard (six-step order), ChangeLocks,
@@ -21,9 +22,13 @@ IMC-2 is flagged Blocked by the Question cards IMC-7 and IMC-8.
 
 ## Next step
 Run the live checks T054 and T055 on the 8.1 TEST server, one owner-approved command at a time
-(command set: shared notes `imc-2-live-checks-draft.md`, also in the IMC-2 comment). Then T066.
+(command sets on IMC-10 / IMC-11; approval only in chat). Then T066.
 
 ## Open questions
+- [IMC-10](https://danieldecker.atlassian.net/browse/IMC-10) — Owner action T054: test server,
+  time window, one ERROR test process, APPROVE lines for W1–W12 (W11 only on explicit yes). Due 2026-11-20.
+- [IMC-11](https://danieldecker.atlassian.net/browse/IMC-11) — Owner action T055: test server, g1/g2,
+  repository path, test user, APPROVE lines for W13–W18. Due 2026-11-20.
 - [IMC-7](https://danieldecker.atlassian.net/browse/IMC-7) — manage_tags `{repositoryPath}` scope and
   repository files touched by tag removal; blocks T066 flips of removeTag/deleteTag. Recommendation:
   decide after T055.
