@@ -83,6 +83,7 @@ Only non-production groups (e.g. development or test stages) may be used.
 | `live/NodeToolsLiveTest` (feature 024, T067) | on a node whose group sets `unsupported.nodeStatusRead` and `unsupported.nodeConfigRead`: `list_cluster_nodes` through the real MCP server with the production wiring within 10 s (SC-001), naming the answering node among the listed ones, then with `nodeName` the details of that node; `get_node_config` with all 20 allowed names in list order; each result matches its output schema, and no detail or value contains a known secret. Only with `INUBIT_LIVE_IO_PROCESS` (and `unsupported.ioLogRead`): `read_io_log` lists that run and reads its first message, masked. Only with `INUBIT_LIVE_LOG_LEVEL=approved` (write access and `unsupported.logLevelWrite`): `set_temporary_log_level` for one logger at `INFO` for 1 minute, `get_health` shows the lease, the automatic reset within 2 minutes, the lease `RESET`, the audit records of the set and of the reset. See [Unsupported node tools](#unsupported-node-tools-feature-024) | the version detection (`/system/info`); runs of the INUBIT client helper that read the cluster's node list, the node details, the configuration values and the input/output logging (read-only); with the approval StartCLI `trace --nodelevel INFO --package 'com.inubit.ibis.cli'` and, at expiry, `trace --reset`, each after a helper lookup of the answering node |
 | `live/OperateServerReadsLiveTest` (feature 022, T054 read set) | runs only with `INUBIT_LIVE_T054_READS=approved` and `INUBIT_LIVE_RECORD_DIR`, on an INUBIT 8.1 node: the nine owner-approved reads R1–R9 of the live checks L-2 and L-3, each once, in order, their raw output recorded owner-only. See [Read set of L-2 and L-3](#read-set-of-l-2-and-l-3-t054) | the version read (`/system/info`) before R1; StartCLI `maintenance -s`, `maintenance`, `trace`, `trace --help`, `debug`, `debug --help`; `GET /ready`, `/system/info`, `/configurations` (read-only: nothing is switched) |
 | `live/OperateServerWritesLiveTest` (feature 022, T054 write set) | runs only with `INUBIT_LIVE_T054_WRITES` set to the full step list (or to W5–W10 alone) and `INUBIT_LIVE_RECORD_DIR`, on an INUBIT 8.1 node whose profile enables writes, after the owner approved each command: the writes W1–W10 of the live checks L-2 and L-3, each once, in order, with the state read after each; stops at the first error or deviation and restores the baseline. See [Write set of L-2 and L-3](#write-set-of-l-2-and-l-3-t054) | the version read (`/system/info`); StartCLI `maintenance on -eq false`, `maintenance off`, `trace on`, `trace off`, `trace -l debug`, `trace -l info`, `debug on`, `debug off`; `POST /ready/off`, `POST /ready/on`; the state reads `maintenance -s`, `debug`, `GET /ready`, `GET /system/info`. **Changes the node** and brings it back to the baseline |
+| `live/OperateServerDebugSessionLiveTest` (feature 022, T054 debug clarification) | runs only with `INUBIT_LIVE_T054_DEBUG_SESSION=approved` and `INUBIT_LIVE_RECORD_DIR`, on an INUBIT 8.1 node: one interactive StartCLI session with `debug`, `debug on`, `debug`, `debug off`, `debug`, `exit`, then one `debug` read in a new process, to tell whether `debug on|off` switches the session or the server; transcripts recorded owner-only. See [Debug session of L-3](#debug-session-of-l-3-t054) | the version read (`/system/info`); one StartCLI session `debug`, `debug on`, `debug`, `debug off`, `debug`, `exit`; StartCLI `debug`. Switches debug on and off within the session |
 
 Each test prints one summary line without secrets or business data to stderr, e.g.
 `[live] test/node1: version 8.1.17, status OK, maintenanceMode false, load 51.7% memory, unavailable [], 699 ms`
@@ -874,3 +875,46 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
   line per state read with the derived states only, e.g.
   `[live] T054 W1-after state on test/node1: maintenance on`. Neutralize the case files as above
   before anything is copied into the repository, and delete them afterwards.
+
+### Debug session of L-3 (T054)
+
+In write run 3 on 8.1.17 `debug on` (W7, one StartCLI process per command) exited 0 without
+text, and the next process's `debug` still read `Debug mode is currently off.` The vendor's
+online help describes `debug {on|off}` as the trace switch of the interactive CLI mode, i.e. of
+the client session, while research.md takes it as a server switch.
+`live/OperateServerDebugSessionLiveTest` records the evidence on one non-production INUBIT 8.1
+node, after the owner approved it:
+
+| Case | Command | Case files |
+|---|---|---|
+| S1 | one interactive StartCLI session: `debug`, `debug on`, `debug`, `debug off`, `debug`, `exit` | `S1-debug-session.*` |
+| R6 | StartCLI `debug` in a new process, after the session | `R6-debug.*` |
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 INUBIT_LIVE_T054_DEBUG_SESSION=approved \
+  INUBIT_LIVE_RECORD_DIR=~/inubit-mcp-recordings/022 \
+  mvn verify -Plive -Dtest=OperateServerDebugSessionLiveTest
+```
+
+- Without `INUBIT_LIVE_NODE`, `INUBIT_LIVE_T054_DEBUG_SESSION` or `INUBIT_LIVE_RECORD_DIR` the
+  test is skipped; `INUBIT_LIVE_T054_DEBUG_SESSION` other than `approved` fails before anything
+  is contacted. Production groups are refused as for every live test.
+- The test creates `<INUBIT_LIVE_RECORD_DIR>/T054-debug-session/` owner-only (`rwx------`) after
+  the 8.1 check and fails, before anything is contacted, if it exists. `T054/` and
+  `T054-writes*/` are not touched.
+- Before the session it reads the node's version from `/system/info`; a node that is not
+  INUBIT 8.1 fails the test and nothing else runs.
+- The session runs once on the production session path (as `get_server_settings` on 8.1): the
+  client chosen for the detected version, the password on stdin (never an argument, never
+  recorded), the node's `cliTimeout` and trust store. `debug` and `debug on|off` are not session
+  commands of any tool; they are built for this test only. Nothing is retried. If the session
+  ends in an error or its login fails, R6 is not sent and the test fails naming the code. A session that ends with a non-zero exit code (without an error code or a failed login) is only recorded; R6 still runs.
+- Owner-only (`rw-------`): `S1-debug-session.stdout` (the raw transcript), `.stderr`, `.exit`,
+  `R6-debug.*` as in the read set, and `debug-states.state` with the derived states.
+- The test records, it does not assert what INUBIT answers: it passes when the session and R6
+  ran. The console shows per run the exit code and byte counts, and one line with the states of
+  the three `debug` reads in the session and of R6 (`on`, `off`, or `unknown` for any other
+  answer), e.g.
+  `[live] T054 debug states on test/node1: in session: off → on → off; after session: off`. R6
+  shows the state a new StartCLI process reads after the session. Neutralize the case files as
+  above before anything is copied into the repository, and delete them afterwards.
