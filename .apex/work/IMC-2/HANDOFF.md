@@ -21,6 +21,12 @@ IMC-10 (T054), IMC-11 (T055).
   secret leak). Full `mvn clean verify` green after every task.
 
 ## Next step
+- 2026-11-18: write run 1 via `OperateServerWritesLiveTest` (c5330d08) on the 8.1 test node:
+  W1 maintenance on ok; W2a `/ready` 503 "Maintenance mode active"; W2b `POST /ready/off` during
+  maintenance → client UNREACHABLE (non-2xx) although the switch took effect; run stopped, restore
+  (maintenance off, `POST /ready/on`) reached the baseline, verified. Ready-off survives leaving
+  maintenance. W3–W10 not run (trace/debug writes open). Results on IMC-10. Next: owner decides
+  how to run the rest (test change needed), re-approval per command.
 - 2026-11-18: T054 reads R1–R9 done on the 8.1 test node (8.1.17) via `OperateServerReadsLiveTest`
   (568f000b); results on IMC-10. Trace is on at level info, debug off, maintenance off, ready.
   Writes W1–W12 next, through `operate_server` of a local-scope MCP registration of the branch
