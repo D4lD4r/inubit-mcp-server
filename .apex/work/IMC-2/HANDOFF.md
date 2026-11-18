@@ -21,6 +21,12 @@ IMC-10 (T054), IMC-11 (T055).
   secret leak). Full `mvn clean verify` green after every task.
 
 ## Next step
+- 2026-11-18: write run 2 (b04e5230): W1, W2a, W2b (503 + effect), W3, W2u ok; stopped at W4:
+  `POST /ready/off` answers HTTP 503 "No Service." on 8.1 although the switch succeeds, also
+  without maintenance. Baseline restored and verified. Production finding: the REST client maps
+  that 503 to an error, so `operate_server setReady off` would report failure for a success —
+  fix before T066. W5–W10 (trace/debug) still open; next run needs a test change (ready-off 503
+  with effect accepted at W4 too) and re-approval.
 - 2026-11-18: write run 1 via `OperateServerWritesLiveTest` (c5330d08) on the 8.1 test node:
   W1 maintenance on ok; W2a `/ready` 503 "Maintenance mode active"; W2b `POST /ready/off` during
   maintenance → client UNREACHABLE (non-2xx) although the switch took effect; run stopped, restore
