@@ -21,6 +21,11 @@ IMC-10 (T054), IMC-11 (T055).
   secret leak). Full `mvn clean verify` green after every task.
 
 ## Next step
+- 2026-11-18: write run 3 (0e54fa25, subset W5–W10): W5 ready/on from READY 200; trace on/off
+  ok (no answer text); `trace -l debug|info` ok ("Successfully changed level to …"); stopped at
+  W9: `debug on` exit 0, no text, `debug` read stays off. Nothing restored, baseline verified.
+  Open: W9/W10 semantics (debug), W11/W12 not run; production fixes before T066: ready-off 503,
+  setDebug. Results on IMC-10.
 - 2026-11-18: write run 2 (b04e5230): W1, W2a, W2b (503 + effect), W3, W2u ok; stopped at W4:
   `POST /ready/off` answers HTTP 503 "No Service." on 8.1 although the switch succeeds, also
   without maintenance. Baseline restored and verified. Production finding: the REST client maps
