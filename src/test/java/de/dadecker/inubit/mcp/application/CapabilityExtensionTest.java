@@ -238,7 +238,8 @@ class CapabilityExtensionTest {
                 Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ,
                 Capability.SERVER_SETTINGS, Capability.USER_DIRECTORY, Capability.MODEL_DETAILS,
                 Capability.CLUSTER_NODES_READ, Capability.IO_LOG_READ,
-                Capability.NODE_CONFIG_READ, Capability.LOG_LEVEL_WRITE)),
+                Capability.NODE_CONFIG_READ, Capability.LOG_LEVEL_WRITE,
+                Capability.SERVER_OPERATION, Capability.TAG_ADMINISTRATION)),
             TestClientSelection.of(id -> true));
         client = McpTestClient.start(List.of(
             new ListNodesTool(McpTestClient.TEST_PROFILE, overview::nodes),
@@ -482,7 +483,7 @@ class CapabilityExtensionTest {
             .containsExactly("process_diagnosis", "log_diagnosis", "process_control");
         assertThat(notUsable(version)).containsExactly("monitoring", "inventory",
             "partner_management", "workspace_export", "development_writes", "deployment",
-            "e2e_test", "server_operation");
+            "e2e_test");
     }
 
     // --- the declared versions are unchanged -------------------------------------------------
@@ -497,12 +498,10 @@ class CapabilityExtensionTest {
         assertThat(texts(health(NODE_81).path("warnings"))).isEmpty();
 
         JsonNode version = listVersions().get("qa/node1");
-        // feature 022 T058: operating the server is not yet verified on 8.1 (T054)
-        assertThat(version.path("status").asString()).isEqualTo("partially_supported");
+        assertThat(version.path("status").asString()).isEqualTo("supported");
         assertThat(texts(version.path("capabilities").path("usable"))).containsExactly(
             "monitoring", "process_diagnosis", "log_diagnosis", "inventory", "partner_management",
             "workspace_export", "development_writes", "deployment", "e2e_test", "process_control");
-        assertThat(notUsable(version)).containsExactly("server_operation");
         assertThat(built79).isEmpty();
         assertThat(calls79).isEmpty();
     }
@@ -540,7 +539,7 @@ class CapabilityExtensionTest {
                 "partner_management");
         assertThat(notUsable(version)).containsExactly("inventory (StartCLI parts)",
             "workspace_export", "development_writes", "deployment", "e2e_test",
-            "process_control", "server_operation");
+            "process_control");
         assertThat(requests(on91)).as("only the detection and the REST read")
             .containsExactly("GET " + SYSTEM_INFO, "POST " + QUEUE_LOG);
         assertThat(built79).isEmpty();

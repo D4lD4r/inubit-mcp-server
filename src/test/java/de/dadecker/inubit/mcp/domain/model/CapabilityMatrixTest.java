@@ -28,12 +28,12 @@ class CapabilityMatrixTest {
      * service T046); feature 022: the server settings (T025), the users (T037) and the model
      * details (T046); feature 024: the cluster's node list, the node configuration and the
      * temporary log levels since their 8.1 recordings (T025, T038, T058), the I/O log waits for
-     * its recording (below); feature 022 US4: operating the server waits for its recordings
-     * (T054, below).
+     * its recording (below); feature 022 US4: operating the server and managing tags wait for
+     * their recordings (T054, T055, below).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"IO_LOG_READ", "SERVER_OPERATION"},
-        mode = Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"IO_LOG_READ", "SERVER_OPERATION",
+        "TAG_ADMINISTRATION"}, mode = Mode.EXCLUDE)
     void everyCapabilityIsSupportedOn81(Capability capability) {
         assertThat(production.state(version("8.1.17"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -51,11 +51,11 @@ class CapabilityMatrixTest {
      * users and the model details included since their 9.0 contract tests (T026, T037a, T046a);
      * feature 024: the cluster's node list, the node configuration and the temporary log levels
      * since their 9.0 recordings (T062, T064, T065), the I/O log waits for its recording (below);
-     * feature 022 US4: operating the server waits for its recordings (below).
+     * feature 022 US4: operating the server and managing tags wait for their recordings (below).
      */
     @ParameterizedTest
     @EnumSource(value = Capability.class, names = {"PARTNER_MANAGEMENT", "IO_LOG_READ",
-        "SERVER_OPERATION"}, mode = EnumSource.Mode.EXCLUDE)
+        "SERVER_OPERATION", "TAG_ADMINISTRATION"}, mode = EnumSource.Mode.EXCLUDE)
     void everyCapabilityIsSupportedOn90LikeOn81(Capability capability) {
         assertThat(production.state(version("9.0.7"), capability))
             .isEqualTo(SupportState.SUPPORTED);
@@ -181,7 +181,7 @@ class CapabilityMatrixTest {
         assertThat(Capability.values()).filteredOn(c -> c.kind() == Kind.WRITE)
             .containsExactly(Capability.DEVELOPMENT_WRITE, Capability.DEPLOYMENT,
                 Capability.E2E_TEST, Capability.PROCESS_CONTROL, Capability.LOG_LEVEL_WRITE,
-                Capability.SERVER_OPERATION);
+                Capability.SERVER_OPERATION, Capability.TAG_ADMINISTRATION);
     }
 
     /** Feature 012 (FR-004): both halves of the former "diagnosis" keep its state. */
@@ -372,7 +372,8 @@ class CapabilityMatrixTest {
         assertThat(production.stateOfLine(9, OptionalInt.of(0), Capability.QUEUE_ENTRY_READ))
             .isEqualTo(SupportState.SUPPORTED);
         for (Capability capability : Capability.values()) {
-            if (!NODE_TOOLS.contains(capability) && capability != Capability.SERVER_OPERATION) {
+            if (!NODE_TOOLS.contains(capability) && capability != Capability.SERVER_OPERATION
+                && capability != Capability.TAG_ADMINISTRATION) {
                 assertThat(production.note(version("9.0.7"), capability)).as("%s", capability)
                     .isEmpty();
             }
@@ -454,11 +455,11 @@ class CapabilityMatrixTest {
      * settings (T025), the users (T037) and the model details (feature 022 T046); feature 024:
      * since their 8.1 recordings (T025, T038, T058) the cluster's node list, the node
      * configuration and the temporary log levels, the I/O log not before its recording (below);
-     * feature 022 US4: operating the server not before its recordings (below).
+     * feature 022 US4: operating the server and managing tags not before their recordings (below).
      */
     @ParameterizedTest
-    @EnumSource(value = Capability.class, names = {"IO_LOG_READ", "SERVER_OPERATION"},
-        mode = Mode.EXCLUDE)
+    @EnumSource(value = Capability.class, names = {"IO_LOG_READ", "SERVER_OPERATION",
+        "TAG_ADMINISTRATION"}, mode = Mode.EXCLUDE)
     void everyCapabilityIsPossiblySupportedOnTheProductionMatrix(Capability capability) {
         assertThat(production.possiblySupported(capability)).isTrue();
     }
@@ -733,37 +734,51 @@ class CapabilityMatrixTest {
     }
 
     /**
-     * Until its recordings (T054) and contract tests (T066) operating the server is refused on 8.1
-     * and 9.0 as "not yet verified", and no version may run it.
+     * Until their recordings (T054, T055) and contract tests (T066) operating the server and
+     * managing tags (T063) are refused on 8.1 and 9.0 as "not yet verified", and no version may
+     * run them.
      */
-    @Test
-    void serverOperationIsNotYetVerifiedOn81And90() {
+    @ParameterizedTest
+    @EnumSource(value = Capability.class, names = {"SERVER_OPERATION", "TAG_ADMINISTRATION"})
+    void theUs4CapabilitiesAreNotYetVerifiedOn81And90(Capability capability) {
         for (Optional<InubitVersion> verified : List.of(version("8.1.17"), version("9.0.10"))) {
-            assertThat(production.state(verified, Capability.SERVER_OPERATION))
+            assertThat(production.state(verified, capability))
                 .as("%s", verified).isEqualTo(SupportState.UNSUPPORTED);
-            assertThat(production.note(verified, Capability.SERVER_OPERATION))
+            assertThat(production.note(verified, capability))
                 .as("%s", verified).contains("not yet verified");
         }
-        assertThat(production.stateOfLine(8, OptionalInt.of(1), Capability.SERVER_OPERATION))
+        assertThat(production.stateOfLine(8, OptionalInt.of(1), capability))
             .isEqualTo(SupportState.UNSUPPORTED);
-        assertThat(production.stateOfLine(9, OptionalInt.of(0), Capability.SERVER_OPERATION))
+        assertThat(production.stateOfLine(9, OptionalInt.of(0), capability))
             .isEqualTo(SupportState.UNSUPPORTED);
-        assertThat(production.lines(Capability.SERVER_OPERATION)).containsExactly("8.1", "9.0");
-        assertThat(production.possiblySupported(Capability.SERVER_OPERATION)).isFalse();
+        assertThat(production.lines(capability)).containsExactly("8.1", "9.0");
+        assertThat(production.possiblySupported(capability)).isFalse();
     }
 
-    /** 6.1, other and unknown versions refuse it without a note. */
-    @Test
-    void serverOperationIsUnsupportedOn61OtherAndUnknownVersionsWithoutNote() {
+    /** 6.1, other and unknown versions refuse them without a note. */
+    @ParameterizedTest
+    @EnumSource(value = Capability.class, names = {"SERVER_OPERATION", "TAG_ADMINISTRATION"})
+    void theUs4CapabilitiesAreUnsupportedOn61OtherAndUnknownVersionsWithoutNote(
+        Capability capability) {
         for (Optional<InubitVersion> other : List.of(version("6.1.0.89-HF1"), version("9.1.0"),
                 version("10.0"), Optional.<InubitVersion>empty())) {
-            assertThat(production.state(other, Capability.SERVER_OPERATION)).as("%s", other)
+            assertThat(production.state(other, capability)).as("%s", other)
                 .isEqualTo(SupportState.UNSUPPORTED);
-            assertThat(production.note(other, Capability.SERVER_OPERATION)).as("%s", other)
+            assertThat(production.note(other, capability)).as("%s", other)
                 .isEmpty();
         }
-        assertThat(production.stateOfLine(9, OptionalInt.empty(), Capability.SERVER_OPERATION))
+        assertThat(production.stateOfLine(9, OptionalInt.empty(), capability))
             .isEqualTo(SupportState.UNSUPPORTED);
+    }
+
+    // --- feature 022 T063: managing tags (US4, D-1, D-18) ---------------------------------------
+
+    @Test
+    void tagAdministrationIsACliWriteWithItsLabel() {
+        assertThat(Capability.TAG_ADMINISTRATION.kind()).isEqualTo(Kind.WRITE);
+        assertThat(Capability.TAG_ADMINISTRATION.channels()).containsExactly(Channel.CLI);
+        assertThat(Capability.TAG_ADMINISTRATION.label()).isEqualTo("managing tags");
+        assertThat(Capability.TAG_ADMINISTRATION.admittedPerChannel()).isFalse();
     }
 
     private static SupportState notBaseline(Capability capability) {

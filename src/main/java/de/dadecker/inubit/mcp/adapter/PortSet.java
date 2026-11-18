@@ -37,6 +37,7 @@ import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 import de.dadecker.inubit.mcp.domain.port.ServerOperationPort;
 import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
+import de.dadecker.inubit.mcp.domain.port.TagAdministrationPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import java.time.Duration;
@@ -51,8 +52,8 @@ import java.util.Set;
  * feature 003 (CLI exports), feature 004 (CLI imports and tags), feature 018 (REST partner
  * management), feature 020 (queue-entry content over the StartCLI client), feature 021 (server
  * log downloads), feature 022 (server settings, US1, the user directory, US2, the model
- * details, US3, and the server operation, US4, each over REST and StartCLI) and feature 024 (the
- * node tools). Built by a
+ * details, US3, and the server operation, US4, each over REST and StartCLI, and the tag
+ * administration, US4, over StartCLI) and feature 024 (the node tools). Built by a
  * {@link PortSetRegistry.Factory} chosen for the node's effective version (feature 009 research
  * D-16); the monitoring port is not part of it.
  */
@@ -62,7 +63,7 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
     ServerLogPort serverLogs, ServerSettingsPort serverSettings,
     UserDirectoryPort userDirectory, ModelDetailPort modelDetails, ClusterNodePort clusterNodes,
     IoLogPort ioLog, NodeConfigPort nodeConfig, LogLevelPort logLevel,
-    ServerOperationPort serverOperation) {
+    ServerOperationPort serverOperation, TagAdministrationPort tagAdministration) {
 
     /**
      * The queue-entry port of port sets without a queue-entry adapter (before feature 020): it
@@ -198,6 +199,39 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
         }
     };
 
+    /**
+     * The tag administration port of port sets without a tag administration adapter (before
+     * feature 022, US4).
+     */
+    private static final TagAdministrationPort NO_TAG_ADMINISTRATION =
+        new TagAdministrationPort() {
+            @Override
+            public Optional<String> activeTag(String user) {
+                throw noTagAdministration();
+            }
+
+            @Override
+            public void setActiveTag(String user, String tag, WritePermit permit) {
+                throw noTagAdministration();
+            }
+
+            @Override
+            public void removeActiveTag(String user, WritePermit permit) {
+                throw noTagAdministration();
+            }
+
+            @Override
+            public TaggedObjects tagged(String tag, String owner, Scope scope) {
+                throw noTagAdministration();
+            }
+
+            @Override
+            public void removeTag(Removal removal, String tag, Scope scope,
+                WritePermit permit) {
+                throw noTagAdministration();
+            }
+        };
+
     public PortSet {
         Objects.requireNonNull(processes, "processes");
         Objects.requireNonNull(logs, "logs");
@@ -217,12 +251,31 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
         Objects.requireNonNull(nodeConfig, "nodeConfig");
         Objects.requireNonNull(logLevel, "logLevel");
         Objects.requireNonNull(serverOperation, "serverOperation");
+        Objects.requireNonNull(tagAdministration, "tagAdministration");
+    }
+
+    /**
+     * The ports before the tag administration of feature 022, US4: it fails with
+     * {@code UNSUPPORTED_VERSION}, as the default of {@code Gateway#tagAdministration()}. Used by
+     * port sets without a tag administration adapter.
+     */
+    public PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort inventory,
+        ProcessControlPort processControl, ArtifactPort artifacts, ImportPort imports,
+        TagPort tags, PartnerManagementPort partners, QueueEntryContentPort queueEntryContent,
+        ServerLogPort serverLogs, ServerSettingsPort serverSettings,
+        UserDirectoryPort userDirectory, ModelDetailPort modelDetails, ClusterNodePort clusterNodes,
+        IoLogPort ioLog, NodeConfigPort nodeConfig, LogLevelPort logLevel,
+        ServerOperationPort serverOperation) {
+        this(processes, logs, inventory, processControl, artifacts, imports, tags, partners,
+            queueEntryContent, serverLogs, serverSettings, userDirectory, modelDetails,
+            clusterNodes, ioLog, nodeConfig, logLevel, serverOperation, NO_TAG_ADMINISTRATION);
     }
 
     /**
      * The ports before feature 022, US4: a server operation fails with
-     * {@code UNSUPPORTED_VERSION}, as the default of {@code Gateway#serverOperation()}. Used by
-     * port sets without a server operation adapter.
+     * {@code UNSUPPORTED_VERSION}, as the default of {@code Gateway#serverOperation()}, the tag
+     * administration as by the previous constructor. Used by port sets without a server operation
+     * adapter.
      */
     public PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort inventory,
         ProcessControlPort processControl, ArtifactPort artifacts, ImportPort imports,
@@ -335,6 +388,13 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
         return new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
             "Server operations are not available on this adapter line",
             "This port set has no server operation adapter",
+            "Call list_nodes for what this node supports"));
+    }
+
+    private static ToolErrorException noTagAdministration() {
+        return new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
+            "Tag administration is not available on this adapter line",
+            "This port set has no tag administration adapter",
             "Call list_nodes for what this node supports"));
     }
 

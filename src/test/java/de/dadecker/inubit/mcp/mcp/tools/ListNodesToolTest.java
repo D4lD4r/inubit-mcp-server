@@ -1268,12 +1268,12 @@ class ListNodesToolTest {
         assertThat(notUsable(prod)).doesNotContain("model_details");
     }
 
-    // --- feature 022 T058: server_operation not yet verified on 8.1 and 9.0 (D-1) ---------------
+    // --- feature 022 T058, T063: server_operation and tag_administration not yet verified ----
 
     @Test
-    void serverOperationIsListedForWriteNodesAsNotYetVerified() {
-        // test and lab have write access, prod has not; until its recordings (T054) no version
-        // runs it
+    void theUs4CapabilitiesAreListedForWriteNodesAsNotYetVerified() {
+        // test and lab have write access, prod has not; until their recordings (T054, T055) no
+        // version runs them
         String baseUrl = "https://localhost:" + wireMock.httpsPort();
         String yaml = """
             profile:
@@ -1309,16 +1309,20 @@ class ListNodesToolTest {
 
         Map<String, JsonNode> versions = traceVersions(config, CapabilityMatrix.production());
 
-        for (String node : List.of("test/node1", "lab/node1")) {
-            JsonNode version = versions.get(node);
-            assertThat(usable(version)).as(node).doesNotContain("server_operation");
-            assertThat(notUsable(version)).as(node).contains("server_operation");
-            assertThat(reason(version, "server_operation")).as(node)
-                .contains(node + ": operating the server is not yet verified for INUBIT");
-        }
-        JsonNode prod = versions.get("prod/node1");
-        assertThat(usable(prod)).as("no write access").doesNotContain("server_operation");
-        assertThat(notUsable(prod)).doesNotContain("server_operation");
+        Map<String, String> labels = Map.of("server_operation", "operating the server",
+            "tag_administration", "managing tags");
+        labels.forEach((capability, label) -> {
+            for (String node : List.of("test/node1", "lab/node1")) {
+                JsonNode version = versions.get(node);
+                assertThat(usable(version)).as(node).doesNotContain(capability);
+                assertThat(notUsable(version)).as(node).contains(capability);
+                assertThat(reason(version, capability)).as(node)
+                    .contains(node + ": " + label + " is not yet verified for INUBIT");
+            }
+            JsonNode prod = versions.get("prod/node1");
+            assertThat(usable(prod)).as("no write access").doesNotContain(capability);
+            assertThat(notUsable(prod)).doesNotContain(capability);
+        });
     }
 
     @Test

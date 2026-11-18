@@ -20,6 +20,7 @@ import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
 import de.dadecker.inubit.mcp.domain.model.node.NodeConfigName;
 import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.domain.port.ServerOperationPort;
+import de.dadecker.inubit.mcp.domain.port.TagAdministrationPort;
 import de.dadecker.inubit.mcp.testing.TestPermits;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -324,6 +325,50 @@ class RefusingPortsTest {
                     e -> {
                         assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
                         assertThat(e.error().message()).contains("Server operations");
+                    });
+            }
+        }
+    }
+
+    /** One call of every method of the tag administration port of feature 022 (US4). */
+    private static List<ThrowingCallable> tagAdministrationCalls(TagAdministrationPort port) {
+        WritePermit permit = TestPermits.of(NODE, Capability.TAG_ADMINISTRATION);
+        TagAdministrationPort.Scope group =
+            new TagAdministrationPort.Scope.DiagramGroup("GRP-01", "technical");
+        return List.of(() -> port.activeTag("jdoe"),
+            () -> port.setActiveTag("jdoe", "REL-1", permit),
+            () -> port.removeActiveTag("jdoe", permit),
+            () -> port.tagged("REL-1", "jdoe", group),
+            () -> port.removeTag(TagAdministrationPort.Removal.DELETE, "REL-1", group, permit));
+    }
+
+    @Test
+    void tagAdministrationRefusesWithTheSixOneRefusalWithoutContact() {
+        // feature 022 T063: no tag administration on 6.1 (spec edge case "INUBIT 6.1")
+        for (ThrowingCallable call : tagAdministrationCalls(refusing)) {
+            assertThatThrownBy(call).isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error()).isEqualTo(refusing.refusal().error()));
+        }
+    }
+
+    @Test
+    void thePortSetCompatibilityConstructorsFillInARefusingTagAdministrationPort() {
+        // feature 022 T063: port sets built with the previous eight, seventeen or eighteen ports
+        PortSet eight = new PortSet(refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing);
+        PortSet seventeen = new PortSet(refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing, refusing);
+        PortSet eighteen = new PortSet(refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing, refusing, refusing, refusing, refusing, refusing,
+            refusing, refusing, refusing, refusing, refusing);
+
+        for (PortSet ports : List.of(eight, seventeen, eighteen)) {
+            for (ThrowingCallable call : tagAdministrationCalls(ports.tagAdministration())) {
+                assertThatThrownBy(call).isInstanceOfSatisfying(ToolErrorException.class,
+                    e -> {
+                        assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+                        assertThat(e.error().message()).contains("Tag administration");
                     });
             }
         }

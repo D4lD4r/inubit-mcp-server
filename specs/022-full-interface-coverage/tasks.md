@@ -999,7 +999,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - `--tagMove` (existing) unchanged.
   - Failing tests first in `CliCommandTest.java`: removal without scope rejected; both forbidden
     options rejected; existing `tag_artifacts` forms unchanged.
-- [ ] T063 [US4] `adapter/cli/admin/CliTagAdminRunner.java` and `domain/port/TagAdministrationPort.java`:
+- [X] T063 [US4] `adapter/cli/admin/CliTagAdminRunner.java` and `domain/port/TagAdministrationPort.java`:
   - the active tag of a user is read (from `user <name>` or the form found in T055);
   - the objects and versions carrying a tag in a scope come from the version history read the way
     `tag_artifacts` does (`VersionHistoryParser`), together with the count outside the scope;

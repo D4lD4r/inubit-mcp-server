@@ -1057,8 +1057,9 @@ class VersionGateTest {
             + " 8.1, 9.0; use the Workbench's Cluster Manager");
         expected.put(Capability.LOG_LEVEL_WRITE, "changing temporary log levels; supported: 8.1,"
             + " 9.0; use StartCLI trace -nl/-r by hand");
-        // feature 022 (T058)
+        // feature 022 (T058, T063)
         expected.put(Capability.SERVER_OPERATION, "operating the server; use the Workbench");
+        expected.put(Capability.TAG_ADMINISTRATION, "managing tags; use the Workbench");
 
         for (Capability capability : Capability.values()) {
             ToolError error = refusal(() -> gate().admit(V6_1, capability, capability.kind(),

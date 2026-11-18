@@ -54,6 +54,7 @@ import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 import de.dadecker.inubit.mcp.domain.port.ServerOperationPort;
 import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
+import de.dadecker.inubit.mcp.domain.port.TagAdministrationPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
@@ -99,7 +100,8 @@ final class StaleReportingPorts {
             new UserDirectory(ports.userDirectory()), new ModelDetails(ports.modelDetails()),
             new ClusterNodeList(ports.clusterNodes()), new IoLog(ports.ioLog()),
             new NodeConfig(ports.nodeConfig()), new LogLevel(ports.logLevel()),
-            new ServerOperation(ports.serverOperation()));
+            new ServerOperation(ports.serverOperation()),
+            new TagAdministration(ports.tagAdministration()));
     }
 
     private <T> T call(Supplier<T> call) {
@@ -603,6 +605,39 @@ final class StaleReportingPorts {
         @Override
         public long deleteErrorProcesses(WritePermit permit) {
             return write(permit, () -> delegate.deleteErrorProcesses(permit));
+        }
+    }
+
+    final class TagAdministration implements TagAdministrationPort {
+        private final TagAdministrationPort delegate;
+
+        TagAdministration(TagAdministrationPort delegate) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public Optional<String> activeTag(String user) {
+            return call(() -> delegate.activeTag(user));
+        }
+
+        @Override
+        public void setActiveTag(String user, String tag, WritePermit permit) {
+            runWrite(permit, () -> delegate.setActiveTag(user, tag, permit));
+        }
+
+        @Override
+        public void removeActiveTag(String user, WritePermit permit) {
+            runWrite(permit, () -> delegate.removeActiveTag(user, permit));
+        }
+
+        @Override
+        public TaggedObjects tagged(String tag, String owner, Scope scope) {
+            return call(() -> delegate.tagged(tag, owner, scope));
+        }
+
+        @Override
+        public void removeTag(Removal removal, String tag, Scope scope, WritePermit permit) {
+            runWrite(permit, () -> delegate.removeTag(removal, tag, scope, permit));
         }
     }
 }

@@ -264,6 +264,31 @@ class PortsTest {
     }
 
     @Test
+    void aGatewayWithoutTagAdministrationAdapterRefusesItAsUnsupportedForItsNode() {
+        // feature 022 T063: adapter lines without a tag administration adapter
+        assertThatThrownBy(() -> new PreviousGateway().tagAdministration())
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+                assertThat(e.error().node()).contains(NODE);
+                assertThat(e.error().message()).contains("Tag administration", "dev/node1");
+            });
+        GatewayFactory factory = (GatewayFactory) Proxy.newProxyInstance(
+            GatewayFactory.class.getClassLoader(), new Class<?>[] {GatewayFactory.class},
+            (proxy, method, args) -> {
+                if (method.isDefault()) {
+                    return InvocationHandler.invokeDefault(proxy, method, args);
+                }
+                if (method.getName().equals("forServer")) {
+                    return new PreviousGateway();
+                }
+                throw new AssertionError(method + " was not expected");
+            });
+        assertThatThrownBy(() -> factory.tagAdministration(NODE))
+            .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION));
+    }
+
+    @Test
     void aGatewayWithoutNodeToolAdaptersReportsTheCliAsUnavailableForItsNode() {
         // feature 024 T015 (research D-24): adapter lines without the node-tool adapters
         Gateway gateway = new PreviousGateway();

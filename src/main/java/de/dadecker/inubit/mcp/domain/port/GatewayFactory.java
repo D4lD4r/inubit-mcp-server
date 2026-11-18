@@ -154,6 +154,14 @@ public interface GatewayFactory {
     }
 
     /**
+     * The tag administration port of {@code server} (feature 022, US4); the default asks the
+     * gateway, whose default throws {@code UNSUPPORTED_VERSION}.
+     */
+    default TagAdministrationPort tagAdministration(NodeId server) {
+        return forServer(server).tagAdministration();
+    }
+
+    /**
      * The cluster-node port of {@code server} (feature 024); the default asks the gateway, whose
      * default throws {@code CLI_UNAVAILABLE}.
      */

@@ -53,6 +53,7 @@ import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 import de.dadecker.inubit.mcp.domain.port.ServerOperationPort;
 import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
+import de.dadecker.inubit.mcp.domain.port.TagAdministrationPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import java.time.Duration;
@@ -71,7 +72,8 @@ import java.util.Set;
 public final class RefusingPorts implements ProcessQueryPort, LogPort, InventoryPort,
     ProcessControlPort, ArtifactPort, ImportPort, TagPort, PartnerManagementPort,
     QueueEntryContentPort, ServerLogPort, ServerSettingsPort, UserDirectoryPort, ModelDetailPort,
-    ClusterNodePort, IoLogPort, NodeConfigPort, LogLevelPort, ServerOperationPort {
+    ClusterNodePort, IoLogPort, NodeConfigPort, LogLevelPort, ServerOperationPort,
+    TagAdministrationPort {
 
     private final NodeId node;
 
@@ -351,6 +353,31 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
 
     @Override
     public long deleteErrorProcesses(WritePermit permit) {
+        throw refusal();
+    }
+
+    @Override
+    public Optional<String> activeTag(String user) {
+        throw refusal();
+    }
+
+    @Override
+    public void setActiveTag(String user, String tag, WritePermit permit) {
+        throw refusal();
+    }
+
+    @Override
+    public void removeActiveTag(String user, WritePermit permit) {
+        throw refusal();
+    }
+
+    @Override
+    public TaggedObjects tagged(String tag, String owner, Scope scope) {
+        throw refusal();
+    }
+
+    @Override
+    public void removeTag(Removal removal, String tag, Scope scope, WritePermit permit) {
         throw refusal();
     }
 }

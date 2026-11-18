@@ -500,6 +500,36 @@ Before a removal the preview lists the objects and versions carrying the tag in 
 history export, as `tag_artifacts` reads it) and the count outside the scope that must stay; the
 result re-reads both.
 
+**Port (T063)**: `TagAdministrationPort`, in the 8.1 port set (9.0 reuses it) as
+`V81TagAdministrationAdapter` with `CliTagAdminRunner`, capability `TAG_ADMINISTRATION` (StartCLI,
+"not yet verified" until T055). Until L-4 these are assumptions:
+- the active tag is read with `user '<user>'` in a session, the recorded rows plus a RECONSTRUCTED
+  row `Active tag <tag>` (fixture `admin-tags-user-active-tag-reconstructed`); without it the user
+  has none. The export by tag also holds `usertags.xml` with an `ActiveTag` element (empty in
+  `export_release.zip`), a possible other source for L-4 to check;
+- a tag form is done when StartCLI exits with 0 without `n-NOK`, as `tag --tagMove` (`tag_ok`).
+
+The versions in a diagram group come from the group's history export of the owner; the count
+outside it is the number of workflows and modules of the owner's export by the tag (`--exportTag`,
+feature 005 D-4: no check-in comment is appended, unlike an owner-wide history export) whose name is
+not in the group. That export is fixed to `--exportWorkflowType technical`, as `tag_artifacts`
+tags only technical groups, so the read for a diagram group of another type is refused
+(`INVALID_INPUT`) before anything is sent; otherwise the count outside it would count technical
+workflows.
+
+No form that lists the tagged repository files with their versions is recorded yet, so the read
+for a repository path is refused (`UNSUPPORTED_VERSION`) before anything is sent. Candidate for
+T055: `export --exportRepositoryPath <path> --exportTag <tag>`, reading `tagName` and `version` of
+each file's metadata (a tagged repository export showed `tagName`, spike-development-deployment
+"Tags"; `Repository.zip` in `export_release.zip` holds the tagged versions with both, fixture
+README).
+
+T055 must also check what a group-scoped removal does to repository files: `tag --tagMove` with a
+group also tags the repository files the group references (spike "Tags"), and StartCLI's help says
+`--tagDelete` "Removes the tag from diagram, modules and repository if it is available" and
+`--tagRemove` "Removes the tag only from repository" (`win_help.stdout`). A removal in one group
+may therefore touch referenced repository files that other groups reference too.
+
 ## D-19 Secret rules for configuration, modules and users (FR-010)
 
 **Decision**: the feature-018 rules move from `adapter/archive/v81/PartnerSecretRules` into a

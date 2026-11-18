@@ -49,6 +49,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 import de.dadecker.inubit.mcp.domain.port.ServerOperationPort;
+import de.dadecker.inubit.mcp.domain.port.TagAdministrationPort;
 import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
@@ -74,8 +75,8 @@ import org.junit.jupiter.api.Test;
  * failures and results pass through unreported. Feature 017 (research D-24): a write method
  * reports {@code staleAfterWrite(node, permit)} with its own permit instead. Feature 018 (T013,
  * research D-4): the partner management port is wrapped like every other port. Feature 024
- * (T015, research D-24): so are the node-tool ports. Feature 022 (T058): and the server
- * operation port.
+ * (T015, research D-24): so are the node-tool ports. Feature 022 (T058, T063): and the server
+ * operation and tag administration ports.
  */
 class StaleReportingPortsTest {
 
@@ -112,7 +113,8 @@ class StaleReportingPortsTest {
             throwing(IoLogPort.class, failure),
             throwing(NodeConfigPort.class, failure),
             throwing(LogLevelPort.class, failure),
-            throwing(ServerOperationPort.class, failure));
+            throwing(ServerOperationPort.class, failure),
+            throwing(TagAdministrationPort.class, failure));
     }
 
     /** Each port of the wrapped set with its interface, monitoring included. */
@@ -139,6 +141,7 @@ class StaleReportingPortsTest {
         all.add(new Object[] {NodeConfigPort.class, ports.nodeConfig()});
         all.add(new Object[] {LogLevelPort.class, ports.logLevel()});
         all.add(new Object[] {ServerOperationPort.class, ports.serverOperation()});
+        all.add(new Object[] {TagAdministrationPort.class, ports.tagAdministration()});
         return all;
     }
 
@@ -186,11 +189,13 @@ class StaleReportingPortsTest {
         assertThat(methods).isGreaterThan(20);
         // feature 017 (review of stage 5, research D-24): the mark of a write's own response
         // carries that write's permit object
-        // feature 022 T058: and the seven changes of the server operation port
+        // feature 022 T058: and the seven changes of the server operation port; T063: and the
+        // three of the tag administration port
         assertThat(writes).as("restart, kill, importArchive, importRepository, tag;"
             + " switchMaintenance, switchReadiness, switchTrace, setTraceLevel, switchDebug,"
-            + " triggerMidnightTask, deleteErrorProcesses").isEqualTo(12);
-        assertThat(versions.staleWritePermits()).hasSize(12).allSatisfy(permit ->
+            + " triggerMidnightTask, deleteErrorProcesses; setActiveTag, removeActiveTag,"
+            + " removeTag").isEqualTo(15);
+        assertThat(versions.staleWritePermits()).hasSize(15).allSatisfy(permit ->
             assertThat(permit).isSameAs(PERMIT));
     }
 

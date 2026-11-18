@@ -272,6 +272,11 @@ assumed answers of `maintenance -s` (`Maintenance mode: on`), `trace on` (`Trace
 (`Midnight task triggered.`) and `processdelete error` (`Deleted processes: 40`). T054 records the
 real answers as `admin-operate-*` and replaces them together with the parsers' forms.
 
+The `admin-tags-user-active-tag-reconstructed` case (T063, US4) is SYNTHETIC as well: the recorded
+`admin-users-user` rows plus an assumed fourth row `Active tag <tag>` for a user with an active
+tag, described in its own `.README`. T055 (L-4) records the real answer as `admin-tags-*` and
+replaces it together with the form of `ActiveTagParser`.
+
 Neutralization of the T028 cases (recorded 2026-11-13 on the same server and account; raw outputs
 private, never committed). Every value was replaced in one pass, the same way in every file:
 

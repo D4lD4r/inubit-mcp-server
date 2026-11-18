@@ -20,6 +20,7 @@ import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 import de.dadecker.inubit.mcp.domain.port.ServerOperationPort;
 import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
+import de.dadecker.inubit.mcp.domain.port.TagAdministrationPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import java.util.List;
@@ -155,6 +156,11 @@ final class V81Gateway implements Gateway {
     @Override
     public ServerOperationPort serverOperation() {
         return ports.get().serverOperation();
+    }
+
+    @Override
+    public TagAdministrationPort tagAdministration() {
+        return ports.get().tagAdministration();
     }
 
     @Override

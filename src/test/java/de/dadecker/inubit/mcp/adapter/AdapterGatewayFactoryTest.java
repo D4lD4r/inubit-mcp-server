@@ -78,6 +78,7 @@ import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 import de.dadecker.inubit.mcp.domain.port.ServerOperationPort;
 import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
+import de.dadecker.inubit.mcp.domain.port.TagAdministrationPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
@@ -731,6 +732,38 @@ class AdapterGatewayFactoryTest {
         }
         wireMock.verify(4, postRequestedFor(urlPathEqualTo("/ibis/rest/log/queueLog")));
         assertThat(wireMock.getAllServeEvents()).hasSize(4);
+    }
+
+    @Test
+    void the81And90PortSetsAdministerTags(@TempDir Path root) throws IOException {
+        // feature 022 T063: the tag administration adapter of the 8.1 port set, which 9.0
+        // reuses, with and without helper host, behind the stale-reporting decorator; every
+        // form runs on the node's StartCLI runner, a repository path has no read
+        EffectiveNodeConfig on81 = server(DEV, VersionSetting.parse("8.1.17").orElseThrow());
+        EffectiveNodeConfig on90 = server(ENT2, VersionSetting.parse("9.0.7").orElseThrow());
+        try (CliResources resources = new CliResources("acme", PrivateFiles.forHost())) {
+            for (PortSetRegistry portSets : List.of(PortSetRegistry.v81Default().withV90(),
+                queueEntryPorts(Files.createDirectories(root.resolve("tmp")), resources))) {
+                try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(on81, on90),
+                    on81, on90)) {
+                    for (NodeId node : List.of(DEV, ENT2)) {
+                        TagAdministrationPort port = factory.tagAdministration(node);
+                        assertThat(port)
+                            .isInstanceOf(StaleReportingPorts.TagAdministration.class)
+                            .isSameAs(factory.forServer(node).tagAdministration());
+
+                        assertThat(codeOf(() -> port.activeTag("jdoe")))
+                            .as("no StartCLI client configured")
+                            .isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                        assertThatThrownBy(() -> port.tagged("REL-1", "jdoe",
+                            new TagAdministrationPort.Scope.RepositoryPath("/Root/jdoe/xsd")))
+                            .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                                assertThat(e.error().message()).contains("repository"));
+                    }
+                }
+            }
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
     }
 
     @Test
@@ -2106,6 +2139,22 @@ class AdapterGatewayFactoryTest {
             assertThat(port).isInstanceOf(StaleReportingPorts.ServerOperation.class);
 
             assertThatThrownBy(port::maintenanceState)
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error()).isEqualTo(new RefusingPorts(DEV).refusal().error()));
+        }
+        assertThat(versions.events()).isEmpty();
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void aSixOneNodeRefusesTagAdministrationWithoutContact() {
+        // feature 022 T063: the 6.1 port set refuses as RefusingPorts
+        EffectiveNodeConfig node = withoutUsableClient(VersionSetting.V6_1);
+        try (AdapterGatewayFactory factory = factory(WITH_V61, nodeVersions(node), node)) {
+            TagAdministrationPort port = factory.tagAdministration(DEV);
+            assertThat(port).isInstanceOf(StaleReportingPorts.TagAdministration.class);
+
+            assertThatThrownBy(() -> port.activeTag("jdoe"))
                 .isInstanceOfSatisfying(ToolErrorException.class, e ->
                     assertThat(e.error()).isEqualTo(new RefusingPorts(DEV).refusal().error()));
         }

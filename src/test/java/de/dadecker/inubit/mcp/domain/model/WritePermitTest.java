@@ -33,15 +33,15 @@ class WritePermitTest {
 
     /**
      * Feature 024 (T004, D-4): changing temporary log levels is the fifth; feature 022 (T058):
-     * operating the server the sixth.
+     * operating the server the sixth, managing tags (T063) the seventh.
      */
     @Test
-    void theWriteCapabilitiesAreExactlyTheSixOfKindWrite() {
+    void theWriteCapabilitiesAreExactlyTheSevenOfKindWrite() {
         assertThat(Arrays.stream(Capability.values())
             .filter(capability -> capability.kind() == Capability.Kind.WRITE))
             .containsExactlyInAnyOrder(Capability.DEVELOPMENT_WRITE, Capability.DEPLOYMENT,
                 Capability.E2E_TEST, Capability.PROCESS_CONTROL, Capability.LOG_LEVEL_WRITE,
-                Capability.SERVER_OPERATION);
+                Capability.SERVER_OPERATION, Capability.TAG_ADMINISTRATION);
     }
 
     @ParameterizedTest

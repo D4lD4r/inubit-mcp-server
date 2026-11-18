@@ -1,5 +1,6 @@
 package de.dadecker.inubit.mcp.adapter;
 
+import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
 import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
 import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliImportRunner;
@@ -10,6 +11,7 @@ import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.admin.CliLibraryRunner;
 import de.dadecker.inubit.mcp.adapter.cli.admin.CliOperationRunner;
 import de.dadecker.inubit.mcp.adapter.cli.admin.CliSettingsRunner;
+import de.dadecker.inubit.mcp.adapter.cli.admin.CliTagAdminRunner;
 import de.dadecker.inubit.mcp.adapter.cli.admin.CliUserRunner;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.log.CliServerLogAdapter;
@@ -39,12 +41,12 @@ import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 
 /**
  * The 8.1 port set: the REST adapters on the server's client and the StartCLI adapters, the
- * settings, the user directory, the model details and the server operation of feature 022
- * included; with a helper host, the queue-entry helper of feature 020 (research D-17) and the
- * server-log download of feature 021 (research D-19) and the cluster's node list, the I/O log,
- * the node configuration and the temporary log level of feature 024 (research D-24) too. The set
- * without helper host has no node tools: their ports fail with {@code CLI_UNAVAILABLE}
- * ({@link PortSet}).
+ * settings, the user directory, the model details, the server operation and the tag
+ * administration of feature 022 included; with a helper host, the queue-entry helper of feature
+ * 020 (research D-17) and the server-log download of feature 021 (research D-19) and the
+ * cluster's node list, the I/O log, the node configuration and the temporary log level of feature
+ * 024 (research D-24) too. The set without helper host has no node tools: their ports fail with
+ * {@code CLI_UNAVAILABLE} ({@link PortSet}).
  */
 final class V81PortSet {
 
@@ -87,7 +89,7 @@ final class V81PortSet {
             ports.processControl(), ports.artifacts(), ports.imports(), ports.tags(),
             ports.partners(), queueEntries, serverLogs, ports.serverSettings(),
             ports.userDirectory(), ports.modelDetails(), clusterNodes, ioLog, nodeConfig, logLevel,
-            ports.serverOperation());
+            ports.serverOperation(), ports.tagAdministration());
     }
 
     /**
@@ -108,7 +110,9 @@ final class V81PortSet {
      * 022, research D-21); the server operation runs the StartCLI forms with a
      * {@link CliOperationRunner}, the readiness switch on the server's client under the StartCLI
      * runner's write lock and reads the processes in ERROR with this set's process port
-     * (feature 022, research D-14, D-22).
+     * (feature 022, research D-14, D-22); the tag administration runs the StartCLI forms with a
+     * {@link CliTagAdminRunner} and reads the tagged versions with a {@link CliExportRunner}
+     * (feature 022, research D-18).
      */
     private static PortSet create(PortSetRegistry.NodeResources node,
         QueueEntryContentPort queueEntries, ServerLogPort serverLogs) {
@@ -147,7 +151,11 @@ final class V81PortSet {
             PortSet.NodeToolsUnavailable.INSTANCE, PortSet.NodeToolsUnavailable.INSTANCE,
             new V81ServerOperationAdapter(node.server(), new CliOperationRunner(node.server(),
                 node.credentials(), node.guard(), node.cliRunner(), classifier(node)),
-                node.client(), node.cliRunner().writeLock(), processes));
+                node.client(), node.cliRunner().writeLock(), processes),
+            new V81TagAdministrationAdapter(node.server().id(), new CliTagAdminRunner(
+                node.server(), node.credentials(), node.guard(), node.cliRunner(),
+                classifier(node)), new CliExportRunner(node.server(), node.credentials(),
+                node.guard(), node.cliRunner(), classifier(node)), new V81ReleaseArchives()));
     }
 
     private static CliOutputClassifier classifier(PortSetRegistry.NodeResources node) {

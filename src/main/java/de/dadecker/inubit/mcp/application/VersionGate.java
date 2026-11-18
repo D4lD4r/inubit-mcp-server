@@ -977,8 +977,8 @@ public final class VersionGate {
                 USER_DIRECTORY, MODEL_DETAILS ->
                 terms.render("use the Workbench, or another {node} with a different INUBIT"
                     + " version");
-            case DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL, SERVER_OPERATION ->
-                "use the Workbench";
+            case DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL, SERVER_OPERATION,
+                TAG_ADMINISTRATION -> "use the Workbench";
             case QUEUE_ENTRY_READ -> "use the Queue Manager in the Workbench";
             case TRACE_LOG_READ, WEBSERVICE_LOG_READ ->
                 "download the log in the Workbench (Administration, Server Log)";
