@@ -109,8 +109,8 @@ configure before anything is verified.
 
 **Independent Test**: With a profile containing a node pinned to `V7_4` and one pinned to
 `"7.4.0.90"`, run `--check-config`, `list_nodes` and every tool against them, offline, on each
-platform's test job, and confirm the refusals and that no REST request, StartCLI run or TLS
-handshake reaches the node.
+platform's test job, and confirm the refusals and that no REST request, StartCLI run against the
+node or TLS handshake reaches the node (the local client probe of FR-010a excepted).
 
 **Acceptance Scenarios**:
 
@@ -136,6 +136,10 @@ handshake reaches the node.
    checks run and the result carries the notice that the lookup was skipped; no contact.
 8. **Given** the same profile on Windows, macOS and Linux, **When** scenarios 1–7 run, **Then** the
    results are identical on each platform.
+9. **Given** a `defaults.cliClients."7.4"` entry, **When** `--check-config` and `list_nodes` run,
+   **Then** the result of the client's local version probe (including "not evaluable") and the
+   client directory are shown with the note that no tool uses it until a 7.4 capability is
+   verified, no JDK warning is given, and the node is not contacted.
 
 ---
 
@@ -238,7 +242,8 @@ run the fixture shape test, the guard test and the identifier scan.
 ### User Story 5 - 6.1, 8.1 and 9.0 behave exactly as before (Priority: P1, Mandate A)
 
 Profiles with 6.1, 8.1 and 9.0 nodes behave exactly as before on every platform; the only visible
-change is the extended 404 hint of US2.
+changes are the extended 404 hint of US2 and the lists of allowed `versionLine` values that now
+name `V7_4`.
 
 **Why this priority**: IMC-6 criterion 5; the change touches the shared version gate and the
 detection path every version uses (risk class medium).
@@ -249,7 +254,8 @@ plus dedicated regression tests per version for parsing, matching, gating and th
 **Acceptance Scenarios**:
 
 1. **Given** the offline test suite before this feature, **When** it runs after Mandate A, **Then**
-   it passes unchanged on every platform, apart from the tests of the deliberate change of US2.
+   it passes unchanged on every platform, apart from the tests of the deliberate changes of US2 and
+   of the lists of allowed `versionLine` values.
 2. **Given** an 8.1.17 server with an 8.1.16 client, or a 9.0.10 server with a 9.0.10 client,
    **When** the patch levels are compared, **Then** the outcome is as before.
 3. **Given** a node pinned to `V6_1`, `V8_1`, `V9_0` or `V9_X`, **When** any tool runs, **Then**
@@ -278,8 +284,8 @@ the 7.4.0.90 node from Windows and from macOS or Linux.
    `ERROR` and the other parts that could be read are still reported.
 3. **Given** a 7.4 node without a configured client, **When** `get_health` targets it, **Then** it is
    reported with `CLI_UNAVAILABLE` and a next step naming `defaults.cliClients."7.4"`.
-4. **Given** a node pinned to 7.4 whose StartCLI reports another major.minor, **When** `get_health`
-   runs, **Then** the contradiction is reported with both versions.
+4. **Given** a node pinned to 7.4 whose server version read through StartCLI (`-sv`) has another
+   major.minor, **When** `get_health` runs, **Then** the contradiction is reported with both versions.
 5. **Given** the MCP server runs on Windows, **When** scenarios 1–4 run against the real node,
    **Then** they behave as on macOS or Linux (feature 013 invocation).
 
@@ -354,7 +360,7 @@ cannot identify stays unknown with the US2 hint.
   are refused with `CLI_UNAVAILABLE` naming the missing `"7.4"` entry; the version-less client is
   never used against a 7.4 node, because an 8.1 or 9.0 client's behaviour against 7.4 is
   unverified (FR-029).
-- The 7.4 client prompts for the password instead of reading it from standard input: the recording
+- The 7.4 client reads the password from the console instead of standard input: the recording
   stops and the owner decides (feature 013 rule); `-p` on the command line is never used.
 - The recordings show German output, CRLF line ends or a non-UTF-8 code page on Windows: the
   parsers handle them as on 6.1 and 8.1; any unknown format is `UNEXPECTED_RESPONSE`, never an empty
@@ -460,6 +466,7 @@ cannot identify stays unknown with the US2 hint.
   | `ps_session_queued` | process diagnosis | reconstructed | `v74_ps_queued` |
   | `ps_session_limit5` | process diagnosis | reconstructed | `v74_ps_limit5` |
   | `ps_session_empty` | process diagnosis | reconstructed | a recorded empty listing if one occurs, else derived from `ps_session_error` (FR-016a) |
+  | `ps_session_unassigned` | process diagnosis | reconstructed | a recorded row without a cluster node if one occurs, else derived from `ps_session_all` (FR-016a) |
 
   German-language variants (as for 6.1) are added only if the recordings show language-dependent
   output; the recorder runs the client in English, as the server does. The research cases of
@@ -468,7 +475,8 @@ cannot identify stays unknown with the US2 hint.
 - **FR-015**: A guard test MUST fail when the production matrix declares a 7.4 capability
   `supported` while any case of that capability is listed in `RECONSTRUCTED.txt`, or is a derived
   case whose source case is not recorded; and MUST fail when a listed case has no files or a fixture
-  case is neither listed nor known as recorded. The 7.4 fixtures MUST pass the customer identifier
+  case is in none of `RECONSTRUCTED.txt`, `DERIVED.txt` and the README's list of recorded cases
+  (the single source for recorded cases). The 7.4 fixtures MUST pass the customer identifier
   scan.
 - **FR-016**: The Windows recorder MUST know these 7.4 cases, StartCLI only (no REST request),
   read-only, each storing standard output, standard error and exit code:
@@ -480,7 +488,8 @@ cannot identify stays unknown with the US2 hint.
     `uname`, `uptime`, `maintenance`, `free -m`, `ps -c -e`, `ps -c -w`, `ps -c -q`, `ps -c -a`);
   - `v74_ps_all`, `v74_ps_error`, `v74_ps_waiting`, `v74_ps_queued`, `v74_ps_limit5` (interactive
     sessions with one `ps` listing each);
-  - `v74_login_failed` (one login with a dummy password against the same node);
+  - `v74_login_failed` (one login with a user name that does not exist, or a user the owner names
+    for this purpose, and a dummy password, against the same node);
   - `v74_failure` (a wrong URL, to record the connection error; no server contacted).
 - **FR-016a**: An edge case that cannot be recorded read-only on a healthy non-production node
   (maintenance on, a negative alive check, an empty listing that does not occur) MAY be derived
@@ -495,7 +504,10 @@ cannot identify stays unknown with the US2 hint.
   allowlist of non-production hosts before any launch. For 7.4 cases the recorder MUST NOT pass a
   trust-store or host-name option to the client (the 7.4 help lists neither): an HTTPS 7.4 node is
   recorded with a password-less trust store given to the client's Java runtime settings, and a
-  request to skip host-name verification stops the recording (feature 012 FR-012a).
+  request to skip host-name verification stops the recording (feature 012 FR-012a). Every 7.4 case
+  that logs in passes the password on standard input only (as the feature 013 script-mode cases
+  do), never through `-p` or an `--encryptString` value; the secret check applies to every such
+  case.
 - **FR-018**: The arguments and commands of every 7.4 case, including the session commands, the
   direct options and the end-of-session command, MUST be editable in one place (the catalogue), so
   that the recording session can adjust them after `v74_exec_help` and `v74_exec_ps_help` without a
@@ -506,7 +518,8 @@ cannot identify stays unknown with the US2 hint.
 #### Mandate A — Regression and documentation
 
 - **FR-020**: Behaviour for 6.1, 8.1 and 9.0 nodes MUST NOT change on any platform, apart from the
-  extended hint of FR-005. Regression tests MUST pin, per version line, the version parsing, the
+  extended hint of FR-005 and the lists of allowed `versionLine` values (load error text,
+  `list_nodes` schema descriptions, docs) that now name `V7_4`. Regression tests MUST pin, per version line, the version parsing, the
   patch comparison, the gate decision per capability and the refusal texts. The user documentation
   (setup, tool reference, README, research notes) and the changelog MUST describe 7.4 as
   "configurable and recognised, every tool refused until verified" in the same change.
@@ -549,19 +562,22 @@ cannot identify stays unknown with the US2 hint.
   listing is `UNEXPECTED_RESPONSE`. Hanging instances and the time range follow the 6.1 rules of
   feature 012 when the recordings show the time in state; otherwise the hanging filter and the
   time range are refused for 7.4 nodes with `UNSUPPORTED_VERSION`. States and filters the
-  recordings do not back MUST be refused with `UNSUPPORTED_VERSION` naming the input; truncation
-  and paging follow the 6.1 rules.
+  recordings do not back MUST be refused with `UNSUPPORTED_VERSION` naming the input; truncation,
+  paging and the time budget follow the 6.1 rules of feature 012.
 - **FR-029**: StartCLI on a 7.4 node MUST use, in this order: the node's `cli.home`, the group's
   `cli.home`, then `defaults.cliClients."7.4"` (with its `javaHome`). Deviating from feature 017
   FR-003, the version-less `defaults.cliHome` MUST NOT be used for a 7.4 node; without one of the
   three, StartCLI-backed tools are refused with `CLI_UNAVAILABLE` naming `defaults.cliClients."7.4"`.
-  The client check of feature 009 (its `-v` and declared range) applies to the chosen client. On
+  The client check of feature 009 (its `-v` and declared range) applies to the chosen client, and
+  its `-v` MUST report major.minor 7.4; any other or unreadable client version refuses
+  StartCLI-backed tools on the node with `CLI_UNAVAILABLE` naming the client and its version. On
   Windows the feature 013 invocation applies (password through standard input only, environment
   allowlist, CRLF and code page handling). Feature 012 FR-012 (the server's own TLS handshake for
   the pin, no HTTP request) and FR-012a apply; the 7.4 client counts as having neither a
   trust-store nor a host-name option until the recordings show otherwise.
 - **FR-030**: A 7.4 capability MAY be declared `supported` only when none of its cases is listed in
-  `RECONSTRUCTED.txt`, every derived case of it has a recorded source (FR-015, FR-016a) and its contract tests run against the recordings (Constitution III,
+  `RECONSTRUCTED.txt`, every derived case of it has a recorded source (FR-015, FR-016a), the `help` case has been
+  replaced by the `v74_help` recording and its contract tests run against the recordings (Constitution III,
   V).
 - **FR-031**: `get_health` and `find_processes` on 7.4 MUST be declared `supported` only after a
   live check of that capability against the 7.4.0.90 node has passed both from Windows and from
@@ -617,7 +633,8 @@ cannot identify stays unknown with the US2 hint.
 - **SC-004** (IMC-6 criterion 4 — Mandate A): 7.4.0.90 vs 7.4.0.80 is a patch mismatch, 7.4.0.90 vs
   7.4.0.90 a match; 6.1.0.89 vs 6.1.0.80 stays a match as today.
 - **SC-005** (IMC-6 criterion 5 — Mandate A): the offline test suite of features 001–024 passes on
-  the macOS/Linux and Windows test jobs, with only the tests of the FR-005 hint adjusted.
+  the macOS/Linux and Windows test jobs, with only the tests of the FR-005 hint and of the lists of
+  allowed `versionLine` values adjusted.
 - **SC-006** (Mandate A): a person with the Windows machine and the 7.4 client can record every 7.4
   case of FR-016 in one sitting by following the quickstart, without editing code.
 - **SC-007** (IMC-6 criterion 2 — Mandate B): `get_health` and `find_processes` return verified
