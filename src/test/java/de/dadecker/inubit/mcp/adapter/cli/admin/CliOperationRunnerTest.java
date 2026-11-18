@@ -188,19 +188,6 @@ class CliOperationRunnerTest {
     }
 
     @Test
-    void debugIsSwitched() {
-        ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
-        step(cli, "debug on", reconstructed("admin-operate-debug-on-reconstructed"));
-        step(cli, "debug off", "Debug mode: off\n");
-        CliOperationRunner runner = runner(cli);
-
-        assertThat(runner.switchDebug(true, PERMIT)).isTrue();
-        assertThat(runner.switchDebug(false, PERMIT)).isFalse();
-
-        cli.verifyComplete();
-    }
-
-    @Test
     void theMidnightTaskIsTriggeredAndInubitsAnswerReturned() {
         ScriptedProcessLauncher cli = step(new ScriptedProcessLauncher(), "triggerMidnightTask",
             reconstructed("admin-operate-midnight-task-reconstructed"));
@@ -244,7 +231,6 @@ class CliOperationRunnerTest {
             new String[] {"maintenance off", "Maintenance mode: off"},
             new String[] {"trace on", "Trace: on"},
             new String[] {"trace -l warn", "Trace level: warn"},
-            new String[] {"debug on", "Debug mode: on"},
             new String[] {"triggerMidnightTask", "Midnight task triggered."},
             new String[] {"processdelete error", "Deleted processes: 2"})) {
             cli.expect(Pattern.compile(Pattern.quote(form[0])))
@@ -258,15 +244,14 @@ class CliOperationRunnerTest {
         runner.switchMaintenance(false, null, PERMIT);
         runner.switchTrace(true, PERMIT);
         runner.setTraceLevel(TraceLevel.WARN, PERMIT);
-        runner.switchDebug(true, PERMIT);
         runner.triggerMidnightTask(PERMIT);
         runner.deleteErrorProcesses(PERMIT);
 
         cli.verifyComplete();
         assertThat(inside).containsExactly("maintenance off", "trace on", "trace -l warn",
-            "debug on", "triggerMidnightTask", "processdelete error");
+            "triggerMidnightTask", "processdelete error");
         assertThat(outside).as("the state read is no write").containsExactly("maintenance -s");
-        assertThat(lock.permits()).hasSize(6).allSatisfy(permit ->
+        assertThat(lock.permits()).hasSize(5).allSatisfy(permit ->
             assertThat(permit).isSameAs(PERMIT));
     }
 
@@ -278,7 +263,7 @@ class CliOperationRunnerTest {
         WritePermit other = TestPermits.of(NodeId.parse("dev/node2"),
             Capability.SERVER_OPERATION);
 
-        assertThatThrownBy(() -> runner(cli).switchDebug(true, other))
+        assertThatThrownBy(() -> runner(cli).switchTrace(true, other))
             .isInstanceOf(IllegalArgumentException.class);
         assertThat(cli.launches()).isEmpty();
     }
@@ -339,11 +324,11 @@ class CliOperationRunnerTest {
     @Test
     void aFailedRunKeepsAnExcerptWithSecretsMasked() {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
-        cli.expect(Pattern.compile(Pattern.quote("debug on"))).replying(PREAMBLE
+        cli.expect(Pattern.compile(Pattern.quote("trace on"))).replying(PREAMBLE
             + "EXECUTION ERROR\nInternal INUBIT error!\n" + TestSecrets.FREE_TEXT_SECRETS + "\n",
             "", 1);
 
-        ToolError error = errorOf(() -> runner(cli).switchDebug(true, PERMIT));
+        ToolError error = errorOf(() -> runner(cli).switchTrace(true, PERMIT));
 
         assertThat(error.node()).contains(DEV);
         assertThat(error.excerpt()).isPresent();

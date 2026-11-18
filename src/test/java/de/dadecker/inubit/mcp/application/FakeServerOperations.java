@@ -34,7 +34,7 @@ import java.util.function.Supplier;
 
 /**
  * Test double for {@code operate_server} (feature 022, US4): one INUBIT server whose maintenance
- * mode, readiness, trace, trace level, debug mode and processes in state ERROR are fields the
+ * mode, readiness, trace, trace level and processes in state ERROR are fields the
  * switches and {@code processdelete error} change, with the reads of {@link MonitoringPort} and
  * {@link ServerSettingsPort} the service takes its states from. While maintenance mode is on, the
  * REST reads other than {@code GET /ready} (the processes in ERROR included) fail with
@@ -58,9 +58,6 @@ final class FakeServerOperations implements GatewayFactory {
     volatile TraceLevel traceLevel = TraceLevel.ERROR;
     /** Whether a read form of the trace level exists (none is known yet, research D-22). */
     volatile boolean traceLevelReadable;
-    volatile boolean debug;
-    /** Whether a read form of the debug mode exists (none is known yet, research D-22). */
-    volatile boolean debugReadable;
     /** The {@code MidnightTaskTriggerTime} of {@code GET /configurations}; empty: not there. */
     volatile Optional<String> midnightTaskTriggerTime =
         Optional.of("Sat Oct 31 00:00:00 CET 2026");
@@ -90,7 +87,7 @@ final class FakeServerOperations implements GatewayFactory {
     List<String> switches() {
         return calls.stream().filter(call -> !call.equals("maintenance -s")
             && !call.startsWith("GET ") && !call.startsWith("check ")
-            && !call.equals("trace level?") && !call.equals("debug?")).toList();
+            && !call.equals("trace level?")).toList();
     }
 
     private static String onOff(boolean on) {
@@ -172,20 +169,6 @@ final class FakeServerOperations implements GatewayFactory {
                 return change("trace -l " + level.name().toLowerCase(Locale.ROOT), permit, () -> {
                     traceLevel = level;
                     return level;
-                });
-            }
-
-            @Override
-            public Optional<Boolean> debugState() {
-                calls.add("debug?");
-                return debugReadable ? Optional.of(debug) : Optional.empty();
-            }
-
-            @Override
-            public boolean switchDebug(boolean on, WritePermit permit) {
-                return change("debug " + onOff(on), permit, () -> {
-                    debug = on;
-                    return on;
                 });
             }
 

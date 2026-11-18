@@ -31,7 +31,6 @@ import java.util.function.Function;
  *       ({@link MaintenanceStateParser});
  *   <li>{@link #switchTrace}: {@code trace on|off}, {@link #setTraceLevel}: {@code trace -l
  *       <level>} ({@link TraceStateParser});
- *   <li>{@link #switchDebug}: {@code debug on|off} ({@link DebugStateParser});
  *   <li>{@link #triggerMidnightTask}: {@code triggerMidnightTask}
  *       ({@link MidnightTaskAnswerParser});
  *   <li>{@link #deleteErrorProcesses}: {@code processdelete error}
@@ -107,16 +106,6 @@ public final class CliOperationRunner {
     public TraceLevel setTraceLevel(TraceLevel level, WritePermit permit) {
         return run(CliCommand.traceLevel(level), Optional.of(permit),
             TraceStateParser::parseLevel);
-    }
-
-    /**
-     * Switches debug mode.
-     *
-     * @return the state INUBIT answers with
-     * @throws ToolErrorException see the class comment
-     */
-    public boolean switchDebug(boolean on, WritePermit permit) {
-        return run(CliCommand.debugSwitch(on), Optional.of(permit), DebugStateParser::parse);
     }
 
     /**

@@ -163,14 +163,16 @@ each tool's test, as for the existing tools. Types and validation: [data-model.m
   - `setReadiness {ready: boolean}`;
   - `setTrace {on: boolean}`;
   - `setTraceLevel {level: enum}`;
-  - `setDebug {on: boolean}`;
   - `triggerMidnightTask {}`;
   - `deleteErrorProcesses {}`.
+
+  `debug on|off` is not offered: excluded after T054 (no observable server effect, research
+  D-2, D-22).
 - **Preview**: `before` / `requested` per action. `deleteErrorProcesses` gives `affected` (count,
   ids, workflows). `effects`:
   - maintenance: no processes run, REST answers "service unavailable", the meaning of `-eq`;
   - readiness: stays NOT READY while maintenance is on;
-  - level, trace and debug: stay until set back;
+  - level and trace: stay until set back;
   - midnight task: runs now instead of at its start time, its effect not documented by the
     vendor.
 - **Result**: `ChangeResult` with the re-read state. `deleteErrorProcesses` gives

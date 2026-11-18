@@ -773,7 +773,9 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 INUBIT_LIVE_T054_READS=appro
 node whose profile enables writes. The tool `operate_server` still refuses 8.1 until T066 flips
 the coverage rows, so the test sends the commands raw: the StartCLI writes are the production
 command forms through the production StartCLI runner with a write permit, `POST /ready/on|off` is
-the production write request of the REST client. Each step runs once, in this order:
+the production write request of the REST client. `debug on|off` (W9, W10, and the restore
+`debug off`) is excluded from `operate_server` since T054 and is built for this test only. Each
+step runs once, in this order:
 
 | Step | Command | Expected after-state | Case files |
 |---|---|---|---|
@@ -918,3 +920,6 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 INUBIT_LIVE_T054_DEBUG_SESSI
   `[live] T054 debug states on test/node1: in session: off → on → off; after session: off`. R6
   shows the state a new StartCLI process reads after the session. Neutralize the case files as
   above before anything is copied into the repository, and delete them afterwards.
+
+Result on 8.1.17: `in session: off → off → off; after session: off`. `debug on|off` has no
+observable server effect; the owner excluded it from `operate_server` (2026-11-18, research D-22).

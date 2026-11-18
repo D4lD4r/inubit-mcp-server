@@ -189,13 +189,13 @@ class StaleReportingPortsTest {
         assertThat(methods).isGreaterThan(20);
         // feature 017 (review of stage 5, research D-24): the mark of a write's own response
         // carries that write's permit object
-        // feature 022 T058: and the seven changes of the server operation port; T063: and the
+        // feature 022 T058: and the six changes of the server operation port; T063: and the
         // three of the tag administration port
         assertThat(writes).as("restart, kill, importArchive, importRepository, tag;"
-            + " switchMaintenance, switchReadiness, switchTrace, setTraceLevel, switchDebug,"
+            + " switchMaintenance, switchReadiness, switchTrace, setTraceLevel,"
             + " triggerMidnightTask, deleteErrorProcesses; setActiveTag, removeActiveTag,"
-            + " removeTag").isEqualTo(15);
-        assertThat(versions.staleWritePermits()).hasSize(15).allSatisfy(permit ->
+            + " removeTag").isEqualTo(14);
+        assertThat(versions.staleWritePermits()).hasSize(14).allSatisfy(permit ->
             assertThat(permit).isSameAs(PERMIT));
     }
 

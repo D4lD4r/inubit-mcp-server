@@ -8,12 +8,12 @@
       "description": "Id of exactly one {node} (`<{group}>/<{node}>`); {group} ids are rejected"
     },
     "action": {
-      "enum": ["setMaintenance", "setReadiness", "setTrace", "setTraceLevel", "setDebug", "triggerMidnightTask", "deleteErrorProcesses"],
+      "enum": ["setMaintenance", "setReadiness", "setTrace", "setTraceLevel", "triggerMidnightTask", "deleteErrorProcesses"],
       "description": "The change; each action takes only its own fields"
     },
     "on": {
       "type": "boolean",
-      "description": "true switches on, false off; required for and only allowed with `setMaintenance`, `setTrace` and `setDebug`"
+      "description": "true switches on, false off; required for and only allowed with `setMaintenance` and `setTrace`"
     },
     "executeQueued": {
       "type": "boolean",
@@ -52,7 +52,7 @@
       "not": { "anyOf": [{ "required": ["on"] }, { "required": ["executeQueued"] }, { "required": ["level"] }] }
     },
     {
-      "properties": { "action": { "enum": ["setTrace", "setDebug"] } },
+      "properties": { "action": { "const": "setTrace" } },
       "required": ["on"],
       "not": { "anyOf": [{ "required": ["executeQueued"] }, { "required": ["ready"] }, { "required": ["level"] }] }
     },

@@ -108,6 +108,13 @@ Facts from the 8.1 recordings of User Story 3 and the owner's decisions, details
 - `GET /model/nodeByName` and `fetchXSLT1.0` do not exist on 8.1.17; they are excluded on 8.1.
   The module detail is XML; `export --exportMetadata` exports the metadata registry.
 
+### Live check T054, 2026-11-18
+
+- On 8.1.17 `debug on` and `debug off` exit 0 without text, and `debug` reads "off" before and
+  after, in separate processes and inside one interactive session. The vendor's online help
+  describes `debug {on|off}` as the trace switch of the interactive CLI mode. The owner decided:
+  `debug on|off` is excluded and `operate_server` has no debug action (research D-2, D-22).
+
 **Input**: User description: "I would like to add all missing methods of StartCLI and REST, both
 reading and writing, to the MCP."
 
@@ -127,7 +134,7 @@ exactly one user story.
 | Area | Kind | Entries | Story | Protection |
 |---|---|---|---|---|
 | A. Server state and settings | read | `license -td\|-ts`, `GET /license`, `threads showNumberOfWorkflowThreads`, `privilegedWorkflows showThreadsPercentage\|showWorkflowList`, `dbconnectiontolerance show`, `getBlockingQueueSize`, `GET /configurations`, `date`, `-sv`, `-pctmem`, `-maintenanceState` | US1 | none (read) |
-| A. Server state and settings | write | `maintenance on\|off [-eq true\|false]`, `POST /ready/{on\|off}`, `trace on\|off`, `trace -l <level>`, `debug on\|off`, `triggerMidnightTask` | US4 | write enablement |
+| A. Server state and settings | write | `maintenance on\|off [-eq true\|false]`, `POST /ready/{on\|off}`, `trace on\|off`, `trace -l <level>`, `triggerMidnightTask` | US4 | write enablement |
 | A. Server state and settings | write | `threads setNumberOfWorkflowThreads`, setting the share of threads for privileged workflows, `dbconnectiontolerance set`, `PUT\|POST /configurations`, `PUT /license` | US6 | write enablement + settings opt-in |
 | B. Users and groups | read | `finger <login>`, `user <name>`, `-who`, `-nwho`, `GET /user/users`, `msglist`, `msgread` | US2 | none (read) |
 | B. Users and groups | write | `create -cu\|-cug\|-cur`, `user --setGroup\|--setAdditionalGroups\|--addAdditionalGroups\|--removeAdditionalGroups`, `passwd`, `delete --deleteUser\|--deleteUserGroup`, `DELETE /user/users/{name}`, `import --importUserGroup\|--overwriteUserRoles\|--importLDAPDetails\|--syncLDAPUsers`, `msgsend`, `msgdel` | US7 | write enablement + users opt-in |
@@ -157,7 +164,8 @@ Four groups of documented functions get no new access:
   a secret on the command line and prints the result), the offline scripts `backup.sh` and
   `restore.sh` (they need a stopped process engine on the INUBIT host), `lls` (lists the local
   directory of the StartCLI client, not of the server), the export filter forms `inFile` and
-  `--filterProcessIds` (they read a file on the INUBIT host).
+  `--filterProcessIds` (they read a file on the INUBIT host), `debug on|off` (the trace switch of
+  the interactive CLI mode; no observable server effect on 8.1.17, T054).
 - **Broken on the vendor side**: the log `processLog` fails on 8.1.17.
 - **Tag forms that act on the whole owner** (owner's decision, see Clarifications):
   `--tagDiagram` (ignored by INUBIT, so the command tags every diagram of the owner; seen in the
@@ -312,8 +320,7 @@ an existing tool can answer is reached through that tool. Testable offline.
 An operator prepares and finishes a maintenance window through the agent: switch the maintenance
 mode and the readiness state, delete the processes that are in error state, set or remove the
 active tag of a user and remove a tag from a diagram group or repository path, change the trace
-level or switch tracing and debug output on for a diagnosis and back off, trigger the midnight
-task.
+level or switch tracing on for a diagnosis and back off, trigger the midnight task.
 
 As the vendor documents them: in **maintenance mode** the process engine executes no processes
 (queued processes only if `-eq true` is set) and the REST API answers every request with "service
@@ -356,13 +363,13 @@ audit record. Testable offline.
 7. **Given** maintenance mode is to be switched on with queued processes still executing,
    **When** the preview is shown, **Then** it names the `-eq` value that will be sent and what it
    means.
-8. **Given** debug output is off, **When** it is switched on, **Then** the result names the state
-   before and after, and the description says that it stays on until it is switched off.
+8. **Given** a call with the action `setDebug`, **When** it is made, **Then** it is refused as an
+   unknown action and nothing is sent: `debug on|off` is excluded (Clarifications, T054).
 9. **Given** the readiness state is READY, **When** it is to be set to NOT READY, **Then** the
    preview names the current and the requested state and says that readiness stays NOT READY
    while maintenance mode is on; the result re-reads the state.
 10. **Given** tracing is off, **When** it is switched on, **Then** the result names the state
-    before and after, as for debug output (AS8).
+    before and after, and the description says that it stays on until it is switched off.
 11. **Given** the midnight task is to be triggered, **When** the preview is shown, **Then** it says
    that the daily task runs at once instead of at its configured start time, and names that start
    time if INUBIT reports it; the result names INUBIT's answer and the time it was sent.

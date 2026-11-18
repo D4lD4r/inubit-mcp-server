@@ -14,8 +14,8 @@ import java.util.function.Function;
 
 /**
  * {@code operate_server} (feature 022, US4, contracts/mcp-tools-delta.md "operate_server",
- * research D-22): switches maintenance mode, readiness, trace, trace level or debug mode of one
- * server, triggers its midnight task or deletes its processes in state ERROR
+ * research D-22): switches maintenance mode, readiness, trace or trace level of one server,
+ * triggers its midnight task or deletes its processes in state ERROR
  * ({@code ServerOperationService::execute}). The arguments, validated by the SDK against the input
  * schema, go to the service with the MCP client's {@code name/version} for the audit; the service
  * repeats every input check. The output is the service's {@link Response}:
@@ -33,11 +33,11 @@ public final class OperateServerTool implements ToolHandler {
         + " optionally `executeQueued`, sent as -eq: whether the processes already queued are"
         + " still executed), setReadiness (`ready`: what the readiness probe reports to a load"
         + " balancer, READY or NOT READY, without stopping the process engine), setTrace (`on`),"
-        + " setTraceLevel (`level`), setDebug (`on`), triggerMidnightTask, deleteErrorProcesses."
+        + " setTraceLevel (`level`), triggerMidnightTask, deleteErrorProcesses."
         + " In maintenance mode the process engine executes no processes and INUBIT's REST API"
         + " answers every request with \"service unavailable\"; the readiness stays NOT READY"
-        + " while maintenance mode is on. Tracing, the trace level and debug output stay as set"
-        + " until they are set back. The midnight task is the daily task INUBIT otherwise starts"
+        + " while maintenance mode is on. Tracing and the trace level stay as set until they are"
+        + " set back. The midnight task is the daily task INUBIT otherwise starts"
         + " at its configured start time; triggering it runs it at once, and the vendor does not"
         + " document what it does. deleteErrorProcesses deletes every process in state ERROR;"
         + " this cannot be undone. Every call needs a `reason` (stored in the audit log). On"

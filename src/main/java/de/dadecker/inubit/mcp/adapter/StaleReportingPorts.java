@@ -583,16 +583,6 @@ final class StaleReportingPorts {
         }
 
         @Override
-        public Optional<Boolean> debugState() {
-            return call(delegate::debugState);
-        }
-
-        @Override
-        public boolean switchDebug(boolean on, WritePermit permit) {
-            return write(permit, () -> delegate.switchDebug(on, permit));
-        }
-
-        @Override
         public String triggerMidnightTask(WritePermit permit) {
             return write(permit, () -> delegate.triggerMidnightTask(permit));
         }

@@ -332,16 +332,6 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
     }
 
     @Override
-    public Optional<Boolean> debugState() {
-        throw refusal();
-    }
-
-    @Override
-    public boolean switchDebug(boolean on, WritePermit permit) {
-        throw refusal();
-    }
-
-    @Override
     public String triggerMidnightTask(WritePermit permit) {
         throw refusal();
     }

@@ -42,8 +42,9 @@ import org.slf4j.LoggerFactory;
 /**
  * The actions of {@code operate_server} on one server (feature 022, US4, research D-12, D-13,
  * D-14, D-17, D-22; contracts/mcp-tools-delta.md → operate_server): the switches of maintenance
- * mode, readiness, trace, trace level and debug mode, the midnight task, and the deletion of the
- * processes in state ERROR. A call runs in this order:
+ * mode, readiness, trace and trace level, the midnight task, and the deletion of the processes in
+ * state ERROR. StartCLI's {@code debug on|off} is not offered: it had no observable server effect
+ * on 8.1.17 (T054, research D-22). A call runs in this order:
  *
  * <ol>
  *   <li>the inputs are checked, before anything is read ({@code INVALID_INPUT}, FR-020);
@@ -68,8 +69,8 @@ import org.slf4j.LoggerFactory;
  * maintenance mode from {@code maintenance -s}, where a {@code MAINTENANCE_MODE} error (INUBIT's
  * REST API answering 503) counts as "on"; before switching it on, the running and queued processes
  * from the metrics; readiness from {@code GET /ready}; trace on/off from the system information;
- * the trace level and the debug mode from the port, which knows no read form for them yet, so they
- * are shown as unknown with a warning, and the result says the re-read failed; the midnight task's
+ * the trace level from the port, which knows no read form for it yet, so it is shown as unknown
+ * with a warning, and the result says the re-read failed; the midnight task's
  * {@code MidnightTaskTriggerTime} from {@code GET /configurations}, if INUBIT reports it; the
  * processes in state ERROR from {@link ServerOperationPort#errorProcesses}, compared by a hash of
  * their sorted ids, or by their count when INUBIT lists no ids (D-14, FR-017).
@@ -83,7 +84,6 @@ public final class ServerOperationService {
     static final String SET_READINESS = "setReadiness";
     static final String SET_TRACE = "setTrace";
     static final String SET_TRACE_LEVEL = "setTraceLevel";
-    static final String SET_DEBUG = "setDebug";
     static final String TRIGGER_MIDNIGHT_TASK = "triggerMidnightTask";
     static final String DELETE_ERROR_PROCESSES = "deleteErrorProcesses";
 
@@ -113,8 +113,6 @@ public final class ServerOperationService {
         "The vendor does not document what the midnight task does.");
     private static final String NO_TRACE_LEVEL_READ =
         "INUBIT offers no known command that reads the trace level";
-    private static final String NO_DEBUG_READ =
-        "INUBIT offers no known command that reads the debug mode";
     private static final List<String> DELETE_ERROR_PROCESSES_EFFECTS = List.of(
         "The processes in state ERROR are deleted and cannot be restored.",
         "processdelete error deletes every process in state ERROR when it runs, also one that"
@@ -133,7 +131,6 @@ public final class ServerOperationService {
     public static final ActionSpec SET_TRACE_SPEC = spec(SET_TRACE, Set.of(cli("trace on|off")));
     public static final ActionSpec SET_TRACE_LEVEL_SPEC = spec(SET_TRACE_LEVEL,
         Set.of(cli("trace -l")));
-    public static final ActionSpec SET_DEBUG_SPEC = spec(SET_DEBUG, Set.of(cli("debug on|off")));
     public static final ActionSpec TRIGGER_MIDNIGHT_TASK_SPEC = spec(TRIGGER_MIDNIGHT_TASK,
         Set.of(cli("triggerMidnightTask")));
     public static final ActionSpec DELETE_ERROR_PROCESSES_SPEC = new ActionSpec(TOOL,
@@ -144,7 +141,7 @@ public final class ServerOperationService {
 
     /** The specs of the actions, for the coverage gate (research D-2). */
     public static final List<ActionSpec> SPECS = List.of(SET_MAINTENANCE_SPEC, SET_READINESS_SPEC,
-        SET_TRACE_SPEC, SET_TRACE_LEVEL_SPEC, SET_DEBUG_SPEC, TRIGGER_MIDNIGHT_TASK_SPEC,
+        SET_TRACE_SPEC, SET_TRACE_LEVEL_SPEC, TRIGGER_MIDNIGHT_TASK_SPEC,
         DELETE_ERROR_PROCESSES_SPEC);
 
     private final ChangeGuard guard;
@@ -437,8 +434,6 @@ public final class ServerOperationService {
             case SET_TRACE -> trace(node);
             case SET_TRACE_LEVEL -> port.traceLevel().map(level -> State.known(name(level)))
                 .orElseGet(() -> State.unknown(NO_TRACE_LEVEL_READ));
-            case SET_DEBUG -> port.debugState().map(on -> State.known(onOff(on)))
-                .orElseGet(() -> State.unknown(NO_DEBUG_READ));
             case TRIGGER_MIDNIGHT_TASK -> new State(TRIGGER_MIDNIGHT_TASK, startTime(node),
                 Optional.empty());
             case DELETE_ERROR_PROCESSES -> errorProcesses(port.errorProcesses(clock.instant()));
@@ -560,7 +555,6 @@ public final class ServerOperationService {
             case SET_TRACE -> "trace " + onOff(port.switchTrace(flag(fields, ON), permit));
             case SET_TRACE_LEVEL -> "trace level " + name(port.setTraceLevel(level(fields),
                 permit));
-            case SET_DEBUG -> "debug mode " + onOff(port.switchDebug(flag(fields, ON), permit));
             case TRIGGER_MIDNIGHT_TASK -> port.triggerMidnightTask(permit);
             default -> throw new IllegalArgumentException("Unknown action " + action);
         };
@@ -597,7 +591,6 @@ public final class ServerOperationService {
             case SET_READINESS -> "readiness";
             case SET_TRACE -> "trace";
             case SET_TRACE_LEVEL -> "trace level";
-            case SET_DEBUG -> "debug mode";
             case DELETE_ERROR_PROCESSES -> "processes in state ERROR";
             default -> "midnight task";
         };
@@ -610,7 +603,7 @@ public final class ServerOperationService {
                     ? " with -eq " + fields.get(EXECUTE_QUEUED) : "")
                 : "off";
             case SET_READINESS -> readiness(flag(fields, READY));
-            case SET_TRACE, SET_DEBUG -> onOff(flag(fields, ON));
+            case SET_TRACE -> onOff(flag(fields, ON));
             case SET_TRACE_LEVEL -> name(level(fields));
             case DELETE_ERROR_PROCESSES -> "delete every process in state ERROR";
             default -> "run now";
@@ -634,9 +627,6 @@ public final class ServerOperationService {
                 : "The trace stays off until it is switched on.");
             case SET_TRACE_LEVEL -> List.of("The trace level stays " + name(level(fields))
                 + " until it is set back.");
-            case SET_DEBUG -> List.of(flag(fields, ON)
-                ? "Debug output stays on until it is switched off."
-                : "Debug output stays off until it is switched on.");
             case DELETE_ERROR_PROCESSES -> DELETE_ERROR_PROCESSES_EFFECTS;
             default -> MIDNIGHT_TASK_EFFECTS;
         };
@@ -654,7 +644,7 @@ public final class ServerOperationService {
         Set<String> allowed = switch (action) {
             case SET_MAINTENANCE -> Set.of(ON, EXECUTE_QUEUED);
             case SET_READINESS -> Set.of(READY);
-            case SET_TRACE, SET_DEBUG -> Set.of(ON);
+            case SET_TRACE -> Set.of(ON);
             case SET_TRACE_LEVEL -> Set.of(LEVEL);
             default -> Set.of();
         };
@@ -674,7 +664,7 @@ public final class ServerOperationService {
                 }
             }
             case SET_READINESS -> flag(fields, READY);
-            case SET_TRACE, SET_DEBUG -> flag(fields, ON);
+            case SET_TRACE -> flag(fields, ON);
             case SET_TRACE_LEVEL -> level(fields);
             default -> {
             }

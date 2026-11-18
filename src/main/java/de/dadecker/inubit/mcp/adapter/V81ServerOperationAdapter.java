@@ -33,8 +33,8 @@ import java.util.TreeSet;
  *       {@link ProcessQueryPort} ({@code POST /log/queueLog}), 1,000 rows per request, up to
  *       {@link #MAX_ERROR_PROCESS_IDS} rows; with more, the total INUBIT reports on the first page
  *       is the count only;
- *   <li>the trace level and the debug state are unknown: INUBIT has no known form that reads them
- *       (research D-22, live check T054).
+ *   <li>the trace level is unknown: INUBIT has no known form that reads it (research D-22, live
+ *       check T054).
  * </ul>
  */
 final class V81ServerOperationAdapter implements ServerOperationPort {
@@ -90,16 +90,6 @@ final class V81ServerOperationAdapter implements ServerOperationPort {
     @Override
     public TraceLevel setTraceLevel(TraceLevel level, WritePermit permit) {
         return operations.setTraceLevel(level, permit);
-    }
-
-    @Override
-    public Optional<Boolean> debugState() {
-        return Optional.empty();
-    }
-
-    @Override
-    public boolean switchDebug(boolean on, WritePermit permit) {
-        return operations.switchDebug(on, permit);
     }
 
     @Override

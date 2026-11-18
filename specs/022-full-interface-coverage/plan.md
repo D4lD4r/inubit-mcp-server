@@ -280,7 +280,8 @@ their live check is open, with the action not offered, as FR-004 allows.
    - `ChangeGuard`, `ChangeLocks`, `ChangePreview`/`ChangeResult`, `ChangeAudit`, preview-state
      helpers, `BackupStore.Kind.ADMINISTRATION` (tag lists);
    - `operate_server` and `manage_tags`;
-   - `CliCommand` `trace on|off|-l`, `debug`, `maintenance`, `triggerMidnightTask`,
+   - `CliCommand` `trace on|off|-l`, `maintenance`, `triggerMidnightTask` (`debug` removed
+     after T054: excluded, research D-2),
      `processdelete error`, the new `tag` options;
    - L-2, L-3, L-4 (approved).
 5. **Increment 5 – US5**: `ExportFilter`, `RuntimeReadGuard`, `transfer_runtime_data`, the

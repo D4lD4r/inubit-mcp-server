@@ -20,6 +20,7 @@ channel	entry	kind	area	story	v8_1	v9_0	waits
 # A. Server state and settings
 # license -td, license -ts: covered:get_server_settings since the 8.1 recordings (T014, contract tests T025) and the 9.0 recordings (T024, contract tests T026) (research D-6 "Covered rows before their tool exists")
 # threads showNumberOfWorkflowThreads, privilegedWorkflows showThreadsPercentage|showWorkflowList: answer "Only root user can use this command." to the profile's account (recorded T014 on 8.1, T024 on 9.0; owner decision 2026-11-13)
+# debug on|off: excluded (live check T054/L-3, owner decision 2026-11-18): on 8.1.17 `debug on|off` exits 0 without text and `debug` reads "off" before and after, also within one interactive session; the vendor's online help describes it as the trace switch of the interactive CLI mode
 CLI	license -td	READ	A	US1	covered:get_server_settings	covered:get_server_settings	-
 CLI	license -ts	READ	A	US1	covered:get_server_settings	covered:get_server_settings	-
 CLI	threads showNumberOfWorkflowThreads	READ	A	-	excluded:needs the INUBIT root user	excluded:needs the INUBIT root user	-
@@ -45,7 +46,7 @@ CLI	maintenance on|off	WRITE	A	US4	planned	planned	-
 CLI	maintenance -eq true|false	WRITE	A	US4	planned	planned	-
 CLI	trace on|off	WRITE	A	US4	planned	planned	-
 CLI	trace -l	WRITE	A	US4	planned	planned	-
-CLI	debug on|off	WRITE	A	US4	planned	planned	-
+CLI	debug on|off	WRITE	A	-	excluded:the trace switch of the interactive CLI mode (vendor); no observable server effect on INUBIT 8.1.17 (T054)	excluded:the trace switch of the interactive CLI mode (vendor); no observable server effect on INUBIT 8.1.17 (T054)	-
 CLI	triggerMidnightTask	WRITE	A	US4	planned	planned	-
 CLI	threads setNumberOfWorkflowThreads	WRITE	A	US6	planned	planned	-
 CLI	privilegedWorkflows setThreadsPercentage	WRITE	A	US6	planned	planned	-
@@ -285,7 +286,7 @@ REST	POST /webapp/{id}	READ	PORTAL	-	excluded:portal function	excluded:portal fu
 # StartCLI start options and offline scripts
 CLI	-v	READ	START	-	reachable:get_health/default	reachable:get_health/default	-
 CLI	-a	READ	START	-	excluded:lists the network interfaces of the StartCLI client's host, not of the server	excluded:lists the network interfaces of the StartCLI client's host, not of the server	-
-CLI	--debug	WRITE	START	-	excluded:starts an interactive StartCLI session with the client trace; the switch is debug on|off	excluded:starts an interactive StartCLI session with the client trace; the switch is debug on|off	-
+CLI	--debug	WRITE	START	-	excluded:starts an interactive StartCLI session with the client trace	excluded:starts an interactive StartCLI session with the client trace	-
 CLI	--encryptString	READ	START	-	excluded:takes a secret on the command line and prints the result	excluded:takes a secret on the command line and prints the result	-
 CLI	--backupFile	WRITE	START	US6	planned	planned	-
 CLI	--backupRepository	WRITE	START	US6	planned	planned	-

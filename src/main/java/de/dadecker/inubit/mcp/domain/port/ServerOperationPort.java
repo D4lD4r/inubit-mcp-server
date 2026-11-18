@@ -8,7 +8,7 @@ import java.util.Optional;
 
 /**
  * Operates one INUBIT server for {@code operate_server} (feature 022, US4, research D-22): the
- * maintenance mode, the trace, its level and the debug mode over StartCLI, the readiness over
+ * maintenance mode, the trace and its level over StartCLI, the readiness over
  * REST, the midnight task and the deletion of the processes in state ERROR over StartCLI, with the
  * set of those processes read over REST (research D-14). Failures are thrown as
  * {@link de.dadecker.inubit.mcp.domain.model.ToolErrorException} with the server id.
@@ -68,19 +68,6 @@ public interface ServerOperationPort {
      * @return the level INUBIT answers with
      */
     TraceLevel setTraceLevel(TraceLevel level, WritePermit permit);
-
-    /**
-     * Whether debug mode is on; always empty, without contacting the server: INUBIT has no known
-     * form that reads it (research D-22; the live check T054 looks for one).
-     */
-    Optional<Boolean> debugState();
-
-    /**
-     * Switches debug mode ({@code debug on|off}).
-     *
-     * @return the state INUBIT answers with
-     */
-    boolean switchDebug(boolean on, WritePermit permit);
 
     /**
      * Runs the midnight task now ({@code triggerMidnightTask}).

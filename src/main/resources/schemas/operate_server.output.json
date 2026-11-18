@@ -27,7 +27,7 @@
   ],
   "$defs": {
     "Action": {
-      "enum": ["setMaintenance", "setReadiness", "setTrace", "setTraceLevel", "setDebug", "triggerMidnightTask", "deleteErrorProcesses"]
+      "enum": ["setMaintenance", "setReadiness", "setTrace", "setTraceLevel", "triggerMidnightTask", "deleteErrorProcesses"]
     },
     "ChangePreview": {
       "type": "object",

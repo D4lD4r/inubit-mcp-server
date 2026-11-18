@@ -850,8 +850,8 @@ offered).
 
 ## Phase 6: User Story 4 – Operate a server (P2)
 
-**Goal**: `operate_server` (maintenance, readiness, trace, trace level, debug, midnight task,
-deleting processes in error) and `manage_tags` (active tag of a user; tag removal limited to a
+**Goal**: `operate_server` (maintenance, readiness, trace, trace level, midnight task, deleting
+processes in error) and `manage_tags` (active tag of a user; tag removal limited to a
 group or path if INUBIT allows it), each previewed, confirmed, audited (US4).
 
 **Independent test**: with fakes, each change is refused by default, shows a preview when
@@ -918,7 +918,8 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - `maintenance on -eq false`, `maintenance off`;
   - `GET /ready` and `POST /ready/off`, `POST /ready/on`, including once while maintenance is on;
   - `trace on`, `trace off`, `trace -l <level>` (record the level list from `trace --help`);
-  - `debug on`, `debug off`;
+  - `debug on`, `debug off` (recorded: no observable server effect; excluded, owner decision
+    2026-11-18);
   - `triggerMidnightTask` (only if the owner approves running the midnight task);
   - `processdelete error` with exactly one prepared test process in error.
 
@@ -940,14 +941,15 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - `trace on|off`, `trace -l <level>` (level enum from T054; until then the vendor list
     `error|warn|info|debug` reconstructed and marked in `research.md`), with `trace --download`
     (021) as a separate path and never combined;
-  - `debug on|off`;
+  - `debug on|off` (removed after T054);
   - `triggerMidnightTask`;
   - `processdelete error`.
   - Failing tests first in `CliCommandTest.java`: allowed forms; `-eq` with `off` rejected;
     `trace --download` combined with `on` rejected; `processdelete` with any other argument
     rejected.
 - [X] T057 [US4] `adapter/cli/admin/CliOperationRunner.java` and parsers
-  `MaintenanceStateParser.java`, `TraceStateParser.java`, `DebugStateParser.java`,
+  `MaintenanceStateParser.java`, `TraceStateParser.java`, `DebugStateParser.java` (removed after
+  T054),
   `MidnightTaskAnswerParser.java`, `ProcessDeleteAnswerParser.java` (the count INUBIT reports);
   `RestEndpoint` + `POST /ready/{state}`.
   - Failing tests first: runner test with scripted runs; parser tests with reconstructed cases;
@@ -960,8 +962,8 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
     verified", `NodeOverview`, `list_nodes` enum), with `CapabilityMatrixTest` and `ListNodesToolTest`;
   - Failing tests first: adapter tests, `WiringAuditTest`.
 - [X] T059 [US4] `application/ServerOperationService.java`, switch actions:
-  - `setMaintenance`, `setReadiness`, `setTrace`, `setTraceLevel`, `setDebug`,
-    `triggerMidnightTask`, per `contracts/mcp-tools-delta.md`;
+  - `setMaintenance`, `setReadiness`, `setTrace`, `setTraceLevel`, `setDebug` (removed after
+    T054), `triggerMidnightTask`, per `contracts/mcp-tools-delta.md`;
   - the before state read first (`MAINTENANCE_MODE` from REST counts as "on");
   - `effects` sentences per action, with the fixed texts from the contract;
   - the after state re-read (FR-024);
@@ -1029,7 +1031,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
 - [ ] T066 [US4] Contracts, flips, docs and PR [BLOCKED: T054, T055]:
   - `OperateV81ContractTest.java`, `TagAdminV81ContractTest.java`;
   - rows flipped, or `--tagRemove`/`--tagDelete` set to `excluded:acts on the whole owner` per
-    T055;
+    T055; `debug on|off` is already excluded (T054), no `setDebug` row is flipped;
   - matrix, docs page;
   - `docs/tools.md` sections `operate_server`, `manage_tags`;
   - `docs/setup.md`: write enablement, `CLIENT` mode;

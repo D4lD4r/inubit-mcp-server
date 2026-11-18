@@ -168,7 +168,6 @@ class OperationSecretLeakTest {
         REST\tPOST /ready/{status}\tWRITE\tA\tUS4\treachable:operate_server/setReadiness\tplanned\t-
         CLI\ttrace on|off\tWRITE\tA\tUS4\treachable:operate_server/setTrace\tplanned\t-
         CLI\ttrace -l\tWRITE\tA\tUS4\treachable:operate_server/setTraceLevel\tplanned\t-
-        CLI\tdebug on|off\tWRITE\tA\tUS4\treachable:operate_server/setDebug\tplanned\t-
         CLI\ttriggerMidnightTask\tWRITE\tA\tUS4\treachable:operate_server/triggerMidnightTask\tplanned\t-
         CLI\tprocessdelete error\tWRITE\tA\tUS4\treachable:operate_server/deleteErrorProcesses\tplanned\t-
         CLI\ttag --tagUser\tWRITE\tE\t-\treachable:tag_artifacts/default\treachable:tag_artifacts/default\t-
@@ -186,7 +185,6 @@ class OperationSecretLeakTest {
         "maintenance on", "Maintenance mode: on",
         "trace on", "Trace: on",
         "trace -l debug", "Trace level: debug",
-        "debug on", "Debug mode: on",
         "triggerMidnightTask", "Midnight task triggered.",
         "processdelete error", "Deleted processes: 2");
     /** The RECONSTRUCTED answer of {@code user jdoe} with an active tag. */
@@ -355,7 +353,6 @@ class OperationSecretLeakTest {
         results.add(operate(Map.of("action", "setReadiness", "ready", false)));
         results.add(operate(Map.of("action", "setTrace", "on", true)));
         results.add(operate(Map.of("action", "setTraceLevel", "level", "debug")));
-        results.add(operate(Map.of("action", "setDebug", "on", true)));
         results.add(operate(Map.of("action", "triggerMidnightTask")));
         results.add(operate(Map.of("action", "deleteErrorProcesses")));
         results.add(tags(Map.of("action", "setActiveTag", "user", USER, "tag", "REL-2")));
@@ -573,16 +570,6 @@ class OperationSecretLeakTest {
                 @Override
                 public TraceLevel setTraceLevel(TraceLevel level, WritePermit permit) {
                     return cli.setTraceLevel(level, permit);
-                }
-
-                @Override
-                public Optional<Boolean> debugState() {
-                    return Optional.empty();
-                }
-
-                @Override
-                public boolean switchDebug(boolean on, WritePermit permit) {
-                    return cli.switchDebug(on, permit);
                 }
 
                 @Override

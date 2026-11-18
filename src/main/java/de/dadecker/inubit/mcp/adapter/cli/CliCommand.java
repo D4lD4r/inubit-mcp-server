@@ -57,9 +57,10 @@ import java.util.regex.Pattern;
  *       {@code maintenance}, {@code maintenance -s}, {@code maintenance on|off} and
  *       {@code maintenance on -eq true|false} ({@link #maintenanceSwitch}; {@code -eq} only with
  *       {@code on}); {@code trace on|off} ({@link #traceSwitch}) and {@code trace -l <level>}
- *       ({@link #traceLevel}, a {@link TraceLevel}); {@code debug on|off};
- *       {@code triggerMidnightTask}; {@code processdelete error}. {@code OPTIONS} lists them as
- *       the coverage list writes them.
+ *       ({@link #traceLevel}, a {@link TraceLevel}); {@code triggerMidnightTask};
+ *       {@code processdelete error}. {@code OPTIONS} lists them as the coverage list writes them.
+ *       Never {@code debug}: {@code debug on|off} is excluded (no observable server effect on
+ *       8.1.17, T054).
  *   <li>Feature 022 (research D-18), the tag forms of {@code manage_tags}, each only through
  *       its own method and never through the {@link Builder}: {@code tag --tagSetActive '<tag>'
  *       --tagUser '<user>'} ({@link #tagSetActive}), {@code tag --tagRemoveActive --tagUser
@@ -125,7 +126,6 @@ public final class CliCommand {
         Map.entry("library", Set.of("--list", "--type")),
         // feature 022 (research D-22): built through their factory methods only
         Map.entry("maintenance", Set.of("-s", "on|off", "-eq true|false")),
-        Map.entry("debug", Set.of("on|off")),
         Map.entry("triggerMidnightTask", Set.of()),
         Map.entry("processdelete", Set.of("error")));
     /**
@@ -133,7 +133,7 @@ public final class CliCommand {
      * refuses to build them, so they exist only as their factory methods.
      */
     private static final Set<String> OPERATION_COMMANDS =
-        Set.of("maintenance", "debug", "triggerMidnightTask", "processdelete");
+        Set.of("maintenance", "triggerMidnightTask", "processdelete");
     /**
      * The entries of {@link #OPTIONS} that name an operation form the way the coverage list
      * writes it ({@code trace on|off}, {@code maintenance -eq true|false}); they are no options
@@ -190,7 +190,7 @@ public final class CliCommand {
     /**
      * Test seam of the live recording of feature 022 T054 (research "Live checks" L-2, L-3): the
      * command of {@code tokens}, outside the allowlist. Package-private and without a production
-     * caller; the reads it serves stay outside {@code OPTIONS}, so no tool can send them.
+     * caller; the commands it serves stay outside {@code OPTIONS}, so no tool can send them.
      */
     static CliCommand unlisted(List<String> tokens) {
         return new CliCommand(tokens);
@@ -291,11 +291,6 @@ public final class CliCommand {
             throw invalid("The trace level is missing", "Use one of the levels of trace -l");
         }
         return new CliCommand(List.of("trace", "-l", level.name().toLowerCase(Locale.ROOT)));
-    }
-
-    /** {@code debug on|off}: switch the server's debug mode (feature 022, research D-22). */
-    public static CliCommand debugSwitch(boolean on) {
-        return new CliCommand(List.of("debug", onOff(on)));
     }
 
     /** {@code triggerMidnightTask}: run the midnight task now (feature 022, research D-22). */

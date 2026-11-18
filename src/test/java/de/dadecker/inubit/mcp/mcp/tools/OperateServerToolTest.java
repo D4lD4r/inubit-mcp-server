@@ -63,11 +63,11 @@ class OperateServerToolTest {
         + " optionally `executeQueued`, sent as -eq: whether the processes already queued are"
         + " still executed), setReadiness (`ready`: what the readiness probe reports to a load"
         + " balancer, READY or NOT READY, without stopping the process engine), setTrace (`on`),"
-        + " setTraceLevel (`level`), setDebug (`on`), triggerMidnightTask, deleteErrorProcesses."
+        + " setTraceLevel (`level`), triggerMidnightTask, deleteErrorProcesses."
         + " In maintenance mode the process engine executes no processes and INUBIT's REST API"
         + " answers every request with \"service unavailable\"; the readiness stays NOT READY"
-        + " while maintenance mode is on. Tracing, the trace level and debug output stay as set"
-        + " until they are set back. The midnight task is the daily task INUBIT otherwise starts"
+        + " while maintenance mode is on. Tracing and the trace level stay as set until they are"
+        + " set back. The midnight task is the daily task INUBIT otherwise starts"
         + " at its configured start time; triggering it runs it at once, and the vendor does not"
         + " document what it does. deleteErrorProcesses deletes every process in state ERROR;"
         + " this cannot be undone. Every call needs a `reason` (stored in the audit log). On"
@@ -78,7 +78,7 @@ class OperateServerToolTest {
         + " (never on production) the first call executes. The result re-reads the state. Needs"
         + " write access; production only with write.productionOptIn.";
     private static final List<String> ACTIONS = List.of("setMaintenance", "setReadiness",
-        "setTrace", "setTraceLevel", "setDebug", "triggerMidnightTask", "deleteErrorProcesses");
+        "setTrace", "setTraceLevel", "triggerMidnightTask", "deleteErrorProcesses");
     private static final NodeId TEST = NodeId.parse("test/node1");
     private static final String CODE = "Zk3p0Qx8LmN2vB7cR1tY4w";
     private static final String REASON = "Prepare the maintenance window";
@@ -137,12 +137,12 @@ class OperateServerToolTest {
                 TraceLevel.values()).map(level -> level.name().toLowerCase(Locale.ROOT)).toList());
     }
 
-    /** Spec US4: AS5, AS8, AS9, AS10, the midnight task and the maintenance mode. */
+    /** Spec US4: AS5, AS9, AS10, the midnight task and the maintenance mode. */
     @Test
     void theDescriptionSaysWhatTheSpecRequires() {
         assertThat(OperateServerTool.DESCRIPTION).contains(
             "the vendor does not document what it does",
-            "Tracing, the trace level and debug output stay as set until they are set back",
+            "Tracing and the trace level stay as set until they are set back",
             "the readiness stays NOT READY while maintenance mode is on",
             "INUBIT's REST API answers every request with \"service unavailable\"",
             "runs it at once", "this cannot be undone", "the first call only returns a preview",
@@ -179,8 +179,6 @@ class OperateServerToolTest {
             call("setTraceLevel", Map.of("level", "DEBUG")),
             call("setTraceLevel", Map.of("level", "trace")),
             call("setTraceLevel", Map.of("level", "debug", "on", true)),
-            call("setDebug", Map.of()),
-            call("setDebug", Map.of("on", true, "level", "debug")),
             call("triggerMidnightTask", Map.of("on", true)),
             call("deleteErrorProcesses", Map.of("level", "error"))));
         for (String required : List.of("node", "action", "reason")) {
@@ -200,6 +198,18 @@ class OperateServerToolTest {
         assertThat(requests).as("the service was not called").isEmpty();
     }
 
+    /** T054: {@code debug on|off} had no observable server effect; it is no action (AS8). */
+    @Test
+    void setDebugIsAnUnknownActionAndNeverReachesTheService() {
+        JsonNode result = client.callTool("operate_server", call("setDebug", Map.of("on", true)));
+
+        assertThat(result.path("isError").asBoolean()).isTrue();
+        assertThat(result.path("content").get(0).path("text").asString())
+            .as("the schema, not the service's ToolError").doesNotContain("\"code\"");
+        assertThat(OperateServerTool.DESCRIPTION).doesNotContain("setDebug", "debug output");
+        assertThat(requests).as("the service was not called").isEmpty();
+    }
+
     @Test
     void everyActionFormAndTheLimitsPassTheSchema() {
         List<Map<String, Object>> calls = new ArrayList<>(List.of(
@@ -210,7 +220,6 @@ class OperateServerToolTest {
             call("setReadiness", Map.of("ready", true)),
             call("setReadiness", Map.of("ready", false)),
             call("setTrace", Map.of("on", false)),
-            call("setDebug", Map.of("on", true)),
             call("triggerMidnightTask", Map.of()),
             call("deleteErrorProcesses", Map.of()),
             with(trace(), "confirmationCode", CODE),
@@ -331,7 +340,7 @@ class OperateServerToolTest {
         response = () -> new Response.Completed(new ChangeResult(TEST, "operate_server",
             "deleteErrorProcesses", "processes in state ERROR", ChangeOutcome.EXECUTED,
             "40 processes in state ERROR", "Deleted processes: 40", Optional.empty(),
-            Optional.of("INUBIT offers no known command that reads the debug mode"),
+            Optional.of("INUBIT offers no known command that reads the trace level"),
             OptionalInt.of(40), Optional.empty(), ChangeResult.RestartNeeded.FALSE, AUDIT),
             List.of());
 

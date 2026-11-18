@@ -65,7 +65,6 @@ class ServerOperationServiceTest {
         REST\tPOST /ready/{status}\tWRITE\tA\tUS4\treachable:operate_server/setReadiness\tplanned\t-
         CLI\ttrace on|off\tWRITE\tA\tUS4\treachable:operate_server/setTrace\tplanned\t-
         CLI\ttrace -l\tWRITE\tA\tUS4\treachable:operate_server/setTraceLevel\tplanned\t-
-        CLI\tdebug on|off\tWRITE\tA\tUS4\treachable:operate_server/setDebug\tplanned\t-
         CLI\ttriggerMidnightTask\tWRITE\tA\tUS4\treachable:operate_server/triggerMidnightTask\tplanned\t-
         """;
 
@@ -216,10 +215,10 @@ class ServerOperationServiceTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"setMaintenance", "setReadiness", "setTrace", "setTraceLevel",
-        "setDebug", "triggerMidnightTask"})
+        "triggerMidnightTask"})
     void as3AProductionServerWithoutOptInRefusesEveryAction(String action) {
         Map<String, Object> fields = switch (action) {
-            case "setMaintenance", "setTrace", "setDebug" -> fields("on", true);
+            case "setMaintenance", "setTrace" -> fields("on", true);
             case "setReadiness" -> fields("ready", false);
             case "setTraceLevel" -> fields("level", "debug");
             default -> fields();
@@ -397,38 +396,20 @@ class ServerOperationServiceTest {
                 + " INUBIT's REST API answers every request with \"service unavailable\".");
     }
 
-    // --- AS8, AS10: debug and trace ---------------------------------------------------------------
+    // --- AS8, AS10: debug (excluded) and trace ------------------------------------------------
 
+    /** T054: {@code debug on|off} had no observable server effect, so it is no action. */
     @Test
-    void as8TheResultNamesTheDebugStateBeforeAndAfterWhereINUBITCanReadIt() {
-        server.debugReadable = true;
+    void as8SetDebugIsAnUnknownActionRefusedBeforeAnythingIsRead() {
+        ToolError error = refusal(() -> call(DEV, "setDebug", fields("on", true),
+            Optional.empty()));
 
-        ChangePreview preview = preview(DEV, "setDebug", fields("on", true));
-        assertThat(preview.before()).isEqualTo("off");
-        assertThat(preview.effects())
-            .containsExactly("Debug output stays on until it is switched off.");
-
-        ChangeResult result = confirm(preview, fields("on", true)).result();
-
-        assertThat(server.switches()).containsExactly("debug on");
-        assertThat(result.before()).isEqualTo("off");
-        assertThat(result.after()).contains("on");
-    }
-
-    @Test
-    void as8WithoutAReadFormTheDebugStateIsUnknownWithAWarning() {
-        ChangePreview preview = preview(DEV, "setDebug", fields("on", true));
-
-        assertThat(preview.before())
-            .isEqualTo("unknown: INUBIT offers no known command that reads the debug mode");
-        assertThat(preview.warnings()).containsExactly("The current debug mode cannot be shown:"
-            + " INUBIT offers no known command that reads the debug mode");
-
-        ChangeResult result = confirm(preview, fields("on", true)).result();
-
-        assertThat(result.inubitAnswer()).isEqualTo("debug mode on");
-        assertThat(result.reReadFailed())
-            .contains("INUBIT offers no known command that reads the debug mode");
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(error.message()).isEqualTo("The action is not one of setMaintenance,"
+            + " setReadiness, setTrace, setTraceLevel, triggerMidnightTask, deleteErrorProcesses;"
+            + " nothing was changed");
+        assertThat(server.calls).isEmpty();
+        assertThat(outcomes()).containsExactly(AuditOutcome.REFUSED);
     }
 
     @Test
@@ -534,14 +515,15 @@ class ServerOperationServiceTest {
             server.duringSwitch = () -> { };
             second.set(refusal(() -> call(TEST_CLIENT, "setTrace", fields("on", false),
                 Optional.empty())));
-            other.set(call(TEST_CLIENT, "setDebug", fields("on", true), Optional.empty()));
+            other.set(call(TEST_CLIENT, "setTraceLevel", fields("level", "info"),
+                Optional.empty()));
         };
 
         call(TEST_CLIENT, "setTrace", fields("on", true), Optional.empty());
 
         assertThat(second.get().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
         assertThat(other.get()).isInstanceOf(ServerOperationService.Response.Completed.class);
-        assertThat(server.switches()).containsExactly("trace on", "debug on");
+        assertThat(server.switches()).containsExactly("trace on", "trace -l info");
         assertThat(outcomes()).containsExactly(AuditOutcome.PENDING, AuditOutcome.REFUSED,
             AuditOutcome.PENDING, AuditOutcome.EXECUTED, AuditOutcome.EXECUTED);
     }
@@ -578,7 +560,7 @@ class ServerOperationServiceTest {
     void aCodeForOtherInputsIsConfirmationInvalidAndNothingIsSent() {
         ChangePreview preview = preview(DEV, "setTrace", fields("on", true));
 
-        ToolError error = refusal(() -> call(DEV, "setDebug", fields("on", true),
+        ToolError error = refusal(() -> call(DEV, "setTraceLevel", fields("level", "debug"),
             Optional.of(preview.confirmation().orElseThrow().code())));
 
         assertThat(error.code()).isEqualTo(ErrorCode.CONFIRMATION_INVALID);

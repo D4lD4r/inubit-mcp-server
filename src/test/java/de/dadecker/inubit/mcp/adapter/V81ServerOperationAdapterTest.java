@@ -156,7 +156,6 @@ class V81ServerOperationAdapterTest {
         step(cli, "maintenance off", "Maintenance mode: off");
         step(cli, "trace on", "Trace: on");
         step(cli, "trace -l info", "Trace level: info");
-        step(cli, "debug off", "Debug mode: off");
         step(cli, "triggerMidnightTask", "Midnight task triggered.");
         step(cli, "processdelete error", "Deleted processes: 3");
         ServerOperationPort port = adapter(cli);
@@ -166,26 +165,24 @@ class V81ServerOperationAdapterTest {
         assertThat(port.switchMaintenance(false, Optional.empty(), PERMIT)).isFalse();
         assertThat(port.switchTrace(true, PERMIT)).isTrue();
         assertThat(port.setTraceLevel(TraceLevel.INFO, PERMIT)).isEqualTo(TraceLevel.INFO);
-        assertThat(port.switchDebug(false, PERMIT)).isFalse();
         assertThat(port.triggerMidnightTask(PERMIT)).isEqualTo("Midnight task triggered.");
         assertThat(port.deleteErrorProcesses(PERMIT)).isEqualTo(3L);
 
         cli.verifyComplete();
         assertThat(cli.execCommands()).containsExactly("maintenance -s",
             "maintenance on -eq true", "maintenance off", "trace on", "trace -l info",
-            "debug off", "triggerMidnightTask", "processdelete error");
+            "triggerMidnightTask", "processdelete error");
         assertThat(lock.permits()).as("every change, not the state read, is handed off")
-            .hasSize(7).allSatisfy(permit -> assertThat(permit).isSameAs(PERMIT));
+            .hasSize(6).allSatisfy(permit -> assertThat(permit).isSameAs(PERMIT));
         assertThat(wireMock.getAllServeEvents()).as("no REST request").isEmpty();
     }
 
     @Test
-    void theTraceLevelAndTheDebugStateAreUnknownWithoutContact() {
+    void theTraceLevelIsUnknownWithoutContact() {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
         ServerOperationPort port = adapter(cli);
 
         assertThat(port.traceLevel()).isEmpty();
-        assertThat(port.debugState()).isEmpty();
 
         assertThat(cli.launches()).isEmpty();
         assertThat(wireMock.getAllServeEvents()).isEmpty();

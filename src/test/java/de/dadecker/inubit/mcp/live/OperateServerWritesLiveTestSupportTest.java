@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.adapter.cli.CliCommand;
+import de.dadecker.inubit.mcp.adapter.cli.UnlistedWriteCommand;
 import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.adapter.rest.RestResponse;
 import de.dadecker.inubit.mcp.adapter.rest.TransportErrorTexts;
@@ -120,8 +121,9 @@ class OperateServerWritesLiveTestSupportTest {
             CliCommand.traceSwitch(true).commandLine(),
             CliCommand.traceLevel(TraceLevel.DEBUG).commandLine(),
             CliCommand.traceLevel(TraceLevel.INFO).commandLine(),
-            CliCommand.debugSwitch(true).commandLine(),
-            CliCommand.debugSwitch(false).commandLine());
+            // debug on|off is excluded from production (T054); sent through the test seam
+            UnlistedWriteCommand.DEBUG_ON.command().commandLine(),
+            UnlistedWriteCommand.DEBUG_OFF.command().commandLine());
         assertThat(RestEndpoint.READY_SWITCH.method()).isEqualTo(RestEndpoint.Method.POST);
         assertThat(new ReadySwitch(true).form()).isEqualTo("POST /ready/on");
         assertThat(new ReadySwitch(false).form()).isEqualTo("POST /ready/off");

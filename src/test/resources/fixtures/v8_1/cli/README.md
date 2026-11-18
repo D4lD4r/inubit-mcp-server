@@ -268,9 +268,10 @@ decision 2026-11-13).
 The `admin-operate-*-reconstructed` cases (T057, US4) are SYNTHETIC: one answer block each, written
 by hand before the live check T054 (L-2, L-3) and described in their own `.README`. They hold the
 assumed answers of `maintenance -s` (`Maintenance mode: on`), `trace on` (`Trace: on`),
-`trace -l debug` (`Trace level: debug`), `debug on` (`Debug mode: on`), `triggerMidnightTask`
-(`Midnight task triggered.`) and `processdelete error` (`Deleted processes: 40`). T054 records the
-real answers as `admin-operate-*` and replaces them together with the parsers' forms.
+`trace -l debug` (`Trace level: debug`), `triggerMidnightTask` (`Midnight task triggered.`) and
+`processdelete error` (`Deleted processes: 40`). T054 records the real answers as `admin-operate-*`
+and replaces them together with the parsers' forms. The `debug on` case was removed with the
+`setDebug` action (T054: `debug on|off` excluded).
 
 The `admin-tags-user-active-tag-reconstructed` case (T063, US4) is SYNTHETIC as well: the recorded
 `admin-users-user` rows plus an assumed fourth row `Active tag <tag>` for a user with an active

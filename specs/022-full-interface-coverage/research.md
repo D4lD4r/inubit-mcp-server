@@ -22,7 +22,7 @@ the check fails.
 | `read_model_details` | US3 | read | readOnly, idempotent | module properties, library list (process metadata and the IS Connector check wait for L-19, L-20; D-21) |
 | `export_archives` (extended) | US3 | read producing files | localWrite (unchanged) | diagrams of an owner without some groups, metadata registry export |
 | `find_processes` (extended) | US3 | read | readOnly (unchanged) | one user-defined Queue Manager column (`ps -u`, D-21) |
-| `operate_server` | US4 | write | destructive | maintenance, readiness, trace, debug, midnight task, deleting processes in error |
+| `operate_server` | US4 | write | destructive | maintenance, readiness, trace, midnight task, deleting processes in error |
 | `manage_tags` | US4 | write | destructive | active tag of a user, tag removal/deletion in a group or path |
 | `transfer_runtime_data` | US5 | write + reads | destructive | export, validate, import, list, resume, delete blocked |
 | `administer_objects` | US6 | write | destructive | objects area and libraries area |
@@ -209,8 +209,12 @@ a story not delivered yet therefore stays `planned` with that story, and changes
   `kill_process`; `processErrorStart` → `restart_process`; `GET /model/models` →
   `list_inventory`; `GET /model/modelByName/{name}` → `get_inventory_item`; `GET /system/info` → `get_health`.
 - excluded: `-a` (lists the network interfaces of the StartCLI client host, not of the server);
-  `--debug` (the client-side trace of an interactive session; the server switch is the
-  `debug on|off` row); `backup.sh` and `restore.sh` options (offline scripts, area START).
+  `--debug` (starts an interactive session with the client-side trace); `backup.sh` and
+  `restore.sh` options (offline scripts, area START); `debug on|off` (live-check finding of
+  T054/L-3, owner decision 2026-11-18: on 8.1.17 it exits 0 without text and `debug` reads "off"
+  before and after, in separate processes and inside one interactive session; the vendor's
+  online help describes it as the trace switch of the interactive CLI mode; it has no observable
+  server effect and cannot be verified).
 
 **Rationale**: the constitution prefers REST. `get_health` already reads these facts, and FR-002
 forbids reading them twice.
@@ -682,20 +686,22 @@ The two REST reads without a working form stay planned rather than guessed.
 | `setReadiness` | `POST /ready/{on\|off}` | before and after from `GET /ready`; the preview carries the vendor sentence on maintenance mode |
 | `setTrace` | `trace on\|off` | |
 | `setTraceLevel` | `trace -l <level>` | levels from the vendor's fixed list, L-3 |
-| `setDebug` | `debug on\|off` | |
 | `triggerMidnightTask` | `triggerMidnightTask` | the configured start time is shown if `GET /configurations` holds it |
 | `deleteErrorProcesses` | `processdelete error` | set and re-read by D-14 |
+
+`setDebug` (`debug on|off`) was removed after T054 (L-3): the command has no observable server
+effect, and its row is excluded (D-2, owner decision 2026-11-18).
 
 `CliCommand.OPTIONS["trace"]` keeps `--download` (feature 021) and gains `on`, `off` and `-l`. The
 `trace --download` path stays a separate builder method.
 
 Implemented in T056: every operation form is its own factory method of `CliCommand`
 (`maintenance`, `maintenanceState`, `maintenanceSwitch`, `traceSwitch`, `traceLevel`,
-`debugSwitch`, `triggerMidnightTask`, `processDeleteError`), never built option by option and
-never combined with `--download`. `OPTIONS` lists the forms as the coverage list writes them
-(`trace on|off`, `trace -l`, `maintenance -s`, `maintenance on|off`, `maintenance -eq true|false`,
-`debug on|off`, `triggerMidnightTask`, `processdelete error`), so check 1 of the coverage list
-sees them.
+`triggerMidnightTask`, `processDeleteError`), never built option by option and never combined
+with `--download`. `OPTIONS` lists the forms as the coverage list writes them (`trace on|off`,
+`trace -l`, `maintenance -s`, `maintenance on|off`, `maintenance -eq true|false`,
+`triggerMidnightTask`, `processdelete error`), so check 1 of the coverage list sees them.
+`debugSwitch` and the `debug` entry were removed after T054.
 
 **Trace levels (reconstructed)**: `TraceLevel` holds `error|warn|info|debug`, the reconstructed
 vendor list of T056, sent in lower case. It is not recorded: L-3 (T054) records the list from
@@ -705,9 +711,10 @@ vendor list of T056, sent in lower case. It is not recorded: L-3 (T054) records 
 (the changes inside `WriteLock.handOff`) and reads its answer with a parser of assumed form; any
 other answer is `UNEXPECTED_RESPONSE`, never guessed. Assumed until T054 (L-2, L-3) records them:
 `maintenance -s` and `maintenance on|off` → `Maintenance mode: on|off`; `trace on|off` →
-`Trace: on|off`; `trace -l <level>` → `Trace level: <level>`; `debug on|off` →
-`Debug mode: on|off`; `triggerMidnightTask` → `Midnight task triggered.`; `processdelete error` →
-`Deleted processes: <n>`. Fixtures `fixtures/v8_1/cli/admin-operate-*-reconstructed` (SYNTHETIC).
+`Trace: on|off`; `trace -l <level>` → `Trace level: <level>`; `triggerMidnightTask` →
+`Midnight task triggered.`; `processdelete error` → `Deleted processes: <n>`. (`debug on|off`
+answers no text on 8.1.17, T054; its assumed form and `DebugStateParser` were removed.) Fixtures
+`fixtures/v8_1/cli/admin-operate-*-reconstructed` (SYNTHETIC).
 The readiness switch is `RestEndpoint.READY_SWITCH`, `POST /ready/{status}` as the coverage list
 writes it.
 
@@ -727,9 +734,9 @@ to pin `versionLine` for the node.
 `V81ServerOperationAdapter`, capability `SERVER_OPERATION` (REST and StartCLI, "not yet verified"
 until T054). The states before and after come from the port (`maintenance -s`) and from
 `MonitoringPort`, the source of `get_health`: readiness `GET /ready`, trace on/off
-`tracingEnabled`, maintenance `healthcheck`. No read form is known for the trace level and the
-debug mode: `traceLevel()` and `debugState()` answer "unknown" (empty) without contacting the
-server until L-3 finds one. `POST /ready/{status}` is handed off under the node's write lock like
+`tracingEnabled`, maintenance `healthcheck`. No read form is known for the trace level:
+`traceLevel()` answers "unknown" (empty) without contacting the server until L-3 finds one.
+`POST /ready/{status}` is handed off under the node's write lock like
 the StartCLI writes (`InubitHttpClient.post(…, WritePermit, WriteLock)`, `sendAsync` inside the
 hand-off, the answer awaited outside); its answer is not read. The set of `processdelete error`
 is the `find_processes` query of state `ERROR`, 1,000 rows per request up to 10,000 rows, its ids
@@ -838,7 +845,7 @@ check marked (W) changes the server and runs only after the operator's approval 
 |---|---|---|
 | L-1 | Stdin session on 8.1/9.0: prompt format, command echo, `exit` | D-7 fallback: password commands excluded, user pages of 10 |
 | L-2 (W) | `maintenance on/off`, `-s`, `-eq`; StartCLI and `POST /ready` while maintenance is on | readiness during maintenance reported as not switchable |
-| L-3 (W) | `trace on/off`, `trace -l` levels, `debug on/off` outputs | entry excluded with the reason found |
+| L-3 (W) | `trace on/off`, `trace -l` levels, `debug on/off` outputs | entry excluded with the reason found (T054: `debug on\|off` excluded, no observable server effect) |
 | L-4 (W) | `tag --tagRemove/--tagDelete` with a group or path scope: is another group's tag kept? | `removeTag` / `deleteTag` excluded (acts on the whole owner) |
 | L-5 | Output of `threads`, `privilegedWorkflows`, `dbconnectiontolerance show`, `license -td`, `date` | parser per recorded form |
 | L-6 | `user <name>`, `finger`, `-who`, `GET /user/users`: fields, account state | no account state in the result |

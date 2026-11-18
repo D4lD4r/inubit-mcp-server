@@ -17,9 +17,9 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | --- | ---: | ---: |
 | reachable | 51 | 50 |
 | covered | 40 | 40 |
-| planned | 93 | 93 |
+| planned | 92 | 92 |
 | undocumented | 3 | 1 |
-| excluded | 67 | 70 |
+| excluded | 68 | 71 |
 | all entries | 254 | 254 |
 
 ## A. Server state and settings
@@ -51,7 +51,7 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | CLI `maintenance -eq true\|false` | WRITE | US4 | planned | planned |
 | CLI `trace on\|off` | WRITE | US4 | planned | planned |
 | CLI `trace -l` | WRITE | US4 | planned | planned |
-| CLI `debug on\|off` | WRITE | US4 | planned | planned |
+| CLI `debug on\|off` | WRITE | - | excluded: the trace switch of the interactive CLI mode (vendor); no observable server effect on INUBIT 8.1.17 (T054) | excluded: the trace switch of the interactive CLI mode (vendor); no observable server effect on INUBIT 8.1.17 (T054) |
 | CLI `triggerMidnightTask` | WRITE | US4 | planned | planned |
 | CLI `threads setNumberOfWorkflowThreads` | WRITE | US6 | planned | planned |
 | CLI `privilegedWorkflows setThreadsPercentage` | WRITE | US6 | planned | planned |
@@ -295,7 +295,7 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | --- | --- | --- | --- | --- |
 | CLI `-v` | READ | - | reachable `get_health/default` | reachable `get_health/default` |
 | CLI `-a` | READ | - | excluded: lists the network interfaces of the StartCLI client's host, not of the server | excluded: lists the network interfaces of the StartCLI client's host, not of the server |
-| CLI `--debug` | WRITE | - | excluded: starts an interactive StartCLI session with the client trace; the switch is debug on\|off | excluded: starts an interactive StartCLI session with the client trace; the switch is debug on\|off |
+| CLI `--debug` | WRITE | - | excluded: starts an interactive StartCLI session with the client trace | excluded: starts an interactive StartCLI session with the client trace |
 | CLI `--encryptString` | READ | - | excluded: takes a secret on the command line and prints the result | excluded: takes a secret on the command line and prints the result |
 | CLI `--backupFile` | WRITE | US6 | planned | planned |
 | CLI `--backupRepository` | WRITE | US6 | planned | planned |

@@ -767,9 +767,7 @@ class CliCommandTest {
     }
 
     @Test
-    void debugMidnightTaskAndProcessDeleteHaveOneFormEach() {
-        assertThat(CliCommand.debugSwitch(true).commandLine()).isEqualTo("debug on");
-        assertThat(CliCommand.debugSwitch(false).commandLine()).isEqualTo("debug off");
+    void midnightTaskAndProcessDeleteHaveOneFormEach() {
         assertThat(CliCommand.triggerMidnightTask().commandLine())
             .isEqualTo("triggerMidnightTask");
         assertThat(CliCommand.processDeleteError().commandLine()).isEqualTo("processdelete error");
@@ -788,14 +786,19 @@ class CliCommandTest {
     void theOperationCommandsAreBuiltByTheirOwnMethodsOnly() {
         assertInvalidInput(() -> CliCommand.command("processdelete").build());
         assertInvalidInput(() -> CliCommand.command("processdelete").processId("110190387"));
-        for (String name : List.of("maintenance", "debug", "triggerMidnightTask")) {
+        for (String name : List.of("maintenance", "triggerMidnightTask")) {
             assertInvalidInput(() -> CliCommand.command(name).build());
         }
         for (String option : List.of("-s", "on|off", "-eq true|false")) {
             assertInvalidInput(() -> CliCommand.command("maintenance").flag(option));
             assertInvalidInput(() -> CliCommand.command("maintenance").quoted(option, "true"));
         }
-        assertInvalidInput(() -> CliCommand.command("debug").quoted("on|off", "on"));
+    }
+
+    /** T054: {@code debug on|off} is excluded (no observable server effect on 8.1.17). */
+    @Test
+    void debugIsNotAllowListed() {
+        assertInvalidInput(() -> CliCommand.command("debug"));
     }
 
     // --- feature 022 (T062, research D-18): the tag forms of manage_tags ---------------------

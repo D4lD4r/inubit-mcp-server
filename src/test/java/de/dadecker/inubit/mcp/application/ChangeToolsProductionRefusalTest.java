@@ -178,8 +178,7 @@ class ChangeToolsProductionRefusalTest {
     /** Valid inputs of {@code spec}. */
     private static Map<String, Object> fields(ActionSpec spec) {
         return switch (spec.tool() + "/" + spec.action()) {
-            case "operate_server/setMaintenance", "operate_server/setTrace",
-                "operate_server/setDebug" -> Map.of("on", true);
+            case "operate_server/setMaintenance", "operate_server/setTrace" -> Map.of("on", true);
             case "operate_server/setReadiness" -> Map.of("ready", false);
             case "operate_server/setTraceLevel" -> Map.of("level", "debug");
             case "operate_server/triggerMidnightTask",

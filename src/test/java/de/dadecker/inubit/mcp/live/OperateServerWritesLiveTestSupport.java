@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.MissingNode;
 import de.dadecker.inubit.mcp.adapter.cli.CliCommand;
+import de.dadecker.inubit.mcp.adapter.cli.UnlistedWriteCommand;
 import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.adapter.rest.XmlSupport;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -269,8 +270,8 @@ final class OperateServerWritesLiveTestSupport {
             Property.TRACE_LEVEL, "debug"),
         step("W8b", "trace-l-info", CliCommand.traceLevel(TraceLevel.INFO),
             Property.TRACE_LEVEL, "info"),
-        step("W9", "debug-on", CliCommand.debugSwitch(true), Property.DEBUG, ON),
-        step("W10", "debug-off", CliCommand.debugSwitch(false), Property.DEBUG, OFF));
+        step("W9", "debug-on", UnlistedWriteCommand.DEBUG_ON.command(), Property.DEBUG, ON),
+        step("W10", "debug-off", UnlistedWriteCommand.DEBUG_OFF.command(), Property.DEBUG, OFF));
 
     /**
      * The second owner-approved list: W5–W10 of {@link #STEPS} alone, from the same baseline (W5
@@ -777,7 +778,7 @@ final class OperateServerWritesLiveTestSupport {
         steps.put(Property.TRACE_LEVEL, restore("trace-l-info",
             new CliWrite(CliCommand.traceLevel(TraceLevel.INFO)), Property.TRACE_LEVEL));
         steps.put(Property.DEBUG, restore("debug-off",
-            new CliWrite(CliCommand.debugSwitch(false)), Property.DEBUG));
+            new CliWrite(UnlistedWriteCommand.DEBUG_OFF.command()), Property.DEBUG));
         return Collections.unmodifiableMap(steps);
     }
 

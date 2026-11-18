@@ -174,16 +174,6 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
         }
 
         @Override
-        public Optional<Boolean> debugState() {
-            throw noServerOperation();
-        }
-
-        @Override
-        public boolean switchDebug(boolean on, WritePermit permit) {
-            throw noServerOperation();
-        }
-
-        @Override
         public String triggerMidnightTask(WritePermit permit) {
             throw noServerOperation();
         }
