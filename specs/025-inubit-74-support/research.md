@@ -135,7 +135,9 @@ depends on them.
     (format of 6.1: `<case> <capability>`) and `DERIVED.txt` (format `<case> <source-case>
     <capability> <edit>`; empty in Mandate A except comments).
   - `help.stdout` = the attachment byte for byte (LF, as produced by `startcli.sh`), `help.exit` =
-    `0`, `help.stderr` empty; the README states that exit code and stderr were assumed.
+    `0`, `help.stderr` empty; the README states that exit code and stderr were assumed. The
+    README has a section "Recorded cases" (one case per line), the single source the guard reads
+    for recorded cases (spec FR-015); in Mandate A it lists `help`.
   - The other cases of the spec's FR-014 table are reconstructed from the 6.1 cases (same commands,
     same layout) with neutral names (`legacy74/node1`, owner `jdoe`, host
     `inubit-legacy74-1.example.test`) and listed in `RECONSTRUCTED.txt`; the derivable ones are
@@ -168,11 +170,15 @@ depends on them.
     directory, path/host replacement, `neutralize.py` and `Assert-NoSecret` (`:471`).
   - Every 7.4 case that contacts a server calls `Assert-AllowedGroup` and `Assert-AllowedHost`
     (`:115-138`, `RECORD_ALLOWED_HOSTS` = non-production hosts) before any launch (FR-017).
+  - Every 7.4 case that logs in (exec, direct, session) gets the password on standard input only,
+    as the `win_*` script-mode cases do (`Read-PasswordBytes`, `:258`); never `-p`, never
+    `--encryptString`; `Assert-NoSecret` runs for each (spec FR-017).
   - TLS for 7.4 cases: `Get-TlsArguments` (`:269-276`) is not used; `-TrustStore` is passed as
     `-Djavax.net.ssl.trustStore=<path>` (and `-Djavax.net.ssl.trustStoreType` from the extension)
     appended to the allowlisted `JAVA_TOOL_OPTIONS`; `-DisableHostNameVerification` with a 7.4 case
     stops the run (FR-017).
-  - `v74_login_failed` uses the dummy password of `win_failure` against the real node;
+  - `v74_login_failed` uses a user name that does not exist (parameter `-FailedLoginUser`, default
+    `mcp-record-no-such-user`) and the dummy password of `win_failure` against the real node;
     `v74_failure` uses `$FailureUrl` (`:103`), no server.
   - `.gitattributes` gets `src/test/resources/fixtures/v7_4/** -text` (byte-exact, FR-019; the rule
     of feature 013 R-13 for `fixtures/windows/`).
@@ -219,7 +225,8 @@ depends on them.
     `--execCommand` is the more reliable path (it exists on 7.4, not on 6.1), a script-mode adapter is
     designed instead. Either way the password stays on stdin.
   - Client selection (FR-029): `CliClientSelector` gets the rule "a CLI-only version never falls back
-    to the version-less `defaults.cliHome`" for 7.4 (a matrix flag on the entry, not a version check).
+    to the version-less `defaults.cliHome`" for 7.4 (a matrix flag on the entry, not a version check),
+    and the chosen client's `-v` must report major.minor 7.4, else `CLI_UNAVAILABLE`.
   - Detection (FR-032): the live check records the detection failure code of a 7.4 node on `AUTO`;
     the trigger and the `-sv` step are designed from it.
   - Constitution amendment (MINOR) before the first `SUPPORTED`.
