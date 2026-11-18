@@ -74,7 +74,14 @@ Sources: the IMC-6 description and comments, the attached help output, the code 
 
 ## Clarifications
 
-None yet. Decisions taken as informed defaults are listed under Assumptions; the open points for
+### Session 2026-11-18
+
+- Q: Does an unidentified 7.4 node on `AUTO` stay an unknown version as today? → A: Yes, accepted
+  by the owner; IMC-6 criterion 3 applies to nodes known as 7.4 (Open Questions, Decided).
+- Q: Do derived edge-case fixtures count as verified? → A: Yes, accepted by the owner, when
+  derived from a real recording by a documented minimal edit (FR-016a; Open Questions, Decided).
+
+Other decisions taken as informed defaults are listed under Assumptions; the points still open for
 the owner are listed under Open Questions.
 
 ## Mandates
@@ -702,10 +709,14 @@ cannot identify stays unknown with the US2 hint.
 - **Constitution amendment** (Preconditions): the owner ratifies the Principle V amendment (7.4
   read-only, StartCLI only, because its REST interface is unverified) before Mandate B declares the
   first 7.4 capability `supported`.
-- **`AUTO` 7.4 nodes** (Edge Cases, default): a 7.4 node on `AUTO` that is not identified stays an
-  unknown version as today (8.1 reads with the "unverified" warning); IMC-6 criterion 3 is read as
-  applying to nodes known as 7.4. The alternative, refusing reads on every unknown node after a
-  404, would change 6.1 and 8.1 behaviour (criterion 5).
-- **Derived edge-case fixtures** (FR-016a, default): edge cases that cannot be recorded read-only
-  (maintenance on, negative alive check) are derived from a recording by a documented minimal edit
-  and count as verified; the alternative is to drop those scenarios for 7.4.
+### Decided
+
+- **`AUTO` 7.4 nodes** (Edge Cases) — **decided: accepted by the owner, 2026-11-18**: a 7.4 node
+  on `AUTO` that is not identified stays an unknown version as today (8.1 reads with the
+  "unverified" warning); IMC-6 criterion 3 applies to nodes known as 7.4. The rejected alternative,
+  refusing reads on every unknown node after a 404, would change 6.1 and 8.1 behaviour
+  (criterion 5).
+- **Derived edge-case fixtures** (FR-016a) — **decided: accepted by the owner, 2026-11-18**: edge
+  cases that cannot be recorded read-only (maintenance on, negative alive check) are derived from a
+  recording by a documented minimal edit and count as verified; the rejected alternative was to
+  drop those scenarios for 7.4.
