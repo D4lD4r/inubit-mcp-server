@@ -41,8 +41,13 @@ depends on them.
   unknown versions and versions outside every range). `ClientVersion.compare(server)` (`:42-48`)
   gets an overload `compare(server, PatchDepth)`; the old one delegates with `THREE`. With `FOUR`,
   after an equal major.minor.patch: build equal or both absent → `MATCH`, different → `MISMATCH`,
-  present on one side only → `NOT_COMPARABLE`. `VersionGate.checkClient` (`:782-824`) passes
-  `matrix.patchDepth(server)`.
+  present on one side only → `NOT_COMPARABLE`. One helper `CapabilityMatrix.comparePatch(ClientVersion,
+  Optional<InubitVersion> server)` calls `client.compare(server, patchDepth(server))`, and **every**
+  call site of `ClientVersion.compare` uses it: `VersionGate.checkClient` (`:819`),
+  `ConfigSummary` (`:408`, "client vs pin" in `--check-config`), `NodeOverview` (`:145` client
+  warning and `:250` client line of `list_nodes`) and `HealthService` (`:686`, used in Mandate B).
+  In Mandate A the visible effect is the `--check-config` and `list_nodes` client line of a 7.4
+  node (the gate's client check never runs for 7.4 while every capability is refused).
 - **Rationale**: the rule lives in the domain matrix, not in version checks (Constitution V); 6.1
   keeps `THREE`, so its fourth part stays ignored (feature 012 FR-002); 8.1/9.0 versions have three
   parts.
@@ -79,10 +84,15 @@ depends on them.
 
 ## D-6 Refusal texts on 7.4 (FR-007, FR-012)
 
-- **Decision**: `VersionGate.refuseUnsupported` (`:859-902`) gets one branch before the note branch:
-  CLI-only **and** a note present → summary "`<tool>` on `<node>`: `<label>` is not yet verified
-  for INUBIT 7.4", next step "INUBIT 7.4 is recognised, but no tool is verified on it yet; use the
-  INUBIT Workbench for `<label>` on `<node>`". 6.1 has no notes (unchanged texts); 8.1/9.0 are not
+- **Decision**: the existing note branch of `VersionGate.refuseUnsupported` (`:878-885`) keeps its
+  message ("INUBIT 7.4 on legacy74/node1: monitoring is not yet verified for INUBIT 7.4"; `named()`
+  `:448-460` prefixes the tool, `refuse()` appends "; nothing was sent") and changes only for a
+  CLI-only version: the next step becomes "INUBIT 7.4 is recognised, but no tool is verified on it
+  yet; use the INUBIT Workbench for `<label>` on `<node>`", and for INVENTORY the suffix "; modules
+  of INUBIT 7.4 cannot be looked up" of the CLI-only branch (`:893-894`) is appended to the message,
+  because `check_artifacts` uses that message as its notice (`ArtifactCheckService.java:528-535`).
+  Full example: `get_health: INUBIT 7.4 on legacy74/node1: monitoring is not yet verified for INUBIT
+  7.4; nothing was sent`. 6.1 has no notes (unchanged texts); 8.1/9.0 are not
   CLI-only (unchanged texts). `refuse()` logs as today (FR-012, feature 012 D-14). The order of the
   write checks and the gate is untouched, so it is the same as for 6.1 (FR-007). `notes()`
   (`:946-955`) adds no note for 7.4, because no admission happens.
@@ -90,16 +100,17 @@ depends on them.
 
 ## D-7 The 404 hint (FR-005)
 
-- **Decision**: `VersionGate.unknown` (`:1004-1011`) builds the hint from the matrix's CLI-only
-  lines (`matrix.cliOnlyLines()` → `6.1`, `7.4`, in matrix order): "; if <node> runs INUBIT 6.1, pin
-  `V6_1`; if it runs INUBIT 7.4, pin `V7_4`". `unknown` becomes an instance method (it is called
-  only inside `VersionGate`); its static callers in tests use the gate. Tests of the 6.1 hint
+- **Decision**: `VersionGate.unknown` (`:1004-1011`) stays static and gets a parameter
+  `List<String> cliOnlyLines` (from `matrix.cliOnlyLines()` → `6.1`, `7.4`, in matrix order), from
+  which it builds the hint "; if <node> runs INUBIT 6.1, pin V6_1; if it runs INUBIT 7.4, pin V7_4".
+  Callers: inside `VersionGate` and `NodeOverview.java:194` (the `list_nodes` path), both pass the
+  lines of their matrix; static test callers pass them explicitly. Tests of the 6.1 hint
   (`docs/tools.md:294`, `docs/setup.md:323` and the hint tests) are the deliberate change of SC-005.
 - **Rationale**: a 404 cannot tell 6.1 from 7.4; the hint lists every pinned-only line.
 
 ## D-8 Announcement, `list_nodes`, `--check-config`, `check_artifacts` (FR-008 – FR-010)
 
-- **Decision**: no new code beyond D-4: the read-tool announcement (feature 012 D-12),
+- **Decision**: no new code beyond D-3, D-4, D-6, D-7 and D-9: the read-tool announcement (feature 012 D-12),
   `NodeOverview` (`:99-117`, `access: cli_only`, capabilities from the entry), `ConfigSummary.cliOnly`
   (`:427-444`, "INUBIT 7.4, StartCLI only; available: none; refused: …") and the `check_artifacts`
   lookup skip (feature 012 FR-006a) are all driven by `isCliOnly` and the states. Tests pin each for
@@ -117,6 +128,16 @@ depends on them.
   version it cannot parse as today; `SHIPPED_JAVA` (`:65-67`) gets no 7.4 entry, so no JDK warning.
   `list_nodes` / `--check-config` add the note "not used until a 7.4 capability is verified" to the
   client line of a 7.4 node, keyed on the same notes.
+- **Client option probe (`-h`)**: `CliClientProbe.optionsFor` (`:75-99`) runs the client's `-h`
+  for every CLI-only node, also in `--check-config` (`Launcher.java:420-441`), and
+  `ConfigValidator.clientOptionWarnings` (`:1511-1535`) then warns, e.g. "… refused (TLS_ERROR)".
+  Decision: `optionsFor` returns empty (as for a non-CLI-only node) while
+  `matrix.allNotYetVerified(pin)`, so in Mandate A no `-h` runs for a 7.4 node and no option warning
+  or option line appears; only the generic `-v` probe of feature 017 runs (spec FR-010a). Mandate B
+  turns it on with the notes.
+- **Release in the warning text**: the "reached through StartCLI only" warning takes the release from
+  the pin (`INUBIT <major.minor>`), so the 6.1 text is unchanged and a 7.4 text is right once Mandate B
+  turns the warning on.
 - **Rationale**: FR-010a; the note switch from D-4 again keeps version strings out.
 
 ## D-10 Platforms (FR-013)
@@ -147,9 +168,10 @@ depends on them.
     `V61RecordedFixturesTest` plus the `DERIVED.txt` rule and a self-test with a flipped matrix).
     Both share a small `CaseLists` helper with the 6.1 tests if the duplication exceeds a few lines.
   - `FakeProcessLauncher.replaying` accepts `v7_4` (it already takes the version, feature 012 T002).
-  - The help case gets one real contract test: the existing client option probe parser reads the
-    7.4 help and finds `--execCommand`, and finds neither a trust-store nor a host-name option
-    (input for FR-029 / feature 012 FR-012a).
+  - The help case gets one real contract test: `CliClientProbe` with a **test** matrix whose 7.4
+    entry is CLI-only without notes (so `optionsFor` runs `-h`) replays the 7.4 help and reports
+    `--execCommand` and neither a trust-store nor a host-name option (input for FR-029 / feature 012
+    FR-012a). With the production matrix it runs nothing (D-9).
   - `NoCustomerIdentifiersTest` scans the folder automatically (all git files).
 - **Rationale**: Constitution III; FR-015 is enforced by tests, not by discipline.
 
@@ -230,5 +252,8 @@ depends on them.
   - Detection (FR-032): the live check records the detection failure code of a 7.4 node on `AUTO`;
     the trigger and the `-sv` step are designed from it.
   - Constitution amendment (MINOR) before the first `SUPPORTED`.
+  - Texts to revisit when the first 7.4 capability is flipped: the next step "no tool is verified on
+    it yet" (D-6) stays on the capabilities that keep the note and must then read "this capability is
+    not verified on INUBIT 7.4 yet"; the client option probe and its warnings turn on (D-9).
 - **Rationale**: none of these can be decided without the recordings; designing them blind would
   produce parsers for outputs nobody has seen.

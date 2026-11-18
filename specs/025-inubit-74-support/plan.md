@@ -65,9 +65,11 @@ suite runs on both CI jobs).
 - New production classes: `PatchDepth` (domain), `V74PortSet` (adapter). New test classes:
   `VersionLineRegressionTest`, `V74RefusalTest`, `V74PortSetTest`, `V74FixturesShapeTest`,
   `V74RecordedFixturesTest`, `V74HelpContractTest`.
-- Extended: `VersionSetting`, `InubitVersion`, `ClientVersion`, `CapabilityMatrix`, `VersionGate`,
-  `RefusingPorts`, `ConfigLoader`, `ConfigValidator`, `NodeOverview` / `ConfigSummary` (client note),
-  `Wiring`, `list_nodes.output.json`, `tools/record-fixtures.ps1`, `.gitattributes`, docs.
+- Extended: `VersionSetting`, `InubitVersion`, `ClientVersion`, `CapabilityMatrix` (7.4 entry,
+  `comparePatch`), `VersionGate` (note branch, static `unknown` with lines), `RefusingPorts`,
+  `CliClientProbe` (no `-h` while not verified), `ConfigLoader`, `ConfigValidator`, `NodeOverview`
+  (hint, client comparison, client note), `ConfigSummary` (client comparison, client note),
+  `HealthService` (client comparison through `comparePatch`), `Wiring`, `list_nodes.output.json`, `tools/record-fixtures.ps1`, `.gitattributes`, docs.
 
 ## Constitution Check
 
@@ -126,7 +128,8 @@ docs/, README.md, CHANGELOG.md
 **Structure Decision**: the same single module. Stages, each reviewed (creator/reviewer) and each
 ending with a green `mvn -q -o clean verify`:
 
-**Mandate A**
+**Mandate A** is delivered as **one PR** (all of stages 1–7): merging part of it would ship `V7_4`
+without the refusing matrix entry or without the docs.
 
 1. **Regression baseline**: `VersionLineRegressionTest` against the unchanged code (D-13).
 2. **Version model**: `V7_4`, `build`, `PatchDepth`, `ClientVersion.compare` with depth (D-1 – D-3).

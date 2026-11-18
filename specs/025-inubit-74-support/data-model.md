@@ -44,7 +44,8 @@ Production entries:
 | 8.1 | no | unchanged | – | unchanged | THREE |
 | 9.0 | no | unchanged | – | unchanged | THREE |
 
-New queries: `patchDepth(Optional<InubitVersion>)`, `cliOnlyLines()` (major.minor of the CLI-only
+New queries: `patchDepth(Optional<InubitVersion>)`, `comparePatch(ClientVersion,
+Optional<InubitVersion>)` (the one entry point for client/server patch comparisons), `cliOnlyLines()` (major.minor of the CLI-only
 entries in order), `allNotYetVerified(Optional<InubitVersion>)` (every capability carries a note).
 
 ## ClientVersion.Comparison (rule extended)
@@ -68,8 +69,9 @@ With depth `THREE` the build is never looked at (today's rule).
 | `fixtures/v7_4/cli/RECONSTRUCTED.txt` | `<case> <capability>` | every case of the spec's FR-014 table except `help` |
 | `fixtures/v7_4/cli/DERIVED.txt` | `<case> <source-case> <capability> <edit…>` | comments only |
 
-Guard rule (`V74RecordedFixturesTest`): a capability declared `SUPPORTED` on 7.4 has no case in
-`RECONSTRUCTED.txt` and no derived case whose source is in `RECONSTRUCTED.txt`.
+Guard rule (`V74RecordedFixturesTest`, spec FR-015, FR-030): a capability declared `SUPPORTED` on
+7.4 has no case in `RECONSTRUCTED.txt`, no derived case whose source is not in the README's recorded
+list, and the README's recorded line for `help` names `v74_help` as its source.
 
 ## Recorder case (tools/record-fixtures.ps1)
 
