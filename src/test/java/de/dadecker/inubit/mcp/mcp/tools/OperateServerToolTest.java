@@ -309,7 +309,7 @@ class OperateServerToolTest {
     @Test
     void anExecutedResultCarriesTheReReadStateAndTheWarnings() {
         response = () -> new Response.Completed(new ChangeResult(TEST, "operate_server",
-            "setTraceLevel", "trace level", ChangeOutcome.EXECUTED, "error", "Trace level: debug",
+            "setTraceLevel", "trace level", ChangeOutcome.EXECUTED, "error", "trace level debug",
             Optional.of("debug"), Optional.empty(), OptionalInt.empty(), Optional.empty(),
             ChangeResult.RestartNeeded.FALSE, AUDIT),
             List.of("StartCLI client 8.1.16 differs from INUBIT 8.1.17"));
@@ -325,7 +325,7 @@ class OperateServerToolTest {
         assertThat(result.path("outcome").asString()).isEqualTo("EXECUTED");
         assertThat(result.path("before").asString()).isEqualTo("error");
         assertThat(result.path("after").asString()).isEqualTo("debug");
-        assertThat(result.path("inubitAnswer").asString()).isEqualTo("Trace level: debug");
+        assertThat(result.path("inubitAnswer").asString()).isEqualTo("trace level debug");
         assertThat(result.path("restartNeeded").asString()).isEqualTo("FALSE");
         assertThat(result.path("auditId").asString()).isEqualTo(AUDIT.toString());
         assertThat(result.has("reReadFailed")).isFalse();
@@ -339,15 +339,17 @@ class OperateServerToolTest {
     void aFailedReReadAndANothingToDoHaveTheChangeResultShape() {
         response = () -> new Response.Completed(new ChangeResult(TEST, "operate_server",
             "deleteErrorProcesses", "processes in state ERROR", ChangeOutcome.EXECUTED,
-            "40 processes in state ERROR", "Deleted processes: 40", Optional.empty(),
-            Optional.of("INUBIT offers no known command that reads the trace level"),
-            OptionalInt.of(40), Optional.empty(), ChangeResult.RestartNeeded.FALSE, AUDIT),
+            "40 processes in state ERROR", "Process with status [error] has been deleted.",
+            Optional.empty(), Optional.of("MAINTENANCE_MODE: INUBIT is in maintenance mode"),
+            OptionalInt.empty(), Optional.empty(), ChangeResult.RestartNeeded.FALSE, AUDIT),
             List.of());
 
         JsonNode failed = structured(client.callTool("operate_server",
             call("deleteErrorProcesses", Map.of())));
 
-        assertThat(failed.path("result").path("affectedCount").asInt()).isEqualTo(40);
+        assertThat(failed.path("result").path("inubitAnswer").asString())
+            .isEqualTo("Process with status [error] has been deleted.");
+        assertThat(failed.path("result").has("affectedCount")).isFalse();
         assertThat(failed.path("result").path("reReadFailed").asString()).isNotEmpty();
         assertThat(failed.path("result").has("after")).isFalse();
         assertThat(failed.path("warnings").isEmpty()).isTrue();

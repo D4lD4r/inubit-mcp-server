@@ -32,8 +32,6 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalInt;
-import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -43,8 +41,9 @@ import org.junit.jupiter.api.Test;
 /**
  * Feature 022 (T060, US4 AS4, FR-017, research D-14, spec edge case "nothing to do"):
  * {@code operate_server} {@code deleteErrorProcesses} – the preview of the processes in state
- * ERROR (count, at most 50 ids, the workflows), the set read again right before sending, the
- * count INUBIT reports, the empty set and the count-only set of more than 10,000 rows.
+ * ERROR (count, at most 50 ids, the workflows), the set read again right before sending, INUBIT's
+ * answer without a count (8.1.17, T054) and the set read afterwards, the empty set and the
+ * count-only set of more than 10,000 rows.
  */
 class ServerOperationDeleteErrorsTest {
 
@@ -126,7 +125,7 @@ class ServerOperationDeleteErrorsTest {
     // --- AS4 ----------------------------------------------------------------------------------
 
     @Test
-    void as4ThePreviewNamesTheCountTheIdsAndTheWorkflowsAndTheResultTheCountINUBITReports() {
+    void as4ThePreviewNamesTheCountTheIdsAndTheWorkflowsAndTheResultInubitsAnswerAndTheSetAfter() {
         List<String> forty = processIds(40);
         server.errorProcesses = new ErrorProcesses(40, forty, List.of("billing", "orders"));
 
@@ -141,15 +140,14 @@ class ServerOperationDeleteErrorsTest {
         assertThat(preview.effects()).containsExactly(
             "The processes in state ERROR are deleted and cannot be restored.",
             "processdelete error deletes every process in state ERROR when it runs, also one that"
-                + " entered the state after the preview; the result names the count INUBIT"
-                + " reports.");
+                + " entered the state after the preview; INUBIT's answer names no count, the"
+                + " result shows the set read afterwards.");
         assertThat(preview.backup())
             .isEqualTo("none: the processes are not exported before they are deleted");
         assertThat(preview.confirmation()).isPresent();
         assertThat(server.switches()).isEmpty();
 
         server.calls.clear();
-        server.deletedCount = OptionalLong.of(41);
         ChangeResult result = confirm(preview);
 
         // after the admission's check the set is read again right before sending, and once more
@@ -163,8 +161,10 @@ class ServerOperationDeleteErrorsTest {
         assertThat(result.outcome()).isEqualTo(ChangeOutcome.EXECUTED);
         assertThat(result.target()).isEqualTo("processes in state ERROR");
         assertThat(result.before()).isEqualTo(preview.before());
-        assertThat(result.affectedCount()).isEqualTo(OptionalInt.of(41));
-        assertThat(result.inubitAnswer()).isEqualTo("INUBIT reports 41 processes deleted");
+        assertThat(result.affectedCount()).as("INUBIT names no count; none is invented")
+            .isEmpty();
+        assertThat(result.inubitAnswer())
+            .isEqualTo("Process with status [error] has been deleted.");
         assertThat(result.after()).contains("no process in state ERROR");
         assertThat(outcomes()).containsExactly(AuditOutcome.CHALLENGE_ISSUED,
             AuditOutcome.PENDING, AuditOutcome.EXECUTED);
@@ -351,7 +351,7 @@ class ServerOperationDeleteErrorsTest {
 
         ChangeResult result = confirm(((ChangeChallenges.Conflict) exception).preview());
         assertThat(result.outcome()).isEqualTo(ChangeOutcome.EXECUTED);
-        assertThat(result.affectedCount()).isEqualTo(OptionalInt.of(12_346));
+        assertThat(result.affectedCount()).isEmpty();
     }
 
     // --- CLIENT confirmation and the lock key ------------------------------------------------
@@ -373,7 +373,7 @@ class ServerOperationDeleteErrorsTest {
 
         assertThat(response).isInstanceOfSatisfying(
             ServerOperationService.Response.Completed.class, completed -> assertThat(
-                completed.result().affectedCount()).isEqualTo(OptionalInt.of(1)));
+                completed.result().outcome()).isEqualTo(ChangeOutcome.EXECUTED));
         // node|OPERATION|deleteErrorProcesses is held; node|OPERATION|setTrace is not
         assertThat(second.get().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
         assertThat(other.get()).isInstanceOf(ServerOperationService.Response.Completed.class);
@@ -416,9 +416,13 @@ class ServerOperationDeleteErrorsTest {
     void neitherPreviewNorResultNorAuditRepeatASecretOfINUBITsAnswers() {
         server.errorProcesses = new ErrorProcesses(1, List.of("P-001"),
             List.of("orders " + TestSecrets.FREE_TEXT_SECRETS));
+        server.processDeleteAnswer = "Process with status [error] has been deleted. "
+            + TestSecrets.FREE_TEXT_SECRETS;
 
         ChangePreview preview = preview();
         ChangeResult result = confirm(preview);
+
+        assertThat(result.inubitAnswer()).startsWith("Process with status [error]");
 
         TestSecrets.assertNoLeak(preview.toString());
         TestSecrets.assertNoLeak(result.toString());

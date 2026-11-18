@@ -372,15 +372,17 @@ public final class InubitHttpClient implements AutoCloseable {
      * refused hand-off ({@code UNSUPPORTED_VERSION}) sends nothing. A 404 means a missing endpoint
      * ({@link ResourceKind#ENDPOINT}); otherwise as {@link #get}.
      *
+     * @param acceptedStatuses non-2xx statuses that are returned instead of mapped to an error
+     *     (e.g. 503 of {@code POST /ready/off}, research D-22)
      * @throws IllegalArgumentException for a permit of another node; nothing is sent
      */
     public RestResponse post(RestEndpoint endpoint, List<String> params, WritePermit permit,
-        WriteLock lock) {
+        WriteLock lock, int... acceptedStatuses) {
         permit.requireFor(server);
         String path = path(endpoint, params);
         return send("POST", path, HttpRequest.newBuilder(uri(path, Map.of()))
             .POST(HttpRequest.BodyPublishers.noBody()), true, ResourceKind.ENDPOINT, ACCEPT,
-            new int[0], request -> awaited(lock.handOff(permit,
+            acceptedStatuses, request -> awaited(lock.handOff(permit,
                 version -> client.sendAsync(request, info -> new LimitedBody(maxBodyBytes)))));
     }
 

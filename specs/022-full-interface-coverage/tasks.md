@@ -925,6 +925,13 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
     `find_processes` preview (owner decision 2026-11-18, IMC-10; no prepared test process).
 
   Neutralize into `fixtures/v8_1/{cli,rest}/admin-operate-*`.
+  - Folded in (2026-11-18, no live run): the recorded `admin-operate-*` cases replace the
+    `*-reconstructed` ones (`rest/admin-operate-ready-off-reconstructed` keeps the reconstructed
+    JSON envelope); the parsers read the recorded forms; `POST /ready/off` answered 503
+    `No Service.` counts as done (`InubitHttpClient.post(…, acceptedStatuses)`); the trace level
+    before and after is `TracingLevel` of `/system/info` (`ServerOperationPort.traceLevel()`
+    removed); `deleteErrorProcesses` reports INUBIT's answer without a count (`affectedCount`
+    absent); research D-22, spec AS4, AS11, FR-017 and Clarifications updated.
 - [ ] T055 [LIVE-W] [OWNER] [US4] L-4 on the 8.1 test server, with approval:
   - tag two fictitious test diagram groups with the same test tag (`tag_artifacts` on a
     development stage);

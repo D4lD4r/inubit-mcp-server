@@ -1,6 +1,0 @@
-SYNTHETIC – reconstructed answer of `maintenance -s` (also assumed for `maintenance on|off`); not recorded yet
-Hand-written fixture for MaintenanceStateParser (tasks.md T057): one answer block, the lines after
-the client's preamble (no .stderr/.exit: a block is not a run). No answer of the command
-is known yet, so the form "Maintenance mode: on|off" is an assumption, kept in
-MaintenanceStateParser.FORM. The live check T054 (L-2) records the real answers of
-`maintenance -s` and `maintenance on|off` and replaces this case.

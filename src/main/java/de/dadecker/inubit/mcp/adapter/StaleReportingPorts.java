@@ -557,7 +557,7 @@ final class StaleReportingPorts {
         }
 
         @Override
-        public boolean switchMaintenance(boolean on, Optional<Boolean> executeQueued,
+        public String switchMaintenance(boolean on, Optional<Boolean> executeQueued,
             WritePermit permit) {
             return write(permit, () -> delegate.switchMaintenance(on, executeQueued, permit));
         }
@@ -568,13 +568,8 @@ final class StaleReportingPorts {
         }
 
         @Override
-        public boolean switchTrace(boolean on, WritePermit permit) {
-            return write(permit, () -> delegate.switchTrace(on, permit));
-        }
-
-        @Override
-        public Optional<TraceLevel> traceLevel() {
-            return call(delegate::traceLevel);
+        public void switchTrace(boolean on, WritePermit permit) {
+            runWrite(permit, () -> delegate.switchTrace(on, permit));
         }
 
         @Override
@@ -583,8 +578,8 @@ final class StaleReportingPorts {
         }
 
         @Override
-        public String triggerMidnightTask(WritePermit permit) {
-            return write(permit, () -> delegate.triggerMidnightTask(permit));
+        public void triggerMidnightTask(WritePermit permit) {
+            runWrite(permit, () -> delegate.triggerMidnightTask(permit));
         }
 
         @Override
@@ -593,7 +588,7 @@ final class StaleReportingPorts {
         }
 
         @Override
-        public long deleteErrorProcesses(WritePermit permit) {
+        public String deleteErrorProcesses(WritePermit permit) {
             return write(permit, () -> delegate.deleteErrorProcesses(permit));
         }
     }

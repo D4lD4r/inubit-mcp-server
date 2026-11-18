@@ -114,6 +114,12 @@ Facts from the 8.1 recordings of User Story 3 and the owner's decisions, details
   after, in separate processes and inside one interactive session. The vendor's online help
   describes `debug {on|off}` as the trace switch of the interactive CLI mode. The owner decided:
   `debug on|off` is excluded and `operate_server` has no debug action (research D-2, D-22).
+- The switches answer without the state (`Updated Successfully`, no text, or
+  `Successfully changed level to <LEVEL>`), so every result takes the state after from the
+  re-read; the trace level is read from the system information (`TracingLevel`). `POST /ready/off`
+  answers HTTP 503 `No Service.` when it succeeds, which counts as success. `processdelete error`
+  answers `Process with status [error] has been deleted.` without a number, and
+  `triggerMidnightTask` answers no text (research D-22).
 
 **Input**: User description: "I would like to add all missing methods of StartCLI and REST, both
 reading and writing, to the MCP."
@@ -354,7 +360,8 @@ audit record. Testable offline.
    is requested, **Then** it is refused, whatever the write enablement says.
 4. **Given** 40 processes in error state, **When** their deletion is requested, **Then** the
    preview names the number 40 and the workflows concerned; the execution re-reads the set right
-   before sending and reports the number INUBIT names as deleted (FR-017).
+   before sending and reports INUBIT's answer, which names no number on 8.1.17, and the set read
+   afterwards (FR-017).
 5. **Given** the trace level is `error`, **When** it is set to `debug`, **Then** the result names
    the level before and after, and the tool description says that the level stays until it is
    set back.
@@ -372,7 +379,8 @@ audit record. Testable offline.
     before and after, and the description says that it stays on until it is switched off.
 11. **Given** the midnight task is to be triggered, **When** the preview is shown, **Then** it says
    that the daily task runs at once instead of at its configured start time, and names that start
-   time if INUBIT reports it; the result names INUBIT's answer and the time it was sent.
+   time if INUBIT reports it; the result names INUBIT's answer (none on 8.1.17) and the time it
+   was sent.
 12. **Given** a test stage with write enablement, **When** the active tag of a user is set,
     **Then** the call names the user and the tag, the preview names the user's current active
     tag and the new one, and the result re-reads it (FR-019a).
@@ -689,7 +697,9 @@ offline.
   objects it will affect. The execution re-reads the set right before sending; if it differs from
   the preview (a different set of ids, or a different count where INUBIT reports no ids),
   the call is refused with a new preview. The result names the number INUBIT reports as
-  affected, which may include objects that entered the set after the re-read.
+  affected, which may include objects that entered the set after the re-read; where INUBIT
+  reports no number (`processdelete error` on 8.1.17), the result names INUBIT's answer and the
+  set read afterwards, and no number.
 - **FR-018**: Before an object that INUBIT can export (workflow, module, metadata, repository file
   or directory) is deleted, renamed or replaced, the server MUST store an export in the existing
   backup location; replacing includes a metadata import, an EDI rule file deployed over an

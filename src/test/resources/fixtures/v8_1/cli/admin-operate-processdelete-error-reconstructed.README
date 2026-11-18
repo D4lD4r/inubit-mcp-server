@@ -1,6 +1,0 @@
-SYNTHETIC – reconstructed answer of `processdelete error`; not recorded yet
-Hand-written fixture for ProcessDeleteAnswerParser (tasks.md T057): one answer block, the lines
-after the client's preamble (no .stderr/.exit: a block is not a run). No answer of the
-command is known yet, so the form "Deleted processes: <n>" (the count INUBIT reports) is an
-assumption, kept in ProcessDeleteAnswerParser. The live check T054 records the real answer with
-exactly one prepared test process in error and replaces this case.

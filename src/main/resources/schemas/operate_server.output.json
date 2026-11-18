@@ -81,7 +81,7 @@
         "inubitAnswer": { "type": "string", "maxLength": 2000, "description": "INUBIT's answer, masked" },
         "after": { "type": "string", "description": "The state read again after the change, masked" },
         "reReadFailed": { "type": "string", "description": "Instead of after: why the state could not be read again" },
-        "affectedCount": { "type": "integer", "minimum": 0, "description": "deleteErrorProcesses: the number INUBIT reports as deleted" },
+        "affectedCount": { "type": "integer", "minimum": 0, "description": "deleteErrorProcesses: the number INUBIT reports as deleted, if its answer names one (INUBIT 8.1.17 names none)" },
         "backup": {
           "type": "object",
           "required": ["path", "manifestId"],

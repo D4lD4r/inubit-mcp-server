@@ -2,23 +2,21 @@ package de.dadecker.inubit.mcp.adapter.cli.admin;
 
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
- * The answer of {@code maintenance -s} and of {@code maintenance on|off} (US4, research D-22).
+ * The answers of {@code maintenance -s} and of {@code maintenance on|off} (US4, research D-22).
  *
- * <p>ASSUMED FORM (not recorded; fixture {@code admin-operate-maintenance-state-reconstructed},
- * SYNTHETIC): one line {@code Maintenance mode: on|off}, for the read and for both switches. The
- * live check T054 (L-2) records the real answers and replaces this form.
+ * <p>Recorded on 8.1.17 (T054, fixtures {@code admin-operate-maintenance-state[-on]},
+ * {@code admin-operate-maintenance-on-eq-false}, {@code admin-operate-maintenance-off}):
+ * {@code maintenance -s} answers one line {@code on} or {@code off}; both switches answer one line
+ * {@code Updated Successfully}, without the state.
  */
 public final class MaintenanceStateParser {
 
-    static final String COMMAND = "maintenance -s|on|off";
+    static final String STATE_COMMAND = "maintenance -s";
+    static final String SWITCH_COMMAND = "maintenance on|off";
 
-    private static final Pattern FORM = Pattern.compile("Maintenance mode: (on|off)");
-    private static final String EXPECTED =
-        "the assumed form 'Maintenance mode: on|off' (not yet recorded)";
+    private static final String SWITCH_FORM = "Updated Successfully";
 
     private MaintenanceStateParser() {
     }
@@ -26,15 +24,28 @@ public final class MaintenanceStateParser {
     /**
      * @param block the answer's lines after the client's preamble
      * @return whether maintenance mode is on
-     * @throws ToolErrorException {@code UNEXPECTED_RESPONSE} unless the block is the assumed form
+     * @throws ToolErrorException {@code UNEXPECTED_RESPONSE} unless the block is one line
+     *     {@code on} or {@code off}
      */
     public static boolean parse(List<String> block) {
         if (block.size() == 1) {
-            Matcher matcher = FORM.matcher(block.getFirst().strip());
-            if (matcher.matches()) {
-                return matcher.group(1).equals("on");
+            String state = block.getFirst().strip();
+            if (state.equals("on") || state.equals("off")) {
+                return state.equals("on");
             }
         }
-        throw UnknownOutput.of(COMMAND, EXPECTED, block);
+        throw UnknownOutput.of(STATE_COMMAND, "one line 'on' or 'off'", block);
+    }
+
+    /**
+     * @param block the answer's lines after the client's preamble
+     * @return INUBIT's answer, {@code Updated Successfully}
+     * @throws ToolErrorException {@code UNEXPECTED_RESPONSE} unless the block is that line
+     */
+    public static String parseSwitch(List<String> block) {
+        if (block.size() == 1 && block.getFirst().strip().equals(SWITCH_FORM)) {
+            return SWITCH_FORM;
+        }
+        throw UnknownOutput.of(SWITCH_COMMAND, "the line '" + SWITCH_FORM + "'", block);
     }
 }

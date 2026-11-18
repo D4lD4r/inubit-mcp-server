@@ -803,7 +803,8 @@ W2b is the one step that also counts an HTTP 503. In run 1 (INUBIT 8.1.17) INUBI
 `POST /ready/off` during maintenance in a way the client reported as `UNREACHABLE`, yet the switch
 took effect: `GET /ready` then answered 503 `No Service.` instead of the maintenance message
 `No Service - Maintenance mode active.` seen at W2a, and stayed so after `maintenance off` until
-`POST /ready/on`. The production write request accepts no other status than 2xx, so the test reads
+`POST /ready/on`. The write request as the test sends it accepts no other status than 2xx (since
+T054 `operate_server` accepts this 503, research D-22), so the test reads
 an answered 503 from the client's error (its `UNREACHABLE` whose likely cause is the 503); a
 connection failure or any other error stays a step error. W2b counts as done if it was answered
 with 2xx or 503 and `GET /ready` afterwards is not READY with a `message` other than the one W2a
@@ -872,16 +873,15 @@ test. Each runs once, not retried; if W11 fails, W12 does not run.
   `processdelete error` is not run.
 - `processdelete error` has no id filter: it deletes every process in ERROR when it runs. A
   process that enters ERROR between the `W12-before` read and the command is deleted too, and the
-  read after the command cannot show it. The test therefore records the number INUBIT reports as
-  deleted (read with the production parser of the answer; `deleted unknown` if the answer has
-  another form, which is no failure by itself) and fails with a deviation if it is larger than the
-  number of approved ids.
+  read after the command cannot show it. INUBIT 8.1.17 answers
+  `Process with status [error] has been deleted.` without a number (run 4), so the test records
+  no deleted count and judges the deletion by the ERROR set read afterwards.
 - After `processdelete error` the ERROR set is read again. An approved id still in ERROR is a
   deviation; ids in ERROR after the command (they entered ERROR after it ran) are reported
   (`new in ERROR after the delete`), and the test does not delete them. `W12-processdelete-error.state`
-  holds the before ids and count, the deleted count and the after ids and count; each read writes
+  holds the before ids and count and the after ids and count; each read writes
   its ids to `<label>-find-processes-error.ids`.
-- The console shows the trigger times, the process ids with their count and the deleted count,
+- The console shows the trigger times and the process ids with their count,
   besides exit codes, statuses and byte counts; never output.
 
 Run 4, for example (W12 with the ids the owner approved):

@@ -203,7 +203,7 @@ class ServerOperationServiceTest {
         assertThat(result.outcome()).isEqualTo(ChangeOutcome.EXECUTED);
         assertThat(result.target()).isEqualTo("maintenance mode");
         assertThat(result.before()).startsWith("off");
-        assertThat(result.inubitAnswer()).isEqualTo("maintenance mode on");
+        assertThat(result.inubitAnswer()).isEqualTo("Updated Successfully");
         assertThat(result.after()).contains("on");
         assertThat(result.restartNeeded()).isEqualTo(ChangeResult.RestartNeeded.FALSE);
         assertThat(completed.warnings()).isEmpty();
@@ -232,9 +232,9 @@ class ServerOperationServiceTest {
 
     // --- AS5: the trace level -------------------------------------------------------------------
 
+    /** T054: the level before and after is {@code TracingLevel} of the system information. */
     @Test
-    void as5TheResultNamesTheLevelBeforeAndAfterWhereINUBITCanReadIt() {
-        server.traceLevelReadable = true;
+    void as5TheResultNamesTheLevelBeforeAndAfterFromTheSystemInformation() {
         server.traceLevel = TraceLevel.ERROR;
 
         ChangePreview preview = preview(DEV, "setTraceLevel", fields("level", "debug"));
@@ -247,30 +247,33 @@ class ServerOperationServiceTest {
         ChangeResult result = confirm(preview, fields("level", "debug")).result();
 
         assertThat(server.switches()).containsExactly("trace -l debug");
+        assertThat(server.calls).containsExactly("check dev/node1", "GET /system",
+            "check dev/node1", "GET /system", "trace -l debug", "GET /system");
         assertThat(result.before()).isEqualTo("error");
+        assertThat(result.inubitAnswer()).isEqualTo("trace level debug");
         assertThat(result.after()).contains("debug");
+        assertThat(result.reReadFailed()).isEmpty();
     }
 
-    /** No read form of the trace level is known yet (research D-22): no guess, a warning. */
+    /** A {@code TracingLevel} outside the list is never guessed: unknown, with a warning. */
     @Test
-    void as5WithoutAReadFormTheLevelBeforeIsUnknownWithAWarning() {
+    void as5AnUnknownTracingLevelIsUnknownWithAWarning() {
+        server.tracingLevelReported = Optional.of("verbose");
+        String unknown = "INUBIT's system information names no known trace level";
+
         ChangePreview preview = preview(DEV, "setTraceLevel", fields("level", "debug"));
 
-        assertThat(preview.before())
-            .isEqualTo("unknown: INUBIT offers no known command that reads the trace level");
-        assertThat(preview.warnings()).containsExactly("The current trace level cannot be"
-            + " shown: INUBIT offers no known command that reads the trace level");
+        assertThat(preview.before()).isEqualTo("unknown: " + unknown);
+        assertThat(preview.warnings())
+            .containsExactly("The current trace level cannot be shown: " + unknown);
 
         ServerOperationService.Response.Completed completed =
             confirm(preview, fields("level", "debug"));
 
-        assertThat(completed.result().before()).startsWith("unknown: ");
+        assertThat(completed.result().before()).isEqualTo("unknown: " + unknown);
         assertThat(completed.result().inubitAnswer()).isEqualTo("trace level debug");
         assertThat(completed.result().after()).isEmpty();
-        assertThat(completed.result().reReadFailed())
-            .contains("INUBIT offers no known command that reads the trace level");
-        assertThat(completed.warnings()).containsExactly("The current trace level cannot be"
-            + " shown: INUBIT offers no known command that reads the trace level");
+        assertThat(completed.result().reReadFailed()).contains(unknown);
     }
 
     // --- AS6, AS7: maintenance mode -------------------------------------------------------------
@@ -424,6 +427,8 @@ class ServerOperationServiceTest {
 
         assertThat(server.switches()).containsExactly("trace on");
         assertThat(result.before()).isEqualTo("off");
+        assertThat(result.inubitAnswer()).isEqualTo("trace on was sent; INUBIT answered without"
+            + " text");
         assertThat(result.after()).contains("on");
     }
 
@@ -456,10 +461,30 @@ class ServerOperationServiceTest {
         ChangeResult result = confirm(preview, fields("ready", false)).result();
 
         assertThat(server.calls).containsExactly("GET /ready", "POST /ready/off", "GET /ready");
-        assertThat(result.inubitAnswer())
-            .isEqualTo("POST /ready/off was sent; INUBIT's answer is not read");
+        assertThat(result.outcome()).isEqualTo(ChangeOutcome.EXECUTED);
+        assertThat(result.inubitAnswer()).isEqualTo("INUBIT accepted POST /ready/off");
         assertThat(result.before()).isEqualTo("READY");
         assertThat(result.after()).contains("NOT READY");
+    }
+
+    /**
+     * A refused answer of the readiness switch (the adapter's {@code UNEXPECTED_RESPONSE} for a
+     * 503 without NOT READY, research D-22) is a failed result with the state read again.
+     */
+    @Test
+    void as9AnUnexpectedReadinessAnswerIsAFailedResultWithTheStateReadAgain() {
+        server.switchFailure = new ToolErrorException(ToolError.of(
+            ErrorCode.UNEXPECTED_RESPONSE, "INUBIT answered POST /ready/off with HTTP 503 but"
+                + " not with the state NOT READY", "cause", "next").withNode(DEV));
+
+        ChangeResult result = previewAndConfirm("setReadiness", fields("ready", false));
+
+        assertThat(result.outcome()).isEqualTo(ChangeOutcome.FAILED);
+        assertThat(result.inubitAnswer()).startsWith("UNEXPECTED_RESPONSE: INUBIT answered"
+            + " POST /ready/off with HTTP 503");
+        assertThat(result.after()).contains("READY");
+        assertThat(outcomes()).containsExactly(AuditOutcome.CHALLENGE_ISSUED,
+            AuditOutcome.PENDING, AuditOutcome.FAILED);
     }
 
     // --- AS11: midnight task -------------------------------------------------------------------
@@ -479,7 +504,8 @@ class ServerOperationServiceTest {
         ChangeResult result = confirm(preview, fields()).result();
 
         assertThat(server.switches()).containsExactly("triggerMidnightTask");
-        assertThat(result.inubitAnswer()).isEqualTo("Midnight task triggered.");
+        assertThat(result.inubitAnswer())
+            .isEqualTo("triggerMidnightTask was sent; INUBIT answered without text");
         assertThat(result.after()).contains("sent at 2026-11-17T10:00:00Z");
     }
 
@@ -680,7 +706,6 @@ class ServerOperationServiceTest {
     @Test
     void neitherPreviewNorResultNorAuditRepeatASecretOfINUBITsAnswers() {
         server.midnightTaskTriggerTime = Optional.of("00:00 " + TestSecrets.FREE_TEXT_SECRETS);
-        server.midnightTaskAnswer = "Midnight task triggered. " + TestSecrets.FREE_TEXT_SECRETS;
 
         ChangePreview preview = preview(DEV, "triggerMidnightTask", fields());
         ServerOperationService.Response.Completed completed = confirm(preview, fields());

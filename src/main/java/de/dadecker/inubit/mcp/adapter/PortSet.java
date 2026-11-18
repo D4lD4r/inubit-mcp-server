@@ -148,7 +148,7 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
         }
 
         @Override
-        public boolean switchMaintenance(boolean on, Optional<Boolean> executeQueued,
+        public String switchMaintenance(boolean on, Optional<Boolean> executeQueued,
             WritePermit permit) {
             throw noServerOperation();
         }
@@ -159,12 +159,7 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
         }
 
         @Override
-        public boolean switchTrace(boolean on, WritePermit permit) {
-            throw noServerOperation();
-        }
-
-        @Override
-        public Optional<TraceLevel> traceLevel() {
+        public void switchTrace(boolean on, WritePermit permit) {
             throw noServerOperation();
         }
 
@@ -174,7 +169,7 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
         }
 
         @Override
-        public String triggerMidnightTask(WritePermit permit) {
+        public void triggerMidnightTask(WritePermit permit) {
             throw noServerOperation();
         }
 
@@ -184,7 +179,7 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
         }
 
         @Override
-        public long deleteErrorProcesses(WritePermit permit) {
+        public String deleteErrorProcesses(WritePermit permit) {
             throw noServerOperation();
         }
     };

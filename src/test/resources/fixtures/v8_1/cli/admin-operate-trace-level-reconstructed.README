@@ -1,6 +1,0 @@
-SYNTHETIC – reconstructed answer of `trace -l debug`; not recorded yet
-Hand-written fixture for TraceStateParser (tasks.md T057): one answer block, the lines after the
-client's preamble (no .stderr/.exit: a block is not a run). No answer of the command is known
-yet, so the form "Trace level: <level>" (a level of the reconstructed TraceLevel list, lower
-case) is an assumption, kept in TraceStateParser. The live check T054 (L-3) records the real answer
-and the level list and replaces this case.

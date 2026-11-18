@@ -27,7 +27,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Supplier;
@@ -56,20 +55,19 @@ final class FakeServerOperations implements GatewayFactory {
     /** Whether the system information states whether the trace is on. */
     volatile boolean traceReported = true;
     volatile TraceLevel traceLevel = TraceLevel.ERROR;
-    /** Whether a read form of the trace level exists (none is known yet, research D-22). */
-    volatile boolean traceLevelReadable;
+    /**
+     * The {@code TracingLevel} of the system information; empty: the name of {@link #traceLevel}
+     * in lower case, as 8.1.17 reports it (T054).
+     */
+    volatile Optional<String> tracingLevelReported = Optional.empty();
     /** The {@code MidnightTaskTriggerTime} of {@code GET /configurations}; empty: not there. */
     volatile Optional<String> midnightTaskTriggerTime =
         Optional.of("Sat Oct 31 00:00:00 CET 2026");
-    volatile String midnightTaskAnswer = "Midnight task triggered.";
     /** The processes in state ERROR as {@code POST /log/queueLog} lists them; none by default. */
     volatile ServerOperationPort.ErrorProcesses errorProcesses =
         new ServerOperationPort.ErrorProcesses(0, List.of(), List.of());
-    /**
-     * The count {@code processdelete error} answers with; empty: the count of
-     * {@link #errorProcesses}. The deletion empties {@link #errorProcesses} in any case.
-     */
-    volatile OptionalLong deletedCount = OptionalLong.empty();
+    /** INUBIT's answer to {@code processdelete error}, as recorded on 8.1.17 (no count). */
+    volatile String processDeleteAnswer = "Process with status [error] has been deleted.";
     volatile MonitoringPort.Metrics metrics = new MonitoringPort.Metrics.Available(
         new LoadFigures(512, 512, 1024, Optional.empty(), Optional.of(3L), Optional.of(10L),
             Optional.of(10L), Optional.of(12L), Optional.of(100L), Optional.empty()));
@@ -86,8 +84,7 @@ final class FakeServerOperations implements GatewayFactory {
     /** The calls that changed (or tried to change) state. */
     List<String> switches() {
         return calls.stream().filter(call -> !call.equals("maintenance -s")
-            && !call.startsWith("GET ") && !call.startsWith("check ")
-            && !call.equals("trace level?")).toList();
+            && !call.startsWith("GET ") && !call.startsWith("check ")).toList();
     }
 
     private static String onOff(boolean on) {
@@ -133,12 +130,12 @@ final class FakeServerOperations implements GatewayFactory {
             }
 
             @Override
-            public boolean switchMaintenance(boolean on, Optional<Boolean> executeQueued,
+            public String switchMaintenance(boolean on, Optional<Boolean> executeQueued,
                 WritePermit permit) {
                 return change("maintenance " + onOff(on)
                     + executeQueued.map(value -> " -eq " + value).orElse(""), permit, () -> {
                         maintenance = on;
-                        return on;
+                        return "Updated Successfully";
                     });
             }
 
@@ -151,17 +148,11 @@ final class FakeServerOperations implements GatewayFactory {
             }
 
             @Override
-            public boolean switchTrace(boolean on, WritePermit permit) {
-                return change("trace " + onOff(on), permit, () -> {
+            public void switchTrace(boolean on, WritePermit permit) {
+                change("trace " + onOff(on), permit, () -> {
                     trace = on;
                     return on;
                 });
-            }
-
-            @Override
-            public Optional<TraceLevel> traceLevel() {
-                calls.add("trace level?");
-                return traceLevelReadable ? Optional.of(traceLevel) : Optional.empty();
             }
 
             @Override
@@ -173,8 +164,8 @@ final class FakeServerOperations implements GatewayFactory {
             }
 
             @Override
-            public String triggerMidnightTask(WritePermit permit) {
-                return change("triggerMidnightTask", permit, () -> midnightTaskAnswer);
+            public void triggerMidnightTask(WritePermit permit) {
+                change("triggerMidnightTask", permit, () -> null);
             }
 
             @Override
@@ -184,11 +175,10 @@ final class FakeServerOperations implements GatewayFactory {
             }
 
             @Override
-            public long deleteErrorProcesses(WritePermit permit) {
+            public String deleteErrorProcesses(WritePermit permit) {
                 return change("processdelete error", permit, () -> {
-                    long deleted = deletedCount.orElse(errorProcesses.count());
                     errorProcesses = new ErrorProcesses(0, List.of(), List.of());
-                    return deleted;
+                    return processDeleteAnswer;
                 });
             }
         };
@@ -213,7 +203,8 @@ final class FakeServerOperations implements GatewayFactory {
                 restRead(node, "GET /system");
                 return new SystemInfo(Optional.of("8.1.17"), Optional.empty(), Optional.empty(),
                     Optional.empty(), traceReported ? Optional.of(trace) : Optional.empty(),
-                    Optional.empty(), Map.of());
+                    Optional.empty(), Map.of("TracingLevel", tracingLevelReported.orElse(
+                        traceLevel.name().toLowerCase(Locale.ROOT))));
             }
 
             @Override

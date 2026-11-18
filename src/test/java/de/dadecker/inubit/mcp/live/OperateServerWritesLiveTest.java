@@ -23,7 +23,6 @@ import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.Read;
 import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.RestRead;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Answer;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.CliWrite;
-import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Deletion;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.ErrorSetRead;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Outcome;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Property;
@@ -39,7 +38,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.Set;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -290,18 +288,12 @@ class OperateServerWritesLiveTest {
         }
 
         @Override
-        public Deletion delete() throws IOException {
+        public Optional<String> delete() throws IOException {
             Step step = OperateServerWritesLiveTestSupport.W12;
             Attempt attempt = runCli(step, ((CliWrite) step.action()).command(),
                 Optional.of(permit));
-            // the count only of an answer that exited 0
-            Optional<CliResult> answered =
-                attempt.result().filter(result -> result.exitCode() == 0);
-            return new Deletion(OperateServerWritesLiveTestSupport.failure(attempt.error(),
-                    attempt.result().map(CliResult::exitCode)),
-                answered.isEmpty() ? OptionalLong.empty()
-                    : OperateServerWritesLiveTestSupport.deletedCount(
-                        classifier.parse(answered.get()).outputLines()));
+            return OperateServerWritesLiveTestSupport.failure(attempt.error(),
+                attempt.result().map(CliResult::exitCode));
         }
 
         @Override

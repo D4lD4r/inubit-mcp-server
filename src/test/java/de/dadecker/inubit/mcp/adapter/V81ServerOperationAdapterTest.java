@@ -12,16 +12,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.ScriptedProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.admin.CliOperationRunner;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.MaintenanceProbe;
+import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.domain.model.Capability;
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Page;
@@ -29,6 +32,7 @@ import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessRows;
 import de.dadecker.inubit.mcp.domain.model.ProcessState;
+import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.TraceLevel;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.ClientCheckLookup;
@@ -68,8 +72,9 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * Feature 022 T058 (US4, research D-14, D-22): the 8.1 server operation adapter. The StartCLI
  * forms run on the {@link CliOperationRunner} (scripted by {@link ScriptedProcessLauncher}; the
- * answers are the RECONSTRUCTED forms of T057), the readiness switch on the node's REST client
- * (WireMock), both handed off under the node's write lock; the set of processes in ERROR comes
+ * answers are the forms recorded on 8.1.17 in T054), the readiness switch on the node's REST client
+ * (WireMock, the recorded answers {@code admin-operate-ready-*}), both handed off under the node's
+ * write lock; the set of processes in ERROR comes
  * from the {@link ProcessQueryPort}, page by page up to 10,000 rows.
  */
 @Timeout(60)
@@ -151,22 +156,25 @@ class V81ServerOperationAdapterTest {
     @Test
     void theStateReadAndTheStartCliChangesRunTheirFormsWithTheRunnersAnswers() {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
-        step(cli, "maintenance -s", "Maintenance mode: off");
-        step(cli, "maintenance on -eq true", "Maintenance mode: on");
-        step(cli, "maintenance off", "Maintenance mode: off");
-        step(cli, "trace on", "Trace: on");
-        step(cli, "trace -l info", "Trace level: info");
-        step(cli, "triggerMidnightTask", "Midnight task triggered.");
-        step(cli, "processdelete error", "Deleted processes: 3");
+        step(cli, "maintenance -s", "off");
+        step(cli, "maintenance on -eq true", "Updated Successfully");
+        step(cli, "maintenance off", "Updated Successfully");
+        step(cli, "trace on", "");
+        step(cli, "trace -l info", "Successfully changed level to INFO");
+        step(cli, "triggerMidnightTask", "");
+        step(cli, "processdelete error", "Process with status [error] has been deleted.");
         ServerOperationPort port = adapter(cli);
 
         assertThat(port.maintenanceState()).isFalse();
-        assertThat(port.switchMaintenance(true, Optional.of(true), PERMIT)).isTrue();
-        assertThat(port.switchMaintenance(false, Optional.empty(), PERMIT)).isFalse();
-        assertThat(port.switchTrace(true, PERMIT)).isTrue();
+        assertThat(port.switchMaintenance(true, Optional.of(true), PERMIT))
+            .isEqualTo("Updated Successfully");
+        assertThat(port.switchMaintenance(false, Optional.empty(), PERMIT))
+            .isEqualTo("Updated Successfully");
+        port.switchTrace(true, PERMIT);
         assertThat(port.setTraceLevel(TraceLevel.INFO, PERMIT)).isEqualTo(TraceLevel.INFO);
-        assertThat(port.triggerMidnightTask(PERMIT)).isEqualTo("Midnight task triggered.");
-        assertThat(port.deleteErrorProcesses(PERMIT)).isEqualTo(3L);
+        port.triggerMidnightTask(PERMIT);
+        assertThat(port.deleteErrorProcesses(PERMIT))
+            .isEqualTo("Process with status [error] has been deleted.");
 
         cli.verifyComplete();
         assertThat(cli.execCommands()).containsExactly("maintenance -s",
@@ -177,25 +185,15 @@ class V81ServerOperationAdapterTest {
         assertThat(wireMock.getAllServeEvents()).as("no REST request").isEmpty();
     }
 
-    @Test
-    void theTraceLevelIsUnknownWithoutContact() {
-        ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
-        ServerOperationPort port = adapter(cli);
-
-        assertThat(port.traceLevel()).isEmpty();
-
-        assertThat(cli.launches()).isEmpty();
-        assertThat(wireMock.getAllServeEvents()).isEmpty();
-    }
-
     // --- REST readiness switch -----------------------------------------------------------------
 
+    /** T054: 8.1.17 answers a successful {@code off} with 503 and the state NOT READY. */
     @Test
     void theReadinessIsSwitchedOverRestWithCredentialsInsideTheHandOff() {
         wireMock.stubFor(post(urlEqualTo("/ibis/rest/ready/on"))
-            .willReturn(aResponse().withStatus(200)));
+            .willReturn(RestFixtures.response("admin-operate-ready-on", "json")));
         wireMock.stubFor(post(urlEqualTo("/ibis/rest/ready/off"))
-            .willReturn(aResponse().withStatus(200)));
+            .willReturn(RestFixtures.response("admin-operate-ready-off-reconstructed", "json")));
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
         ServerOperationPort port = adapter(cli);
 
@@ -209,6 +207,79 @@ class V81ServerOperationAdapterTest {
         assertThat(lock.permits()).hasSize(2).allSatisfy(permit ->
             assertThat(permit).isSameAs(PERMIT));
         assertThat(cli.launches()).as("no StartCLI run").isEmpty();
+    }
+
+    @Test
+    void readinessOffAnsweredWith2xxIsDoneToo() {
+        wireMock.stubFor(post(urlEqualTo("/ibis/rest/ready/off"))
+            .willReturn(aResponse().withStatus(200)));
+
+        adapter(new ScriptedProcessLauncher()).switchReadiness(false, PERMIT);
+
+        wireMock.verify(1, postRequestedFor(urlEqualTo("/ibis/rest/ready/off")));
+    }
+
+    /**
+     * Only the full body of {@code admin-operate-ready-off-reconstructed} is reconstructed: the
+     * recorded message {@code No Service.} is taken as done as plain text and as JSON
+     * {@code message} too, and JSON {@code status} {@code NOT READY} without a message (research
+     * D-22).
+     */
+    @Test
+    void readinessOffAnswered503WithNoServiceAsPlainTextOrJsonMessageIsDone() {
+        ServerOperationPort port = adapter(new ScriptedProcessLauncher());
+        for (ResponseDefinitionBuilder answer : List.of(
+            aResponse().withStatus(503).withHeader("Content-Type", "text/plain")
+                .withBody("No Service.\n"),
+            aResponse().withStatus(503).withBody("{\"message\":\"No Service.\"}"),
+            aResponse().withStatus(503).withBody("{\"status\":\"NOT READY\"}"))) {
+            wireMock.resetAll();
+            wireMock.stubFor(post(urlEqualTo("/ibis/rest/ready/off")).willReturn(answer));
+
+            port.switchReadiness(false, PERMIT);
+
+            wireMock.verify(1, postRequestedFor(urlEqualTo("/ibis/rest/ready/off")));
+        }
+    }
+
+    /**
+     * Any other 503 (the maintenance message, a proxy page, another state) or a 500 is no done
+     * switch; the request is sent once.
+     */
+    @Test
+    void readinessOffAnsweredWithAnother503OrA500Fails() {
+        ServerOperationPort port = adapter(new ScriptedProcessLauncher());
+        for (ResponseDefinitionBuilder answer : List.of(
+            aResponse().withStatus(503).withBody("{\"status\":\"NOT READY\",\"message\":"
+                + "\"No Service - Maintenance mode active.\"}"),
+            aResponse().withStatus(503).withHeader("Content-Type", "text/html")
+                .withBody("<html><body><h1>503 Service Unavailable</h1>"
+                    + "<p>No Service.</p></body></html>"),
+            aResponse().withStatus(503).withBody("Service Unavailable"),
+            aResponse().withStatus(503).withBody("{\"status\":\"READY\"}"),
+            aResponse().withStatus(503),
+            aResponse().withStatus(500)
+                .withBody("{\"status\":\"NOT READY\",\"message\":\"No Service.\"}"))) {
+            wireMock.resetAll();
+            wireMock.stubFor(post(urlEqualTo("/ibis/rest/ready/off")).willReturn(answer));
+
+            assertThatThrownBy(() -> port.switchReadiness(false, PERMIT))
+                .isInstanceOfSatisfying(ToolErrorException.class, e -> {
+                    assertThat(e.error().code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+                    assertThat(e.error().node()).contains(DEV);
+                });
+            wireMock.verify(1, postRequestedFor(urlEqualTo("/ibis/rest/ready/off")));
+        }
+    }
+
+    /** A 503 is accepted only for {@code off}: {@code on} answered 503 keeps the client's error. */
+    @Test
+    void readinessOnAnswered503Fails() {
+        wireMock.stubFor(post(urlEqualTo("/ibis/rest/ready/on"))
+            .willReturn(RestFixtures.response("admin-operate-ready-off-reconstructed", "json")));
+
+        assertThatThrownBy(() -> adapter(new ScriptedProcessLauncher())
+            .switchReadiness(true, PERMIT)).isInstanceOf(ToolErrorException.class);
     }
 
     @Test

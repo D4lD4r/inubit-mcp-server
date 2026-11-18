@@ -143,6 +143,27 @@ class InubitHttpClientWriteLockTest {
         }
     }
 
+    /** T054: 8.1.17 answers a successful {@code POST /ready/off} with 503 (research D-22). */
+    @Test
+    void anAcceptedStatusIsReturnedWithItsBodyAndAnyOtherStaysAnError() {
+        versions.detected(NODE, V8_1_17);
+        wireMock.stubFor(post(urlEqualTo(READY_OFF)).willReturn(aResponse().withStatus(503)
+            .withBody("{\"status\":\"NOT READY\",\"message\":\"No Service.\"}")));
+
+        try (InubitHttpClient client = client(Duration.ofSeconds(5))) {
+            RestResponse response = client.post(RestEndpoint.READY_SWITCH, List.of("off"),
+                permit(NODE, V8_1_17), versions, 503);
+
+            assertThat(response.status()).isEqualTo(503);
+            assertThat(response.bodyText()).contains("NOT READY");
+            assertThat(catchThrowableOfType(ToolErrorException.class,
+                () -> client.post(RestEndpoint.READY_SWITCH, List.of("off"),
+                    permit(NODE, V8_1_17), versions)).error().code())
+                .isEqualTo(ErrorCode.UNREACHABLE);
+        }
+        wireMock.verify(2, postRequestedFor(urlEqualTo(READY_OFF)));
+    }
+
     @Test
     void aTimeoutIsReportedAsForEveryRequest() {
         versions.detected(NODE, V8_1_17);

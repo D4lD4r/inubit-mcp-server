@@ -131,9 +131,10 @@ import tools.jackson.databind.JsonNode;
  * {@code V81TagAdministrationAdapter} do; the readiness, the load figures, the trace state, the
  * processes in ERROR and the versions carrying a tag come from fixed answers without INUBIT text.
  * Every capability is supported, and the US4 rows are reachable only in this test's coverage
- * list. No answer of the StartCLI forms is recorded yet (T054, T055): the known answers are the
- * RECONSTRUCTED {@code admin-operate-*} and {@code admin-tags-user-active-tag} blocks, and the
- * tag forms answer like the recorded {@code tag_ok} (no result line).
+ * list. The known answers of the operation forms are the ones recorded on 8.1.17
+ * ({@code admin-operate-*}, T054); the active tag is the RECONSTRUCTED
+ * {@code admin-tags-user-active-tag} block (until T055), and the tag forms answer like the
+ * recorded {@code tag_ok} (no result line).
  */
 @Timeout(60)
 class OperationSecretLeakTest {
@@ -179,14 +180,14 @@ class OperationSecretLeakTest {
         CLI\ttag --tagDelete\tWRITE\tE\tUS4\treachable:manage_tags/deleteTag\tplanned\t-
         """;
 
-    /** The known answer of each script-mode form, after the client's preamble. */
+    /** The answer of each script-mode form recorded on 8.1.17 (T054), after the preamble. */
     private static final Map<String, String> KNOWN = Map.of(
-        "maintenance -s", "Maintenance mode: off",
-        "maintenance on", "Maintenance mode: on",
-        "trace on", "Trace: on",
-        "trace -l debug", "Trace level: debug",
-        "triggerMidnightTask", "Midnight task triggered.",
-        "processdelete error", "Deleted processes: 2");
+        "maintenance -s", "off",
+        "maintenance on", "Updated Successfully",
+        "trace on", "",
+        "trace -l debug", "Successfully changed level to DEBUG",
+        "triggerMidnightTask", "",
+        "processdelete error", "Process with status [error] has been deleted.");
     /** The RECONSTRUCTED answer of {@code user jdoe} with an active tag. */
     private static final List<String> ACTIVE_TAG = List.of("User name    jdoe",
         "User group   OPS", "Super group  headoffice", "Active tag   REL-1");
@@ -547,24 +548,19 @@ class OperationSecretLeakTest {
                 }
 
                 @Override
-                public boolean switchMaintenance(boolean on, Optional<Boolean> executeQueued,
+                public String switchMaintenance(boolean on, Optional<Boolean> executeQueued,
                     WritePermit permit) {
                     return cli.switchMaintenance(on, executeQueued.orElse(null), permit);
                 }
 
                 @Override
                 public void switchReadiness(boolean ready, WritePermit permit) {
-                    // POST /ready/on|off: its answer is not read
+                    // POST /ready/on|off: done (V81ServerOperationAdapterTest covers its answer)
                 }
 
                 @Override
-                public boolean switchTrace(boolean on, WritePermit permit) {
-                    return cli.switchTrace(on, permit);
-                }
-
-                @Override
-                public Optional<TraceLevel> traceLevel() {
-                    return Optional.empty();
+                public void switchTrace(boolean on, WritePermit permit) {
+                    cli.switchTrace(on, permit);
                 }
 
                 @Override
@@ -573,8 +569,8 @@ class OperationSecretLeakTest {
                 }
 
                 @Override
-                public String triggerMidnightTask(WritePermit permit) {
-                    return cli.triggerMidnightTask(permit);
+                public void triggerMidnightTask(WritePermit permit) {
+                    cli.triggerMidnightTask(permit);
                 }
 
                 @Override
@@ -584,7 +580,7 @@ class OperationSecretLeakTest {
                 }
 
                 @Override
-                public long deleteErrorProcesses(WritePermit permit) {
+                public String deleteErrorProcesses(WritePermit permit) {
                     return cli.deleteErrorProcesses(permit);
                 }
             };

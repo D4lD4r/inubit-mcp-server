@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.MissingNode;
 import de.dadecker.inubit.mcp.adapter.cli.CliCommand;
 import de.dadecker.inubit.mcp.adapter.cli.UnlistedWriteCommand;
-import de.dadecker.inubit.mcp.adapter.cli.admin.ProcessDeleteAnswerParser;
 import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
 import de.dadecker.inubit.mcp.adapter.rest.XmlSupport;
 import de.dadecker.inubit.mcp.application.DiagnosisService;
@@ -855,33 +854,15 @@ final class OperateServerWritesLiveTestSupport {
         Optional<Set<String>> errorProcesses(String label) throws IOException;
 
         /**
-         * Runs W12's {@code processdelete error} once, never retried, recorded as its case files:
-         * its failure and the number INUBIT reports as deleted ({@link #deletedCount}).
+         * Runs W12's {@code processdelete error} once, never retried, recorded as its case files.
+         * Its answer names no number of deleted processes (8.1.17, T054).
+         *
+         * @return its failure, if any
          */
-        Deletion delete() throws IOException;
+        Optional<String> delete() throws IOException;
 
         /** Records {@code text} as the {@code .state} note of {@code step}. */
         void recordNote(Step step, String text) throws IOException;
-    }
-
-    /**
-     * What {@code processdelete error} answered: its failure, if any, and the number of deleted
-     * processes INUBIT reports, empty if it failed or its answer has another form.
-     */
-    record Deletion(Optional<String> failure, OptionalLong deleted) {
-    }
-
-    /**
-     * The number of processes {@code processdelete error} reports as deleted, read from its output
-     * lines (after the client's preamble) by the production
-     * {@link ProcessDeleteAnswerParser#parse}; empty if they have another form.
-     */
-    static OptionalLong deletedCount(List<String> outputLines) {
-        try {
-            return OptionalLong.of(ProcessDeleteAnswerParser.parse(outputLines));
-        } catch (ToolErrorException e) {
-            return OptionalLong.empty();
-        }
     }
 
     /**
@@ -895,9 +876,8 @@ final class OperateServerWritesLiveTestSupport {
      * it equals {@code approvedErrorIds} and is not empty it runs {@code processdelete error}, then
      * reads the set again: an approved id still there is a deviation, an id in ERROR after the
      * delete is reported only. The command has no id filter: a process that entered ERROR between
-     * the read and the command is deleted too, and no read can show it afterwards; so the number
-     * INUBIT reports as deleted is recorded, and one above the approved count is a deviation (an
-     * answer of another form records it as unknown, no failure by itself). A changed set is a
+     * the read and the command is deleted too, and no read can show it afterwards; INUBIT's answer
+     * names no number of deleted processes (8.1.17, T054), so none is recorded. A changed set is a
      * failure without delete (a new preview is needed); an approved empty set that is still empty
      * is skipped.
      *
@@ -960,24 +940,18 @@ final class OperateServerWritesLiveTestSupport {
                 + "); not run");
             return Optional.empty();
         }
-        Deletion deletion = node.delete();
+        Optional<String> failure = node.delete();
         Optional<Set<String>> after = node.errorProcesses(W12.id() + "-after");
         Set<String> remaining = new HashSet<>(after.orElse(Set.of()));
         remaining.retainAll(approved);
         Set<String> appeared = new HashSet<>(after.orElse(Set.of()));
         appeared.removeAll(approved);
-        String deleted = deletion.deleted().isPresent()
-            ? String.valueOf(deletion.deleted().getAsLong()) : "unknown";
-        node.recordNote(W12, "before " + describeIds(now) + "; deleted " + deleted + "; after "
+        node.recordNote(W12, "before " + describeIds(now) + "; after "
             + after.map(OperateServerWritesLiveTestSupport::describeIds).orElse("unknown")
             + after.map(ids -> "; approved still in ERROR " + describeIds(remaining)
                 + "; new in ERROR after the delete " + describeIds(appeared)).orElse(""));
-        if (deletion.failure().isPresent()) {
-            return deletion.failure();
-        }
-        if (deletion.deleted().isPresent() && deletion.deleted().getAsLong() > approved.size()) {
-            return Optional.of("DEVIATION (INUBIT deleted " + deleted + " processes, approved "
-                + approved.size() + ")");
+        if (failure.isPresent()) {
+            return failure;
         }
         if (after.isEmpty()) {
             return Optional.of("ERROR set after processdelete error unknown");

@@ -15,15 +15,16 @@ import java.util.Optional;
  *
  * <p>The states before and after a change come from here and from {@link MonitoringPort}, the
  * source {@code get_health} uses: the readiness from {@link MonitoringPort#ready()}, whether the
- * trace is on from {@link MonitoringPort#systemInfo()} ({@code tracingEnabled}), and the
- * maintenance mode from {@link #maintenanceState()} or {@link MonitoringPort#healthcheck()}.
+ * trace is on and its level from {@link MonitoringPort#systemInfo()} ({@code tracingEnabled},
+ * {@code TracingLevel}), and the maintenance mode from {@link #maintenanceState()} or
+ * {@link MonitoringPort#healthcheck()}. No answer of a change names the state after it.
  *
  * <p>Every change takes the {@link WritePermit} of the call's admission for this port's node and
  * is handed off under the node's {@link WriteLock}; after a version change since the admission it
  * is refused with {@code UNSUPPORTED_VERSION} and nothing is sent. A permit for another node is an
- * {@link IllegalArgumentException}; nothing is sent. No answer of these commands is recorded yet
- * (live check T054): an answer of another form is {@code UNEXPECTED_RESPONSE}, the change was
- * sent but is not confirmed.
+ * {@link IllegalArgumentException}; nothing is sent. An answer of another form than the one
+ * recorded on 8.1.17 (live check T054) is {@code UNEXPECTED_RESPONSE}: the change was sent but is
+ * not confirmed.
  */
 public interface ServerOperationPort {
 
@@ -37,30 +38,22 @@ public interface ServerOperationPort {
      * Switches maintenance mode ({@code maintenance on|off [-eq true|false]}).
      *
      * @param executeQueued {@code -eq}, only with {@code on}
-     * @return the state INUBIT answers with
+     * @return INUBIT's answer ({@code Updated Successfully} on 8.1.17)
      * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException {@code INVALID_INPUT} for
      *     {@code executeQueued} with {@code off}, before anything is sent
      */
-    boolean switchMaintenance(boolean on, Optional<Boolean> executeQueued, WritePermit permit);
+    String switchMaintenance(boolean on, Optional<Boolean> executeQueued, WritePermit permit);
 
     /**
-     * Switches the readiness ({@code POST /ready/on|off}). Its answer is not read; the state after
-     * is {@link MonitoringPort#ready()}.
+     * Switches the readiness ({@code POST /ready/on|off}); the state after is
+     * {@link MonitoringPort#ready()}. INUBIT 8.1.17 answers a successful {@code off} with HTTP 503
+     * and the message {@code No Service.}, which counts as done; any other 503 is
+     * {@code UNEXPECTED_RESPONSE} (research D-22).
      */
     void switchReadiness(boolean ready, WritePermit permit);
 
-    /**
-     * Switches the trace ({@code trace on|off}).
-     *
-     * @return the state INUBIT answers with
-     */
-    boolean switchTrace(boolean on, WritePermit permit);
-
-    /**
-     * The trace level; always empty, without contacting the server: INUBIT has no known form that
-     * reads it (research D-22; the live check T054 looks for one).
-     */
-    Optional<TraceLevel> traceLevel();
+    /** Switches the trace ({@code trace on|off}); INUBIT answers no text. */
+    void switchTrace(boolean on, WritePermit permit);
 
     /**
      * Sets the trace level ({@code trace -l <level>}).
@@ -69,12 +62,8 @@ public interface ServerOperationPort {
      */
     TraceLevel setTraceLevel(TraceLevel level, WritePermit permit);
 
-    /**
-     * Runs the midnight task now ({@code triggerMidnightTask}).
-     *
-     * @return INUBIT's answer
-     */
-    String triggerMidnightTask(WritePermit permit);
+    /** Runs the midnight task now ({@code triggerMidnightTask}); INUBIT answers no text. */
+    void triggerMidnightTask(WritePermit permit);
 
     /**
      * The processes in state ERROR, read from the Queue Manager page by page
@@ -88,9 +77,9 @@ public interface ServerOperationPort {
     /**
      * Deletes the processes in state ERROR ({@code processdelete error}).
      *
-     * @return the number of processes INUBIT reports as deleted
+     * @return INUBIT's answer; on 8.1.17 it names no number of deleted processes
      */
-    long deleteErrorProcesses(WritePermit permit);
+    String deleteErrorProcesses(WritePermit permit);
 
     /**
      * The processes in state ERROR (research D-14).

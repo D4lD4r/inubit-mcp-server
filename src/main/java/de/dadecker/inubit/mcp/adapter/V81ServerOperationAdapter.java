@@ -3,11 +3,15 @@ package de.dadecker.inubit.mcp.adapter;
 import de.dadecker.inubit.mcp.adapter.cli.admin.CliOperationRunner;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.RestEndpoint;
+import de.dadecker.inubit.mcp.adapter.rest.RestResponse;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.Page;
 import de.dadecker.inubit.mcp.domain.model.ProcessInstance;
 import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ProcessState;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
+import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.TraceLevel;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
@@ -20,6 +24,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The 8.1 {@link ServerOperationPort} (feature 022, US4, research D-14, D-22); 9.0 uses it too.
@@ -28,19 +35,22 @@ import java.util.TreeSet;
  *   <li>the StartCLI forms run on the node's {@link CliOperationRunner}, the changes inside the
  *       write hand-off of their permit;
  *   <li>the readiness is switched with {@code POST /ready/on|off} on the node's client, handed
- *       off under the same write lock as the StartCLI writes; its answer is not read;
+ *       off under the same write lock as the StartCLI writes; INUBIT 8.1.17 answers a successful
+ *       {@code off} with HTTP 503 and the message {@code No Service.} (T054), which is the only
+ *       non-2xx answer taken as done;
  *   <li>the processes in ERROR are the {@code find_processes} query of state ERROR on the node's
  *       {@link ProcessQueryPort} ({@code POST /log/queueLog}), 1,000 rows per request, up to
  *       {@link #MAX_ERROR_PROCESS_IDS} rows; with more, the total INUBIT reports on the first page
- *       is the count only;
- *   <li>the trace level is unknown: INUBIT has no known form that reads it (research D-22, live
- *       check T054).
+ *       is the count only.
  * </ul>
  */
 final class V81ServerOperationAdapter implements ServerOperationPort {
 
     /** The rows of one Queue Manager request for the set of processes in ERROR. */
     private static final int PAGE = 1_000;
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+    /** The message of a done {@code POST /ready/off} on 8.1.17 (T054). */
+    private static final String NO_SERVICE = "No Service.";
 
     private final EffectiveNodeConfig server;
     private final CliOperationRunner operations;
@@ -67,24 +77,60 @@ final class V81ServerOperationAdapter implements ServerOperationPort {
     }
 
     @Override
-    public boolean switchMaintenance(boolean on, Optional<Boolean> executeQueued,
+    public String switchMaintenance(boolean on, Optional<Boolean> executeQueued,
         WritePermit permit) {
         return operations.switchMaintenance(on, executeQueued.orElse(null), permit);
     }
 
     @Override
     public void switchReadiness(boolean ready, WritePermit permit) {
-        client.post(RestEndpoint.READY_SWITCH, List.of(ready ? "on" : "off"), permit, writeLock);
+        if (ready) {
+            client.post(RestEndpoint.READY_SWITCH, List.of("on"), permit, writeLock);
+            return;
+        }
+        RestResponse response = client.post(RestEndpoint.READY_SWITCH, List.of("off"), permit,
+            writeLock, 503);
+        if (response.status() == 503 && !switchedOff(response)) {
+            throw new ToolErrorException(ToolError.of(ErrorCode.UNEXPECTED_RESPONSE,
+                "INUBIT answered POST " + RestEndpoint.READY_SWITCH.path("off")
+                    + " with HTTP 503 but not with the answer of a done switch",
+                "INUBIT is not serving, or another server answered for it",
+                "Read the readiness with get_health; it may not have been switched")
+                .withNode(server.id()));
+        }
+    }
+
+    /**
+     * Whether a 503 answer of {@code POST /ready/off} is the one recorded for a done switch
+     * (T054; only the message {@code No Service.} was recorded, not the whole body): the plain
+     * text {@code No Service.}, or a JSON object whose {@code message} is {@code No Service.}, or
+     * whose {@code status} is {@code NOT READY} without a message. Any other message, such as
+     * {@code No Service - Maintenance mode active.}, or any other body is not.
+     */
+    private static boolean switchedOff(RestResponse response) {
+        if (response.bodyText().strip().equals(NO_SERVICE)) {
+            return true;
+        }
+        JsonNode root;
+        try {
+            root = JSON.readTree(response.body());
+        } catch (JacksonException e) {
+            return false;
+        }
+        if (root == null || !root.isObject()) {
+            return false;
+        }
+        JsonNode message = root.get("message");
+        if (message != null) {
+            return message.isString() && message.asString().strip().equals(NO_SERVICE);
+        }
+        JsonNode status = root.get("status");
+        return status != null && status.isString() && status.asString().equals("NOT READY");
     }
 
     @Override
-    public boolean switchTrace(boolean on, WritePermit permit) {
-        return operations.switchTrace(on, permit);
-    }
-
-    @Override
-    public Optional<TraceLevel> traceLevel() {
-        return Optional.empty();
+    public void switchTrace(boolean on, WritePermit permit) {
+        operations.switchTrace(on, permit);
     }
 
     @Override
@@ -93,8 +139,8 @@ final class V81ServerOperationAdapter implements ServerOperationPort {
     }
 
     @Override
-    public String triggerMidnightTask(WritePermit permit) {
-        return operations.triggerMidnightTask(permit);
+    public void triggerMidnightTask(WritePermit permit) {
+        operations.triggerMidnightTask(permit);
     }
 
     @Override
@@ -127,7 +173,7 @@ final class V81ServerOperationAdapter implements ServerOperationPort {
     }
 
     @Override
-    public long deleteErrorProcesses(WritePermit permit) {
+    public String deleteErrorProcesses(WritePermit permit) {
         return operations.deleteErrorProcesses(permit);
     }
 

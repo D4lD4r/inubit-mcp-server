@@ -12,6 +12,7 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ItemBounds;
 import de.dadecker.inubit.mcp.domain.model.LoadFigures;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.SystemInfo;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.TraceLevel;
@@ -68,12 +69,15 @@ import org.slf4j.LoggerFactory;
  * <p>The states come from {@link ServerOperationPort} and {@link MonitoringPort} (research D-22):
  * maintenance mode from {@code maintenance -s}, where a {@code MAINTENANCE_MODE} error (INUBIT's
  * REST API answering 503) counts as "on"; before switching it on, the running and queued processes
- * from the metrics; readiness from {@code GET /ready}; trace on/off from the system information;
- * the trace level from the port, which knows no read form for it yet, so it is shown as unknown
- * with a warning, and the result says the re-read failed; the midnight task's
+ * from the metrics; readiness from {@code GET /ready}; trace on/off and the trace level
+ * ({@code TracingLevel}) from the system information, a level outside {@link TraceLevel} shown as
+ * unknown with a warning (the result then says the re-read failed); the midnight task's
  * {@code MidnightTaskTriggerTime} from {@code GET /configurations}, if INUBIT reports it; the
  * processes in state ERROR from {@link ServerOperationPort#errorProcesses}, compared by a hash of
- * their sorted ids, or by their count when INUBIT lists no ids (D-14, FR-017).
+ * their sorted ids, or by their count when INUBIT lists no ids (D-14, FR-017). No switch answer
+ * names the state after the change (T054), so the result's {@code after} is the re-read (for the
+ * midnight task the time it was sent); {@code inubitAnswer} is INUBIT's answer, or what was sent
+ * when INUBIT answered without text; {@code affectedCount} stays empty, as INUBIT names no count.
  * Every refusal after the admission is audited {@code REFUSED}.
  */
 public final class ServerOperationService {
@@ -96,6 +100,9 @@ public final class ServerOperationService {
     private static final Pattern REASON = Pattern.compile("^[^\\r\\n]{1,500}$");
     /** The configuration section of the midnight task's time in {@code GET /configurations}. */
     private static final String MIDNIGHT_TASK_TRIGGER_TIME = "MidnightTaskTriggerTime";
+    /** The system information entry of the trace level (8.1.17, T054). */
+    private static final String TRACING_LEVEL = "TracingLevel";
+    private static final String NO_TEXT = " was sent; INUBIT answered without text";
 
     private static final String MAINTENANCE_EFFECT = "In maintenance mode the process engine"
         + " executes no processes, and INUBIT's REST API answers every request with \"service"
@@ -111,12 +118,11 @@ public final class ServerOperationService {
     private static final List<String> MIDNIGHT_TASK_EFFECTS = List.of(
         "The daily midnight task runs at once instead of at its configured start time.",
         "The vendor does not document what the midnight task does.");
-    private static final String NO_TRACE_LEVEL_READ =
-        "INUBIT offers no known command that reads the trace level";
     private static final List<String> DELETE_ERROR_PROCESSES_EFFECTS = List.of(
         "The processes in state ERROR are deleted and cannot be restored.",
         "processdelete error deletes every process in state ERROR when it runs, also one that"
-            + " entered the state after the preview; the result names the count INUBIT reports.");
+            + " entered the state after the preview; INUBIT's answer names no count, the result"
+            + " shows the set read afterwards.");
     private static final String NO_ERROR_PROCESS = "no process in state ERROR";
     private static final String REST_IN_MAINTENANCE = "maintenance mode is on and INUBIT's REST"
         + " API answers \"service unavailable\"";
@@ -344,16 +350,8 @@ public final class ServerOperationService {
         String sentAt = clock.instant().toString();
         ChangeOutcome outcome;
         String answer;
-        OptionalInt affectedCount = OptionalInt.empty();
         try {
-            if (action.equals(DELETE_ERROR_PROCESSES)) {
-                long deleted = gateways.serverOperation(node).deleteErrorProcesses(
-                    policy.permit());
-                affectedCount = OptionalInt.of((int) Math.min(deleted, Integer.MAX_VALUE));
-                answer = "INUBIT reports " + processes(deleted) + " deleted";
-            } else {
-                answer = send(action, request.fields(), node, policy.permit());
-            }
+            answer = send(action, request.fields(), node, policy.permit());
             outcome = ChangeOutcome.EXECUTED;
         } catch (ToolErrorException e) {
             answer = e.error().code() + ": " + e.error().message();
@@ -393,7 +391,7 @@ public final class ServerOperationService {
         List<String> warnings = new ArrayList<>(warnings(policy, action, before));
         auditWarning.ifPresent(warnings::add);
         return new Response.Completed(new ChangeResult(node, TOOL, action, target(action),
-            outcome, before.shown(), answer, after, reReadFailed, affectedCount,
+            outcome, before.shown(), answer, after, reReadFailed, OptionalInt.empty(),
             Optional.empty(), ChangeResult.RestartNeeded.FALSE, call.auditId()), warnings);
     }
 
@@ -432,8 +430,7 @@ public final class ServerOperationService {
             case SET_READINESS -> State.known(readiness(gateways.monitoring(node).ready()
                 .ready()));
             case SET_TRACE -> trace(node);
-            case SET_TRACE_LEVEL -> port.traceLevel().map(level -> State.known(name(level)))
-                .orElseGet(() -> State.unknown(NO_TRACE_LEVEL_READ));
+            case SET_TRACE_LEVEL -> traceLevel(node);
             case TRIGGER_MIDNIGHT_TASK -> new State(TRIGGER_MIDNIGHT_TASK, startTime(node),
                 Optional.empty());
             case DELETE_ERROR_PROCESSES -> errorProcesses(port.errorProcesses(clock.instant()));
@@ -513,11 +510,25 @@ public final class ServerOperationService {
     }
 
     private State trace(NodeId node) {
+        return fromSystemInfo(node, info -> info.tracingEnabled()
+            .map(on -> State.known(onOff(on)))
+            .orElseGet(() -> State.unknown("INUBIT's system information does not state"
+                + " whether the trace is on")));
+    }
+
+    /** {@code TracingLevel} of the system information; unknown unless a {@link TraceLevel}. */
+    private State traceLevel(NodeId node) {
+        return fromSystemInfo(node, info -> Optional.ofNullable(info.raw().get(TRACING_LEVEL))
+            .flatMap(value -> Arrays.stream(TraceLevel.values())
+                .filter(level -> name(level).equals(value)).findFirst())
+            .map(level -> State.known(name(level)))
+            .orElseGet(() -> State.unknown("INUBIT's system information names no known trace"
+                + " level")));
+    }
+
+    private State fromSystemInfo(NodeId node, Function<SystemInfo, State> state) {
         try {
-            return gateways.monitoring(node).systemInfo().tracingEnabled()
-                .map(on -> State.known(onOff(on)))
-                .orElseGet(() -> State.unknown("INUBIT's system information does not state"
-                    + " whether the trace is on"));
+            return state.apply(gateways.monitoring(node).systemInfo());
         } catch (ToolErrorException e) {
             if (e.error().code() == ErrorCode.MAINTENANCE_MODE) {
                 return State.unknown(REST_IN_MAINTENANCE);
@@ -544,18 +555,25 @@ public final class ServerOperationService {
         WritePermit permit) {
         ServerOperationPort port = gateways.serverOperation(node);
         return switch (action) {
-            case SET_MAINTENANCE -> "maintenance mode " + onOff(port.switchMaintenance(
-                flag(fields, ON), Optional.ofNullable((Boolean) fields.get(EXECUTE_QUEUED)),
-                permit));
+            case SET_MAINTENANCE -> port.switchMaintenance(flag(fields, ON),
+                Optional.ofNullable((Boolean) fields.get(EXECUTE_QUEUED)), permit);
             case SET_READINESS -> {
                 boolean ready = flag(fields, READY);
                 port.switchReadiness(ready, permit);
-                yield "POST /ready/" + onOff(ready) + " was sent; INUBIT's answer is not read";
+                yield "INUBIT accepted POST /ready/" + onOff(ready);
             }
-            case SET_TRACE -> "trace " + onOff(port.switchTrace(flag(fields, ON), permit));
+            case SET_TRACE -> {
+                boolean on = flag(fields, ON);
+                port.switchTrace(on, permit);
+                yield "trace " + onOff(on) + NO_TEXT;
+            }
             case SET_TRACE_LEVEL -> "trace level " + name(port.setTraceLevel(level(fields),
                 permit));
-            case TRIGGER_MIDNIGHT_TASK -> port.triggerMidnightTask(permit);
+            case TRIGGER_MIDNIGHT_TASK -> {
+                port.triggerMidnightTask(permit);
+                yield TRIGGER_MIDNIGHT_TASK + NO_TEXT;
+            }
+            case DELETE_ERROR_PROCESSES -> port.deleteErrorProcesses(permit);
             default -> throw new IllegalArgumentException("Unknown action " + action);
         };
     }

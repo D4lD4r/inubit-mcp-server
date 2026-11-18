@@ -54,9 +54,8 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * T057 (feature 022, US4, research D-22): each operation is one script-mode run of its
  * {@code CliCommand} form, scripted by {@link ScriptedProcessLauncher}; the changes start inside
- * the write hand-off of their {@link WritePermit}. No answer is recorded yet (T054, L-2/L-3): the
- * answers below are the RECONSTRUCTED {@code admin-operate-*-reconstructed} blocks behind the
- * recorded 8.1 preamble, or inline RECONSTRUCTED variants of them.
+ * the write hand-off of their {@link WritePermit}. The answers are the recorded 8.1.17 cases
+ * {@code admin-operate-*} of T054 (L-2, L-3), or inline copies of their answer lines.
  */
 @Timeout(30)
 class CliOperationRunnerTest {
@@ -118,9 +117,10 @@ class CliOperationRunnerTest {
             "", 0);
     }
 
-    /** The RECONSTRUCTED answer block of {@code fixtureCase}, as the client prints it. */
-    private static String reconstructed(String fixtureCase) {
-        return String.join("\n", AdminCliFixtures.block(fixtureCase)) + "\n";
+    /** A script step that matches exactly {@code command} and replays {@code fixtureCase}. */
+    private static ScriptedProcessLauncher recorded(ScriptedProcessLauncher cli, String command,
+        String fixtureCase) {
+        return cli.expect(Pattern.compile(Pattern.quote(command))).replying(fixtureCase);
     }
 
     private static ToolError errorOf(ThrowingCallable call) {
@@ -135,8 +135,8 @@ class CliOperationRunnerTest {
 
     @Test
     void theMaintenanceStateIsOneScriptRunWithThePasswordOnlyOnStdin() {
-        ScriptedProcessLauncher cli = step(new ScriptedProcessLauncher(), "maintenance -s",
-            reconstructed("admin-operate-maintenance-state-reconstructed"));
+        ScriptedProcessLauncher cli = recorded(new ScriptedProcessLauncher(), "maintenance -s",
+            "admin-operate-maintenance-state-on");
 
         assertThat(runner(cli).maintenanceState()).isTrue();
 
@@ -155,17 +155,18 @@ class CliOperationRunnerTest {
     @Test
     void maintenanceIsSwitchedOnWithExecuteQueuedAndOffWithout() {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
-        step(cli, "maintenance -s", "Maintenance mode: off\n");
-        step(cli, "maintenance on -eq false",
-            reconstructed("admin-operate-maintenance-state-reconstructed"));
-        step(cli, "maintenance -s", "Maintenance mode: on\n");
-        step(cli, "maintenance off", "Maintenance mode: off\n");
+        recorded(cli, "maintenance -s", "admin-operate-maintenance-state");
+        recorded(cli, "maintenance on -eq false", "admin-operate-maintenance-on-eq-false");
+        recorded(cli, "maintenance -s", "admin-operate-maintenance-state-on");
+        recorded(cli, "maintenance off", "admin-operate-maintenance-off");
         CliOperationRunner runner = runner(cli);
 
         assertThat(runner.maintenanceState()).isFalse();
-        assertThat(runner.switchMaintenance(true, false, PERMIT)).isTrue();
+        assertThat(runner.switchMaintenance(true, false, PERMIT))
+            .isEqualTo("Updated Successfully");
         assertThat(runner.maintenanceState()).isTrue();
-        assertThat(runner.switchMaintenance(false, null, PERMIT)).isFalse();
+        assertThat(runner.switchMaintenance(false, null, PERMIT))
+            .isEqualTo("Updated Successfully");
 
         cli.verifyComplete();
         assertThat(cli.execCommands()).containsExactly("maintenance -s",
@@ -175,34 +176,46 @@ class CliOperationRunnerTest {
     @Test
     void traceIsSwitchedAndItsLevelSet() {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
-        step(cli, "trace on", reconstructed("admin-operate-trace-on-reconstructed"));
-        step(cli, "trace -l debug", reconstructed("admin-operate-trace-level-reconstructed"));
-        step(cli, "trace off", "Trace: off\n");
+        recorded(cli, "trace on", "admin-operate-trace-on");
+        recorded(cli, "trace -l debug", "admin-operate-trace-level-debug");
+        recorded(cli, "trace -l info", "admin-operate-trace-level-info");
+        recorded(cli, "trace off", "admin-operate-trace-off");
         CliOperationRunner runner = runner(cli);
 
-        assertThat(runner.switchTrace(true, PERMIT)).isTrue();
+        runner.switchTrace(true, PERMIT);
         assertThat(runner.setTraceLevel(TraceLevel.DEBUG, PERMIT)).isEqualTo(TraceLevel.DEBUG);
-        assertThat(runner.switchTrace(false, PERMIT)).isFalse();
+        assertThat(runner.setTraceLevel(TraceLevel.INFO, PERMIT)).isEqualTo(TraceLevel.INFO);
+        runner.switchTrace(false, PERMIT);
 
         cli.verifyComplete();
     }
 
     @Test
-    void theMidnightTaskIsTriggeredAndInubitsAnswerReturned() {
-        ScriptedProcessLauncher cli = step(new ScriptedProcessLauncher(), "triggerMidnightTask",
-            reconstructed("admin-operate-midnight-task-reconstructed"));
+    void aTraceSwitchAnsweredWithTextIsUnexpected() {
+        ScriptedProcessLauncher cli = step(new ScriptedProcessLauncher(), "trace on",
+            "Trace is currently on.\n");
 
-        assertThat(runner(cli).triggerMidnightTask(PERMIT)).isEqualTo("Midnight task triggered.");
+        assertThat(errorOf(() -> runner(cli).switchTrace(true, PERMIT)).code())
+            .isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+    }
+
+    @Test
+    void theMidnightTaskIsTriggeredWithoutAnAnswer() {
+        ScriptedProcessLauncher cli = recorded(new ScriptedProcessLauncher(),
+            "triggerMidnightTask", "admin-operate-midnight-task");
+
+        runner(cli).triggerMidnightTask(PERMIT);
 
         cli.verifyComplete();
     }
 
     @Test
-    void deletingTheProcessesInErrorReturnsTheCountInubitReports() {
-        ScriptedProcessLauncher cli = step(new ScriptedProcessLauncher(), "processdelete error",
-            reconstructed("admin-operate-processdelete-error-reconstructed"));
+    void deletingTheProcessesInErrorReturnsInubitsAnswerWithoutACount() {
+        ScriptedProcessLauncher cli = recorded(new ScriptedProcessLauncher(),
+            "processdelete error", "admin-operate-processdelete-error");
 
-        assertThat(runner(cli).deleteErrorProcesses(PERMIT)).isEqualTo(40L);
+        assertThat(runner(cli).deleteErrorProcesses(PERMIT))
+            .isEqualTo("Process with status [error] has been deleted.");
 
         cli.verifyComplete();
     }
@@ -227,12 +240,13 @@ class CliOperationRunnerTest {
         List<String> inside = new ArrayList<>();
         List<String> outside = new ArrayList<>();
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
-        for (String[] form : List.of(new String[] {"maintenance -s", "Maintenance mode: on"},
-            new String[] {"maintenance off", "Maintenance mode: off"},
-            new String[] {"trace on", "Trace: on"},
-            new String[] {"trace -l warn", "Trace level: warn"},
-            new String[] {"triggerMidnightTask", "Midnight task triggered."},
-            new String[] {"processdelete error", "Deleted processes: 2"})) {
+        for (String[] form : List.of(new String[] {"maintenance -s", "on"},
+            new String[] {"maintenance off", "Updated Successfully"},
+            new String[] {"trace on", ""},
+            new String[] {"trace -l warn", "Successfully changed level to WARN"},
+            new String[] {"triggerMidnightTask", ""},
+            new String[] {"processdelete error",
+                "Process with status [error] has been deleted."})) {
             cli.expect(Pattern.compile(Pattern.quote(form[0])))
                 .then(spec -> (handingOff.get() ? inside : outside)
                     .add(ScriptedProcessLauncher.execCommand(spec)))
@@ -337,7 +351,7 @@ class CliOperationRunnerTest {
     @Test
     void theRunIsBoundedByCliTimeout() {
         ScriptedProcessLauncher cli = step(new ScriptedProcessLauncher(), "maintenance -s",
-            "Maintenance mode: on\n").hanging();
+            "on\n").hanging();
 
         ToolError error = errorOf(() -> runner(node().cliTimeout(Duration.ofMillis(300)).build(),
             cli).maintenanceState());

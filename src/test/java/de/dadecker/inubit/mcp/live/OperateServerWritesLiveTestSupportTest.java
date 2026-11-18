@@ -21,7 +21,6 @@ import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.Read;
 import de.dadecker.inubit.mcp.live.OperateServerReadsLiveTestSupport.RestRead;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Answer;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.CliWrite;
-import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Deletion;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.ErrorSetRead;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.GatedNode;
 import de.dadecker.inubit.mcp.live.OperateServerWritesLiveTestSupport.Node;
@@ -1064,14 +1063,13 @@ class OperateServerWritesLiveTestSupportTest {
         SimulatedGatedNode node = new SimulatedGatedNode();
         node.errorSet = Optional.of(Set.of("1001", "1002"));
         node.afterDelete = Optional.of(Set.of("1003"));
-        node.deleted = OptionalLong.of(2);
 
         Optional<Stop> stop = OperateServerWritesLiveTestSupport.runOwnerGated(node, List.of(W12),
             Optional.of(Set.of("1002", "1001")));
 
         assertThat(stop).isEmpty();
         assertThat(node.calls).containsExactly("B0", "W12-before", "W12", "W12-after", "B1");
-        assertThat(node.notes).containsExactly("W12: before 2 (1001, 1002); deleted 2; after 1"
+        assertThat(node.notes).containsExactly("W12: before 2 (1001, 1002); after 1"
             + " (1003); approved still in ERROR 0 (none); new in ERROR after the delete 1 (1003)");
         assertThatCode(() -> OperateServerWritesLiveTestSupport.assertOwnerGated(stop))
             .doesNotThrowAnyException();
@@ -1143,7 +1141,7 @@ class OperateServerWritesLiveTestSupportTest {
         assertThat(stop).contains(new Stop("W12",
             "DEVIATION (approved ids still in ERROR: 1 (1002))"));
         assertThat(node.calls).containsExactly("B0", "W12-before", "W12", "W12-after", "B1");
-        assertThat(node.notes).containsExactly("W12: before 2 (1001, 1002); deleted unknown; after"
+        assertThat(node.notes).containsExactly("W12: before 2 (1001, 1002); after"
             + " 2 (1002, 1003); approved still in ERROR 1 (1002); new in ERROR after the delete 1"
             + " (1003)");
     }
@@ -1159,7 +1157,7 @@ class OperateServerWritesLiveTestSupportTest {
 
         assertThat(stop).contains(new Stop("W12", "exit 1"));
         assertThat(node.calls).containsExactly("B0", "W12-before", "W12", "W12-after", "B1");
-        assertThat(node.notes).containsExactly("W12: before 1 (1001); deleted unknown; after 0"
+        assertThat(node.notes).containsExactly("W12: before 1 (1001); after 0"
             + " (none); approved still in ERROR 0 (none); new in ERROR after the delete 0 (none)");
 
         SimulatedGatedNode unread = new SimulatedGatedNode();
@@ -1169,50 +1167,7 @@ class OperateServerWritesLiveTestSupportTest {
             Optional.of(Set.of("1001"))))
             .contains(new Stop("W12", "ERROR set after processdelete error unknown"));
         assertThat(unread.notes)
-            .containsExactly("W12: before 1 (1001); deleted unknown; after unknown");
-    }
-
-    /**
-     * {@code processdelete error} has no id filter: a process that entered ERROR between the read
-     * and the command is deleted too; only the count INUBIT reports can show it.
-     */
-    @Test
-    void moreDeletedThanApprovedIsADeviationAndAnUnknownCountIsRecordedOnly() throws IOException {
-        SimulatedGatedNode node = new SimulatedGatedNode();
-        node.errorSet = Optional.of(Set.of("1001", "1002"));
-        node.deleted = OptionalLong.of(3);
-
-        Optional<Stop> stop = OperateServerWritesLiveTestSupport.runOwnerGated(node, List.of(W12),
-            Optional.of(Set.of("1001", "1002")));
-
-        assertThat(stop).contains(new Stop("W12",
-            "DEVIATION (INUBIT deleted 3 processes, approved 2)"));
-        assertThat(node.calls).containsExactly("B0", "W12-before", "W12", "W12-after", "B1");
-        assertThat(node.notes).containsExactly("W12: before 2 (1001, 1002); deleted 3; after 0"
-            + " (none); approved still in ERROR 0 (none); new in ERROR after the delete 0 (none)");
-
-        for (OptionalLong count : List.of(OptionalLong.of(2), OptionalLong.of(1),
-            OptionalLong.empty())) {
-            SimulatedGatedNode within = new SimulatedGatedNode();
-            within.errorSet = Optional.of(Set.of("1001", "1002"));
-            within.deleted = count;
-            assertThat(OperateServerWritesLiveTestSupport.runOwnerGated(within, List.of(W12),
-                Optional.of(Set.of("1001", "1002")))).as(count.toString()).isEmpty();
-        }
-    }
-
-    @Test
-    void theDeletedCountIsReadByTheProductionParserOrUnknown() {
-        assertThat(OperateServerWritesLiveTestSupport.deletedCount(
-            List.of("Deleted processes: 2"))).hasValue(2);
-        assertThat(OperateServerWritesLiveTestSupport.deletedCount(
-            List.of(" Deleted processes: 0 "))).hasValue(0);
-        for (List<String> lines : List.of(List.<String>of(), List.of(RAW_LINE),
-            List.of("Deleted processes: 2", "Deleted processes: 3"),
-            List.of("Deleted processes: x"))) {
-            assertThat(OperateServerWritesLiveTestSupport.deletedCount(lines)).as(lines.toString())
-                .isEmpty();
-        }
+            .containsExactly("W12: before 1 (1001); after unknown");
     }
 
     @Test
@@ -1639,8 +1594,6 @@ class OperateServerWritesLiveTestSupportTest {
         Optional<String> timeAfter = Optional.of("Sun Nov 01 00:00:00 CET 2026");
         Optional<Set<String>> errorSet = Optional.of(Set.of());
         Optional<Set<String>> afterDelete = Optional.of(Set.of());
-        /** The count {@code processdelete error} reports; empty: an answer of another form. */
-        OptionalLong deleted = OptionalLong.empty();
         boolean unreadableEnd;
         private boolean triggered;
         private boolean ranDelete;
@@ -1663,11 +1616,10 @@ class OperateServerWritesLiveTestSupportTest {
         }
 
         @Override
-        public Deletion delete() {
+        public Optional<String> delete() {
             calls.add(W12.id());
             ranDelete = true;
-            Optional<String> failure = Optional.ofNullable(failures.get(W12.id()));
-            return new Deletion(failure, failure.isPresent() ? OptionalLong.empty() : deleted);
+            return Optional.ofNullable(failures.get(W12.id()));
         }
 
         @Override

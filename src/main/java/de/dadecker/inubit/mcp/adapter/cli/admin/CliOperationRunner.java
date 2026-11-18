@@ -18,6 +18,7 @@ import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 /**
@@ -38,9 +39,10 @@ import java.util.function.Function;
  * </ul>
  *
  * <p>Every change takes a {@link WritePermit} and is started by {@link CliRunner} inside
- * {@code WriteLock.handOff}; a permit for another node starts nothing. None of the answers is recorded yet (T054, L-2, L-3): the parsers read assumed
- * forms and report any other answer as {@code UNEXPECTED_RESPONSE}, so a change whose answer is
- * unknown was sent but is not confirmed.
+ * {@code WriteLock.handOff}; a permit for another node starts nothing. The parsers read the
+ * answers recorded on 8.1.17 (T054, L-2, L-3) and report any other answer as
+ * {@code UNEXPECTED_RESPONSE}, so a change whose answer is unknown was sent but is not confirmed.
+ * No switch answer names the state after the change; it is read again by the caller.
  *
  * <p>A failed run (credentials, pin, launch, timeout, an exit code other than 0, cut output, a
  * refused login, or an {@code n-NOK} message) is thrown with the node set and the classifier's
@@ -77,23 +79,22 @@ public final class CliOperationRunner {
      * Switches maintenance mode.
      *
      * @param executeQueued {@code -eq}, only with {@code on}; {@code null} sends none
-     * @return the state INUBIT answers with
+     * @return INUBIT's answer, {@code Updated Successfully}
      * @throws ToolErrorException {@code INVALID_INPUT} for {@code executeQueued} with {@code off}
      *     before anything is launched; otherwise see the class comment
      */
-    public boolean switchMaintenance(boolean on, Boolean executeQueued, WritePermit permit) {
+    public String switchMaintenance(boolean on, Boolean executeQueued, WritePermit permit) {
         return run(CliCommand.maintenanceSwitch(on, executeQueued), Optional.of(permit),
-            MaintenanceStateParser::parse);
+            MaintenanceStateParser::parseSwitch);
     }
 
     /**
-     * Switches the trace.
+     * Switches the trace; INUBIT answers no text.
      *
-     * @return the state INUBIT answers with
      * @throws ToolErrorException see the class comment
      */
-    public boolean switchTrace(boolean on, WritePermit permit) {
-        return run(CliCommand.traceSwitch(on), Optional.of(permit), TraceStateParser::parseSwitch);
+    public void switchTrace(boolean on, WritePermit permit) {
+        run(CliCommand.traceSwitch(on), Optional.of(permit), silent(TraceStateParser::parseSwitch));
     }
 
     /**
@@ -109,25 +110,32 @@ public final class CliOperationRunner {
     }
 
     /**
-     * Runs the midnight task now.
+     * Runs the midnight task now; INUBIT answers no text.
      *
-     * @return INUBIT's answer
      * @throws ToolErrorException see the class comment
      */
-    public String triggerMidnightTask(WritePermit permit) {
-        return run(CliCommand.triggerMidnightTask(), Optional.of(permit),
-            MidnightTaskAnswerParser::parse);
+    public void triggerMidnightTask(WritePermit permit) {
+        run(CliCommand.triggerMidnightTask(), Optional.of(permit),
+            silent(MidnightTaskAnswerParser::parse));
     }
 
     /**
      * Deletes the process instances in state ERROR.
      *
-     * @return the number of processes INUBIT reports as deleted
+     * @return INUBIT's answer, which names no number of deleted processes
      * @throws ToolErrorException see the class comment
      */
-    public long deleteErrorProcesses(WritePermit permit) {
+    public String deleteErrorProcesses(WritePermit permit) {
         return run(CliCommand.processDeleteError(), Optional.of(permit),
             ProcessDeleteAnswerParser::parse);
+    }
+
+    /** A parser that only checks an answer without text, as {@link #run} takes it. */
+    private static Function<List<String>, Void> silent(Consumer<List<String>> check) {
+        return block -> {
+            check.accept(block);
+            return null;
+        };
     }
 
     private <T> T run(CliCommand command, Optional<WritePermit> permit,

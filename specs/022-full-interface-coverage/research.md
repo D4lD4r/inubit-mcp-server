@@ -683,11 +683,11 @@ The two REST reads without a working form stay planned rather than guessed.
 | Action | Command | Notes |
 |---|---|---|
 | `setMaintenance` | `maintenance on\|off [-eq true\|false]` | `-eq` only with `on`; the state is read before and after with `maintenance -s` |
-| `setReadiness` | `POST /ready/{on\|off}` | before and after from `GET /ready`; the preview carries the vendor sentence on maintenance mode |
-| `setTrace` | `trace on\|off` | |
-| `setTraceLevel` | `trace -l <level>` | levels from the vendor's fixed list, L-3 |
+| `setReadiness` | `POST /ready/{on\|off}` | before and after from `GET /ready`; the preview carries the vendor sentence on maintenance mode; `off` is answered 503 `No Service.` when it succeeds (T054) |
+| `setTrace` | `trace on\|off` | before and after from `/system/info` `TracingIsActive` |
+| `setTraceLevel` | `trace -l <level>` | levels from the vendor's fixed list, L-3; before and after from `/system/info` `TracingLevel` (T054) |
 | `triggerMidnightTask` | `triggerMidnightTask` | the configured start time is shown if `GET /configurations` holds it |
-| `deleteErrorProcesses` | `processdelete error` | set and re-read by D-14 |
+| `deleteErrorProcesses` | `processdelete error` | set and re-read by D-14; INUBIT's answer names no count (T054) |
 
 `setDebug` (`debug on|off`) was removed after T054 (L-3): the command has no observable server
 effect, and its row is excluded (D-2, owner decision 2026-11-18).
@@ -703,20 +703,49 @@ with `--download`. `OPTIONS` lists the forms as the coverage list writes them (`
 `triggerMidnightTask`, `processdelete error`), so check 1 of the coverage list sees them.
 `debugSwitch` and the `debug` entry were removed after T054.
 
-**Trace levels (reconstructed)**: `TraceLevel` holds `error|warn|info|debug`, the reconstructed
-vendor list of T056, sent in lower case. It is not recorded: L-3 (T054) records the list from
-`trace --help` and replaces this one.
+**Trace levels**: `TraceLevel` holds `error|warn|info|debug`, the vendor list of T056, sent in
+lower case. L-3 (T054) could not record the list: `trace --help` is no option on 8.1.17 (exit 1,
+`Unrecognized option: --help`). `trace -l debug` and `trace -l info` were recorded, and
+`/system/info` reports the level as `TracingLevel` (`debug`, `info`); `error` and `warn` stay the
+vendor list.
 
-**Answer forms (reconstructed, T057)**: `CliOperationRunner` runs each form once in script mode
-(the changes inside `WriteLock.handOff`) and reads its answer with a parser of assumed form; any
-other answer is `UNEXPECTED_RESPONSE`, never guessed. Assumed until T054 (L-2, L-3) records them:
-`maintenance -s` and `maintenance on|off` → `Maintenance mode: on|off`; `trace on|off` →
-`Trace: on|off`; `trace -l <level>` → `Trace level: <level>`; `triggerMidnightTask` →
-`Midnight task triggered.`; `processdelete error` → `Deleted processes: <n>`. (`debug on|off`
-answers no text on 8.1.17, T054; its assumed form and `DebugStateParser` were removed.) Fixtures
-`fixtures/v8_1/cli/admin-operate-*-reconstructed` (SYNTHETIC).
+**Answer forms (recorded, T054)**: `CliOperationRunner` runs each form once in script mode (the
+changes inside `WriteLock.handOff`) and reads its answer with a parser of the recorded 8.1.17 form;
+any other answer is `UNEXPECTED_RESPONSE`, never guessed:
+
+| Form | Answer (after the client's preamble), exit 0 |
+|---|---|
+| `maintenance -s` | one line `on` or `off` |
+| `maintenance on -eq false`, `maintenance off` | `Updated Successfully` |
+| `trace on`, `trace off` | no text |
+| `trace -l <level>` | `Successfully changed level to <LEVEL>` (upper case, e.g. `DEBUG`) |
+| `triggerMidnightTask` | no text; `MidnightTaskTriggerTime` of `/configurations` stays as it was |
+| `processdelete error` | `Process with status [error] has been deleted.`, no count |
+
+Not used by `operate_server`: `maintenance` without option answers the cluster node table and
+`Cluster maintenance mode is currently off.`; `trace` answers `Trace is currently on.`. The switch
+answers name no state, so the result's state after the change is always the re-read (FR-024).
+Fixtures `fixtures/v8_1/cli/admin-operate-*` (recorded T054, neutralized).
+
 The readiness switch is `RestEndpoint.READY_SWITCH`, `POST /ready/{status}` as the coverage list
-writes it.
+writes it. On 8.1.17 `POST /ready/on` answers 200 `{"status":"READY","message":"Ready to serve."}`;
+`POST /ready/off` answers **503** although the switch takes effect, with and without maintenance
+mode (the body's message `No Service.`; `GET /ready` then answers 503
+`{"status":"NOT READY","message":"No Service."}` and stays so after `maintenance off` until
+`POST /ready/on`; in maintenance mode `GET /ready` answers 503 with the message
+`No Service - Maintenance mode active.`). The live test kept only the client's excerpt of that
+body, `No Service.`, which is the JSON `message` or the whole body; the fixture
+`rest/admin-operate-ready-off-reconstructed` reconstructs a JSON envelope from the `GET /ready` and
+`POST /ready/on` answers. Until a live run records the full body, the write request of `off`
+accepts a 503 as the switch done in every form that matches the recording: the plain text
+`No Service.`, a JSON `message` `No Service.`, or a JSON `status` `NOT READY` without a message.
+Any other 503 is `UNEXPECTED_RESPONSE`, the maintenance message
+`No Service - Maintenance mode active.` and proxy or HTML pages included, and every other non-2xx
+keeps the REST client's error.
+
+Concurrent `POST /log/queueLog` reads (the `find_processes` query) can be answered HTTP 500
+`MonitoringLockedByOtherClient` ("Cannot request data because monitoring is locked by other
+client", T054); the read fails with `UNEXPECTED_RESPONSE` and is not retried.
 
 Switching maintenance off uses StartCLI over the SOAP servlet, which the vendor does not list
 among the answers blocked in maintenance mode (L-2). The read before the change accepts
@@ -734,11 +763,12 @@ to pin `versionLine` for the node.
 `V81ServerOperationAdapter`, capability `SERVER_OPERATION` (REST and StartCLI, "not yet verified"
 until T054). The states before and after come from the port (`maintenance -s`) and from
 `MonitoringPort`, the source of `get_health`: readiness `GET /ready`, trace on/off
-`tracingEnabled`, maintenance `healthcheck`. No read form is known for the trace level:
-`traceLevel()` answers "unknown" (empty) without contacting the server until L-3 finds one.
+`tracingEnabled` and the trace level `TracingLevel` of `/system/info` (a value outside
+`TraceLevel` is shown as unknown), maintenance `healthcheck`.
 `POST /ready/{status}` is handed off under the node's write lock like
-the StartCLI writes (`InubitHttpClient.post(…, WritePermit, WriteLock)`, `sendAsync` inside the
-hand-off, the answer awaited outside); its answer is not read. The set of `processdelete error`
+the StartCLI writes (`InubitHttpClient.post(…, WritePermit, WriteLock, acceptedStatuses)`,
+`sendAsync` inside the hand-off, the answer awaited outside); of its answer only the 503 of `off`
+is read, as above. The set of `processdelete error`
 is the `find_processes` query of state `ERROR`, 1,000 rows per request up to 10,000 rows, its ids
 and workflows distinct and sorted; with more rows the count only (D-14).
 

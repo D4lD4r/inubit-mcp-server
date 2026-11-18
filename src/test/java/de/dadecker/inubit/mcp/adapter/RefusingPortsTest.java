@@ -294,7 +294,7 @@ class RefusingPortsTest {
         return List.of(port::maintenanceState,
             () -> port.switchMaintenance(true, Optional.of(false), permit),
             () -> port.switchReadiness(false, permit), () -> port.switchTrace(true, permit),
-            port::traceLevel, () -> port.setTraceLevel(TraceLevel.DEBUG, permit),
+            () -> port.setTraceLevel(TraceLevel.DEBUG, permit),
             () -> port.triggerMidnightTask(permit),
             () -> port.errorProcesses(Instant.parse("2026-11-17T08:00:00Z")),
             () -> port.deleteErrorProcesses(permit));

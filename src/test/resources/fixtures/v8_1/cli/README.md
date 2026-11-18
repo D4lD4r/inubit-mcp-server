@@ -265,13 +265,32 @@ reads (`admin-settings-threads-reconstructed`, `admin-settings-privileged-percen
 only their refusal, and their coverage rows are `excluded:needs the INUBIT root user` (owner
 decision 2026-11-13).
 
-The `admin-operate-*-reconstructed` cases (T057, US4) are SYNTHETIC: one answer block each, written
-by hand before the live check T054 (L-2, L-3) and described in their own `.README`. They hold the
-assumed answers of `maintenance -s` (`Maintenance mode: on`), `trace on` (`Trace: on`),
-`trace -l debug` (`Trace level: debug`), `triggerMidnightTask` (`Midnight task triggered.`) and
-`processdelete error` (`Deleted processes: 40`). T054 records the real answers as `admin-operate-*`
-and replaces them together with the parsers' forms. The `debug on` case was removed with the
-`setDebug` action (T054: `debug on|off` excluded).
+The `admin-operate-*` cases (US4) were recorded in the live check T054 (L-2, L-3) on 2026-11-18 on
+an 8.1.17 test server, script mode, by `live/OperateServerReadsLiveTest` (read set) and
+`live/OperateServerWritesLiveTest` (write runs 2 to 4); they replaced the SYNTHETIC
+`admin-operate-*-reconstructed` cases of T057. Each answer follows the preamble `JAVA_HOME is set`,
+`Password: ` and the hostname warning (LF), exit 0:
+
+| Case | Coverage-list entry | Source | Answer |
+|---|---|---|---|
+| `admin-operate-maintenance-state` | CLI `maintenance -s` | read R1 | `off` |
+| `admin-operate-maintenance-state-on` | CLI `maintenance -s` | run 2, after W1 | `on` |
+| `admin-operate-maintenance-on-eq-false` | CLI `maintenance on\|off`, `maintenance -eq true\|false` | run 2, W1 | `Updated Successfully` |
+| `admin-operate-maintenance-off` | CLI `maintenance on\|off` | run 2, W3 | `Updated Successfully` |
+| `admin-operate-trace-on` | CLI `trace on\|off` | run 3, W7b (trace was off) | no text, one empty line |
+| `admin-operate-trace-off` | CLI `trace on\|off` | run 3, W7 | no text, one empty line |
+| `admin-operate-trace-level-debug` | CLI `trace -l` | run 3, W8 | `Successfully changed level to DEBUG` |
+| `admin-operate-trace-level-info` | CLI `trace -l` | run 3, W8b | `Successfully changed level to INFO` |
+| `admin-operate-midnight-task` | CLI `triggerMidnightTask` | run 4, W11 | no text, one empty line |
+| `admin-operate-processdelete-error` | CLI `processdelete error` | run 4, W12 | `Process with status [error] has been deleted.` (no count) |
+| `../rest/admin-operate-ready-on` | REST `POST /ready/{status}` | run 2, W2u | `200`, `{"status":"READY","message":"Ready to serve."}` (one line, no line break; content type not recorded) |
+| `../rest/admin-operate-ready-off-reconstructed` | REST `POST /ready/{status}` | run 2, W4 | SYNTHETIC in part: `503` and the message `No Service.` recorded, the JSON envelope reconstructed (its own `.README`) |
+
+Neutralized with `tools/neutralize.py` (the local map and a one-off map for the trust-store path)
+and checked with `tools/check-identifiers.py`: only the trust-store path of
+`Picked up JAVA_TOOL_OPTIONS` differed from the recording, and it is the one of the T014 cases
+(`/home/jdoe/.config/inubit-mcp/dev-truststore.p12`). The answers hold no user, host or value.
+The `debug on` case was removed with the `setDebug` action (T054: `debug on|off` excluded).
 
 The `admin-tags-user-active-tag-reconstructed` case (T063, US4) is SYNTHETIC as well: the recorded
 `admin-users-user` rows plus an assumed fourth row `Active tag <tag>` for a user with an active
