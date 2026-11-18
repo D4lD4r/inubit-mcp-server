@@ -21,6 +21,10 @@ IMC-10 (T054), IMC-11 (T055).
   secret leak). Full `mvn clean verify` green after every task.
 
 ## Next step
+- 2026-11-18: debug session (06eb387d): one interactive session `debug; debug on; debug; debug off;
+  debug` → off/off/off, after session off; `debug on|off` has no observable effect on 8.1 (vendor
+  help 6.1: trace switch of the interactive CLI mode). Proposal pending with the owner: exclude
+  `setDebug` from operate_server (spec, contract, coverage). W11/W12 not run.
 - 2026-11-18: write run 3 (0e54fa25, subset W5–W10): W5 ready/on from READY 200; trace on/off
   ok (no answer text); `trace -l debug|info` ok ("Successfully changed level to …"); stopped at
   W9: `debug on` exit 0, no text, `debug` read stays off. Nothing restored, baseline verified.
