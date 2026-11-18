@@ -69,7 +69,7 @@ suite runs on both CI jobs).
   `comparePatch`), `VersionGate` (note branch, static `unknown` with lines), `RefusingPorts`,
   `CliClientProbe` (no `-h` while not verified), `ConfigLoader`, `ConfigValidator`, `NodeOverview`
   (hint, client comparison, client note), `ConfigSummary` (client comparison, client note),
-  `HealthService` (client comparison through `comparePatch`), `Wiring`, `list_nodes.output.json`, `tools/record-fixtures.ps1`, `.gitattributes`, docs.
+  `Wiring`, `list_nodes.output.json`, `tools/record-fixtures.ps1`, `.gitattributes`, docs.
 
 ## Constitution Check
 
@@ -139,8 +139,9 @@ without the refusing matrix entry or without the docs.
 4. **Hint and configuration (US2, FR-010a)**: 404 hint, validator rule, client note (D-7, D-9).
 5. **Fixtures and guards (US4)**: folder, help case and its contract test, reconstructed cases,
    `DERIVED.txt`, guard tests (D-11).
-6. **Windows recorder (US4)**: case table, session mode, 7.4 catalogue, TLS rule, `.gitattributes`,
-   `RecordFixturesPs1Test` (D-12).
+6. **Windows recorder (US4)**: case table, session mode, 7.4 catalogue, TLS rule,
+   `RecordFixturesPs1Test` (D-12); the `.gitattributes` rule is set with the help case in stage 5
+   (T002).
 7. **Docs, changelog, quickstart validation (US5)** (D-14). Mandate A is complete here.
 
 **Mandate B** (blocked on the preconditions; D-15)

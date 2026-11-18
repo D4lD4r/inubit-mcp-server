@@ -10,14 +10,15 @@ mvn -q -o clean verify
 |---|---|---|
 | `V7_4` and 7.4 pins load; error text names `V7_4` | `VersionSettingTest`, `ConfigLoaderTest` | FR-001 |
 | fourth part kept, shown | `InubitVersionTest` | FR-002, FR-004 |
-| patch comparison with four parts on 7.4, three elsewhere | `ClientVersionTest`, `CapabilityMatrixTest` | FR-003, SC-004 |
+| patch comparison with four parts on 7.4, three elsewhere | `ClientVersionTest`, `CapabilityMatrixTest`, `ConfigSummaryTest`, `ListNodesToolTest`, `VersionGateTest` | FR-003, SC-004 |
 | 404 hint names `V6_1` and `V7_4`; other failures unchanged | `VersionGateTest` (hint) | FR-005, SC-002 |
 | every contacting tool refused on 7.4, before any launch, request or handshake | `V74RefusalTest` (one case per tool) | FR-006, FR-007, FR-011, SC-003 |
 | refusal logged | `V74RefusalTest` (log record) | FR-012 |
 | `check_artifacts` skips the lookup | `ArtifactCheckServiceTest` (7.4 case) | FR-008 |
 | tool not announced for 7.4-only profiles | `ToolAnnouncementTest` (7.4 case) | FR-009 |
 | `list_nodes` / `--check-config` show 7.4 | `ListNodesToolTest`, `ConfigSummaryTest` | FR-010, SC-001 |
-| `cliClients."7.4"` handling, no 6.1-style warning | `ConfigValidatorTest`, `MainTest` (`--check-config`) | FR-010a |
+| `cliClients."7.4"` handling, no 6.1-style warning, note in `--check-config` and `list_nodes` warnings | `ConfigValidatorTest`, `ConfigSummaryTest`, `ListNodesToolTest`, `MainTest` (`--check-config`, POSIX only) | FR-010a |
+| no `-h` option probe for 7.4 | `CliClientProbeTest`, `ConfigValidatorTest`, `MainTest` (POSIX only) | FR-010a, FR-007 |
 | 7.4 port set refuses, builds no REST client | `V74PortSetTest`, `AdapterGatewayFactoryTest` | FR-011 |
 | fixture layout and guards | `V74FixturesShapeTest`, `V74RecordedFixturesTest` | FR-014, FR-015, FR-016a |
 | the real help case | `V74HelpContractTest` | FR-014 |

@@ -8,7 +8,7 @@ description: "Task list for INUBIT 7.4 support, CLI only, cut into Mandate A and
 **Input**: Design documents from `/specs/025-inubit-74-support/`
 
 **Prerequisites**:
-- [plan.md](plan.md) and [spec.md](spec.md) (spec reviews r1–r2)
+- [plan.md](plan.md) and [spec.md](spec.md) (spec reviews r1–r2 approved; plan reviews r1–r3, approved in r3)
 - [research.md](research.md) (D-1…D-15) and [data-model.md](data-model.md)
 - [contracts/configuration-delta.md](contracts/configuration-delta.md) and
   [contracts/mcp-tools-delta.md](contracts/mcp-tools-delta.md)
@@ -99,8 +99,8 @@ tests may pass at once.
   `InubitVersion` (major, minor, patch, raw), `ClientVersion.compare` for equal, patch-different and
   patch-absent pairs (`6.1.0.89` vs `6.1.0.80` = `MATCH`), `CapabilityMatrix.production().state`
   for every capability, `isCliOnly`, the refusal summary texts of `VersionGate` for one refused
-  capability per line, and a `QUEUE_ENTRY_READ` refusal on `V6_1` and on an unknown version ending
-  in "; supported: 8.1, 9.0" (the `supportedLines` texts). It must pass now and stay unchanged
+  capability per line, and a `QUEUE_ENTRY_READ` refusal on `V6_1`, on a pin outside every range
+  (`"8.0.5"`) and on `V9_X`, each ending in "; supported: 8.1, 9.0" (the `supportedLines` texts). It must pass now and stay unchanged
   through T004–T015.
 - [ ] T004 Line value `V7_4` (research D-1, spec FR-001): `main/domain/model/VersionSetting.java`
   (`V7_4 = new Line(7, OptionalInt.of(4))`, `parse`, Javadoc), `main/config/ConfigLoader.java:807`
@@ -208,16 +208,18 @@ and `--check-config` tests, offline, on both CI jobs.
   `ConfigValidatorTest` (7.4 pin without client: no warning; 6.1: warning unchanged;
   `defaults.cliClients."7.4"` accepted; no JDK major warning for it), `ConfigSummaryTest` (client
   line with the suffix), `ListNodesToolTest` (the warning entry for `V7_4` with and without a
-  client; none for 6.1, 8.1, 9.0), `MainTest` (`--check-config` with a `"7.4"` entry runs the local
-  `-v` probe through the fake launcher, shows a "not evaluable" result and the suffix, contacts no
-  node).
+  client; none for 6.1, 8.1, 9.0) — these run on every CI job (FR-013) — and `MainTest`
+  (`--check-config` builds its own `SystemProcessLauncher`, `Launcher.java:415`; with a POSIX
+  `startcli.sh` stand-in that records its arguments, as `MainTest` does today, disabled on Windows:
+  a `"7.4"` entry runs `-v`, shows a "not evaluable" result and the suffix, contacts no node).
 - [ ] T015 [US1] No `-h` option probe while 7.4 is not verified (research D-9, spec FR-010a,
   FR-007): `main/adapter/cli/CliClientProbe.java` `optionsFor` (`:75-79`) returns empty while
   `matrix.allNotYetVerified(pin)` (as for a non-CLI-only node), so `--check-config`
   (`Launcher.java:420-441`) runs no `-h` for a 7.4 node and neither `ConfigValidator.clientOptionWarnings`
   (`:1511-1535`) nor `ConfigSummary` show option warnings or an option line. Test first:
-  `CliClientProbeTest` (7.4 pin: empty, no launch; 6.1 pin: unchanged), `MainTest` (`--check-config`
-  with a 7.4 node and a `"7.4"` client: no `-h` launch, no client option warning).
+  `CliClientProbeTest` (7.4 pin: empty, no launch; 6.1 pin: unchanged; runs on every CI job),
+  `ConfigValidatorTest` (no client option warning for a 7.4 node), `MainTest` (POSIX stand-in as in
+  T014: the recorded arguments contain no `-h`).
 
 **Checkpoint**: US1 complete — a pinned 7.4 node is safe on every platform.
 
@@ -246,8 +248,11 @@ and `--check-config` tests, offline, on both CI jobs.
 - [ ] T017 [US3] Patch depth at every comparison (research D-3): replace every
   `ClientVersion.compare(...)` call by `matrix.comparePatch(...)` — `main/application/VersionGate.java:819`
   (`checkClient`), `main/config/ConfigSummary.java:408` ("client vs pin"),
-  `main/application/NodeOverview.java:145` and `:250` (`list_nodes` client warning and line),
-  `main/application/HealthService.java:686`. Test first: `ConfigSummaryTest` and `ListNodesToolTest`
+  `main/application/NodeOverview.java:145` and `:250` (`list_nodes` client warning and line). The
+  static `ConfigSummary.client` (`:398`) gets the `PatchDepth` as a parameter from its caller, which
+  holds the matrix. `main/application/HealthService.java:686` (no matrix there, no visible effect in
+  Mandate A) is changed in T031 through a `VersionGate.comparePatch` that delegates to the gate's
+  matrix. Test first: `ConfigSummaryTest` and `ListNodesToolTest`
   — a 7.4.0.80 client at a `"7.4.0.90"` pin is a mismatch, a 6.1.0.80 client at a `"6.1.0.89"` pin a
   match; and
   `VersionGateTest` with a test matrix in which 7.4 monitoring is `SUPPORTED` (pattern
@@ -267,7 +272,9 @@ and `--check-config` tests, offline, on both CI jobs.
   `health_session_maintenance`, `health_session_alive_failed`, `login_failed`, `unreachable`,
   `ps_session_all`, `ps_session_error`, `ps_session_waiting`, `ps_session_queued`,
   `ps_session_limit5`, `ps_session_empty`, `ps_session_unassigned`, each built from the 6.1 case of
-  the same purpose in `fixtures/v6_1/cli/` with the neutral 7.4 names and the server version
+  the same purpose in `fixtures/v6_1/cli/` (`ps_session_waiting` and `ps_session_queued` by splitting
+  `ps_session_waiting_queued`; `ps_session_limit5` by cutting `ps_session_all` to five rows) with the
+  neutral 7.4 names and the server version
   `7.4.0.90`; list each in `RECONSTRUCTED.txt` with its capability (`monitoring` or
   `process_diagnosis`) and a `#` comment naming the recorder case that replaces it (spec FR-014
   table). Test first: `V74FixturesShapeTest` — in Mandate A the folder holds exactly these twelve
@@ -389,8 +396,10 @@ with a copy of the 7.4 client and network access to the node; the owner's approv
   addendum in `specs/025-inubit-74-support/research.md`; then update `spec.md` (Mandate B
   requirements as the recordings fix them), `plan.md` and this `tasks.md` (replace T031–T035 by
   detailed TDD tasks: adapters or parser profiles, script mode vs session, client selection,
-  detection trigger; revisit the next-step text of T009 for capabilities that keep the note and the
-  client option probe of T015, research D-15), each reviewed with `d4ld4r-speckit-duo:review-spec` / `review-plan` before any
+  detection trigger; revisit what switches at the first flip because it is keyed on "every 7.4
+  capability carries a note": the next-step text of T009, the `lines()` exclusion of T007 (7.4 must
+  not appear in "; supported: …" for capabilities out of scope on 7.4), the warning of T014 and the
+  `-h` gate of T015; decide what a remaining "not yet verified" note means on 7.4, research D-15), each reviewed with `d4ld4r-speckit-duo:review-spec` / `review-plan` before any
   Mandate B code is written.
 - [ ] T030 Constitution amendment (plan, Constitution Check V): propose with `/speckit-constitution`
   a MINOR amendment of `.specify/memory/constitution.md` Principle V naming INUBIT 7.4 as supported
@@ -399,8 +408,9 @@ with a copy of the 7.4 client and network access to the node; the owner's approv
 
 ## Phase 11: Implementation (placeholders, detailed by T029)
 
-- [ ] T031 [US6] Health on 7.4 (spec FR-024 – FR-027): 7.4 health adapter or 6.1 adapter profile
-  in `main/adapter/cli/v74/`, parsers tested against the recordings, `NOT_AVAILABLE_ON_7_4` parts
+- [ ] T031 [US6] Health on 7.4 (spec FR-024 – FR-027): `main/application/HealthService.java:686`
+  through `VersionGate.comparePatch` (four-part patch comparison of the observed version, with a
+  `HealthServiceTest` case); 7.4 health adapter or 6.1 adapter profile in `main/adapter/cli/v74/`, parsers tested against the recordings, `NOT_AVAILABLE_ON_7_4` parts
   in `main/domain/model/UnavailablePart.java`, observed version from `-sv` for the contradiction
   rule.
 - [ ] T032 [US7] Processes on 7.4 (spec FR-028): 7.4 process query adapter in

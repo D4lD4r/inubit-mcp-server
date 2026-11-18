@@ -44,8 +44,10 @@ depends on them.
   present on one side only → `NOT_COMPARABLE`. One helper `CapabilityMatrix.comparePatch(ClientVersion,
   Optional<InubitVersion> server)` calls `client.compare(server, patchDepth(server))`, and **every**
   call site of `ClientVersion.compare` uses it: `VersionGate.checkClient` (`:819`),
-  `ConfigSummary` (`:408`, "client vs pin" in `--check-config`), `NodeOverview` (`:145` client
-  warning and `:250` client line of `list_nodes`) and `HealthService` (`:686`, used in Mandate B).
+  `ConfigSummary` (`:408`, "client vs pin" in `--check-config`; the static `client` method gets the
+  `PatchDepth` from its caller), `NodeOverview` (`:145` client warning and `:250` client line of
+  `list_nodes`) and, in Mandate B, `HealthService` (`:686`, which has no matrix; through a
+  `VersionGate.comparePatch` that delegates to the gate's matrix).
   In Mandate A the visible effect is the `--check-config` and `list_nodes` client line of a 7.4
   node (the gate's client check never runs for 7.4 while every capability is refused).
 - **Rationale**: the rule lives in the domain matrix, not in version checks (Constitution V); 6.1
@@ -263,6 +265,10 @@ depends on them.
   - Detection (FR-032): the live check records the detection failure code of a 7.4 node on `AUTO`;
     the trigger and the `-sv` step are designed from it.
   - Constitution amendment (MINOR) before the first `SUPPORTED`.
+  - Everything keyed on "every 7.4 capability carries a note" switches together at the first flip:
+    the `lines()` exclusion (D-4; 7.4 must not then appear in "; supported: …" for queue entries,
+    server logs and node tools, which stay out of scope on 7.4), the configuration warning and the
+    `-h` option probe (D-9). Mandate B replaces the switch by an explicit rule.
   - Texts to revisit when the first 7.4 capability is flipped: the next step "no tool is verified on
     it yet" (D-6) stays on the capabilities that keep the note and must then read "this capability is
     not verified on INUBIT 7.4 yet"; the client option probe and its warnings turn on (D-9).
