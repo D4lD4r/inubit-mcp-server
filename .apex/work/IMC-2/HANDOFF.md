@@ -51,6 +51,8 @@ Run the live checks T054 and T055 on the 8.1 TEST server, one owner-approved com
   (SYNTHETIC fixtures) until T054/T055; trace level and debug state have no read form yet
   (before state shown as unknown).
 - Full Maven build takes ~10 min; tool wrappers kill foreground runs at 600 s — run it detached.
+  Per task only the tests of the touched area; the full `clean verify` once per phase and
+  before the PR (owner decision 2026-11-18).
 - Open minor review findings (non-blocking) for the phase code review: T048 (2), T051 (READ in
   needsCode), T052 (Upload Javadoc), T053 (2), T056 (OPTIONS dual use), T057 (2), T058 (2),
   T060 (Javadoc line), T061 (TerminologyRenderingTest comment), T062 (CliTagRunner Javadoc),
