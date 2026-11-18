@@ -977,3 +977,119 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 INUBIT_LIVE_T054_DEBUG_SESSI
 
 Result on 8.1.17: `in session: off → off → off; after session: off`. `debug on|off` has no
 observable server effect; the owner excluded it from `operate_server` (2026-11-18, research D-22).
+
+### Tags of L-4 (T055)
+
+`live/ManageTagsLiveTest` runs the tag check L-4 (research D-18) on one non-production INUBIT 8.1
+development node whose profile enables writes (`write.enabled`, `development.enabled`) and sets
+`inventory.owner`. The tool `manage_tags` still refuses 8.1 until T066 flips the coverage rows, so
+the test sends the commands raw on the production runners: `tag --tagMove` through the runner of
+`tag_artifacts`, the removals and the active-tag forms through the runner of `manage_tags`, the
+reads through the exports of the `manage_tags` preview. W16 (a group removal with `--tagUser`) is
+no production form and is built for this test only; the folder read is the allow-listed
+candidate form of D-18 without a production runner and is recorded only.
+
+Inputs (all required, checked before anything is contacted; values are never printed):
+
+| Variable | Value |
+|---|---|
+| `INUBIT_LIVE_T055_STEPS` | exactly `S1,S2,W13,S3,W14,S4,W15,W16,W17,W18`, the operator's statement that the owner approved every command below |
+| `INUBIT_LIVE_T055_TAG` | a test tag never used on the node before, e.g. `l4-test`; B0 checks only what its reads see |
+| `INUBIT_LIVE_T055_GROUPS` | `<g1>,<g2>`: two technical diagram groups of the inventory owner with at least one workflow each (test objects of the operator) |
+| `INUBIT_LIVE_T055_REPOSITORY_PATH` | `derived`, or the folder W15 must use: strictly below the owner's repository root `/Root/<owner>/` (see W15) |
+| `INUBIT_LIVE_T055_USER` | `login` (the StartCLI login of the node's credentials) or a login name: the user of W17/W18 |
+| `INUBIT_LIVE_RECORD_DIR` | the private recording folder, as for T054 |
+| `INUBIT_LIVE_T055_RUN` | optional run number from 2 (`T055-<n>/`) |
+
+Each step runs once, in this order (`<tag>`, `<g1>`, `<g2>`, `<owner>`, `<user>`, `<folder>` as
+above). After every group step the round is read: the history export of g1 and of g2 (`H1`,
+`H2`, the versions carrying the tag), the owner's export by the tag (`T`: groups, number of
+tagged versions, repository files carrying the tag) and, once W15 has a folder, the folder export
+(`P`). After W17 and W18 the user is read (`A`).
+
+| Step | Command | Question | Read after |
+|---|---|---|---|
+| B0 | reads only | the tag is on nothing the reads see (the two groups and the owner's export by the tag; repository files only through that export), each group has a workflow, the user has no active tag; else nothing is written | — |
+| S1 | `tag --tagMove '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical' --tagUser '<owner>'` | g1 must carry the tag | H1, H2, T |
+| S2 | the same for `<g2>` | g2 must carry the tag | H1, H2, T |
+| W13 | `tag --tagRemove '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical'` | does g2 keep it? which repository files lost it? | H1, H2, T |
+| S3 | as S1 | g1 must carry the tag | H1, H2, T |
+| W14 | `tag --tagDelete '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical'` | does g2 keep it? | H1, H2, T |
+| S4 | as S1, always (W15 needs the tagged repository files, W16 a tagged g1) | g1 must carry the tag | H1, H2, T |
+| W15 | `tag --tagRemove '<tag>' --tagRepositoryPath '<folder>'` | do the folder's files lose it, does g2 keep it? | `W15-before-P`, then H1, H2, T, P |
+| W16 | `tag --tagRemove '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical' --tagUser '<owner>'` | accepted? effect on g2? | H1, H2, T, P |
+| W17 | `tag --tagSetActive '<tag>' --tagUser '<user>'` | the active-tag row of `user '<user>'` | A |
+| W18 | `tag --tagRemoveActive --tagUser '<user>'` | the row is gone | A |
+
+- W15's folder comes from the read `T` right before it (after S4): the folders of the repository
+  files carrying the tag, and of them only those strictly below the owner's repository root
+  `/Root/<owner>/`. W15 never acts on the owner root itself or on another owner's folder, which
+  other objects may share. With `derived` it is the deepest such folder (the first in path order
+  among equally deep ones); a stated folder must be one of them, else the sequence stops before
+  W15 (a stated folder that is not below the owner root fails already before contact). If no
+  repository file carries the tag, or none lies in such a folder, W15 is recorded as `not
+  applicable: …` and nothing is sent. `W15-folder.state` and its console line name the folder
+  relative to the owner root (e.g. `folder ~/xsd (derived: …)`) and how it was chosen, or why
+  W15 did not run; the owner sees it before the cleanup.
+- The folder read `export --exportRepositoryPath '<folder>' --exportTag '<tag>' --exportFile
+  '<task folder>/<stem>.zip'` writes its archive into the owner-only task folder (made
+  `rw-------`); the archive is deleted once its values are derived, also if that fails. The
+  folder of `INUBIT_LIVE_RECORD_DIR` must be a path StartCLI can take, else the test fails before
+  contact. Its outcome never stops the sequence: an error, an unreadable archive or a failure to
+  record it is `unknown`.
+- No step is retried. A step stops the sequence when it ends in an error (an error code, e.g.
+  `IMPORT_FAILED` for a tag form StartCLI did not complete), when a read `H1`, `H2` or `T` of its
+  round ends in an error, or when S1–S4 leave their group without a tagged version
+  (`DEVIATION`). W16 alone counts INUBIT's refusal (a completed StartCLI run with an exit code
+  other than 0 or an `n-NOK` message) as its answer, noted as `W16 refused by INUBIT (...)`.
+- Cleanup, after the last step or the stop, each command at most once and only these: C1
+  `tag --tagDelete '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical'` and C2 the
+  same for `<g2>`, if the latest round shows the group carrying the tag, names it in `T` or could
+  not read it; C3 `tag --tagRemove '<tag>' --tagRepositoryPath '<folder>'` if W15 had a folder and
+  the latest round shows a file there carrying the tag or could not read it; C4
+  `tag --tagRemoveActive --tagUser '<user>'` if W17 was sent and W18 was not done. A cleanup
+  command may be the same command as the failed step; it is still sent once. If a step ends in
+  an exception after it may have been sent, every part counts as unknown, so C1 and C2 (and C3,
+  C4 as above) run. Then round `V` (H1, H2, T, and `A` if W17 was sent) checks that nothing
+  carries the tag, and the folder export by the tag (`V-F<n>-P`, read-only) checks every folder
+  in which a read of the run showed a file carrying the tag, the W15 folder included. Repository
+  files are seen only through `T` (while a group carries the tag) and the folder reads, so a file
+  tagged through a group in a folder no read showed stays unchecked.
+- The test fails if the sequence stopped or `V` shows the tag (or cannot read a group or `T`),
+  or a folder read in `V` shows a file carrying it, naming the step, its code, the cleanup
+  commands and what remains for the owner to remove. An unreadable folder export in `V` is a note
+  (`not verified`), not a failure.
+- Per command, owner-only (`rw-------`): `.stdout`, `.stderr`, `.exit` and, after an error,
+  `.error`; per history export also `<stem>.versionHistory.xml`; per step and round `.state` with
+  the derived values (`V-F<n>.state` per folder checked in `V`). The export by the tag holds whole
+  workflows and module configurations and is not kept, nor is the folder export's archive; only
+  their derived values are.
+- The console shows per command the id, exit code and byte counts, and per step and round what
+  the reads derive: the groups only as `g1` and `g2` (others as a count), the names and versions
+  of the workflows and modules carrying the test tag, the repository files carrying it relative
+  to the owner root (`~/xsd/release.xsl`; another owner's as `/Root/<other>/…`), counts, and the
+  active
+  tag as `none`, `the test tag`, `another tag` or `unrecognized answer`, e.g.
+  `[live] T055 W13-tag-remove-g1: answer done; before: g1 1 workflow, 1 tagged: workflow
+  Workflow-0001 v3; …`. Neutralize the case files as above before anything is copied into the
+  repository, and delete them afterwards.
+
+Before the run the owner approves each command of the table and of the cleanup in the chat with
+one `APPROVE` line (see [Approval of a [LIVE-W] command](#approval-of-a-live-w-command)):
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
+  INUBIT_LIVE_T055_STEPS=S1,S2,W13,S3,W14,S4,W15,W16,W17,W18 \
+  INUBIT_LIVE_T055_TAG=l4-test INUBIT_LIVE_T055_GROUPS=GRP-T1,GRP-T2 \
+  INUBIT_LIVE_T055_REPOSITORY_PATH=derived INUBIT_LIVE_T055_USER=login \
+  INUBIT_LIVE_RECORD_DIR=~/inubit-mcp-recordings/022 \
+  mvn verify -Plive -Dtest=ManageTagsLiveTest
+```
+
+- Without `INUBIT_LIVE_NODE`, `INUBIT_LIVE_T055_STEPS` or `INUBIT_LIVE_RECORD_DIR` the test is
+  skipped; any other step list fails before contact, and so does a missing or invalid input, a
+  node without write or development enablement or without `inventory.owner`. Production groups
+  are refused as for every live test. The test creates `<INUBIT_LIVE_RECORD_DIR>/T055/`
+  owner-only after the 8.1 check and fails, before contact, if it exists.
+- The history exports are those `tag_artifacts` and the `manage_tags` preview send for a group;
+  they run only in the two test groups.

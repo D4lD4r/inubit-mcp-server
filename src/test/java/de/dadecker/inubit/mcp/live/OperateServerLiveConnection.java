@@ -30,7 +30,7 @@ import java.util.Optional;
 
 /**
  * The connection of the T054 live tests ({@link OperateServerReadsLiveTest},
- * {@link OperateServerWritesLiveTest}) to their node: the secrets, guard and clients as the wiring
+ * {@link OperateServerWritesLiveTest}) and of T055 ({@link ManageTagsLiveTest}) to their node: the secrets, guard and clients as the wiring
  * builds them (Wiring, AdapterGatewayFactory). The credentials come from the credential store (or
  * AWS Parameter Store) as the server reads them; the StartCLI runs go through the production
  * {@link CliRunner} (the client chosen for the detected version, the allowlisted environment, the
@@ -47,6 +47,8 @@ final class OperateServerLiveConnection implements AutoCloseable {
 
     final EffectiveNodeConfig server;
     final CredentialGuard guard;
+    /** For the production runners that take the credentials ({@code CliTagRunner} and others). */
+    final NodeCredentials credentials;
     final String username;
     final Secret password;
     final ProcessRecorder recorder = new ProcessRecorder(new SystemProcessLauncher());
@@ -60,6 +62,7 @@ final class OperateServerLiveConnection implements AutoCloseable {
         this.files = files;
         this.server = server;
         this.guard = guard;
+        this.credentials = credentials;
         this.username = credentials.username().orElseThrow().value();
         this.password = credentials.password().orElseThrow().value();
         this.http = InubitHttpClient.create(server, credentials, MaintenanceProbe.NONE,
