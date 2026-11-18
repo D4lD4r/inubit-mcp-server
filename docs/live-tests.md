@@ -81,6 +81,7 @@ Only non-production groups (e.g. development or test stages) may be used.
 | `live/QueueEntryLiveTest` (feature 020, T033) | runs only with `INUBIT_LIVE_QUEUE_ENTRY` (an existing ERROR entry) on a node whose group sets `unsupported.queueEntryRead: true`: `read_queue_entry` through the real MCP server with the production wiring; the entry's queue row has the same state, `startTime`, `fileSize` and `fileName` before and after (SC-004); data and variables are available; neither the captured log nor the result contains an original masked value or a known secret, and the log contains none of the returned values (SC-003). See [Queue entry read](#queue-entry-read-feature-020) | `POST /ibis/rest/log/queueLog?format=json` before and after (read-only queries); the version detection (`/system/info`); one run of the queue-entry helper, which logs in with the INUBIT client of the node's version (8.1: SOAP servlet, 9.0: REST) and downloads the entry's data and variables into a private temporary directory that is deleted afterwards (read-only); with `INUBIT_LIVE_RECORD_DIR` a second helper run for a fictitious file name |
 | `live/ServerLogLiveTest` (feature 021, T054) | runs only with `INUBIT_LIVE_LOG_FOLDER` (a private folder outside every repository): `download_server_log` with `log: trace` and, if the node's group sets `unsupported.serverLogRead: true`, with `log: webservice`, through the real MCP server with the production wiring; each result matches the output schema and its file lies in the folder with the reported size and `rw-------`; a trace download through a copy of the configuration with a closed loopback port fails and leaves no file in the folder; the captured log contains no excerpt line. See [Server log download](#server-log-download-feature-021) | the version detection (`/system/info`); StartCLI `trace --download '<private dir>/trace.log'` (downloads the trace log without switching the trace state); with the opt-in one run of the INUBIT client helper that downloads `webservice.log`; both into a private temporary directory that is deleted after the file was placed in the folder (read-only); the forced failure contacts only `127.0.0.1` |
 | `live/NodeToolsLiveTest` (feature 024, T067) | on a node whose group sets `unsupported.nodeStatusRead` and `unsupported.nodeConfigRead`: `list_cluster_nodes` through the real MCP server with the production wiring within 10 s (SC-001), naming the answering node among the listed ones, then with `nodeName` the details of that node; `get_node_config` with all 20 allowed names in list order; each result matches its output schema, and no detail or value contains a known secret. Only with `INUBIT_LIVE_IO_PROCESS` (and `unsupported.ioLogRead`): `read_io_log` lists that run and reads its first message, masked. Only with `INUBIT_LIVE_LOG_LEVEL=approved` (write access and `unsupported.logLevelWrite`): `set_temporary_log_level` for one logger at `INFO` for 1 minute, `get_health` shows the lease, the automatic reset within 2 minutes, the lease `RESET`, the audit records of the set and of the reset. See [Unsupported node tools](#unsupported-node-tools-feature-024) | the version detection (`/system/info`); runs of the INUBIT client helper that read the cluster's node list, the node details, the configuration values and the input/output logging (read-only); with the approval StartCLI `trace --nodelevel INFO --package 'com.inubit.ibis.cli'` and, at expiry, `trace --reset`, each after a helper lookup of the answering node |
+| `live/OperateServerReadsLiveTest` (feature 022, T054 read set) | runs only with `INUBIT_LIVE_T054_READS=approved` and `INUBIT_LIVE_RECORD_DIR`, on an INUBIT 8.1 node: the nine owner-approved reads R1–R9 of the live checks L-2 and L-3, each once, in order, their raw output recorded owner-only. See [Read set of L-2 and L-3](#read-set-of-l-2-and-l-3-t054) | the version read (`/system/info`) before R1; StartCLI `maintenance -s`, `maintenance`, `trace`, `trace --help`, `debug`, `debug --help`; `GET /ready`, `/system/info`, `/configurations` (read-only: nothing is switched) |
 
 Each test prints one summary line without secrets or business data to stderr, e.g.
 `[live] test/node1: version 8.1.17, status OK, maintenanceMode false, load 51.7% memory, unavailable [], 699 ms`
@@ -716,3 +717,50 @@ APPROVE test/node1 | trace on | change: server trace switches from off to on | u
   `specs/022-full-interface-coverage/quickstart.md`.
 - A [LIVE] task that only reads needs no undo. When the agent runs it, the operator's approval
   names the server, the command and the output folder below `~/inubit-mcp-recordings/022/`.
+
+### Read set of L-2 and L-3 (T054)
+
+`live/OperateServerReadsLiveTest` runs the read-only part of T054 that the owner approved as one
+set, on one non-production INUBIT 8.1 node, each read once and in this order:
+
+| Read | Command | Case files |
+|---|---|---|
+| R1 | StartCLI `maintenance -s` | `R1-maintenance-s.*` |
+| R2 | StartCLI `maintenance` | `R2-maintenance.*` |
+| R3 | `GET /ready` (without credentials, as `get_health`) | `R3-get-ready.*` |
+| R4 | StartCLI `trace` | `R4-trace.*` |
+| R5 | StartCLI `trace --help` | `R5-trace-help.*` |
+| R6 | StartCLI `debug` | `R6-debug.*` |
+| R7 | StartCLI `debug --help` | `R7-debug-help.*` |
+| R8 | `GET /system/info` | `R8-get-system-info.*` |
+| R9 | `GET /configurations` | `R9-get-configurations.*` |
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 INUBIT_LIVE_T054_READS=approved \
+  INUBIT_LIVE_RECORD_DIR=~/inubit-mcp-recordings/022 \
+  mvn verify -Plive -Dtest=OperateServerReadsLiveTest
+```
+
+- Without `INUBIT_LIVE_NODE`, `INUBIT_LIVE_T054_READS` or `INUBIT_LIVE_RECORD_DIR` the test is
+  skipped; `INUBIT_LIVE_T054_READS` other than `approved` fails. Production groups are refused as
+  for every live test. `INUBIT_LIVE_RECORD_DIR` is resolved and refused as for the
+  [queue entry recording](#recording-the-helper-output-inubit_live_record_dir).
+- The test creates `<INUBIT_LIVE_RECORD_DIR>/T054/` owner-only (`rwx------`) and fails, before
+  anything is contacted, if it exists: move an earlier recording away first.
+- Before R1 it reads the node's version from `/system/info` as the version detection does; a node
+  that is not INUBIT 8.1, or a failed read, fails the test and nothing else runs.
+- The StartCLI reads run through the production StartCLI runner: the client chosen for the
+  detected 8.1 version, the allowlisted environment, the password on stdin (never an argument,
+  never recorded), the node's `cliTimeout` and trust store. R1 and R2 are the production command
+  forms; `trace`, `trace --help`, `debug` and `debug --help` are deliberately not in the
+  allowlist of the tools and are built for this test only. The REST reads use the production
+  REST client of the node (base URL, trust store or pin, credentials from the credential store)
+  and record any status.
+- Per read, owner-only (`rw-------`): StartCLI `<R#>-<slug>.stdout`, `.stderr` and `.exit`; REST
+  `<R#>-<slug>.status` and `.body`; a read that ended in an error (with or without output) also
+  `<R#>-<slug>.error` with the error code. A read that ended in an error is not retried; the test
+  fails at the end naming the reads and codes.
+- The console shows one line per read with the exit code or status and byte counts only, e.g.
+  `[live] T054 R5 trace --help on test/node1: exit 0, stdout 812 bytes, stderr 0 bytes`. The case
+  files hold **raw server output**, R9 the configuration values: neutralize them as above before
+  anything is copied into the repository, and delete them afterwards.

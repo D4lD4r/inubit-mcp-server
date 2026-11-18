@@ -187,6 +187,15 @@ public final class CliCommand {
         this.tokens = List.copyOf(tokens);
     }
 
+    /**
+     * Test seam of the live recording of feature 022 T054 (research "Live checks" L-2, L-3): the
+     * command of {@code tokens}, outside the allowlist. Package-private and without a production
+     * caller; the reads it serves stay outside {@code OPTIONS}, so no tool can send them.
+     */
+    static CliCommand unlisted(List<String> tokens) {
+        return new CliCommand(tokens);
+    }
+
     /** Starts a command; {@code name} must be allow-listed. */
     public static Builder command(String name) {
         if (name == null || !OPTIONS.containsKey(name)) {
