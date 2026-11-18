@@ -21,6 +21,12 @@ IMC-10 (T054), IMC-11 (T055).
   secret leak). Full `mvn clean verify` green after every task.
 
 ## Next step
+- 2026-11-18: T054 reads R1–R9 done on the 8.1 test node (8.1.17) via `OperateServerReadsLiveTest`
+  (568f000b); results on IMC-10. Trace is on at level info, debug off, maintenance off, ready.
+  Writes W1–W12 next, through `operate_server` of a local-scope MCP registration of the branch
+  jar (copy of 72e058d2 under `~/.local/lib/`); needs a session that has loaded it. Undo lines corrected: W6 no change, W7 undo `trace on`,
+  W8 undo `trace -l info`. After the checks: owner removes the test group's `write` block and re-enables the AWS
+  LB health check.
 Run the live checks T054 and T055 on the 8.1 TEST server, one owner-approved command at a time
 (command sets on IMC-10 / IMC-11; approval only in chat). Then T066.
 
