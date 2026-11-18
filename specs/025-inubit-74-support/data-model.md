@@ -47,6 +47,8 @@ Production entries:
 New queries: `patchDepth(Optional<InubitVersion>)`, `comparePatch(ClientVersion,
 Optional<InubitVersion>)` (the one entry point for client/server patch comparisons), `cliOnlyLines()` (major.minor of the CLI-only
 entries in order), `allNotYetVerified(Optional<InubitVersion>)` (every capability carries a note).
+`lines(capability)` ("supported once verified") ignores the notes of an entry for which
+`allNotYetVerified` holds, so 7.4 never appears in "; supported: …".
 
 ## ClientVersion.Comparison (rule extended)
 

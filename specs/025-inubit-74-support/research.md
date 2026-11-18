@@ -61,6 +61,11 @@ depends on them.
   capability `UNSUPPORTED` (absent = unsupported, `:16-18`), the two CLI channels prepared for
   Mandate B, and the note "not yet verified" on every capability (the mechanism of feature 024,
   `notYetVerified`, `:79-95`). `PRODUCTION` becomes `List.of(V6_1, V7_4, V8_1, V9_0)` (`:118`).
+- **`lines(capability)`** (`:199-206`) today counts an entry with `SUPPORTED` or a note ("supported
+  once verified") and feeds `VersionGate.supportedLines` ("; supported: 8.1, 9.0" in refusals of the
+  queue-entry, server-log and node-tool capabilities). It ignores the notes of an entry on which
+  every capability carries a note, so 7.4 never appears there and the 6.1, 8.1, 9.0 and unknown texts
+  stay unchanged.
 - **Rationale**: the note is the single switch that tells "recognised but not verified" apart from
   6.1's "CLI-only, refused": the refusal text (D-6) and the configuration warning (D-9) read it, and
   Mandate B removes it per capability together with the state flip.
@@ -74,8 +79,9 @@ depends on them.
   refusing `CliHealthPort`. `Wiring` (`:474-476`) registers it after 6.1 through
   `PortSetRegistry.register(range, factory, V61QueryRules.INSTANCE, cliHealth)`, which marks the
   range `NodeAccess.CLI_ONLY` and builds no REST client (`Slot.ports()` skips the client for CLI-only
-  factories, feature 012 D-4). `RefusingPorts` (`:81-88`) takes the release in its constructor:
-  "(INUBIT <release>, StartCLI only)"; the 6.1 text is unchanged. `V61QueryRules` is never reached
+  factories, feature 012 D-4). `RefusingPorts` (`:81-88`) takes the release and the likely cause in
+  its constructor: message "(INUBIT <release>, StartCLI only)", likely cause for 7.4 "INUBIT 7.4 is
+  recognised, but no tool is verified on it yet"; both 6.1 texts are unchanged. `V61QueryRules` is never reached
   for 7.4 (the gate refuses first); it is passed only because `register` needs rules.
 - **Rationale**: second line of defence (spec FR-011), same shape as 6.1, nothing that could talk to
   a 7.4 node.
@@ -126,8 +132,11 @@ depends on them.
   `defaults.cliClients."7.4"` key needs no change (any quoted major.minor is valid; feature 017);
   `--check-config` runs its local `-v` probe as for every entry (`Launcher.java:428`) and reports a
   version it cannot parse as today; `SHIPPED_JAVA` (`:65-67`) gets no 7.4 entry, so no JDK warning.
-  `list_nodes` / `--check-config` add the note "not used until a 7.4 capability is verified" to the
-  client line of a 7.4 node, keyed on the same notes.
+  The note "not used until a 7.4 capability is verified" goes (keyed on the same notes) into the
+  `--check-config` client text line (`ConfigSummary.client`) and, for `list_nodes`, into the node's
+  `warnings` list (a free string array in `list_nodes.output.json`; no schema change):
+  "INUBIT 7.4 is recognised, but no tool is verified on it yet; the StartCLI client of <node> is not
+  used until a 7.4 capability is verified".
 - **Client option probe (`-h`)**: `CliClientProbe.optionsFor` (`:75-99`) runs the client's `-h`
   for every CLI-only node, also in `--check-config` (`Launcher.java:420-441`), and
   `ConfigValidator.clientOptionWarnings` (`:1511-1535`) then warns, e.g. "… refused (TLS_ERROR)".
@@ -215,10 +224,12 @@ depends on them.
 
 ## D-13 Regression (FR-020, SC-005)
 
-- **Decision**: a parameterised `T/domain/model/VersionLineRegressionTest` pins, for `V6_1`,
-  `V8_1`, `V9_0`, `V9_X` and the concrete pins `6.1.0.89`, `8.1.17`, `9.0.10`: parsing (incl. the
-  absent build for three-part values), `ClientVersion.compare` with the `patchDepth` the matrix
-  returns, the gate decision per capability with the production matrix, and the refusal texts. It
+- **Decision**: a parameterised `T/application/VersionLineRegressionTest` (in `application` for the
+  package-private `VersionGate` helpers) pins, for `V6_1`, `V8_1`, `V9_0`, `V9_X` and the concrete pins
+  `6.1.0.89`, `8.1.17`, `9.0.10`: parsing, `ClientVersion.compare` (today's three-part rule; later
+  tasks route it through `comparePatch`, which must give the same results for these lines), the gate
+  decision per capability with the production matrix, the refusal texts, and the `; supported: …`
+  texts (a queue-entry refusal on 6.1 and on an unknown version). It
   is written **before** D-2/D-3/D-4 and must pass unchanged after them. The existing per-version
   tests (`V61*`, `V81*`, `V90*`, `CapabilityMatrixTest`, `VersionGateTest`, `ClientVersionTest`,
   `InubitVersionTest`, `VersionSettingTest`) stay unchanged except for the 404 hint texts.

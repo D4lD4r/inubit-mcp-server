@@ -28,8 +28,9 @@ No tool is added or removed; no input or output schema changes shape. Changes ar
 | `versionLine` | `V7_4` or the concrete pin as configured (e.g. `7.4.0.90`) |
 | `version` | `7.4` for `V7_4`, the full pin text for a concrete pin |
 | `access` | `cli_only` |
-| capabilities | every capability `unsupported`, each with the note `not yet verified` |
-| client line | the client directory if configured, the `-v` result and the client vs pin comparison with four parts (a 7.4.0.80 client at a 7.4.0.90 pin is a mismatch), with the note `not used until a 7.4 capability is verified`; no client option line (no `-h` probe while 7.4 is not verified) |
+| capabilities | none usable (every capability refused) |
+| client | the client directory if configured, the `-v` result and the client vs pin comparison with four parts (a 7.4.0.80 client at a 7.4.0.90 pin is a mismatch); no client options (no `-h` probe while 7.4 is not verified) |
+| `warnings` | the entry `INUBIT 7.4 is recognised, but no tool is verified on it yet; the StartCLI client of <node> is not used until a 7.4 capability is verified` (existing free string array; no schema change) |
 
 ## Unknown-version warning after a detection answered with HTTP 404
 

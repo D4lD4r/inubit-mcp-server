@@ -21,7 +21,8 @@ Mandate A:
 |---|---|
 | load / validation | key and directories checked as for every entry |
 | `--check-config` | runs the entry's local `-v` probe (no node contact) and reports the result, including "not evaluable", and the client vs pin comparison with four parts; runs no `-h` option probe and gives no client option warning while every 7.4 capability is not yet verified; no JDK major warning for 7.4 |
-| `--check-config`, `list_nodes` | the client line of a 7.4 node carries the note `not used until a 7.4 capability is verified` |
+| `--check-config` | the client text line of a 7.4 node ends with `; not used until a 7.4 capability is verified` |
+| `list_nodes` | the node's `warnings` list carries the entry of contracts/mcp-tools-delta.md (no schema change) |
 | tools | never run the client against a 7.4 node (every tool is refused first) |
 
 ## `--check-config` warnings
