@@ -110,7 +110,7 @@ tests may pass at once.
   `V7_4`; `"7.4.0"`, `"7.4.0.90"`, `"7.4.0.90-HF1"` are `Pinned`; `"V7_X"` is refused),
   `ConfigLoaderTest` (the new error text; the existing assertion of the old text is the deliberate
   change of SC-005).
-- [ ] T005 Fourth version part (research D-2, spec FR-002, FR-004): `main/domain/model/InubitVersion.java`
+- [X] T005 Fourth version part (research D-2, spec FR-002, FR-004): `main/domain/model/InubitVersion.java`
   gets `OptionalInt build` ("present only if `patch` is present and the value has a fourth numeric
   part"), the regex `^(\d{1,9})\.(\d{1,9})(?:\.(\d{1,9})(?:\.(\d{1,9}))?)?(?!\d)`, and a kept
   four-argument constructor (build empty); `compareTo` and `sameMinor` unchanged. Test first:

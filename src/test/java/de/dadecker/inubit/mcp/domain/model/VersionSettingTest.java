@@ -38,9 +38,9 @@ class VersionSettingTest {
     @Test
     void aFourPartSixOnePinIsSixOneZeroWithTheTextKept() {
         assertThat(VersionSetting.parse("6.1.0.89")).contains(new VersionSetting.Pinned(
-            new InubitVersion(6, 1, OptionalInt.of(0), "6.1.0.89")));
+            new InubitVersion(6, 1, OptionalInt.of(0), OptionalInt.of(89), "6.1.0.89")));
         assertThat(VersionSetting.parse("6.1.0.89-HF1")).contains(new VersionSetting.Pinned(
-            new InubitVersion(6, 1, OptionalInt.of(0), "6.1.0.89-HF1")));
+            new InubitVersion(6, 1, OptionalInt.of(0), OptionalInt.of(89), "6.1.0.89-HF1")));
     }
 
     @Test

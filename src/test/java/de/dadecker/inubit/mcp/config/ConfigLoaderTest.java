@@ -905,7 +905,7 @@ class ConfigLoaderTest {
             assertThat(nodeSetting("V6_1")).isEqualTo(VersionSetting.V6_1);
             assertThat(nodeSetting("V6_1").text()).isEqualTo("V6_1");
             assertThat(nodeSetting("\"6.1.0.89-HF1\"")).isEqualTo(new VersionSetting.Pinned(
-                new InubitVersion(6, 1, OptionalInt.of(0), "6.1.0.89-HF1")));
+                new InubitVersion(6, 1, OptionalInt.of(0), OptionalInt.of(89), "6.1.0.89-HF1")));
         }
 
         @Test
