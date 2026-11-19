@@ -15,11 +15,11 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 
 | State | 8.1 | 9.0 |
 | --- | ---: | ---: |
-| reachable | 51 | 50 |
+| reachable | 58 | 50 |
 | covered | 40 | 40 |
-| planned | 93 | 93 |
+| planned | 82 | 89 |
 | undocumented | 3 | 1 |
-| excluded | 67 | 70 |
+| excluded | 71 | 74 |
 | all entries | 254 | 254 |
 
 ## A. Server state and settings
@@ -47,12 +47,12 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | CLI `maintenance` | READ | - | covered `get_health` | covered `get_health` |
 | CLI `maintenance -s` | READ | - | covered `get_health` | covered `get_health` |
 | CLI `trace` | READ | - | covered `get_health` | covered `get_health` |
-| CLI `maintenance on\|off` | WRITE | US4 | planned | planned |
-| CLI `maintenance -eq true\|false` | WRITE | US4 | planned | planned |
-| CLI `trace on\|off` | WRITE | US4 | planned | planned |
-| CLI `trace -l` | WRITE | US4 | planned | planned |
-| CLI `debug on\|off` | WRITE | US4 | planned | planned |
-| CLI `triggerMidnightTask` | WRITE | US4 | planned | planned |
+| CLI `maintenance on\|off` | WRITE | US4 | reachable `operate_server/setMaintenance` | planned, waits `9.0-followup` |
+| CLI `maintenance -eq true\|false` | WRITE | US4 | reachable `operate_server/setMaintenance` | planned, waits `9.0-followup` |
+| CLI `trace on\|off` | WRITE | US4 | reachable `operate_server/setTrace` | planned, waits `9.0-followup` |
+| CLI `trace -l` | WRITE | US4 | reachable `operate_server/setTraceLevel` | planned, waits `9.0-followup` |
+| CLI `debug on\|off` | WRITE | - | excluded: the trace switch of the interactive CLI mode (vendor); no observable server effect on INUBIT 8.1.17 (T054) | excluded: the trace switch of the interactive CLI mode (vendor); no observable server effect on INUBIT 8.1.17 (T054) |
+| CLI `triggerMidnightTask` | WRITE | US4 | reachable `operate_server/triggerMidnightTask` | planned, waits `9.0-followup` |
 | CLI `threads setNumberOfWorkflowThreads` | WRITE | US6 | planned | planned |
 | CLI `privilegedWorkflows setThreadsPercentage` | WRITE | US6 | planned | planned |
 | CLI `dbconnectiontolerance set` | WRITE | US6 | planned | planned |
@@ -70,7 +70,7 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | REST `GET /ready` | READ | - | reachable `get_health/default` | reachable `get_health/default` |
 | REST `GET /configurations` | READ | US1 | reachable `get_server_settings/default` | reachable `get_server_settings/default` |
 | REST `GET /license` | READ | US1 | reachable `get_server_settings/default` | reachable `get_server_settings/default` |
-| REST `POST /ready/{status}` | WRITE | US4 | planned | planned |
+| REST `POST /ready/{status}` | WRITE | US4 | reachable `operate_server/setReadiness` | planned, waits `9.0-followup` |
 | REST `PUT /license` | WRITE | US6 | planned | planned |
 | REST `PUT /configurations` | WRITE | US6 | planned | planned |
 | REST `POST /configurations` | WRITE | US6 | planned | planned |
@@ -158,7 +158,7 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | CLI `ps -u` | READ | US3 | covered `find_processes` | covered `find_processes` |
 | CLI `processErrorStart` | WRITE | - | reachable `restart_process/default` | reachable `restart_process/default` |
 | CLI `kill` | WRITE | - | reachable `kill_process/default` | reachable `kill_process/default` |
-| CLI `processdelete error` | WRITE | US4 | planned | planned |
+| CLI `processdelete error` | WRITE | US4 | reachable `operate_server/deleteErrorProcesses` | planned, waits `9.0-followup` |
 | CLI `process listBlocked` | READ | US5 | planned | planned |
 | CLI `process validateExport` | READ | US5 | planned | planned |
 | CLI `process export` | WRITE | US5 | planned | planned |
@@ -212,11 +212,11 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | CLI `tag --tagWorkflowGroup` | WRITE | - | reachable `tag_artifacts/default` | reachable `tag_artifacts/default` |
 | CLI `tag --tagWorkflowType` | WRITE | - | reachable `tag_artifacts/default` | reachable `tag_artifacts/default` |
 | CLI `tag --tagUser` | WRITE | - | reachable `tag_artifacts/default` | reachable `tag_artifacts/default` |
-| CLI `tag --tagSetActive` | WRITE | US4 | planned | planned |
-| CLI `tag --tagRemoveActive` | WRITE | US4 | planned | planned |
-| CLI `tag --tagDelete` | WRITE | US4 | planned | planned |
-| CLI `tag --tagRemove` | WRITE | US4 | planned | planned |
-| CLI `tag --tagRepositoryPath` | WRITE | US4 | planned | planned |
+| CLI `tag --tagSetActive` | WRITE | US4 | planned, waits `L-4+9.0-followup` | planned, waits `L-4+9.0-followup` |
+| CLI `tag --tagRemoveActive` | WRITE | US4 | planned, waits `L-4+9.0-followup` | planned, waits `L-4+9.0-followup` |
+| CLI `tag --tagDelete` | WRITE | - | excluded: acts on the whole owner: deletes the tag in every diagram group although one is named (INUBIT 8.1.17, T055) | excluded: acts on the whole owner: deletes the tag in every diagram group although one is named (INUBIT 8.1.17, T055) |
+| CLI `tag --tagRemove` | WRITE | - | excluded: exists only with --tagRepositoryPath, whose tagged repository files cannot be listed for the preview and backup (T055) | excluded: exists only with --tagRepositoryPath, whose tagged repository files cannot be listed for the preview and backup (T055) |
+| CLI `tag --tagRepositoryPath` | WRITE | - | excluded: the tagged repository files cannot be listed for the preview and backup of a removal (T055) | excluded: the tagged repository files cannot be listed for the preview and backup of a removal (T055) |
 | CLI `tag --tagDiagram` | WRITE | - | excluded: ignored by INUBIT, tags every diagram of the owner | excluded: ignored by INUBIT, tags every diagram of the owner |
 | CLI `tag --tagWorkflowGroupExclude` | WRITE | - | excluded: acts on every diagram group of the owner but the listed ones | excluded: acts on every diagram group of the owner but the listed ones |
 | CLI `delete --deleteWorkflow` | WRITE | US6 | planned | planned |
@@ -295,7 +295,7 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | --- | --- | --- | --- | --- |
 | CLI `-v` | READ | - | reachable `get_health/default` | reachable `get_health/default` |
 | CLI `-a` | READ | - | excluded: lists the network interfaces of the StartCLI client's host, not of the server | excluded: lists the network interfaces of the StartCLI client's host, not of the server |
-| CLI `--debug` | WRITE | - | excluded: starts an interactive StartCLI session with the client trace; the switch is debug on\|off | excluded: starts an interactive StartCLI session with the client trace; the switch is debug on\|off |
+| CLI `--debug` | WRITE | - | excluded: starts an interactive StartCLI session with the client trace | excluded: starts an interactive StartCLI session with the client trace |
 | CLI `--encryptString` | READ | - | excluded: takes a secret on the command line and prints the result | excluded: takes a secret on the command line and prints the result |
 | CLI `--backupFile` | WRITE | US6 | planned | planned |
 | CLI `--backupRepository` | WRITE | US6 | planned | planned |

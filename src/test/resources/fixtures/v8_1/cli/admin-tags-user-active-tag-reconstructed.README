@@ -1,0 +1,6 @@
+SYNTHETIC – reconstructed answer of `user <name>` for a user with an active tag; not recorded yet
+Hand-written fixture for ActiveTagParser (tasks.md T063): one answer block, the lines after the
+client's preamble (no .stderr/.exit: a block is not a run). The three rows are the recorded form of
+`admin-users-user`; no recorded user had an active tag, so the fourth row "Active tag <tag>" is an
+assumption, kept in ActiveTagParser.FORM. The live check T055 (L-4) records the answer after
+`tag --tagSetActive` and replaces this case.

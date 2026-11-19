@@ -22,7 +22,7 @@ the check fails.
 | `read_model_details` | US3 | read | readOnly, idempotent | module properties, library list (process metadata and the IS Connector check wait for L-19, L-20; D-21) |
 | `export_archives` (extended) | US3 | read producing files | localWrite (unchanged) | diagrams of an owner without some groups, metadata registry export |
 | `find_processes` (extended) | US3 | read | readOnly (unchanged) | one user-defined Queue Manager column (`ps -u`, D-21) |
-| `operate_server` | US4 | write | destructive | maintenance, readiness, trace, debug, midnight task, deleting processes in error |
+| `operate_server` | US4 | write | destructive | maintenance, readiness, trace, midnight task, deleting processes in error |
 | `manage_tags` | US4 | write | destructive | active tag of a user, tag removal/deletion in a group or path |
 | `transfer_runtime_data` | US5 | write + reads | destructive | export, validate, import, list, resume, delete blocked |
 | `administer_objects` | US6 | write | destructive | objects area and libraries area |
@@ -209,8 +209,12 @@ a story not delivered yet therefore stays `planned` with that story, and changes
   `kill_process`; `processErrorStart` → `restart_process`; `GET /model/models` →
   `list_inventory`; `GET /model/modelByName/{name}` → `get_inventory_item`; `GET /system/info` → `get_health`.
 - excluded: `-a` (lists the network interfaces of the StartCLI client host, not of the server);
-  `--debug` (the client-side trace of an interactive session; the server switch is the
-  `debug on|off` row); `backup.sh` and `restore.sh` options (offline scripts, area START).
+  `--debug` (starts an interactive session with the client-side trace); `backup.sh` and
+  `restore.sh` options (offline scripts, area START); `debug on|off` (live-check finding of
+  T054/L-3, owner decision 2026-11-18: on 8.1.17 it exits 0 without text and `debug` reads "off"
+  before and after, in separate processes and inside one interactive session; the vendor's
+  online help describes it as the trace switch of the interactive CLI mode; it has no observable
+  server effect and cannot be verified).
 
 **Rationale**: the constitution prefers REST. `get_health` already reads these facts, and FR-002
 forbids reading them twice.
@@ -437,10 +441,11 @@ name) and the audit id.
 | metadata rename | `export --exportMetadata --exportMetadataNames <name>` (the named registry entry; T039) |
 | repository file or directory delete or rename, EDI rule overwrite | `export --exportRepositoryPath` |
 | keystore to a module | export of the module |
-| tag removal or deletion | JSON list of the objects and versions carrying the tag (from the version history, `VersionHistoryParser`) |
 
 If the backup fails, nothing is sent (FR-018). Retention and sweep are unchanged (30 days, newest
-per scope kept).
+per scope kept). Tag removal and deletion have no backup: they are excluded after T055 (D-18), and
+the tag list backup T053 built for them (`BackupStore.writeTagList`, object kind `TAG_LIST`) was
+removed with them.
 
 `restore_backup` accepts an `ADMINISTRATION` manifest only on development nodes and only for
 workflow and module exports, through the existing import path. Its node rules do not change.
@@ -480,25 +485,125 @@ admission and sending refuses it, as for the existing write tools (`WriteRaceToo
 
 ## D-18 Tags (FR-019a, US4 AS12–AS14)
 
-**Decision**: `manage_tags` actions:
+**Decision** (owner, Question IMC-7, option 3 "rest planned", 2026-11-19, from T055 runs 2–4 on
+8.1.17, recorded below): `manage_tags` offers only the active-tag actions, `setActiveTag {user,
+tag}` and `removeActiveTag {user}` (`tag --tagSetActive|--tagRemoveActive --tagUser`). Their rows
+stay `planned` ("not yet verified"): active tagging is off on the test node, `--tagSetActive`
+answered `TagNameWasNotFound` although g1 carried the tag, and `--tagRemoveActive` answered
+without text (run 4).
 
-- `setActiveTag {user, tag}` and `removeActiveTag {user}` (`tag --tagSetActive|--tagRemoveActive
-  --tagUser`);
-- `removeTag` and `deleteTag` with exactly one scope: `{diagramGroup, diagramType}`
-  (`--tagWorkflowGroup` + `--tagWorkflowType`) or `{repositoryPath}` (`--tagRepositoryPath`).
+Tag removal is not offered; its rows are excluded on both lines (the 9.0 CLI is the same):
 
-`CliCommand.OPTIONS["tag"]` gains `--tagSetActive`, `--tagRemoveActive`, `--tagDelete`,
-`--tagRemove` and `--tagRepositoryPath`. A builder rule rejects `--tagDelete` / `--tagRemove`
-without a scope option. `--tagDiagram` and `--tagWorkflowGroupExclude` are never admitted
-(`CliCommandTest`).
+- `removeTag` (`tag --tagRemove`, `tag --tagRepositoryPath`): a group-scoped `--tagRemove` does
+  not exist (8.1.17: "tagRepositoryPath is needed", run 2), and the repository-path form cannot be
+  previewed or backed up (FR-018): tagging a diagram group tags no repository file (runs 2 and 3),
+  so no tagged repository file could be produced to check it, and no StartCLI form that lists the
+  tagged repository files is recorded.
+- `deleteTag` (`tag --tagDelete`): it acts on the whole owner. `--tagDelete … --tagUser <owner>`
+  in one diagram group deleted the tag owner-wide: the other group lost it, and afterwards the tag
+  no longer existed (run 3).
 
-`removeTag` and `deleteTag` start as `planned` and become `reachable` only if L-4 shows that
-INUBIT limits them to the scope; otherwise they are `excluded:acts-on-whole-owner`. The tool then
-offers only the active-tag actions.
+`removeTag` and `deleteTag` are unknown actions (the input schema refuses them, the service
+answers `INVALID_INPUT`; nothing is read or sent), as `setDebug` of `operate_server` after T054.
+`CliCommand.OPTIONS["tag"]` gains only `--tagSetActive` and `--tagRemoveActive`; `--tagDelete`,
+`--tagRemove`, `--tagRepositoryPath`, `--tagDiagram` and `--tagWorkflowGroupExclude` are never
+admitted (`CliCommandTest`). The removal forms the live check sends are test code only
+(`UnlistedTagCommand`). This is the T066 exclusion of the rows `tag --tagDelete`,
+`tag --tagRemove` and `tag --tagRepositoryPath`.
 
-Before a removal the preview lists the objects and versions carrying the tag in the scope (version
-history export, as `tag_artifacts` reads it) and the count outside the scope that must stay; the
-result re-reads both.
+Before the decision, T063/T064 built the removal path this check was to open: a preview of the
+versions carrying the tag in one diagram group (history export, as `tag_artifacts` reads it) and
+the count outside it, a tag list backup (T053: `BackupStore.writeTagList`, object kind
+`TAG_LIST`), and a re-read of both. All of it, the tag list backup included, was removed with the
+decision; `TaggedVersion` stays as test code of the live check only. The records below keep what
+the path was built on.
+
+**Port (T063)**: `TagAdministrationPort`, in the 8.1 port set (9.0 reuses it) as
+`V81TagAdministrationAdapter` with `CliTagAdminRunner`, capability `TAG_ADMINISTRATION` (StartCLI,
+"not yet verified"; T055 did not verify it, decision above). The port holds the active tag only:
+its read, set and removal. Until L-4 these are assumptions:
+- the active tag is read with `user '<user>'` in a session, the recorded rows plus a RECONSTRUCTED
+  row `Active tag <tag>` (fixture `admin-tags-user-active-tag-reconstructed`); without it the user
+  has none. The export by tag also holds `usertags.xml` with an `ActiveTag` element (empty in
+  `export_release.zip`), a possible other source for L-4 to check;
+- a tag form is done when StartCLI exits with 0 without `n-NOK`, as `tag --tagMove` (`tag_ok`).
+
+**Recorded in T055 run 1 (2026-11-19, 8.1.17)**: the `user '<login>'` session for the profile
+account (no active tag set) answers in the recorded session form (preamble, `CLI|<user>@<host>>
+user '<login>'`, the rows `User name`, `User group`, `Super group` in CRLF with trailing spaces, a
+`\r` line, `CLI|<user>@<host>> exit`) with **no `Active tag` row**, so the user has none; the
+process exits with **1** although no command was refused (fixture
+`admin-tags-user-no-active-tag-session`). Each earlier 8.1 session with exit 1 had a command that
+failed: `admin-settings-session` (T014) three answered `EXECUTION ERROR`, `admin-users-session`
+(T028: `-who`, `-nwho`) and `admin-model-session` (US3: `fetchXSLT1.0`) answered
+`Command not found.`, so their exit 1 was read as caused by those. `CliTagAdminRunner.activeTag`
+judged the session like `CliSettingsRunner` (an exit code other than 0 fails unless a block starts
+with `EXECUTION ERROR`) and threw `UNEXPECTED_RESPONSE`; it now judges a session that ran to its
+`exit` prompt (one block per command, empty `exit` block) by its block alone and fails on the exit
+code only for a session cut off before it or with output after it. Login failure, cut output,
+`EXECUTION ERROR` (`NOT_FOUND`) and unknown rows still fail. The `Active tag <tag>` row stays
+RECONSTRUCTED until a user with an active tag is recorded.
+
+**Recorded in T055 run 2 (2026-11-19, 8.1.17)**:
+- `tag --tagMove <tag> --tagWorkflowGroup <g> --tagWorkflowType technical --tagUser <owner>`
+  exits with 0 and prints no result line, and tags the group's workflow **and the modules it
+  uses** (the history export of the group shows the workflow version and one version of each
+  module carrying the tag: g1 a workflow and 2 modules, g2 a workflow and 3 modules). The owner's
+  export by the tag held no repository file with the tag.
+- `tag --tagRemove <tag> --tagWorkflowGroup <g> --tagWorkflowType technical` exits with 1:
+  `EXECUTION ERROR` / `Internal INUBIT error!` / `Insufficient options provided for action remove
+  tag: tagRepositoryPath is needed`. `--tagRemove` works only with `--tagRepositoryPath`, so
+  `removeTag` takes only `{repositoryPath}`.
+- `tag --tagDelete <tag> --tagWorkflowGroup <g> --tagWorkflowType technical` (no `--tagUser`)
+  exits with 1: `EXECUTION ERROR` / `Internal INUBIT error!` / `Missing user name.`. `deleteTag`
+  in a diagram group therefore sends `--tagUser <inventory.owner>`, the owner the preview, backup
+  and re-read read. `--tagDelete` with `--tagRepositoryPath` sends no `--tagUser` (the spike saw
+  StartCLI refuse `--tagUser` with `--tagRepositoryPath`); not recorded yet.
+- Whether `--tagDelete … --tagUser <owner>` in g1 leaves the tag in g2 (and on modules g2 shares)
+  is still open: the next run starts from this state (the tag on both test groups) with the
+  approved list `W15,X1,X2,W17,W18` (docs/live-tests.md "Tags of L-4").
+
+**Recorded in T055 run 3 (2026-11-19, 8.1.17)**, list `W15,X1,X2,W17,W18` from the tag on both
+test groups:
+- No repository file carried the tag (`tag --tagMove` with a group tagged the workflow and its
+  modules only), so W15 had no folder; the repository-path forms are still not exercised.
+- `tag --tagDelete <tag> --tagWorkflowGroup <g1> --tagWorkflowType technical --tagUser <owner>`
+  exits with 0 and deletes the tag **owner-wide**: g2 lost it too, and afterwards StartCLI
+  answers that the specified tag does not exist. `deleteTag` in a diagram group is not limited to
+  its scope, so it is excluded (decision above).
+- W17 `tag --tagSetActive <tag> --tagUser <user>` then found no tag: `EXECUTION ERROR`,
+  `TagNameWasNotFound`. The active-tag pair is still open; run 4 sends it while g1 carries the tag,
+  with the approved list `S1,W17,W18,X1` (docs/live-tests.md "The active-tag pair (run 4)"). The
+  owner says active tagging is not enabled on the test node, so INUBIT's refusal of W17/W18 is
+  recorded as their answer, not a stop.
+
+**Recorded in T055 run 4 (2026-11-19, 8.1.17)**, list `S1,W17,W18,X1` from a tag on nothing: S1
+tagged g1; W17 `tag --tagSetActive <tag> --tagUser <user>` was refused with `TagNameWasNotFound`
+although g1 carried the tag (active tagging is off on the test node); W18 `tag --tagRemoveActive
+--tagUser <user>` exited with 0 without text; X1 deleted the tag, and the server was left clean.
+The active-tag pair is not verified on this node, so its rows stay `planned` (decision above).
+
+**Follow-up, not fixed in T055**: `CliUserRunner.session` and `CliSettingsRunner.session` still use
+the old rule (their `commandRefused` looks only for `EXECUTION ERROR`). On a real 8.1.17 session in
+which no command is refused (`read_users` with only `user`/`finger`; `get_server_settings` without
+the root-only reads) they will most likely fail the same way with `UNEXPECTED_RESPONSE`.
+
+The removed removal path read the versions in a diagram group from the group's history export of
+the owner, and the count outside it from the owner's export by the tag (`--exportTag`, feature 005
+D-4: no check-in comment is appended, unlike an owner-wide history export), fixed to technical
+diagram groups. For a repository path no form that lists the tagged repository files with their
+versions was recorded (candidate `export --exportRepositoryPath <path> --exportTag <tag>`, reading
+`tagName` and `version` of each file's metadata, spike-development-deployment "Tags"); the live
+check could not exercise it, because no repository file carried the tag. StartCLI's help says
+`--tagDelete` "Removes the tag from diagram, modules and repository if it is available" and
+`--tagRemove` "Removes the tag only from repository" (`win_help.stdout`).
+
+**Service and tool (T064, after the decision)**: `TagAdministrationService` and `manage_tags`
+take `setActiveTag` and `removeActiveTag` only; any other action is `INVALID_INPUT` before
+anything is read, audited `REFUSED`. The gate refuses each action while its rows are not
+`reachable`. The preview names the user's current and requested active tag (no backup: an active
+tag is a setting of the user, FR-018), and the result re-reads it. Lock (D-17):
+`node|OPERATION|activeTag:<user>`.
 
 ## D-19 Secret rules for configuration, modules and users (FR-010)
 
@@ -627,19 +732,95 @@ The two REST reads without a working form stay planned rather than guessed.
 | Action | Command | Notes |
 |---|---|---|
 | `setMaintenance` | `maintenance on\|off [-eq true\|false]` | `-eq` only with `on`; the state is read before and after with `maintenance -s` |
-| `setReadiness` | `POST /ready/{on\|off}` | before and after from `GET /ready`; the preview carries the vendor sentence on maintenance mode |
-| `setTrace` | `trace on\|off` | |
-| `setTraceLevel` | `trace -l <level>` | levels from the vendor's fixed list, L-3 |
-| `setDebug` | `debug on\|off` | |
+| `setReadiness` | `POST /ready/{on\|off}` | before and after from `GET /ready`; the preview carries the vendor sentence on maintenance mode; `off` is answered 503 `No Service.` when it succeeds (T054) |
+| `setTrace` | `trace on\|off` | before and after from `/system/info` `TracingIsActive` |
+| `setTraceLevel` | `trace -l <level>` | levels from the vendor's fixed list, L-3; before and after from `/system/info` `TracingLevel` (T054) |
 | `triggerMidnightTask` | `triggerMidnightTask` | the configured start time is shown if `GET /configurations` holds it |
-| `deleteErrorProcesses` | `processdelete error` | set and re-read by D-14 |
+| `deleteErrorProcesses` | `processdelete error` | set and re-read by D-14; INUBIT's answer names no count (T054) |
+
+`setDebug` (`debug on|off`) was removed after T054 (L-3): the command has no observable server
+effect, and its row is excluded (D-2, owner decision 2026-11-18).
 
 `CliCommand.OPTIONS["trace"]` keeps `--download` (feature 021) and gains `on`, `off` and `-l`. The
 `trace --download` path stays a separate builder method.
 
+Implemented in T056: every operation form is its own factory method of `CliCommand`
+(`maintenance`, `maintenanceState`, `maintenanceSwitch`, `traceSwitch`, `traceLevel`,
+`triggerMidnightTask`, `processDeleteError`), never built option by option and never combined
+with `--download`. `OPTIONS` lists the forms as the coverage list writes them (`trace on|off`,
+`trace -l`, `maintenance -s`, `maintenance on|off`, `maintenance -eq true|false`,
+`triggerMidnightTask`, `processdelete error`), so check 1 of the coverage list sees them.
+`debugSwitch` and the `debug` entry were removed after T054.
+
+**Trace levels**: `TraceLevel` holds `error|warn|info|debug`, the vendor list of T056, sent in
+lower case. L-3 (T054) could not record the list: `trace --help` is no option on 8.1.17 (exit 1,
+`Unrecognized option: --help`). `trace -l debug` and `trace -l info` were recorded, and
+`/system/info` reports the level as `TracingLevel` (`debug`, `info`); `error` and `warn` stay the
+vendor list.
+
+**Answer forms (recorded, T054)**: `CliOperationRunner` runs each form once in script mode (the
+changes inside `WriteLock.handOff`) and reads its answer with a parser of the recorded 8.1.17 form;
+any other answer is `UNEXPECTED_RESPONSE`, never guessed:
+
+| Form | Answer (after the client's preamble), exit 0 |
+|---|---|
+| `maintenance -s` | one line `on` or `off` |
+| `maintenance on -eq false`, `maintenance off` | `Updated Successfully` |
+| `trace on`, `trace off` | no text |
+| `trace -l <level>` | `Successfully changed level to <LEVEL>` (upper case, e.g. `DEBUG`) |
+| `triggerMidnightTask` | no text; `MidnightTaskTriggerTime` of `/configurations` stays as it was |
+| `processdelete error` | `Process with status [error] has been deleted.`, no count |
+
+Not used by `operate_server`: `maintenance` without option answers the cluster node table and
+`Cluster maintenance mode is currently off.`; `trace` answers `Trace is currently on.`. The switch
+answers name no state, so the result's state after the change is always the re-read (FR-024).
+Fixtures `fixtures/v8_1/cli/admin-operate-*` (recorded T054, neutralized).
+
+The readiness switch is `RestEndpoint.READY_SWITCH`, `POST /ready/{status}` as the coverage list
+writes it. On 8.1.17 `POST /ready/on` answers 200 `{"status":"READY","message":"Ready to serve."}`;
+`POST /ready/off` answers **503** although the switch takes effect, with and without maintenance
+mode (the body's message `No Service.`; `GET /ready` then answers 503
+`{"status":"NOT READY","message":"No Service."}` and stays so after `maintenance off` until
+`POST /ready/on`; in maintenance mode `GET /ready` answers 503 with the message
+`No Service - Maintenance mode active.`). The live test kept only the client's excerpt of that
+body, `No Service.`, which is the JSON `message` or the whole body; the fixture
+`rest/admin-operate-ready-off-reconstructed` reconstructs a JSON envelope from the `GET /ready` and
+`POST /ready/on` answers. Until a live run records the full body, the write request of `off`
+accepts a 503 as the switch done in every form that matches the recording: the plain text
+`No Service.`, a JSON `message` `No Service.`, or a JSON `status` `NOT READY` without a message.
+Any other 503 is `UNEXPECTED_RESPONSE`, the maintenance message
+`No Service - Maintenance mode active.` and proxy or HTML pages included, and every other non-2xx
+keeps the REST client's error.
+
+Concurrent `POST /log/queueLog` reads (the `find_processes` query) can be answered HTTP 500
+`MonitoringLockedByOtherClient` ("Cannot request data because monitoring is locked by other
+client", T054); the read fails with `UNEXPECTED_RESPONSE` and is not retried.
+
 Switching maintenance off uses StartCLI over the SOAP servlet, which the vendor does not list
 among the answers blocked in maintenance mode (L-2). The read before the change accepts
 `MAINTENANCE_MODE` from REST as "on".
+
+**Version gate in maintenance mode** (Decided in T059 round 2, execution agent): on
+`versionLine: AUTO`, the write re-detection reads REST `GET /system/info`, which answers 503 in
+maintenance mode. When that detection failed with `MAINTENANCE_MODE`, `setMaintenance` with
+`on: false`, and no other action or error code, is judged on the node's last detected or observed
+version, however old, under every other gate rule (`VersionGate.admitCall(…, leavingMaintenance)`);
+if no version of the node was ever known, it is refused `UNSUPPORTED_VERSION` with the next step
+to pin `versionLine` for the node.
+
+**Port (T058)**: `ServerOperationPort`, in the 8.1 port set (9.0 reuses it) as
+`V81ServerOperationAdapter`, capability `SERVER_OPERATION` (REST and StartCLI, "not yet verified"
+until T054; supported on 8.1 since the contract tests T066, `OperateV81ContractTest`, which flip the
+operate rows to `reachable:operate_server/<action>` on 8.1; 9.0 stays "not yet verified", its rows
+`planned` with `waits` `9.0-followup`). The states before and after come from the port
+(`maintenance -s`) and from `MonitoringPort`, the source of `get_health`: readiness `GET /ready`,
+trace on/off `tracingEnabled` and the trace level `TracingLevel` of `/system/info` (a value outside
+`TraceLevel` is shown as unknown), maintenance `healthcheck`. `POST /ready/{status}` is handed off
+under the node's write lock like the StartCLI writes
+(`InubitHttpClient.post(…, WritePermit, WriteLock, acceptedStatuses)`, `sendAsync` inside the
+hand-off, the answer awaited outside); of its answer only the 503 of `off` is read, as above. The
+set of `processdelete error` is the `find_processes` query of state `ERROR`, 1,000 rows per request
+up to 10,000 rows, its ids and workflows distinct and sorted; with more rows the count only (D-14).
 
 ## D-23 Settings changes (US6, settings area)
 
@@ -744,8 +925,8 @@ check marked (W) changes the server and runs only after the operator's approval 
 |---|---|---|
 | L-1 | Stdin session on 8.1/9.0: prompt format, command echo, `exit` | D-7 fallback: password commands excluded, user pages of 10 |
 | L-2 (W) | `maintenance on/off`, `-s`, `-eq`; StartCLI and `POST /ready` while maintenance is on | readiness during maintenance reported as not switchable |
-| L-3 (W) | `trace on/off`, `trace -l` levels, `debug on/off` outputs | entry excluded with the reason found |
-| L-4 (W) | `tag --tagRemove/--tagDelete` with a group or path scope: is another group's tag kept? | `removeTag` / `deleteTag` excluded (acts on the whole owner) |
+| L-3 (W) | `trace on/off`, `trace -l` levels, `debug on/off` outputs | entry excluded with the reason found (T054: `debug on\|off` excluded, no observable server effect) |
+| L-4 (W) | `tag --tagRemove/--tagDelete` with a group or path scope: is another group's tag kept? The active-tag pair `--tagSetActive/--tagRemoveActive` on a node with active tagging | `removeTag` / `deleteTag` excluded (acts on the whole owner) (T055: `deleteTag` acts on the whole owner, `removeTag` exists only for a repository path that cannot be backed up; both excluded, IMC-7); no node with active tagging: `setActiveTag` / `removeActiveTag` not offered, rows `excluded:` with an FR-002 reason, applied in T104 |
 | L-5 | Output of `threads`, `privilegedWorkflows`, `dbconnectiontolerance show`, `license -td`, `date` | parser per recorded form |
 | L-6 | `user <name>`, `finger`, `-who`, `GET /user/users`: fields, account state | no account state in the result |
 | L-7 | `fetchXSLT1.0 -ef`: where the file is written (8.1: the command does not exist, T039; 9.0 open, T039a) | entry excluded (file on the INUBIT host, or command not found) |

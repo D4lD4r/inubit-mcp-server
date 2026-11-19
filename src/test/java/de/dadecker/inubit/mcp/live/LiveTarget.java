@@ -331,7 +331,7 @@ record LiveTarget(NodeId node, LoadedConfig loaded, SecretScrubber scrubber, boo
     }
 
     /** The credential store of this system, as the server picks it (Launcher). */
-    private static CredentialStore store() {
+    static CredentialStore store() {
         return CredentialStores.forOs(System.getProperty("os.name"), new SystemProcessLauncher(),
             System.getenv(), Path.of(System.getProperty("user.home")));
     }

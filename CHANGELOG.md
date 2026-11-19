@@ -7,6 +7,50 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Feature 022, fourth increment (user story 4): the first change tools of the feature.
+`operate_server` switches maintenance mode, readiness, trace or trace level of one node, triggers
+its midnight task or deletes its processes in state ERROR. It is **supported on INUBIT 8.1**,
+verified against the recorded, neutralized answers of a live non-production 8.1.17 node; on 9.0
+it is refused as "not yet verified" until its 9.0 recordings. `manage_tags` sets or removes the
+active tag of an INUBIT user; it is **not yet verified on any version** and refuses every call,
+as active tagging was off on the test node. Removing or deleting a tag is not offered: INUBIT
+deletes a tag for the whole owner even when one diagram group is named, and removes it only in a
+repository path whose tagged files cannot be listed for a backup.
+
+### Added
+
+- `operate_server` (feature 022) changes the operating state of ONE node with one `action`:
+  `setMaintenance` (`maintenance on|off`, with `on` optionally `-eq` as `executeQueued`),
+  `setReadiness` (`POST /ready/on|off`), `setTrace` (`trace on|off`), `setTraceLevel`
+  (`trace -l error|warn|info|debug`), `triggerMidnightTask` and `deleteErrorProcesses`
+  (`processdelete error`). Every call needs a `reason`. Under `write.confirmation: SERVER` the
+  first call returns a preview (state before, requested state, the effects; for
+  `deleteErrorProcesses` the count, up to 50 process ids and the workflows concerned) and a
+  one-time code; the call with the code re-reads the state and is refused with `CONFLICT` and a
+  fresh preview if it changed. Under `CLIENT` (non-production only) the first call executes. The
+  result re-reads the state; INUBIT 8.1.17 answers a successful `POST /ready/off` with 503
+  `No Service.`, which counts as done, and names no count for `processdelete error`. A second
+  change of the same action on the node while one runs is `PRECONDITION_FAILED`. Every call is
+  audited (`capability: operate_server`). StartCLI's `debug on|off` is not offered: it had no
+  observable server effect on 8.1.17.
+- `manage_tags` (feature 022) sets (`setActiveTag`) or removes (`removeActiveTag`) the active tag
+  of an INUBIT user on ONE node, previewed, confirmed and audited like `operate_server`; refused
+  with `UNSUPPORTED_VERSION` ("not yet verified") on every version until the active-tag forms are
+  recorded on a node with active tagging.
+- Both tools are announced when a node has effective write access (`write.enabled`, and
+  `write.productionOptIn` on production), annotated destructive.
+- The capabilities `server_operation` (`operating the server`; supported on INUBIT 8.1, not yet
+  verified on 9.0) and `tag_administration` (`managing tags`; not yet verified on 8.1 and 9.0) in
+  `list_nodes`.
+
+### Documentation
+
+- `docs/tools.md`: sections `operate_server` and `manage_tags`; `docs/setup.md`: the write
+  settings and `CLIENT` confirmation for the two tools; `docs/research/inubit-interfaces.md`: the
+  recorded 8.1.17 answers of the maintenance, readiness, trace, midnight task, `processdelete` and
+  tag forms; `docs/interface-coverage.md`: the operate rows reachable on 8.1, the active-tag rows
+  planned (live check L-4), the tag removal rows excluded.
+
 ## [0.10.2] - 2026-11-16
 
 Documentation for installing on Windows and a watched Windows CI job; no change to the server.

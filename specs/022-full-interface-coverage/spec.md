@@ -108,6 +108,31 @@ Facts from the 8.1 recordings of User Story 3 and the owner's decisions, details
 - `GET /model/nodeByName` and `fetchXSLT1.0` do not exist on 8.1.17; they are excluded on 8.1.
   The module detail is XML; `export --exportMetadata` exports the metadata registry.
 
+### Live check T054, 2026-11-18
+
+- On 8.1.17 `debug on` and `debug off` exit 0 without text, and `debug` reads "off" before and
+  after, in separate processes and inside one interactive session. The vendor's online help
+  describes `debug {on|off}` as the trace switch of the interactive CLI mode. The owner decided:
+  `debug on|off` is excluded and `operate_server` has no debug action (research D-2, D-22).
+- The switches answer without the state (`Updated Successfully`, no text, or
+  `Successfully changed level to <LEVEL>`), so every result takes the state after from the
+  re-read; the trace level is read from the system information (`TracingLevel`). `POST /ready/off`
+  answers HTTP 503 `No Service.` when it succeeds, which counts as success. `processdelete error`
+  answers `Process with status [error] has been deleted.` without a number, and
+  `triggerMidnightTask` answers no text (research D-22).
+
+### Live check T055, 2026-11-19
+
+- On 8.1.17 `tag --tagRemove` exists only with `--tagRepositoryPath` ("tagRepositoryPath is
+  needed" with a diagram group), and tagging a diagram group tags no repository file, so the
+  repository-path form could not be checked, and its preview and backup (FR-018) cannot list the
+  tagged repository files. `tag --tagDelete … --tagUser <owner>` in one diagram group deleted the
+  tag owner-wide: the other group lost it and the tag no longer existed. On the test node active
+  tagging is off: `--tagSetActive` answered `TagNameWasNotFound` although the group carried the
+  tag, and `--tagRemoveActive` answered without text. The owner decided (Question IMC-7, option 3):
+  tag removal and deletion are excluded, `manage_tags` keeps only the active-tag actions, and
+  their entries stay planned as not yet verified (research D-18).
+
 **Input**: User description: "I would like to add all missing methods of StartCLI and REST, both
 reading and writing, to the MCP."
 
@@ -127,7 +152,7 @@ exactly one user story.
 | Area | Kind | Entries | Story | Protection |
 |---|---|---|---|---|
 | A. Server state and settings | read | `license -td\|-ts`, `GET /license`, `threads showNumberOfWorkflowThreads`, `privilegedWorkflows showThreadsPercentage\|showWorkflowList`, `dbconnectiontolerance show`, `getBlockingQueueSize`, `GET /configurations`, `date`, `-sv`, `-pctmem`, `-maintenanceState` | US1 | none (read) |
-| A. Server state and settings | write | `maintenance on\|off [-eq true\|false]`, `POST /ready/{on\|off}`, `trace on\|off`, `trace -l <level>`, `debug on\|off`, `triggerMidnightTask` | US4 | write enablement |
+| A. Server state and settings | write | `maintenance on\|off [-eq true\|false]`, `POST /ready/{on\|off}`, `trace on\|off`, `trace -l <level>`, `triggerMidnightTask` | US4 | write enablement |
 | A. Server state and settings | write | `threads setNumberOfWorkflowThreads`, setting the share of threads for privileged workflows, `dbconnectiontolerance set`, `PUT\|POST /configurations`, `PUT /license` | US6 | write enablement + settings opt-in |
 | B. Users and groups | read | `finger <login>`, `user <name>`, `-who`, `-nwho`, `GET /user/users`, `msglist`, `msgread` | US2 | none (read) |
 | B. Users and groups | write | `create -cu\|-cug\|-cur`, `user --setGroup\|--setAdditionalGroups\|--addAdditionalGroups\|--removeAdditionalGroups`, `passwd`, `delete --deleteUser\|--deleteUserGroup`, `DELETE /user/users/{name}`, `import --importUserGroup\|--overwriteUserRoles\|--importLDAPDetails\|--syncLDAPUsers`, `msgsend`, `msgdel` | US7 | write enablement + users opt-in |
@@ -138,7 +163,7 @@ exactly one user story.
 | D. Processes and run-time data | write | `processdelete error` | US4 | write enablement |
 | D. Processes and run-time data | write | `process export [--excludeModel] [--filterExpression]`, `process import\|resume\|deleteBlocked` | US5 | write enablement + run-time data opt-in |
 | E. Diagrams, modules, repository, tags | read | `GET /model/nodeByModel/…`, `GET /model/nodeByName/…` (documented for 8.1 only; absent on 8.1.17, T039), `export --exportMetadata\|--exportMetadataNames`, `export --exportWorkflowGroupExclude`, `GET /process/metadata/{name}`, `GET /isconnector?…type=validateWorkflow`, `fetchXSLT1.0` (absent on 8.1.17, T039) | US3 | none (read); files under the export rules (FR-012) |
-| E. Diagrams, modules, repository, tags | write | `tag --tagSetActive\|--tagRemoveActive`, `tag --tagDelete\|--tagRemove` with `--tagWorkflowGroup`/`--tagWorkflowType` or `--tagRepositoryPath` (removal only if FR-019a's check allows it) | US4 | write enablement |
+| E. Diagrams, modules, repository, tags | write | `tag --tagSetActive\|--tagRemoveActive` (tag removal and deletion excluded after T055, FR-019a) | US4 | write enablement |
 | E. Diagrams, modules, repository, tags | write | `delete --deleteWorkflow\|--deleteModule`, `DELETE /diagrams/…`, `DELETE /modules/…`, `DELETE /repository`, `rename --renameWorkflow\|--renameModule\|--renameMetadata\|--renameFile\|--renameDirectory`, `import --importMetadata`, `POST /isconnector` | US6 | write enablement + objects opt-in |
 | Start options | write | `--backupFile`, `--backupRepository` (documented by name only) | US6 | write enablement + settings opt-in |
 
@@ -157,12 +182,16 @@ Four groups of documented functions get no new access:
   a secret on the command line and prints the result), the offline scripts `backup.sh` and
   `restore.sh` (they need a stopped process engine on the INUBIT host), `lls` (lists the local
   directory of the StartCLI client, not of the server), the export filter forms `inFile` and
-  `--filterProcessIds` (they read a file on the INUBIT host).
+  `--filterProcessIds` (they read a file on the INUBIT host), `debug on|off` (the trace switch of
+  the interactive CLI mode; no observable server effect on 8.1.17, T054).
 - **Broken on the vendor side**: the log `processLog` fails on 8.1.17.
 - **Tag forms that act on the whole owner** (owner's decision, see Clarifications):
   `--tagDiagram` (ignored by INUBIT, so the command tags every diagram of the owner; seen in the
   project's spike), `--tagWorkflowGroupExclude` (all groups but some), and any `tag` call without
-  a diagram group or repository path.
+  a diagram group or repository path. After the live check T055 also tag removal and deletion
+  (FR-019a): `--tagDelete` deleted the tag owner-wide although one diagram group was named, and
+  `--tagRemove` exists only for a repository path (`--tagRepositoryPath`), whose tagged files
+  cannot be listed for the preview and backup.
 - **Portal functions** (owner's decision, see Clarifications): the process documentation
   (`/process/processes/…`, `/process/search`, on 9.0 also `/process/tree`, `…/history`,
   `/process/tags/{tag}`), the reports (`/report/…`) and all endpoints under `/task/…` and
@@ -311,9 +340,9 @@ an existing tool can answer is reached through that tool. Testable offline.
 
 An operator prepares and finishes a maintenance window through the agent: switch the maintenance
 mode and the readiness state, delete the processes that are in error state, set or remove the
-active tag of a user and remove a tag from a diagram group or repository path, change the trace
-level or switch tracing and debug output on for a diagnosis and back off, trigger the midnight
-task.
+active tag of a user, change the trace level or switch tracing on for a diagnosis and back off,
+trigger the midnight task. Removing a tag is not offered: the live check T055 found no form that
+INUBIT limits to one diagram group and can be backed up (FR-019a).
 
 As the vendor documents them: in **maintenance mode** the process engine executes no processes
 (queued processes only if `-eq true` is set) and the REST API answers every request with "service
@@ -327,8 +356,8 @@ with the system log configuration and does not document what the task does, so t
 description says that; triggering it runs it at once.
 
 **Why this priority**: these are the changes operators make routinely and they use the write
-protection that already exists. Most are reversible; deleting processes in error state and
-removing a tag are not, and are previewed and backed up (FR-017, FR-018).
+protection that already exists. Most are reversible; deleting processes in error state is not,
+and is previewed (FR-017).
 
 **Independent Test**: With a fake StartCLI and REST server, each change is refused by default,
 shows a preview when enabled and is executed only with the confirmation; each step leaves an
@@ -347,7 +376,8 @@ audit record. Testable offline.
    is requested, **Then** it is refused, whatever the write enablement says.
 4. **Given** 40 processes in error state, **When** their deletion is requested, **Then** the
    preview names the number 40 and the workflows concerned; the execution re-reads the set right
-   before sending and reports the number INUBIT names as deleted (FR-017).
+   before sending and reports INUBIT's answer, which names no number on 8.1.17, and the set read
+   afterwards (FR-017).
 5. **Given** the trace level is `error`, **When** it is set to `debug`, **Then** the result names
    the level before and after, and the tool description says that the level stays until it is
    set back.
@@ -356,27 +386,30 @@ audit record. Testable offline.
 7. **Given** maintenance mode is to be switched on with queued processes still executing,
    **When** the preview is shown, **Then** it names the `-eq` value that will be sent and what it
    means.
-8. **Given** debug output is off, **When** it is switched on, **Then** the result names the state
-   before and after, and the description says that it stays on until it is switched off.
+8. **Given** a call with the action `setDebug`, **When** it is made, **Then** it is refused as an
+   unknown action and nothing is sent: `debug on|off` is excluded (Clarifications, T054).
 9. **Given** the readiness state is READY, **When** it is to be set to NOT READY, **Then** the
    preview names the current and the requested state and says that readiness stays NOT READY
    while maintenance mode is on; the result re-reads the state.
 10. **Given** tracing is off, **When** it is switched on, **Then** the result names the state
-    before and after, as for debug output (AS8).
+    before and after, and the description says that it stays on until it is switched off.
 11. **Given** the midnight task is to be triggered, **When** the preview is shown, **Then** it says
    that the daily task runs at once instead of at its configured start time, and names that start
-   time if INUBIT reports it; the result names INUBIT's answer and the time it was sent.
+   time if INUBIT reports it; the result names INUBIT's answer (none on 8.1.17) and the time it
+   was sent.
 12. **Given** a test stage with write enablement, **When** the active tag of a user is set,
     **Then** the call names the user and the tag, the preview names the user's current active
     tag and the new one, and the result re-reads it (FR-019a).
-13. **Given** a call to remove a tag without a diagram group or repository path, **When** it is
-    made, **Then** it is refused with `INVALID_INPUT` before anything is read.
-14. **Given** the check on a test system showed that INUBIT limits tag removal to the named
-    diagram group, **When** a tag is removed from one group, **Then** the preview names every
-    object and version in that group that carries the tag, the backup holds that list (FR-018),
-    and the same tag in other groups stays (the result re-reads both). If the check showed that
-    removal acts on the whole owner, tag removal is not offered and its entries are excluded with
-    that reason.
+13. **Given** a call with the action `removeTag`, with or without a diagram group or repository
+    path, **When** it is made, **Then** it is refused as an unknown action and nothing is read or
+    sent: INUBIT 8.1.17 accepts `--tagRemove` only with a repository path, and the tagged
+    repository files cannot be listed for its preview and backup (FR-018), so tag removal is
+    excluded (T055, FR-019a).
+14. **Given** a call with the action `deleteTag`, **When** it is made, **Then** it is refused as
+    an unknown action and nothing is read or sent: the check on a test system showed that
+    `--tagDelete` acts on the whole owner (on 8.1.17 it deleted the tag in every diagram group
+    although one was named, T055), so tag deletion is not offered and its entries are excluded
+    with that reason.
 
 ---
 
@@ -682,14 +715,16 @@ offline.
   objects it will affect. The execution re-reads the set right before sending; if it differs from
   the preview (a different set of ids, or a different count where INUBIT reports no ids),
   the call is refused with a new preview. The result names the number INUBIT reports as
-  affected, which may include objects that entered the set after the re-read.
+  affected, which may include objects that entered the set after the re-read; where INUBIT
+  reports no number (`processdelete error` on 8.1.17), the result names INUBIT's answer and the
+  set read afterwards, and no number.
 - **FR-018**: Before an object that INUBIT can export (workflow, module, metadata, repository file
   or directory) is deleted, renamed or replaced, the server MUST store an export in the existing
   backup location; replacing includes a metadata import, an EDI rule file deployed over an
   existing repository file, and a keystore deployed to a module (the module is backed up). The
   backup keeps the existing retention (30 days, the newest of its scope kept), and the result
-  names it. If the backup fails, nothing is changed. Before a tag is removed or deleted, the backup holds the list
-  of objects and versions that carried it. `restore_backup` restores these backups only where its
+  names it. If the backup fails, nothing is changed. Tag removal and deletion are not offered
+  (FR-019a), so no tag is backed up. `restore_backup` restores these backups only where its
   own rules allow it (development nodes); this feature does not widen `restore_backup`, and on
   other stages the backup is imported by hand. Objects INUBIT cannot export (libraries, license,
   configuration values, users) get no backup; their preview shows the current state instead
@@ -699,13 +734,14 @@ offline.
   or right that grants it CLI access. `PUT /keys` deploys keys to a module keystore and does not
   touch the server's own TLS certificate; this feature changes no certificate pin (feature 006
   stays the only way to rotate a pin).
-- **FR-019a**: All tag operations of this feature (setting or removing the active tag of a user,
-  removing or deleting a tag) MUST be offered by one tool of their own for User Story 4, governed
-  by FR-014 (write enablement, production opt-in), not by the development-stage rules of
-  `tag_artifacts`, which is not changed. A tag removal or deletion MUST name an explicit diagram
-  group (with diagram type) or repository path; a call without one is refused before anything is
-  read. Tag removal is offered only if a check on a test system shows that INUBIT limits it to the
-  named diagram group or repository path; otherwise its entries are excluded with that reason.
+- **FR-019a**: All tag operations of this feature (setting or removing the active tag of a user)
+  MUST be offered by one tool of their own for User Story 4, governed by FR-014 (write enablement,
+  production opt-in), not by the development-stage rules of `tag_artifacts`, which is not changed.
+  Tag removal and deletion MUST NOT be offered; a call for them is refused as an unknown action,
+  and nothing is read or sent. Their entries are excluded with the reasons the check on a test
+  system found (T055, owner decision IMC-7): `--tagDelete` acts on the whole owner (8.1.17 deleted
+  the tag in every diagram group although one was named), and `--tagRemove` exists only with
+  `--tagRepositoryPath`, whose tagged files cannot be listed for the preview and backup (FR-018).
   `--tagDiagram` and `--tagWorkflowGroupExclude` are excluded (Background).
 - **FR-019b**: A file-based import of users, groups or roles MUST be refused when the file
   contains the server's login user, its group or any of its roles; the server reads the file

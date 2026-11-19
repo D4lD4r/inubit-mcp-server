@@ -699,8 +699,8 @@ class ToolAnnouncementTest {
                 "get_server_settings", "read_users", "read_model_details",
                 "list_inventory",
                 "get_inventory_item", "find_partners", "export_artifacts", "export_archives",
-                "check_artifacts", "restart_process", "kill_process", "set_temporary_log_level",
-                "reset_temporary_log_level");
+                "check_artifacts", "restart_process", "kill_process", "operate_server",
+                "manage_tags", "set_temporary_log_level", "reset_temporary_log_level");
         assertThat(groupTools("AUTO", writeEnabled(true) + logLevelOptIn("true") + cliHome(),
             false, matrix)).as("an AUTO node may run 8.1").containsAll(LOG_LEVEL_TOOLS);
         assertThat(groupTools("V8_1", "    production: true\n    write:\n      enabled: true\n"
@@ -912,5 +912,72 @@ class ToolAnnouncementTest {
             .contains("read_model_details");
         assertThat(toolNames("V6_1", "V6_1", CapabilityMatrix.production()))
             .doesNotContain("read_model_details");
+    }
+
+    // --- feature 022 T061: operate_server (contracts/mcp-tools-delta.md "Announcement") -------
+
+    @Test
+    void aWriteEnabledNodeAnnouncesOperateServerRightAfterKillProcess() {
+        // announced where some node has write access, also while the production matrix keeps
+        // SERVER_OPERATION "not yet verified" (each call is then refused by the version gate)
+        for (CapabilityMatrix matrix : List.of(TraceMatrix.admittingEightOne(),
+            CapabilityMatrix.production())) {
+            for (String groupLines : List.of(writeEnabled(true), writeEnabled(true) + cliHome())) {
+                List<String> names = groupTools("V8_1", groupLines, false, matrix);
+                assertThat(names).as(groupLines).contains("operate_server");
+                assertThat(names.indexOf("operate_server")).as("right after kill_process")
+                    .isEqualTo(names.indexOf("kill_process") + 1);
+            }
+        }
+        assertThat(groupTools("AUTO", writeEnabled(true), false, TraceMatrix.admittingEightOne()))
+            .as("an AUTO node").contains("operate_server");
+        assertThat(groupTools("V8_1", "    production: true\n    write:\n      enabled: true\n"
+            + "      productionOptIn: true\n", false, TraceMatrix.admittingEightOne()))
+            .as("production with write.productionOptIn").contains("operate_server");
+    }
+
+    @Test
+    void withoutWriteAccessOperateServerIsNotAnnounced() {
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V8_1", writeEnabled(false) + cliHome(), false, matrix))
+            .as("write disabled").doesNotContain("operate_server");
+        assertThat(groupTools("V8_1", cliHome(), false, matrix))
+            .as("write not configured").doesNotContain("operate_server");
+        assertThat(groupTools("V8_1", "    production: true\n" + writeEnabled(true) + cliHome(),
+            false, matrix)).as("production without write.productionOptIn")
+            .doesNotContain("operate_server");
+    }
+
+    // --- feature 022 T064: manage_tags (contracts/mcp-tools-delta.md "Announcement") ----------
+
+    @Test
+    void aWriteEnabledNodeAnnouncesManageTagsRightAfterOperateServer() {
+        // announced where some node has write access, also while the production matrix keeps
+        // TAG_ADMINISTRATION "not yet verified" (each call is then refused by the version gate)
+        for (CapabilityMatrix matrix : List.of(TraceMatrix.admittingEightOne(),
+            CapabilityMatrix.production())) {
+            for (String groupLines : List.of(writeEnabled(true), writeEnabled(true) + cliHome())) {
+                List<String> names = groupTools("V8_1", groupLines, false, matrix);
+                assertThat(names.indexOf("manage_tags")).as("right after operate_server: %s",
+                    groupLines).isEqualTo(names.indexOf("operate_server") + 1);
+            }
+        }
+        assertThat(groupTools("AUTO", writeEnabled(true), false, TraceMatrix.admittingEightOne()))
+            .as("an AUTO node").contains("manage_tags");
+        assertThat(groupTools("V8_1", "    production: true\n    write:\n      enabled: true\n"
+            + "      productionOptIn: true\n", false, TraceMatrix.admittingEightOne()))
+            .as("production with write.productionOptIn").contains("manage_tags");
+    }
+
+    @Test
+    void withoutWriteAccessManageTagsIsNotAnnounced() {
+        CapabilityMatrix matrix = TraceMatrix.admittingEightOne();
+        assertThat(groupTools("V8_1", writeEnabled(false) + cliHome(), false, matrix))
+            .as("write disabled").doesNotContain("manage_tags");
+        assertThat(groupTools("V8_1", cliHome(), false, matrix))
+            .as("write not configured").doesNotContain("manage_tags");
+        assertThat(groupTools("V8_1", "    production: true\n" + writeEnabled(true) + cliHome(),
+            false, matrix)).as("production without write.productionOptIn")
+            .doesNotContain("manage_tags");
     }
 }

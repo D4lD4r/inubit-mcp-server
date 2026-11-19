@@ -68,19 +68,19 @@ the workspace with the masking of feature 018 (at least as strict as the workspa
 that the workspace history records partner changes over time. Decided in the clarification of
 feature 018 (2026-11-09): not part of 018, a later feature.
 
-## Feature 022: remaining user stories US4–US7 (specified, paused 2026-11-15)
+## Feature 022: remaining user stories US5–US7 (specified, paused 2026-11-15)
 
 **State.** Feature 022 (`specs/022-full-interface-coverage/`) is specified, planned and reviewed
 for all seven stories. US1–US3 are delivered on INUBIT 8.1 and 9.0 (`get_server_settings`,
 `read_users`, `read_model_details`, the `export_archives` content forms, `find_processes`
 `userColumn`). The owner paused the feature after US3; the stories below stay specified in
-spec, plan and tasks and resume from `tasks.md` Phase 6. Every story changes the server, so each
+spec, plan and tasks. US4 resumed on 2026-11-17 (`tasks.md` Phase 6); US5–US7 resume from
+`tasks.md` Phase 7. Every story changes the server, so each
 needs the shared change infrastructure (T048–T050: preview, confirmation, audit, `ChangeGuard`)
 and live recordings with write commands on a non-production server, approved per command set.
 
 | Story | Tools | What it does | Live checks before parsers |
 |---|---|---|---|
-| US4 – Operate a server (P2) | `operate_server`, `manage_tags` | maintenance on/off, readiness, trace and trace level, debug, midnight task, deleting processes in error; the active tag of a user, tag removal limited to a group or path | T054 (L-2, L-3), T055 (L-4) |
 | US5 – Transfer and repair run-time data (P3) | `transfer_runtime_data` | export, validate, import, list, resume and delete blocked processes; archives stay on the INUBIT host | T069 (L-9, L-10) |
 | US6 – Administer objects, libraries and settings (P3) | `administer_objects`, `change_server_settings` | uploads from configured folders, named secret entries, backup before every delete, rename or replace; configuration changes | T079 (L-11, L-14, L-16, L-21) |
 | US7 – Administer users and groups (P4) | `administer_users` | create, change and delete users, groups and roles, passwords from named entries, imports, messages; never the server's own access | T092 (L-12, L-13, L-15, L-18) |

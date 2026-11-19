@@ -254,7 +254,7 @@ public final class VersionGate {
     public Admission admit(NodeId node, Capability capability, Capability.Kind purpose,
         Set<Channel> channels) {
         return admission(capability, evaluate(node, capability, purpose, channels,
-            Optional.empty()));
+            Optional.empty(), false));
     }
 
     private Admission admission(Capability capability, Evaluation evaluation) {
@@ -275,15 +275,18 @@ public final class VersionGate {
      */
     public Evaluation evaluate(NodeId node, Capability capability, Capability.Kind purpose,
         Set<Channel> channels) {
-        return evaluate(node, capability, purpose, channels, Optional.empty());
+        return evaluate(node, capability, purpose, channels, Optional.empty(), false);
     }
 
     /**
      * @param versionNeededBy the tool of {@link #admitWithDetection}; empty for today's
      *     behaviour, which judges an undetectable version as unknown
+     * @param leavingMaintenance the call switches maintenance mode off: when the version
+     *     detection failed with {@code MAINTENANCE_MODE}, the node's last known version is judged
+     *     ({@link #admitCall(String, NodeId, ActionSpec, Set, boolean)})
      */
     private Evaluation evaluate(NodeId node, Capability capability, Capability.Kind purpose,
-        Set<Channel> channels, Optional<String> versionNeededBy) {
+        Set<Channel> channels, Optional<String> versionNeededBy, boolean leavingMaintenance) {
         Objects.requireNonNull(node, "node");
         Objects.requireNonNull(capability, "capability");
         Objects.requireNonNull(purpose, "purpose");
@@ -294,6 +297,9 @@ public final class VersionGate {
         NodeVersionState state = versions.state(node);
         Optional<InubitVersion> version = purpose == Capability.Kind.WRITE
             ? versions.writableVersion(node) : state.effectiveVersion();
+        if (leavingMaintenance && version.isEmpty() && failedInMaintenance(state)) {
+            version = state.latest().map(Timed::value);
+        }
         if (versionNeededBy.isPresent() && version.isEmpty()
             && state.setting() instanceof VersionSetting.Auto) {
             // no detection in this call: the back-off of a recorded failure suppressed it
@@ -441,7 +447,7 @@ public final class VersionGate {
         Capability.Kind purpose, Set<Channel> channels) {
         Objects.requireNonNull(tool, "tool");
         return named(tool, () -> admission(capability,
-            evaluate(node, capability, purpose, channels, Optional.of(tool))));
+            evaluate(node, capability, purpose, channels, Optional.of(tool), false)));
     }
 
     /** Starts the message of this gate's refusal with {@code tool}. */
@@ -477,13 +483,30 @@ public final class VersionGate {
      */
     public Admission admitCall(String tool, NodeId node, ActionSpec spec,
         Set<CoverageKey> callEntries) {
+        return admitCall(tool, node, spec, callEntries, false);
+    }
+
+    /**
+     * {@link #admitCall(String, NodeId, ActionSpec, Set)}; with {@code leavingMaintenance}, for
+     * the call that switches maintenance mode off ({@code operate_server setMaintenance} with
+     * {@code on: false}, research D-22) only: INUBIT's REST API answers 503 in maintenance mode,
+     * so when the detection of an {@code AUTO} node failed with {@code MAINTENANCE_MODE}, the
+     * node's last detected or observed version is judged, however old, by every other rule.
+     *
+     * @throws ToolErrorException as {@link #admitCall(String, NodeId, ActionSpec, Set)};
+     *     {@code UNSUPPORTED_VERSION} naming {@code versionLine} if that detection failed and no
+     *     version of the node was ever known
+     */
+    public Admission admitCall(String tool, NodeId node, ActionSpec spec,
+        Set<CoverageKey> callEntries, boolean leavingMaintenance) {
         Objects.requireNonNull(tool, "tool");
         if (callEntries.isEmpty() || !spec.callEntries().containsAll(callEntries)) {
             throw new IllegalArgumentException("The entries " + callEntries + " are not a variant"
                 + " of " + spec.tool() + "/" + spec.action());
         }
         return named(tool, () -> {
-            ActionAdmission judged = admitAction(node, spec, channelsOf(callEntries));
+            ActionAdmission judged = admitAction(node, spec, channelsOf(callEntries),
+                leavingMaintenance);
             coverage.refusal(callEntries, judged.line()).ifPresent(gap -> {
                 throw refuse(node, spec.capability(),
                     judged.versionName() + " on " + node + ": " + spec.action() + " via "
@@ -526,13 +549,13 @@ public final class VersionGate {
             // client whose range excludes the version, refuses only the StartCLI parts (FR-013)
             Optional<ToolError> cliRefusal = Optional.empty();
             try {
-                judged = admitAction(node, spec, channels);
+                judged = admitAction(node, spec, channels, false);
             } catch (ToolErrorException e) {
                 if (e.error().code() != ErrorCode.UNSUPPORTED_VERSION
                     || !channels.equals(Set.of(Channel.REST, Channel.CLI))) {
                     throw e;
                 }
-                judged = admitAction(node, spec, Set.of(Channel.REST));
+                judged = admitAction(node, spec, Set.of(Channel.REST), false);
                 cliRefusal = Optional.of(e.error());
             }
             Optional<InubitVersion> version = judged.admission().version();
@@ -634,14 +657,20 @@ public final class VersionGate {
      * The capability admission of an action on {@code channels}, a {@code CHANGE} as a write, and
      * the major.minor its entries are judged on.
      *
+     * @param leavingMaintenance as in {@link #admitCall(String, NodeId, ActionSpec, Set, boolean)}
      * @throws ToolErrorException {@code UNSUPPORTED_VERSION} if the node has no known
      *     major.minor, else as {@link #evaluate}
      */
-    private ActionAdmission admitAction(NodeId node, ActionSpec spec, Set<Channel> channels) {
+    private ActionAdmission admitAction(NodeId node, ActionSpec spec, Set<Channel> channels,
+        boolean leavingMaintenance) {
         Capability.Kind purpose = spec.kind() == ActionSpec.Kind.CHANGE
             ? Capability.Kind.WRITE : Capability.Kind.READ;
         Evaluation evaluation = evaluate(node, spec.capability(), purpose, channels,
-            Optional.empty());
+            Optional.empty(), leavingMaintenance);
+        if (leavingMaintenance && evaluation.version().isEmpty()
+            && failedInMaintenance(versions.state(node))) {
+            throw neverKnownInMaintenance(node, spec);
+        }
         Admission admission = admission(spec.capability(), evaluation);
         if (evaluation.version().isEmpty()) {
             throw noMajorMinor(node, spec.capability().name(), spec.action());
@@ -666,6 +695,25 @@ public final class VersionGate {
             terms.render("Let get_health detect the version of the {node}, or set versionLine"
                 + " of ") + node + " to a line with minor (such as V9_0) and restart the"
                 + " server");
+    }
+
+    /** Whether the last version detection of the node failed with {@code MAINTENANCE_MODE}. */
+    private static boolean failedInMaintenance(NodeVersionState state) {
+        return state.detectionFailure()
+            .filter(failure -> failure.value().code() == ErrorCode.MAINTENANCE_MODE).isPresent();
+    }
+
+    /**
+     * The refusal of switching maintenance mode off on a node whose version cannot be detected in
+     * maintenance mode and was never known before: only a pinned {@code versionLine} helps then.
+     */
+    private Refusal neverKnownInMaintenance(NodeId node, ActionSpec spec) {
+        return refuse(node, spec.capability().name(), spec.action() + " refused: "
+                + unknown(node, versions.state(node)) + ", and no earlier version of it is known",
+            "INUBIT's REST API answers every request with 503 in maintenance mode, so the version"
+                + " cannot be detected now",
+            "Set versionLine of " + node + " to its INUBIT line with minor (such as V9_0) and"
+                + " restart the server");
     }
 
     /** The channels of {@code entries}. */
@@ -929,7 +977,8 @@ public final class VersionGate {
                 USER_DIRECTORY, MODEL_DETAILS ->
                 terms.render("use the Workbench, or another {node} with a different INUBIT"
                     + " version");
-            case DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL -> "use the Workbench";
+            case DEVELOPMENT_WRITE, DEPLOYMENT, E2E_TEST, PROCESS_CONTROL, SERVER_OPERATION,
+                TAG_ADMINISTRATION -> "use the Workbench";
             case QUEUE_ENTRY_READ -> "use the Queue Manager in the Workbench";
             case TRACE_LOG_READ, WEBSERVICE_LOG_READ ->
                 "download the log in the Workbench (Administration, Server Log)";

@@ -36,11 +36,11 @@ INUBIT 6.1 nodes of feature 012
 [its delta](../specs/020-queue-entry-read/contracts/mcp-tools-delta.md),
 `download_server_log` of feature 021
 [its delta](../specs/021-server-log-download/contracts/mcp-tools-delta.md),
-`get_server_settings`, `read_users` and `read_model_details` of feature 022
-[their delta](../specs/022-full-interface-coverage/contracts/mcp-tools-delta.md), and the five
-node tools of feature 024 [their delta](../specs/024-unsupported-node-tools/contracts/mcp-tools-delta.md)
+`get_server_settings`, `read_users`, `read_model_details`, `operate_server` and `manage_tags` of
+feature 022 [their delta](../specs/022-full-interface-coverage/contracts/mcp-tools-delta.md), and
+the five node tools of feature 024 [their delta](../specs/024-unsupported-node-tools/contracts/mcp-tools-delta.md)
 (see [`list_cluster_nodes`](#list_cluster_nodes)).
-All thirty tools are described here; each section quotes the description the server
+All thirty-two tools are described here; each section quotes the description the server
 announces in `tools/list` for a profile `acme` without description and with the default
 terminology (Group/Node).
 
@@ -99,6 +99,8 @@ General rules:
 | [`find_partners`](#find_partners) | partners of the INUBIT Partner Management of the owner's system diagrams: search, list, compare across nodes; secrets only as set or not set | read-only, idempotent, open world | yes (REST model export of the owner's system diagrams, in memory) |
 | [`restart_process`](#restart_process--kill_process) | restart ONE process instance in ERROR on ONE node | **destructive**, non-idempotent, open world | yes (REST state read + StartCLI `processErrorStart`) |
 | [`kill_process`](#restart_process--kill_process) | delete ONE process instance on ONE node | **destructive**, non-idempotent, open world | yes (REST state read + StartCLI `kill`) |
+| [`operate_server`](#operate_server) | switch maintenance mode, readiness, trace or trace level of ONE node, trigger its midnight task, or delete its processes in state ERROR; previewed, confirmed, audited | **destructive**, non-idempotent, open world | yes (StartCLI `maintenance`, `trace`, `triggerMidnightTask`, `processdelete error`; REST `POST /ready/{status}` and the state reads of `get_health`, `queueLog` for the processes in ERROR) |
+| [`manage_tags`](#manage_tags) | set or remove the active tag of an INUBIT user on ONE node; refused on every version until verified | **destructive**, non-idempotent, open world | yes (StartCLI `user` session and `tag --tagSetActive`/`--tagRemoveActive`) |
 | [`set_temporary_log_level`](#set_temporary_log_level) | raise the log level of up to five INUBIT loggers on ONE node for a limited time, reset automatically; opt-in per group, needs write access; the answering node is looked up through an **unsupported INUBIT interface** | **destructive**, non-idempotent, open world | yes (StartCLI `trace --nodelevel`; the answering node through a helper on the INUBIT client) |
 | [`reset_temporary_log_level`](#reset_temporary_log_level) | reset every temporary log level on ONE node (also other users'), or forget a lease whose automatic reset failed | **destructive**, non-idempotent, open world | yes (StartCLI `trace --reset`; the answering node through a helper on the INUBIT client); forget: no |
 | [`export_artifacts`](#export_artifacts) | export technical workflows, modules or repository files into the local workspace and its history | read-only for INUBIT, non-idempotent (records a history entry), open world | yes (StartCLI `export`, read-only) |
@@ -111,8 +113,9 @@ General rules:
 | [`run_e2e_test`](#run_e2e_test) | send a SOAP test message and report what INUBIT did | **destructive**, non-idempotent, open world | yes (SOAP endpoint, REST logs and Queue Manager) |
 | [`deploy_release`](#deploy_release) | deploy a tagged release into the next group of the stage chain, node by node | **destructive**, non-idempotent, open world | yes (StartCLI `export`, `import` and `tag`; REST diagram list) |
 
-`restart_process` and `kill_process` are **offered only if at least one node has effective
-write access** (`write.enabled: true`, and on a `production: true` group also
+`restart_process`, `kill_process`, `operate_server` and `manage_tags` are **offered only if at
+least one node has effective write access** (`write.enabled: true`, and on a `production: true`
+group also
 `write.productionOptIn: true`; see [setup.md](setup.md#write-settings-restart-and-kill)). With the
 default configuration the server is read-only and `tools/list` does not contain them.
 
@@ -205,6 +208,8 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 | `run_e2e_test` | `e2e_test` | write | SOAP + REST | supported | refused | refused |
 | `restart_process`, `kill_process` | `process_control` | write | REST + StartCLI | supported | refused | refused |
 | `set_temporary_log_level`, `reset_temporary_log_level` (feature 024) | `log_level_write` | write | StartCLI + helper on the INUBIT client (answering node) | supported (8.1 and 9.0) | refused | refused |
+| `operate_server` (feature 022) | `server_operation` | write | StartCLI + REST | 8.1: supported; 9.0: refused (not yet verified), see [its section](#operate_server) | refused | refused |
+| `manage_tags` (feature 022) | `tag_administration` | write | StartCLI | 8.1: refused (not yet verified); 9.0: refused (not yet verified), see [its section](#manage_tags) | refused | refused |
 
 A deployment backup restored on a node that is also a development stage is checked as
 `development_writes`; both capabilities have the same states in this version. Refusal and
@@ -213,7 +218,8 @@ warning texts name the capability in words: `monitoring`, `process diagnosis`, `
 `end-to-end test`, `process control`, `reading Queue Manager entries`, `downloading the trace
 log`, `downloading the web service log`, `reading server settings`, `reading users`, `reading
 model details`, `reading the cluster's node list`, `reading module input/output logging`,
-`reading node configuration values`, `changing temporary log levels`. The node tools of feature
+`reading node configuration values`, `changing temporary log levels`, `operating the server`,
+`managing tags`. The node tools of feature
 024 are "not yet verified" on a line until a recorded, neutralized answer of that line is under
 contract test; until then that line is refused like any other (`… is not yet verified for INUBIT
 9.0; nothing was sent`). Before feature 012, `find_processes` and `query_logs` shared the
@@ -3118,6 +3124,197 @@ audited**; nothing can be changed by them.
 `restart_process(node: "dev/node1", processId: "110219899")` returns the preview and a code;
 after the user confirms, `restart_process(node: "dev/node1", processId: "110219899",
 confirmationCode: "…")` returns `outcome: EXECUTED` with `stateAfter`.
+
+## `operate_server`
+
+> [acme] Operate ONE INUBIT node (`node`: `<group>/<node>`) with one `action`: setMaintenance
+> (`on`; with `on: true` optionally `executeQueued`, sent as -eq: whether the processes already
+> queued are still executed), setReadiness (`ready`: what the readiness probe reports to a load
+> balancer, READY or NOT READY, without stopping the process engine), setTrace (`on`),
+> setTraceLevel (`level`), triggerMidnightTask, deleteErrorProcesses. In maintenance mode the
+> process engine executes no processes and INUBIT's REST API answers every request with "service
+> unavailable"; the readiness stays NOT READY while maintenance mode is on. Tracing and the trace
+> level stay as set until they are set back. The midnight task is the daily task INUBIT otherwise
+> starts at its configured start time; triggering it runs it at once, and the vendor does not
+> document what it does. deleteErrorProcesses deletes every process in state ERROR; this cannot be
+> undone. Every call needs a `reason` (stored in the audit log). On nodes with `confirmationMode`
+> `SERVER` (the default), the first call only returns a preview (state before, requested state,
+> effects) and a confirmation code; call again with the same inputs and `confirmationCode` to
+> execute. If the state changed meanwhile, the CONFLICT error carries a new preview in its
+> details. With `CLIENT` (never on production) the first call executes. The result re-reads the
+> state. Needs write access; production only with write.productionOptIn.
+
+Feature 022, US4 ([its delta](../specs/022-full-interface-coverage/contracts/mcp-tools-delta.md),
+research D-22). Changes the operating state of **one** node; every call is previewed, confirmed and
+audited. The tool is annotated `readOnlyHint: false`, `destructiveHint: true`,
+`idempotentHint: false`, `openWorldHint: true`.
+
+**Versions.** Each action sends documented INUBIT entries, and the server sends an entry only on an
+INUBIT version for which it has been verified against a recorded, neutralized answer of that
+version ([interface-coverage.md](interface-coverage.md)). The capability `server_operation`
+(`operating the server` in messages) is declared per version:
+
+- INUBIT 8.1: supported, verified against the recordings of an 8.1.17 node (live checks L-2,
+  L-3).
+- INUBIT 9.0: not yet verified (`… is not yet verified for INUBIT 9.0; nothing was sent`); the
+  9.0 recordings follow.
+- INUBIT 6.1, any other line (9.1, `V9_X`) and an unknown version: refused.
+
+StartCLI's `debug on|off` is not offered: on 8.1.17 it had no observable server effect (the
+vendor describes it as the trace switch of the interactive CLI mode), and its row is excluded.
+
+**Input** (`operate_server.input.json`): `node`, `action`, the action's fields, `reason`
+(required, one line of 1–500 characters, stored in the audit log) and, on the second call,
+`confirmationCode` (`^[A-Za-z0-9_-]{22}$`). Each action takes only its own fields; any other
+field is rejected. 8.1.17 recorded `-eq false` and the levels `debug`/`info`; `-eq true`, `error`
+and `warn` are sent in the same form.
+
+| `action` | Fields | Sent | State before and after |
+|---|---|---|---|
+| `setMaintenance` | `on` (boolean); with `on: true` optionally `executeQueued` (boolean, sent as `-eq true\|false`: whether the processes already queued are still executed) | StartCLI `maintenance on [-eq true\|false]` or `maintenance off` | `maintenance -s`; a REST answer "maintenance mode" (503) counts as on. Before switching on, the preview names the running and queued processes from the metrics |
+| `setReadiness` | `ready` (boolean) | REST `POST /ready/on` or `/ready/off`; INUBIT 8.1.17 answers a successful `off` with 503 `No Service.`, which counts as done | `GET /ready` (READY or NOT READY) |
+| `setTrace` | `on` (boolean) | StartCLI `trace on` or `trace off` | `TracingIsActive` of `/system/info` |
+| `setTraceLevel` | `level`: `error`, `warn`, `info` or `debug` | StartCLI `trace -l <level>` | `TracingLevel` of `/system/info`; a level outside the list is shown as unknown with a warning |
+| `triggerMidnightTask` | – | StartCLI `triggerMidnightTask` | the configured start time (`MidnightTaskTriggerTime` of `GET /configurations`) if INUBIT reports it; after: the time it was sent |
+| `deleteErrorProcesses` | – | StartCLI `processdelete error` | the processes in state `ERROR` of the Queue Manager (REST `queueLog`, as `find_processes` reads them, up to 10,000 rows) |
+
+**Output** (`operate_server.output.json`): `preview` (a `ChangePreview`) on a first call under
+server-side confirmation, or `result` (a `ChangeResult`) and `warnings`. Refusals are tool errors
+(`isError: true`).
+
+| `ChangePreview` field | Meaning |
+|---|---|
+| `node`, `tool`, `action`, `area` (`operation`) | what the call would change |
+| `target` | what changes, e.g. `maintenance mode`, `trace level`, `processes in state ERROR` |
+| `before`, `requested` | the state as read now and the requested state, masked. For `deleteErrorProcesses`, `before` names the number of processes and the workflows concerned (up to 50, then "and N more"); above 10,000 rows only the count |
+| `affected` | `deleteErrorProcesses` only: `count`, up to 50 process `ids`, `truncated` (`true` if `ids` lists fewer than `count`) |
+| `effects` | fixed sentences per action: in maintenance mode the process engine executes no processes and INUBIT's REST API answers every request with "service unavailable" (and what `-eq` means); the readiness stays NOT READY while maintenance mode is on; trace and level stay until set back; the midnight task runs at once instead of at its start time, and the vendor does not document what it does; the deleted processes cannot be restored |
+| `backup` | `none: <reason>`: nothing is stored first |
+| `confirmation` | `code` (one-time, bound to this node, tool and inputs) and `expiresAt` (ISO-8601 UTC, after `confirmationTtl`); absent under `CLIENT` |
+| `warnings` | the version and client warnings of the version check, an unknown state before |
+
+| `ChangeResult` field | Meaning |
+|---|---|
+| `node`, `tool`, `action`, `target` | what was changed |
+| `outcome` | `EXECUTED`, `FAILED` (INUBIT refused or the call failed; see `inubitAnswer`) or `NOTHING_TO_DO` (`deleteErrorProcesses` with no process in state ERROR: nothing is sent) |
+| `before` | the state before, masked |
+| `inubitAnswer` | INUBIT's answer, masked, at most 2,000 characters; what was sent when INUBIT answered without text; for `FAILED` the error code and message |
+| `after` / `reReadFailed` | the state read again after the change (FR-024), or why it could not be read; the switch answers of INUBIT name no state |
+| `affectedCount` | not set: INUBIT 8.1.17 names no count for `processdelete error`; the re-read set shows what is left |
+| `restartNeeded` | `FALSE` |
+| `auditId` | the id of the call's audit records |
+
+**Flow.** In this order; every step that ends the call is audited:
+
+1. The inputs are checked before anything is read (`INVALID_INPUT`).
+2. The node must be one configured node (a group id → `INVALID_INPUT`, unknown → `TARGET_UNKNOWN`);
+   a production group without `write.productionOptIn`, or with `write.confirmation: CLIENT` →
+   `PRODUCTION_PROTECTED`; `write.enabled` not set → `WRITE_DISABLED`; then the version check
+   (`UNSUPPORTED_VERSION`, see Versions) and the availability of StartCLI and credentials
+   (`CLI_UNAVAILABLE`, `AUTH_FAILED`). An `AUTO` node in maintenance mode cannot be detected over
+   REST; switching maintenance **off** is then judged on its last known version.
+3. One change per node and action at a time: a second call while one runs →
+   `PRECONDITION_FAILED`.
+4. The state before is read.
+5. Confirmation `SERVER` (default): the first call changes nothing and returns the preview with a
+   code. The call with the code reads the state again; if it differs from the preview (for
+   `deleteErrorProcesses`: another set of processes in ERROR), the call is refused with
+   `CONFLICT`, whose `details.preview` is a fresh preview with a new code. Confirmation `CLIENT`
+   (never on production): the first call executes, and the MCP client must ask the user.
+6. `PENDING` is audited and forced to disk (if it fails, nothing is sent: `INTERNAL`), the change
+   is sent under the node's write lock, the state is read again, and `EXECUTED` or `FAILED` is
+   audited.
+
+`processdelete error` deletes every process in state ERROR when it runs, also one that entered
+the state after the preview; the result shows the set read afterwards.
+
+**Errors** (as `ToolError`, see [Common shapes](#common-shapes-page-and-toolerror)):
+
+| Code | When |
+|---|---|
+| `INVALID_INPUT` | a field of another action, a missing field, `executeQueued` with `on: false`, a bad `reason` or code (normally rejected by the input schema), a group id |
+| `TARGET_UNKNOWN` | the node is not configured |
+| `PRODUCTION_PROTECTED` | production group without `write.productionOptIn`, or with `write.confirmation: CLIENT` |
+| `WRITE_DISABLED` | `write.enabled` is not `true` for the node |
+| `UNSUPPORTED_VERSION` | the node's version does not allow `server_operation` (9.0 until verified, see Versions), or an entry of the action is not reachable on it; the StartCLI client does not support the version |
+| `CLI_UNAVAILABLE`, `AUTH_FAILED` | no usable StartCLI or no credentials for the node |
+| `PRECONDITION_FAILED` | the same action runs on the node in another call; too many pending confirmations |
+| `CONFIRMATION_INVALID` | the code is unknown, used, expired, or for another node, tool or inputs |
+| `CONFLICT` | the state changed since the preview; `details.preview` holds the new preview |
+| `FORBIDDEN` | the account lacks the INUBIT role or right the entry needs ("System Administrator" for `POST /ready`, "CLI login access" for StartCLI) |
+| `UNEXPECTED_RESPONSE` | an answer in an unknown form (never guessed), e.g. a `POST /ready/off` answered 503 with another message than `No Service.`, or a `queueLog` read refused with `MonitoringLockedByOtherClient` |
+| `MAINTENANCE_MODE`, `UNREACHABLE`, `TIMEOUT`, `TLS_ERROR` | a state read failed; nothing was sent. A failure while sending the change is a result with `outcome: FAILED` |
+| `INTERNAL` | the `PENDING` audit record could not be written; nothing was sent |
+
+**Example prompts**:
+
+- "Put dev/node1 into maintenance mode, but let the queued processes finish" →
+  `operate_server(node: "dev/node1", action: "setMaintenance", on: true, executeQueued: true,
+  reason: "…")` returns the preview; after the user confirms, the same call with
+  `confirmationCode` switches it on.
+- "Delete the processes in error on test/node1" → `operate_server(node: "test/node1", action:
+  "deleteErrorProcesses", reason: "…")` previews the count, the ids and the workflows.
+
+## `manage_tags`
+
+> [acme] Manage the tags of ONE INUBIT node (`node`: `<group>/<node>`) with one `action`:
+> setActiveTag (`user`, `tag`) sets the active tag of an INUBIT user, removeActiveTag (`user`)
+> removes it; the preview names the user's current and requested active tag, and the result reads
+> it again. An unknown user gives NOT_FOUND. Not offered: removing or deleting a tag. INUBIT
+> deletes a tag for the whole owner even when one diagram group is named, and removes it only in a
+> repository path whose tagged files cannot be read for a backup. Every call needs a `reason`
+> (stored in the audit log). On nodes with `confirmationMode` `SERVER` (the default), the first
+> call only returns a preview and a confirmation code; call again with the same inputs and
+> `confirmationCode` to execute. If the state changed meanwhile, the CONFLICT error carries a new
+> preview in its details. With `CLIENT` (never on production) the first call executes. Needs write
+> access; production only with write.productionOptIn.
+
+Feature 022, US4 ([its delta](../specs/022-full-interface-coverage/contracts/mcp-tools-delta.md),
+research D-18). Sets or removes the **active tag** of one INUBIT user on one node, previewed,
+confirmed and audited like [`operate_server`](#operate_server). The tool is annotated
+`readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
+
+**Versions.** The capability `tag_administration` (`managing tags` in messages):
+
+- INUBIT 8.1: not yet verified. On the 8.1.17 test node active tagging is off: `tag
+  --tagSetActive` answered `TagNameWasNotFound` although the tag existed, so the rows `tag
+  --tagSetActive` and `tag --tagRemoveActive` stay planned (live check L-4) and every call is
+  refused `UNSUPPORTED_VERSION` (`… is not yet verified for INUBIT 8.1; nothing was sent`).
+- INUBIT 9.0: not yet verified.
+- INUBIT 6.1, any other line and an unknown version: refused.
+
+The tool is still in `tools/list` when a node has write access, so that the refusal names the
+reason.
+
+**Not offered: removing or deleting a tag** (owner decision after live check L-4; the rows are
+excluded in [interface-coverage.md](interface-coverage.md)). On INUBIT 8.1.17, `tag --tagDelete`
+with one diagram group and its owner deleted the tag in every diagram group of the owner, and
+`tag --tagRemove` exists only with `--tagRepositoryPath`, whose tagged repository files cannot be
+listed for a preview and a backup. `removeTag` and `deleteTag` are unknown actions: the input
+schema rejects them, and nothing is read or sent.
+
+**Input** (`manage_tags.input.json`): `node`, `action`, `reason`, `confirmationCode` as for
+`operate_server`, and
+
+| `action` | Fields | Sent |
+|---|---|---|
+| `setActiveTag` | `user`, `tag` | StartCLI `tag --tagSetActive <tag> --tagUser <user>` |
+| `removeActiveTag` | `user` | StartCLI `tag --tagRemoveActive --tagUser <user>` |
+
+The active tag before and after is read with `user '<user>'` in a StartCLI session; a user
+without the row `Active tag` has none. An unknown user gives `NOT_FOUND`.
+
+**Output** (`manage_tags.output.json`): `ChangePreview` or `ChangeResult` as for
+[`operate_server`](#operate_server), with `target` `active tag of the user <user>`, `before` and
+`requested` the current and the requested active tag, `backup` `none: an active tag is a setting
+of the user`, no `affected` and no `affectedCount`; `after` is the active tag read again.
+
+**Errors**: those of [`operate_server`](#operate_server), plus `NOT_FOUND` (unknown user). A
+second change of the same user's active tag while one runs is `PRECONDITION_FAILED`.
+
+**Example prompt**: "Set the active tag of jdoe on dev/node1 to REL-2026-10-07" →
+`manage_tags(node: "dev/node1", action: "setActiveTag", user: "jdoe", tag: "REL-2026-10-07",
+reason: "…")`; refused with `UNSUPPORTED_VERSION` until the active-tag actions are verified.
 
 ## The workspace (feature 003)
 

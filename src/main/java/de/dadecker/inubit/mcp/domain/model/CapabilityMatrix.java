@@ -74,12 +74,17 @@ public final class CapabilityMatrix {
 
     /**
      * Feature 024 (FR-005, research D-4, D-27): the node tools refused on 8.1 with the note "not
-     * yet verified"; the commit that adds the recording of one removes it here.
+     * yet verified"; the commit that adds the recording of one removes it here. Feature 022 (D-2,
+     * D-26): so is managing tags (US4), whose active-tag actions the recordings of T055 did not
+     * verify (research D-18); operating the server left the set with its recordings (T054) and
+     * contract tests (T066).
      */
-    private static final Set<Capability> V8_1_NOT_YET_VERIFIED = Set.of(Capability.IO_LOG_READ);
+    private static final Set<Capability> V8_1_NOT_YET_VERIFIED = Set.of(Capability.IO_LOG_READ,
+        Capability.TAG_ADMINISTRATION);
 
     /** Feature 024: the same for 9.0. */
-    private static final Set<Capability> V9_0_NOT_YET_VERIFIED = Set.of(Capability.IO_LOG_READ);
+    private static final Set<Capability> V9_0_NOT_YET_VERIFIED = Set.of(Capability.IO_LOG_READ,
+        Capability.SERVER_OPERATION, Capability.TAG_ADMINISTRATION);
 
     /**
      * 8.1: everything; the server-log reads of feature 021 since their recordings (trace log T033,
@@ -88,7 +93,8 @@ public final class CapabilityMatrix {
      * contract tests T037), reading the model details of feature 022 since its recordings (T039,
      * contract tests T046); of the node tools of feature 024 the cluster's node list, the node
      * configuration and the temporary log levels since their recordings (T025, T038, T058), the
-     * I/O log not yet verified.
+     * I/O log not yet verified; operating the server (feature 022, US4) since its recordings
+     * (T054, contract tests T066), managing tags (US4) not yet verified.
      */
     private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1),
         unsupported(ALL_SUPPORTED, V8_1_NOT_YET_VERIFIED), Map.of(), false,
@@ -102,7 +108,8 @@ public final class CapabilityMatrix {
      * service log T052); reading the server settings, the users and the model details of feature
      * 022 since their recordings (T024, T028b, T039a; contract tests T026, T037a, T046a); of the
      * node tools of feature 024 the cluster's node list, the node configuration and the temporary
-     * log levels since their recordings (T062, T064, T065), the I/O log not yet verified.
+     * log levels since their recordings (T062, T064, T065), the I/O log not yet verified;
+     * operating the server and managing tags (feature 022, US4) not yet verified.
      */
     private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0),
         unsupported(with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED),
@@ -159,7 +166,8 @@ public final class CapabilityMatrix {
      * node tools, reading the cluster's node list and the node configuration and changing
      * temporary log levels is supported on 8.1 and 9.0 (T025, T062; T038, T064; T058, T065);
      * reading the I/O log on 8.1 and 9.0 is unsupported with the note "not yet verified", as on
-     * any other and on unknown versions (without the note).
+     * any other and on unknown versions (without the note). Feature 022 (US4): operating the
+     * server and managing tags likewise.
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;

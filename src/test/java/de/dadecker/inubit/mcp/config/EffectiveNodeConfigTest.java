@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import de.dadecker.inubit.mcp.application.ActionSpec;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
@@ -17,6 +18,7 @@ import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
@@ -232,6 +234,14 @@ class EffectiveNodeConfigTest {
         GroupConfig group = new GroupConfig("prod", true, List.of(node), null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null, null, unsupported);
         return resolve(Defaults.EMPTY, group, node);
+    }
+
+    /** Feature 022 (T049, research D-12 step 4): the stub until the opt-ins exist (T067). */
+    @ParameterizedTest
+    @EnumSource(ActionSpec.Area.class)
+    void theAdministrationStubEnablesOnlyOperationAndRead(ActionSpec.Area area) {
+        assertThat(withUnsupported(null).administration().enabled(area))
+            .isEqualTo(area == ActionSpec.Area.OPERATION || area == ActionSpec.Area.READ);
     }
 
     private static UnsupportedConfig queueEntryRead(boolean value) {

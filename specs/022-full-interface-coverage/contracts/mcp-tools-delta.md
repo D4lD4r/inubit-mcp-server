@@ -163,14 +163,17 @@ each tool's test, as for the existing tools. Types and validation: [data-model.m
   - `setReadiness {ready: boolean}`;
   - `setTrace {on: boolean}`;
   - `setTraceLevel {level: enum}`;
-  - `setDebug {on: boolean}`;
   - `triggerMidnightTask {}`;
   - `deleteErrorProcesses {}`.
+
+  `debug on|off` is not offered: excluded after T054 (no observable server effect, research
+  D-2, D-22).
 - **Preview**: `before` / `requested` per action. `deleteErrorProcesses` gives `affected` (count,
-  ids, workflows). `effects`:
+  ≤ 50 process ids, `truncated`); its `before` names the workflows concerned (up to 50, then "and
+  N more"), and above 10,000 rows the count only (D-14; owner decision IMC-8). `effects`:
   - maintenance: no processes run, REST answers "service unavailable", the meaning of `-eq`;
   - readiness: stays NOT READY while maintenance is on;
-  - level, trace and debug: stay until set back;
+  - level and trace: stay until set back;
   - midnight task: runs now instead of at its start time, its effect not documented by the
     vendor.
 - **Result**: `ChangeResult` with the re-read state. `deleteErrorProcesses` gives
@@ -180,18 +183,18 @@ each tool's test, as for the existing tools. Types and validation: [data-model.m
 
 - **Actions**:
   - `setActiveTag {user, tag}`;
-  - `removeActiveTag {user}`;
-  - `removeTag {tag, scope}`;
-  - `deleteTag {tag, scope}`.
-- **Scope**: `scope` = `{diagramGroup, diagramType}` | `{repositoryPath}`, required. A missing
-  scope gives `INVALID_INPUT` before any read (AS13).
-- **Preview**:
-  - active tag: the user's current and new active tag;
-  - removal: `affected` = the objects and versions carrying the tag in the scope, plus
-    `outsideScopeCount`; `backup` = the tag list.
-- **Result**: the re-read active tag, or the re-read lists inside and outside the scope.
-- **Description**: `removeTag` and `deleteTag` appear only once L-4 has made them reachable;
-  otherwise the description says that they are not offered and why.
+  - `removeActiveTag {user}`.
+
+  Tag removal and deletion are not offered: excluded after T055 (owner decision IMC-7, research
+  D-18, spec FR-019a). `removeTag` and `deleteTag` are unknown actions (the input schema refuses
+  them, the service answers `INVALID_INPUT`; nothing is read or sent, AS13, AS14): `--tagDelete`
+  acts on the whole owner, and `--tagRemove` exists only with `--tagRepositoryPath`, whose tagged
+  files cannot be listed for the preview and backup.
+- **Preview**: the user's current and new active tag; `backup` = none (an active tag is a setting
+  of the user).
+- **Result**: the re-read active tag.
+- **Description**: names the two actions and says that tag removal and deletion are not offered
+  and why.
 
 ## `transfer_runtime_data` (US5)
 

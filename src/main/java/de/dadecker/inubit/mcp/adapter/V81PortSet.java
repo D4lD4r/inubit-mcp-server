@@ -8,7 +8,9 @@ import de.dadecker.inubit.mcp.adapter.cli.CliTagRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliTraceRunner;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun;
 import de.dadecker.inubit.mcp.adapter.cli.admin.CliLibraryRunner;
+import de.dadecker.inubit.mcp.adapter.cli.admin.CliOperationRunner;
 import de.dadecker.inubit.mcp.adapter.cli.admin.CliSettingsRunner;
+import de.dadecker.inubit.mcp.adapter.cli.admin.CliTagAdminRunner;
 import de.dadecker.inubit.mcp.adapter.cli.admin.CliUserRunner;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.log.CliServerLogAdapter;
@@ -38,11 +40,12 @@ import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
 
 /**
  * The 8.1 port set: the REST adapters on the server's client and the StartCLI adapters, the
- * settings, the user directory and the model details of feature 022 included; with a helper
- * host, the queue-entry helper of feature 020 (research D-17) and the server-log download of
- * feature 021 (research D-19) and the cluster's node list, the I/O log, the node configuration and
- * the temporary log level of feature 024 (research D-24) too. The set without helper host has no
- * node tools: their ports fail with {@code CLI_UNAVAILABLE} ({@link PortSet}).
+ * settings, the user directory, the model details, the server operation and the tag
+ * administration of feature 022 included; with a helper host, the queue-entry helper of feature
+ * 020 (research D-17) and the server-log download of feature 021 (research D-19) and the
+ * cluster's node list, the I/O log, the node configuration and the temporary log level of feature
+ * 024 (research D-24) too. The set without helper host has no node tools: their ports fail with
+ * {@code CLI_UNAVAILABLE} ({@link PortSet}).
  */
 final class V81PortSet {
 
@@ -84,7 +87,8 @@ final class V81PortSet {
         return new PortSet(ports.processes(), ports.logs(), ports.inventory(),
             ports.processControl(), ports.artifacts(), ports.imports(), ports.tags(),
             ports.partners(), queueEntries, serverLogs, ports.serverSettings(),
-            ports.userDirectory(), ports.modelDetails(), clusterNodes, ioLog, nodeConfig, logLevel);
+            ports.userDirectory(), ports.modelDetails(), clusterNodes, ioLog, nodeConfig, logLevel,
+            ports.serverOperation(), ports.tagAdministration());
     }
 
     /**
@@ -102,7 +106,11 @@ final class V81PortSet {
      * research D-7); the user directory lists the logins on the server's client and reads the
      * rest with a {@link CliUserRunner} (feature 022, research D-20); the model details read a
      * module on the server's client and the libraries with a {@link CliLibraryRunner} (feature
-     * 022, research D-21).
+     * 022, research D-21); the server operation runs the StartCLI forms with a
+     * {@link CliOperationRunner}, the readiness switch on the server's client under the StartCLI
+     * runner's write lock and reads the processes in ERROR with this set's process port
+     * (feature 022, research D-14, D-22); the tag administration runs the active-tag forms with
+     * a {@link CliTagAdminRunner} (feature 022, research D-18).
      */
     private static PortSet create(PortSetRegistry.NodeResources node,
         QueueEntryContentPort queueEntries, ServerLogPort serverLogs) {
@@ -111,8 +119,10 @@ final class V81PortSet {
                 classifier(node)));
         CliUserRunner users = new CliUserRunner(node.server(), node.credentials(), node.guard(),
             node.cliRunner(), classifier(node));
+        V81ProcessQueryAdapter processes = new V81ProcessQueryAdapter(node.server().id(),
+            node.client());
         return new PortSet(
-            new V81ProcessQueryAdapter(node.server().id(), node.client()),
+            processes,
             new V81LogAdapter(node.server().id(), node.client()),
             inventory,
             new V81ProcessControlAdapter(node.server(), node.credentials(), node.guard(),
@@ -134,7 +144,14 @@ final class V81PortSet {
             new V81UserAdapter(node.server().id(), node.client(), users::read, users::logins),
             new V81ModelDetailAdapter(node.server().id(), node.client(),
                 new CliLibraryRunner(node.server(), node.credentials(), node.guard(),
-                    node.cliRunner(), classifier(node))::list));
+                    node.cliRunner(), classifier(node))::list),
+            PortSet.NodeToolsUnavailable.INSTANCE, PortSet.NodeToolsUnavailable.INSTANCE,
+            PortSet.NodeToolsUnavailable.INSTANCE, PortSet.NodeToolsUnavailable.INSTANCE,
+            new V81ServerOperationAdapter(node.server(), new CliOperationRunner(node.server(),
+                node.credentials(), node.guard(), node.cliRunner(), classifier(node)),
+                node.client(), node.cliRunner().writeLock(), processes),
+            new V81TagAdministrationAdapter(new CliTagAdminRunner(node.server(),
+                node.credentials(), node.guard(), node.cliRunner(), classifier(node))));
     }
 
     private static CliOutputClassifier classifier(PortSetRegistry.NodeResources node) {

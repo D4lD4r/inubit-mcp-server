@@ -734,6 +734,17 @@ The write tools also need the CLI (`cliHome`, `cliJavaHome`, section 3); without
 `CLI_UNAVAILABLE`. Enable write access only for the groups and nodes where you are allowed to restart or
 kill instances, and restart the MCP client (e.g. Claude Code) after changing the file.
 
+`operate_server` and `manage_tags` (feature 022, [reference](tools.md#operate_server)) use the
+same settings and no others: they are offered when a node has effective write access, refuse every
+other node with `WRITE_DISABLED` or `PRODUCTION_PROTECTED`, and need no `administration.*` opt-in.
+Each call needs a `reason`. With `write.confirmation: SERVER` the first call returns a preview
+(state before, requested state, effects) and a code; with `CLIENT` (non-production only) the first
+call executes without a preview, and the MCP client must ask the user. Among the change tools of
+feature 022 only these two honour `CLIENT`. Switching readiness (`POST /ready`) needs the INUBIT
+role "System Administrator" for the configured account (vendor documentation), the other actions
+the right "CLI login access". `manage_tags` is refused on every INUBIT version until its active-tag
+actions are verified (see [its reference](tools.md#manage_tags)).
+
 ### Workbench archives
 
 `export_archives` (feature 015, [reference](tools.md#export_archives)) writes Workbench-importable
@@ -996,8 +1007,8 @@ The warnings these settings can cause are listed in
 
 Every call of `restart_process` or `kill_process` that reaches the tool — refused, previewed,
 executed or failed — is appended to the audit log before the result is returned; so is every
-call of the development tools, of `deploy_release`, of `export_archives` and of
-`record_knowledge` ([Development settings](#development-settings),
+call of the development tools, of `deploy_release`, of `export_archives`, of `operate_server`,
+of `manage_tags` and of `record_knowledge` ([Development settings](#development-settings),
 [Stage chain and deployments](#stage-chain-and-deployments),
 [Workbench archives](#workbench-archives), [Local knowledge](#local-knowledge)), and every call
 of the read tool `find_partners` (feature 018), because it reads partner data; if one of its
@@ -1022,7 +1033,8 @@ they cannot change anything.
 - Fields: `auditId`, `timestamp`, `profile` (the profile name), `node`, `group`, `capability`
   (`restart_process`, `kill_process`, the development tools `import_artifacts`,
   `restore_backup`, `set_active`, `tag_artifacts`, `run_e2e_test`, `backup_retention` for the
-  removal of old backups, `deploy_release`, `export_archives`, `find_partners` and
+  removal of old backups, `deploy_release`, `export_archives`, `operate_server`, `manage_tags`,
+  `find_partners` and
   `record_knowledge` — node `-`, inputs the masked note name, `mode`, `sizeBefore`,
   `sizeAfter`), `step` (`PREVIEW` for the
   first call of a two-step confirmation, `EXECUTE` otherwise), `inputs` (for restart and kill:
@@ -2548,7 +2560,7 @@ Group dev: archives: allowed
 Group next: archives: allowed
   Node next/node1: read-only, cli: unavailable, client: none, address: base URL, inubit: V9_X, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_NEXT_USERNAME ok, password ← INUBIT_ACME_NEXT_PASSWORD ok
 Group legacy: archives: allowed
-  Node legacy/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process diagnosis, log diagnosis, inventory, partner management, workspace export, development writes, deployment, end-to-end test, process control, downloading the trace log, reading server settings, reading users, reading model details), client: 6.1.0 (4.0.1–6.1.0; options: no trust-store option, no host-name option), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_LEGACY_USERNAME ok, password ← INUBIT_ACME_LEGACY_PASSWORD ok
+  Node legacy/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process diagnosis, log diagnosis, inventory, partner management, workspace export, development writes, deployment, end-to-end test, process control, downloading the trace log, reading server settings, reading users, reading model details, operating the server, managing tags), client: 6.1.0 (4.0.1–6.1.0; options: no trust-store option, no host-name option), server version: determined at runtime, secrets: credentialStore (macOS Keychain), username ← INUBIT_ACME_LEGACY_USERNAME ok, password ← INUBIT_ACME_LEGACY_PASSWORD ok
 client /opt/inubit-8.1/client (Java 17): CLI 8.1.17 (4.0.1–8.1.17)
 client /opt/inubit-6.1/client (Java 8): CLI 6.1.0 (4.0.1–6.1.0)
 Warnings:

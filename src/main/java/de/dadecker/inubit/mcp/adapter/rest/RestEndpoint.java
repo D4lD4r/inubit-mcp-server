@@ -13,6 +13,8 @@ public enum RestEndpoint {
 
     HEALTHCHECK(Method.GET, "/healthcheck"),
     READY(Method.GET, "/ready"),
+    /** Feature 022 (US4, research D-22): sets the readiness state, {@code on} or {@code off}. */
+    READY_SWITCH(Method.POST, "/ready/{status}"),
     SYSTEM_INFO(Method.GET, "/system/info"),
     METRICS(Method.GET, "/metrics"),
     LOG(Method.POST, "/log/{name}"),

@@ -858,7 +858,8 @@ class MainTest {
         String refused = "available: none; refused: monitoring, process diagnosis, log"
             + " diagnosis, inventory, partner management, workspace export, development writes,"
             + " deployment, end-to-end test, process control, downloading the trace log, reading"
-            + " server settings, reading users, reading model details)";
+            + " server settings, reading users, reading model details, operating the server,"
+            + " managing tags)";
         assertThat(out())
             .contains("dev/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1, StartCLI"
                 + " only; " + refused + ", client: 6.1.0 (4.0.1–6.1.0; options: no trust-store"
@@ -912,12 +913,14 @@ class MainTest {
         assertThat(out())
             .contains("dev/node1: read-only, cli: unavailable, inubit: V6_1 (INUBIT 6.1, StartCLI"
                 + " only; " + refused + ", reading Queue Manager entries, downloading the trace"
-                + " log, reading server settings, reading users, reading model details), secrets:"
-                + " credentialStore (macOS Keychain), username ←")
+                + " log, reading server settings, reading users, reading model details, operating"
+                + " the server, managing tags), secrets: credentialStore (macOS Keychain),"
+                + " username ←")
             .contains("test/node1: read-only, cli: unavailable, inubit: V6_1 (INUBIT 6.1,"
                 + " StartCLI only; " + refused + ", downloading the trace log, downloading the web"
-                + " service log, reading server settings, reading users, reading model details),"
-                + " secrets: credentialStore (macOS Keychain), username ←")
+                + " service log, reading server settings, reading users, reading model details,"
+                + " operating the server, managing tags), secrets: credentialStore (macOS"
+                + " Keychain), username ←")
             .contains("Result: OK")
             .doesNotContain("jsonrpc");
         TestSecrets.assertNoLeak(out());
@@ -2505,15 +2508,15 @@ class MainTest {
     @Test
     void aWriteEnabledOptedInEightOneOrAutoNodeAnnouncesTheLogLevelTools() throws Exception {
         // T058: the production matrix supports LOG_LEVEL_WRITE on 8.1 since its recording; with
-        // write access and without the opt-in only restart_process and kill_process are added to
-        // the reference
+        // write access and without the opt-in only restart_process, kill_process, operate_server
+        // (feature 022 T061) and manage_tags (T064) are added to the reference
         credentials();
         List<String> withWrite = List.of("list_nodes", "get_health", "read_knowledge",
             "record_knowledge", "find_processes", "query_logs", "download_server_log",
             "get_server_settings", "read_users", "read_model_details",
             "list_inventory", "get_inventory_item",
             "find_partners", "export_artifacts", "export_archives", "check_artifacts",
-            "restart_process", "kill_process");
+            "restart_process", "kill_process", "operate_server", "manage_tags");
         List<String> withLogLevel = new ArrayList<>(withWrite);
         withLogLevel.addAll(List.of("set_temporary_log_level", "reset_temporary_log_level"));
 
@@ -2538,7 +2541,7 @@ class MainTest {
             "get_server_settings", "read_users", "read_model_details",
             "list_inventory", "get_inventory_item",
             "find_partners", "export_artifacts", "export_archives", "check_artifacts",
-            "restart_process", "kill_process");
+            "restart_process", "kill_process", "operate_server", "manage_tags");
         List<String> withLogLevel = new ArrayList<>(withWrite);
         withLogLevel.addAll(List.of("set_temporary_log_level", "reset_temporary_log_level"));
 

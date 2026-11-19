@@ -41,6 +41,10 @@ import de.dadecker.inubit.mcp.application.ArchiveExportService;
 import de.dadecker.inubit.mcp.application.ArchiveFolderWriter;
 import de.dadecker.inubit.mcp.application.ArtifactCheckService;
 import de.dadecker.inubit.mcp.application.BackupStore;
+import de.dadecker.inubit.mcp.application.ChangeAudit;
+import de.dadecker.inubit.mcp.application.ChangeChallenges;
+import de.dadecker.inubit.mcp.application.ChangeGuard;
+import de.dadecker.inubit.mcp.application.ChangeLocks;
 import de.dadecker.inubit.mcp.application.ConfirmationRegistry;
 import de.dadecker.inubit.mcp.application.DeployGuard;
 import de.dadecker.inubit.mcp.application.DeployService;
@@ -72,7 +76,9 @@ import de.dadecker.inubit.mcp.application.ResultLimiter;
 import de.dadecker.inubit.mcp.application.SecretTiming;
 import de.dadecker.inubit.mcp.application.ServerLogAudit;
 import de.dadecker.inubit.mcp.application.ServerLogService;
+import de.dadecker.inubit.mcp.application.ServerOperationService;
 import de.dadecker.inubit.mcp.application.ServerSettingsService;
+import de.dadecker.inubit.mcp.application.TagAdministrationService;
 import de.dadecker.inubit.mcp.application.TagService;
 import de.dadecker.inubit.mcp.application.TargetFolderRules;
 import de.dadecker.inubit.mcp.application.TargetResolver;
@@ -157,6 +163,8 @@ import de.dadecker.inubit.mcp.mcp.tools.ReadIoLogTool;
 import de.dadecker.inubit.mcp.mcp.tools.ReadKnowledgeTool;
 import de.dadecker.inubit.mcp.mcp.tools.RecordKnowledgeTool;
 import de.dadecker.inubit.mcp.mcp.tools.ListNodesTool;
+import de.dadecker.inubit.mcp.mcp.tools.ManageTagsTool;
+import de.dadecker.inubit.mcp.mcp.tools.OperateServerTool;
 import de.dadecker.inubit.mcp.mcp.tools.QueryLogsTool;
 import de.dadecker.inubit.mcp.mcp.tools.ReadQueueEntryTool;
 import de.dadecker.inubit.mcp.mcp.tools.ReadModelDetailsTool;
@@ -266,13 +274,18 @@ final class Wiring implements AutoCloseable {
     /** Feature 018: offered where partner management is possibly available (FR-001). */
     private final FindPartnersTool findPartners;
     private final ProcessControlService processControl;
+    /** Feature 022 (US4): announced where some node has write access, as restart_process. */
+    private final OperateServerTool operateServer;
+    /** Feature 022 (US4): announced as {@link #operateServer}. */
+    private final ManageTagsTool manageTags;
     /** Feature 020: built for every configuration; announced only under its opt-in. */
     private final ReadQueueEntryTool readQueueEntry;
     private final ClientSelectionPort clientSelection;
     /** Feature 022 (research D-2): the tool actions of the coverage gate; stories add theirs. */
     private final ActionCatalog actions = new ActionCatalog(Stream.of(
         Stream.of(ServerSettingsService.SPEC), UserReadService.SPECS.stream(),
-        ModelDetailService.SPECS.stream(), ArchiveExportService.SPECS.stream())
+        ModelDetailService.SPECS.stream(), ArchiveExportService.SPECS.stream(),
+        ServerOperationService.SPECS.stream(), TagAdministrationService.SPECS.stream())
         .flatMap(specs -> specs).toList());
     private final ExportArtifactsTool exportArtifacts;
     /** Feature 015: offered under the condition of {@code export_artifacts} (research R-16). */
@@ -733,6 +746,20 @@ final class Wiring implements AutoCloseable {
             cliTimeouts::containsKey,
             id -> Optional.ofNullable(policies.apply(id)).flatMap(WritePolicy::account),
             clock.clock());
+        // feature 022 (US4, research D-12, D-13, D-17): the change tools on the shared challenge
+        // registry and audit log; the administration opt-ins of each server's group (step 4)
+        ChangeAudit changeAudit = new ChangeAudit(audit, clock.clock(), profile.name(),
+            UUID::randomUUID);
+        ChangeGuard changeGuard = new ChangeGuard(targets, policies,
+            (id, area) -> byId.get(id).administration().enabled(area), gateways, versionGate,
+            changeAudit);
+        ChangeLocks changeLocks = new ChangeLocks();
+        ChangeChallenges changeChallenges = new ChangeChallenges(challenges);
+        this.operateServer = new OperateServerTool(new ServerOperationService(changeGuard,
+            changeLocks, changeChallenges, changeAudit, gateways, clock.clock())::execute);
+        // the active tag of a user only: tag removal and deletion are excluded (research D-18)
+        this.manageTags = new ManageTagsTool(new TagAdministrationService(changeGuard,
+            changeLocks, changeChallenges, changeAudit, gateways)::execute);
         // last step (N2): SIGTERM (and System.exit) stop running StartCLI work and delete the
         // export directories
         Runtime.getRuntime().addShutdownHook(cleanupHook);
@@ -843,6 +870,8 @@ final class Wiring implements AutoCloseable {
         if (anyWriteEnabled()) {
             handlers.add(new RestartProcessTool(processControl));
             handlers.add(new KillProcessTool(processControl));
+            handlers.add(operateServer);
+            handlers.add(manageTags);
         }
         if (anyLogLevelNode()) {
             handlers.add(new SetTemporaryLogLevelTool(logLevels::set));
@@ -1019,7 +1048,8 @@ final class Wiring implements AutoCloseable {
      * {@code unsupported.nodeStatusRead}, reading the I/O log with the client and the group's
      * {@code unsupported.ioLogRead}, reading the node configuration with the client and the
      * group's {@code unsupported.nodeConfigRead}, changing the temporary log level with the
-     * client, effective write access and the group's {@code unsupported.logLevelWrite}.
+     * client, effective write access and the group's {@code unsupported.logLevelWrite}; feature
+     * 022 (US4): operating the server and managing tags with write access, like process control.
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
         Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
@@ -1040,6 +1070,8 @@ final class Wiring implements AutoCloseable {
         }
         if (server.effectiveWriteEnabled()) {
             allowed.add(Capability.PROCESS_CONTROL);
+            allowed.add(Capability.SERVER_OPERATION);
+            allowed.add(Capability.TAG_ADMINISTRATION);
         }
         if (withClient && server.queueEntryRead()) {
             allowed.add(Capability.QUEUE_ENTRY_READ);

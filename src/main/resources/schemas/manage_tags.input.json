@@ -1,0 +1,47 @@
+{
+  "type": "object",
+  "required": ["node", "action", "reason"],
+  "properties": {
+    "node": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}/[a-z0-9][a-z0-9-]{0,31}$",
+      "description": "Id of exactly one {node} (`<{group}>/<{node}>`); {group} ids are rejected"
+    },
+    "action": {
+      "enum": ["setActiveTag", "removeActiveTag"],
+      "description": "The change; each action takes only its own fields. Removing or deleting a tag is not offered"
+    },
+    "user": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
+      "description": "The INUBIT user whose active tag is set or removed; required for and only allowed with `setActiveTag` and `removeActiveTag`"
+    },
+    "tag": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
+      "description": "The tag, e.g. REL-2026-10-07; required for and only allowed with `setActiveTag`"
+    },
+    "reason": {
+      "type": "string",
+      "pattern": "^[^\\r\\n]{1,500}$",
+      "description": "Why the change is made, one line of 1 to 500 characters; stored in the audit log"
+    },
+    "confirmationCode": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22}$",
+      "description": "The code from the preview of the first call, with the same inputs; executes the change"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "properties": { "action": { "const": "setActiveTag" } },
+      "required": ["user", "tag"]
+    },
+    {
+      "properties": { "action": { "const": "removeActiveTag" } },
+      "required": ["user"],
+      "not": { "required": ["tag"] }
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 # source: vendor pages "Command Line Interface" (with subpages) and "REST API" (every endpoint page), INUBIT 8.1 and 9.0, retrieved 2026-11-12
-# delivered-stories: US1, US2, US3
+# delivered-stories: US1, US2, US3, US4
 #
 # Feature 022 coverage list (contracts/coverage-list.md, research D-2). One row per entry:
 # CLI: one command with one option or option value set, as the vendor writes it;
@@ -20,6 +20,8 @@ channel	entry	kind	area	story	v8_1	v9_0	waits
 # A. Server state and settings
 # license -td, license -ts: covered:get_server_settings since the 8.1 recordings (T014, contract tests T025) and the 9.0 recordings (T024, contract tests T026) (research D-6 "Covered rows before their tool exists")
 # threads showNumberOfWorkflowThreads, privilegedWorkflows showThreadsPercentage|showWorkflowList: answer "Only root user can use this command." to the profile's account (recorded T014 on 8.1, T024 on 9.0; owner decision 2026-11-13)
+# debug on|off: excluded (live check T054/L-3, owner decision 2026-11-18): on 8.1.17 `debug on|off` exits 0 without text and `debug` reads "off" before and after, also within one interactive session; the vendor's online help describes it as the trace switch of the interactive CLI mode
+# maintenance on|off, maintenance -eq true|false, trace on|off, trace -l, triggerMidnightTask, POST /ready/{status}: the operate_server actions setMaintenance, setTrace, setTraceLevel, triggerMidnightTask and setReadiness on 8.1 since the recordings T054 (L-2, L-3; contract tests T066; -eq recorded with false, trace -l with debug and info, POST /ready/off answered 503 "No Service."); 9.0 waits for the US4 9.0 follow-up
 CLI	license -td	READ	A	US1	covered:get_server_settings	covered:get_server_settings	-
 CLI	license -ts	READ	A	US1	covered:get_server_settings	covered:get_server_settings	-
 CLI	threads showNumberOfWorkflowThreads	READ	A	-	excluded:needs the INUBIT root user	excluded:needs the INUBIT root user	-
@@ -41,12 +43,12 @@ CLI	free -p	READ	A	-	covered:get_health	covered:get_health	-
 CLI	maintenance	READ	A	-	covered:get_health	covered:get_health	-
 CLI	maintenance -s	READ	A	-	covered:get_health	covered:get_health	-
 CLI	trace	READ	A	-	covered:get_health	covered:get_health	-
-CLI	maintenance on|off	WRITE	A	US4	planned	planned	-
-CLI	maintenance -eq true|false	WRITE	A	US4	planned	planned	-
-CLI	trace on|off	WRITE	A	US4	planned	planned	-
-CLI	trace -l	WRITE	A	US4	planned	planned	-
-CLI	debug on|off	WRITE	A	US4	planned	planned	-
-CLI	triggerMidnightTask	WRITE	A	US4	planned	planned	-
+CLI	maintenance on|off	WRITE	A	US4	reachable:operate_server/setMaintenance	planned	9.0-followup
+CLI	maintenance -eq true|false	WRITE	A	US4	reachable:operate_server/setMaintenance	planned	9.0-followup
+CLI	trace on|off	WRITE	A	US4	reachable:operate_server/setTrace	planned	9.0-followup
+CLI	trace -l	WRITE	A	US4	reachable:operate_server/setTraceLevel	planned	9.0-followup
+CLI	debug on|off	WRITE	A	-	excluded:the trace switch of the interactive CLI mode (vendor); no observable server effect on INUBIT 8.1.17 (T054)	excluded:the trace switch of the interactive CLI mode (vendor); no observable server effect on INUBIT 8.1.17 (T054)	-
+CLI	triggerMidnightTask	WRITE	A	US4	reachable:operate_server/triggerMidnightTask	planned	9.0-followup
 CLI	threads setNumberOfWorkflowThreads	WRITE	A	US6	planned	planned	-
 CLI	privilegedWorkflows setThreadsPercentage	WRITE	A	US6	planned	planned	-
 CLI	dbconnectiontolerance set	WRITE	A	US6	planned	planned	-
@@ -64,7 +66,7 @@ REST	GET /system/info	READ	A	-	reachable:get_health/default	reachable:get_health
 REST	GET /ready	READ	A	-	reachable:get_health/default	reachable:get_health/default	-
 REST	GET /configurations	READ	A	US1	reachable:get_server_settings/default	reachable:get_server_settings/default	-
 REST	GET /license	READ	A	US1	reachable:get_server_settings/default	reachable:get_server_settings/default	-
-REST	POST /ready/{status}	WRITE	A	US4	planned	planned	-
+REST	POST /ready/{status}	WRITE	A	US4	reachable:operate_server/setReadiness	planned	9.0-followup
 REST	PUT /license	WRITE	A	US6	planned	planned	-
 REST	PUT /configurations	WRITE	A	US6	planned	planned	-
 # POST /configurations: planned until covered:change_server_settings (US6) (research D-6 "Covered rows before their tool exists")
@@ -136,6 +138,7 @@ REST	PUT /keys	WRITE	C	US6	planned	planned	-
 
 # D. Processes and run-time data
 # ps -u: covered:find_processes on 8.1 and 9.0: find_processes userColumn reads userDefined<i> of the REST queueLog rows, the data ps -u shows (T039 recordings, the recorded 9.0 queueLog row; owner decisions 2026-11-14, research D-21; contract tests T046, T046a)
+# processdelete error: the operate_server action deleteErrorProcesses on 8.1 since the recording T054 (L-3, owner decision IMC-10; contract tests T066; INUBIT answers without a count); 9.0 waits for the US4 9.0 follow-up
 CLI	ps -f	READ	D	-	covered:find_processes	covered:find_processes	-
 CLI	ps -a	READ	D	-	covered:find_processes	covered:find_processes	-
 CLI	ps -e	READ	D	-	covered:find_processes	covered:find_processes	-
@@ -152,7 +155,7 @@ CLI	-nq	READ	D	-	covered:get_health	covered:get_health	-
 CLI	ps -u	READ	D	US3	covered:find_processes	covered:find_processes	-
 CLI	processErrorStart	WRITE	D	-	reachable:restart_process/default	reachable:restart_process/default	-
 CLI	kill	WRITE	D	-	reachable:kill_process/default	reachable:kill_process/default	-
-CLI	processdelete error	WRITE	D	US4	planned	planned	-
+CLI	processdelete error	WRITE	D	US4	reachable:operate_server/deleteErrorProcesses	planned	9.0-followup
 CLI	process listBlocked	READ	D	US5	planned	planned	-
 CLI	process validateExport	READ	D	US5	planned	planned	-
 CLI	process export	WRITE	D	US5	planned	planned	-
@@ -169,6 +172,7 @@ REST	POST /log/{name}	READ	D	-	reachable:query_logs/default	reachable:query_logs
 REST	POST /log/processLog	READ	D	-	excluded:the log processLog fails on INUBIT 8.1.17 (vendor side)	excluded:the log processLog fails on INUBIT 8.1.17 (vendor side)	-
 
 # E. Diagrams, modules, repository, tags
+# tag --tagDelete, tag --tagRemove, tag --tagRepositoryPath: excluded (live check T055/L-4, owner decision IMC-7 2026-11-19): on 8.1.17 `tag --tagDelete` with one diagram group and its owner deleted the tag owner-wide; `tag --tagRemove` needs `--tagRepositoryPath`, and tagging a diagram group tags no repository file, so the tagged repository files cannot be listed for the preview and backup (FR-018); tag --tagSetActive|--tagRemoveActive stay planned (active tagging off on the test node)
 CLI	export --exportWorkflowUser	EXPORT	E	-	reachable:export_archives/workflows	reachable:export_archives/workflows	-
 CLI	export --exportWorkflowType	EXPORT	E	-	reachable:export_archives/workflows	reachable:export_archives/workflows	-
 CLI	export --exportWorkflowGroup	EXPORT	E	-	reachable:export_archives/workflows	reachable:export_archives/workflows	-
@@ -205,11 +209,11 @@ CLI	tag --tagMove	WRITE	E	-	reachable:tag_artifacts/default	reachable:tag_artifa
 CLI	tag --tagWorkflowGroup	WRITE	E	-	reachable:tag_artifacts/default	reachable:tag_artifacts/default	-
 CLI	tag --tagWorkflowType	WRITE	E	-	reachable:tag_artifacts/default	reachable:tag_artifacts/default	-
 CLI	tag --tagUser	WRITE	E	-	reachable:tag_artifacts/default	reachable:tag_artifacts/default	-
-CLI	tag --tagSetActive	WRITE	E	US4	planned	planned	-
-CLI	tag --tagRemoveActive	WRITE	E	US4	planned	planned	-
-CLI	tag --tagDelete	WRITE	E	US4	planned	planned	-
-CLI	tag --tagRemove	WRITE	E	US4	planned	planned	-
-CLI	tag --tagRepositoryPath	WRITE	E	US4	planned	planned	-
+CLI	tag --tagSetActive	WRITE	E	US4	planned	planned	L-4+9.0-followup
+CLI	tag --tagRemoveActive	WRITE	E	US4	planned	planned	L-4+9.0-followup
+CLI	tag --tagDelete	WRITE	E	-	excluded:acts on the whole owner: deletes the tag in every diagram group although one is named (INUBIT 8.1.17, T055)	excluded:acts on the whole owner: deletes the tag in every diagram group although one is named (INUBIT 8.1.17, T055)	-
+CLI	tag --tagRemove	WRITE	E	-	excluded:exists only with --tagRepositoryPath, whose tagged repository files cannot be listed for the preview and backup (T055)	excluded:exists only with --tagRepositoryPath, whose tagged repository files cannot be listed for the preview and backup (T055)	-
+CLI	tag --tagRepositoryPath	WRITE	E	-	excluded:the tagged repository files cannot be listed for the preview and backup of a removal (T055)	excluded:the tagged repository files cannot be listed for the preview and backup of a removal (T055)	-
 CLI	tag --tagDiagram	WRITE	E	-	excluded:ignored by INUBIT, tags every diagram of the owner	excluded:ignored by INUBIT, tags every diagram of the owner	-
 CLI	tag --tagWorkflowGroupExclude	WRITE	E	-	excluded:acts on every diagram group of the owner but the listed ones	excluded:acts on every diagram group of the owner but the listed ones	-
 # delete --deleteWorkflow, delete --deleteModule: planned until covered:administer_objects (US6) (research D-6 "Covered rows before their tool exists")
@@ -285,7 +289,7 @@ REST	POST /webapp/{id}	READ	PORTAL	-	excluded:portal function	excluded:portal fu
 # StartCLI start options and offline scripts
 CLI	-v	READ	START	-	reachable:get_health/default	reachable:get_health/default	-
 CLI	-a	READ	START	-	excluded:lists the network interfaces of the StartCLI client's host, not of the server	excluded:lists the network interfaces of the StartCLI client's host, not of the server	-
-CLI	--debug	WRITE	START	-	excluded:starts an interactive StartCLI session with the client trace; the switch is debug on|off	excluded:starts an interactive StartCLI session with the client trace; the switch is debug on|off	-
+CLI	--debug	WRITE	START	-	excluded:starts an interactive StartCLI session with the client trace	excluded:starts an interactive StartCLI session with the client trace	-
 CLI	--encryptString	READ	START	-	excluded:takes a secret on the command line and prints the result	excluded:takes a secret on the command line and prints the result	-
 CLI	--backupFile	WRITE	START	US6	planned	planned	-
 CLI	--backupRepository	WRITE	START	US6	planned	planned	-

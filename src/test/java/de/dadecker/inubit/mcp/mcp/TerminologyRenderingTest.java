@@ -151,8 +151,9 @@ class TerminologyRenderingTest {
         JsonNode tools = tools("ACME test");
 
         // thirteen read tools (get_server_settings since 022 T025, read_users since T037,
-        // read_model_details since T046) plus the two knowledge tools
-        assertThat(tools).hasSize(15);
+        // read_model_details since T046) plus the two knowledge tools, plus operate_server
+        // (022 T061) and manage_tags (022 T064)
+        assertThat(tools).hasSize(17);
         for (JsonNode tool : tools) {
             assertThat(tool.path("description").asString())
                 .as(tool.path("name").asString()).startsWith("[acme: ACME test] ");
@@ -164,8 +165,9 @@ class TerminologyRenderingTest {
         JsonNode tools = tools("");
 
         // thirteen read tools (get_server_settings since 022 T025, read_users since T037,
-        // read_model_details since T046) plus the two knowledge tools
-        assertThat(tools).hasSize(15);
+        // read_model_details since T046) plus the two knowledge tools, plus operate_server
+        // (022 T061) and manage_tags (022 T064)
+        assertThat(tools).hasSize(17);
         for (JsonNode tool : tools) {
             assertThat(tool.path("description").asString())
                 .as(tool.path("name").asString()).startsWith("[acme] ")

@@ -7,11 +7,14 @@ import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Built;
 import de.dadecker.inubit.mcp.config.CliPaths;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.TraceLevel;
 import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
 import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.testing.Platform;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -203,7 +206,7 @@ class CliCommandTest {
             .quoted("--tagUser", "jdoe").build().commandLine()).isEqualTo("tag --tagMove"
                 + " 'REL-1' --tagWorkflowGroup 'GRP-01' --tagWorkflowType 'technical' --tagUser"
                 + " 'jdoe'");
-        // research D-26: a tag is never removed (StartCLI removes it only owner-wide)
+        // feature 022 (research D-18): tag removal is excluded (T055)
         assertInvalidInput(() -> CliCommand.command("tag").quoted("--tagDelete", "REL-1"));
         assertInvalidInput(() -> CliCommand.command("tag").quoted("--tagDiagram", "W"));
         assertInvalidInput(() -> CliCommand.command("tag").flag("--tagRemove"));
@@ -703,5 +706,144 @@ class CliCommandTest {
             assertInvalidInput(() -> CliCommand.command("trace").nodeLevel(TemporaryLevel.DEBUG)
                 .quoted(raw, "com.inubit.ibis.acme"));
         }
+    }
+
+    // --- feature 022 (T056, research D-22): the operation forms of operate_server -------------
+
+    @Test
+    void maintenanceHasTheFiveForms() {
+        assertThat(CliCommand.maintenance().commandLine()).isEqualTo("maintenance");
+        assertThat(CliCommand.maintenanceState().commandLine()).isEqualTo("maintenance -s");
+        assertThat(CliCommand.maintenanceSwitch(true, null).commandLine())
+            .isEqualTo("maintenance on");
+        assertThat(CliCommand.maintenanceSwitch(false, null).commandLine())
+            .isEqualTo("maintenance off");
+        assertThat(CliCommand.maintenanceSwitch(true, true).commandLine())
+            .isEqualTo("maintenance on -eq true");
+        assertThat(CliCommand.maintenanceSwitch(true, false).commandLine())
+            .isEqualTo("maintenance on -eq false");
+        assertThat(CliCommand.maintenanceSwitch(true, false).name()).isEqualTo("maintenance");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void executeQueuedWithOffIsRejected(boolean executeQueued) {
+        assertInvalidInput(() -> CliCommand.maintenanceSwitch(false, executeQueued));
+    }
+
+    @Test
+    void traceSwitchAndLevelAreTheirOwnForms() {
+        assertThat(CliCommand.traceSwitch(true).commandLine()).isEqualTo("trace on");
+        assertThat(CliCommand.traceSwitch(false).commandLine()).isEqualTo("trace off");
+        assertThat(CliCommand.traceSwitch(true).name()).isEqualTo("trace");
+        assertThat(CliCommand.traceLevel(TraceLevel.WARN).commandLine()).isEqualTo("trace -l warn");
+    }
+
+    @ParameterizedTest
+    @EnumSource(TraceLevel.class)
+    void everyTraceLevelIsPassedInLowerCase(TraceLevel level) {
+        assertThat(CliCommand.traceLevel(level).commandLine())
+            .isEqualTo("trace -l " + level.name().toLowerCase(Locale.ROOT));
+    }
+
+    @Test
+    void theTraceLevelsAreTheReconstructedVendorList() {
+        // research D-22: error|warn|info|debug until T054 records the list from trace --help
+        assertThat(TraceLevel.values()).extracting(Enum::name)
+            .containsExactly("ERROR", "WARN", "INFO", "DEBUG");
+    }
+
+    @Test
+    void theTraceSwitchAndLevelAreNeverCombinedWithTheDownload() {
+        Path log = file("/tmp/x/trace.log");
+        for (String raw : List.of("on", "off", "on|off", "-l")) {
+            assertInvalidInput(() -> CliCommand.command("trace").path("--download", log, WINDOWS)
+                .flag(raw));
+            assertInvalidInput(() -> CliCommand.command("trace").path("--download", log, WINDOWS)
+                .quoted(raw, "info"));
+            assertInvalidInput(() -> CliCommand.command("trace").quoted(raw, "info"));
+        }
+        assertInvalidInput(() -> CliCommand.traceLevel(null));
+    }
+
+    @Test
+    void midnightTaskAndProcessDeleteHaveOneFormEach() {
+        assertThat(CliCommand.triggerMidnightTask().commandLine())
+            .isEqualTo("triggerMidnightTask");
+        assertThat(CliCommand.processDeleteError().commandLine()).isEqualTo("processdelete error");
+        assertThat(CliCommand.processDeleteError().name()).isEqualTo("processdelete");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"error", "all", "-a", "--all", "on|off", "-s", "-eq true|false"})
+    void processDeleteTakesNoOtherArgument(String argument) {
+        assertInvalidInput(() -> CliCommand.command("processdelete").flag(argument));
+        assertInvalidInput(() -> CliCommand.command("processdelete").quoted(argument, "error"));
+        assertInvalidInput(() -> CliCommand.command("processdelete").emptyQuoted(argument));
+    }
+
+    @Test
+    void theOperationCommandsAreBuiltByTheirOwnMethodsOnly() {
+        assertInvalidInput(() -> CliCommand.command("processdelete").build());
+        assertInvalidInput(() -> CliCommand.command("processdelete").processId("110190387"));
+        for (String name : List.of("maintenance", "triggerMidnightTask")) {
+            assertInvalidInput(() -> CliCommand.command(name).build());
+        }
+        for (String option : List.of("-s", "on|off", "-eq true|false")) {
+            assertInvalidInput(() -> CliCommand.command("maintenance").flag(option));
+            assertInvalidInput(() -> CliCommand.command("maintenance").quoted(option, "true"));
+        }
+    }
+
+    /** T054: {@code debug on|off} is excluded (no observable server effect on 8.1.17). */
+    @Test
+    void debugIsNotAllowListed() {
+        assertInvalidInput(() -> CliCommand.command("debug"));
+    }
+
+    // --- feature 022 (T062, research D-18): the tag forms of manage_tags ---------------------
+
+    @Test
+    void theActiveTagOfAUserHasTwoForms() {
+        assertThat(CliCommand.tagSetActive("REL-1", "jdoe").commandLine())
+            .isEqualTo("tag --tagSetActive 'REL-1' --tagUser 'jdoe'");
+        assertThat(CliCommand.tagRemoveActive("jdoe").commandLine())
+            .isEqualTo("tag --tagRemoveActive --tagUser 'jdoe'");
+        assertThat(CliCommand.tagRemoveActive("jdoe").name()).isEqualTo("tag");
+    }
+
+    @Test
+    void theActiveTagFormsTakeOnlySafeValues() {
+        for (String unsafe : Arrays.asList(null, "", "a'b", "-x", "--tagDiagram")) {
+            assertInvalidInput(() -> CliCommand.tagSetActive(unsafe, "jdoe"));
+            assertInvalidInput(() -> CliCommand.tagSetActive("REL-1", unsafe));
+            assertInvalidInput(() -> CliCommand.tagRemoveActive(unsafe));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"--tagSetActive", "--tagRemoveActive"})
+    void theTagFormsAreBuiltByTheirOwnMethodsOnly(String option) {
+        assertInvalidInput(() -> CliCommand.command("tag").flag(option));
+        assertInvalidInput(() -> CliCommand.command("tag").quoted(option, "REL-1"));
+        assertInvalidInput(() -> CliCommand.command("tag").emptyQuoted(option));
+        assertInvalidInput(() -> CliCommand.command("tag").repositoryPath(option, "/Root/jdoe"));
+        assertInvalidInput(() -> CliCommand.command("tag").quoted("--tagMove", "REL-1")
+            .quoted(option, "REL-1"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"--tagDiagram", "--tagWorkflowGroupExclude", "--tagDelete",
+        "--tagRemove", "--tagRepositoryPath"})
+    void theExcludedTagOptionsAreNeverAdmitted(String option) {
+        // research D-18: --tagDiagram is ignored by INUBIT, --tagWorkflowGroupExclude acts on
+        // every other diagram group of the owner; tag removal is excluded after T055
+        // (--tagDelete acts on the whole owner, --tagRemove only in a repository path that
+        // cannot be backed up)
+        assertInvalidInput(() -> CliCommand.command("tag").flag(option));
+        assertInvalidInput(() -> CliCommand.command("tag").quoted(option, "W"));
+        assertInvalidInput(() -> CliCommand.command("tag").emptyQuoted(option));
+        assertInvalidInput(() -> CliCommand.command("tag").repositoryPath(option, "/Root/jdoe"));
+        assertInvalidInput(() -> CliCommand.command("tag").quotedList(option, List.of("W")));
     }
 }

@@ -850,11 +850,8 @@ offered).
 
 ## Phase 6: User Story 4 – Operate a server (P2)
 
-> **Paused 2026-11-15 (owner decision).** US4–US7 and Phase 10 are moved to the backlog
-> (`docs/backlog.md`, "Feature 022: remaining user stories US4–US7"); work resumes here.
-
-**Goal**: `operate_server` (maintenance, readiness, trace, trace level, debug, midnight task,
-deleting processes in error) and `manage_tags` (active tag of a user; tag removal limited to a
+**Goal**: `operate_server` (maintenance, readiness, trace, trace level, midnight task, deleting
+processes in error) and `manage_tags` (active tag of a user; tag removal limited to a
 group or path if INUBIT allows it), each previewed, confirmed, audited (US4).
 
 **Independent test**: with fakes, each change is refused by default, shows a preview when
@@ -862,12 +859,12 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
 
 ### Shared change infrastructure (first used here; reused by US5–US7)
 
-- [ ] T048 [P] [US4] Domain `domain/model/ChangePreview.java`, `ChangeResult.java` and
+- [X] T048 [P] [US4] Domain `domain/model/ChangePreview.java`, `ChangeResult.java` and
   `ChangeOutcome` (`EXECUTED`, `NOTHING_TO_DO`, `FAILED`), per data-model "Changes".
   - `affected` holds ≤ 50 ids with `truncated`; `inubitAnswer` is masked, ≤ 2,000 characters;
     `reReadFailed` holds a reason.
   - Failing tests first: `domain/model/ChangeRecordsTest.java`.
-- [ ] T049 [US4] `application/ChangeGuard.java` (D-12):
+- [X] T049 [US4] `application/ChangeGuard.java` (D-12):
   - `admit(tool, nodeId, ActionSpec, input)` in exactly this order:
     1. group id → `INVALID_INPUT`, unknown → `TARGET_UNKNOWN`;
     2. production without opt-in, or production with `CLIENT` → `PRODUCTION_PROTECTED`;
@@ -882,11 +879,11 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - Every refusal is audited `REFUSED`.
   - Failing tests first: `application/ChangeGuardTest.java`, one test per step and per code, plus
     the order (production refusal wins over write off).
-- [ ] T050 [P] [US4] `application/ChangeLocks.java` (D-17): `try (var lock =
+- [X] T050 [P] [US4] `application/ChangeLocks.java` (D-17): `try (var lock =
   locks.acquire(node, area, object))`; a key already held gives `PRECONDITION_FAILED`; released in
   `finally`.
   - Failing tests first: `ChangeLocksTest.java` (parallel threads; release after exception).
-- [ ] T051 [US4] Confirmation with preview state (D-13, D-14):
+- [X] T051 [US4] Confirmation with preview state (D-13, D-14):
   - `application/ChangeChallenges.java` wraps `WriteChallengeRegistry`:
     - `issue(tool, NodeId, fingerprint, previewState, ttl)`, where `fingerprint` is SHA-256 of the
       canonical inputs without `confirmationCode` and `reason`;
@@ -899,34 +896,45 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - `CLIENT` mode is honoured only for `Area.OPERATION`.
   - Failing tests first: `ChangeChallengesTest.java` (wrong tool, node or input →
     `CONFIRMATION_INVALID`; changed state → `CONFLICT`; administration areas ignore `CLIENT`).
-- [ ] T052 [US4] `application/ChangeAudit.java`:
+- [X] T052 [US4] `application/ChangeAudit.java`:
   - the records `REFUSED`, `CHALLENGE_ISSUED`, `PENDING` (forced to disk before sending; a
     failure gives `INTERNAL` and sends nothing), `EXECUTED`/`FAILED` with the same audit id;
   - inputs bounded (500 characters), `secretEntry` by name, uploads by path, size and SHA-256,
     message text ≤ 200 characters;
   - `NOTHING_TO_DO` audited as `EXECUTED` with details `nothing-to-do`.
   - Failing tests first: `ChangeAuditTest.java` with `RecordingAuditPort`; leak check.
-- [ ] T053 [US4] Backup kind (D-15): `application/BackupStore.java` gains `Manifest.Kind.ADMINISTRATION`:
-  - scope node, object kind (`WORKFLOW`, `MODULE`, `METADATA`, `REPOSITORY`, `TAG_LIST`), name;
+- [X] T053 [US4] Backup kind (D-15): `application/BackupStore.java` gains `Manifest.Kind.ADMINISTRATION`:
+  - scope node, object kind (`WORKFLOW`, `MODULE`, `METADATA`, `REPOSITORY`, `TAG_LIST`), name
+    (`TAG_LIST` removed after T055);
   - `auditId`, `contents`;
-  - `writeTagList(scope, List<TaggedVersion>)` as JSON;
+  - `writeTagList(scope, List<TaggedVersion>)` as JSON (removed after T055, owner decision IMC-7:
+    tag removal is excluded, research D-15, D-18);
   - the sweep is unchanged.
   - Failing tests first: `BackupStoreAdministrationTest.java` (manifest round trip, private
     files, retention keeps the newest per scope).
 
 ### Live checks for US4
 
-- [ ] T054 [LIVE-W] [OWNER] [US4] L-2 and L-3 on the 8.1 test server, each command approved:
+- [X] T054 [LIVE-W] [OWNER] [US4] L-2 and L-3 on the 8.1 test server, each command approved:
   - `maintenance` / `maintenance -s`;
   - `maintenance on -eq false`, `maintenance off`;
   - `GET /ready` and `POST /ready/off`, `POST /ready/on`, including once while maintenance is on;
   - `trace on`, `trace off`, `trace -l <level>` (record the level list from `trace --help`);
-  - `debug on`, `debug off`;
+  - `debug on`, `debug off` (recorded: no observable server effect; excluded, owner decision
+    2026-11-18);
   - `triggerMidnightTask` (only if the owner approves running the midnight task);
-  - `processdelete error` with exactly one prepared test process in error.
+  - `processdelete error` on the whole ERROR set the owner approved after a
+    `find_processes` preview (owner decision 2026-11-18, IMC-10; no prepared test process).
 
   Neutralize into `fixtures/v8_1/{cli,rest}/admin-operate-*`.
-- [ ] T055 [LIVE-W] [OWNER] [US4] L-4 on the 8.1 test server, with approval:
+  - Folded in (2026-11-18, no live run): the recorded `admin-operate-*` cases replace the
+    `*-reconstructed` ones (`rest/admin-operate-ready-off-reconstructed` keeps the reconstructed
+    JSON envelope); the parsers read the recorded forms; `POST /ready/off` answered 503
+    `No Service.` counts as done (`InubitHttpClient.post(…, acceptedStatuses)`); the trace level
+    before and after is `TracingLevel` of `/system/info` (`ServerOperationPort.traceLevel()`
+    removed); `deleteErrorProcesses` reports INUBIT's answer without a count (`affectedCount`
+    absent); research D-22, spec AS4, AS11, FR-017 and Clarifications updated.
+- [X] T055 [LIVE-W] [OWNER] [US4] L-4 on the 8.1 test server, with approval:
   - tag two fictitious test diagram groups with the same test tag (`tag_artifacts` on a
     development stage);
   - run `tag --tagRemove <tag> --tagWorkflowGroup <g1> --tagWorkflowType <t>` and check whether
@@ -938,33 +946,34 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
 
 ### operate_server
 
-- [ ] T056 [US4] `CliCommand` operation forms:
+- [X] T056 [US4] `CliCommand` operation forms:
   - `maintenance` (no option, `-s`, `on`, `off`, `on -eq true|false`; `-eq` only with `on`);
   - `trace on|off`, `trace -l <level>` (level enum from T054; until then the vendor list
     `error|warn|info|debug` reconstructed and marked in `research.md`), with `trace --download`
     (021) as a separate path and never combined;
-  - `debug on|off`;
+  - `debug on|off` (removed after T054);
   - `triggerMidnightTask`;
   - `processdelete error`.
   - Failing tests first in `CliCommandTest.java`: allowed forms; `-eq` with `off` rejected;
     `trace --download` combined with `on` rejected; `processdelete` with any other argument
     rejected.
-- [ ] T057 [US4] `adapter/cli/admin/CliOperationRunner.java` and parsers
-  `MaintenanceStateParser.java`, `TraceStateParser.java`, `DebugStateParser.java`,
+- [X] T057 [US4] `adapter/cli/admin/CliOperationRunner.java` and parsers
+  `MaintenanceStateParser.java`, `TraceStateParser.java`, `DebugStateParser.java` (removed after
+  T054),
   `MidnightTaskAnswerParser.java`, `ProcessDeleteAnswerParser.java` (the count INUBIT reports);
   `RestEndpoint` + `POST /ready/{state}`.
   - Failing tests first: runner test with scripted runs; parser tests with reconstructed cases;
     leak check.
-- [ ] T058 [US4] Port and wiring: `domain/port/ServerOperationPort.java`, adapters, the
+- [X] T058 [US4] Port and wiring: `domain/port/ServerOperationPort.java`, adapters, the
   `Gateway`/`PortSet` set. The `processdelete error` preview set comes from
   `ProcessQueryPort` (REST `POST /log/queueLog`, states `ERROR`, all pages up to 10,000 ids; more →
   count only, D-14).
   - adds the capability `SERVER_OPERATION` the way T011 added `SERVER_SETTINGS` (label, matrix "not yet
     verified", `NodeOverview`, `list_nodes` enum), with `CapabilityMatrixTest` and `ListNodesToolTest`;
   - Failing tests first: adapter tests, `WiringAuditTest`.
-- [ ] T059 [US4] `application/ServerOperationService.java`, switch actions:
-  - `setMaintenance`, `setReadiness`, `setTrace`, `setTraceLevel`, `setDebug`,
-    `triggerMidnightTask`, per `contracts/mcp-tools-delta.md`;
+- [X] T059 [US4] `application/ServerOperationService.java`, switch actions:
+  - `setMaintenance`, `setReadiness`, `setTrace`, `setTraceLevel`, `setDebug` (removed after
+    T054), `triggerMidnightTask`, per `contracts/mcp-tools-delta.md`;
   - the before state read first (`MAINTENANCE_MODE` from REST counts as "on");
   - `effects` sentences per action, with the fixed texts from the contract;
   - the after state re-read (FR-024);
@@ -975,7 +984,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
     - `CLIENT` mode on non-production executes on the first call;
     - maintenance off while REST answers 503;
     - a second call on the same key → `PRECONDITION_FAILED`.
-- [ ] T060 [US4] `application/ServerOperationService.java`, `deleteErrorProcesses` (after T059):
+- [X] T060 [US4] `application/ServerOperationService.java`, `deleteErrorProcesses` (after T059):
   - the preview lists the count, ≤ 50 ids and the workflows concerned (AS4);
   - an empty set gives `NOTHING_TO_DO` (audited);
   - the set is re-read right before sending, and a different set gives `CONFLICT` with a new
@@ -984,7 +993,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - lock key `node|OPERATION|deleteErrorProcesses`.
   - Failing tests first: `application/ServerOperationDeleteErrorsTest.java` (AS4, empty set,
     changed set, more than 10,000 ids → count only).
-- [ ] T061 [US4] Tool `mcp/tools/OperateServerTool.java`:
+- [X] T061 [US4] Tool `mcp/tools/OperateServerTool.java`:
   - schemas `operate_server.{input,output}.json`;
   - `ToolHints.destructive(title)`;
   - announced when `anyWriteEnabled`;
@@ -993,16 +1002,17 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
 
 ### manage_tags
 
-- [ ] T062 [US4] `CliCommand` tag forms (D-18):
+- [X] T062 [US4] `CliCommand` tag forms (D-18):
   - `tag` admits `--tagSetActive`, `--tagRemoveActive`, `--tagDelete`, `--tagRemove`,
-    `--tagRepositoryPath`;
+    `--tagRepositoryPath` (the last three removed after T055);
   - builder methods `tagSetActive(tag, user)`, `tagRemoveActive(user)`, and
-    `tagRemoval(kind, tag, Scope)` where `Scope` = group + type | repository path, required;
+    `tagRemoval(kind, tag, Scope)` where `Scope` = group + type | repository path, required
+    (removed after T055; the live test builds these forms in `UnlistedTagCommand`);
   - `--tagDiagram` and `--tagWorkflowGroupExclude` are never admitted;
   - `--tagMove` (existing) unchanged.
   - Failing tests first in `CliCommandTest.java`: removal without scope rejected; both forbidden
     options rejected; existing `tag_artifacts` forms unchanged.
-- [ ] T063 [US4] `adapter/cli/admin/CliTagAdminRunner.java` and `domain/port/TagAdministrationPort.java`:
+- [X] T063 [US4] `adapter/cli/admin/CliTagAdminRunner.java` and `domain/port/TagAdministrationPort.java`:
   - the active tag of a user is read (from `user <name>` or the form found in T055);
   - the objects and versions carrying a tag in a scope come from the version history read the way
     `tag_artifacts` does (`VersionHistoryParser`), together with the count outside the scope;
@@ -1010,29 +1020,33 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - adds the capability `TAG_ADMINISTRATION` the way T011 added `SERVER_SETTINGS` (label, matrix "not yet
     verified", `NodeOverview`, `list_nodes` enum), with `CapabilityMatrixTest` and `ListNodesToolTest`;
   - Failing tests first: runner and port tests with scripted runs.
-- [ ] T064 [US4] `application/TagAdministrationService.java` and tool `mcp/tools/ManageTagsTool.java`:
+- [X] T064 [US4] `application/TagAdministrationService.java` and tool `mcp/tools/ManageTagsTool.java`:
   - schemas `manage_tags.{input,output}.json`;
   - a missing scope gives `INVALID_INPUT` before any read (AS13);
-  - before a removal the backup is the tag list (T053), and nothing is sent if it fails;
+  - before a removal the backup is the tag list (T053), and nothing is sent if it fails (removed
+    after T055);
   - the result re-reads inside and outside the scope (AS14);
   - `removeTag`/`deleteTag` are offered only when their rows are `reachable`; the description
-    says so;
+    says so (both removed after T055, owner decision IMC-7: unknown actions);
   - destructive; announced when `anyWriteEnabled`.
   - lock key `node|OPERATION|tag:<tag>@<scope>` or `node|OPERATION|activeTag:<user>`; a second
     call on the same key gives `PRECONDITION_FAILED` (test);
   - Failing tests first: `TagAdministrationServiceTest.java` (AS12–AS14, backup failure → nothing
     sent), `ManageTagsToolTest.java`.
-- [ ] T065 [US4] Cross-cutting safety tests for the two tools:
+- [X] T065 [US4] Cross-cutting safety tests for the two tools:
   - `application/WriteRaceToolsTest.java` +2 (version change → refused, nothing sent);
   - new `application/ChangeToolsProductionRefusalTest.java`: a production refusal test for every
     action of every change tool, parameterized over `ActionCatalog` (SC-004); later stories add
     their tools to it;
   - a "write off" refusal test for every action, in the same class (SC-003);
   - `security/OperationSecretLeakTest.java`.
-- [ ] T066 [US4] Contracts, flips, docs and PR [BLOCKED: T054, T055]:
+- [X] T066 [US4] Contracts, flips, docs and PR [BLOCKED: T054, T055]:
   - `OperateV81ContractTest.java`, `TagAdminV81ContractTest.java`;
   - rows flipped, or `--tagRemove`/`--tagDelete` set to `excluded:acts on the whole owner` per
-    T055;
+    T055; `debug on|off` is already excluded (T054), no `setDebug` row is flipped;
+    `tag --tagDelete`, `tag --tagRemove` and `tag --tagRepositoryPath` are already excluded
+    (T055, owner decision IMC-7, research D-18), no `removeTag`/`deleteTag` row is flipped, and
+    `tag --tagSetActive`/`--tagRemoveActive` stay `planned` (not verified on the test node);
   - matrix, docs page;
   - `docs/tools.md` sections `operate_server`, `manage_tags`;
   - `docs/setup.md`: write enablement, `CLIENT` mode;
@@ -1041,6 +1055,24 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - `delivered-stories` + US4, with `waits` set on every US4 row still `planned`.
 
   Then open the US4 PR.
+
+### US4 9.0 follow-up (separate PR after the US4 PR, as for US1–US3)
+
+- [ ] T054a [LIVE-W] [OWNER] [US4] The approved T054 operate forms on the 9.0 test server, each
+  command approved:
+  - `maintenance -s`, `maintenance on -eq false`, `maintenance off`;
+  - `POST /ready/off`, `POST /ready/on`;
+  - `trace on`, `trace off`, `trace -l <level>`;
+  - `triggerMidnightTask`;
+  - `processdelete error` after a `find_processes` preview.
+
+  Into `fixtures/v9_0/{cli,rest}/admin-operate-*` with `.origin` and `V90Cases` entries.
+- [ ] T066a [US4] 9.0 contracts and flips (after T054a):
+  - `OperateV90ContractTest`;
+  - the `v9_0` column of the operate rows flipped to `reachable:operate_server/<action>`;
+  - `SERVER_OPERATION` removed from `V9_0_NOT_YET_VERIFIED`;
+  - the Versions line of `docs/tools.md` `operate_server`;
+  - `9.0-followup` removed from the `waits` of the operate rows.
 
 ## Phase 7: User Story 5 – Transfer and repair run-time data (P3)
 
@@ -1281,8 +1313,8 @@ fails (US6 AS1–AS17).
     development nodes and only for `WORKFLOW` and `MODULE` contents; other kinds are refused with
     the manifest path for a manual import. The node rules are unchanged.
   - Failing tests first: `AdministrationBackupsTest.java`, `RestoreBackupAdministrationTest.java`
-    (development node restores; a non-development node is refused as today; a tag list is
-    refused with its path).
+    (development node restores; a non-development node is refused as today; no tag list
+    exists any more, research D-15, T055).
 - [ ] T084 [US6] `application/ObjectAdministrationService.java`, objects area (`Area.OBJECTS`):
   - actions `deleteWorkflow`, `deleteModule` (with optional `version`), `deleteRepositoryPath`,
     `rename`, `importMetadata`, `startIsConnector`;
@@ -1534,7 +1566,8 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
 
 - [ ] T103 9.0 recordings for US2–US7 [LIVE] [OWNER] (after the 9.0 pin is renewed):
   - run the read checks of T028 and the approved write checks of T054, T055, T069, T079, T092 on
-    the 9.0 test server (US3 9.0: T039a, T046a, unless already done in the US3 follow-up PR);
+    the 9.0 test server (US3 9.0: T039a, T046a, unless already done in the US3 follow-up PR;
+    US4 9.0: T054a, T066a, unless already done in the US4 follow-up PR);
   - fixtures with `.origin`, catalogue entries;
   - `*V90ContractTest` per story;
   - the `v9_0` rows flipped.
@@ -1544,7 +1577,10 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
   fallback from research "Live checks" (L-19 and L-20: the rows `GET /process/metadata/{name}` and
   `GET /isconnector` become `excluded:cannot be built from the documentation: answer form not
   recordable` and `excluded:cannot be built from the documentation: authentication not documented`,
-  FR-002). Remove the backlog entry "Further read access to INUBIT" from `docs/backlog.md`.
+  FR-002; L-4 for the active-tag pair: without a node with active tagging, `setActiveTag` and
+  `removeActiveTag` are not offered and the rows `tag --tagSetActive` and `tag --tagRemoveActive`
+  become `excluded:` with an FR-002 reason). Remove the backlog entry "Further read access to
+  INUBIT" from `docs/backlog.md`.
 - [ ] T105 [P] `live/AdministrationLiveTest.java` (`@Tag("live")`, opt-in, refused for production
   groups):
   - reads of US1–US3;

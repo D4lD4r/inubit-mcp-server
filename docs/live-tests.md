@@ -81,6 +81,9 @@ Only non-production groups (e.g. development or test stages) may be used.
 | `live/QueueEntryLiveTest` (feature 020, T033) | runs only with `INUBIT_LIVE_QUEUE_ENTRY` (an existing ERROR entry) on a node whose group sets `unsupported.queueEntryRead: true`: `read_queue_entry` through the real MCP server with the production wiring; the entry's queue row has the same state, `startTime`, `fileSize` and `fileName` before and after (SC-004); data and variables are available; neither the captured log nor the result contains an original masked value or a known secret, and the log contains none of the returned values (SC-003). See [Queue entry read](#queue-entry-read-feature-020) | `POST /ibis/rest/log/queueLog?format=json` before and after (read-only queries); the version detection (`/system/info`); one run of the queue-entry helper, which logs in with the INUBIT client of the node's version (8.1: SOAP servlet, 9.0: REST) and downloads the entry's data and variables into a private temporary directory that is deleted afterwards (read-only); with `INUBIT_LIVE_RECORD_DIR` a second helper run for a fictitious file name |
 | `live/ServerLogLiveTest` (feature 021, T054) | runs only with `INUBIT_LIVE_LOG_FOLDER` (a private folder outside every repository): `download_server_log` with `log: trace` and, if the node's group sets `unsupported.serverLogRead: true`, with `log: webservice`, through the real MCP server with the production wiring; each result matches the output schema and its file lies in the folder with the reported size and `rw-------`; a trace download through a copy of the configuration with a closed loopback port fails and leaves no file in the folder; the captured log contains no excerpt line. See [Server log download](#server-log-download-feature-021) | the version detection (`/system/info`); StartCLI `trace --download '<private dir>/trace.log'` (downloads the trace log without switching the trace state); with the opt-in one run of the INUBIT client helper that downloads `webservice.log`; both into a private temporary directory that is deleted after the file was placed in the folder (read-only); the forced failure contacts only `127.0.0.1` |
 | `live/NodeToolsLiveTest` (feature 024, T067) | on a node whose group sets `unsupported.nodeStatusRead` and `unsupported.nodeConfigRead`: `list_cluster_nodes` through the real MCP server with the production wiring within 10 s (SC-001), naming the answering node among the listed ones, then with `nodeName` the details of that node; `get_node_config` with all 20 allowed names in list order; each result matches its output schema, and no detail or value contains a known secret. Only with `INUBIT_LIVE_IO_PROCESS` (and `unsupported.ioLogRead`): `read_io_log` lists that run and reads its first message, masked. Only with `INUBIT_LIVE_LOG_LEVEL=approved` (write access and `unsupported.logLevelWrite`): `set_temporary_log_level` for one logger at `INFO` for 1 minute, `get_health` shows the lease, the automatic reset within 2 minutes, the lease `RESET`, the audit records of the set and of the reset. See [Unsupported node tools](#unsupported-node-tools-feature-024) | the version detection (`/system/info`); runs of the INUBIT client helper that read the cluster's node list, the node details, the configuration values and the input/output logging (read-only); with the approval StartCLI `trace --nodelevel INFO --package 'com.inubit.ibis.cli'` and, at expiry, `trace --reset`, each after a helper lookup of the answering node |
+| `live/OperateServerReadsLiveTest` (feature 022, T054 read set) | runs only with `INUBIT_LIVE_T054_READS=approved` and `INUBIT_LIVE_RECORD_DIR`, on an INUBIT 8.1 node: the nine owner-approved reads R1–R9 of the live checks L-2 and L-3, each once, in order, their raw output recorded owner-only. See [Read set of L-2 and L-3](#read-set-of-l-2-and-l-3-t054) | the version read (`/system/info`) before R1; StartCLI `maintenance -s`, `maintenance`, `trace`, `trace --help`, `debug`, `debug --help`; `GET /ready`, `/system/info`, `/configurations` (read-only: nothing is switched) |
+| `live/OperateServerWritesLiveTest` (feature 022, T054 write set) | runs only with `INUBIT_LIVE_T054_WRITES` set to the full step list (or to W5–W10 alone, or to W11, W12 or W11,W12) and `INUBIT_LIVE_RECORD_DIR`, on an INUBIT 8.1 node whose profile enables writes, after the owner approved each command: the writes W1–W10 of the live checks L-2 and L-3, each once, in order, with the state read after each; stops at the first error or deviation and restores the baseline. The owner-gated W11 and W12 run alone, without restore; W12 also needs `INUBIT_LIVE_T054_ERROR_IDS` and deletes nothing if the ERROR set changed. See [Write set of L-2 and L-3](#write-set-of-l-2-and-l-3-t054) | the version read (`/system/info`); StartCLI `maintenance on -eq false`, `maintenance off`, `trace on`, `trace off`, `trace -l debug`, `trace -l info`, `debug on`, `debug off`; `POST /ready/off`, `POST /ready/on`; the state reads `maintenance -s`, `debug`, `GET /ready`, `GET /system/info`. **Changes the node** and brings it back to the baseline. W11: StartCLI `triggerMidnightTask` and `GET /configurations`; W12: StartCLI `processdelete error` (**deletes every process in state ERROR**, no undo) and the `find_processes` query `POST /ibis/rest/log/queueLog` |
+| `live/OperateServerDebugSessionLiveTest` (feature 022, T054 debug clarification) | runs only with `INUBIT_LIVE_T054_DEBUG_SESSION=approved` and `INUBIT_LIVE_RECORD_DIR`, on an INUBIT 8.1 node: one interactive StartCLI session with `debug`, `debug on`, `debug`, `debug off`, `debug`, `exit`, then one `debug` read in a new process, to tell whether `debug on|off` switches the session or the server; transcripts recorded owner-only. See [Debug session of L-3](#debug-session-of-l-3-t054) | the version read (`/system/info`); one StartCLI session `debug`, `debug on`, `debug`, `debug off`, `debug`, `exit`; StartCLI `debug`. Switches debug on and off within the session |
 
 Each test prints one summary line without secrets or business data to stderr, e.g.
 `[live] test/node1: version 8.1.17, status OK, maintenanceMode false, load 51.7% memory, unavailable [], 699 ms`
@@ -716,3 +719,460 @@ APPROVE test/node1 | trace on | change: server trace switches from off to on | u
   `specs/022-full-interface-coverage/quickstart.md`.
 - A [LIVE] task that only reads needs no undo. When the agent runs it, the operator's approval
   names the server, the command and the output folder below `~/inubit-mcp-recordings/022/`.
+
+### Read set of L-2 and L-3 (T054)
+
+`live/OperateServerReadsLiveTest` runs the read-only part of T054 that the owner approved as one
+set, on one non-production INUBIT 8.1 node, each read once and in this order:
+
+| Read | Command | Case files |
+|---|---|---|
+| R1 | StartCLI `maintenance -s` | `R1-maintenance-s.*` |
+| R2 | StartCLI `maintenance` | `R2-maintenance.*` |
+| R3 | `GET /ready` (without credentials, as `get_health`) | `R3-get-ready.*` |
+| R4 | StartCLI `trace` | `R4-trace.*` |
+| R5 | StartCLI `trace --help` | `R5-trace-help.*` |
+| R6 | StartCLI `debug` | `R6-debug.*` |
+| R7 | StartCLI `debug --help` | `R7-debug-help.*` |
+| R8 | `GET /system/info` | `R8-get-system-info.*` |
+| R9 | `GET /configurations` | `R9-get-configurations.*` |
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 INUBIT_LIVE_T054_READS=approved \
+  INUBIT_LIVE_RECORD_DIR=~/inubit-mcp-recordings/022 \
+  mvn verify -Plive -Dtest=OperateServerReadsLiveTest
+```
+
+- Without `INUBIT_LIVE_NODE`, `INUBIT_LIVE_T054_READS` or `INUBIT_LIVE_RECORD_DIR` the test is
+  skipped; `INUBIT_LIVE_T054_READS` other than `approved` fails. Production groups are refused as
+  for every live test. `INUBIT_LIVE_RECORD_DIR` is resolved and refused as for the
+  [queue entry recording](#recording-the-helper-output-inubit_live_record_dir).
+- The test creates `<INUBIT_LIVE_RECORD_DIR>/T054/` owner-only (`rwx------`) and fails, before
+  anything is contacted, if it exists: move an earlier recording away first.
+- Before R1 it reads the node's version from `/system/info` as the version detection does; a node
+  that is not INUBIT 8.1, or a failed read, fails the test and nothing else runs.
+- The StartCLI reads run through the production StartCLI runner: the client chosen for the
+  detected 8.1 version, the allowlisted environment, the password on stdin (never an argument,
+  never recorded), the node's `cliTimeout` and trust store. R1 and R2 are the production command
+  forms; `trace`, `trace --help`, `debug` and `debug --help` are deliberately not in the
+  allowlist of the tools and are built for this test only. The REST reads use the production
+  REST client of the node (base URL, trust store or pin, credentials from the credential store)
+  and record any status.
+- Per read, owner-only (`rw-------`): StartCLI `<R#>-<slug>.stdout`, `.stderr` and `.exit`; REST
+  `<R#>-<slug>.status` and `.body`; a read that ended in an error (with or without output) also
+  `<R#>-<slug>.error` with the error code. A read that ended in an error is not retried; the test
+  fails at the end naming the reads and codes.
+- The console shows one line per read with the exit code or status and byte counts only, e.g.
+  `[live] T054 R5 trace --help on test/node1: exit 0, stdout 812 bytes, stderr 0 bytes`. The case
+  files hold **raw server output**, R9 the configuration values: neutralize them as above before
+  anything is copied into the repository, and delete them afterwards.
+
+### Write set of L-2 and L-3 (T054)
+
+`live/OperateServerWritesLiveTest` runs the write part of T054 on one non-production INUBIT 8.1
+node whose profile enables writes. The tool `operate_server` still refuses 8.1 until T066 flips
+the coverage rows, so the test sends the commands raw: the StartCLI writes are the production
+command forms through the production StartCLI runner with a write permit, `POST /ready/on|off` is
+the production write request of the REST client. `debug on|off` (W9, W10, and the restore
+`debug off`) is excluded from `operate_server` since T054 and is built for this test only. Each
+step runs once, in this order:
+
+| Step | Command | Expected after-state | Case files |
+|---|---|---|---|
+| W1 | StartCLI `maintenance on -eq false` | maintenance on | `W1-maintenance-on-eq-false.*` |
+| W2a | `GET /ready` (while maintenance is on) | recorded only | `W2a-get-ready.*` |
+| W2b | `POST /ready/off` (2xx or 503, see below) | not READY, with another message than at W2a | `W2b-post-ready-off.*` |
+| W3 | StartCLI `maintenance off` | maintenance off | `W3-maintenance-off.*` |
+| W2u | `POST /ready/on`, only if `GET /ready` is not READY after W3 (expected: run 1 showed the readiness stays off after `maintenance off`) | READY | `W2u-post-ready-on.*` |
+| W4 | `POST /ready/off` | not READY | `W4-post-ready-off.*` |
+| W5 | `POST /ready/on` | READY | `W5-post-ready-on.*` |
+| W6 | StartCLI `trace on` | trace on, level info (no change) | `W6-trace-on.*` |
+| W7 | StartCLI `trace off` | trace off | `W7-trace-off.*` |
+| W7b | StartCLI `trace on` | trace on | `W7b-trace-on.*` |
+| W8 | StartCLI `trace -l debug` | level debug | `W8-trace-l-debug.*` |
+| W8b | StartCLI `trace -l info` | level info | `W8b-trace-l-info.*` |
+| W9 | StartCLI `debug on` | debug on | `W9-debug-on.*` |
+| W10 | StartCLI `debug off` | debug off | `W10-debug-off.*` |
+
+The state is read with the reads of the read set: maintenance with `maintenance -s` (R1, answer
+`on` or `off`), readiness with `GET /ready` (R3: 200 with status `READY` is READY, 503 is not
+READY), trace and level with `GET /system/info` (R8: `TracingIsActive`, `TracingLevel`), debug
+with `debug` (R6: `Debug mode is currently on.` or `off.`). Any other answer is "unknown".
+
+W2b is the one step that also counts an HTTP 503. In run 1 (INUBIT 8.1.17) INUBIT answered
+`POST /ready/off` during maintenance in a way the client reported as `UNREACHABLE`, yet the switch
+took effect: `GET /ready` then answered 503 `No Service.` instead of the maintenance message
+`No Service - Maintenance mode active.` seen at W2a, and stayed so after `maintenance off` until
+`POST /ready/on`. The write request as the test sends it accepts no other status than 2xx (since
+T054 `operate_server` accepts this 503, research D-22), so the test reads
+an answered 503 from the client's error (its `UNREACHABLE` whose likely cause is the 503); a
+connection failure or any other error stays a step error. W2b counts as done if it was answered
+with 2xx or 503 and `GET /ready` afterwards is not READY with a `message` other than the one W2a
+saw; otherwise (503 or 2xx without that effect) it is a deviation and the sequence stops and
+restores as below. `W2b-post-ready-off.state` notes the case: `answer 2xx` or `answer 503`, and
+`message changed: yes` or `no`. The messages themselves are only compared, never shown. W4, W5,
+W2u and the restore count a 2xx only.
+
+Before the run the owner approves each raw command in the chat with one `APPROVE` line (see
+[Approval of a [LIVE-W] command](#approval-of-a-live-w-command)), one line per row of the table,
+on the node of the run. `INUBIT_LIVE_T054_WRITES` is the operator's statement that all of them are
+approved:
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
+  INUBIT_LIVE_T054_WRITES=W1,W2a,W2b,W3,W2u,W4,W5,W6,W7,W7b,W8,W8b,W9,W10 \
+  INUBIT_LIVE_RECORD_DIR=~/inubit-mcp-recordings/022 \
+  mvn verify -Plive -Dtest=OperateServerWritesLiveTest
+```
+
+The owner may instead approve W5–W10 alone (runs 1 and 2 covered W1 to W2u; W4 stopped run 2).
+`INUBIT_LIVE_T054_WRITES=W5,W6,W7,W7b,W8,W8b,W9,W10` then runs only these steps, from the same
+baseline and with the same checks, stop, restore and final check. W5 then finds the node READY
+and must leave it READY (no change); its answer is recorded and it counts a 2xx only. The restore
+sends only commands of this list (`POST /ready/on`, `trace on`, `trace -l info`, `debug off`).
+`maintenance off` is not one of them: if the restore finds maintenance on or unknown, it does not
+send it but reports `DEVIATION maintenance on not restored: ...` among the restore commands, and
+the owner must switch maintenance off. Run 3, for example:
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
+  INUBIT_LIVE_T054_WRITES=W5,W6,W7,W7b,W8,W8b,W9,W10 INUBIT_LIVE_T054_RUN=3 \
+  INUBIT_LIVE_RECORD_DIR=~/inubit-mcp-recordings/022 \
+  mvn verify -Plive -Dtest=OperateServerWritesLiveTest
+```
+
+The owner-gated writes W11 and W12 (Jira IMC-10) run only as their own list,
+`INUBIT_LIVE_T054_WRITES=W11`, `W12` or `W11,W12` (in this order), never together with the steps
+above. Neither has an undo, so nothing is restored. No baseline is required beyond the 8.1 gate:
+the full state is read before (`B0-*`) and after (`B1-*`) as information only and never fails the
+test. Each runs once, not retried; if W11 fails, W12 does not run.
+
+| Step | Command | Before and after | Case files |
+|---|---|---|---|
+| W11 | StartCLI `triggerMidnightTask` (runs the midnight task now), only with its own `APPROVE` line | `MidnightTaskTriggerTime` read from `GET /configurations` (R9) before and after; recorded, not judged | `W11-before-R9-get-configurations.*`, `W11-trigger-midnight-task.*`, `W11-after-R9-get-configurations.*` |
+| W12 | StartCLI `processdelete error` (deletes **every** process in state ERROR on the node) | the ERROR set read before and after | `W12-before-find-processes-error.*`, `W12-processdelete-error.*`, `W12-after-find-processes-error.*` |
+
+- W11 is done with exit 0; any other exit code or error is a step error. Of the
+  `/configurations` answer only `MidnightTaskTriggerTime` is read (a timestamp such as
+  `Sat Oct 31 00:00:00 CET 2026`); the body goes to the owner-only `.body` file only, as for the
+  read set. `W11-trigger-midnight-task.state` holds `MidnightTaskTriggerTime before <time>; after
+  <time>` (`unknown` if not shown).
+- W12 needs `INUBIT_LIVE_T054_ERROR_IDS`: the ids of the processes in state ERROR the owner saw
+  in the preview (`find_processes` with `states=[ERROR]`, ids and count) and approved,
+  comma-separated, or `none` for an empty set. Without it, or with an id listed twice or anything
+  that is not a process id, the test fails before anything is contacted.
+- W12 reads the ERROR set through the production 8.1 process query of `find_processes`
+  (`states=[ERROR]`, pages of 100 within its window of 10000 rows) and takes the distinct process
+  ids. The total counts rows (a process with sub-workflows has several rows with its id), so every
+  page must report the same total and the rows of all pages together must be exactly that total;
+  otherwise the set counts as not read whole. Only if the ids are exactly the approved ids does it
+  run `processdelete error`, once. If the set changed, it does not delete: it records the current
+  ids and count and fails with `ERROR set changed: approved <n>, now <m>; new preview needed`; the
+  owner then sees a new preview and approves again. A set that cannot be read whole is not
+  deleted either. An approved `none` with an empty set is recorded as `nothing to delete` and
+  `processdelete error` is not run.
+- `processdelete error` has no id filter: it deletes every process in ERROR when it runs. A
+  process that enters ERROR between the `W12-before` read and the command is deleted too, and the
+  read after the command cannot show it. INUBIT 8.1.17 answers
+  `Process with status [error] has been deleted.` without a number (run 4), so the test records
+  no deleted count and judges the deletion by the ERROR set read afterwards.
+- After `processdelete error` the ERROR set is read again. An approved id still in ERROR is a
+  deviation; ids in ERROR after the command (they entered ERROR after it ran) are reported
+  (`new in ERROR after the delete`), and the test does not delete them. `W12-processdelete-error.state`
+  holds the before ids and count and the after ids and count; each read writes
+  its ids to `<label>-find-processes-error.ids`.
+- The console shows the trigger times and the process ids with their count,
+  besides exit codes, statuses and byte counts; never output.
+
+Run 4, for example (W12 with the ids the owner approved):
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
+  INUBIT_LIVE_T054_WRITES=W11,W12 INUBIT_LIVE_T054_ERROR_IDS=1001,1002 INUBIT_LIVE_T054_RUN=4 \
+  INUBIT_LIVE_RECORD_DIR=~/inubit-mcp-recordings/022 \
+  mvn verify -Plive -Dtest=OperateServerWritesLiveTest
+```
+
+- Without `INUBIT_LIVE_NODE`, `INUBIT_LIVE_T054_WRITES` or `INUBIT_LIVE_RECORD_DIR` the test is
+  skipped. `INUBIT_LIVE_T054_WRITES` must list exactly the steps above, or exactly W5–W10, or
+  exactly W11, W12 or W11,W12, in this order; anything else (another subset, another order) fails
+  before anything is contacted. Production groups are refused as for every live test,
+  and so is a node whose profile does not enable writes (`write.enabled`).
+- The test creates `<INUBIT_LIVE_RECORD_DIR>/T054-writes/` owner-only (`rwx------`) and fails,
+  before anything is contacted, if it exists. The read set's `T054/` is not touched. A later run
+  sets `INUBIT_LIVE_T054_RUN=<n>` (a number from 2) and records in `T054-writes-<n>/` instead
+  (run 2: `T054-writes-2/`, run 3: `T054-writes-3/`), refused in the same way if it exists; the earlier recording stays as
+  it is. Any other value fails before anything is contacted.
+- Before W1 it reads the node's version from `/system/info`; a node that is not INUBIT 8.1, or a
+  failed read, fails the test and nothing else runs.
+- Baseline: maintenance off, READY, trace on at level info, debug off. The test reads it first
+  (`B0-*`); if it does not hold, the test fails and nothing is written. The same baseline holds
+  for W5–W10 alone. W11 and W12 read it as information only (see above); the stop, restore and
+  final check below apply to the other lists.
+- After each step it reads the properties of the step's expected after-state (`<step>-after-*`)
+  and writes `<step>-<slug>.state` with the before, after and expected state. Before W2u it reads
+  `GET /ready` (`W2u-check-*`); if that is READY, W2u is recorded as not needed.
+- No step is retried. At the first error (an error code, or a StartCLI exit code other than 0) or
+  deviation from the expected after-state, the sequence stops. The test then reads maintenance
+  (`X1-*`) and, after restoring it, the other properties (`X2-*`), and runs for each property
+  that is not at the baseline, or unknown, its restore command once: `maintenance off`,
+  `POST /ready/on`, `trace on`, `trace -l info`, `debug off` (`restore-<slug>.*`), each only if
+  it is a command of the approved list (see W5–W10 above). A restore command can be the same command as the failed step (e.g. `maintenance off` after W3 timed out); it is still sent at most once. Nothing
+  outside the table runs. The test then fails naming the step, its code and the restore commands.
+- At the end it reads the full state again (`B1-*`) and fails if the baseline does not hold. If
+  that read itself fails, the end state counts as unknown, and the test still fails naming the
+  stop and the restore commands.
+- Per command, owner-only (`rw-------`): StartCLI `.stdout`, `.stderr` and `.exit`; REST
+  `.status` and `.body`; a command that ended in an error also `.error` with the code. A
+  `POST /ready/on|off` answered with 503 has `.error`, `.status` (`503`) and, if the client kept
+  one, `.excerpt` (its scrubbed excerpt of the body) instead of `.body`. The
+  password goes to StartCLI on stdin, never as an argument, and is never recorded.
+- The console shows one line per command with the exit code or status and byte counts, and one
+  line per state read with the derived states only, e.g.
+  `[live] T054 W1-after state on test/node1: maintenance on`. Neutralize the case files as above
+  before anything is copied into the repository, and delete them afterwards.
+
+### Debug session of L-3 (T054)
+
+In write run 3 on 8.1.17 `debug on` (W7, one StartCLI process per command) exited 0 without
+text, and the next process's `debug` still read `Debug mode is currently off.` The vendor's
+online help describes `debug {on|off}` as the trace switch of the interactive CLI mode, i.e. of
+the client session, while research.md takes it as a server switch.
+`live/OperateServerDebugSessionLiveTest` records the evidence on one non-production INUBIT 8.1
+node, after the owner approved it:
+
+| Case | Command | Case files |
+|---|---|---|
+| S1 | one interactive StartCLI session: `debug`, `debug on`, `debug`, `debug off`, `debug`, `exit` | `S1-debug-session.*` |
+| R6 | StartCLI `debug` in a new process, after the session | `R6-debug.*` |
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 INUBIT_LIVE_T054_DEBUG_SESSION=approved \
+  INUBIT_LIVE_RECORD_DIR=~/inubit-mcp-recordings/022 \
+  mvn verify -Plive -Dtest=OperateServerDebugSessionLiveTest
+```
+
+- Without `INUBIT_LIVE_NODE`, `INUBIT_LIVE_T054_DEBUG_SESSION` or `INUBIT_LIVE_RECORD_DIR` the
+  test is skipped; `INUBIT_LIVE_T054_DEBUG_SESSION` other than `approved` fails before anything
+  is contacted. Production groups are refused as for every live test.
+- The test creates `<INUBIT_LIVE_RECORD_DIR>/T054-debug-session/` owner-only (`rwx------`) after
+  the 8.1 check and fails, before anything is contacted, if it exists. `T054/` and
+  `T054-writes*/` are not touched.
+- Before the session it reads the node's version from `/system/info`; a node that is not
+  INUBIT 8.1 fails the test and nothing else runs.
+- The session runs once on the production session path (as `get_server_settings` on 8.1): the
+  client chosen for the detected version, the password on stdin (never an argument, never
+  recorded), the node's `cliTimeout` and trust store. `debug` and `debug on|off` are not session
+  commands of any tool; they are built for this test only. Nothing is retried. If the session
+  ends in an error or its login fails, R6 is not sent and the test fails naming the code. A session that ends with a non-zero exit code (without an error code or a failed login) is only recorded; R6 still runs.
+- Owner-only (`rw-------`): `S1-debug-session.stdout` (the raw transcript), `.stderr`, `.exit`,
+  `R6-debug.*` as in the read set, and `debug-states.state` with the derived states.
+- The test records, it does not assert what INUBIT answers: it passes when the session and R6
+  ran. The console shows per run the exit code and byte counts, and one line with the states of
+  the three `debug` reads in the session and of R6 (`on`, `off`, or `unknown` for any other
+  answer), e.g.
+  `[live] T054 debug states on test/node1: in session: off → on → off; after session: off`. R6
+  shows the state a new StartCLI process reads after the session. Neutralize the case files as
+  above before anything is copied into the repository, and delete them afterwards.
+
+Result on 8.1.17: `in session: off → off → off; after session: off`. `debug on|off` has no
+observable server effect; the owner excluded it from `operate_server` (2026-11-18, research D-22).
+
+### Tags of L-4 (T055)
+
+`live/ManageTagsLiveTest` runs the tag check L-4 (research D-18) on one non-production INUBIT 8.1
+development node whose profile enables writes (`write.enabled`, `development.enabled`) and sets
+`inventory.owner`. The tool `manage_tags` still refuses 8.1 until T066 flips the coverage rows, so
+the test sends the commands raw: `tag --tagMove` through the runner of `tag_artifacts`, the
+active-tag forms through the runner of `manage_tags`, the reads through the history export and the
+export by the tag. The removals have no production form since tag removal was excluded after the
+check (research D-18, owner decision IMC-7): they are built for this test only and judged as the
+runner of `manage_tags` judges a tag form. W13, W14 and W16 of the first list (group forms 8.1.17
+refused in run 2: `--tagRemove` in a group, `--tagDelete` without `--tagUser`) are built for this
+test only too; the folder read is the allow-listed candidate form of D-18 without a production
+runner and is recorded only.
+
+There are three approved step lists. The first (`S1,…,W18`) starts from a tag on nothing; it ran
+twice and is not run again (a re-run would need a fresh approval: its cleanup now sends
+`--tagUser`): in run 2, 8.1.17 refused W13 and the cleanup's `--tagDelete` without
+`--tagUser` (research D-18), so the test tag stayed on both test groups. The second
+(`W15,X1,X2,W17,W18`, [below](#from-the-tagged-state-run-3)) starts from that state; in run 3
+X1 deleted the tag owner-wide, so W17 found no tag. The third (`S1,W17,W18,X1`,
+[below](#the-active-tag-pair-run-4)) starts from a tag on nothing again and sends the active-tag
+pair while g1 carries the tag.
+
+Inputs (all required, checked before anything is contacted; values are never printed):
+
+| Variable | Value |
+|---|---|
+| `INUBIT_LIVE_T055_STEPS` | exactly `S1,W17,W18,X1` (or `W15,X1,X2,W17,W18`, or the first list `S1,S2,W13,S3,W14,S4,W15,W16,W17,W18`), the operator's statement that the owner approved every command of that list and the cleanup |
+| `INUBIT_LIVE_T055_TAG` | first and third list: a test tag on nothing, e.g. `l4-test` (run 3 deleted it); second list: the tag run 2 left on the two groups; B0 checks only what its reads see |
+| `INUBIT_LIVE_T055_GROUPS` | `<g1>,<g2>`: two technical diagram groups of the inventory owner with at least one workflow each (test objects of the operator) |
+| `INUBIT_LIVE_T055_REPOSITORY_PATH` | `derived`, or the folder W15 must use: strictly below the owner's repository root `/Root/<owner>/` (see W15) |
+| `INUBIT_LIVE_T055_USER` | `login` (the StartCLI login of the node's credentials) or a login name: the user of W17/W18 |
+| `INUBIT_LIVE_RECORD_DIR` | the private recording folder, as for T054 |
+| `INUBIT_LIVE_T055_RUN` | optional run number from 2 (`T055-<n>/`) |
+
+Each step of the first list runs once, in this order (`<tag>`, `<g1>`, `<g2>`, `<owner>`, `<user>`,
+`<folder>` as above). After every group step the round is read: the history export of g1 and of g2 (`H1`,
+`H2`, the versions carrying the tag), the owner's export by the tag (`T`: groups, number of
+tagged versions, repository files carrying the tag) and, once W15 has a folder, the folder export
+(`P`). After W17 and W18 the user is read (`A`).
+
+| Step | Command | Question | Read after |
+|---|---|---|---|
+| B0 | reads only | the tag is on nothing the reads see (the two groups and the owner's export by the tag; repository files only through that export), each group has a workflow, the user has no active tag; else nothing is written | — |
+| S1 | `tag --tagMove '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical' --tagUser '<owner>'` | g1 must carry the tag | H1, H2, T |
+| S2 | the same for `<g2>` | g2 must carry the tag | H1, H2, T |
+| W13 | `tag --tagRemove '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical'` (test-only form) | does g2 keep it? which repository files lost it? | H1, H2, T |
+| S3 | as S1 | g1 must carry the tag | H1, H2, T |
+| W14 | `tag --tagDelete '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical'` (test-only form) | does g2 keep it? | H1, H2, T |
+| S4 | as S1, always (W15 needs the tagged repository files, W16 a tagged g1) | g1 must carry the tag | H1, H2, T |
+| W15 | `tag --tagRemove '<tag>' --tagRepositoryPath '<folder>'` | do the folder's files lose it, does g2 keep it? | `W15-before-P`, then H1, H2, T, P |
+| W16 | `tag --tagRemove '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical' --tagUser '<owner>'` (test-only form) | accepted? effect on g2? | H1, H2, T, P |
+| W17 | `tag --tagSetActive '<tag>' --tagUser '<user>'` | the active-tag row of `user '<user>'` | A |
+| W18 | `tag --tagRemoveActive --tagUser '<user>'` | the row is gone | A |
+
+- W15's folder comes from the read `T` right before it (after S4): the folders of the repository
+  files carrying the tag, and of them only those strictly below the owner's repository root
+  `/Root/<owner>/`. W15 never acts on the owner root itself or on another owner's folder, which
+  other objects may share. With `derived` it is the deepest such folder (the first in path order
+  among equally deep ones); a stated folder must be one of them, else the sequence stops before
+  W15 (a stated folder that is not below the owner root fails already before contact). If no
+  repository file carries the tag, or none lies in such a folder, W15 is recorded as `not
+  applicable: …` and nothing is sent. `W15-folder.state` and its console line name the folder
+  relative to the owner root (e.g. `folder ~/xsd (derived: …)`) and how it was chosen, or why
+  W15 did not run; the owner sees it before the cleanup.
+- The folder read `export --exportRepositoryPath '<folder>' --exportTag '<tag>' --exportFile
+  '<task folder>/<stem>.zip'` writes its archive into the owner-only task folder (made
+  `rw-------`); the archive is deleted once its values are derived, also if that fails. The
+  folder of `INUBIT_LIVE_RECORD_DIR` must be a path StartCLI can take, else the test fails before
+  contact. Its outcome never stops the sequence: an error, an unreadable archive or a failure to
+  record it is `unknown`.
+- No step is retried. A step stops the sequence when it ends in an error (an error code, e.g.
+  `IMPORT_FAILED` for a tag form StartCLI did not complete), when a read `H1`, `H2` or `T` of its
+  round ends in an error, or when S1–S4 leave their group without a tagged version
+  (`DEVIATION`). W13, W14 and W16 (the test-only forms) and W17, W18 count INUBIT's refusal (a
+  completed StartCLI run with an exit code other than 0 or an `n-NOK` message; for W17/W18 an
+  answer the classifier does not recognize, `UNEXPECTED_RESPONSE`, of a run that exited with
+  output below the bound and shows no failed login) as their answer, noted as e.g. `W16 refused
+  by INUBIT (...)`. For W17 and W18 the note holds `exit <n>` (`n-NOK` for exit 0) and INUBIT's
+  output lines joined by ` / ` (no log records), the inputs masked in any case as `<tag>`,
+  `<g1>`, `<g2>`, `<owner>`, `<user>`, e.g. `exit 1: EXECUTION ERROR / Internal INUBIT error! /
+  TagNameWasNotFound`. A timeout, a login or connection failure (`Login to the server failed.`,
+  a `LoginFailed`/`LoginFailure` marker) or cut output stays an error and stops.
+- Cleanup, after the last step or the stop, each command at most once and only these, C4 first
+  (the active tag goes before the tag, as W18 before X1), then C1, C2, C3: C1
+  `tag --tagDelete '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical' --tagUser
+  '<owner>'` and C2 the same for `<g2>` (the `manage_tags` form; 8.1.17 refuses `--tagDelete`
+  without `--tagUser` with `Missing user name.`), if the latest round shows the group carrying the tag, names it in `T` or could
+  not read it; C3 `tag --tagRemove '<tag>' --tagRepositoryPath '<folder>'` if W15 had a folder and
+  the latest round shows a file there carrying the tag or could not read it; C4
+  `tag --tagRemoveActive --tagUser '<user>'` if W17 was sent and the latest read of the active
+  tag is not `none` (the test tag, another tag, an unrecognized answer, or unknown: an error
+  before the read). A cleanup
+  command may be the same command as the failed step; it is still sent once. If a step ends in
+  an exception after it may have been sent, every part counts as unknown, so C1 and C2 (and C3,
+  C4 as above) run. Then round `V` (H1, H2, T, and `A` if W17 was sent) checks that nothing
+  carries the tag, and the folder export by the tag (`V-F<n>-P`, read-only) checks every folder
+  in which a read of the run showed a file carrying the tag, the W15 folder included. Repository
+  files are seen only through `T` (while a group carries the tag) and the folder reads, so a file
+  tagged through a group in a folder no read showed stays unchecked.
+- The test fails if the sequence stopped or `V` shows the tag (or cannot read a group or `T`),
+  or a folder read in `V` shows a file carrying it, naming the step, its code, the cleanup
+  commands and what remains for the owner to remove. An unreadable folder export in `V` is a note
+  (`not verified`), not a failure.
+- Per command, owner-only (`rw-------`): `.stdout`, `.stderr`, `.exit` and, after an error,
+  `.error`; per history export also `<stem>.versionHistory.xml`; per step and round `.state` with
+  the derived values (`V-F<n>.state` per folder checked in `V`). The export by the tag holds whole
+  workflows and module configurations and is not kept, nor is the folder export's archive; only
+  their derived values are.
+- The console shows per command the id, exit code and byte counts, and per step and round what
+  the reads derive: the groups only as `g1` and `g2` (others as a count), the names and versions
+  of the workflows and modules carrying the test tag, the repository files carrying it relative
+  to the owner root (`~/xsd/release.xsl`; another owner's as `/Root/<other>/…`), counts, and the
+  active
+  tag as `none`, `the test tag`, `another tag` or `unrecognized answer` (then
+  `<id>-A-user.state` and its line name the answer's row labels, never a value, e.g.
+  `unrecognized answer, rows: User name, User group, Super group, Active Tag`; the answer itself
+  is in `.stdout`), e.g.
+  `[live] T055 W13-tag-remove-g1: answer done; before: g1 1 workflow, 1 tagged: workflow
+  Workflow-0001 v3; …`. Neutralize the case files as above before anything is copied into the
+  repository, and delete them afterwards.
+
+#### From the tagged state (run 3)
+
+The second list starts from the state run 2 left. B0 (H1, H2, T, A) must show: both groups hold
+a workflow and carry the tag, the owner's export by the tag names exactly g1 and g2 (no other
+group), and the user has no active tag; else nothing is written. Every command was a production
+form of `manage_tags` in run 3 (X1, X2 the former `deleteTag` form in a group with its owner).
+
+| Step | Command | Question | Read after |
+|---|---|---|---|
+| W15 | `tag --tagRemove '<tag>' --tagRepositoryPath '<folder>'`, folder from B0's `T` as above; not applicable (nothing sent) if no repository file carries the tag | do the folder's files lose it, do g1 and g2 keep it? | `W15-before-P`, then H1, H2, T, P |
+| X1 | `tag --tagDelete '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical' --tagUser '<owner>'` | is g1 clear? does g2 keep it, also on the modules it shares with g1 (the L-4 scope question)? | H1, H2, T (P once W15 had a folder) |
+| X2 | the same for `<g2>`, only if the round after X1 shows g2 carrying the tag (or names it in `T`); else `not needed`, nothing sent | is g2 clear? | H1, H2, T (P) |
+| W17 | `tag --tagSetActive '<tag>' --tagUser '<user>'` | the active-tag row of `user '<user>'` | A |
+| W18 | `tag --tagRemoveActive --tagUser '<user>'` | the row is gone | A |
+
+- W15 runs first: `--tagDelete` may take the tag from repository files too, and `T` shows them
+  only while a group carries the tag. Run 2's `T` showed no repository file with the tag, so W15
+  is most likely `not applicable`.
+- After a failed X1 (an error such as a timeout), C1 sends X1's form once more; that second send
+  is the cleanup, not a retry.
+- X1 and X2 have no expected outcome: their rounds and `.state` files are the answer, and a
+  group still carrying the tag afterwards is cleaned by C1/C2. A stop, the cleanup (C1/C2 as
+  above, C3 and C4 as above), `V` and the failure rules are those of the first list. A stop
+  before X1 also runs C1 and C2, since both groups carry the tag from the start.
+
+Before the run the owner approves each command of the list and of the cleanup in the chat with
+one `APPROVE` line (see [Approval of a [LIVE-W] command](#approval-of-a-live-w-command)):
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
+  INUBIT_LIVE_T055_STEPS=W15,X1,X2,W17,W18 INUBIT_LIVE_T055_RUN=3 \
+  INUBIT_LIVE_T055_TAG=l4-test INUBIT_LIVE_T055_GROUPS=GRP-T1,GRP-T2 \
+  INUBIT_LIVE_T055_REPOSITORY_PATH=derived INUBIT_LIVE_T055_USER=login \
+  INUBIT_LIVE_RECORD_DIR=~/inubit-mcp-recordings/022 \
+  mvn verify -Plive -Dtest=ManageTagsLiveTest
+```
+
+- Without `INUBIT_LIVE_NODE`, `INUBIT_LIVE_T055_STEPS` or `INUBIT_LIVE_RECORD_DIR` the test is
+  skipped; any step list other than the three fails before contact, and so does a missing or
+  invalid input, a node without write or development enablement or without `inventory.owner`. Production groups
+  are refused as for every live test. The test creates `<INUBIT_LIVE_RECORD_DIR>/T055/`
+  owner-only after the 8.1 check and fails, before contact, if it exists.
+- The history exports are those `tag_artifacts` and the `manage_tags` preview send for a group;
+  they run only in the two test groups.
+
+#### The active-tag pair (run 4)
+
+The third list starts from a tag on nothing, as the first: B0 (H1, H2, T, A) must show that the
+tag is on nothing the reads see, that both groups hold a workflow and that the user has no
+active tag; else nothing is written. Every command was a production form in run 4 (X1 the former
+`deleteTag` form); g2 is only read. The owner said active tagging is not enabled on the test node,
+so W17 and W18 may be refused or have no effect: that is the answer to record.
+
+| Step | Command | Question | Read after |
+|---|---|---|---|
+| S1 | `tag --tagMove '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical' --tagUser '<owner>'` (the `tag_artifacts` form) | g1 must carry the tag | H1, H2, T |
+| W17 | `tag --tagSetActive '<tag>' --tagUser '<user>'` | accepted or refused (INUBIT's message)? does `user '<user>'` show an `Active tag` row, in which form? | A |
+| W18 | `tag --tagRemoveActive --tagUser '<user>'` | accepted or refused? is the row gone? | A |
+| X1 | `tag --tagDelete '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical' --tagUser '<owner>'` (the former `deleteTag` form) | the tag is gone (owner-wide, run 3) | H1, H2, T |
+
+- INUBIT's refusal of W17 or W18 is recorded as the answer (above), never a stop, so X1 runs
+  after them. An error of W17/W18 (e.g. a timeout) or an unknown read stops; the cleanup then
+  sends X1's form as C1.
+- Cleanup, each at most once: C4 as above first, then C1 (X1's form) if the latest round shows
+  the tag anywhere (g1, g2 or `T`) or could not read it, since `--tagDelete` acts owner-wide
+  (run 3). C2 and C3 are not part of this list. Then `V` as above; it fails loudly if anything remains.
+- The owner approves S1, W17, W18, X1, C1 and C4 with one `APPROVE` line.
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
+  INUBIT_LIVE_T055_STEPS=S1,W17,W18,X1 INUBIT_LIVE_T055_RUN=4 \
+  INUBIT_LIVE_T055_TAG=l4-test INUBIT_LIVE_T055_GROUPS=GRP-T1,GRP-T2 \
+  INUBIT_LIVE_T055_REPOSITORY_PATH=derived INUBIT_LIVE_T055_USER=login \
+  INUBIT_LIVE_RECORD_DIR=~/inubit-mcp-recordings/022 \
+  mvn verify -Plive -Dtest=ManageTagsLiveTest
+```

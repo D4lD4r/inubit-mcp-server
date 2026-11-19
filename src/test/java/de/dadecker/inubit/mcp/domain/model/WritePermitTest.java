@@ -31,13 +31,17 @@ class WritePermitTest {
         assertThat(permit.admitted()).isEqualTo(V9_0_7);
     }
 
-    /** Feature 024 (T004, D-4): changing temporary log levels is the fifth. */
+    /**
+     * Feature 024 (T004, D-4): changing temporary log levels is the fifth; feature 022 (T058):
+     * operating the server the sixth, managing tags (T063) the seventh.
+     */
     @Test
-    void theWriteCapabilitiesAreExactlyTheFiveOfKindWrite() {
+    void theWriteCapabilitiesAreExactlyTheSevenOfKindWrite() {
         assertThat(Arrays.stream(Capability.values())
             .filter(capability -> capability.kind() == Capability.Kind.WRITE))
             .containsExactlyInAnyOrder(Capability.DEVELOPMENT_WRITE, Capability.DEPLOYMENT,
-                Capability.E2E_TEST, Capability.PROCESS_CONTROL, Capability.LOG_LEVEL_WRITE);
+                Capability.E2E_TEST, Capability.PROCESS_CONTROL, Capability.LOG_LEVEL_WRITE,
+                Capability.SERVER_OPERATION, Capability.TAG_ADMINISTRATION);
     }
 
     @ParameterizedTest

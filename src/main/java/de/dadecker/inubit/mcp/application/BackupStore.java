@@ -45,8 +45,11 @@ import java.util.stream.Stream;
  *   <li>the ZIPs are written first and the manifest last, so a manifest names a complete backup;
  *       an audit id is written once; {@link #update} rewrites only the manifest (atomically,
  *       through a new private temporary file moved into place, which keeps its access);
+ *   <li>an administration change (feature 022, research D-15) is backed up as the export of the
+ *       object, scoped by node, object kind and name;
  *   <li>{@link #sweep} removes backups taken more than {@link #RETENTION} ago, except the newest
- *       of each {@code (node, owner, scope)} (clarification 3), and returns what it removed for
+ *       of each {@code (node, owner, scope)} (clarification 3; for an administration backup its
+ *       node, object kind and name), and returns what it removed for
  *       the audit log ({@code backup_retention}). A manifest that cannot be read is never
  *       removed automatically, nor is one whose audit id differs from its file name or that
  *       names a file other than {@code <auditId>-<n>.zip} (counted in {@link Sweep#skipped}).
@@ -76,22 +79,36 @@ public final class BackupStore {
      *                      {@code repository:<path>} ({@link #repositoryState})
      * @param outcome       e.g. {@code PENDING}, {@code EXECUTED}, {@code FAILED}
      * @param takenAt       when the backup was taken
-     * @param zips          the file names of the raw exports, in export order (set by
-     *                      {@link #write})
+     * @param zips          the file names of the backup's contents, in export order (set by
+     *                      {@link #write}): raw exports {@code <auditId>-<n>.zip}
      * @param repositoryPaths the repository files the backup holds exports of (deployments;
      *                      imports since feature 008, research D-8; empty in older manifests)
+     * @param objectKind    what an {@link Kind#ADMINISTRATION} backup holds (its scope is
+     *                      {@code node}, this kind and the object name in {@code scope}); empty
+     *                      for every other kind
      */
     public record Manifest(String auditId, NodeId node, String owner, String scope,
         List<String> changeSet, List<String> created, Map<String, String> intendedState,
         String outcome, Instant takenAt, List<String> zips, Kind kind, List<String> groups,
-        List<String> repositoryPaths, Optional<String> tag, Optional<String> source) {
+        List<String> repositoryPaths, Optional<String> tag, Optional<String> source,
+        Optional<ObjectKind> objectKind) {
 
         /** What wrote the backup (feature 005, research D-13). */
         public enum Kind {
             /** A development tool of feature 004 (every manifest without {@code kind}). */
             IMPORT,
             /** A deployment of feature 005 into a node of a target group. */
-            DEPLOYMENT
+            DEPLOYMENT,
+            /** An administration change of feature 022 (research D-15). */
+            ADMINISTRATION
+        }
+
+        /** The object an {@link Kind#ADMINISTRATION} backup holds (feature 022, D-15). */
+        public enum ObjectKind {
+            WORKFLOW,
+            MODULE,
+            METADATA,
+            REPOSITORY
         }
 
         /** A backup of feature 004 ({@link Kind#IMPORT}). */
@@ -101,6 +118,26 @@ public final class BackupStore {
             this(auditId, node, owner, scope, changeSet, created, intendedState, outcome,
                 takenAt, zips, Kind.IMPORT, List.of(), List.of(), Optional.empty(),
                 Optional.empty());
+        }
+
+        /** A backup of an import or a deployment (no {@link #objectKind}). */
+        public Manifest(String auditId, NodeId node, String owner, String scope,
+            List<String> changeSet, List<String> created, Map<String, String> intendedState,
+            String outcome, Instant takenAt, List<String> zips, Kind kind, List<String> groups,
+            List<String> repositoryPaths, Optional<String> tag, Optional<String> source) {
+            this(auditId, node, owner, scope, changeSet, created, intendedState, outcome,
+                takenAt, zips, kind, groups, repositoryPaths, tag, source, Optional.empty());
+        }
+
+        /**
+         * The {@code PENDING} manifest of an {@link Kind#ADMINISTRATION} backup of {@code scope};
+         * it has no owner, so the retention keeps the newest per node, object kind and name.
+         */
+        public static Manifest administration(String auditId, AdministrationScope scope,
+            Instant takenAt) {
+            return new Manifest(auditId, scope.node(), "", scope.name(), List.of(), List.of(),
+                Map.of(), "PENDING", takenAt, List.of(), Kind.ADMINISTRATION, List.of(),
+                List.of(), Optional.empty(), Optional.empty(), Optional.of(scope.kind()));
         }
 
         public Manifest {
@@ -119,21 +156,44 @@ public final class BackupStore {
             repositoryPaths = List.copyOf(repositoryPaths);
             tag = tag == null ? Optional.empty() : tag;
             source = source == null ? Optional.empty() : source;
+            objectKind = objectKind == null ? Optional.empty() : objectKind;
+            if ((kind == Kind.ADMINISTRATION) != objectKind.isPresent()) {
+                throw new IllegalArgumentException(
+                    "Only an administration backup has an object kind, and it needs one");
+            }
         }
 
         /** This manifest with another outcome and intended state. */
         public Manifest with(String newOutcome, Map<String, String> newState) {
             return new Manifest(auditId, node, owner, scope, changeSet, created, newState,
-                newOutcome, takenAt, zips, kind, groups, repositoryPaths, tag, source);
+                newOutcome, takenAt, zips, kind, groups, repositoryPaths, tag, source,
+                objectKind);
         }
 
         private Manifest withZips(List<String> files) {
             return new Manifest(auditId, node, owner, scope, changeSet, created, intendedState,
-                outcome, takenAt, files, kind, groups, repositoryPaths, tag, source);
+                outcome, takenAt, files, kind, groups, repositoryPaths, tag, source, objectKind);
         }
 
         private String retentionKey() {
-            return node.value() + "\u0000" + owner + "\u0000" + scope;
+            return node.value() + "\u0000" + owner + "\u0000" + scope + "\u0000"
+                + objectKind.map(Enum::name).orElse("");
+        }
+    }
+
+    /**
+     * The scope of an {@link Manifest.Kind#ADMINISTRATION} backup (feature 022, research D-15),
+     * its retention key.
+     *
+     * @param node the node the change goes to
+     * @param kind what the backup holds
+     * @param name the object's name (diagram, module, metadata entry or repository path)
+     */
+    public record AdministrationScope(NodeId node, Manifest.ObjectKind kind, String name) {
+        public AdministrationScope {
+            Objects.requireNonNull(node, "node");
+            Objects.requireNonNull(kind, "kind");
+            Objects.requireNonNull(name, "name");
         }
     }
 
@@ -232,7 +292,7 @@ public final class BackupStore {
         }
     }
 
-    /** Removes the ZIPs this call wrote before it failed (review M3); best effort. */
+    /** Removes the files this call wrote before it failed (review M3); best effort. */
     private void discard(List<String> written) {
         for (String zip : written) {
             try {
@@ -363,7 +423,7 @@ public final class BackupStore {
 
     /**
      * The manifest of {@code file}, only if it can be trusted (review I2): its audit id is the
-     * file's, and every ZIP it names is {@code <auditId>-<n>.zip} in this directory.
+     * file's, and every file it names is {@code <auditId>-<n>.zip} in this directory.
      */
     private Optional<Manifest> read(Path file) {
         try {
@@ -390,7 +450,8 @@ public final class BackupStore {
         Files.write(file, content, StandardOpenOption.TRUNCATE_EXISTING);
     }
 
-    private Path manifestFile(String auditId) {
+    /** The manifest of the backup {@code auditId}, e.g. for a change result to name it. */
+    Path manifestFile(String auditId) {
         return root.resolve(auditId + MANIFEST);
     }
 
@@ -431,6 +492,9 @@ public final class BackupStore {
                 field(json, "tag", string(manifest.tag().orElse("")), false);
                 field(json, "source", string(manifest.source().orElse("")), false);
             }
+            if (manifest.objectKind().isPresent()) {
+                field(json, "objectKind", string(manifest.objectKind().get().name()), false);
+            }
             field(json, "changeSet", list(manifest.changeSet()), false);
             field(json, "created", list(manifest.created()), false);
             StringBuilder state = new StringBuilder("{");
@@ -462,7 +526,10 @@ public final class BackupStore {
                     deployment || object.containsKey("repositoryPaths")
                         ? texts(object, "repositoryPaths") : List.of(),
                     deployment ? Optional.of(text(object, "tag")) : Optional.empty(),
-                    deployment ? Optional.of(text(object, "source")) : Optional.empty());
+                    deployment ? Optional.of(text(object, "source")) : Optional.empty(),
+                    kind == Manifest.Kind.ADMINISTRATION
+                        ? Optional.of(Manifest.ObjectKind.valueOf(text(object, "objectKind")))
+                        : Optional.empty());
             } catch (DateTimeException | ClassCastException | NullPointerException e) {
                 throw new IllegalArgumentException("Not a backup manifest", e);
             }

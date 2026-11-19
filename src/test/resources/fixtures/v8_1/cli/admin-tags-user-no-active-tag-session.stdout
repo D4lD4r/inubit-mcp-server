@@ -1,0 +1,14 @@
+JAVA_HOME is set
+Connecting as 'jdoe' to https://inubit-dev-1.example.test:8443/ibis/servlet/IBISSoapServlet with hostname verification OFF
+Password: 
+SECURITY WARNING: Hostname verification is disabled. Your connection might not be secured!
+
+Connection to inubit Process Engine 8.1.17 established.
+<TAB> shows command list
+[COMMAND] with option -h or --help shows help for this command
+CLI|jdoe@inubit-dev-1.example.test> user 'jdoe'
+User name    jdoe       
+User group   OPS        
+Super group  headoffice 
+
+CLI|jdoe@inubit-dev-1.example.test> exit

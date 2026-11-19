@@ -166,7 +166,10 @@ class ProcessControlToolsTest {
 
     @Test
     void withWriteAccessOnEntBothWriteToolsAreOffered() {
-        assertThat(toolNames(true)).contains("restart_process", "kill_process").hasSize(15);
+        // feature 022 T061, T064: operate_server and manage_tags are announced under the same
+        // condition
+        assertThat(toolNames(true)).contains("restart_process", "kill_process", "operate_server",
+            "manage_tags").hasSize(17);
     }
 
     @Test

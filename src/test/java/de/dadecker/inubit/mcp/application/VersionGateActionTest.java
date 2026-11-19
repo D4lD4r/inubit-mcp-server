@@ -24,10 +24,11 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
+import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.TestClientSelection;
 import java.io.StringReader;
-import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
@@ -52,6 +53,8 @@ class VersionGateActionTest {
     private static final NodeId V9_X = NodeId.parse("prod/node1");
     /** {@code AUTO}, its version not detected yet. */
     private static final NodeId UNDETECTED = NodeId.parse("auto/node1");
+    /** {@code AUTO}, its detection fails with {@code MAINTENANCE_MODE} (REST answers 503). */
+    private static final NodeId IN_MAINTENANCE = NodeId.parse("maint/node1");
 
     private static final String TOOL = "get_model_details";
 
@@ -85,16 +88,19 @@ class VersionGateActionTest {
     private static final Part THREADS_PART =
         new Part(UnavailablePart.THREADS, Channel.CLI, Set.of(THREADS));
 
-    private final NodeVersions versions = new NodeVersions(Clock.systemUTC(),
+    private final MutableClock clock = new MutableClock(Instant.parse("2026-11-17T10:00:00Z"));
+    private final NodeVersions versions = new NodeVersions(clock,
         Map.of(V8_1, VersionSetting.V8_1, V9_0, VersionSetting.V9_0, V6_1, VersionSetting.V6_1,
-            V9_X, VersionSetting.V9_X, UNDETECTED, VersionSetting.AUTO)::get,
+            V9_X, VersionSetting.V9_X, UNDETECTED, VersionSetting.AUTO, IN_MAINTENANCE,
+            VersionSetting.AUTO)::get,
         node -> Duration.ofMinutes(10));
     /** The nodes with a StartCLI installation (none by default). */
     private final Set<NodeId> withClient = new HashSet<>();
 
     /** The {@code AUTO} node's detection fails, so its version stays unknown. */
     private final FakeVersionDetection detection =
-        new FakeVersionDetection(versions).fail(UNDETECTED, ErrorCode.TIMEOUT);
+        new FakeVersionDetection(versions).fail(UNDETECTED, ErrorCode.TIMEOUT)
+            .fail(IN_MAINTENANCE, ErrorCode.MAINTENANCE_MODE);
 
     private final VersionGate gate = gate(LIST);
 
@@ -109,6 +115,12 @@ class VersionGateActionTest {
         Capability.INVENTORY, ActionSpec.Area.READ, ActionSpec.Kind.READ, Set.of(),
         input -> Set.of(), Set.of(LICENSE_PART, CONFIGURATION_PART, THREADS_PART), false,
         Optional.empty(), ActionSpec.RestartNotice.NONE);
+
+    /** A change that sends {@code BY_ID}, reachable on 8.1 and 9.0. */
+    private static final ActionSpec CHANGE = new ActionSpec("operate_server", "setMaintenance",
+        Capability.SERVER_OPERATION, ActionSpec.Area.OPERATION, ActionSpec.Kind.CHANGE,
+        Set.of(BY_ID), input -> Set.of(BY_ID), Set.of(), false, Optional.empty(),
+        ActionSpec.RestartNotice.NONE);
 
     // --- admitCall ----------------------------------------------------------------------------
 
@@ -185,6 +197,67 @@ class VersionGateActionTest {
 
         // both variants on 8.1
         gate.admitCall(TOOL, V8_1, MODULE, MODULE.entries(Map.of("moduleName", "Sales")));
+    }
+
+    // --- admitCall leaving maintenance mode (T059 round 2, research D-22) ---------------------
+
+    @Test
+    void leavingMaintenanceIsJudgedOnTheLastKnownVersionWhenTheReDetectionFailsInMaintenance() {
+        versions.detected(IN_MAINTENANCE, InubitVersion.parse("9.0.7").orElseThrow());
+        clock.advance(Duration.ofMinutes(11));
+
+        Admission admission = gate.admitCall("operate_server", IN_MAINTENANCE, CHANGE,
+            Set.of(BY_ID), true);
+
+        assertThat(detection.requests()).containsExactly(IN_MAINTENANCE);
+        assertThat(admission.version()).map(InubitVersion::raw).contains("9.0.7");
+        assertThat(admission.permit(IN_MAINTENANCE, Capability.SERVER_OPERATION).admittedLine()
+            .text()).isEqualTo("9.0");
+        // without the flag the same call is refused, as every other action
+        assertThat(refusal(() -> gate.admitCall("operate_server", IN_MAINTENANCE, CHANGE,
+            Set.of(BY_ID))).message()).contains("is unknown (MAINTENANCE_MODE at ")
+            .doesNotContain("9.0.7");
+    }
+
+    @Test
+    void theLastKnownVersionIsStillJudgedByTheCoverageList() {
+        versions.detected(IN_MAINTENANCE, InubitVersion.parse("9.0.7").orElseThrow());
+        clock.advance(Duration.ofMinutes(11));
+        ActionSpec byName = new ActionSpec("operate_server", "setMaintenance",
+            Capability.SERVER_OPERATION, ActionSpec.Area.OPERATION, ActionSpec.Kind.CHANGE,
+            Set.of(BY_NAME), input -> Set.of(BY_NAME), Set.of(), false, Optional.empty(),
+            ActionSpec.RestartNotice.NONE);
+
+        ToolError error = refusal(() -> gate.admitCall("operate_server", IN_MAINTENANCE, byName,
+            Set.of(BY_NAME), true));
+
+        assertThat(error.message()).contains("INUBIT 9.0.7 on " + IN_MAINTENANCE)
+            .contains("not documented for this version");
+    }
+
+    @Test
+    void leavingMaintenanceWithoutAnyKnownVersionIsRefusedNamingThePin() {
+        ToolError error = refusal(() -> gate.admitCall("operate_server", IN_MAINTENANCE, CHANGE,
+            Set.of(BY_ID), true));
+
+        assertThat(error.message()).startsWith("operate_server: setMaintenance refused: the"
+            + " INUBIT version of " + IN_MAINTENANCE + " is unknown (MAINTENANCE_MODE at ")
+            .contains("no earlier version of it is known");
+        assertThat(error.nextStep()).startsWith("Set versionLine of " + IN_MAINTENANCE)
+            .doesNotContain("get_health");
+    }
+
+    @Test
+    void anotherDetectionFailureGetsNoFallback() {
+        versions.detected(UNDETECTED, InubitVersion.parse("9.0.7").orElseThrow());
+        clock.advance(Duration.ofMinutes(11));
+
+        ToolError error = refusal(() -> gate.admitCall("operate_server", UNDETECTED, CHANGE,
+            Set.of(BY_ID), true));
+
+        assertThat(error.message()).startsWith("operate_server: setMaintenance refused: the"
+            + " INUBIT version of " + UNDETECTED + " is unknown (TIMEOUT at ");
+        assertThat(error.nextStep()).contains("get_health");
     }
 
     // --- admitParts ---------------------------------------------------------------------------

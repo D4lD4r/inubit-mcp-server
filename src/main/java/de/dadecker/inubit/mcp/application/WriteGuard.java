@@ -113,6 +113,19 @@ public final class WriteGuard {
     }
 
     /**
+     * Feature 022 (research D-12 steps 1–3): the policy of the server {@code tool} may change,
+     * after the server check and the write checks naming {@code tool} only; {@link ChangeGuard}
+     * continues with the area opt-in, the version gate and the client check.
+     *
+     * @throws ToolErrorException {@code INVALID_INPUT}, {@code TARGET_UNKNOWN},
+     *     {@code PRODUCTION_PROTECTED} or {@code WRITE_DISABLED}
+     */
+    public WritePolicy admitWrite(String node, String tool) {
+        Objects.requireNonNull(tool, "tool");
+        return writeChecks(targets.resolveSingleServer(node), tool + " is", tool);
+    }
+
+    /**
      * Feature 024 (FR-043, research D-16 step 3): the cleanup preconditions of an automatic reset
      * of a lease on {@code server}: the server is configured, the version gate admits
      * {@code capability} and the StartCLI client is available - <b>not</b> the production lock,

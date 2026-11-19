@@ -6,6 +6,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -75,7 +76,9 @@ import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.domain.port.QueueEntryContentPort;
 import de.dadecker.inubit.mcp.domain.port.ServerLogPort;
+import de.dadecker.inubit.mcp.domain.port.ServerOperationPort;
 import de.dadecker.inubit.mcp.domain.port.ServerSettingsPort;
+import de.dadecker.inubit.mcp.domain.port.TagAdministrationPort;
 import de.dadecker.inubit.mcp.domain.port.TagPort;
 import de.dadecker.inubit.mcp.domain.port.UserDirectoryPort;
 import de.dadecker.inubit.mcp.domain.port.VersionObserver;
@@ -694,6 +697,69 @@ class AdapterGatewayFactoryTest {
         }
         wireMock.verify(4, getRequestedFor(urlPathEqualTo(module)));
         assertThat(wireMock.getAllServeEvents()).hasSize(4);
+    }
+
+    @Test
+    void the81And90PortSetsOperateTheServer(@TempDir Path root) throws IOException {
+        // feature 022 T058: the server operation adapter of the 8.1 port set, which 9.0 reuses,
+        // with and without helper host, behind the stale-reporting decorator: the set of
+        // processes in ERROR on the node's client, the StartCLI forms on the node's StartCLI runner
+        queueLog(200, """
+            {"queueLog":{"total":1,"success":true,"count":1,"row":[{"owner":"OWNERS",
+            "moduleName":"M","workflowName":"W","globalPId":110219899,
+            "startTime":1790861373734,"workflowId":110219899,
+            "status":{"level":0,"content":"Error"}}]}}""");
+        EffectiveNodeConfig on81 = server(DEV, VersionSetting.parse("8.1.17").orElseThrow());
+        EffectiveNodeConfig on90 = server(ENT2, VersionSetting.parse("9.0.7").orElseThrow());
+        try (CliResources resources = new CliResources("acme", PrivateFiles.forHost())) {
+            for (PortSetRegistry portSets : List.of(PortSetRegistry.v81Default().withV90(),
+                queueEntryPorts(Files.createDirectories(root.resolve("tmp")), resources))) {
+                try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(on81, on90),
+                    on81, on90)) {
+                    for (NodeId node : List.of(DEV, ENT2)) {
+                        ServerOperationPort port = factory.serverOperation(node);
+                        assertThat(port).isInstanceOf(StaleReportingPorts.ServerOperation.class)
+                            .isSameAs(factory.forServer(node).serverOperation());
+
+                        assertThat(port.errorProcesses(Instant.parse("2026-10-01T08:00:00Z"))
+                            .ids()).containsExactly("110219899");
+                        assertThat(codeOf(port::maintenanceState))
+                            .as("no StartCLI client configured")
+                            .isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                    }
+                }
+            }
+        }
+        wireMock.verify(4, postRequestedFor(urlPathEqualTo("/ibis/rest/log/queueLog")));
+        assertThat(wireMock.getAllServeEvents()).hasSize(4);
+    }
+
+    @Test
+    void the81And90PortSetsAdministerTags(@TempDir Path root) throws IOException {
+        // feature 022 T063: the tag administration adapter of the 8.1 port set, which 9.0
+        // reuses, with and without helper host, behind the stale-reporting decorator; every
+        // form runs on the node's StartCLI runner
+        EffectiveNodeConfig on81 = server(DEV, VersionSetting.parse("8.1.17").orElseThrow());
+        EffectiveNodeConfig on90 = server(ENT2, VersionSetting.parse("9.0.7").orElseThrow());
+        try (CliResources resources = new CliResources("acme", PrivateFiles.forHost())) {
+            for (PortSetRegistry portSets : List.of(PortSetRegistry.v81Default().withV90(),
+                queueEntryPorts(Files.createDirectories(root.resolve("tmp")), resources))) {
+                try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(on81, on90),
+                    on81, on90)) {
+                    for (NodeId node : List.of(DEV, ENT2)) {
+                        TagAdministrationPort port = factory.tagAdministration(node);
+                        assertThat(port)
+                            .isInstanceOf(StaleReportingPorts.TagAdministration.class)
+                            .isSameAs(factory.forServer(node).tagAdministration());
+
+                        assertThat(codeOf(() -> port.activeTag("jdoe")))
+                            .as("no StartCLI client configured")
+                            .isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                    }
+                }
+            }
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
     }
 
     @Test
@@ -2053,6 +2119,38 @@ class AdapterGatewayFactoryTest {
             assertThat(port).isInstanceOf(StaleReportingPorts.ModelDetails.class);
 
             assertThatThrownBy(() -> port.module("Workflow-0301", "100"))
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error()).isEqualTo(new RefusingPorts(DEV).refusal().error()));
+        }
+        assertThat(versions.events()).isEmpty();
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void aSixOneNodeRefusesServerOperationsWithoutContact() {
+        // feature 022 T058: the 6.1 port set refuses as RefusingPorts
+        EffectiveNodeConfig node = withoutUsableClient(VersionSetting.V6_1);
+        try (AdapterGatewayFactory factory = factory(WITH_V61, nodeVersions(node), node)) {
+            ServerOperationPort port = factory.serverOperation(DEV);
+            assertThat(port).isInstanceOf(StaleReportingPorts.ServerOperation.class);
+
+            assertThatThrownBy(port::maintenanceState)
+                .isInstanceOfSatisfying(ToolErrorException.class, e ->
+                    assertThat(e.error()).isEqualTo(new RefusingPorts(DEV).refusal().error()));
+        }
+        assertThat(versions.events()).isEmpty();
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void aSixOneNodeRefusesTagAdministrationWithoutContact() {
+        // feature 022 T063: the 6.1 port set refuses as RefusingPorts
+        EffectiveNodeConfig node = withoutUsableClient(VersionSetting.V6_1);
+        try (AdapterGatewayFactory factory = factory(WITH_V61, nodeVersions(node), node)) {
+            TagAdministrationPort port = factory.tagAdministration(DEV);
+            assertThat(port).isInstanceOf(StaleReportingPorts.TagAdministration.class);
+
+            assertThatThrownBy(() -> port.activeTag("jdoe"))
                 .isInstanceOfSatisfying(ToolErrorException.class, e ->
                     assertThat(e.error()).isEqualTo(new RefusingPorts(DEV).refusal().error()));
         }

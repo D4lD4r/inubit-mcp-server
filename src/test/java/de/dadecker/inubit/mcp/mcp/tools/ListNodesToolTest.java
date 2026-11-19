@@ -1268,6 +1268,66 @@ class ListNodesToolTest {
         assertThat(notUsable(prod)).doesNotContain("model_details");
     }
 
+    // --- feature 022 T058, T063, T066: server_operation and tag_administration -----------------
+
+    @Test
+    void theUs4CapabilitiesAreListedForWriteNodesAsVerifiedOrNotYetVerified() {
+        // test (8.1) and lab (9.0) have write access, prod has not; since T066 8.1 runs
+        // server_operation, 9.0 does not yet, and no version runs tag_administration (T055)
+        String baseUrl = "https://localhost:" + wireMock.httpsPort();
+        String yaml = """
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            groups:
+              - name: test
+                versionLine: V8_1
+                write:
+                  enabled: true
+                cli:
+                  home: %s
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+              - name: lab
+                versionLine: V9_0
+                write:
+                  enabled: true
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+              - name: prod
+                versionLine: V8_1
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+            """.formatted(temp.resolve("audit"), temp.resolve("workspace"), CLI_HOME, baseUrl,
+            baseUrl, baseUrl);
+        ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
+            .parse(yaml, temp.resolve("config.yaml")).config();
+
+        Map<String, JsonNode> versions = traceVersions(config, CapabilityMatrix.production());
+
+        Map<String, String> labels = Map.of("server_operation", "operating the server",
+            "tag_administration", "managing tags");
+        assertThat(usable(versions.get("test/node1"))).contains("server_operation");
+        assertThat(notUsable(versions.get("test/node1"))).doesNotContain("server_operation");
+        labels.forEach((capability, label) -> {
+            for (String node : capability.equals("server_operation") ? List.of("lab/node1")
+                : List.of("test/node1", "lab/node1")) {
+                JsonNode version = versions.get(node);
+                assertThat(usable(version)).as(node).doesNotContain(capability);
+                assertThat(notUsable(version)).as(node).contains(capability);
+                assertThat(reason(version, capability)).as(node)
+                    .contains(node + ": " + label + " is not yet verified for INUBIT");
+            }
+            JsonNode prod = versions.get("prod/node1");
+            assertThat(usable(prod)).as("no write access").doesNotContain(capability);
+            assertThat(notUsable(prod)).doesNotContain(capability);
+        });
+    }
+
     @Test
     void anIncompatibleClientMakesQueueEntryReadNotUsableAsAWhole() {
         // read_queue_entry is admitted for REST and StartCLI in one call, so a client the gate

@@ -1,0 +1,12 @@
+SYNTHETIC – POST /ready/off on 8.1.17, status and message recorded, JSON envelope reconstructed
+Live check T054 (L-2), write runs 2 (W2b, W4) on an 8.1.17 test server: POST /ready/off answered
+HTTP 503 although the readiness was switched (GET /ready then answered 503
+{"status":"NOT READY","message":"No Service."}), with and without maintenance mode. The live
+test kept only the status and the REST client's excerpt of the error body, "No Service.", which is
+the string "message" of a JSON body (or the whole body). The envelope {"status":"NOT READY",
+"message":"No Service."} is taken from the recorded GET /ready answer after the switch and the
+recorded POST /ready/on answer (admin-operate-ready-on, same shape with READY); the content type
+was not recorded. V81ServerOperationAdapter counts this answer as the switch done (research D-22).
+Until a live run records the full body, the adapter accepts both body forms that match the
+recording: the plain text "No Service." and a JSON body with the message "No Service." (or the
+status "NOT READY" without a message); any other 503, the maintenance message included, is not.

@@ -1,4 +1,4 @@
-package de.dadecker.inubit.mcp.application.knowledge;
+package de.dadecker.inubit.mcp.testing;
 
 import de.dadecker.inubit.mcp.domain.model.AuditOutcome;
 import de.dadecker.inubit.mcp.domain.model.AuditRecord;
@@ -11,10 +11,10 @@ import java.util.List;
 import java.util.Set;
 
 /** An audit log in memory that fails for the outcomes in {@link #failing}. */
-final class RecordingAuditPort implements AuditPort {
+public final class RecordingAuditPort implements AuditPort {
 
-    final List<AuditRecord> records = new ArrayList<>();
-    final Set<AuditOutcome> failing = EnumSet.noneOf(AuditOutcome.class);
+    public final List<AuditRecord> records = new ArrayList<>();
+    public final Set<AuditOutcome> failing = EnumSet.noneOf(AuditOutcome.class);
 
     @Override
     public void append(AuditRecord record) {
