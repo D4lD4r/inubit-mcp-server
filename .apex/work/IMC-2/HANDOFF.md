@@ -21,6 +21,12 @@ IMC-10 (T054), IMC-11 (T055).
   secret leak). Full `mvn clean verify` green after every task.
 
 ## Next step
+- 2026-11-19: T055 run 4 (c5017c34, `S1,W17,W18,X1`): green, server clean. `--tagSetActive` refused
+  with TagNameWasNotFound although the group carried the tag (active tagging off on the node);
+  `--tagRemoveActive` exit 0 without text. Live checks of T055 complete (IMC-11 summary). Open:
+  owner decision IMC-7 on what manage_tags keeps (removeTag repositoryPath unverified, deleteTag
+  owner-wide → excluded, active-tag pair unverifiable here), then fold into spec/code, tick T055,
+  T066 (incl. IMC-8 contract text), full `mvn clean verify`, PR.
 - 2026-11-19: T055 runs 1–3 (results on IMC-11). Run 1 stopped at the active-tag read (fixed
   f6be0005). Run 2: group-scoped `--tagRemove` needs `--tagRepositoryPath`; `--tagDelete` needs
   `--tagUser` (fixed 2149c277). Run 3: `--tagDelete` on g1 with owner deleted the test tag
