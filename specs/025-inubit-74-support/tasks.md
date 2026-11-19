@@ -78,7 +78,7 @@ tests may pass at once.
   the folder or a file is missing; it checks the README, the line formats of both lists, that every
   listed case has its three files, and that every `<case>.stdout` in the folder is in exactly one of
   `RECONSTRUCTED.txt`, `DERIVED.txt` and the README's recorded list.
-- [ ] T002 The real help case (after T001: same README and test) (spec FR-014, FR-019): copy
+- [X] T002 The real help case (after T001: same README and test) (spec FR-014, FR-019): copy
   `specs/025-inubit-74-support/evidence/startcli-7.4-help.txt` byte for byte to
   `fixtures/v7_4/cli/help.stdout`; `help.exit` = `0`, `help.stderr` empty; README: provenance
   ("IMC-6 attachment, `startcli.sh -h` of a 7.4 node on Linux; exit code and stderr assumed"),

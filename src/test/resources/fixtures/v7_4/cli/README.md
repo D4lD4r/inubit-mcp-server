@@ -20,6 +20,12 @@ of three lists (spec FR-015):
   verified only while their source case is recorded.
 - The section "Recorded cases" below: the recorded cases.
 
+The one real case is `help` (spec FR-014): `help.stdout` is the IMC-6 attachment, `startcli.sh -h`
+of a 7.4 node on Linux, byte for byte as
+`specs/025-inubit-74-support/evidence/startcli-7.4-help.txt`. Exit code and stderr assumed:
+the attachment held only the output, so `help.exit` (`0`) and the empty `help.stderr` are
+assumptions.
+
 Recordings are made by hand with `tools/record-fixtures.ps1` as in
 `specs/025-inubit-74-support/quickstart.md` and neutralized with `tools/neutralize.py`.
 
@@ -32,4 +38,6 @@ Reconstructed cases use only neutral names: node `legacy74/node1`, owner `jdoe`,
 
 The single source for recorded cases (spec FR-015): one list item `- <case> <source>` per
 recorded case, `<source>` naming where the recording came from (the recorder case, e.g.
-`v74_help`). No case is recorded yet.
+`v74_help`, or `attachment` for the IMC-6 attachment).
+
+- help attachment

@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -25,6 +27,9 @@ class V74FixturesShapeTest {
 
     static final Path FOLDER = Path.of("src/test/resources/fixtures/v7_4/cli");
     static final String RECORDED_HEADING = "## Recorded cases";
+    /** SHA-256 of the IMC-6 attachment (tasks.md, Prerequisites). */
+    private static final String HELP_SHA_256 =
+        "c7b04fd434d7e36127ca6ae32bbaa363c244c478ced625d5f64e6637d1f6416e";
 
     /** {@code RECONSTRUCTED.txt}: {@code <case> <capability>}. */
     private static final Pattern RECONSTRUCTED_LINE = Pattern.compile("^([a-z0-9_]+) ([a-z_]+)$");
@@ -49,6 +54,21 @@ class V74FixturesShapeTest {
     @Test
     void theFolderMatchesItsLists() throws IOException {
         assertThat(violations(FOLDER)).isEmpty();
+    }
+
+    /**
+     * T002 (spec FR-014, FR-019): {@code help} is the IMC-6 attachment byte for byte
+     * ({@code specs/025-inubit-74-support/evidence/startcli-7.4-help.txt}), listed as recorded
+     * and not as reconstructed.
+     */
+    @Test
+    void theHelpCaseIsTheAttachmentByteForByte() throws Exception {
+        byte[] stdout = Files.readAllBytes(FOLDER.resolve("help.stdout"));
+        assertThat(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(stdout)))
+            .isEqualTo(HELP_SHA_256);
+        assertThat(recordedLines(FOLDER)).contains("- help attachment");
+        assertThat(listLines(FOLDER.resolve("RECONSTRUCTED.txt")))
+            .noneMatch(line -> line.split(" ")[0].equals("help"));
     }
 
     @Test

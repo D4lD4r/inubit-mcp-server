@@ -149,6 +149,13 @@ class RecordFixturesPs1Test {
             .contains("src/test/resources/fixtures/windows/** -text");
     }
 
+    /** Feature 025, spec FR-019: the 7.4 cases (the attachment now, the recordings later). */
+    @Test
+    void gitKeepsThe74RecordingsByteForByte() throws IOException {
+        assertThat(Files.readAllLines(Path.of(".gitattributes")))
+            .contains("src/test/resources/fixtures/v7_4/** -text");
+    }
+
     private Process record(Path cliHome, String group, Path out, Path log, String... more)
         throws IOException {
         List<String> command = new ArrayList<>(List.of("powershell.exe", "-NoProfile",
