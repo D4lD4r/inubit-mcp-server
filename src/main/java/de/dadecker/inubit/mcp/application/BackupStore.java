@@ -1,7 +1,6 @@
 package de.dadecker.inubit.mcp.application;
 
 import de.dadecker.inubit.mcp.domain.model.NodeId;
-import de.dadecker.inubit.mcp.domain.model.TaggedVersion;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -47,15 +46,13 @@ import java.util.stream.Stream;
  *       an audit id is written once; {@link #update} rewrites only the manifest (atomically,
  *       through a new private temporary file moved into place, which keeps its access);
  *   <li>an administration change (feature 022, research D-15) is backed up as the export of the
- *       object or, before a tag removal, as a JSON tag list ({@link #writeTagList}), scoped by
- *       node, object kind and name;
+ *       object, scoped by node, object kind and name;
  *   <li>{@link #sweep} removes backups taken more than {@link #RETENTION} ago, except the newest
  *       of each {@code (node, owner, scope)} (clarification 3; for an administration backup its
  *       node, object kind and name), and returns what it removed for
  *       the audit log ({@code backup_retention}). A manifest that cannot be read is never
  *       removed automatically, nor is one whose audit id differs from its file name or that
- *       names a file other than {@code <auditId>-<n>.zip} ({@code <auditId>-<n>.json} for a tag
- *       list; counted in {@link Sweep#skipped}).
+ *       names a file other than {@code <auditId>-<n>.zip} (counted in {@link Sweep#skipped}).
  * </ul>
  *
  * <p>Not thread-safe across processes; the workspace lock serializes the writing calls.
@@ -83,8 +80,7 @@ public final class BackupStore {
      * @param outcome       e.g. {@code PENDING}, {@code EXECUTED}, {@code FAILED}
      * @param takenAt       when the backup was taken
      * @param zips          the file names of the backup's contents, in export order (set by
-     *                      {@link #write}): raw exports {@code <auditId>-<n>.zip}, or the tag list
-     *                      {@code <auditId>-1.json} of an {@link ObjectKind#TAG_LIST} backup
+     *                      {@link #write}): raw exports {@code <auditId>-<n>.zip}
      * @param repositoryPaths the repository files the backup holds exports of (deployments;
      *                      imports since feature 008, research D-8; empty in older manifests)
      * @param objectKind    what an {@link Kind#ADMINISTRATION} backup holds (its scope is
@@ -112,8 +108,7 @@ public final class BackupStore {
             WORKFLOW,
             MODULE,
             METADATA,
-            REPOSITORY,
-            TAG_LIST
+            REPOSITORY
         }
 
         /** A backup of feature 004 ({@link Kind#IMPORT}). */
@@ -184,11 +179,6 @@ public final class BackupStore {
             return node.value() + "\u0000" + owner + "\u0000" + scope + "\u0000"
                 + objectKind.map(Enum::name).orElse("");
         }
-
-        /** {@code .json} for a tag list, {@code .zip} for every export. */
-        private String fileExtension() {
-            return objectKind.filter(ObjectKind.TAG_LIST::equals).isPresent() ? ".json" : ".zip";
-        }
     }
 
     /**
@@ -197,8 +187,7 @@ public final class BackupStore {
      *
      * @param node the node the change goes to
      * @param kind what the backup holds
-     * @param name the object's name (diagram, module, metadata entry, repository path, or the tag
-     *             and its scope)
+     * @param name the object's name (diagram, module, metadata entry or repository path)
      */
     public record AdministrationScope(NodeId node, Manifest.ObjectKind kind, String name) {
         public AdministrationScope {
@@ -282,7 +271,7 @@ public final class BackupStore {
         try {
             prepareDirectory();
             for (int i = 0; i < exports.size(); i++) {
-                String name = id + "-" + (i + 1) + manifest.fileExtension();
+                String name = id + "-" + (i + 1) + ".zip";
                 writeNew(root.resolve(name), exports.get(i));
                 zips.add(name);
             }
@@ -301,35 +290,6 @@ public final class BackupStore {
             throw new UncheckedIOException("The backup cannot be written to " + root,
                 (IOException) e);
         }
-    }
-
-    /**
-     * Writes the {@link Manifest.Kind#ADMINISTRATION} backup taken before a tag is removed or
-     * deleted (feature 022, research D-15): the objects and versions carrying the tag as the JSON
-     * file {@code <auditId>-1.json} ({@code {"versions": [{"kind", "name", "version"}, …]}}), then
-     * the {@code PENDING} manifest, taken now.
-     *
-     * @return the manifest with the file name of the tag list
-     * @throws IllegalArgumentException if {@code scope} is not a
-     *     {@link Manifest.ObjectKind#TAG_LIST} or the audit id is not a lower-case UUID
-     * @throws IllegalStateException and {@link UncheckedIOException} as {@link #write}
-     */
-    public Manifest writeTagList(String auditId, AdministrationScope scope,
-        List<TaggedVersion> versions) {
-        if (scope.kind() != Manifest.ObjectKind.TAG_LIST) {
-            throw new IllegalArgumentException("A tag list is backed up in a TAG_LIST scope");
-        }
-        StringBuilder json = new StringBuilder("{\n  \"versions\": [");
-        for (int i = 0; i < versions.size(); i++) {
-            TaggedVersion version = versions.get(i);
-            json.append(i == 0 ? "\n    " : ",\n    ").append("{\"kind\": ")
-                .append(MiniJson.quote(version.kind().name())).append(", \"name\": ")
-                .append(MiniJson.quote(version.name())).append(", \"version\": ")
-                .append(version.version()).append('}');
-        }
-        json.append(versions.isEmpty() ? "]\n}\n" : "\n  ]\n}\n");
-        return write(Manifest.administration(auditId, scope, clock.instant()),
-            List.of(json.toString().getBytes(StandardCharsets.UTF_8)));
     }
 
     /** Removes the files this call wrote before it failed (review M3); best effort. */
@@ -463,14 +423,13 @@ public final class BackupStore {
 
     /**
      * The manifest of {@code file}, only if it can be trusted (review I2): its audit id is the
-     * file's, and every file it names is {@code <auditId>-<n>.zip} in this directory
-     * ({@code <auditId>-<n>.json} for a tag list).
+     * file's, and every file it names is {@code <auditId>-<n>.zip} in this directory.
      */
     private Optional<Manifest> read(Path file) {
         try {
             Manifest manifest = ManifestJson.read(Files.readString(file, StandardCharsets.UTF_8));
             Pattern zip = Pattern.compile("^" + Pattern.quote(manifest.auditId())
-                + "-[1-9][0-9]{0,5}" + Pattern.quote(manifest.fileExtension()) + "$");
+                + "-[1-9][0-9]{0,5}\\.zip$");
             boolean trusted = manifest.auditId().equals(idOf(file))
                 && manifest.zips().stream().allMatch(name -> zip.matcher(name).matches());
             return trusted ? Optional.of(manifest) : Optional.empty();

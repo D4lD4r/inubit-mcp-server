@@ -11,7 +11,7 @@
     "warnings": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "E.g. a StartCLI client that differs from the INUBIT version, or a backup manifest that could not be updated"
+      "description": "E.g. a StartCLI client that differs from the INUBIT version, or an audit record that could not be written"
     }
   },
   "additionalProperties": false,
@@ -27,7 +27,7 @@
   ],
   "$defs": {
     "Action": {
-      "enum": ["setActiveTag", "removeActiveTag", "removeTag", "deleteTag"]
+      "enum": ["setActiveTag", "removeActiveTag"]
     },
     "ChangePreview": {
       "type": "object",
@@ -38,20 +38,9 @@
         "tool": { "const": "manage_tags" },
         "action": { "$ref": "#/$defs/Action" },
         "area": { "const": "operation" },
-        "target": { "type": "string", "description": "What changes, e.g. the active tag of a user or a tag in one diagram group" },
-        "before": { "type": "string", "description": "The current state as read, masked: the active tag, or the number of versions carrying the tag in the diagram group and outside it" },
+        "target": { "type": "string", "description": "What changes: the active tag of a user" },
+        "before": { "type": "string", "description": "The current state as read, masked: the user's active tag" },
         "requested": { "type": "string", "description": "The requested state, masked" },
-        "affected": {
-          "type": "object",
-          "description": "removeTag, deleteTag: the number of workflow and module versions carrying the tag in the diagram group and up to 50 of them",
-          "required": ["count", "ids", "truncated"],
-          "properties": {
-            "count": { "type": "integer", "minimum": 0 },
-            "ids": { "type": "array", "items": { "type": "string" }, "maxItems": 50 },
-            "truncated": { "type": "boolean", "description": "true if ids lists fewer than count" }
-          },
-          "additionalProperties": false
-        },
         "effects": { "type": "array", "items": { "type": "string" } },
         "backup": { "type": "string", "description": "What is stored first, or none: <reason>" },
         "confirmation": {
@@ -81,16 +70,6 @@
         "inubitAnswer": { "type": "string", "maxLength": 2000, "description": "INUBIT's answer, masked" },
         "after": { "type": "string", "description": "The state read again after the change, masked" },
         "reReadFailed": { "type": "string", "description": "Instead of after: why the state could not be read again" },
-        "backup": {
-          "type": "object",
-          "description": "removeTag, deleteTag: the tag list stored before sending (manifest path and id); restore_backup does not restore it",
-          "required": ["path", "manifestId"],
-          "properties": {
-            "path": { "type": "string" },
-            "manifestId": { "type": "string" }
-          },
-          "additionalProperties": false
-        },
         "restartNeeded": { "enum": ["TRUE", "FALSE", "UNKNOWN"] },
         "auditId": { "type": "string" }
       },

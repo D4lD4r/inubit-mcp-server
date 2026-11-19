@@ -904,9 +904,11 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - `NOTHING_TO_DO` audited as `EXECUTED` with details `nothing-to-do`.
   - Failing tests first: `ChangeAuditTest.java` with `RecordingAuditPort`; leak check.
 - [X] T053 [US4] Backup kind (D-15): `application/BackupStore.java` gains `Manifest.Kind.ADMINISTRATION`:
-  - scope node, object kind (`WORKFLOW`, `MODULE`, `METADATA`, `REPOSITORY`, `TAG_LIST`), name;
+  - scope node, object kind (`WORKFLOW`, `MODULE`, `METADATA`, `REPOSITORY`, `TAG_LIST`), name
+    (`TAG_LIST` removed after T055);
   - `auditId`, `contents`;
-  - `writeTagList(scope, List<TaggedVersion>)` as JSON;
+  - `writeTagList(scope, List<TaggedVersion>)` as JSON (removed after T055, owner decision IMC-7:
+    tag removal is excluded, research D-15, D-18);
   - the sweep is unchanged.
   - Failing tests first: `BackupStoreAdministrationTest.java` (manifest round trip, private
     files, retention keeps the newest per scope).
@@ -932,7 +934,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
     before and after is `TracingLevel` of `/system/info` (`ServerOperationPort.traceLevel()`
     removed); `deleteErrorProcesses` reports INUBIT's answer without a count (`affectedCount`
     absent); research D-22, spec AS4, AS11, FR-017 and Clarifications updated.
-- [ ] T055 [LIVE-W] [OWNER] [US4] L-4 on the 8.1 test server, with approval:
+- [X] T055 [LIVE-W] [OWNER] [US4] L-4 on the 8.1 test server, with approval:
   - tag two fictitious test diagram groups with the same test tag (`tag_artifacts` on a
     development stage);
   - run `tag --tagRemove <tag> --tagWorkflowGroup <g1> --tagWorkflowType <t>` and check whether
@@ -1002,9 +1004,10 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
 
 - [X] T062 [US4] `CliCommand` tag forms (D-18):
   - `tag` admits `--tagSetActive`, `--tagRemoveActive`, `--tagDelete`, `--tagRemove`,
-    `--tagRepositoryPath`;
+    `--tagRepositoryPath` (the last three removed after T055);
   - builder methods `tagSetActive(tag, user)`, `tagRemoveActive(user)`, and
-    `tagRemoval(kind, tag, Scope)` where `Scope` = group + type | repository path, required;
+    `tagRemoval(kind, tag, Scope)` where `Scope` = group + type | repository path, required
+    (removed after T055; the live test builds these forms in `UnlistedTagCommand`);
   - `--tagDiagram` and `--tagWorkflowGroupExclude` are never admitted;
   - `--tagMove` (existing) unchanged.
   - Failing tests first in `CliCommandTest.java`: removal without scope rejected; both forbidden
@@ -1020,10 +1023,11 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
 - [X] T064 [US4] `application/TagAdministrationService.java` and tool `mcp/tools/ManageTagsTool.java`:
   - schemas `manage_tags.{input,output}.json`;
   - a missing scope gives `INVALID_INPUT` before any read (AS13);
-  - before a removal the backup is the tag list (T053), and nothing is sent if it fails;
+  - before a removal the backup is the tag list (T053), and nothing is sent if it fails (removed
+    after T055);
   - the result re-reads inside and outside the scope (AS14);
   - `removeTag`/`deleteTag` are offered only when their rows are `reachable`; the description
-    says so;
+    says so (both removed after T055, owner decision IMC-7: unknown actions);
   - destructive; announced when `anyWriteEnabled`.
   - lock key `node|OPERATION|tag:<tag>@<scope>` or `node|OPERATION|activeTag:<user>`; a second
     call on the same key gives `PRECONDITION_FAILED` (test);
@@ -1040,6 +1044,9 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
   - `OperateV81ContractTest.java`, `TagAdminV81ContractTest.java`;
   - rows flipped, or `--tagRemove`/`--tagDelete` set to `excluded:acts on the whole owner` per
     T055; `debug on|off` is already excluded (T054), no `setDebug` row is flipped;
+    `tag --tagDelete`, `tag --tagRemove` and `tag --tagRepositoryPath` are already excluded
+    (T055, owner decision IMC-7, research D-18), no `removeTag`/`deleteTag` row is flipped, and
+    `tag --tagSetActive`/`--tagRemoveActive` stay `planned` (not verified on the test node);
   - matrix, docs page;
   - `docs/tools.md` sections `operate_server`, `manage_tags`;
   - `docs/setup.md`: write enablement, `CLIENT` mode;
@@ -1288,8 +1295,8 @@ fails (US6 AS1–AS17).
     development nodes and only for `WORKFLOW` and `MODULE` contents; other kinds are refused with
     the manifest path for a manual import. The node rules are unchanged.
   - Failing tests first: `AdministrationBackupsTest.java`, `RestoreBackupAdministrationTest.java`
-    (development node restores; a non-development node is refused as today; a tag list is
-    refused with its path).
+    (development node restores; a non-development node is refused as today; no tag list
+    exists any more, research D-15, T055).
 - [ ] T084 [US6] `application/ObjectAdministrationService.java`, objects area (`Area.OBJECTS`):
   - actions `deleteWorkflow`, `deleteModule` (with optional `version`), `deleteRepositoryPath`,
     `rename`, `importMetadata`, `startIsConnector`;

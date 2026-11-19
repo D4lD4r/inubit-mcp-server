@@ -5,11 +5,11 @@ import static org.assertj.core.api.Assertions.fail;
 import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
 import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree;
 import de.dadecker.inubit.mcp.adapter.cli.CliCommand;
-import de.dadecker.inubit.mcp.adapter.cli.CliCommand.TagRemovalKind;
-import de.dadecker.inubit.mcp.adapter.cli.CliCommand.TagScope;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliSessionCommand;
 import de.dadecker.inubit.mcp.adapter.cli.UnlistedTagCommand;
+import de.dadecker.inubit.mcp.adapter.cli.UnlistedTagCommand.TagRemovalKind;
+import de.dadecker.inubit.mcp.adapter.cli.UnlistedTagCommand.TagScope;
 import de.dadecker.inubit.mcp.adapter.cli.v81.VersionHistoryParser;
 import de.dadecker.inubit.mcp.config.CliPaths;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -242,12 +242,16 @@ final class ManageTagsLiveTestSupport {
         }
     }
 
-    /** {@code tag --tagRemove|--tagDelete} through the production {@code CliTagAdminRunner}. */
+    /**
+     * {@code tag --tagRemove|--tagDelete} in one scope ({@link UnlistedTagCommand#removal}: no
+     * production form since tag removal is excluded after T055), judged as the production tag
+     * forms are.
+     */
     record Removal(TagRemovalKind kind, String tag, TagScope scope) implements Action {
 
         @Override
         public String form() {
-            return CliCommand.tagRemoval(kind, tag, scope).commandLine();
+            return UnlistedTagCommand.removal(kind, tag, scope).commandLine();
         }
     }
 
@@ -355,7 +359,7 @@ final class ManageTagsLiveTestSupport {
         };
     }
 
-    /** {@code tag --tagDelete} in {@code group} with its owner, the production form. */
+    /** {@code tag --tagDelete} in {@code group} with its owner (the former {@code deleteTag}). */
     private static Removal delete(Inputs in, String group) {
         return new Removal(TagRemovalKind.DELETE, in.tag(),
             new TagScope.DiagramGroup(group, TECHNICAL, in.owner()));
@@ -366,7 +370,7 @@ final class ManageTagsLiveTestSupport {
     }
 
     /**
-     * The cleanup commands in the order they run, each a scoped production form: first C4
+     * The cleanup commands in the order they run, each a scoped form: first C4
      * {@code --tagRemoveActive} of the test user (as W18 before X1: the active tag goes before the
      * tag), then C1/C2 {@code --tagDelete} in g1/g2 with the owner ({@code --tagUser}, which
      * 8.1.17 requires), C3 {@code --tagRemove} in the W15 {@code folder} (none without one).

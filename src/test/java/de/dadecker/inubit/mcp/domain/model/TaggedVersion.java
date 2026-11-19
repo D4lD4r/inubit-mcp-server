@@ -3,8 +3,9 @@ package de.dadecker.inubit.mcp.domain.model;
 import java.util.Objects;
 
 /**
- * One version of a diagram or module that carries a tag (feature 022, research D-15), from the
- * version history: what a tag-list backup records before a tag is removed or deleted.
+ * One version of a diagram or module that carries a tag, from the version history, as the live
+ * check of feature 022 T055 ({@code ManageTagsLiveTestSupport}) derives it. Test code only: tag
+ * removal is excluded after T055, so no production code records tagged versions (research D-18).
  *
  * @param kind    whether the object is a diagram or a module
  * @param name    the name of the diagram or module

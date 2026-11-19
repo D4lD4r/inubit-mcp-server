@@ -9,7 +9,6 @@ import de.dadecker.inubit.mcp.application.BackupStore.Manifest;
 import de.dadecker.inubit.mcp.application.BackupStore.Manifest.ObjectKind;
 import de.dadecker.inubit.mcp.application.BackupStore.Removed;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
-import de.dadecker.inubit.mcp.domain.model.TaggedVersion;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
@@ -32,8 +31,9 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * T053 (feature 022, research D-15, FR-018): the {@code ADMINISTRATION} backups taken before an
- * administration change — an export or a tag list, scoped by node, object kind and name, private
- * like every backup and kept by the unchanged sweep (30 days, the newest per scope always).
+ * administration change — an export, scoped by node, object kind and name, private like every
+ * backup and kept by the unchanged sweep (30 days, the newest per scope always). The tag list
+ * backup is gone with tag removal, which is excluded after T055 (research D-18).
  */
 class BackupStoreAdministrationTest {
 
@@ -42,11 +42,8 @@ class BackupStoreAdministrationTest {
     private static final boolean POSIX =
         FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
     private static final PrivateFileSystem FILES = PrivateFiles.forHost();
-    private static final AdministrationScope TAGS =
-        new AdministrationScope(DEV, ObjectKind.TAG_LIST, "TAG-01@GRP-01/Technical Workflow");
-    private static final List<TaggedVersion> TAGGED = List.of(
-        new TaggedVersion(TaggedVersion.Kind.WORKFLOW, "Order \"in\"", 3),
-        new TaggedVersion(TaggedVersion.Kind.MODULE, "Mapper", 12));
+    private static final AdministrationScope ORDER =
+        new AdministrationScope(DEV, ObjectKind.WORKFLOW, "Order");
 
     @TempDir
     Path home;
@@ -93,10 +90,8 @@ class BackupStoreAdministrationTest {
     void everyObjectKindSurvivesTheRoundTrip() {
         for (ObjectKind kind : ObjectKind.values()) {
             String id = UUID.randomUUID().toString();
-            Manifest written = kind == ObjectKind.TAG_LIST
-                ? store().writeTagList(id, TAGS, TAGGED)
-                : store().write(Manifest.administration(id,
-                    new AdministrationScope(DEV, kind, "name " + kind), NOW), List.of(export("x")));
+            Manifest written = store().write(Manifest.administration(id,
+                new AdministrationScope(DEV, kind, "name " + kind), NOW), List.of(export("x")));
 
             assertThat(store().find(id)).as(kind.name()).contains(written);
             assertThat(written.objectKind()).contains(kind);
@@ -106,54 +101,15 @@ class BackupStoreAdministrationTest {
     @Test
     void anUpdateKeepsTheObjectKind() {
         String id = UUID.randomUUID().toString();
-        Manifest written = store().writeTagList(id, TAGS, TAGGED);
+        Manifest written = store().write(Manifest.administration(id, ORDER, NOW),
+            List.of(export("history")));
 
         store().update(written.with("EXECUTED", Map.of()));
 
         Manifest read = store().find(id).orElseThrow();
         assertThat(read.outcome()).isEqualTo("EXECUTED");
-        assertThat(read.objectKind()).contains(ObjectKind.TAG_LIST);
+        assertThat(read.objectKind()).contains(ObjectKind.WORKFLOW);
         assertThat(read.zips()).isEqualTo(written.zips());
-    }
-
-    @Test
-    void theTagListIsWrittenAsJsonNamedByTheManifest() throws IOException {
-        String id = UUID.randomUUID().toString();
-
-        Manifest written = store().writeTagList(id, TAGS, TAGGED);
-
-        assertThat(written.kind()).isEqualTo(Manifest.Kind.ADMINISTRATION);
-        assertThat(written.objectKind()).contains(ObjectKind.TAG_LIST);
-        assertThat(written.node()).isEqualTo(DEV);
-        assertThat(written.scope()).isEqualTo("TAG-01@GRP-01/Technical Workflow");
-        assertThat(written.takenAt()).isEqualTo(NOW);
-        assertThat(written.zips()).containsExactly(id + "-1.json");
-        String json = Files.readString(root().resolve(id + "-1.json"), StandardCharsets.UTF_8);
-        assertThat(MiniJson.parse(json)).isEqualTo(Map.of("versions", List.of(
-            Map.of("kind", "WORKFLOW", "name", "Order \"in\"", "version", 3L),
-            Map.of("kind", "MODULE", "name", "Mapper", "version", 12L))));
-        assertThat(new String(store().exports(id).get(0), StandardCharsets.UTF_8))
-            .isEqualTo(json);
-    }
-
-    @Test
-    void anEmptyTagListIsStillABackup() throws IOException {
-        String id = UUID.randomUUID().toString();
-
-        store().writeTagList(id, TAGS, List.of());
-
-        assertThat(MiniJson.parse(Files.readString(root().resolve(id + "-1.json"))))
-            .isEqualTo(Map.of("versions", List.of()));
-        assertThat(store().find(id)).isPresent();
-    }
-
-    @Test
-    void aTagListNeedsATagListScope() {
-        AdministrationScope workflow = new AdministrationScope(DEV, ObjectKind.WORKFLOW, "Order");
-
-        assertThatIllegalArgumentException().isThrownBy(() ->
-            store().writeTagList(UUID.randomUUID().toString(), workflow, TAGGED));
-        assertThat(root()).doesNotExist();
     }
 
     @Test
@@ -171,7 +127,7 @@ class BackupStoreAdministrationTest {
     }
 
     @Test
-    void aManifestNamingAJsonFileIsTrustedOnlyForATagList() throws IOException {
+    void aManifestNamingAFileOtherThanAZipIsNotTrusted() throws IOException {
         String id = UUID.randomUUID().toString();
         store().write(Manifest.administration(id,
             new AdministrationScope(DEV, ObjectKind.MODULE, "Mapper"), NOW), List.of(export("m")));
@@ -194,14 +150,14 @@ class BackupStoreAdministrationTest {
     // --- private files --------------------------------------------------------------------------
 
     @Test
-    void theTagListAndItsManifestArePrivate() throws IOException {
+    void theExportAndItsManifestArePrivate() throws IOException {
         String id = UUID.randomUUID().toString();
 
-        store().writeTagList(id, TAGS, TAGGED);
+        store().write(Manifest.administration(id, ORDER, NOW), List.of(export("history")));
 
         try (Stream<Path> files = Files.list(root())) {
             assertThat(files.map(file -> file.getFileName().toString()))
-                .containsExactlyInAnyOrder(id + "-1.json", id + ".json");
+                .containsExactlyInAnyOrder(id + "-1.zip", id + ".json");
         }
         if (POSIX) {
             assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(root())))
@@ -215,11 +171,12 @@ class BackupStoreAdministrationTest {
     }
 
     @Test
-    void aTagListThatCannotBeMadePrivateIsNotWritten() throws IOException {
+    void anExportThatCannotBeMadePrivateIsNotWritten() throws IOException {
         BackupStore store = new BackupStore(root(), clock, PrivateFiles.failingFiles());
         String id = UUID.randomUUID().toString();
 
-        assertThatThrownBy(() -> store.writeTagList(id, TAGS, TAGGED))
+        assertThatThrownBy(() -> store.write(Manifest.administration(id, ORDER, NOW),
+            List.of(export("history"))))
             .isInstanceOf(UncheckedIOException.class)
             .hasMessage("The backup cannot be written to " + root());
         try (Stream<Path> files = Files.list(root())) {
@@ -239,20 +196,17 @@ class BackupStoreAdministrationTest {
         String moduleOrder = backup(store, DEV, ObjectKind.MODULE, "Order", 50);
         String otherNode = backup(store, NodeId.parse("dev2/node1"), ObjectKind.WORKFLOW,
             "Order", 60);
-        String oldTags = tagList("TAG-01@GRP-01/Technical Workflow", 38);
-        String newTags = tagList("TAG-01@GRP-01/Technical Workflow", 2);
 
         BackupStore.Sweep sweep = store.sweep();
 
         assertThat(sweep.skipped()).isZero();
         assertThat(sweep.removed()).as("oldest first").extracting(Removed::auditId)
-            .containsExactly(olderOrder, oldOrder, oldTags);
-        for (String kept : List.of(newestOrder, moduleOrder, otherNode, newTags)) {
+            .containsExactly(olderOrder, oldOrder);
+        for (String kept : List.of(newestOrder, moduleOrder, otherNode)) {
             assertThat(store.find(kept)).as(kept).isPresent();
         }
-        assertThat(root().resolve(oldTags + "-1.json")).doesNotExist();
         assertThat(root().resolve(oldOrder + "-1.zip")).doesNotExist();
-        assertThat(root().resolve(newTags + "-1.json")).exists();
+        assertThat(root().resolve(newestOrder + "-1.zip")).exists();
     }
 
     private String backup(BackupStore store, NodeId node, ObjectKind kind, String name,
@@ -260,14 +214,6 @@ class BackupStoreAdministrationTest {
         String id = UUID.randomUUID().toString();
         store.write(Manifest.administration(id, new AdministrationScope(node, kind, name),
             NOW.minus(Duration.ofDays(daysAgo))), List.of(export(id)));
-        return id;
-    }
-
-    /** A tag list taken {@code daysAgo}: the tag list takes its time from the store's clock. */
-    private String tagList(String name, int daysAgo) {
-        String id = UUID.randomUUID().toString();
-        new BackupStore(root(), new MutableClock(NOW.minus(Duration.ofDays(daysAgo))), FILES)
-            .writeTagList(id, new AdministrationScope(DEV, ObjectKind.TAG_LIST, name), TAGGED);
         return id;
     }
 }

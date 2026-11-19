@@ -21,6 +21,12 @@ IMC-10 (T054), IMC-11 (T055).
   secret leak). Full `mvn clean verify` green after every task.
 
 ## Next step
+- 2026-11-19: T055 done. IMC-7 answered by the owner ("Option 3, Rest planned"): `removeTag` and
+  `deleteTag` excluded and removed from manage_tags (coverage rows `tag --tagDelete|--tagRemove|
+  --tagRepositoryPath` excluded, tag-list backup removed); `setActiveTag`/`removeActiveTag` stay
+  planned. Next: T066 (coverage flips for the verified US4 rows, IMC-8 contract text, docs,
+  CHANGELOG), full `mvn clean verify`, PR. Owner: IMC-7 → Answered, IMC-10/IMC-11 → Done, remove
+  the test group's `write` block, re-enable the AWS LB health check.
 - 2026-11-19: T055 run 4 (c5017c34, `S1,W17,W18,X1`): green, server clean. `--tagSetActive` refused
   with TagNameWasNotFound although the group carried the tag (active tagging off on the node);
   `--tagRemoveActive` exit 0 without text. Live checks of T055 complete (IMC-11 summary). Open:

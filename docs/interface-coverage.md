@@ -17,9 +17,9 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | --- | ---: | ---: |
 | reachable | 51 | 50 |
 | covered | 40 | 40 |
-| planned | 92 | 92 |
+| planned | 89 | 89 |
 | undocumented | 3 | 1 |
-| excluded | 68 | 71 |
+| excluded | 71 | 74 |
 | all entries | 254 | 254 |
 
 ## A. Server state and settings
@@ -214,9 +214,9 @@ Source: vendor pages "Command Line Interface" (with subpages) and "REST API" (ev
 | CLI `tag --tagUser` | WRITE | - | reachable `tag_artifacts/default` | reachable `tag_artifacts/default` |
 | CLI `tag --tagSetActive` | WRITE | US4 | planned | planned |
 | CLI `tag --tagRemoveActive` | WRITE | US4 | planned | planned |
-| CLI `tag --tagDelete` | WRITE | US4 | planned | planned |
-| CLI `tag --tagRemove` | WRITE | US4 | planned | planned |
-| CLI `tag --tagRepositoryPath` | WRITE | US4 | planned | planned |
+| CLI `tag --tagDelete` | WRITE | - | excluded: acts on the whole owner: deletes the tag in every diagram group although one is named (INUBIT 8.1.17, T055) | excluded: acts on the whole owner: deletes the tag in every diagram group although one is named (INUBIT 8.1.17, T055) |
+| CLI `tag --tagRemove` | WRITE | - | excluded: exists only with --tagRepositoryPath, whose tagged repository files cannot be listed for the preview and backup (T055) | excluded: exists only with --tagRepositoryPath, whose tagged repository files cannot be listed for the preview and backup (T055) |
+| CLI `tag --tagRepositoryPath` | WRITE | - | excluded: the tagged repository files cannot be listed for the preview and backup of a removal (T055) | excluded: the tagged repository files cannot be listed for the preview and backup of a removal (T055) |
 | CLI `tag --tagDiagram` | WRITE | - | excluded: ignored by INUBIT, tags every diagram of the owner | excluded: ignored by INUBIT, tags every diagram of the owner |
 | CLI `tag --tagWorkflowGroupExclude` | WRITE | - | excluded: acts on every diagram group of the owner but the listed ones | excluded: acts on every diagram group of the owner but the listed ones |
 | CLI `delete --deleteWorkflow` | WRITE | US6 | planned | planned |

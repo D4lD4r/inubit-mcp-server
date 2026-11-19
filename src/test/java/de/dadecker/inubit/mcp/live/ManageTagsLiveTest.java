@@ -2,10 +2,12 @@ package de.dadecker.inubit.mcp.live;
 
 import de.dadecker.inubit.mcp.adapter.cli.CliCommand;
 import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
+import de.dadecker.inubit.mcp.adapter.cli.CliOutcome;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResult;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliTagRunner;
+import de.dadecker.inubit.mcp.adapter.cli.UnlistedTagCommand;
 import de.dadecker.inubit.mcp.adapter.cli.admin.CliTagAdminRunner;
 import de.dadecker.inubit.mcp.adapter.os.OsPrivateFileSystem;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
@@ -51,14 +53,15 @@ import org.junit.jupiter.api.Timeout;
  * {@code INUBIT_LIVE_T055_RUN=<n>} in {@code T055-<n>/}).
  *
  * <p>The tool {@code manage_tags} still refuses 8.1 until the coverage rows are flipped (T066,
- * which waits for this check), so the commands run raw on the production runners:
- * {@code tag --tagMove} through {@link CliTagRunner#tag} (as {@code tag_artifacts}), the removals
- * and active-tag forms through {@link CliTagAdminRunner}, the reads through
- * {@link CliExportRunner#exportHistory} and {@link CliExportRunner#exportRelease} (as the
- * {@code manage_tags} preview) and {@link CliTagAdminRunner#activeTag}. Some forms have no
- * production runner: W13, W14 and W16 of the first list (group forms 8.1.17 refused, built by
- * {@code UnlistedTagCommand}) and the candidate folder read {@code export --exportRepositoryPath
- * --exportTag} (allow-listed form, record-only); they run on {@link CliRunner#run}.
+ * which waits for this check), so the commands run raw: {@code tag --tagMove} through
+ * {@link CliTagRunner#tag} (as {@code tag_artifacts}), the active-tag forms through
+ * {@link CliTagAdminRunner}, the reads through {@link CliExportRunner#exportHistory} and
+ * {@link CliExportRunner#exportRelease} and {@link CliTagAdminRunner#activeTag}. Some forms have
+ * no production runner and run on {@link CliRunner#run}: the removals (built by
+ * {@code UnlistedTagCommand}; tag removal is excluded after T055, research D-18), judged as
+ * {@link CliTagAdminRunner} judges a tag form, W13, W14 and W16 of the first list (group forms
+ * 8.1.17 refused) and the candidate folder read {@code export --exportRepositoryPath
+ * --exportTag} (allow-listed form, record-only).
  *
  * <p>Run with {@code INUBIT_MCP_PROFILE=<profile> INUBIT_LIVE_NODE=<group>/<node>
  * INUBIT_LIVE_T055_STEPS=S1,W17,W18,X1 INUBIT_LIVE_T055_RUN=4 INUBIT_LIVE_T055_TAG=<tag>
@@ -248,9 +251,7 @@ class ManageTagsLiveTest {
                 switch (step.action()) {
                     case ManageTagsLiveTestSupport.TagGroup tag ->
                         tags.tag(tag.tag(), tag.group(), tag.owner(), tagPermit);
-                    case ManageTagsLiveTestSupport.Removal removal ->
-                        admin.removeTag(removal.kind(), removal.tag(), removal.scope(),
-                            adminPermit);
+                    case ManageTagsLiveTestSupport.Removal removal -> removal(removal);
                     case ManageTagsLiveTestSupport.SetActive set ->
                         admin.setActiveTag(set.user(), set.tag(), adminPermit);
                     case ManageTagsLiveTestSupport.RemoveActive remove ->
@@ -269,6 +270,28 @@ class ManageTagsLiveTest {
                 }
             }
             return new Answer(attempt.error().map(ErrorCode::name), false);
+        }
+
+        /**
+         * Sends {@code removal} on {@link CliRunner#run} and fails it as
+         * {@link CliTagAdminRunner} fails a tag form: an exit code other than 0, cut output, a
+         * refused login or an {@code n-NOK} message is the classifier's failure, with the node
+         * set.
+         */
+        private void removal(ManageTagsLiveTestSupport.Removal removal) {
+            cli.checkAvailable(connection.server);
+            CliResult result = cli.run(connection.server, connection.username,
+                connection.password, UnlistedTagCommand.removal(removal.kind(), removal.tag(),
+                    removal.scope()), connection.server.cliExportTimeout(), "cliExportTimeout",
+                connection.guard, adminPermit);
+            if ((result.exitCode() != 0 || result.truncated()
+                || CliOutputClassifier.isLoginFailure(result)
+                || !classifier.parse(result).nokMessages().isEmpty())
+                && classifier.classify(result) instanceof CliOutcome.Failure failure) {
+                // with the node set, as CliTagAdminRunner sets it
+                throw new ToolErrorException(failure.error().node().isPresent() ? failure.error()
+                    : failure.error().withNode(connection.server.id()));
+            }
         }
 
         /**

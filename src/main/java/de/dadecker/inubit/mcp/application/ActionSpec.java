@@ -58,9 +58,7 @@ public record ActionSpec(String tool, String action, Capability capability, Area
         /** {@code export --exportMetadata} of the named workflows. */
         METADATA_EXPORT,
         /** {@code export --exportRepositoryPath}. */
-        REPOSITORY_EXPORT,
-        /** JSON list of the objects and versions carrying a tag. */
-        TAG_LIST
+        REPOSITORY_EXPORT
     }
 
     /** Whether a result names a needed restart: never, always, or depending on the setting. */

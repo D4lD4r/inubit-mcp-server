@@ -332,14 +332,9 @@ class RefusingPortsTest {
     /** One call of every method of the tag administration port of feature 022 (US4). */
     private static List<ThrowingCallable> tagAdministrationCalls(TagAdministrationPort port) {
         WritePermit permit = TestPermits.of(NODE, Capability.TAG_ADMINISTRATION);
-        TagAdministrationPort.Scope group =
-            new TagAdministrationPort.Scope.DiagramGroup("GRP-01", "technical");
         return List.of(() -> port.activeTag("jdoe"),
             () -> port.setActiveTag("jdoe", "REL-1", permit),
-            () -> port.removeActiveTag("jdoe", permit),
-            () -> port.tagged("REL-1", "jdoe", group),
-            () -> port.removeTag(TagAdministrationPort.Removal.DELETE, "REL-1", "jdoe", group,
-                permit));
+            () -> port.removeActiveTag("jdoe", permit));
     }
 
     @Test

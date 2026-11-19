@@ -757,14 +757,9 @@ final class Wiring implements AutoCloseable {
         ChangeChallenges changeChallenges = new ChangeChallenges(challenges);
         this.operateServer = new OperateServerTool(new ServerOperationService(changeGuard,
             changeLocks, changeChallenges, changeAudit, gateways, clock.clock())::execute);
-        // the removals take their tag list backup in the backup directory and read the diagram
-        // groups of inventory.owner (research D-15, D-18); the description offers deleteTag only
-        // where its coverage rows are reachable, and never removeTag (repository path only)
+        // the active tag of a user only: tag removal and deletion are excluded (research D-18)
         this.manageTags = new ManageTagsTool(new TagAdministrationService(changeGuard,
-            changeLocks, changeChallenges, changeAudit, gateways,
-            new BackupStore(backups, clock.clock(), privateFiles),
-            id -> byId.get(id).inventory().owner())::execute,
-            TagAdministrationService.deleteTagOffered(InterfaceCoverage.production()));
+            changeLocks, changeChallenges, changeAudit, gateways)::execute);
         // last step (N2): SIGTERM (and System.exit) stop running StartCLI work and delete the
         // export directories
         Runtime.getRuntime().addShutdownHook(cleanupHook);

@@ -41,7 +41,6 @@ import de.dadecker.inubit.mcp.domain.port.LogPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
-import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.RecordingWriteLock;
 import java.io.IOException;
 import java.io.StringReader;
@@ -351,9 +350,7 @@ class WriteRaceToolsTest extends DeployExecution {
         ChangeAudit changes = new ChangeAudit(audit::add, clock, "acme", UUID::randomUUID);
         TagAdministrationService service = new TagAdministrationService(changeGuard(versions,
             Capability.TAG_ADMINISTRATION, server, changes), new ChangeLocks(),
-            new ChangeChallenges(new WriteChallengeRegistry(clock)), changes, server,
-            new BackupStore(temp.resolve("tag-backups"), clock, PrivateFiles.forHost()),
-            node -> Optional.of("acme-dev"));
+            new ChangeChallenges(new WriteChallengeRegistry(clock)), changes, server);
 
         String answer = answer(() -> service.execute(new TagAdministrationService.Request(
             "dev/node1", "setActiveTag", Map.of("user", "jdoe", "tag", "REL-2"),

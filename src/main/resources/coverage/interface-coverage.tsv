@@ -170,6 +170,7 @@ REST	POST /log/{name}	READ	D	-	reachable:query_logs/default	reachable:query_logs
 REST	POST /log/processLog	READ	D	-	excluded:the log processLog fails on INUBIT 8.1.17 (vendor side)	excluded:the log processLog fails on INUBIT 8.1.17 (vendor side)	-
 
 # E. Diagrams, modules, repository, tags
+# tag --tagDelete, tag --tagRemove, tag --tagRepositoryPath: excluded (live check T055/L-4, owner decision IMC-7 2026-11-19): on 8.1.17 `tag --tagDelete` with one diagram group and its owner deleted the tag owner-wide; `tag --tagRemove` needs `--tagRepositoryPath`, and tagging a diagram group tags no repository file, so the tagged repository files cannot be listed for the preview and backup (FR-018); tag --tagSetActive|--tagRemoveActive stay planned (active tagging off on the test node)
 CLI	export --exportWorkflowUser	EXPORT	E	-	reachable:export_archives/workflows	reachable:export_archives/workflows	-
 CLI	export --exportWorkflowType	EXPORT	E	-	reachable:export_archives/workflows	reachable:export_archives/workflows	-
 CLI	export --exportWorkflowGroup	EXPORT	E	-	reachable:export_archives/workflows	reachable:export_archives/workflows	-
@@ -208,9 +209,9 @@ CLI	tag --tagWorkflowType	WRITE	E	-	reachable:tag_artifacts/default	reachable:ta
 CLI	tag --tagUser	WRITE	E	-	reachable:tag_artifacts/default	reachable:tag_artifacts/default	-
 CLI	tag --tagSetActive	WRITE	E	US4	planned	planned	-
 CLI	tag --tagRemoveActive	WRITE	E	US4	planned	planned	-
-CLI	tag --tagDelete	WRITE	E	US4	planned	planned	-
-CLI	tag --tagRemove	WRITE	E	US4	planned	planned	-
-CLI	tag --tagRepositoryPath	WRITE	E	US4	planned	planned	-
+CLI	tag --tagDelete	WRITE	E	-	excluded:acts on the whole owner: deletes the tag in every diagram group although one is named (INUBIT 8.1.17, T055)	excluded:acts on the whole owner: deletes the tag in every diagram group although one is named (INUBIT 8.1.17, T055)	-
+CLI	tag --tagRemove	WRITE	E	-	excluded:exists only with --tagRepositoryPath, whose tagged repository files cannot be listed for the preview and backup (T055)	excluded:exists only with --tagRepositoryPath, whose tagged repository files cannot be listed for the preview and backup (T055)	-
+CLI	tag --tagRepositoryPath	WRITE	E	-	excluded:the tagged repository files cannot be listed for the preview and backup of a removal (T055)	excluded:the tagged repository files cannot be listed for the preview and backup of a removal (T055)	-
 CLI	tag --tagDiagram	WRITE	E	-	excluded:ignored by INUBIT, tags every diagram of the owner	excluded:ignored by INUBIT, tags every diagram of the owner	-
 CLI	tag --tagWorkflowGroupExclude	WRITE	E	-	excluded:acts on every diagram group of the owner but the listed ones	excluded:acts on every diagram group of the owner but the listed ones	-
 # delete --deleteWorkflow, delete --deleteModule: planned until covered:administer_objects (US6) (research D-6 "Covered rows before their tool exists")

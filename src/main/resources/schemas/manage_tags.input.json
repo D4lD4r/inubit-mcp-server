@@ -8,8 +8,8 @@
       "description": "Id of exactly one {node} (`<{group}>/<{node}>`); {group} ids are rejected"
     },
     "action": {
-      "enum": ["setActiveTag", "removeActiveTag", "removeTag", "deleteTag"],
-      "description": "The change; each action takes only its own fields"
+      "enum": ["setActiveTag", "removeActiveTag"],
+      "description": "The change; each action takes only its own fields. Removing or deleting a tag is not offered"
     },
     "user": {
       "type": "string",
@@ -19,33 +19,7 @@
     "tag": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
-      "description": "The tag, e.g. REL-2026-10-07; required for `setActiveTag`, `removeTag` and `deleteTag`"
-    },
-    "scope": {
-      "type": "object",
-      "description": "Where `removeTag` and `deleteTag` act: one diagram group with its type (only `deleteTag`; a `removeTag` with it is refused with INVALID_INPUT before anything is read, INUBIT removes a tag only in a repository path), or one repository path; required for them (a call without it is refused with INVALID_INPUT before anything is read)",
-      "properties": {
-        "diagramGroup": {
-          "type": "string",
-          "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
-          "description": "The diagram group of the inventory.owner, with `diagramType`; only for `deleteTag`"
-        },
-        "diagramType": {
-          "type": "string",
-          "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
-          "description": "The type of the diagram group; only a technical diagram group can be read for the preview"
-        },
-        "repositoryPath": {
-          "type": "string",
-          "pattern": "^/Root(/[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199})+$",
-          "description": "A repository path below /Root; refused until the tagged repository files can be read for the backup"
-        }
-      },
-      "additionalProperties": false,
-      "oneOf": [
-        { "required": ["diagramGroup", "diagramType"], "not": { "required": ["repositoryPath"] } },
-        { "required": ["repositoryPath"], "not": { "anyOf": [{ "required": ["diagramGroup"] }, { "required": ["diagramType"] }] } }
-      ]
+      "description": "The tag, e.g. REL-2026-10-07; required for and only allowed with `setActiveTag`"
     },
     "reason": {
       "type": "string",
@@ -62,18 +36,12 @@
   "oneOf": [
     {
       "properties": { "action": { "const": "setActiveTag" } },
-      "required": ["user", "tag"],
-      "not": { "required": ["scope"] }
+      "required": ["user", "tag"]
     },
     {
       "properties": { "action": { "const": "removeActiveTag" } },
       "required": ["user"],
-      "not": { "anyOf": [{ "required": ["tag"] }, { "required": ["scope"] }] }
-    },
-    {
-      "properties": { "action": { "enum": ["removeTag", "deleteTag"] } },
-      "required": ["tag"],
-      "not": { "required": ["user"] }
+      "not": { "required": ["tag"] }
     }
   ]
 }

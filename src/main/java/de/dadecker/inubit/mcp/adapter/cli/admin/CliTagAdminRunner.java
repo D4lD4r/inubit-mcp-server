@@ -2,8 +2,6 @@ package de.dadecker.inubit.mcp.adapter.cli.admin;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.cli.CliCommand;
-import de.dadecker.inubit.mcp.adapter.cli.CliCommand.TagRemovalKind;
-import de.dadecker.inubit.mcp.adapter.cli.CliCommand.TagScope;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutcome;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResult;
@@ -31,22 +29,20 @@ import java.util.function.Supplier;
  *   <li>{@link #activeTag}: {@code user '<user>'} in one stdin session bounded by the node's
  *       {@code cliTimeout}, as {@code read_users} sends it (D-20), read by
  *       {@link ActiveTagParser};
- *   <li>{@link #setActiveTag}, {@link #removeActiveTag} and {@link #removeTag}: one script-mode
- *       run each of {@link CliCommand#tagSetActive}, {@link CliCommand#tagRemoveActive} and
- *       {@link CliCommand#tagRemoval}, bounded by the node's {@code cliExportTimeout} as
- *       {@code tag --tagMove} ({@code CliTagRunner}). Each takes a {@link WritePermit} and is
- *       started by {@link CliRunner} inside {@code WriteLock.handOff}; a permit for another node
- *       starts nothing.
+ *   <li>{@link #setActiveTag} and {@link #removeActiveTag}: one script-mode run each of
+ *       {@link CliCommand#tagSetActive} and {@link CliCommand#tagRemoveActive}, bounded by the
+ *       node's {@code cliExportTimeout} as {@code tag --tagMove} ({@code CliTagRunner}). Each
+ *       takes a {@link WritePermit} and is started by {@link CliRunner} inside
+ *       {@code WriteLock.handOff}; a permit for another node starts nothing.
  * </ul>
  *
  * <p>T055 (L-4) recorded the {@code user} session on 8.1.17 for a user without an active tag
  * (fixture {@code admin-tags-user-no-active-tag-session}): the three rows, no {@code Active tag}
- * row, exit code 1 although no command was refused. T055 run 2 recorded only refusals of the
- * removal forms (exit 1, {@code EXECUTION ERROR}: {@code --tagRemove} in a diagram group,
- * {@code --tagDelete} without {@code --tagUser}), which {@link CliCommand#tagRemoval} no longer
- * builds. StartCLI prints no result line for {@code tag --tagMove} (fixture {@code tag_ok}), so a
- * tag form counts as done when it exits with 0 without an {@code n-NOK} message; the active-tag
- * row of {@link ActiveTagParser} is RECONSTRUCTED.
+ * row, exit code 1 although no command was refused. Tag removal and deletion have no form here:
+ * they are excluded after T055 (research D-18). StartCLI prints no result line for
+ * {@code tag --tagMove} (fixture {@code tag_ok}), so a tag form counts as done when it exits with
+ * 0 without an {@code n-NOK} message; the active-tag row of {@link ActiveTagParser} is
+ * RECONSTRUCTED.
  *
  * <p>A value {@link CliCommand} or {@link CliSessionCommand} cannot send is {@code INVALID_INPUT}
  * before anything is launched. A failed run (credentials, pin, launch, timeout, an exit code
@@ -141,16 +137,6 @@ public final class CliTagAdminRunner {
      */
     public void removeActiveTag(String user, WritePermit permit) {
         run(checked(() -> CliCommand.tagRemoveActive(user)), permit);
-    }
-
-    /**
-     * Removes or deletes {@code tag} in {@code scope}.
-     *
-     * @throws ToolErrorException {@code INVALID_INPUT} without a kind or scope, or for
-     *     {@code --tagRemove} in a diagram group; otherwise see the class comment
-     */
-    public void removeTag(TagRemovalKind kind, String tag, TagScope scope, WritePermit permit) {
-        run(checked(() -> CliCommand.tagRemoval(kind, tag, scope)), permit);
     }
 
     private void run(CliCommand command, WritePermit permit) {

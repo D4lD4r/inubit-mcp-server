@@ -16,8 +16,6 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
-import de.dadecker.inubit.mcp.adapter.cli.CliCommand.TagRemovalKind;
-import de.dadecker.inubit.mcp.adapter.cli.CliCommand.TagScope;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
@@ -33,7 +31,6 @@ import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81SettingsAdapter;
 import de.dadecker.inubit.mcp.application.ActionSpec;
-import de.dadecker.inubit.mcp.application.BackupStore;
 import de.dadecker.inubit.mcp.application.ChangeAudit;
 import de.dadecker.inubit.mcp.application.ChangeChallenges;
 import de.dadecker.inubit.mcp.application.ChangeGuard;
@@ -56,7 +53,6 @@ import de.dadecker.inubit.mcp.domain.model.LoadFigures;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.SystemInfo;
-import de.dadecker.inubit.mcp.domain.model.TaggedVersion;
 import de.dadecker.inubit.mcp.domain.model.TraceLevel;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
@@ -129,12 +125,12 @@ import tools.jackson.databind.JsonNode;
  *
  * <p>The test ports wire the runners as {@code V81ServerOperationAdapter} and
  * {@code V81TagAdministrationAdapter} do; the readiness, the load figures, the trace state, the
- * processes in ERROR and the versions carrying a tag come from fixed answers without INUBIT text.
+ * processes in ERROR come from fixed answers without INUBIT text.
  * Every capability is supported, and the US4 rows are reachable only in this test's coverage
  * list. The known answers of the operation forms are the ones recorded on 8.1.17
  * ({@code admin-operate-*}, T054); the active tag is the RECONSTRUCTED
- * {@code admin-tags-user-active-tag} block (until T055), and the tag forms answer like the
- * recorded {@code tag_ok} (no result line).
+ * {@code admin-tags-user-active-tag} block (no active tag recorded), and the tag forms answer
+ * like the recorded {@code tag_ok} (no result line).
  */
 @Timeout(60)
 class OperationSecretLeakTest {
@@ -172,12 +168,8 @@ class OperationSecretLeakTest {
         CLI\ttriggerMidnightTask\tWRITE\tA\tUS4\treachable:operate_server/triggerMidnightTask\tplanned\t-
         CLI\tprocessdelete error\tWRITE\tA\tUS4\treachable:operate_server/deleteErrorProcesses\tplanned\t-
         CLI\ttag --tagUser\tWRITE\tE\t-\treachable:tag_artifacts/default\treachable:tag_artifacts/default\t-
-        CLI\ttag --tagWorkflowGroup\tWRITE\tE\t-\treachable:tag_artifacts/default\treachable:tag_artifacts/default\t-
-        CLI\ttag --tagWorkflowType\tWRITE\tE\t-\treachable:tag_artifacts/default\treachable:tag_artifacts/default\t-
         CLI\ttag --tagSetActive\tWRITE\tE\tUS4\treachable:manage_tags/setActiveTag\tplanned\t-
         CLI\ttag --tagRemoveActive\tWRITE\tE\tUS4\treachable:manage_tags/removeActiveTag\tplanned\t-
-        CLI\ttag --tagRemove\tWRITE\tE\tUS4\treachable:manage_tags/removeTag\tplanned\t-
-        CLI\ttag --tagDelete\tWRITE\tE\tUS4\treachable:manage_tags/deleteTag\tplanned\t-
         """;
 
     /** The answer of each script-mode form recorded on 8.1.17 (T054), after the preamble. */
@@ -251,10 +243,9 @@ class OperationSecretLeakTest {
         ServerOperationService operations = new ServerOperationService(guard, new ChangeLocks(),
             challenges, audit, gateways, clock);
         TagAdministrationService tags = new TagAdministrationService(guard, new ChangeLocks(),
-            challenges, audit, gateways, new BackupStore(temp.resolve("backups"), clock,
-                PrivateFiles.forHost()), node -> Optional.of("acme-dev"));
+            challenges, audit, gateways);
         client = McpTestClient.start(List.of(new OperateServerTool(operations::execute),
-            new ManageTagsTool(tags::execute, true)), scrubber);
+            new ManageTagsTool(tags::execute)), scrubber);
         client.initialize();
     }
 
@@ -347,11 +338,7 @@ class OperationSecretLeakTest {
 
     // --- the calls -----------------------------------------------------------------------------
 
-    /**
-     * One call of each action of both tools that sends a change, in the order of their specs;
-     * not {@code removeTag}, which takes only a repository path and is refused before anything is
-     * read.
-     */
+    /** One call of each action of both tools, in the order of their specs. */
     private List<JsonNode> everyAction() {
         List<JsonNode> results = new ArrayList<>();
         results.add(operate(Map.of("action", "setMaintenance", "on", true)));
@@ -362,14 +349,12 @@ class OperationSecretLeakTest {
         results.add(operate(Map.of("action", "deleteErrorProcesses")));
         results.add(tags(Map.of("action", "setActiveTag", "user", USER, "tag", "REL-2")));
         results.add(tags(Map.of("action", "removeActiveTag", "user", USER)));
-        Map<String, Object> group = Map.of("diagramGroup", "Orders", "diagramType", "technical");
-        results.add(tags(Map.of("action", "deleteTag", "tag", "REL-1", "scope", group)));
         assertThat(results.stream().map(result -> result.path("structuredContent")
             .path("result").path("action").asString()))
             .as("every action of both tools that sends a change")
             .containsExactlyElementsOf(Stream.concat(
                 ServerOperationService.SPECS.stream(), TagAdministrationService.SPECS.stream())
-                .map(ActionSpec::action).filter(action -> !action.equals("removeTag")).toList());
+                .map(ActionSpec::action).toList());
         return results;
     }
 
@@ -606,21 +591,6 @@ class OperationSecretLeakTest {
                 @Override
                 public void removeActiveTag(String user, WritePermit permit) {
                     cli.removeActiveTag(user, permit);
-                }
-
-                @Override
-                public TaggedObjects tagged(String tag, String owner, Scope scope) {
-                    return new TaggedObjects(List.of(new TaggedVersion(
-                        TaggedVersion.Kind.WORKFLOW, "Workflow-0001", 3)), 0);
-                }
-
-                @Override
-                public void removeTag(Removal removal, String tag, String owner, Scope scope,
-                    WritePermit permit) {
-                    Scope.DiagramGroup group = (Scope.DiagramGroup) scope;
-                    cli.removeTag(removal == Removal.REMOVE ? TagRemovalKind.REMOVE
-                        : TagRemovalKind.DELETE, tag, new TagScope.DiagramGroup(group.group(),
-                            group.type(), owner), permit);
                 }
             };
         }

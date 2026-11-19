@@ -355,15 +355,4 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
     public void removeActiveTag(String user, WritePermit permit) {
         throw refusal();
     }
-
-    @Override
-    public TaggedObjects tagged(String tag, String owner, Scope scope) {
-        throw refusal();
-    }
-
-    @Override
-    public void removeTag(Removal removal, String tag, String owner, Scope scope,
-        WritePermit permit) {
-        throw refusal();
-    }
 }

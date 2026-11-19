@@ -441,10 +441,11 @@ name) and the audit id.
 | metadata rename | `export --exportMetadata --exportMetadataNames <name>` (the named registry entry; T039) |
 | repository file or directory delete or rename, EDI rule overwrite | `export --exportRepositoryPath` |
 | keystore to a module | export of the module |
-| tag removal or deletion | JSON list of the objects and versions carrying the tag (from the version history, `VersionHistoryParser`) |
 
 If the backup fails, nothing is sent (FR-018). Retention and sweep are unchanged (30 days, newest
-per scope kept).
+per scope kept). Tag removal and deletion have no backup: they are excluded after T055 (D-18), and
+the tag list backup T053 built for them (`BackupStore.writeTagList`, object kind `TAG_LIST`) was
+removed with them.
 
 `restore_backup` accepts an `ADMINISTRATION` manifest only on development nodes and only for
 workflow and module exports, through the existing import path. Its node rules do not change.
@@ -484,35 +485,43 @@ admission and sending refuses it, as for the existing write tools (`WriteRaceToo
 
 ## D-18 Tags (FR-019a, US4 AS12–AS14)
 
-**Decision**: `manage_tags` actions:
+**Decision** (owner, Question IMC-7, option 3 "rest planned", 2026-11-19, from T055 runs 2–4 on
+8.1.17, recorded below): `manage_tags` offers only the active-tag actions, `setActiveTag {user,
+tag}` and `removeActiveTag {user}` (`tag --tagSetActive|--tagRemoveActive --tagUser`). Their rows
+stay `planned` ("not yet verified"): active tagging is off on the test node, `--tagSetActive`
+answered `TagNameWasNotFound` although g1 carried the tag, and `--tagRemoveActive` answered
+without text (run 4).
 
-- `setActiveTag {user, tag}` and `removeActiveTag {user}` (`tag --tagSetActive|--tagRemoveActive
-  --tagUser`);
-- `deleteTag` with exactly one scope: `{diagramGroup, diagramType}` (`--tagWorkflowGroup` +
-  `--tagWorkflowType` + `--tagUser <inventory.owner>`) or `{repositoryPath}`
-  (`--tagRepositoryPath`, no `--tagUser`);
-- `removeTag` only with `{repositoryPath}` (`--tagRepositoryPath`): a `removeTag` with a diagram
-  group is `INVALID_INPUT` before anything is read (T055 run 2, below).
+Tag removal is not offered; its rows are excluded on both lines (the 9.0 CLI is the same):
 
-`CliCommand.OPTIONS["tag"]` gains `--tagSetActive`, `--tagRemoveActive`, `--tagDelete`,
-`--tagRemove` and `--tagRepositoryPath`. A builder rule rejects `--tagDelete` / `--tagRemove`
-without a scope option, `--tagRemove` with a diagram group, and `--tagDelete` in a diagram group
-without its owner. `--tagDiagram` and `--tagWorkflowGroupExclude` are never admitted
-(`CliCommandTest`).
+- `removeTag` (`tag --tagRemove`, `tag --tagRepositoryPath`): a group-scoped `--tagRemove` does
+  not exist (8.1.17: "tagRepositoryPath is needed", run 2), and the repository-path form cannot be
+  previewed or backed up (FR-018): tagging a diagram group tags no repository file (runs 2 and 3),
+  so no tagged repository file could be produced to check it, and no StartCLI form that lists the
+  tagged repository files is recorded.
+- `deleteTag` (`tag --tagDelete`): it acts on the whole owner. `--tagDelete … --tagUser <owner>`
+  in one diagram group deleted the tag owner-wide: the other group lost it, and afterwards the tag
+  no longer existed (run 3).
 
-`removeTag` and `deleteTag` start as `planned` and become `reachable` only if L-4 shows that
-INUBIT limits them to the scope; otherwise they are `excluded:acts-on-whole-owner`. The tool then
-offers only the active-tag actions. `removeTag` acts only in a repository path, which the service
-refuses until the tagged repository files can be read (below), so the description never offers
-it; only `deleteTag` can be offered (`TagAdministrationService.deleteTagOffered`).
+`removeTag` and `deleteTag` are unknown actions (the input schema refuses them, the service
+answers `INVALID_INPUT`; nothing is read or sent), as `setDebug` of `operate_server` after T054.
+`CliCommand.OPTIONS["tag"]` gains only `--tagSetActive` and `--tagRemoveActive`; `--tagDelete`,
+`--tagRemove`, `--tagRepositoryPath`, `--tagDiagram` and `--tagWorkflowGroupExclude` are never
+admitted (`CliCommandTest`). The removal forms the live check sends are test code only
+(`UnlistedTagCommand`). This is the T066 exclusion of the rows `tag --tagDelete`,
+`tag --tagRemove` and `tag --tagRepositoryPath`.
 
-Before a removal the preview lists the objects and versions carrying the tag in the scope (version
-history export, as `tag_artifacts` reads it) and the count outside the scope that must stay; the
-result re-reads both.
+Before the decision, T063/T064 built the removal path this check was to open: a preview of the
+versions carrying the tag in one diagram group (history export, as `tag_artifacts` reads it) and
+the count outside it, a tag list backup (T053: `BackupStore.writeTagList`, object kind
+`TAG_LIST`), and a re-read of both. All of it, the tag list backup included, was removed with the
+decision; `TaggedVersion` stays as test code of the live check only. The records below keep what
+the path was built on.
 
 **Port (T063)**: `TagAdministrationPort`, in the 8.1 port set (9.0 reuses it) as
 `V81TagAdministrationAdapter` with `CliTagAdminRunner`, capability `TAG_ADMINISTRATION` (StartCLI,
-"not yet verified" until T055). Until L-4 these are assumptions:
+"not yet verified"; T055 did not verify it, decision above). The port holds the active tag only:
+its read, set and removal. Until L-4 these are assumptions:
 - the active tag is read with `user '<user>'` in a session, the recorded rows plus a RECONSTRUCTED
   row `Active tag <tag>` (fixture `admin-tags-user-active-tag-reconstructed`); without it the user
   has none. The export by tag also holds `usertags.xml` with an `ActiveTag` element (empty in
@@ -561,62 +570,40 @@ test groups:
 - `tag --tagDelete <tag> --tagWorkflowGroup <g1> --tagWorkflowType technical --tagUser <owner>`
   exits with 0 and deletes the tag **owner-wide**: g2 lost it too, and afterwards StartCLI
   answers that the specified tag does not exist. `deleteTag` in a diagram group is not limited to
-  its scope, so by the rule above it is to become `excluded:acts-on-whole-owner` (planned
-  exclusion; the coverage rows change with T066, not here).
+  its scope, so it is excluded (decision above).
 - W17 `tag --tagSetActive <tag> --tagUser <user>` then found no tag: `EXECUTION ERROR`,
   `TagNameWasNotFound`. The active-tag pair is still open; run 4 sends it while g1 carries the tag,
   with the approved list `S1,W17,W18,X1` (docs/live-tests.md "The active-tag pair (run 4)"). The
   owner says active tagging is not enabled on the test node, so INUBIT's refusal of W17/W18 is
   recorded as their answer, not a stop.
 
+**Recorded in T055 run 4 (2026-11-19, 8.1.17)**, list `S1,W17,W18,X1` from a tag on nothing: S1
+tagged g1; W17 `tag --tagSetActive <tag> --tagUser <user>` was refused with `TagNameWasNotFound`
+although g1 carried the tag (active tagging is off on the test node); W18 `tag --tagRemoveActive
+--tagUser <user>` exited with 0 without text; X1 deleted the tag, and the server was left clean.
+The active-tag pair is not verified on this node, so its rows stay `planned` (decision above).
+
 **Follow-up, not fixed in T055**: `CliUserRunner.session` and `CliSettingsRunner.session` still use
 the old rule (their `commandRefused` looks only for `EXECUTION ERROR`). On a real 8.1.17 session in
 which no command is refused (`read_users` with only `user`/`finger`; `get_server_settings` without
 the root-only reads) they will most likely fail the same way with `UNEXPECTED_RESPONSE`.
 
-The versions in a diagram group come from the group's history export of the owner; the count
-outside it is the number of workflows and modules of the owner's export by the tag (`--exportTag`,
-feature 005 D-4: no check-in comment is appended, unlike an owner-wide history export) whose name is
-not in the group. That export is fixed to `--exportWorkflowType technical`, as `tag_artifacts`
-tags only technical groups, so the read for a diagram group of another type is refused
-(`INVALID_INPUT`) before anything is sent; otherwise the count outside it would count technical
-workflows.
-
-No form that lists the tagged repository files with their versions is recorded yet, so the read
-for a repository path is refused (`UNSUPPORTED_VERSION`) before anything is sent. Candidate for
-T055: `export --exportRepositoryPath <path> --exportTag <tag>`, reading `tagName` and `version` of
-each file's metadata (a tagged repository export showed `tagName`, spike-development-deployment
-"Tags"; `Repository.zip` in `export_release.zip` holds the tagged versions with both, fixture
-README).
-
-T055 must also check what a group-scoped removal does to repository files: `tag --tagMove` with a
-group also tags the repository files the group references (spike "Tags"), and StartCLI's help says
+The removed removal path read the versions in a diagram group from the group's history export of
+the owner, and the count outside it from the owner's export by the tag (`--exportTag`, feature 005
+D-4: no check-in comment is appended, unlike an owner-wide history export), fixed to technical
+diagram groups. For a repository path no form that lists the tagged repository files with their
+versions was recorded (candidate `export --exportRepositoryPath <path> --exportTag <tag>`, reading
+`tagName` and `version` of each file's metadata, spike-development-deployment "Tags"); the live
+check could not exercise it, because no repository file carried the tag. StartCLI's help says
 `--tagDelete` "Removes the tag from diagram, modules and repository if it is available" and
-`--tagRemove` "Removes the tag only from repository" (`win_help.stdout`). A removal in one group
-may therefore touch referenced repository files that other groups reference too.
+`--tagRemove` "Removes the tag only from repository" (`win_help.stdout`).
 
-**Service and tool (T064)**: `TagAdministrationService` and `manage_tags`.
-- **Owner**: the preview, backup and re-read read the diagram group of `inventory.owner`, the
-  owner `tag_artifacts` tags for by default, and `deleteTag` in that group sends it as
-  `--tagUser` (8.1.17 requires it, T055 run 2). Without it a removal is `NOT_CONFIGURED` before
-  any read. The contract input stays `{tag, scope}`.
-- **Repository path**: the backup (FR-018) needs the tagged repository files, and `tagged` has no
-  read form for them, so a `{repositoryPath}` removal is refused (`UNSUPPORTED_VERSION`, "not
-  supported yet") after the admission and before any read; nothing is sent. The owner decides on
-  this scope with T055.
-- **Rows**: the gate refuses each removal while its rows are not `reachable`. The description
-  offers `deleteTag` only when its rows in a diagram group (`tag --tagDelete`,
-  `--tagWorkflowGroup`, `--tagWorkflowType`, `--tagUser`) are `reachable` (`deleteTagOffered`),
-  otherwise it says it is not offered yet; it never offers `removeTag` (repository path only).
-  Offline tests use a test coverage list.
-- **Missing scope**: the input schema does not require `scope`, so the call reaches the service and
-  gets `INVALID_INPUT` before any read (AS13).
-- **Order of a removal**: tag list backup (`BackupStore.writeTagList`, scope name
-  `<tag>@<type>/<group>`), then `PENDING`, send, re-read; a failed backup is `INTERNAL`, audited
-  `REFUSED`, nothing sent. The manifest gets the outcome. An empty list is still sent, not
-  `NOTHING_TO_DO`: `--tagRemove` acts on repository files the list does not show.
-- **Locks** (D-17): `node|OPERATION|activeTag:<user>`, `node|OPERATION|tag:<tag>@<scope>` (scope
-  `<type>/<group>` or the path); `removeTag` and `deleteTag` share the key.
+**Service and tool (T064, after the decision)**: `TagAdministrationService` and `manage_tags`
+take `setActiveTag` and `removeActiveTag` only; any other action is `INVALID_INPUT` before
+anything is read, audited `REFUSED`. The gate refuses each action while its rows are not
+`reachable`. The preview names the user's current and requested active tag (no backup: an active
+tag is a setting of the user, FR-018), and the result re-reads it. Lock (D-17):
+`node|OPERATION|activeTag:<user>`.
 
 ## D-19 Secret rules for configuration, modules and users (FR-010)
 
@@ -938,7 +925,7 @@ check marked (W) changes the server and runs only after the operator's approval 
 | L-1 | Stdin session on 8.1/9.0: prompt format, command echo, `exit` | D-7 fallback: password commands excluded, user pages of 10 |
 | L-2 (W) | `maintenance on/off`, `-s`, `-eq`; StartCLI and `POST /ready` while maintenance is on | readiness during maintenance reported as not switchable |
 | L-3 (W) | `trace on/off`, `trace -l` levels, `debug on/off` outputs | entry excluded with the reason found (T054: `debug on\|off` excluded, no observable server effect) |
-| L-4 (W) | `tag --tagRemove/--tagDelete` with a group or path scope: is another group's tag kept? | `removeTag` / `deleteTag` excluded (acts on the whole owner) |
+| L-4 (W) | `tag --tagRemove/--tagDelete` with a group or path scope: is another group's tag kept? | `removeTag` / `deleteTag` excluded (acts on the whole owner) (T055: `deleteTag` acts on the whole owner, `removeTag` exists only for a repository path that cannot be backed up; both excluded, IMC-7) |
 | L-5 | Output of `threads`, `privilegedWorkflows`, `dbconnectiontolerance show`, `license -td`, `date` | parser per recorded form |
 | L-6 | `user <name>`, `finger`, `-who`, `GET /user/users`: fields, account state | no account state in the result |
 | L-7 | `fetchXSLT1.0 -ef`: where the file is written (8.1: the command does not exist, T039; 9.0 open, T039a) | entry excluded (file on the INUBIT host, or command not found) |

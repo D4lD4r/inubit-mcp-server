@@ -983,12 +983,14 @@ observable server effect; the owner excluded it from `operate_server` (2026-11-1
 `live/ManageTagsLiveTest` runs the tag check L-4 (research D-18) on one non-production INUBIT 8.1
 development node whose profile enables writes (`write.enabled`, `development.enabled`) and sets
 `inventory.owner`. The tool `manage_tags` still refuses 8.1 until T066 flips the coverage rows, so
-the test sends the commands raw on the production runners: `tag --tagMove` through the runner of
-`tag_artifacts`, the removals and the active-tag forms through the runner of `manage_tags`, the
-reads through the exports of the `manage_tags` preview. W13, W14 and W16 of the first list (group
-forms 8.1.17 refused in run 2: `--tagRemove` in a group, `--tagDelete` without `--tagUser`) are no
-production forms and are built for this test only; the folder read is the allow-listed candidate
-form of D-18 without a production runner and is recorded only.
+the test sends the commands raw: `tag --tagMove` through the runner of `tag_artifacts`, the
+active-tag forms through the runner of `manage_tags`, the reads through the history export and the
+export by the tag. The removals have no production form since tag removal was excluded after the
+check (research D-18, owner decision IMC-7): they are built for this test only and judged as the
+runner of `manage_tags` judges a tag form. W13, W14 and W16 of the first list (group forms 8.1.17
+refused in run 2: `--tagRemove` in a group, `--tagDelete` without `--tagUser`) are built for this
+test only too; the folder read is the allow-listed candidate form of D-18 without a production
+runner and is recorded only.
 
 There are three approved step lists. The first (`S1,…,W18`) starts from a tag on nothing; it ran
 twice and is not run again (a re-run would need a fresh approval: its cleanup now sends
@@ -1102,8 +1104,8 @@ tagged versions, repository files carrying the tag) and, once W15 has a folder, 
 
 The second list starts from the state run 2 left. B0 (H1, H2, T, A) must show: both groups hold
 a workflow and carry the tag, the owner's export by the tag names exactly g1 and g2 (no other
-group), and the user has no active tag; else nothing is written. Every command is a production
-form of `manage_tags` (X1, X2 the `deleteTag` form in a group with its owner).
+group), and the user has no active tag; else nothing is written. Every command was a production
+form of `manage_tags` in run 3 (X1, X2 the former `deleteTag` form in a group with its owner).
 
 | Step | Command | Question | Read after |
 |---|---|---|---|
@@ -1147,16 +1149,16 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
 
 The third list starts from a tag on nothing, as the first: B0 (H1, H2, T, A) must show that the
 tag is on nothing the reads see, that both groups hold a workflow and that the user has no
-active tag; else nothing is written. Every command is a production form; g2 is only read. The
-owner said active tagging is not enabled on the test node, so W17 and W18 may be refused or have
-no effect: that is the answer to record.
+active tag; else nothing is written. Every command was a production form in run 4 (X1 the former
+`deleteTag` form); g2 is only read. The owner said active tagging is not enabled on the test node,
+so W17 and W18 may be refused or have no effect: that is the answer to record.
 
 | Step | Command | Question | Read after |
 |---|---|---|---|
 | S1 | `tag --tagMove '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical' --tagUser '<owner>'` (the `tag_artifacts` form) | g1 must carry the tag | H1, H2, T |
 | W17 | `tag --tagSetActive '<tag>' --tagUser '<user>'` | accepted or refused (INUBIT's message)? does `user '<user>'` show an `Active tag` row, in which form? | A |
 | W18 | `tag --tagRemoveActive --tagUser '<user>'` | accepted or refused? is the row gone? | A |
-| X1 | `tag --tagDelete '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical' --tagUser '<owner>'` (the `deleteTag` form) | the tag is gone (owner-wide, run 3) | H1, H2, T |
+| X1 | `tag --tagDelete '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical' --tagUser '<owner>'` (the former `deleteTag` form) | the tag is gone (owner-wide, run 3) | H1, H2, T |
 
 - INUBIT's refusal of W17 or W18 is recorded as the answer (above), never a stop, so X1 runs
   after them. An error of W17/W18 (e.g. a timeout) or an unknown read stops; the cleanup then

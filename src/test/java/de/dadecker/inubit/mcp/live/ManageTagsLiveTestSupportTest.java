@@ -4,12 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import de.dadecker.inubit.mcp.adapter.cli.CliCommand.TagRemovalKind;
-import de.dadecker.inubit.mcp.adapter.cli.CliCommand.TagScope;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.UnlistedTagCommand;
+import de.dadecker.inubit.mcp.adapter.cli.UnlistedTagCommand.TagRemovalKind;
+import de.dadecker.inubit.mcp.adapter.cli.UnlistedTagCommand.TagScope;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.TaggedVersion;
@@ -325,6 +325,17 @@ class ManageTagsLiveTestSupportTest {
         assertThatThrownBy(() -> UnlistedTagCommand.groupRemoval(TagRemovalKind.REMOVE, TAG, G1,
             "technical", Optional.of("jd'oe"))).isInstanceOf(ToolErrorException.class)
             .hasMessageNotContaining("jd'oe");
+        // the scoped removals have no production form after T055 (research D-18)
+        assertThatThrownBy(() -> UnlistedTagCommand.removal(TagRemovalKind.DELETE, TAG,
+            new TagScope.DiagramGroup(G1, "technical", "jd'oe")))
+            .isInstanceOf(ToolErrorException.class).hasMessageNotContaining("jd'oe");
+        assertThatThrownBy(() -> UnlistedTagCommand.removal(TagRemovalKind.REMOVE, TAG,
+            new TagScope.RepositoryPath("/Root/owner1/../x")))
+            .isInstanceOf(ToolErrorException.class).hasMessageNotContaining("/Root/owner1");
+        // 8.1.17 refuses --tagRemove in a diagram group (T055 run 2)
+        assertThatThrownBy(() -> UnlistedTagCommand.removal(TagRemovalKind.REMOVE, TAG,
+            new TagScope.DiagramGroup(G1, "technical", "owner1")))
+            .isInstanceOf(ToolErrorException.class);
     }
 
     // --- reads -----------------------------------------------------------------------------------

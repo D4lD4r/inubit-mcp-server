@@ -20,7 +20,6 @@ import de.dadecker.inubit.mcp.domain.model.WritePolicy.Confirmation;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
-import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.RecordingAuditPort;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.io.StringReader;
@@ -38,7 +37,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Named;
-import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -91,9 +89,6 @@ class ChangeToolsProductionRefusalTest {
     private final ChangeAudit audit = new ChangeAudit(records, clock, "acme", UUID::randomUUID);
     private final FakeServerOperations operations = new FakeServerOperations();
     private final FakeTagAdministration tags = new FakeTagAdministration();
-
-    @TempDir
-    Path home;
 
     /** The change actions of the wiring's catalog, named {@code tool/action}. */
     static Stream<Named<ActionSpec>> changeActions() {
@@ -157,11 +152,9 @@ class ChangeToolsProductionRefusalTest {
                     new ServerOperationService.Request(node.value(), spec.action(), fields(spec),
                         REASON, Optional.empty(), Optional.empty()));
             case TagAdministrationService.TOOL -> new TagAdministrationService(guard,
-                new ChangeLocks(), challenges, audit, tags,
-                new BackupStore(home.resolve("backups"), clock, PrivateFiles.forHost()),
-                id -> Optional.of("acme-dev")).execute(new TagAdministrationService.Request(
-                    node.value(), spec.action(), fields(spec), REASON, Optional.empty(),
-                    Optional.empty()));
+                new ChangeLocks(), challenges, audit, tags).execute(
+                    new TagAdministrationService.Request(node.value(), spec.action(),
+                        fields(spec), REASON, Optional.empty(), Optional.empty()));
             default -> throw unknown(spec);
         };
     }
@@ -185,10 +178,6 @@ class ChangeToolsProductionRefusalTest {
                 "operate_server/deleteErrorProcesses" -> Map.of();
             case "manage_tags/setActiveTag" -> Map.of("user", "jdoe", "tag", "REL-2");
             case "manage_tags/removeActiveTag" -> Map.of("user", "jdoe");
-            case "manage_tags/removeTag" -> Map.of("tag", "REL-1",
-                "scope", Map.of("repositoryPath", "/Root/acme-dev/xsd"));
-            case "manage_tags/deleteTag" -> Map.of("tag", "REL-1",
-                "scope", Map.of("diagramGroup", "Orders", "diagramType", "technical"));
             default -> throw unknown(spec);
         };
     }

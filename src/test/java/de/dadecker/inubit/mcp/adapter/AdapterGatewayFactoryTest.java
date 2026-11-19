@@ -738,7 +738,7 @@ class AdapterGatewayFactoryTest {
     void the81And90PortSetsAdministerTags(@TempDir Path root) throws IOException {
         // feature 022 T063: the tag administration adapter of the 8.1 port set, which 9.0
         // reuses, with and without helper host, behind the stale-reporting decorator; every
-        // form runs on the node's StartCLI runner, a repository path has no read
+        // form runs on the node's StartCLI runner
         EffectiveNodeConfig on81 = server(DEV, VersionSetting.parse("8.1.17").orElseThrow());
         EffectiveNodeConfig on90 = server(ENT2, VersionSetting.parse("9.0.7").orElseThrow());
         try (CliResources resources = new CliResources("acme", PrivateFiles.forHost())) {
@@ -755,10 +755,6 @@ class AdapterGatewayFactoryTest {
                         assertThat(codeOf(() -> port.activeTag("jdoe")))
                             .as("no StartCLI client configured")
                             .isEqualTo(ErrorCode.CLI_UNAVAILABLE);
-                        assertThatThrownBy(() -> port.tagged("REL-1", "jdoe",
-                            new TagAdministrationPort.Scope.RepositoryPath("/Root/jdoe/xsd")))
-                            .isInstanceOfSatisfying(ToolErrorException.class, e ->
-                                assertThat(e.error().message()).contains("repository"));
                     }
                 }
             }

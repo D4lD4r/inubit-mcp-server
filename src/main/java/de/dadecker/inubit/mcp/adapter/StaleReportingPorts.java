@@ -614,16 +614,5 @@ final class StaleReportingPorts {
         public void removeActiveTag(String user, WritePermit permit) {
             runWrite(permit, () -> delegate.removeActiveTag(user, permit));
         }
-
-        @Override
-        public TaggedObjects tagged(String tag, String owner, Scope scope) {
-            return call(() -> delegate.tagged(tag, owner, scope));
-        }
-
-        @Override
-        public void removeTag(Removal removal, String tag, String owner, Scope scope,
-            WritePermit permit) {
-            runWrite(permit, () -> delegate.removeTag(removal, tag, owner, scope, permit));
-        }
     }
 }

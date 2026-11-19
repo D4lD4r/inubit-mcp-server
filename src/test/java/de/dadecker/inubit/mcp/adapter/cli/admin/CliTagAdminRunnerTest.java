@@ -6,8 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
-import de.dadecker.inubit.mcp.adapter.cli.CliCommand.TagRemovalKind;
-import de.dadecker.inubit.mcp.adapter.cli.CliCommand.TagScope;
 import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResources;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
@@ -58,10 +56,10 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * T063 (feature 022, US4, research D-18): the active tag of a user is read in one stdin session
  * with {@code user '<user>'}, scripted in the recorded session form ({@code admin-users-session});
- * the tag forms of T062 are script-mode runs scripted by {@link ScriptedProcessLauncher}, started
- * inside the write hand-off of their {@link WritePermit}. T055 (L-4) recorded only the session of a
- * user without an active tag ({@code admin-tags-user-no-active-tag-session}, exit code 1): the
- * active-tag row is the RECONSTRUCTED
+ * the active-tag forms of T062 are script-mode runs scripted by {@link ScriptedProcessLauncher},
+ * started inside the write hand-off of their {@link WritePermit}. T055 (L-4) recorded only the
+ * session of a user without an active tag ({@code admin-tags-user-no-active-tag-session}, exit
+ * code 1): the active-tag row is the RECONSTRUCTED
  * {@code admin-tags-user-active-tag-reconstructed}, and the tag forms are answered like the
  * recorded {@code tag --tagMove} ({@code tag_ok}: no result line) or its recorded refusal
  * ({@code tag_repository_user_refused}).
@@ -75,9 +73,6 @@ class CliTagAdminRunnerTest {
     private static final String PASSWORD = TestSecrets.CONFIGURED_PASSWORD;
     private static final String PROMPT = "CLI|jdoe@inubit-dev-1.example.test> ";
     private static final String PREAMBLE = "JAVA_HOME is set\nPassword: \n";
-    private static final TagScope GROUP =
-        new TagScope.DiagramGroup("GRP-01", "technical", "jdoe");
-    private static final TagScope PATH = new TagScope.RepositoryPath("/Root/jdoe/xsd");
 
     @TempDir
     Path cliHome;
@@ -258,20 +253,13 @@ class CliTagAdminRunnerTest {
     void eachTagFormIsOneScriptRunAnsweredLikeTagMove() {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
         for (String form : List.of("tag --tagSetActive 'REL-1' --tagUser 'jdoe'",
-            "tag --tagRemoveActive --tagUser 'jdoe'",
-            "tag --tagRemove 'REL-1' --tagRepositoryPath '/Root/jdoe/xsd'",
-            "tag --tagDelete 'REL-1' --tagWorkflowGroup 'GRP-01' --tagWorkflowType 'technical'"
-                + " --tagUser 'jdoe'",
-            "tag --tagDelete 'REL-1' --tagRepositoryPath '/Root/jdoe/xsd'")) {
+            "tag --tagRemoveActive --tagUser 'jdoe'")) {
             cli.expect(Pattern.compile(Pattern.quote(form))).replying("tag_ok");
         }
         CliTagAdminRunner runner = runner(cli);
 
         runner.setActiveTag("jdoe", "REL-1", PERMIT);
         runner.removeActiveTag("jdoe", PERMIT);
-        runner.removeTag(TagRemovalKind.REMOVE, "REL-1", PATH, PERMIT);
-        runner.removeTag(TagRemovalKind.DELETE, "REL-1", GROUP, PERMIT);
-        runner.removeTag(TagRemovalKind.DELETE, "REL-1", PATH, PERMIT);
 
         cli.verifyComplete();
         ScriptedProcessLauncher.Launch launch = cli.launches().getFirst();
@@ -297,7 +285,7 @@ class CliTagAdminRunnerTest {
         });
         List<Boolean> inside = new ArrayList<>();
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 2; i++) {
             cli.expect("tag ").then(spec -> inside.add(handingOff.get())).replying("tag_ok");
         }
         CliTagAdminRunner runner = runner(node().build(), TestCliRunners.forHost(cli,
@@ -306,11 +294,10 @@ class CliTagAdminRunnerTest {
 
         runner.setActiveTag("jdoe", "REL-1", PERMIT);
         runner.removeActiveTag("jdoe", PERMIT);
-        runner.removeTag(TagRemovalKind.DELETE, "REL-1", GROUP, PERMIT);
 
         cli.verifyComplete();
-        assertThat(inside).containsExactly(true, true, true);
-        assertThat(lock.permits()).hasSize(3).allSatisfy(permit ->
+        assertThat(inside).containsExactly(true, true);
+        assertThat(lock.permits()).hasSize(2).allSatisfy(permit ->
             assertThat(permit).isSameAs(PERMIT));
     }
 
@@ -334,12 +321,8 @@ class CliTagAdminRunnerTest {
 
         for (ThrowingCallable call : List.<ThrowingCallable>of(
             () -> runner.setActiveTag("jdoe", "REL'1", PERMIT),
-            () -> runner.removeActiveTag("-jdoe", PERMIT),
-            () -> runner.removeTag(TagRemovalKind.DELETE, "REL-1",
-                new TagScope.DiagramGroup("*", "technical", "jdoe"), PERMIT),
-            () -> runner.removeTag(TagRemovalKind.REMOVE, "REL-1", null, PERMIT),
-            // 8.1.17 refuses --tagRemove in a diagram group (T055 run 2)
-            () -> runner.removeTag(TagRemovalKind.REMOVE, "REL-1", GROUP, PERMIT))) {
+            () -> runner.setActiveTag("*", "REL-1", PERMIT),
+            () -> runner.removeActiveTag("-jdoe", PERMIT))) {
             ToolError error = errorOf(call);
             assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
             assertThat(error.node()).contains(DEV);
@@ -371,10 +354,11 @@ class CliTagAdminRunnerTest {
     @Test
     void theRecordedRefusalFailsTheChangeWithItsExcerpt() {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
-        cli.expect("tag --tagRemove").replying("tag_repository_user_refused");
+        // the recorded refusal of a tag form (tag --tagMove with --tagUser and a repository path,
+        // exit 1)
+        cli.expect("tag --tagSetActive").replying("tag_repository_user_refused");
 
-        ToolError error = errorOf(() -> runner(cli).removeTag(TagRemovalKind.REMOVE, "REL-1",
-            PATH, PERMIT));
+        ToolError error = errorOf(() -> runner(cli).setActiveTag("jdoe", "REL-1", PERMIT));
 
         assertThat(error.node()).contains(DEV);
         assertThat(error.excerpt()).hasValueSatisfying(excerpt ->
@@ -397,12 +381,12 @@ class CliTagAdminRunnerTest {
     @Test
     void theTagFormsAreBoundedByCliExportTimeout() {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
-        cli.expect("tag --tagDelete").hanging();
+        cli.expect("tag --tagRemoveActive").hanging();
 
         ToolError error = errorOf(() -> runner(node().cliExportTimeout(Duration.ofMillis(300))
             .build(), TestCliRunners.forHost(cli, Map.of("PATH", Platform.searchPath()),
                 new CliResources("acme", PrivateFiles.forHost())))
-            .removeTag(TagRemovalKind.DELETE, "REL-1", GROUP, PERMIT));
+            .removeActiveTag("jdoe", PERMIT));
 
         assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
         assertThat(error.nextStep()).contains("cliExportTimeout");

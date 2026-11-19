@@ -64,11 +64,10 @@ import java.util.regex.Pattern;
  *   <li>Feature 022 (research D-18), the tag forms of {@code manage_tags}, each only through
  *       its own method and never through the {@link Builder}: {@code tag --tagSetActive '<tag>'
  *       --tagUser '<user>'} ({@link #tagSetActive}), {@code tag --tagRemoveActive --tagUser
- *       '<user>'} ({@link #tagRemoveActive}), and {@code tag --tagRemove|--tagDelete '<tag>'}
- *       with exactly one {@link TagScope}: {@code --tagWorkflowGroup '<group>'
- *       --tagWorkflowType '<type>' --tagUser '<owner>'} (only {@code --tagDelete}) or
- *       {@code --tagRepositoryPath '<path>'} ({@link #tagRemoval}). Never {@code --tagDiagram}
- *       or {@code --tagWorkflowGroupExclude}.
+ *       '<user>'} ({@link #tagRemoveActive}). Never {@code --tagDelete}, {@code --tagRemove} or
+ *       {@code --tagRepositoryPath} (tag removal is excluded after the live check T055: it acts on
+ *       the whole owner, or only in a repository path that cannot be backed up), nor
+ *       {@code --tagDiagram} or {@code --tagWorkflowGroupExclude}.
  *   <li>Process ids are 1–19 decimal digits without leading zero ({@code ^[1-9][0-9]{0,18}$}).
  *   <li>Every other value (workflow, type, group, owner) must match
  *       {@link #VALUE} (no leading {@code -}) and is wrapped in single quotes; a value with
@@ -114,11 +113,11 @@ public final class CliCommand {
             "--importWorkflowInactive", "--importModule", "--importUser", "--returnProtocol",
             "--importRepositoryPath")),
         // feature 022 (research D-18): the TAG_FORM_OPTIONS through their factory methods only;
-        // never --tagDiagram or --tagWorkflowGroupExclude
+        // never --tagDelete, --tagRemove, --tagRepositoryPath (excluded, T055), --tagDiagram or
+        // --tagWorkflowGroupExclude
         Map.entry("tag",
             Set.of("--tagMove", "--tagWorkflowGroup", "--tagWorkflowType", "--tagUser",
-                "--tagSetActive", "--tagRemoveActive", "--tagDelete", "--tagRemove",
-                "--tagRepositoryPath")),
+                "--tagSetActive", "--tagRemoveActive")),
         // feature 021 (research D-1), feature 024 (D-11), feature 022 (D-22: on|off and -l
         // through traceSwitch() and traceLevel() only); never --level, -nl, -p, -r
         Map.entry("trace",
@@ -144,11 +143,11 @@ public final class CliCommand {
         Set.of("-s", "on|off", "-eq true|false", "-l", "error");
     /**
      * The options of the tag forms of {@code manage_tags} (feature 022, research D-18): the
-     * {@link Builder} refuses them, so they are sent only by {@link #tagSetActive},
-     * {@link #tagRemoveActive} and {@link #tagRemoval}.
+     * {@link Builder} refuses them, so they are sent only by {@link #tagSetActive} and
+     * {@link #tagRemoveActive}.
      */
     private static final Set<String> TAG_FORM_OPTIONS = Set.of("--tagSetActive",
-        "--tagRemoveActive", "--tagDelete", "--tagRemove", "--tagRepositoryPath");
+        "--tagRemoveActive");
     /** The options without value ({@link Builder#flag}); every other option takes one. */
     private static final Set<String> FLAGS = Set.of("--includeHistory", "--importWorkflow",
         "--importWorkflowActive", "--importWorkflowInactive", "--importModule",
@@ -307,40 +306,6 @@ public final class CliCommand {
         return new CliCommand(List.of("processdelete", "error"));
     }
 
-    /** The two removals of StartCLI's {@code tag} command (feature 022, research D-18). */
-    public enum TagRemovalKind {
-        /** {@code --tagRemove}: "Removes the tag only from repository". */
-        REMOVE("--tagRemove"),
-        /** {@code --tagDelete}: "Removes the tag from diagram, modules and repository". */
-        DELETE("--tagDelete");
-
-        private final String option;
-
-        TagRemovalKind(String option) {
-            this.option = option;
-        }
-    }
-
-    /**
-     * The scope of a tag removal (feature 022, research D-18): one diagram group of one diagram
-     * type of its owner, or one repository path. Without it StartCLI acts on the whole owner, so a
-     * removal always takes one.
-     */
-    public sealed interface TagScope {
-
-        /**
-         * {@code --tagWorkflowGroup '<group>' --tagWorkflowType '<type>' --tagUser '<owner>'}: one
-         * group of {@code owner} (8.1.17 answers {@code --tagDelete} without {@code --tagUser}
-         * with "Missing user name.", T055).
-         */
-        record DiagramGroup(String group, String type, String owner) implements TagScope {
-        }
-
-        /** {@code --tagRepositoryPath '<path>'}, a {@link #REPOSITORY_PATH}. */
-        record RepositoryPath(String path) implements TagScope {
-        }
-    }
-
     /**
      * {@code tag --tagSetActive '<tag>' --tagUser '<user>'}: set the active tag of a user
      * (feature 022, research D-18).
@@ -357,40 +322,6 @@ public final class CliCommand {
     public static CliCommand tagRemoveActive(String user) {
         return new CliCommand(List.of("tag", "--tagRemoveActive", "--tagUser",
             quotedValue("--tagUser", user)));
-    }
-
-    /**
-     * {@code tag --tagRemove|--tagDelete '<tag>'} limited to {@code scope} (feature 022, research
-     * D-18). The group is one {@link #VALUE}, so never the empty list ("all groups") nor a comma
-     * list, and is sent with its owner; a repository path scope takes no {@code --tagUser}, which
-     * StartCLI refuses with it. {@code --tagRemove} takes only a repository path: 8.1.17 refuses
-     * it in a diagram group ("tagRepositoryPath is needed", T055).
-     */
-    public static CliCommand tagRemoval(TagRemovalKind kind, String tag, TagScope scope) {
-        if (kind == null) {
-            throw invalid("The kind of tag removal is missing",
-                "Use REMOVE (--tagRemove) or DELETE (--tagDelete)");
-        }
-        if (scope == null) {
-            throw invalid("A tag removal needs a diagram group or a repository path",
-                "Without a scope StartCLI removes the tag for the whole owner (research D-18)");
-        }
-        if (kind == TagRemovalKind.REMOVE && scope instanceof TagScope.DiagramGroup) {
-            throw invalid("--tagRemove takes only a repository path, not a diagram group",
-                "INUBIT 8.1.17 answers it in a diagram group with 'tagRepositoryPath is needed'"
-                    + " (research D-18, T055)");
-        }
-        List<String> tokens = new ArrayList<>(
-            List.of("tag", kind.option, quotedValue(kind.option, tag)));
-        switch (scope) {
-            case TagScope.DiagramGroup group -> tokens.addAll(List.of(
-                "--tagWorkflowGroup", quotedValue("--tagWorkflowGroup", group.group()),
-                "--tagWorkflowType", quotedValue("--tagWorkflowType", group.type()),
-                "--tagUser", quotedValue("--tagUser", group.owner())));
-            case TagScope.RepositoryPath path -> tokens.addAll(List.of("--tagRepositoryPath",
-                quotedRepositoryPath("--tagRepositoryPath", path.path())));
-        }
-        return new CliCommand(tokens);
     }
 
     /** {@code '<value>'}; the value for {@code option} must match {@link #VALUE}. */
@@ -730,7 +661,7 @@ public final class CliCommand {
             }
             if (TAG_FORM_OPTIONS.contains(option)) {
                 throw invalid("The StartCLI option " + option + " is built by its tag form only",
-                    "Use tagSetActive(), tagRemoveActive() or tagRemoval() (research D-18)");
+                    "Use tagSetActive() or tagRemoveActive() (research D-18)");
             }
             return option;
         }

@@ -1,6 +1,5 @@
 package de.dadecker.inubit.mcp.adapter;
 
-import de.dadecker.inubit.mcp.adapter.archive.v81.V81ReleaseArchives;
 import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
 import de.dadecker.inubit.mcp.adapter.cli.CliExportRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliImportRunner;
@@ -110,9 +109,8 @@ final class V81PortSet {
      * 022, research D-21); the server operation runs the StartCLI forms with a
      * {@link CliOperationRunner}, the readiness switch on the server's client under the StartCLI
      * runner's write lock and reads the processes in ERROR with this set's process port
-     * (feature 022, research D-14, D-22); the tag administration runs the StartCLI forms with a
-     * {@link CliTagAdminRunner} and reads the tagged versions with a {@link CliExportRunner}
-     * (feature 022, research D-18).
+     * (feature 022, research D-14, D-22); the tag administration runs the active-tag forms with
+     * a {@link CliTagAdminRunner} (feature 022, research D-18).
      */
     private static PortSet create(PortSetRegistry.NodeResources node,
         QueueEntryContentPort queueEntries, ServerLogPort serverLogs) {
@@ -152,10 +150,8 @@ final class V81PortSet {
             new V81ServerOperationAdapter(node.server(), new CliOperationRunner(node.server(),
                 node.credentials(), node.guard(), node.cliRunner(), classifier(node)),
                 node.client(), node.cliRunner().writeLock(), processes),
-            new V81TagAdministrationAdapter(node.server().id(), new CliTagAdminRunner(
-                node.server(), node.credentials(), node.guard(), node.cliRunner(),
-                classifier(node)), new CliExportRunner(node.server(), node.credentials(),
-                node.guard(), node.cliRunner(), classifier(node)), new V81ReleaseArchives()));
+            new V81TagAdministrationAdapter(new CliTagAdminRunner(node.server(),
+                node.credentials(), node.guard(), node.cliRunner(), classifier(node))));
     }
 
     private static CliOutputClassifier classifier(PortSetRegistry.NodeResources node) {

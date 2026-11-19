@@ -206,7 +206,7 @@ class CliCommandTest {
             .quoted("--tagUser", "jdoe").build().commandLine()).isEqualTo("tag --tagMove"
                 + " 'REL-1' --tagWorkflowGroup 'GRP-01' --tagWorkflowType 'technical' --tagUser"
                 + " 'jdoe'");
-        // feature 022 (research D-18): a tag is removed through tagRemoval() only
+        // feature 022 (research D-18): tag removal is excluded (T055)
         assertInvalidInput(() -> CliCommand.command("tag").quoted("--tagDelete", "REL-1"));
         assertInvalidInput(() -> CliCommand.command("tag").quoted("--tagDiagram", "W"));
         assertInvalidInput(() -> CliCommand.command("tag").flag("--tagRemove"));
@@ -813,81 +813,16 @@ class CliCommandTest {
     }
 
     @Test
-    void aTagIsDeletedInADiagramGroupOfItsOwnerOrRemovedInARepositoryPath() {
-        CliCommand.TagScope group =
-            new CliCommand.TagScope.DiagramGroup("GRP-01", "technical", "jdoe");
-        CliCommand.TagScope path = new CliCommand.TagScope.RepositoryPath("/Root/jdoe/My Dir");
-        // T055 run 2 (8.1.17): --tagDelete without --tagUser answers "Missing user name."
-        assertThat(CliCommand.tagRemoval(CliCommand.TagRemovalKind.DELETE, "REL-1", group)
-            .commandLine()).isEqualTo("tag --tagDelete 'REL-1' --tagWorkflowGroup 'GRP-01'"
-                + " --tagWorkflowType 'technical' --tagUser 'jdoe'");
-        // spike: StartCLI refuses --tagUser together with --tagRepositoryPath
-        assertThat(CliCommand.tagRemoval(CliCommand.TagRemovalKind.REMOVE, "REL-1", path)
-            .commandLine()).isEqualTo("tag --tagRemove 'REL-1' --tagRepositoryPath"
-                + " '/Root/jdoe/My Dir'");
-        assertThat(CliCommand.tagRemoval(CliCommand.TagRemovalKind.DELETE, "REL-1", path)
-            .commandLine()).isEqualTo("tag --tagDelete 'REL-1' --tagRepositoryPath"
-                + " '/Root/jdoe/My Dir'");
-    }
-
-    @Test
-    void aTagIsNeverRemovedInADiagramGroup() {
-        // T055 run 2 (8.1.17): "Insufficient options provided for action remove tag:
-        // tagRepositoryPath is needed"
-        assertThatThrownBy(() -> CliCommand.tagRemoval(CliCommand.TagRemovalKind.REMOVE, "REL-1",
-            new CliCommand.TagScope.DiagramGroup("GRP-01", "technical", "jdoe")))
-            .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(e.error().message())
-                .contains("--tagRemove takes only a repository path"));
-    }
-
-    @ParameterizedTest
-    @EnumSource(CliCommand.TagRemovalKind.class)
-    void aRemovalWithoutScopeIsRejected(CliCommand.TagRemovalKind kind) {
-        assertInvalidInput(() -> CliCommand.tagRemoval(kind, "REL-1", null));
-        // an empty group is "all groups" for StartCLI, and a list acts on several groups
-        assertInvalidInput(() -> CliCommand.tagRemoval(kind, "REL-1",
-            new CliCommand.TagScope.DiagramGroup("", "technical", "jdoe")));
-        assertInvalidInput(() -> CliCommand.tagRemoval(kind, "REL-1",
-            new CliCommand.TagScope.DiagramGroup("G1,G2", "technical", "jdoe")));
-        assertInvalidInput(() -> CliCommand.tagRemoval(kind, "REL-1",
-            new CliCommand.TagScope.DiagramGroup(null, "technical", "jdoe")));
-        assertInvalidInput(() -> CliCommand.tagRemoval(kind, "REL-1",
-            new CliCommand.TagScope.DiagramGroup("GRP-01", null, "jdoe")));
-        assertInvalidInput(() -> CliCommand.tagRemoval(kind, "REL-1",
-            new CliCommand.TagScope.DiagramGroup("GRP-01", "technical", null)));
-        for (String repositoryPath : Arrays.asList(null, "", "/Root", "/Root/", "Root/jdoe",
-            "/Root/jdoe/../other", "/Root/jdoe/./x", "/Root/jdoe'x")) {
-            assertInvalidInput(() -> CliCommand.tagRemoval(kind, "REL-1",
-                new CliCommand.TagScope.RepositoryPath(repositoryPath)));
-        }
-    }
-
-    @Test
-    void theTagFormsTakeOnlySafeValues() {
-        CliCommand.TagScope group =
-            new CliCommand.TagScope.DiagramGroup("GRP-01", "technical", "jdoe");
-        CliCommand.TagScope path = new CliCommand.TagScope.RepositoryPath("/Root/jdoe/xsd");
+    void theActiveTagFormsTakeOnlySafeValues() {
         for (String unsafe : Arrays.asList(null, "", "a'b", "-x", "--tagDiagram")) {
             assertInvalidInput(() -> CliCommand.tagSetActive(unsafe, "jdoe"));
             assertInvalidInput(() -> CliCommand.tagSetActive("REL-1", unsafe));
             assertInvalidInput(() -> CliCommand.tagRemoveActive(unsafe));
-            assertInvalidInput(() -> CliCommand.tagRemoval(CliCommand.TagRemovalKind.REMOVE,
-                unsafe, path));
-            assertInvalidInput(() -> CliCommand.tagRemoval(CliCommand.TagRemovalKind.DELETE,
-                unsafe, group));
-            assertInvalidInput(() -> CliCommand.tagRemoval(CliCommand.TagRemovalKind.DELETE,
-                "REL-1", new CliCommand.TagScope.DiagramGroup(unsafe, "technical", "jdoe")));
-            assertInvalidInput(() -> CliCommand.tagRemoval(CliCommand.TagRemovalKind.DELETE,
-                "REL-1", new CliCommand.TagScope.DiagramGroup("GRP-01", unsafe, "jdoe")));
-            assertInvalidInput(() -> CliCommand.tagRemoval(CliCommand.TagRemovalKind.DELETE,
-                "REL-1", new CliCommand.TagScope.DiagramGroup("GRP-01", "technical", unsafe)));
         }
-        assertInvalidInput(() -> CliCommand.tagRemoval(null, "REL-1", group));
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"--tagSetActive", "--tagRemoveActive", "--tagDelete", "--tagRemove",
-        "--tagRepositoryPath"})
+    @ValueSource(strings = {"--tagSetActive", "--tagRemoveActive"})
     void theTagFormsAreBuiltByTheirOwnMethodsOnly(String option) {
         assertInvalidInput(() -> CliCommand.command("tag").flag(option));
         assertInvalidInput(() -> CliCommand.command("tag").quoted(option, "REL-1"));
@@ -898,10 +833,13 @@ class CliCommandTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"--tagDiagram", "--tagWorkflowGroupExclude"})
-    void theOwnerWideTagOptionsAreNeverAdmitted(String option) {
+    @ValueSource(strings = {"--tagDiagram", "--tagWorkflowGroupExclude", "--tagDelete",
+        "--tagRemove", "--tagRepositoryPath"})
+    void theExcludedTagOptionsAreNeverAdmitted(String option) {
         // research D-18: --tagDiagram is ignored by INUBIT, --tagWorkflowGroupExclude acts on
-        // every other diagram group of the owner
+        // every other diagram group of the owner; tag removal is excluded after T055
+        // (--tagDelete acts on the whole owner, --tagRemove only in a repository path that
+        // cannot be backed up)
         assertInvalidInput(() -> CliCommand.command("tag").flag(option));
         assertInvalidInput(() -> CliCommand.command("tag").quoted(option, "W"));
         assertInvalidInput(() -> CliCommand.command("tag").emptyQuoted(option));

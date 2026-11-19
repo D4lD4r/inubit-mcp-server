@@ -204,17 +204,6 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
             public void removeActiveTag(String user, WritePermit permit) {
                 throw noTagAdministration();
             }
-
-            @Override
-            public TaggedObjects tagged(String tag, String owner, Scope scope) {
-                throw noTagAdministration();
-            }
-
-            @Override
-            public void removeTag(Removal removal, String tag, String owner, Scope scope,
-                WritePermit permit) {
-                throw noTagAdministration();
-            }
         };
 
     public PortSet {

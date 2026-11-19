@@ -271,7 +271,7 @@ conditions and renders the vendor expression.
 
 `BackupStore.Manifest.Kind.ADMINISTRATION` with:
 
-- `scope`: node, object kind (`WORKFLOW`, `MODULE`, `METADATA`, `REPOSITORY`, `TAG_LIST`), name;
+- `scope`: node, object kind (`WORKFLOW`, `MODULE`, `METADATA`, `REPOSITORY`), name;
 - `auditId`;
 - `contents` (the file names).
 

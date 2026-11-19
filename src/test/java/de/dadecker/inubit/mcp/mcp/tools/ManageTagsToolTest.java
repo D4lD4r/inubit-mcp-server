@@ -45,13 +45,14 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Feature 022 T064: {@code manage_tags} over MCP (contracts/mcp-tools-delta.md "Common rules" and
- * "manage_tags", spec US4 AS12–AS14, FR-019a) — the description offering {@code deleteTag} only
- * where its coverage rows are reachable and never {@code removeTag}, the destructive annotations,
- * the input schema refusing bad actions and fields before the service while a removal without
- * {@code scope} reaches it (AS13), the arguments and the MCP client reaching the service, the
- * preview and result shapes validating against {@code manage_tags.output.json}, and the
- * {@code CONFLICT} error carrying the fresh preview in its details. The service is replaced by a
- * function returning a prepared {@link Response}; nothing is sent anywhere.
+ * "manage_tags", spec US4 AS12–AS14, FR-019a) — the description of the active-tag actions saying
+ * that tag removal and deletion are not offered (excluded after T055), the destructive
+ * annotations, the input schema refusing bad actions and fields before the service, the removed
+ * actions {@code removeTag} and {@code deleteTag} included (AS13, AS14), the arguments and the MCP
+ * client reaching the service, the preview and result shapes validating against
+ * {@code manage_tags.output.json}, and the {@code CONFLICT} error carrying the fresh preview in its
+ * details. The service is replaced by a function returning a prepared {@link Response}; nothing is
+ * sent anywhere.
  */
 @Timeout(60)
 class ManageTagsToolTest {
@@ -68,27 +69,12 @@ class ManageTagsToolTest {
         + " `confirmationCode` to execute. If the state changed meanwhile, the CONFLICT error"
         + " carries a new preview in its details. With `CLIENT` (never on production) the first"
         + " call executes. Needs write access; production only with write.productionOptIn.";
-    /** removeTag acts only in a repository path, which is refused (T055 run 2, research D-18). */
-    private static final String REMOVE_TAG = " Not offered: removeTag. INUBIT removes a tag with"
-        + " it only in a repository path (a diagram group gives INVALID_INPUT), and a repository"
-        + " path is refused because the tagged repository files cannot be read for the backup"
-        + " yet.";
-    /** Today's production description: deleteTag waits for the live check (FR-019a). */
-    private static final String NOT_OFFERED = ACTIVE_TAG + " Not offered yet: deleteTag. A check"
-        + " on a test system must first show that INUBIT limits the deletion of a tag to the"
-        + " named diagram group; until then such a call is refused." + REMOVE_TAG + CONFIRMATION;
-    /** The description once deleteTag is reachable (AS13, AS14, FR-018). */
-    private static final String OFFERED = ACTIVE_TAG + " With deleteTag (`tag`, `scope`), a tag is"
-        + " deleted in exactly one technical diagram group of the inventory.owner of the {node}"
-        + " (`scope` with `diagramGroup` and `diagramType`; the owner is sent with it); a call"
-        + " without `scope` is refused with INVALID_INPUT before anything is read, and a `scope`"
-        + " with `repositoryPath` is refused because the tagged repository files cannot be read"
-        + " for the backup yet. The preview lists the workflow and module versions carrying the"
-        + " tag in the diagram group and counts those outside it, which keep the tag; that list"
-        + " is stored as a backup before anything is sent, and nothing is sent if the backup"
-        + " fails. The result reads both again." + REMOVE_TAG + CONFIRMATION;
-    private static final List<String> ACTIONS = List.of("setActiveTag", "removeActiveTag",
-        "removeTag", "deleteTag");
+    /** Tag removal and deletion are excluded after the live check T055 (research D-18). */
+    private static final String DESCRIPTION = ACTIVE_TAG + " Not offered: removing or deleting a"
+        + " tag. INUBIT deletes a tag for the whole owner even when one diagram group is named,"
+        + " and removes it only in a repository path whose tagged files cannot be read for a"
+        + " backup." + CONFIRMATION;
+    private static final List<String> ACTIONS = List.of("setActiveTag", "removeActiveTag");
     private static final NodeId TEST = NodeId.parse("test/node1");
     private static final String CODE = "Zk3p0Qx8LmN2vB7cR1tY4w";
     private static final String REASON = "Clean up the release tags";
@@ -96,6 +82,7 @@ class ManageTagsToolTest {
     private static final Instant EXPIRES = Instant.parse("2026-11-18T08:20:30Z");
     private static final Map<String, Object> GROUP = Map.of("diagramGroup", "Orders",
         "diagramType", "technical");
+    private static final Map<String, Object> REMOVAL = Map.of("tag", "REL-1", "scope", GROUP);
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final List<Request> requests = new CopyOnWriteArrayList<>();
@@ -104,13 +91,13 @@ class ManageTagsToolTest {
 
     @BeforeEach
     void setUp() {
-        response = () -> new Response.Preview(removalPreview());
+        response = () -> new Response.Preview(activePreview());
         SecretScrubber scrubber = new SecretScrubber();
         scrubber.register(TestSecrets.CONFIGURED_PASSWORD);
         client = McpTestClient.start(List.of(new ManageTagsTool(request -> {
             requests.add(request);
             return response.get();
-        }, false)), scrubber);
+        })), scrubber);
         client.initialize();
     }
 
@@ -127,7 +114,7 @@ class ManageTagsToolTest {
 
         assertThat(tool.path("name").asString()).isEqualTo("manage_tags");
         assertThat(tool.path("description").asString())
-            .isEqualTo("[acme] " + Terminology.DEFAULT.render(NOT_OFFERED));
+            .isEqualTo("[acme] " + Terminology.DEFAULT.render(DESCRIPTION));
         JsonNode annotations = tool.path("annotations");
         assertThat(annotations.path("title").asString())
             .isEqualTo(Terminology.DEFAULT.render("Manage the tags of an INUBIT {node}"));
@@ -139,25 +126,17 @@ class ManageTagsToolTest {
         assertThat(schema.path("required")).extracting(JsonNode::asString)
             .containsExactly("node", "action", "reason");
         assertThat(schema.path("properties").propertyNames()).containsExactly("node", "action",
-            "user", "tag", "scope", "reason", "confirmationCode");
+            "user", "tag", "reason", "confirmationCode");
         assertThat(schema.path("additionalProperties").asBoolean(true)).isFalse();
         assertThat(schema.path("properties").path("action").path("enum"))
             .extracting(JsonNode::asString).containsExactlyElementsOf(ACTIONS);
-        assertThat(schema.path("properties").path("scope").path("properties").propertyNames())
-            .containsExactly("diagramGroup", "diagramType", "repositoryPath");
-    }
-
-    @Test
-    void theDescriptionOffersDeleteTagOnlyWhereItsRowsAreReachableAndNeverRemoveTag() {
-        assertThat(ManageTagsTool.description(false)).isEqualTo(NOT_OFFERED);
-        assertThat(ManageTagsTool.description(true)).isEqualTo(OFFERED);
     }
 
     @Test
     void theAnnotationsAreThoseOfAChangeTool() {
         assertThat(new ManageTagsTool(request -> {
             throw new AssertionError("not called");
-        }, false).annotations())
+        }).annotations())
             .isEqualTo(ToolHints.destructive("Manage the tags of an INUBIT {node}"));
     }
 
@@ -178,15 +157,13 @@ class ManageTagsToolTest {
             call("setActiveTag", Map.of("user", "jdoe")),
             call("removeActiveTag", Map.of()),
             call("removeActiveTag", Map.of("user", "jdoe", "tag", "REL-1")),
-            call("removeTag", Map.of("scope", GROUP)),
-            call("removeTag", Map.of("tag", "REL-1", "user", "jdoe", "scope", GROUP)),
-            call("deleteTag", Map.of("tag", "REL-1", "scope", Map.of("diagramGroup", "Orders"))),
-            call("deleteTag", Map.of("tag", "REL-1", "scope", Map.of("diagramGroup", "Orders",
-                "diagramType", "technical", "repositoryPath", "/Root/acme"))),
-            call("deleteTag", Map.of("tag", "REL-1", "scope", Map.of("repositoryPath",
-                "acme"))),
-            call("deleteTag", Map.of("tag", "REL-1", "scope", Map.of("diagramGroup", "Orders",
-                "diagramType", "technical", "other", "x")))));
+            // AS13, AS14: tag removal and deletion are no actions (excluded after T055)
+            call("removeTag", REMOVAL),
+            call("removeTag", Map.of("tag", "REL-1", "scope", Map.of("repositoryPath",
+                "/Root/acme/mappings"))),
+            call("removeTag", Map.of("tag", "REL-1")),
+            call("deleteTag", REMOVAL),
+            call("deleteTag", Map.of("tag", "REL-1"))));
         for (String required : List.of("node", "action", "reason")) {
             Map<String, Object> without = active();
             without.remove(required);
@@ -205,16 +182,11 @@ class ManageTagsToolTest {
     }
 
     @Test
-    void everyActionFormPassesTheSchemaAndARemovalWithoutScopeReachesTheService() {
+    void everyActionFormPassesTheSchema() {
         List<Map<String, Object>> calls = List.of(
             active(),
             call("removeActiveTag", Map.of("user", "jdoe")),
-            call("removeTag", Map.of("tag", "REL-1", "scope", GROUP)),
-            call("deleteTag", Map.of("tag", "REL-1", "scope", Map.of("repositoryPath",
-                "/Root/acme/mappings"))),
-            with(active(), "confirmationCode", CODE),
-            // AS13: refused by the service with INVALID_INPUT before anything is read
-            call("removeTag", Map.of("tag", "REL-1")));
+            with(active(), "confirmationCode", CODE));
 
         for (Map<String, Object> arguments : calls) {
             JsonNode result = client.callTool("manage_tags", arguments);
@@ -223,73 +195,48 @@ class ManageTagsToolTest {
         assertThat(requests).hasSize(calls.size());
     }
 
-    @Test
-    void theServicesInvalidInputForAMissingScopeReachesTheClient() {
-        response = () -> {
-            throw new ToolErrorException(ToolError.of(ErrorCode.INVALID_INPUT,
-                "removeTag needs a scope", "cause", "next"));
-        };
-
-        JsonNode result = client.callTool("manage_tags", call("removeTag",
-            Map.of("tag", "REL-1")));
-
-        assertThat(result.path("isError").asBoolean()).isTrue();
-        assertThat(JSON.readTree(result.path("content").get(0).path("text").asString())
-            .path("error").path("code").asString()).isEqualTo("INVALID_INPUT");
-    }
-
     // --- arguments ----------------------------------------------------------------------------
 
     @Test
     void theActionFieldsTheReasonTheCodeAndTheMcpClientReachTheService() {
         client.callTool("manage_tags", active());
-        client.callTool("manage_tags", with(call("removeTag", Map.of("tag", "REL-1", "scope",
-            GROUP)), "confirmationCode", CODE));
+        client.callTool("manage_tags", with(call("removeActiveTag", Map.of("user", "jdoe")),
+            "confirmationCode", CODE));
 
         assertThat(requests).containsExactly(
             new Request("test/node1", "setActiveTag", Map.of("user", "jdoe", "tag", "REL-2"),
                 REASON, Optional.empty(), Optional.of("mcp-test-client/1.0")),
-            new Request("test/node1", "removeTag", Map.of("tag", "REL-1", "scope", GROUP),
-                REASON, Optional.of(CODE), Optional.of("mcp-test-client/1.0")));
+            new Request("test/node1", "removeActiveTag", Map.of("user", "jdoe"), REASON,
+                Optional.of(CODE), Optional.of("mcp-test-client/1.0")));
     }
 
     // --- output -------------------------------------------------------------------------------
 
     @Test
-    void aRemovalPreviewHasTheChangePreviewShapeWithTheTaggedVersions() {
-        JsonNode preview = structured(client.callTool("manage_tags", call("removeTag",
-            Map.of("tag", "REL-1", "scope", GROUP)))).path("preview");
+    void anActiveTagPreviewHasTheChangePreviewShape() {
+        JsonNode preview = structured(client.callTool("manage_tags", active())).path("preview");
 
         assertThat(preview.path("tool").asString()).isEqualTo("manage_tags");
-        assertThat(preview.path("action").asString()).isEqualTo("removeTag");
+        assertThat(preview.path("action").asString()).isEqualTo("setActiveTag");
         assertThat(preview.path("area").asString()).isEqualTo("operation");
-        assertThat(preview.path("affected").path("count").asInt()).isEqualTo(2);
-        assertThat(preview.path("affected").path("ids")).extracting(JsonNode::asString)
-            .containsExactly("workflow acme-orders version 3", "module acme-mapping version 2");
-        assertThat(preview.path("backup").asString()).startsWith("the list of the 2 versions");
+        assertThat(preview.has("affected")).isFalse();
+        assertThat(preview.path("backup").asString()).startsWith("none: ");
         assertThat(preview.path("confirmation").path("code").asString()).isEqualTo(CODE);
     }
 
     @Test
-    void aRemovalResultNamesItsBackupAndTheReReadLists() {
+    void anActiveTagResultNamesTheReReadTagWithoutABackup() {
         response = () -> new Response.Completed(new ChangeResult(TEST, "manage_tags",
-            "removeTag", "tag REL-1 in the diagram group Orders (technical) of acme-dev",
-            ChangeOutcome.EXECUTED, "2 versions carry the tag in the diagram group; 1 workflow"
-                + " or module outside it carries it too",
-            "tag --tagRemove was sent; StartCLI reported no error", Optional.of("0 versions"
-                + " carry the tag in the diagram group; 1 workflow or module outside it carries"
-                + " it too"), Optional.empty(), OptionalInt.empty(),
-            Optional.of(new ChangeResult.Backup("/home/acme/.inubit-mcp/acme/backups/"
-                + AUDIT + ".json", AUDIT.toString())), ChangeResult.RestartNeeded.FALSE, AUDIT),
-            List.of());
+            "setActiveTag", "active tag of the user jdoe", ChangeOutcome.EXECUTED,
+            "active tag REL-1", "tag --tagSetActive was sent; StartCLI reported no error",
+            Optional.of("active tag REL-2"), Optional.empty(), OptionalInt.empty(),
+            Optional.empty(), ChangeResult.RestartNeeded.FALSE, AUDIT), List.of());
 
-        JsonNode result = structured(client.callTool("manage_tags", call("removeTag",
-            Map.of("tag", "REL-1", "scope", GROUP)))).path("result");
+        JsonNode result = structured(client.callTool("manage_tags", active())).path("result");
 
         assertThat(result.path("outcome").asString()).isEqualTo("EXECUTED");
-        assertThat(result.path("after").asString()).startsWith("0 versions carry the tag");
-        assertThat(result.path("backup").path("manifestId").asString())
-            .isEqualTo(AUDIT.toString());
+        assertThat(result.path("after").asString()).isEqualTo("active tag REL-2");
+        assertThat(result.has("backup")).isFalse();
         assertThat(result.has("affectedCount")).isFalse();
     }
 
@@ -317,20 +264,20 @@ class ManageTagsToolTest {
         ChangeChallenges challenges = new ChangeChallenges(new WriteChallengeRegistry(
             Clock.fixed(Instant.parse("2026-11-18T08:10:30Z"), ZoneOffset.UTC)));
         ChangeChallenges.Conflict conflict = catchThrowableOfType(ChangeChallenges.Conflict.class,
-            () -> challenges.confirmOrConflict("removeTag=a", "removeTag=b", "fingerprint",
-                removalPreview(), Duration.ofMinutes(10)));
+            () -> challenges.confirmOrConflict("setActiveTag=a", "setActiveTag=b", "fingerprint",
+                activePreview(), Duration.ofMinutes(10)));
         response = () -> {
             throw conflict;
         };
 
-        JsonNode result = client.callTool("manage_tags", with(call("removeTag",
-            Map.of("tag", "REL-1", "scope", GROUP)), "confirmationCode", CODE));
+        JsonNode result = client.callTool("manage_tags", with(active(), "confirmationCode",
+            CODE));
 
         JsonNode error = JSON.readTree(result.path("content").get(0).path("text").asString())
             .path("error");
         assertThat(error.path("code").asString()).isEqualTo("CONFLICT");
         JsonNode preview = error.path("details").path("preview");
-        assertThat(preview.path("action").asString()).isEqualTo("removeTag");
+        assertThat(preview.path("action").asString()).isEqualTo("setActiveTag");
         assertThat(preview.path("confirmation").path("code").asString())
             .isEqualTo(conflict.preview().confirmation().orElseThrow().code())
             .isNotEqualTo(CODE);
@@ -343,13 +290,12 @@ class ManageTagsToolTest {
     void aPreconditionFailedRefusalHasNoDetails() {
         response = () -> {
             throw new ToolErrorException(ToolError.of(ErrorCode.PRECONDITION_FAILED,
-                "Another change of tag:REL-1@technical/Orders (OPERATION) on test/node1 is"
-                    + " running; nothing was changed", "twice", "Wait").withNode(TEST));
+                "Another change of activeTag:jdoe (OPERATION) on test/node1 is running;"
+                    + " nothing was changed", "twice", "Wait").withNode(TEST));
         };
 
-        JsonNode error = JSON.readTree(client.callTool("manage_tags", call("removeTag",
-            Map.of("tag", "REL-1", "scope", GROUP))).path("content").get(0).path("text")
-            .asString()).path("error");
+        JsonNode error = JSON.readTree(client.callTool("manage_tags", active())
+            .path("content").get(0).path("text").asString()).path("error");
 
         assertThat(error.path("code").asString()).isEqualTo("PRECONDITION_FAILED");
         assertThat(error.has("details")).isFalse();
@@ -390,18 +336,13 @@ class ManageTagsToolTest {
         return result.path("structuredContent");
     }
 
-    private static ChangePreview removalPreview() {
-        return new ChangePreview(TEST, "manage_tags", "removeTag", "operation",
-            "tag REL-1 in the diagram group Orders (technical) of acme-dev",
-            "2 versions carry the tag in the diagram group; 1 workflow or module outside it"
-                + " carries it too", "remove the tag in the diagram group (tag --tagRemove)",
-            Optional.of(new ChangePreview.Affected(2, List.of("workflow acme-orders version 3",
-                "module acme-mapping version 2"), false)),
-            List.of("StartCLI's help says that --tagRemove removes the tag only from the"
-                + " repository."), "the list of the 2 versions carrying the tag in the diagram"
-                + " group, stored as a tag list backup before anything is sent; nothing is sent"
-                + " if it cannot be stored", Optional.of(new ChangePreview.Confirmation(CODE,
-                    EXPIRES)), List.of());
+    private static ChangePreview activePreview() {
+        return new ChangePreview(TEST, "manage_tags", "setActiveTag", "operation",
+            "active tag of the user jdoe", "active tag REL-1", "active tag REL-2",
+            Optional.empty(), List.of("The active tag of jdoe stays REL-2 until it is set again"
+                + " or removed."), "none: an active tag is a setting of the user, not an object"
+                + " INUBIT exports; the preview shows the current one",
+            Optional.of(new ChangePreview.Confirmation(CODE, EXPIRES)), List.of());
     }
 
     /** {@code setActiveTag} of jdoe to REL-2, a valid call. */
