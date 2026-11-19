@@ -282,7 +282,7 @@ and `--check-config` tests, offline, on both CI jobs.
   table). Test first: `V74FixturesShapeTest` — in Mandate A the folder holds exactly these twelve
   plus `help` (the recorded research cases of Mandate B go into the README's recorded list and are
   allowed then).
-- [ ] T019 [P] [US4] Guard (spec FR-015, FR-016a, FR-030): `test/adapter/cli/V74RecordedFixturesTest`
+- [X] T019 [P] [US4] Guard (spec FR-015, FR-016a, FR-030): `test/adapter/cli/V74RecordedFixturesTest`
   (pattern `V61RecordedFixturesTest`): fails if `CapabilityMatrix.production()` declares a 7.4
   capability `SUPPORTED` while (a) a case of it is in `RECONSTRUCTED.txt`, (b) a case of it is in
   `DERIVED.txt` with a source case not in the README's recorded list, or (c) the README's recorded
