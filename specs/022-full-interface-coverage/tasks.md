@@ -1040,7 +1040,7 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
     their tools to it;
   - a "write off" refusal test for every action, in the same class (SC-003);
   - `security/OperationSecretLeakTest.java`.
-- [ ] T066 [US4] Contracts, flips, docs and PR [BLOCKED: T054, T055]:
+- [X] T066 [US4] Contracts, flips, docs and PR [BLOCKED: T054, T055]:
   - `OperateV81ContractTest.java`, `TagAdminV81ContractTest.java`;
   - rows flipped, or `--tagRemove`/`--tagDelete` set to `excluded:acts on the whole owner` per
     T055; `debug on|off` is already excluded (T054), no `setDebug` row is flipped;

@@ -1,4 +1,4 @@
-# Handoff — IMC-2 · Executing, Blocked (M13) · 2026-11-18 · run executor-1
+# Handoff — IMC-2 · Executing → Verifying (PR open) · 2026-11-19 · run executor-1
 
 ## Status
 All offline tasks of US4 Phase 6 are done: T048–T053, T056–T065, each through the
@@ -21,6 +21,14 @@ IMC-10 (T054), IMC-11 (T055).
   secret leak). Full `mvn clean verify` green after every task.
 
 ## Next step
+- 2026-11-19: T066 done; US4 PR open: https://github.com/D4lD4r/inubit-mcp-server/pull/102
+  (full `mvn clean verify` 11,002 tests, 0 failures, 58 skipped). All US4 tasks T048–T066 done.
+  Next: verification by the verifier role (not the executor), owner approval M8 (risk class high),
+  then merge. Follow-ups: US4 9.0 (T054a, T066a, separate PR); `read_users`/`get_server_settings`
+  session exit code 1 on 8.1 (research D-18, own branch from main). Owner: IMC-7 → Answered/Applied,
+  IMC-8 → Applied (contract text in 6c51adf6), IMC-10/IMC-11 → Done, unflag IMC-2 (M14); remove the
+  test group's `write` block, re-enable the AWS LB health check; unregister the branch MCP
+  registration (local scope) when done.
 - 2026-11-19: T055 done. IMC-7 answered by the owner ("Option 3, Rest planned"): `removeTag` and
   `deleteTag` excluded and removed from manage_tags (coverage rows `tag --tagDelete|--tagRemove|
   --tagRepositoryPath` excluded, tag-list backup removed); `setActiveTag`/`removeActiveTag` stay
