@@ -4,15 +4,15 @@
 IMC-9 is `Executing` (M3 on 2026-11-19), assignee APEX Executor, accountable Daniel Decker (Product
 Engineer). Branch `claude/025-mandate-a-imc-9`, cut from `origin/main` `c98bd7e3` (IMC-2 merged as
 #102). Spec: `specs/025-inubit-74-support/` US1–US5, FR-001 – FR-020, pinned `2bfe55e7`. Plan and
-tasks live there (Spec Kit); this mandate owns tasks T001–T025 only. Phases 1–2 done (T001–T007),
-Phases 1–5 done except T010; T018–T019 done. **Blocked flag set (M13)** by Question IMC-14; T010
-waits for its answer.
+tasks live there (Spec Kit); this mandate owns tasks T001–T025 only. T001–T019 done (Phases 1–5
+complete). Question IMC-14 answered (option 1) and applied in T010; the **Blocked flag is still
+set** — clearing it (M14) and moving IMC-14 (QC2/QC5) are the Product Engineer's moves.
 
-**Paused (2026-11-19, on Daniel's request)** during T020 round 1. The implementer was stopped
+**Paused (2026-11-19, on Daniel's request)** before T020. The implementer of T020 was stopped
 before it reported; its partial, unreviewed `src/test/java/de/dadecker/inubit/mcp/adapter/cli/v74/
 V74HelpContractTest.java` is left **untracked and uncommitted** in the worktree. Last finished
-task: T019 (`f187d8cf`); T010 test committed open (`40ba35d5`). Full suite after Phases 4–5:
-exit 0, 11,245 tests.
+task: T010 (`9a1cdf43`). Full suite after Phases 4–5: exit 0, 11,245 tests (before T010 round 2,
+T018, T019; those ran their touched-area tests only).
 
 ## Done since last handoff
 | Task | Commit | Review rounds |
@@ -26,7 +26,7 @@ exit 0, 11,245 tests.
 | T007 matrix entry 7.4 | `71ed6b7e` | 1 |
 | T008 refusing 7.4 port set | `fd782036` | 1 |
 | T009 refusal text on 7.4 | `009f34d3` | 1 |
-| T010 per-tool refusal test | `40ba35d5` (open) | 1, changes requested |
+| T010 per-tool refusal test | `40ba35d5`, `9a1cdf43` | 2 (round 2 after IMC-14) |
 | T011 `check_artifacts` on 7.4 | `b02131f8` | 1 |
 | T012 announcement | `fa46149c` | 2 |
 | T013 display | `e189390e` | 1 |
@@ -44,21 +44,22 @@ Full suites: after Phase 1 exit 0, 11,012 tests; after Phase 2 exit 0, 11,103 te
 Resume T020 (contract test of the real help case): either finish the untracked
 `V74HelpContractTest.java` in a new implementer round or delete it and start the task fresh; then
 review, commit, and continue T021 … T025 in order with `d4ld4r-speckit-duo:implement`,
-one commit and push per task. When IMC-14 is answered: T010 round 2 (apply the answer, plus the two
-minor findings of T010-r1), then tick T010.
+one commit and push per task. Run the full suite after Phase 6. T025 docs: the `get_health`
+refusal on 7.4 names no tool (IMC-14).
 
 ## Open questions
-- [IMC-14](https://danieldecker.atlassian.net/browse/IMC-14) — the `get_health` refusal on 7.4 has
-  no `get_health: ` prefix (as on 6.1), while contracts/mcp-tools-delta.md:11, the T009 Expected
-  message (tasks.md:170) and research.md:102 show it. Options: 1 amend the documents (recommended,
-  no code change), 2 prefix for 7.4 only, 3 prefix for every version (changes the 6.1 baseline).
-  Blocks: approval of T010 and that text in T025.
+- None blocking. [IMC-14](https://danieldecker.atlassian.net/browse/IMC-14) is answered and
+  applied in T010 (`9a1cdf43`); the card's QC2/QC5 moves and clearing the Blocked flag on IMC-9 are
+  the Product Engineer's.
 - Jira housekeeping: a wrong link "IMC-9 blocks IMC-14" was created first; the executor connector
   cannot delete links. The correct link "IMC-14 blocks IMC-9" exists. The wrong one needs removing
   by a human.
 
 ## Decisions received
 - M1 by Daniel Decker (card description).
+- IMC-14, option 1, by Daniel Decker in the executor's chat (2026-11-19): the documents follow the
+  code; the `get_health` refusal on 7.4 names no tool, as on 6.1. Not behaviour-changing; contract
+  example, T009 Expected message and research D-6 amended in `9a1cdf43`.
 
 ## Readings taken (spec wins over tasks.md, P2-14 rule 2)
 - T012: the task text said a 7.4-only profile does not announce `get_health`. FR-009 ("feature 009
