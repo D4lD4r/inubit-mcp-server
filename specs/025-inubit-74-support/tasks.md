@@ -92,7 +92,7 @@ tests may pass at once.
 
 ## Phase 2: Foundational (blocks every Mandate A story)
 
-- [ ] T003 Regression baseline (research D-13, spec FR-020, SC-005; verification task, written
+- [X] T003 Regression baseline (research D-13, spec FR-020, SC-005; verification task, written
   against the unchanged code): `test/application/VersionLineRegressionTest` (in `application`,
   because it uses the package-private `VersionGate` helpers), parameterised over
   `V6_1`, `V8_1`, `V9_0`, `V9_X` and the pins `"6.1.0.89"`, `"8.1.17"`, `"9.0.10"`: the parsed
