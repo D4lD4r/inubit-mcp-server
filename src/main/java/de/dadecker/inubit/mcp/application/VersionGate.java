@@ -73,7 +73,9 @@ import org.slf4j.LoggerFactory;
  * the detection's error (FR-016; {@code V81VersionDetector} suggests {@code versionLine: V8_1}
  * unconditionally, which FR-005 forbids); they name the node level with the profile's
  * terminology (feature 002, FR-007). A refusal on a version whose matrix entry carries a note for
- * the capability uses it, e.g. "… is not yet verified for INUBIT 9.0" (feature 020).
+ * the capability uses it, e.g. "… is not yet verified for INUBIT 9.0" (feature 020); on a
+ * CLI-only version its next step is "INUBIT 7.4 is recognised, but no tool is verified on it yet;
+ * use the INUBIT Workbench for &lt;capability&gt; on &lt;node&gt;" (feature 025, research D-6).
  *
  * <p>The purpose of a call is a {@link Capability.Kind} ({@code READ} or {@code WRITE}).
  *
@@ -925,11 +927,19 @@ public final class VersionGate {
             + " for a version of this server that supports that INUBIT version");
         Optional<String> note = matrix.note(version, capability);
         if (note.isPresent()) {
-            // feature 020 (FR-019 fallback): e.g. "… is not yet verified for INUBIT 9.0"
+            // feature 020 (FR-019 fallback): e.g. "… is not yet verified for INUBIT 9.0"; on a
+            // CLI-only version (7.4, feature 025 research D-6) the next step names the release
+            String release = majorMinor(state, version);
+            boolean cliOnly = matrix.isCliOnly(version);
             return refuse(node, capability,
                 name.get() + " on " + node + ": " + capability.label() + " is " + note.get()
-                    + " for INUBIT " + majorMinor(state, version),
-                likelyCause, otherNode);
+                    + " for INUBIT " + release
+                    + (cliOnly && capability == Capability.INVENTORY
+                        ? "; modules of INUBIT " + release + " cannot be looked up" : ""),
+                likelyCause,
+                cliOnly ? "INUBIT " + release + " is recognised, but no tool is verified on it"
+                    + " yet; use the INUBIT Workbench for " + capability.label() + " on " + node
+                    : otherNode);
         }
         if (matrix.isCliOnly(version)) {
             String release = majorMinor(state, version);

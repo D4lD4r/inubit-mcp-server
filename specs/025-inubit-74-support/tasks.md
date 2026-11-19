@@ -161,7 +161,7 @@ and `--check-config` tests, offline, on both CI jobs.
   `UNSUPPORTED_VERSION` naming the node and "INUBIT 7.4", and the 7.4 likely cause), an `AdapterGatewayFactoryTest` case (a
   node pinned `V7_4` gets `NodeAccess.CLI_ONLY` and no REST client is built), and the 6.1
   `RefusingPorts` text assertion unchanged.
-- [ ] T009 [US1] Refusal text on 7.4 (research D-6, spec FR-007, contracts/mcp-tools-delta.md):
+- [X] T009 [US1] Refusal text on 7.4 (research D-6, spec FR-007, contracts/mcp-tools-delta.md):
   in `main/application/VersionGate.java` `refuseUnsupported`, the note branch (`:878-885`) keeps its
   message for every version and, only when the version is CLI-only, (a) uses the next step
   "INUBIT 7.4 is recognised, but no tool is verified on it yet; use the INUBIT Workbench for

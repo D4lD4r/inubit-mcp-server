@@ -73,6 +73,9 @@ class VersionGateTest {
     private static final NodeId V6_1_PINNED = NodeId.parse("old/node2");
     /** Feature 017: a node on the 9.0 line. */
     private static final NodeId V9_0 = NodeId.parse("prod/node4");
+    /** Feature 025: a node on the 7.4 line and one pinned to a concrete 7.4 version. */
+    private static final NodeId V7_4 = NodeId.parse("legacy74/node1");
+    private static final NodeId V7_4_PINNED = NodeId.parse("legacy74/node2");
     private static final Instant T0 = Instant.parse("2026-10-18T08:00:00Z");
     private static final Duration TTL = Duration.ofMinutes(10);
     private static final Duration CLI_TIMEOUT = Duration.ofSeconds(45);
@@ -93,7 +96,9 @@ class VersionGateTest {
             V9_X, VersionSetting.V9_X,
             V6_1, VersionSetting.V6_1,
             V6_1_PINNED, VersionSetting.parse("6.1.0.89").orElseThrow(),
-            V9_0, VersionSetting.V9_0)::get,
+            V9_0, VersionSetting.V9_0,
+            V7_4, VersionSetting.V7_4,
+            V7_4_PINNED, VersionSetting.parse("7.4.0.90").orElseThrow())::get,
         node -> TTL);
     private final ScriptedDetection detection = new ScriptedDetection();
     private final ScriptedProbe probe = new ScriptedProbe();
@@ -1113,6 +1118,85 @@ class VersionGateTest {
         assertThat(Stream.of(inventory, write).flatMap(error -> Stream.of(error.message(),
             error.likelyCause(), error.nextStep())))
             .allSatisfy(text -> assertThat(text).doesNotContainPattern("(?i)\\bnodes?\\b"));
+    }
+
+    // --- feature 025, T009: refusal texts on 7.4 (research D-6, FR-007) ------------------------
+
+    @Test
+    void a74RefusalKeepsTheNoteMessageAndNamesTheRecognisedReleaseInItsNextStep() {
+        ToolError monitoring = refusal(() -> gate().admit("get_health", V7_4,
+            Capability.MONITORING, Kind.READ, CLI_REST));
+        ToolError read = refusal(() -> gate().admit("find_processes", V7_4,
+            Capability.PROCESS_DIAGNOSIS, Kind.READ, CLI_REST));
+        ToolError write = refusal(() -> gate().admit(V7_4, Capability.DEPLOYMENT, Kind.WRITE,
+            CLI_REST));
+        ToolError access = refusal(() -> gate().monitoringAccess(V7_4));
+
+        assertThat(monitoring.message()).isEqualTo("get_health: INUBIT 7.4 on legacy74/node1:"
+            + " monitoring is not yet verified for INUBIT 7.4; nothing was sent");
+        assertThat(monitoring.likelyCause())
+            .isEqualTo("This server declares monitoring unsupported for that version");
+        assertThat(monitoring.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is"
+            + " verified on it yet; use the INUBIT Workbench for monitoring on legacy74/node1");
+        assertThat(access.message()).isEqualTo("INUBIT 7.4 on legacy74/node1: monitoring is not"
+            + " yet verified for INUBIT 7.4; nothing was sent");
+        assertThat(access.nextStep()).isEqualTo(monitoring.nextStep());
+        assertThat(read.message()).isEqualTo("find_processes: INUBIT 7.4 on legacy74/node1:"
+            + " process diagnosis is not yet verified for INUBIT 7.4; nothing was sent");
+        assertThat(read.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is verified"
+            + " on it yet; use the INUBIT Workbench for process diagnosis on legacy74/node1");
+        assertThat(write.message()).isEqualTo("INUBIT 7.4 on legacy74/node1: deployment is not"
+            + " yet verified for INUBIT 7.4; nothing was sent");
+        assertThat(write.likelyCause())
+            .isEqualTo("The node runs a version for which no verified write access exists");
+        assertThat(write.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is verified"
+            + " on it yet; use the INUBIT Workbench for deployment on legacy74/node1");
+        assertThat(Stream.of(monitoring, read, write, access)).allSatisfy(error ->
+            assertThat(error.node()).contains(V7_4));
+        assertThat(detection.calls).isZero();
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+    }
+
+    @Test
+    void a74PinIsNamedByItsVersionAndItsReleaseIsTakenFromIt() {
+        ToolError monitoring = refusal(() -> gate().admit("get_health", V7_4_PINNED,
+            Capability.MONITORING, Kind.READ, CLI_REST));
+        ToolError write = refusal(() -> gate().admit(V7_4_PINNED, Capability.PROCESS_CONTROL,
+            Kind.WRITE, CLI_REST));
+
+        assertThat(monitoring.message()).isEqualTo("get_health: INUBIT 7.4.0.90 on"
+            + " legacy74/node2: monitoring is not yet verified for INUBIT 7.4; nothing was sent");
+        assertThat(monitoring.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is"
+            + " verified on it yet; use the INUBIT Workbench for monitoring on legacy74/node2");
+        assertThat(write.message()).isEqualTo("INUBIT 7.4.0.90 on legacy74/node2: process control"
+            + " is not yet verified for INUBIT 7.4; nothing was sent");
+        assertThat(write.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is verified"
+            + " on it yet; use the INUBIT Workbench for process control on legacy74/node2");
+        assertThat(detection.calls).isZero();
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+    }
+
+    @Test
+    void a74InventoryRefusalAppendsThatModulesCannotBeLookedUp() {
+        ToolError line = refusal(() -> gate().admit("list_inventory", V7_4, Capability.INVENTORY,
+            Kind.READ, CLI_REST));
+        ToolError pinned = refusal(() -> gate().admit("list_inventory", V7_4_PINNED,
+            Capability.INVENTORY, Kind.READ, CLI_REST));
+        // check_artifacts takes its notice from the cause of the evaluation
+        Evaluation notice = gate().evaluate(V7_4, Capability.INVENTORY, Kind.READ, CLI_REST);
+
+        assertThat(line.message()).isEqualTo("list_inventory: INUBIT 7.4 on legacy74/node1:"
+            + " inventory is not yet verified for INUBIT 7.4; modules of INUBIT 7.4 cannot be"
+            + " looked up; nothing was sent");
+        assertThat(line.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is verified"
+            + " on it yet; use the INUBIT Workbench for inventory on legacy74/node1");
+        assertThat(pinned.message()).isEqualTo("list_inventory: INUBIT 7.4.0.90 on legacy74/node2:"
+            + " inventory is not yet verified for INUBIT 7.4; modules of INUBIT 7.4 cannot be"
+            + " looked up; nothing was sent");
+        assertThat(notice.cause()).contains("INUBIT 7.4 on legacy74/node1: inventory is not yet"
+            + " verified for INUBIT 7.4; modules of INUBIT 7.4 cannot be looked up");
+        assertThat(detection.calls).isZero();
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
     }
 
     @Test
