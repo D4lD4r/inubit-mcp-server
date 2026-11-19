@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.adapter.archive.v81.XmlTree;
 import de.dadecker.inubit.mcp.adapter.cli.CliCommand;
 import de.dadecker.inubit.mcp.adapter.cli.CliCommand.TagRemovalKind;
 import de.dadecker.inubit.mcp.adapter.cli.CliCommand.TagScope;
+import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.CliSessionCommand;
 import de.dadecker.inubit.mcp.adapter.cli.UnlistedTagCommand;
 import de.dadecker.inubit.mcp.adapter.cli.v81.VersionHistoryParser;
@@ -14,6 +15,7 @@ import de.dadecker.inubit.mcp.config.CliPaths;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.TaggedVersion;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionEntry;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
@@ -35,6 +37,7 @@ import java.util.SortedMap;
 import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Assumptions;
@@ -82,7 +85,13 @@ final class ManageTagsLiveTestSupport {
          * first, while the export by the tag still shows the repository files the groups tagged
          * ({@code --tagDelete} may take the tag from them too).
          */
-        FROM_TAGGED(List.of("W15", "X1", "X2", "W17", "W18"));
+        FROM_TAGGED(List.of("W15", "X1", "X2", "W17", "W18")),
+        /**
+         * Run 4: from a tag on nothing, as {@link #FROM_UNTAGGED}. The active-tag pair runs while
+         * g1 carries the tag (in run 3 W17 came after X1 had deleted it); INUBIT's refusal of W17
+         * or W18 is their answer. X1 then deletes the tag (owner-wide on 8.1.17, run 3).
+         */
+        ACTIVE_TAG(List.of("S1", "W17", "W18", "X1"));
 
         final List<String> ids;
 
@@ -92,6 +101,19 @@ final class ManageTagsLiveTestSupport {
     }
 
     private static final Pattern RUN_NUMBER = Pattern.compile("[2-9]|[1-9][0-9]+");
+    /**
+     * A padded row label of a {@code user} answer: a copy of {@code PADDED_LABEL} in
+     * {@code adapter/cli/admin/UnknownOutput} (private there), kept equal to it (tested).
+     */
+    static final Pattern PADDED_LABEL = Pattern.compile(
+        "([A-Za-z][A-Za-z.-]{0,29}(?: [A-Za-z.-]{1,29}){0,3}) {2,}\\S.*");
+    /** A log record header: a copy of {@code LOG_HEADER} in {@code CliOutputClassifier}, tested. */
+    static final Pattern LOG_HEADER =
+        Pattern.compile("^(?:ERROR|WARN|INFO|DEBUG)\\s+\\d{2}:\\d{2}:\\d{2},\\d{3} \\[");
+    /** StartCLI's text and markers of a failed login ({@code CliOutputClassifier}). */
+    private static final String LOGIN_FAILED = "Login to the server failed.";
+    private static final Pattern LOGIN_MARKER =
+        Pattern.compile("@Start@\\s*Login(?:Failed|Failure)\\b");
     private static final ReleaseArchivePort RELEASES = new V81ReleaseArchives();
 
     private ManageTagsLiveTestSupport() {
@@ -306,6 +328,7 @@ final class ManageTagsLiveTestSupport {
             Optional.empty());
         Step w18 = new Step("W18", "tag-remove-active", new RemoveActive(in.user()),
             Optional.empty());
+        Step x1 = new Step("X1", "tag-delete-g1-owner", delete(in, in.group1()), Optional.empty());
         return switch (plan) {
             case FROM_UNTAGGED -> List.of(
                 tagStep("S1", "tag-move-g1", in, in.group1(), "g1"),
@@ -323,11 +346,12 @@ final class ManageTagsLiveTestSupport {
                     .groupRemoval(TagRemovalKind.REMOVE, in.tag(), in.group1(), TECHNICAL,
                         Optional.of(in.owner()))), Optional.empty()),
                 w17, w18);
-            case FROM_TAGGED -> List.of(w15,
-                new Step("X1", "tag-delete-g1-owner", delete(in, in.group1()), Optional.empty()),
+            case FROM_TAGGED -> List.of(w15, x1,
                 new Step("X2", "tag-delete-g2-owner", new IfStillTagged(2, delete(in, in.group2())),
                     Optional.empty()),
                 w17, w18);
+            case ACTIVE_TAG -> List.of(tagStep("S1", "tag-move-g1", in, in.group1(), "g1"), w17,
+                w18, x1);
         };
     }
 
@@ -342,19 +366,20 @@ final class ManageTagsLiveTestSupport {
     }
 
     /**
-     * The cleanup commands, each a scoped production form: C1/C2 {@code --tagDelete} in g1/g2 with
-     * the owner ({@code --tagUser}, which 8.1.17 requires), C3 {@code --tagRemove} in the W15
-     * {@code folder} (none without one), C4 {@code --tagRemoveActive} of the test user.
+     * The cleanup commands in the order they run, each a scoped production form: first C4
+     * {@code --tagRemoveActive} of the test user (as W18 before X1: the active tag goes before the
+     * tag), then C1/C2 {@code --tagDelete} in g1/g2 with the owner ({@code --tagUser}, which
+     * 8.1.17 requires), C3 {@code --tagRemove} in the W15 {@code folder} (none without one).
      */
     static List<Step> cleanupSteps(Inputs in, Optional<String> folder) {
         List<Step> steps = new ArrayList<>();
+        steps.add(new Step("C4", "tag-remove-active", new RemoveActive(in.user()),
+            Optional.empty()));
         steps.add(new Step("C1", "tag-delete-g1", delete(in, in.group1()), Optional.empty()));
         steps.add(new Step("C2", "tag-delete-g2", delete(in, in.group2()), Optional.empty()));
         folder.ifPresent(path -> steps.add(new Step("C3", "tag-remove-folder",
             new Removal(TagRemovalKind.REMOVE, in.tag(), new TagScope.RepositoryPath(path)),
             Optional.empty())));
-        steps.add(new Step("C4", "tag-remove-active", new RemoveActive(in.user()),
-            Optional.empty()));
         return List.copyOf(steps);
     }
 
@@ -602,8 +627,10 @@ final class ManageTagsLiveTestSupport {
     }
 
     /**
-     * A command's failure, if any (an error code, {@code exit <n>} or {@code n-NOK}); with
-     * {@code answered} StartCLI ran to its end and INUBIT refused (only for {@link Unlisted}).
+     * A command's failure, if any (an error code, {@code exit <n>} or {@code n-NOK}, for W17/W18
+     * with INUBIT's message lines, {@link #refusal}); with {@code answered} StartCLI ran to its
+     * end and INUBIT refused (only for {@link Unlisted}, {@link SetActive} and
+     * {@link RemoveActive}).
      */
     record Answer(Optional<String> failure, boolean answered) {
 
@@ -627,7 +654,8 @@ final class ManageTagsLiveTestSupport {
         Round latest;
         Optional<String> folder = Optional.empty();
         boolean activeSet;
-        boolean activeRemoved;
+        /** The test user's active tag as last read; empty (unknown) from W17's send to its read. */
+        Optional<ActiveTag> active = Optional.of(ActiveTag.NONE);
         /** The folders of every repository file a read showed carrying the tag. */
         final SortedSet<String> taggedFolders = new TreeSet<>();
         final List<String> notes = new ArrayList<>();
@@ -686,8 +714,8 @@ final class ManageTagsLiveTestSupport {
             }
         }
         List<String> cleanup = new ArrayList<>();
-        for (Step step : cleanupPlan(in, progress.latest, progress.folder, progress.activeSet,
-            progress.activeRemoved)) {
+        for (Step step : cleanupPlan(in, plan, progress.latest, progress.folder,
+            progress.activeSet, progress.active)) {
             Optional<String> failure;
             try {
                 failure = node.run(step).failure();
@@ -762,6 +790,7 @@ final class ManageTagsLiveTestSupport {
         }
         if (sent.action() instanceof SetActive) {
             progress.activeSet = true;
+            progress.active = Optional.empty();
         }
         Answer answer = node.run(sent);
         Optional<String> failure = answer.failure();
@@ -773,7 +802,7 @@ final class ManageTagsLiveTestSupport {
         }
         if (sent.action() instanceof SetActive || sent.action() instanceof RemoveActive) {
             Optional<ActiveTag> after = node.activeTag(step.id() + "-after");
-            progress.activeRemoved = sent.action() instanceof RemoveActive && failure.isEmpty();
+            progress.active = after;
             node.record(step.stem(), "answer " + outcome + "; active tag " + describe(after));
             return failure.or(() -> after.isEmpty() ? Optional.of("READ active tag")
                 : Optional.empty());
@@ -817,9 +846,9 @@ final class ManageTagsLiveTestSupport {
 
     /**
      * Why B0 refuses to write: a read unknown, a group without workflow, a test user whose active
-     * tag is set or unknown, and for {@link Plan#FROM_UNTAGGED} anything carrying the tag, for
-     * {@link Plan#FROM_TAGGED} a group not carrying it or an export by the tag that names any
-     * group but g1 and g2.
+     * tag is set or unknown, and for {@link Plan#FROM_UNTAGGED} and {@link Plan#ACTIVE_TAG}
+     * anything carrying the tag, for {@link Plan#FROM_TAGGED} a group not carrying it or an export
+     * by the tag that names any group but g1 and g2.
      */
     static List<String> unclean(Round b0, Optional<ActiveTag> active, Plan plan, Inputs in) {
         List<String> reasons = new ArrayList<>();
@@ -828,7 +857,7 @@ final class ManageTagsLiveTestSupport {
             reasons.add("g1 holds no workflow"));
         b0.group2().filter(tags -> tags.workflows() == 0).ifPresent(tags ->
             reasons.add("g2 holds no workflow"));
-        if (plan == Plan.FROM_UNTAGGED && (b0.group1().filter(tags -> !tags.tagged().isEmpty())
+        if (plan != Plan.FROM_TAGGED && (b0.group1().filter(tags -> !tags.tagged().isEmpty())
             .isPresent() || b0.group2().filter(tags -> !tags.tagged().isEmpty()).isPresent()
             || b0.byTag().filter(export -> !export.equals(TagExport.NONE)).isPresent())) {
             reasons.add("the test tag is in use: choose a new tag");
@@ -850,21 +879,28 @@ final class ManageTagsLiveTestSupport {
 
     /**
      * The cleanup after the steps or a stop, from the latest read: C1/C2 for a group that carries
-     * the tag, is named by the export by the tag or is unknown; C3 for the W15 folder if it, or
-     * the export by the tag, shows a file there carrying the tag, or is unknown; C4 if W17 was
-     * sent and W18 was not done. Each runs once.
+     * the tag, is named by the export by the tag or is unknown; for {@link Plan#ACTIVE_TAG} only
+     * C1, if anything carries the tag or is unknown (X1's form, which acts owner-wide, run 3); C3
+     * for the W15 folder if it, or the export by the tag, shows a file there carrying the tag, or
+     * is unknown; C4 if W17 was sent and the latest read of the active tag is not none. Each runs
+     * once.
      */
-    static List<Step> cleanupPlan(Inputs in, Round latest, Optional<String> folder,
-        boolean activeSet, boolean activeRemoved) {
+    static List<Step> cleanupPlan(Inputs in, Plan steps, Round latest, Optional<String> folder,
+        boolean activeSet, Optional<ActiveTag> active) {
+        boolean anywhere = latest.group1().map(tags -> !tags.tagged().isEmpty()).orElse(true)
+            || latest.group2().map(tags -> !tags.tagged().isEmpty()).orElse(true)
+            || latest.byTag().map(export -> !export.equals(TagExport.NONE)).orElse(true);
         List<Step> plan = new ArrayList<>();
         for (Step step : cleanupSteps(in, folder)) {
             boolean needed = switch (step.id()) {
-                case "C1" -> carries(latest.group1(), latest.byTag(), in.group1());
-                case "C2" -> carries(latest.group2(), latest.byTag(), in.group2());
+                case "C1" -> steps == Plan.ACTIVE_TAG ? anywhere
+                    : carries(latest.group1(), latest.byTag(), in.group1());
+                case "C2" -> steps != Plan.ACTIVE_TAG
+                    && carries(latest.group2(), latest.byTag(), in.group2());
                 case "C3" -> latest.folder().map(tags -> !tags.tagged().isEmpty()).orElse(true)
                     || latest.byTag().map(export -> export.files().keySet().stream()
                         .anyMatch(file -> file.startsWith(folder.get() + "/"))).orElse(true);
-                case "C4" -> activeSet && !activeRemoved;
+                case "C4" -> activeSet && !active.equals(Optional.of(ActiveTag.NONE));
                 default -> throw new IllegalArgumentException(step.id());
             };
             if (needed) {
@@ -967,6 +1003,59 @@ final class ManageTagsLiveTestSupport {
 
     static String describe(Optional<ActiveTag> active) {
         return active.map(tag -> tag.text).orElse("unknown");
+    }
+
+    /**
+     * INUBIT's refusal of W17/W18 as their answer: {@code exit <n>} ({@code n-NOK} for exit 0)
+     * and INUBIT's output lines of the excerpt joined by {@code " / "}, e.g. {@code exit 1:
+     * EXECUTION ERROR / Internal INUBIT error! / TagNameWasNotFound}, without the log records
+     * the excerpt holds after them, the inputs masked in any case as {@code <tag>}, {@code <g1>},
+     * {@code <g2>}, {@code <owner>}, {@code <user>}. A refusal is an {@code UNEXPECTED_RESPONSE}
+     * (the classifier did not recognize the answer) of one StartCLI run that exited with output
+     * below {@link CliRunner#MAX_OUTPUT_BYTES} and whose excerpt shows no failed login; anything
+     * else (a timeout, login or connection failure, cut output) is empty: an error.
+     */
+    static Optional<String> refusal(ToolError error, List<Run> runs, Inputs in) {
+        if (error.code() != ErrorCode.UNEXPECTED_RESPONSE || runs.size() != 1
+            || runs.get(0).exit().isEmpty()
+            || runs.get(0).stdout().size() >= CliRunner.MAX_OUTPUT_BYTES
+            || runs.get(0).stderr().size() >= CliRunner.MAX_OUTPUT_BYTES
+            || error.excerpt().filter(text -> text.contains(LOGIN_FAILED)
+                || LOGIN_MARKER.matcher(text).find()).isPresent()) {
+            return Optional.empty();
+        }
+        int exit = runs.get(0).exit().get();
+        // the classifier's excerpt: the command's output lines first, then the log records
+        String lines = error.excerpt().map(text -> text.lines().map(String::strip)
+            .takeWhile(line -> !LOG_HEADER.matcher(line).find())
+            .filter(line -> !line.isEmpty()).collect(Collectors.joining(" / ")))
+            .filter(text -> !text.isEmpty()).orElse("no message line");
+        List<Map.Entry<String, String>> names = new ArrayList<>(List.of(
+            Map.entry(in.tag(), "<tag>"), Map.entry(in.group1(), "<g1>"),
+            Map.entry(in.group2(), "<g2>"), Map.entry(in.owner(), "<owner>"),
+            Map.entry(in.user(), "<user>")));
+        // the longest first, so no name is masked only in part
+        names.sort(Comparator.comparingInt((Map.Entry<String, String> name) ->
+            name.getKey().length()).reversed());
+        for (Map.Entry<String, String> name : names) {
+            lines = lines.replaceAll("(?i)" + Pattern.quote(name.getKey()),
+                Matcher.quoteReplacement(name.getValue()));
+        }
+        return Optional.of((exit == 0 ? "n-NOK" : "exit " + exit) + ": " + lines);
+    }
+
+    /**
+     * The row labels of an unrecognized {@code user} answer (the excerpt of
+     * {@code ActiveTagParser}), e.g. {@code User name, User group, Super group, Active Tag}: of
+     * each line only its padded label, {@code <hidden>} without one; never a value.
+     */
+    static String rowLabels(Optional<String> excerpt) {
+        return excerpt.map(text -> text.lines().map(String::strip).filter(line -> !line.isEmpty())
+            .map(line -> {
+                Matcher label = PADDED_LABEL.matcher(line);
+                return label.matches() ? label.group(1) : "<hidden>";
+            }).collect(Collectors.joining(", "))).filter(text -> !text.isEmpty())
+            .orElse("unknown");
     }
 
     // --- recording -------------------------------------------------------------------------------

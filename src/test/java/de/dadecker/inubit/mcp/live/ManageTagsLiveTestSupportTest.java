@@ -6,11 +6,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import de.dadecker.inubit.mcp.adapter.cli.CliCommand.TagRemovalKind;
 import de.dadecker.inubit.mcp.adapter.cli.CliCommand.TagScope;
+import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
+import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.UnlistedTagCommand;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.TaggedVersion;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.ActiveTag;
 import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.Answer;
@@ -34,6 +37,7 @@ import de.dadecker.inubit.mcp.testing.GitFreeTempDir;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -50,6 +54,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.junit.jupiter.api.Test;
@@ -71,6 +76,11 @@ class ManageTagsLiveTestSupportTest {
     private static final String STEPS = "S1,S2,W13,S3,W14,S4,W15,W16,W17,W18";
     /** The list from the state run 2 left (the tag on both test groups). */
     private static final String TAGGED_STEPS = "W15,X1,X2,W17,W18";
+    /** Run 4: the active-tag pair while g1 carries the tag, from a tag on nothing. */
+    private static final String ACTIVE_STEPS = "S1,W17,W18,X1";
+    /** A refusal as {@link ManageTagsLiveTestSupport#refusal} words it. */
+    private static final String REFUSED = "exit 1: EXECUTION ERROR / Internal INUBIT error! /"
+        + " Active tagging is not enabled";
     private static final String TAG = "l4-test";
     private static final String G1 = "GRP-T1";
     private static final String G2 = "GRP-T2";
@@ -103,7 +113,8 @@ class ManageTagsLiveTestSupportTest {
     @ParameterizedTest
     @ValueSource(strings = {"S1,S2", "S2,S1,W13,S3,W14,S4,W15,W16,W17,W18",
         "S1,S2,W13,S3,W14,S4,W15,W16,W17,W18,C1", "approved", "X1,X2,W15,W17,W18",
-        "W15,X1,W17,W18", "W15,X1,X2,W17,W18,C1", "S1,S2,W13,S3,W14,S4,W15,X1,X2,W17,W18"})
+        "W15,X1,W17,W18", "W15,X1,X2,W17,W18,C1", "S1,S2,W13,S3,W14,S4,W15,X1,X2,W17,W18",
+        "S1,W17,W18", "S1,W18,W17,X1", "W17,W18,X1", "S1,W17,W18,X1,C1", "S1,W17,W18,X1,C4"})
     void onlyTheExactStepListRuns(String list) {
         env.put(ManageTagsLiveTestSupport.STEPS_VARIABLE, list);
 
@@ -121,6 +132,10 @@ class ManageTagsLiveTestSupportTest {
 
         assertThat(String.join(",", Plan.FROM_UNTAGGED.ids)).isEqualTo(STEPS);
         assertThat(String.join(",", Plan.FROM_TAGGED.ids)).isEqualTo(TAGGED_STEPS);
+
+        env.put(ManageTagsLiveTestSupport.STEPS_VARIABLE, " S1,W17, W18,X1");
+        assertThat(ManageTagsLiveTestSupport.requireApproval(env)).isEqualTo(Plan.ACTIVE_TAG);
+        assertThat(String.join(",", Plan.ACTIVE_TAG.ids)).isEqualTo(ACTIVE_STEPS);
     }
 
     @Test
@@ -275,17 +290,34 @@ class ManageTagsLiveTestSupportTest {
     }
 
     @Test
+    void theStepsOfTheActiveTagListAreTheApprovedFormsInOrder() {
+        assertThat(ManageTagsLiveTestSupport.steps(DERIVED, Plan.ACTIVE_TAG))
+            .extracting(step -> step.id() + " " + step.form()).containsExactly(
+                "S1 tag --tagMove 'l4-test' --tagWorkflowGroup 'GRP-T1' --tagWorkflowType"
+                    + " 'technical' --tagUser 'owner1'",
+                "W17 tag --tagSetActive 'l4-test' --tagUser 'tester'",
+                "W18 tag --tagRemoveActive --tagUser 'tester'",
+                "X1 tag --tagDelete 'l4-test' --tagWorkflowGroup 'GRP-T1' --tagWorkflowType"
+                    + " 'technical' --tagUser 'owner1'");
+        assertThat(ManageTagsLiveTestSupport.steps(DERIVED, Plan.ACTIVE_TAG))
+            .extracting(step -> step.expectTagged().orElse("-"))
+            .containsExactly("g1", "-", "-", "-");
+        assertThat(ManageTagsLiveTestSupport.steps(DERIVED, Plan.ACTIVE_TAG))
+            .noneMatch(step -> step.action() instanceof Unlisted);
+    }
+
+    @Test
     void theCleanupIsScopedFormsOfTheCatalogueOnly() {
         assertThat(ManageTagsLiveTestSupport.cleanupSteps(DERIVED, Optional.of(FOLDER)))
             .extracting(step -> step.id() + " " + step.form()).containsExactly(
+                "C4 tag --tagRemoveActive --tagUser 'tester'",
                 "C1 tag --tagDelete 'l4-test' --tagWorkflowGroup 'GRP-T1' --tagWorkflowType"
                     + " 'technical' --tagUser 'owner1'",
                 "C2 tag --tagDelete 'l4-test' --tagWorkflowGroup 'GRP-T2' --tagWorkflowType"
                     + " 'technical' --tagUser 'owner1'",
-                "C3 tag --tagRemove 'l4-test' --tagRepositoryPath '/Root/owner1/xsd'",
-                "C4 tag --tagRemoveActive --tagUser 'tester'");
+                "C3 tag --tagRemove 'l4-test' --tagRepositoryPath '/Root/owner1/xsd'");
         assertThat(ManageTagsLiveTestSupport.cleanupSteps(DERIVED, Optional.empty()))
-            .extracting(Step::id).containsExactly("C1", "C2", "C4");
+            .extracting(Step::id).containsExactly("C4", "C1", "C2");
     }
 
     @Test
@@ -349,6 +381,85 @@ class ManageTagsLiveTestSupportTest {
         assertThat(ManageTagsLiveTestSupport.describe(Optional.of(ActiveTag.OTHER)))
             .isEqualTo("another tag");
         assertThat(ManageTagsLiveTestSupport.describe(Optional.empty())).isEqualTo("unknown");
+    }
+
+    @Test
+    void anUnrecognizedUserAnswerShowsOnlyItsRowLabels() {
+        // the excerpt as ActiveTagParser leaves it: known rows masked, other rows label only
+        String excerpt = "User name    tester  \nUser group   OPS\nSuper group  headoffice\n"
+            + "Active Tag  <hidden>\n<hidden>\n";
+
+        assertThat(ManageTagsLiveTestSupport.rowLabels(Optional.of(excerpt)))
+            .isEqualTo("User name, User group, Super group, Active Tag, <hidden>");
+        assertThat(ManageTagsLiveTestSupport.rowLabels(Optional.empty())).isEqualTo("unknown");
+    }
+
+    @Test
+    void aRefusalOfAnActiveTagFormIsItsExitAndInubitsMessageLinesWithTheInputsMasked() {
+        ToolError refused = ToolError.of(ErrorCode.UNEXPECTED_RESPONSE,
+            "Unrecognized StartCLI output (exit code 1)", "cause", "next").withExcerpt(
+                "EXECUTION ERROR\nInternal INUBIT error!\n\nThe tag l4-test of tester in GRP-T1"
+                    + " of owner1 does not exist!");
+
+        assertThat(ManageTagsLiveTestSupport.refusal(refused, List.of(run(1)), DERIVED))
+            .contains("exit 1: EXECUTION ERROR / Internal INUBIT error! / The tag <tag> of <user>"
+                + " in <g1> of <owner> does not exist!");
+        assertThat(ManageTagsLiveTestSupport.refusal(refused, List.of(run(0)), DERIVED))
+            .hasValueSatisfying(text -> assertThat(text).startsWith("n-NOK: EXECUTION ERROR"));
+        assertThat(ManageTagsLiveTestSupport.refusal(ToolError.of(ErrorCode.UNEXPECTED_RESPONSE,
+            "m", "c", "n"), List.of(run(1)), DERIVED)).contains("exit 1: no message line");
+    }
+
+    @Test
+    void aRefusalShowsOnlyInubitsOutputLinesWithTheInputsMaskedInAnyCase() {
+        ToolError refused = ToolError.of(ErrorCode.UNEXPECTED_RESPONSE, "m", "c", "n")
+            .withExcerpt("EXECUTION ERROR\nTag L4-TEST of Tester in grp-t1 of OWNER1\n"
+                + "ERROR 10:11:12,345 [main] CliClient - tag failed\n"
+                + "java.lang.IllegalStateException: Tester\n");
+
+        assertThat(ManageTagsLiveTestSupport.refusal(refused, List.of(run(1)), DERIVED))
+            .contains("exit 1: EXECUTION ERROR / Tag <tag> of <user> in <g1> of <owner>");
+    }
+
+    @Test
+    void aFailedLoginIsNeverARefusal() {
+        for (String excerpt : List.of("Login to the server failed.\nConnection refused",
+            "EXECUTION ERROR\n@Start@LoginFailed@@@denied@End@",
+            "@Start@ LoginFailure@@@The user does not exist@End@")) {
+            ToolError error = ToolError.of(ErrorCode.UNEXPECTED_RESPONSE, "m", "c", "n")
+                .withExcerpt(excerpt);
+
+            assertThat(ManageTagsLiveTestSupport.refusal(error, List.of(run(1)), DERIVED))
+                .as(excerpt).isEmpty();
+        }
+    }
+
+    @Test
+    void theCopiedPatternsEqualTheirSources() throws ReflectiveOperationException {
+        assertThat(ManageTagsLiveTestSupport.PADDED_LABEL.pattern())
+            .isEqualTo(pattern("de.dadecker.inubit.mcp.adapter.cli.admin.UnknownOutput",
+                "PADDED_LABEL"));
+        assertThat(ManageTagsLiveTestSupport.LOG_HEADER.pattern())
+            .isEqualTo(pattern(CliOutputClassifier.class.getName(), "LOG_HEADER"));
+    }
+
+    @Test
+    void anythingButARefusalOfAFinishedRunStaysAnError() {
+        ToolError refused = ToolError.of(ErrorCode.UNEXPECTED_RESPONSE, "m", "c", "n")
+            .withExcerpt("EXECUTION ERROR");
+        Run killed = new Run(false);
+        Run cut = run(1);
+        cut.stdout().writeBytes(new byte[CliRunner.MAX_OUTPUT_BYTES]);
+
+        assertThat(ManageTagsLiveTestSupport.refusal(ToolError.of(ErrorCode.TIMEOUT, "m", "c",
+            "n"), List.of(run(143)), DERIVED)).isEmpty();
+        assertThat(ManageTagsLiveTestSupport.refusal(ToolError.of(ErrorCode.AUTH_FAILED, "m", "c",
+            "n"), List.of(run(1)), DERIVED)).isEmpty();
+        assertThat(ManageTagsLiveTestSupport.refusal(refused, List.of(killed), DERIVED)).isEmpty();
+        assertThat(ManageTagsLiveTestSupport.refusal(refused, List.of(), DERIVED)).isEmpty();
+        assertThat(ManageTagsLiveTestSupport.refusal(refused, List.of(run(1), run(1)), DERIVED))
+            .isEmpty();
+        assertThat(ManageTagsLiveTestSupport.refusal(refused, List.of(cut), DERIVED)).isEmpty();
     }
 
     @Test
@@ -541,15 +652,25 @@ class ManageTagsLiveTestSupportTest {
     }
 
     @Test
-    void aFailedSetActiveIsUndoneByTheCleanup() throws IOException {
+    void aFailedSetActiveIsUndoneByTheCleanupIfItsReadDoesNotShowNone() throws IOException {
         FakeNode node = new FakeNode();
-        node.failing.put("W17", "TIMEOUT");
+        node.throwing.add("W17");
+        FakeNode without = new FakeNode();
+        without.failing.put("W17", "TIMEOUT");
 
         Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.FROM_UNTAGGED);
+        Outcome noEffect = ManageTagsLiveTestSupport.run(without, DERIVED, Plan.FROM_UNTAGGED);
 
-        assertThat(outcome.stop()).contains(new Stop("W17", "TIMEOUT"));
-        assertThat(node.sent).endsWith("W17", "C1", "C2", "C4");
+        // the exception came before the read: the active tag is unknown
+        assertThat(outcome.stop()).contains(new Stop("W17", "IllegalStateException"));
+        // the active tag goes first, as W18 before X1
+        assertThat(node.sent).endsWith("W17", "C4", "C1", "C2", "C3");
         assertThat(node.reads).contains("V-A");
+        assertThat(outcome.remains()).isEmpty();
+        // the read after the failed W17 shows none: nothing to undo, V still reads it
+        assertThat(noEffect.stop()).contains(new Stop("W17", "TIMEOUT"));
+        assertThat(without.sent).endsWith("W17", "C1", "C2");
+        assertThat(without.reads).contains("W17-after-A", "V-A");
     }
 
     @Test
@@ -689,6 +810,139 @@ class ManageTagsLiveTestSupportTest {
         assertThat(outcome.remains()).isEmpty();
     }
 
+    // --- the active-tag list (run 4) -------------------------------------------------------------
+
+    @Test
+    void theActiveTagListTagsG1SetsAndRemovesTheActiveTagThenX1DeletesTheTag()
+        throws IOException {
+        FakeNode node = FakeNode.activeTag();
+
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.ACTIVE_TAG);
+
+        assertThat(node.sent).containsExactly("S1", "W17", "W18", "X1");
+        assertThat(node.reads).containsExactly("B0-H1", "B0-H2", "B0-T", "B0-A", "S1-after-H1",
+            "S1-after-H2", "S1-after-T", "W17-after-A", "W18-after-A", "X1-after-H1",
+            "X1-after-H2", "X1-after-T", "V-H1", "V-H2", "V-T", "V-A");
+        assertThat(outcome.stop()).isEmpty();
+        assertThat(outcome.cleanup()).isEmpty();
+        assertThat(outcome.remains()).isEmpty();
+        assertThat(outcome.notes()).isEmpty();
+        assertThat(node.records.get("W17-tag-set-active"))
+            .isEqualTo("answer done; active tag the test tag");
+        assertThat(node.records.get("W18-tag-remove-active"))
+            .isEqualTo("answer done; active tag none");
+        assertThat(node.records.get("X1-tag-delete-g1-owner")).endsWith("after: g1 1 workflow,"
+            + " none tagged; g2 1 workflow, none tagged; by tag none (no group carries the tag)");
+        assertThat(String.join("\n", node.records.values())).doesNotContain(G1, G2, OWNER, USER);
+    }
+
+    @Test
+    void aRefusedW17AndW18AreRecordedAsTheAnswerAndX1StillRuns() throws IOException {
+        FakeNode node = FakeNode.activeTag();
+        node.refused.put("W17", REFUSED);
+        node.refused.put("W18", REFUSED);
+
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.ACTIVE_TAG);
+
+        assertThat(node.sent).containsExactly("S1", "W17", "W18", "X1");
+        assertThat(node.records.get("W17-tag-set-active"))
+            .isEqualTo("answer refused (" + REFUSED + "); active tag none");
+        assertThat(node.records.get("W18-tag-remove-active"))
+            .isEqualTo("answer refused (" + REFUSED + "); active tag none");
+        assertThat(outcome.notes()).containsExactly("W17 refused by INUBIT (" + REFUSED + ")",
+            "W18 refused by INUBIT (" + REFUSED + ")");
+        // no active tag was read, so no C4; V still reads it
+        assertThat(outcome.cleanup()).isEmpty();
+        assertThat(node.reads).contains("V-A");
+        assertThat(outcome.stop()).isEmpty();
+        assertThat(outcome.remains()).isEmpty();
+        assertThatCode(() -> ManageTagsLiveTestSupport.assertOutcome(outcome))
+            .doesNotThrowAnyException();
+    }
+
+    @Test
+    void anActiveTagStillReadAfterARefusedW18IsRemovedByC4() throws IOException {
+        FakeNode node = FakeNode.activeTag();
+        node.refused.put("W18", REFUSED);
+
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.ACTIVE_TAG);
+
+        assertThat(node.sent).containsExactly("S1", "W17", "W18", "X1", "C4");
+        assertThat(node.records.get("W18-tag-remove-active"))
+            .isEqualTo("answer refused (" + REFUSED + "); active tag the test tag");
+        assertThat(outcome.cleanup()).containsExactly("C4 done");
+        assertThat(outcome.remains()).isEmpty();
+    }
+
+    @Test
+    void theActiveTagListNeedsTheTagOnNothingAndNoActiveTag() throws IOException {
+        FakeNode used = FakeNode.activeTag();
+        used.g1 = true;
+        FakeNode elsewhere = FakeNode.activeTag();
+        elsewhere.elsewhere = true;
+        FakeNode active = FakeNode.activeTag();
+        active.active = ActiveTag.OTHER;
+
+        Outcome first = ManageTagsLiveTestSupport.run(used, DERIVED, Plan.ACTIVE_TAG);
+        Outcome second = ManageTagsLiveTestSupport.run(elsewhere, DERIVED, Plan.ACTIVE_TAG);
+        Outcome third = ManageTagsLiveTestSupport.run(active, DERIVED, Plan.ACTIVE_TAG);
+
+        assertThat(used.sent).isEmpty();
+        assertThat(elsewhere.sent).isEmpty();
+        assertThat(active.sent).isEmpty();
+        assertThat(first.stop().orElseThrow().code()).contains("in use", "nothing was written");
+        assertThat(second.stop().orElseThrow().code()).contains("in use");
+        assertThat(third.stop().orElseThrow().code()).contains("active tag is another tag");
+        assertThat(first.cleanup()).isEmpty();
+    }
+
+    @Test
+    void anErrorOfW17StopsAndOnlyX1sFormCleansTheTag() throws IOException {
+        FakeNode node = FakeNode.activeTag();
+        node.failing.put("W17", "TIMEOUT");
+        FakeNode unknown = FakeNode.activeTag();
+        unknown.unknownRead = "S1-after-H2";
+
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.ACTIVE_TAG);
+        Outcome read = ManageTagsLiveTestSupport.run(unknown, DERIVED, Plan.ACTIVE_TAG);
+
+        assertThat(outcome.stop()).contains(new Stop("W17", "TIMEOUT"));
+        assertThat(node.sent).containsExactly("S1", "W17", "C1");
+        assertThat(node.sentForms.get("C1")).isEqualTo("tag --tagDelete 'l4-test'"
+            + " --tagWorkflowGroup 'GRP-T1' --tagWorkflowType 'technical' --tagUser 'owner1'");
+        assertThat(outcome.remains()).isEmpty();
+        // g2 is only read: an unknown read of it is cleaned by C1 (owner-wide), never by C2
+        assertThat(read.stop()).contains(new Stop("S1", "READ g2 unknown"));
+        assertThat(unknown.sent).containsExactly("S1", "C1");
+    }
+
+    @Test
+    void theCleanupRemovesTheActiveTagBeforeItDeletesTheTag() throws IOException {
+        FakeNode node = FakeNode.activeTag();
+        node.throwing.add("W17");
+
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.ACTIVE_TAG);
+
+        assertThat(outcome.stop()).contains(new Stop("W17", "IllegalStateException"));
+        assertThat(node.sent).containsExactly("S1", "W17", "C4", "C1");
+        assertThat(outcome.cleanup()).containsExactly("C4 done", "C1 done");
+        assertThat(outcome.remains()).isEmpty();
+    }
+
+    @Test
+    void whatX1LeavesFailsTheCheckAfterC1() throws IOException {
+        FakeNode node = FakeNode.activeTag();
+        node.noEffect.add("X1");
+        node.noEffect.add("C1");
+
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.ACTIVE_TAG);
+
+        assertThat(node.sent).containsExactly("S1", "W17", "W18", "X1", "C1");
+        assertThatThrownBy(() -> ManageTagsLiveTestSupport.assertOutcome(outcome))
+            .hasMessageContaining("ran all steps").hasMessageContaining("cleanup C1 done")
+            .hasMessageContaining("the owner must remove it: g1 1 workflow, 1 tagged");
+    }
+
     // --- records ---------------------------------------------------------------------------------
 
     @Test
@@ -735,6 +989,20 @@ class ManageTagsLiveTestSupportTest {
         throw new IllegalArgumentException(name);
     }
 
+    /** The source of the private pattern {@code field} of {@code type}. */
+    private static String pattern(String type, String field) throws ReflectiveOperationException {
+        Field source = Class.forName(type).getDeclaredField(field);
+        source.setAccessible(true);
+        return ((Pattern) source.get(null)).pattern();
+    }
+
+    /** A finished StartCLI run with exit code {@code exit} and no output. */
+    private static Run run(int exit) {
+        Run run = new Run(false);
+        run.finished(exit);
+        return run;
+    }
+
     private static TagExport export(Set<String> groups, Map<String, String> files) {
         return new TagExport(new TreeSet<>(groups), groups.size(), new TreeMap<>(files));
     }
@@ -760,6 +1028,8 @@ class ManageTagsLiveTestSupportTest {
         ActiveTag active = ActiveTag.NONE;
         String unknownRead = "";
         final Map<String, String> failing = new HashMap<>();
+        /** Steps INUBIT refuses with this answer, without effect. */
+        final Map<String, String> refused = new HashMap<>();
         final Set<String> noEffect = new HashSet<>();
         final List<String> sent = new ArrayList<>();
         final Map<String, String> sentForms = new HashMap<>();
@@ -772,6 +1042,17 @@ class ManageTagsLiveTestSupportTest {
             node.g1 = true;
             node.g2 = true;
             node.fileTags.addAll(node.repository);
+            return node;
+        }
+
+        /**
+         * The clean state of run 4: the tag on nothing, the group removal owner-wide and no
+         * repository file tagged through a group (as run 2 and 3 recorded).
+         */
+        static FakeNode activeTag() {
+            FakeNode node = new FakeNode();
+            node.ownerWide = true;
+            node.repository = List.of();
             return node;
         }
 
@@ -830,6 +1111,9 @@ class ManageTagsLiveTestSupportTest {
             sentForms.put(step.id(), step.form());
             if (failing.containsKey(step.id())) {
                 return new Answer(Optional.of(failing.get(step.id())), false);
+            }
+            if (refused.containsKey(step.id())) {
+                return new Answer(Optional.of(refused.get(step.id())), true);
             }
             if (step.action() instanceof Unlisted) {
                 return new Answer(Optional.of("exit 1"), true);

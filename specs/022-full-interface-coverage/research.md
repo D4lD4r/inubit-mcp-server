@@ -554,6 +554,21 @@ RECONSTRUCTED until a user with an active tag is recorded.
   is still open: the next run starts from this state (the tag on both test groups) with the
   approved list `W15,X1,X2,W17,W18` (docs/live-tests.md "Tags of L-4").
 
+**Recorded in T055 run 3 (2026-11-19, 8.1.17)**, list `W15,X1,X2,W17,W18` from the tag on both
+test groups:
+- No repository file carried the tag (`tag --tagMove` with a group tagged the workflow and its
+  modules only), so W15 had no folder; the repository-path forms are still not exercised.
+- `tag --tagDelete <tag> --tagWorkflowGroup <g1> --tagWorkflowType technical --tagUser <owner>`
+  exits with 0 and deletes the tag **owner-wide**: g2 lost it too, and afterwards StartCLI
+  answers that the specified tag does not exist. `deleteTag` in a diagram group is not limited to
+  its scope, so by the rule above it is to become `excluded:acts-on-whole-owner` (planned
+  exclusion; the coverage rows change with T066, not here).
+- W17 `tag --tagSetActive <tag> --tagUser <user>` then found no tag: `EXECUTION ERROR`,
+  `TagNameWasNotFound`. The active-tag pair is still open; run 4 sends it while g1 carries the tag,
+  with the approved list `S1,W17,W18,X1` (docs/live-tests.md "The active-tag pair (run 4)"). The
+  owner says active tagging is not enabled on the test node, so INUBIT's refusal of W17/W18 is
+  recorded as their answer, not a stop.
+
 **Follow-up, not fixed in T055**: `CliUserRunner.session` and `CliSettingsRunner.session` still use
 the old rule (their `commandRefused` looks only for `EXECUTION ERROR`). On a real 8.1.17 session in
 which no command is refused (`read_users` with only `user`/`finger`; `get_server_settings` without

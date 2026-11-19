@@ -990,18 +990,21 @@ forms 8.1.17 refused in run 2: `--tagRemove` in a group, `--tagDelete` without `
 production forms and are built for this test only; the folder read is the allow-listed candidate
 form of D-18 without a production runner and is recorded only.
 
-There are two approved step lists. The first (`S1,…,W18`) starts from a tag on nothing; it ran
+There are three approved step lists. The first (`S1,…,W18`) starts from a tag on nothing; it ran
 twice and is not run again (a re-run would need a fresh approval: its cleanup now sends
 `--tagUser`): in run 2, 8.1.17 refused W13 and the cleanup's `--tagDelete` without
 `--tagUser` (research D-18), so the test tag stayed on both test groups. The second
-(`W15,X1,X2,W17,W18`, [below](#from-the-tagged-state-run-3)) starts from that state.
+(`W15,X1,X2,W17,W18`, [below](#from-the-tagged-state-run-3)) starts from that state; in run 3
+X1 deleted the tag owner-wide, so W17 found no tag. The third (`S1,W17,W18,X1`,
+[below](#the-active-tag-pair-run-4)) starts from a tag on nothing again and sends the active-tag
+pair while g1 carries the tag.
 
 Inputs (all required, checked before anything is contacted; values are never printed):
 
 | Variable | Value |
 |---|---|
-| `INUBIT_LIVE_T055_STEPS` | exactly `W15,X1,X2,W17,W18` (or the first list `S1,S2,W13,S3,W14,S4,W15,W16,W17,W18`), the operator's statement that the owner approved every command of that list and the cleanup |
-| `INUBIT_LIVE_T055_TAG` | first list: a test tag never used on the node before, e.g. `l4-test`; second list: the tag run 2 left on the two groups; B0 checks only what its reads see |
+| `INUBIT_LIVE_T055_STEPS` | exactly `S1,W17,W18,X1` (or `W15,X1,X2,W17,W18`, or the first list `S1,S2,W13,S3,W14,S4,W15,W16,W17,W18`), the operator's statement that the owner approved every command of that list and the cleanup |
+| `INUBIT_LIVE_T055_TAG` | first and third list: a test tag on nothing, e.g. `l4-test` (run 3 deleted it); second list: the tag run 2 left on the two groups; B0 checks only what its reads see |
 | `INUBIT_LIVE_T055_GROUPS` | `<g1>,<g2>`: two technical diagram groups of the inventory owner with at least one workflow each (test objects of the operator) |
 | `INUBIT_LIVE_T055_REPOSITORY_PATH` | `derived`, or the folder W15 must use: strictly below the owner's repository root `/Root/<owner>/` (see W15) |
 | `INUBIT_LIVE_T055_USER` | `login` (the StartCLI login of the node's credentials) or a login name: the user of W17/W18 |
@@ -1047,16 +1050,25 @@ tagged versions, repository files carrying the tag) and, once W15 has a folder, 
 - No step is retried. A step stops the sequence when it ends in an error (an error code, e.g.
   `IMPORT_FAILED` for a tag form StartCLI did not complete), when a read `H1`, `H2` or `T` of its
   round ends in an error, or when S1–S4 leave their group without a tagged version
-  (`DEVIATION`). W13, W14 and W16 (the test-only forms) count INUBIT's refusal (a completed
-  StartCLI run with an exit code other than 0 or an `n-NOK` message) as their answer, noted as
-  e.g. `W16 refused by INUBIT (...)`.
-- Cleanup, after the last step or the stop, each command at most once and only these: C1
+  (`DEVIATION`). W13, W14 and W16 (the test-only forms) and W17, W18 count INUBIT's refusal (a
+  completed StartCLI run with an exit code other than 0 or an `n-NOK` message; for W17/W18 an
+  answer the classifier does not recognize, `UNEXPECTED_RESPONSE`, of a run that exited with
+  output below the bound and shows no failed login) as their answer, noted as e.g. `W16 refused
+  by INUBIT (...)`. For W17 and W18 the note holds `exit <n>` (`n-NOK` for exit 0) and INUBIT's
+  output lines joined by ` / ` (no log records), the inputs masked in any case as `<tag>`,
+  `<g1>`, `<g2>`, `<owner>`, `<user>`, e.g. `exit 1: EXECUTION ERROR / Internal INUBIT error! /
+  TagNameWasNotFound`. A timeout, a login or connection failure (`Login to the server failed.`,
+  a `LoginFailed`/`LoginFailure` marker) or cut output stays an error and stops.
+- Cleanup, after the last step or the stop, each command at most once and only these, C4 first
+  (the active tag goes before the tag, as W18 before X1), then C1, C2, C3: C1
   `tag --tagDelete '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical' --tagUser
   '<owner>'` and C2 the same for `<g2>` (the `manage_tags` form; 8.1.17 refuses `--tagDelete`
   without `--tagUser` with `Missing user name.`), if the latest round shows the group carrying the tag, names it in `T` or could
   not read it; C3 `tag --tagRemove '<tag>' --tagRepositoryPath '<folder>'` if W15 had a folder and
   the latest round shows a file there carrying the tag or could not read it; C4
-  `tag --tagRemoveActive --tagUser '<user>'` if W17 was sent and W18 was not done. A cleanup
+  `tag --tagRemoveActive --tagUser '<user>'` if W17 was sent and the latest read of the active
+  tag is not `none` (the test tag, another tag, an unrecognized answer, or unknown: an error
+  before the read). A cleanup
   command may be the same command as the failed step; it is still sent once. If a step ends in
   an exception after it may have been sent, every part counts as unknown, so C1 and C2 (and C3,
   C4 as above) run. Then round `V` (H1, H2, T, and `A` if W17 was sent) checks that nothing
@@ -1078,7 +1090,10 @@ tagged versions, repository files carrying the tag) and, once W15 has a folder, 
   of the workflows and modules carrying the test tag, the repository files carrying it relative
   to the owner root (`~/xsd/release.xsl`; another owner's as `/Root/<other>/…`), counts, and the
   active
-  tag as `none`, `the test tag`, `another tag` or `unrecognized answer`, e.g.
+  tag as `none`, `the test tag`, `another tag` or `unrecognized answer` (then
+  `<id>-A-user.state` and its line name the answer's row labels, never a value, e.g.
+  `unrecognized answer, rows: User name, User group, Super group, Active Tag`; the answer itself
+  is in `.stdout`), e.g.
   `[live] T055 W13-tag-remove-g1: answer done; before: g1 1 workflow, 1 tagged: workflow
   Workflow-0001 v3; …`. Neutralize the case files as above before anything is copied into the
   repository, and delete them afterwards.
@@ -1121,9 +1136,41 @@ INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
 ```
 
 - Without `INUBIT_LIVE_NODE`, `INUBIT_LIVE_T055_STEPS` or `INUBIT_LIVE_RECORD_DIR` the test is
-  skipped; any step list other than the two fails before contact, and so does a missing or
+  skipped; any step list other than the three fails before contact, and so does a missing or
   invalid input, a node without write or development enablement or without `inventory.owner`. Production groups
   are refused as for every live test. The test creates `<INUBIT_LIVE_RECORD_DIR>/T055/`
   owner-only after the 8.1 check and fails, before contact, if it exists.
 - The history exports are those `tag_artifacts` and the `manage_tags` preview send for a group;
   they run only in the two test groups.
+
+#### The active-tag pair (run 4)
+
+The third list starts from a tag on nothing, as the first: B0 (H1, H2, T, A) must show that the
+tag is on nothing the reads see, that both groups hold a workflow and that the user has no
+active tag; else nothing is written. Every command is a production form; g2 is only read. The
+owner said active tagging is not enabled on the test node, so W17 and W18 may be refused or have
+no effect: that is the answer to record.
+
+| Step | Command | Question | Read after |
+|---|---|---|---|
+| S1 | `tag --tagMove '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical' --tagUser '<owner>'` (the `tag_artifacts` form) | g1 must carry the tag | H1, H2, T |
+| W17 | `tag --tagSetActive '<tag>' --tagUser '<user>'` | accepted or refused (INUBIT's message)? does `user '<user>'` show an `Active tag` row, in which form? | A |
+| W18 | `tag --tagRemoveActive --tagUser '<user>'` | accepted or refused? is the row gone? | A |
+| X1 | `tag --tagDelete '<tag>' --tagWorkflowGroup '<g1>' --tagWorkflowType 'technical' --tagUser '<owner>'` (the `deleteTag` form) | the tag is gone (owner-wide, run 3) | H1, H2, T |
+
+- INUBIT's refusal of W17 or W18 is recorded as the answer (above), never a stop, so X1 runs
+  after them. An error of W17/W18 (e.g. a timeout) or an unknown read stops; the cleanup then
+  sends X1's form as C1.
+- Cleanup, each at most once: C4 as above first, then C1 (X1's form) if the latest round shows
+  the tag anywhere (g1, g2 or `T`) or could not read it, since `--tagDelete` acts owner-wide
+  (run 3). C2 and C3 are not part of this list. Then `V` as above; it fails loudly if anything remains.
+- The owner approves S1, W17, W18, X1, C1 and C4 with one `APPROVE` line.
+
+```bash
+INUBIT_MCP_PROFILE=acme INUBIT_LIVE_NODE=test/node1 \
+  INUBIT_LIVE_T055_STEPS=S1,W17,W18,X1 INUBIT_LIVE_T055_RUN=4 \
+  INUBIT_LIVE_T055_TAG=l4-test INUBIT_LIVE_T055_GROUPS=GRP-T1,GRP-T2 \
+  INUBIT_LIVE_T055_REPOSITORY_PATH=derived INUBIT_LIVE_T055_USER=login \
+  INUBIT_LIVE_RECORD_DIR=~/inubit-mcp-recordings/022 \
+  mvn verify -Plive -Dtest=ManageTagsLiveTest
+```

@@ -13,6 +13,7 @@ import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.WritePermit;
 import de.dadecker.inubit.mcp.domain.port.PrivateFileSystem;
@@ -42,12 +43,12 @@ import org.junit.jupiter.api.Timeout;
 
 /**
  * Feature 022 T055, live check L-4 (research D-18, "Live checks"): one owner-approved step list
- * ({@link Plan}: S1–S4 and W13–W18 from a tag on nothing, or W15, X1, X2, W17, W18 from the tag
- * on the two test groups) against a real, <b>non-production</b> INUBIT 8.1 development node whose
- * profile enables writes (opt-in, Constitution III), each step run once in that order, every read
- * and command recorded owner-only in
- * {@code <INUBIT_LIVE_RECORD_DIR>/T055/} (a later run with {@code INUBIT_LIVE_T055_RUN=<n>} in
- * {@code T055-<n>/}).
+ * ({@link Plan}: S1–S4 and W13–W18 from a tag on nothing, W15, X1, X2, W17, W18 from the tag
+ * on the two test groups, or S1, W17, W18, X1 from a tag on nothing) against a real,
+ * <b>non-production</b> INUBIT 8.1 development node whose profile enables writes (opt-in,
+ * Constitution III), each step run once in that order, every read and command recorded
+ * owner-only in {@code <INUBIT_LIVE_RECORD_DIR>/T055/} (a later run with
+ * {@code INUBIT_LIVE_T055_RUN=<n>} in {@code T055-<n>/}).
  *
  * <p>The tool {@code manage_tags} still refuses 8.1 until the coverage rows are flipped (T066,
  * which waits for this check), so the commands run raw on the production runners:
@@ -60,12 +61,13 @@ import org.junit.jupiter.api.Timeout;
  * --exportTag} (allow-listed form, record-only); they run on {@link CliRunner#run}.
  *
  * <p>Run with {@code INUBIT_MCP_PROFILE=<profile> INUBIT_LIVE_NODE=<group>/<node>
- * INUBIT_LIVE_T055_STEPS=W15,X1,X2,W17,W18 INUBIT_LIVE_T055_TAG=<tag>
+ * INUBIT_LIVE_T055_STEPS=S1,W17,W18,X1 INUBIT_LIVE_T055_RUN=4 INUBIT_LIVE_T055_TAG=<tag>
  * INUBIT_LIVE_T055_GROUPS=<g1>,<g2> INUBIT_LIVE_T055_REPOSITORY_PATH=derived|<folder>
  * INUBIT_LIVE_T055_USER=login|<user> INUBIT_LIVE_RECORD_DIR=<private dir> mvn verify -Plive
  * -Dtest=ManageTagsLiveTest}, only after the owner approved each command (docs/live-tests.md).
  * Prints one line per command with its exit code and byte counts, and one line per step with what
- * the reads derive about the test tag; never output.
+ * the reads derive about the test tag, and of a refused W17/W18 INUBIT's message lines with the
+ * inputs masked; never other output.
  */
 @Tag("live")
 @Timeout(7200)
@@ -219,9 +221,12 @@ class ManageTagsLiveTest {
 
         @Override
         public Optional<ActiveTag> activeTag(String label) throws IOException {
-            Attempt<Optional<String>> attempt = attempt(Read.user(label),
-                () -> admin.activeTag(in.user()));
+            Read read = Read.user(label);
+            Attempt<Optional<String>> attempt = attempt(read, () -> admin.activeTag(in.user()));
             if (attempt.error().equals(Optional.of(ErrorCode.UNEXPECTED_RESPONSE))) {
+                // the real row form: its labels only, the answer itself is in .stdout
+                record(read.stem(), "unrecognized answer, rows: " + ManageTagsLiveTestSupport
+                    .rowLabels(attempt.failure().flatMap(ToolError::excerpt)));
                 return Optional.of(ActiveTag.UNRECOGNIZED);
             }
             return attempt.value().map(tag -> ActiveTag.of(tag, in.tag()));
@@ -254,6 +259,15 @@ class ManageTagsLiveTest {
                 }
                 return Boolean.TRUE;
             });
+            if (attempt.failure().isPresent()
+                && (step.action() instanceof ManageTagsLiveTestSupport.SetActive
+                    || step.action() instanceof ManageTagsLiveTestSupport.RemoveActive)) {
+                Optional<String> refusal = ManageTagsLiveTestSupport.refusal(
+                    attempt.failure().get(), attempt.runs(), in);
+                if (refusal.isPresent()) {
+                    return new Answer(refusal, true);
+                }
+            }
             return new Answer(attempt.error().map(ErrorCode::name), false);
         }
 
@@ -284,16 +298,17 @@ class ManageTagsLiveTest {
         private <T> Attempt<T> attempt(Case recorded, Supplier<T> call) throws IOException {
             int before = connection.recorder.runs().size();
             Optional<T> value = Optional.empty();
-            Optional<ErrorCode> error = Optional.empty();
+            Optional<ToolError> failure = Optional.empty();
             try {
                 value = Optional.of(call.get());
             } catch (ToolErrorException e) {
-                error = Optional.of(e.error().code());
+                failure = Optional.of(e.error());
             }
-            List<Run> runs = connection.recorder.runs();
-            print(ManageTagsLiveTestSupport.recordCli(files, directory, recorded,
-                runs.subList(before, runs.size()), error));
-            return new Attempt<>(value, error);
+            List<Run> all = connection.recorder.runs();
+            List<Run> runs = List.copyOf(all.subList(before, all.size()));
+            print(ManageTagsLiveTestSupport.recordCli(files, directory, recorded, runs,
+                failure.map(ToolError::code)));
+            return new Attempt<>(value, failure, runs);
         }
 
         /** A derived read; a parse failure makes it unknown, with its code in the line. */
@@ -316,7 +331,11 @@ class ManageTagsLiveTest {
         }
     }
 
-    /** A command: its value, or the error that ended it. */
-    private record Attempt<T>(Optional<T> value, Optional<ErrorCode> error) {
+    /** A command: its value, or the error that ended it; and the StartCLI runs it started. */
+    private record Attempt<T>(Optional<T> value, Optional<ToolError> failure, List<Run> runs) {
+
+        Optional<ErrorCode> error() {
+            return failure.map(ToolError::code);
+        }
     }
 }
