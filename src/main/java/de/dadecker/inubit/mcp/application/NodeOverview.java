@@ -175,7 +175,7 @@ public final class NodeOverview {
      * refusal on a version whose matrix entry carries a {@code note} for the capability names it
      * as the gate does (feature 021: "… is not yet verified for INUBIT 9.0").
      */
-    private static Optional<String> refusal(NodeId node, NodeVersionState state,
+    private Optional<String> refusal(NodeId node, NodeVersionState state,
         Optional<InubitVersion> version, Capability capability, SupportState support,
         boolean cliOnly, Optional<String> note) {
         if (state.pinContradiction() && (capability.kind() == Capability.Kind.WRITE
@@ -199,7 +199,7 @@ public final class NodeOverview {
                     + " does not support " + capability.label()
                 : name + " on " + node + " does not support "
                     + capability.label() + " yet")
-            .orElseGet(() -> VersionGate.unknown(node, state)
+            .orElseGet(() -> VersionGate.unknown(node, state, matrix.cliOnlyLines())
                 + "; call get_health to detect it"));
     }
 

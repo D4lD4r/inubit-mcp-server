@@ -1,10 +1,12 @@
 package de.dadecker.inubit.mcp.mcp.tools;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyUrl;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.TestWiring;
@@ -36,6 +38,7 @@ import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
+import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.infra.ResultJson;
@@ -602,6 +605,26 @@ class ListNodesToolTest {
         assertThat(version.path("status").asString()).isEqualTo("unknown");
         assertThat(usable(version)).containsExactly("monitoring", "process_diagnosis",
             "log_diagnosis", "inventory");
+    }
+
+    /**
+     * Feature 025 T016 (FR-005, US2-1): after a detection answered with HTTP 404 the refusal of an
+     * {@code AUTO} node names the pins of both StartCLI-only lines, 6.1 and 7.4.
+     */
+    @Test
+    void aDetectionAnswered404HintsAtV61AndV74() {
+        wireMock.stubFor(get(urlPathEqualTo("/ibis/rest/system/info"))
+            .willReturn(aResponse().withStatus(404).withBody("<html>Not Found</html>")));
+        assertThatThrownBy(() -> gateways.detect(DEV1)).isInstanceOf(ToolErrorException.class);
+
+        JsonNode version = listVersions().get("dev/node1");
+
+        assertThat(version.path("server").path("reason").asString())
+            .isEqualTo("UNEXPECTED_RESPONSE");
+        assertThat(reason(version, "development_writes")).isEqualTo("the INUBIT version of"
+            + " dev/node1 is unknown (UNEXPECTED_RESPONSE at " + NOW + "); if dev/node1 runs"
+            + " INUBIT 6.1, pin V6_1; if it runs INUBIT 7.4, pin V7_4; call get_health to detect"
+            + " it");
     }
 
     @Test

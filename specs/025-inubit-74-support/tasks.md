@@ -231,7 +231,7 @@ and `--check-config` tests, offline, on both CI jobs.
 
 **Goal**: spec US2, FR-005, SC-002.
 
-- [ ] T016 [US2] 404 hint (research D-7): `main/application/VersionGate.java` `unknown`
+- [X] T016 [US2] 404 hint (research D-7): `main/application/VersionGate.java` `unknown`
   (`:1004-1011`) stays static and takes `List<String> cliOnlyLines`; it builds "; if <node> runs
   INUBIT 6.1, pin V6_1; if it runs INUBIT 7.4, pin V7_4" from them. Both callers pass
   `matrix.cliOnlyLines()`: inside `VersionGate` and `main/application/NodeOverview.java:194`

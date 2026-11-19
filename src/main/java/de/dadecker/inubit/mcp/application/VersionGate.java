@@ -401,7 +401,8 @@ public final class VersionGate {
             warnings.add(name.map(n -> n + " on " + node + " is not "
                     + (support == SupportState.UNVERIFIED ? "verified" : "supported") + " for "
                     + capability.label() + "; results may be incomplete")
-                .orElseGet(() -> unknown(node, state) + "; results are unverified"));
+                .orElseGet(() -> unknown(node, state, matrix.cliOnlyLines())
+                    + "; results are unverified"));
         } else if (support != SupportState.SUPPORTED) {
             throw refuseUnsupported(node, capability, purpose, state, version, name);
         }
@@ -692,7 +693,8 @@ public final class VersionGate {
         return refuse(node, subject, name(state, Optional.empty())
                 .map(line -> line + " on " + node + " names no major.minor; "
                     + what + " is offered per INUBIT major.minor")
-                .orElseGet(() -> what + " refused: " + unknown(node, state)),
+                .orElseGet(() -> what + " refused: "
+                    + unknown(node, state, matrix.cliOnlyLines())),
             "This server lists the entries it sends per INUBIT major.minor",
             terms.render("Let get_health detect the version of the {node}, or set versionLine"
                 + " of ") + node + " to a line with minor (such as V9_0) and restart the"
@@ -711,7 +713,8 @@ public final class VersionGate {
      */
     private Refusal neverKnownInMaintenance(NodeId node, ActionSpec spec) {
         return refuse(node, spec.capability().name(), spec.action() + " refused: "
-                + unknown(node, versions.state(node)) + ", and no earlier version of it is known",
+                + unknown(node, versions.state(node), matrix.cliOnlyLines())
+                + ", and no earlier version of it is known",
             "INUBIT's REST API answers every request with 503 in maintenance mode, so the version"
                 + " cannot be detected now",
             "Set versionLine of " + node + " to its INUBIT line with minor (such as V9_0) and"
@@ -864,7 +867,8 @@ public final class VersionGate {
                 ? "StartCLI client " + client.version().raw() + " of " + node
                     + " declares no supported INUBIT range; StartCLI results may be unreliable"
                 : "The StartCLI client range of " + node + " cannot be checked: "
-                    + unknown(node, state) + "; StartCLI results may be unreliable");
+                    + unknown(node, state, matrix.cliOnlyLines())
+                    + "; StartCLI results may be unreliable");
             case COMPATIBLE -> {
                 if (client.compare(version) == ClientVersion.Comparison.MISMATCH) {
                     warnings.add(mismatchWarning(node, client, version.orElseThrow()));
@@ -911,7 +915,8 @@ public final class VersionGate {
         Optional<String> name) {
         if (name.isEmpty()) {
             return refuse(node, capability,
-                capitalized(capability.label()) + " refused: " + unknown(node, state),
+                capitalized(capability.label()) + " refused: "
+                    + unknown(node, state, matrix.cliOnlyLines()),
                 capitalized(capability.label()) + " needs a known INUBIT version that supports"
                     + " it, and the version could not be detected",
                 "Fix the cause of the failed version detection and retry in a minute, or set"
@@ -1057,13 +1062,20 @@ public final class VersionGate {
 
     /**
      * "the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T08:00:00Z)"; after a
-     * detection answered with HTTP 404 followed by "; if dev/node1 runs INUBIT 6.1, pin V6_1"
-     * (feature 012 FR-003).
+     * detection answered with HTTP 404 followed by a pin for each of {@code cliOnlyLines}: "; if
+     * dev/node1 runs INUBIT 6.1, pin V6_1; if it runs INUBIT 7.4, pin V7_4" (feature 012 FR-003,
+     * feature 025 FR-005, research D-7).
      */
-    static String unknown(NodeId node, NodeVersionState state) {
+    static String unknown(NodeId node, NodeVersionState state, List<String> cliOnlyLines) {
         Optional<Timed<DetectionFailure>> failure = state.detectionFailure();
-        String hint = failure.filter(f -> f.value().endpointMissing()).isPresent()
-            ? "; if " + node + " runs INUBIT 6.1, pin V6_1" : "";
+        StringBuilder hint = new StringBuilder();
+        if (failure.filter(f -> f.value().endpointMissing()).isPresent()) {
+            for (String line : cliOnlyLines) {
+                String subject = hint.isEmpty() ? node.toString() : "it";
+                hint.append("; if ").append(subject).append(" runs INUBIT ").append(line)
+                    .append(", pin V").append(line.replace('.', '_'));
+            }
+        }
         return "the INUBIT version of " + node + " is unknown ("
             + failure.map(f -> f.value().code() + " at " + time(f)).orElse("not yet detected")
             + ")" + hint;

@@ -54,6 +54,8 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.slf4j.LoggerFactory;
 
 /**
@@ -311,9 +313,12 @@ class VersionGateTest {
             .isEqualTo(1);
     }
 
-    /** Feature 012 T011 (FR-003): the 6.1 hint follows only a detection answered with 404. */
+    /**
+     * Feature 012 T011 (FR-003), feature 025 T016 (FR-005, research D-7): the hint follows only a
+     * detection answered with 404 and names every StartCLI-only line of the matrix, 6.1 and 7.4.
+     */
     @Test
-    void theUnknownVersionHintsAtV61OnlyAfterADetectionAnsweredWith404() {
+    void theUnknownVersionHintsAtV61AndV74OnlyAfterADetectionAnsweredWith404() {
         detection.failEndpointMissing(detectionError(ErrorCode.UNEXPECTED_RESPONSE));
 
         Admission afterNotFound = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ,
@@ -323,10 +328,10 @@ class VersionGateTest {
 
         assertThat(afterNotFound.warnings()).containsExactly("the INUBIT version of dev/node1"
             + " is unknown (UNEXPECTED_RESPONSE at 2026-10-18T08:00:00Z); if dev/node1 runs"
-            + " INUBIT 6.1, pin V6_1; results are unverified");
+            + " INUBIT 6.1, pin V6_1; if it runs INUBIT 7.4, pin V7_4; results are unverified");
         assertThat(write.message()).contains("the INUBIT version of dev/node1 is unknown"
             + " (UNEXPECTED_RESPONSE at 2026-10-18T08:00:00Z); if dev/node1 runs INUBIT 6.1,"
-            + " pin V6_1");
+            + " pin V6_1; if it runs INUBIT 7.4, pin V7_4");
         assertThat(versions.state(AUTO).effectiveVersion()).as("AUTO never selects 6.1")
             .isEmpty();
 
@@ -340,6 +345,31 @@ class VersionGateTest {
             + " dev/node1 is unknown (UNEXPECTED_RESPONSE at 2026-10-18T08:01:00Z); results are"
             + " unverified");
         assertThat(detection.calls).isEqualTo(2);
+    }
+
+    /**
+     * Feature 025 T016 (FR-005, US2-2): every other detection failure keeps today's text; the
+     * adapter reports a 401 as {@code AUTH_FAILED}, a 500 and an unparsable answer as
+     * {@code UNEXPECTED_RESPONSE}, all without the missing endpoint. The failure is recorded as
+     * the adapter reports it; the gate judges it within the back-off without detecting again (a
+     * {@code TLS_ERROR} of the gate's own detection would be passed through instead).
+     */
+    @ParameterizedTest(name = "{0}")
+    @CsvSource({"timeout, TIMEOUT", "TLS error, TLS_ERROR", "HTTP 401, AUTH_FAILED",
+        "HTTP 500, UNEXPECTED_RESPONSE", "unparsable answer, UNEXPECTED_RESPONSE"})
+    void anyOtherFailedDetectionKeepsTheUnknownVersionTextWithoutHint(String failure,
+        ErrorCode code) {
+        versions.detectionFailed(AUTO, code);
+
+        Admission read = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+        ToolError write = refusal(() -> gate().admit(AUTO, Capability.DEVELOPMENT_WRITE,
+            Kind.WRITE, CLI_REST));
+
+        assertThat(read.warnings()).containsExactly("the INUBIT version of dev/node1 is unknown ("
+            + code + " at 2026-10-18T08:00:00Z); results are unverified");
+        assertThat(write.message()).contains("the INUBIT version of dev/node1 is unknown ("
+            + code + " at 2026-10-18T08:00:00Z)").doesNotContain("pin V6_1", "pin V7_4");
+        assertThat(detection.calls).as("judged on the recorded failure").isZero();
     }
 
     @Test
