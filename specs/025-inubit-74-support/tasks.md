@@ -290,7 +290,7 @@ and `--check-config` tests, offline, on both CI jobs.
   line for `help` does not name `v74_help` as its source. Self-tests with a flipped test matrix for
   (a), (b) and (c) use their own synthetic lists in a temporary directory (the guard's list reading
   takes a folder), so T019 does not depend on T018.
-- [ ] T020 [P] [US4] Contract test of the real help case (research D-11; after T002, T007 and
+- [X] T020 [P] [US4] Contract test of the real help case (research D-11; after T002, T007 and
   T015): `test/adapter/cli/v74/V74HelpContractTest` — `main/adapter/cli/CliClientProbe.java` with a
   **test** matrix whose 7.4 entry is CLI-only without notes (so `optionsFor` runs `-h`), fed with
   `FakeProcessLauncher.replaying("v7_4", "help")`, reports no trust-store option and no
