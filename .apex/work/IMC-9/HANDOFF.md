@@ -6,7 +6,11 @@ Daniel Decker (Product Engineer). Branch `claude/025-mandate-a-imc-9`, cut from 
 `c98bd7e3` (IMC-2 merged as #102). Spec: `specs/025-inubit-74-support/` US1–US5, FR-001 – FR-020,
 pinned `2bfe55e7`. Plan and tasks live there (Spec Kit); this mandate owns tasks T001–T025 only.
 
+**Now (2026-11-19 12:35 CET):** full suite `mvn -q -o clean verify` after Phase 1, expected
+about 15 minutes. Last finished task: T002 (`aa885669`).
+
 ## Done since last handoff
+- T001 (`0c932f4b`) and T002 (`aa885669`), each approved in review round 1.
 - Claim checks: IMC-2 `Released` and on main; no other mandate in `Executing`/`Verifying`/
   `Integrating` (module lease free); `.apex/work/IMC-9/HANDOFF.md` not ignored.
 - Plan posted on IMC-9.
