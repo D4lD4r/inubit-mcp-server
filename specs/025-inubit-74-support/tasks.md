@@ -339,7 +339,7 @@ and `--check-config` tests, offline, on both CI jobs.
 
 **Goal**: spec US5, FR-020, SC-005.
 
-- [ ] T024 [US5] Regression verification (verification task): `VersionLineRegressionTest`
+- [X] T024 [US5] Regression verification (verification task): `VersionLineRegressionTest`
   unchanged since T003 and green; the full suite green with `mvn -q -o clean verify`; the CI jobs
   for macOS/Linux and Windows green on the PR; `NoCustomerIdentifiersTest` run locally with the
   identifier lists. Record in [quickstart.md](quickstart.md) (validation record) every existing

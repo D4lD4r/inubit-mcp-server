@@ -71,7 +71,8 @@ Preconditions (spec): Windows machine with the 7.4 Workbench client and its JDK;
 | 2026-11-19 | Mandate A: `mvn -q -o clean verify` at `b17b853f` (T001–T023) | macOS | exit 0; 11,263 tests, 0 failures, 0 errors, 62 skipped |
 | 2026-11-19 | `VersionLineRegressionTest`: unchanged since T003 (`66f2f420`), run alone | macOS | green (38 tests) |
 | 2026-11-19 | `NoCustomerIdentifiersTest` with the local identifier lists, in the full suite and alone | macOS | green (20 tests, none skipped) |
-| pending | CI jobs macOS/Linux and Windows on the PR | macOS/Linux, Windows | to be filled when the PR's CI is green |
+| 2026-11-19 | Mandate A: `mvn -q -o clean verify` at `23a97fd2` (T001–T025 and clean-up) | macOS | exit 0; 11,264 tests, 0 failures, 0 errors, 62 skipped |
+| 2026-11-19 | CI on [PR #104](https://github.com/D4lD4r/inubit-mcp-server/pull/104) at `23a97fd2`: [build](https://github.com/D4lD4r/inubit-mcp-server/actions/runs/44573778803/job/135735630386) and [windows](https://github.com/D4lD4r/inubit-mcp-server/actions/runs/44573778803/job/135735629782) (run 44573778803), CodeQL | Linux, Windows | all green, first attempt, no rerun |
 
 ### Adjusted existing tests
 

@@ -4,14 +4,16 @@
 IMC-9 is `Executing` (M3 on 2026-11-19), assignee APEX Executor, accountable Daniel Decker (Product
 Engineer). Branch `claude/025-mandate-a-imc-9`, cut from `origin/main` `c98bd7e3` (IMC-2 merged as
 #102). Spec: `specs/025-inubit-74-support/` US1–US5, FR-001 – FR-020, pinned `2bfe55e7`. Plan and
-tasks live there (Spec Kit); this mandate owns tasks T001–T025 only. T001–T019 done (Phases 1–5
-complete). Question IMC-14 answered (option 1) and applied in T010; the **Blocked flag is still
+tasks live there (Spec Kit); this mandate owns tasks T001–T025 only. **T001–T025 done (Mandate A
+complete).** Question IMC-14 answered (option 1) and applied in T010; the **Blocked flag is still
 set** — clearing it (M14) and moving IMC-14 (QC2/QC5) are the Product Engineer's moves.
 
-**Resumed 2026-11-19 16:30 CET.** T020–T025 done (Mandate A complete) plus a clean-up of open
-minors (`b27813ab`); full suite after T025 running. Full suite after Phase 6 (`b17b853f`): exit 0,
-11,263 tests, 0 failures, 62 skipped. The partial T020 test of the stopped implementer was kept and
-finished (its node lacked a `cliJavaHome`, so `CliRunner` refused the launch before `-h`).
+**Resumed 2026-11-19 16:30 CET, ready for M4 at 18:35 CET.** T020–T025 done plus a clean-up of
+open minors (`b27813ab`). Full suite after T025 (`23a97fd2`): exit 0, 11,264 tests, 0 failures,
+62 skipped. [PR #104](https://github.com/D4lD4r/inubit-mcp-server/pull/104) open against `main`,
+CI all green on the first attempt (no rerun). M4 not taken: this run had no
+`atlassian-apex-executor` connector and used no other Jira identity, so the move is left to the
+executor account (drafted comment below).
 
 ## Done since last handoff
 | Task | Commit | Review rounds |
@@ -35,16 +37,41 @@ finished (its node lacked a `cliJavaHome`, so `CliRunner` refused the launch bef
 | T017 patch depth at every comparison | `9d7c0990` | 1 |
 | T018 reconstructed 7.4 cases | `3e0bedbd` | 1 |
 | T019 recorded-fixtures guard | `f187d8cf` | 2 |
+| T020 real help contract test | `ca8c900c` | 1 |
+| T021 recorder case table | `7a2c9c25` | 1 |
+| T022 recorder session mode | `202bbbc0` | 1 |
+| T023 recorder 7.4 catalogue | `aa9cfe19` | 1 |
+| T024 regression verification, validation record | `aed4818e` (CI row in the final handoff commit) | 1 |
+| T025 docs and changelog | `d35b7751` | 1 |
+| Clean-up of open minors | `b27813ab` | 1 (`reviews/cleanup-r1.md`) |
 
-Full suites: after Phase 1 exit 0, 11,012 tests; after Phase 2 exit 0, 11,103 tests (0 failures,
-58 skipped each). Reviews in `specs/025-inubit-74-support/reviews/T0xx-r<n>.md`.
+Full suites (`mvn -q -o clean verify`, macOS): after Phase 1 exit 0, 11,012 tests; after Phase 2
+exit 0, 11,103 tests (58 skipped each); after Phase 6 (`b17b853f`) exit 0, 11,263 tests; after
+T025 and clean-up (`23a97fd2`) exit 0, 11,264 tests (62 skipped each, 0 failures). Reviews in
+`specs/025-inubit-74-support/reviews/T0xx-r<n>.md`.
+
+CI on PR #104 at `23a97fd2`, run
+[44573778803](https://github.com/D4lD4r/inubit-mcp-server/actions/runs/44573778803):
+[build](https://github.com/D4lD4r/inubit-mcp-server/actions/runs/44573778803/job/135735630386)
+10m55s, [windows](https://github.com/D4lD4r/inubit-mcp-server/actions/runs/44573778803/job/135735629782)
+23m54s, CodeQL (actions, java-kotlin) — all pass, first attempt.
 
 ## Next step
-Resume T020 (contract test of the real help case): either finish the untracked
-`V74HelpContractTest.java` in a new implementer round or delete it and start the task fresh; then
-review, commit, and continue T021 … T025 in order with `d4ld4r-speckit-duo:implement`,
-one commit and push per task. Run the full suite after Phase 6. T025 docs: the `get_health`
-refusal on 7.4 names no tool (IMC-14).
+M4 (Executing → Verifying) by the executor account, with the comment drafted below. Then
+verification by another agent. Before or with M4, the Product Engineer clears the Blocked flag on
+IMC-9 (M14) and removes the wrong link "IMC-9 blocks IMC-14".
+
+### Drafted M4 comment
+> M4 Executing → Verifying. Mandate A (tasks T001–T025 of feature 025, INUBIT 7.4 recognised by
+> pin and refused clearly, CLI only) is implemented test-first, one commit per task, each approved
+> by an independent task reviewer.
+> PR: https://github.com/D4lD4r/inubit-mcp-server/pull/104
+> CI: https://github.com/D4lD4r/inubit-mcp-server/actions/runs/44573778803 (build and windows
+> green, CodeQL green, no rerun).
+> Local full suite at `23a97fd2`: exit 0, 11,264 tests, 0 failures, 62 skipped.
+> Handoff: https://github.com/D4lD4r/inubit-mcp-server/blob/claude/025-mandate-a-imc-9/.apex/work/IMC-9/HANDOFF.md
+> Readings and open minor findings are listed in the handoff. Ran fully offline: no INUBIT command
+> and no call to any INUBIT server.
 
 ## Open questions
 - None blocking. [IMC-14](https://danieldecker.atlassian.net/browse/IMC-14) is answered and
@@ -64,6 +91,15 @@ refusal on 7.4 names no tool (IMC-14).
 - T012: the task text said a 7.4-only profile does not announce `get_health`. FR-009 ("feature 009
   rule, unchanged"), the contract and feature 012 D-12 keep `get_health` always announced. The test
   follows the spec; the T012 description in tasks.md was reworded (review T012-r1/r2).
+- T020: the untracked partial `V74HelpContractTest.java` of the stopped implementer was kept and
+  finished, not restarted (its test node lacked a `cliJavaHome`, so `CliRunner` refused the launch
+  before `-h`).
+- T021: the case table introduces a Kind `export-backslash`, not in the data model; kept as a
+  recorder-internal kind (minor T021-r1).
+- T024: the quickstart validation row for CI stayed pending until PR #104 was green; T024 was
+  ticked in tasks.md only then.
+- quickstart FR-009 row corrected to the T012 reading: `get_health` stays always announced.
+- T025: the `get_health` refusal on 7.4 names no tool (IMC-14, option 1).
 
 ## Tried and discarded
 - T003 round 1: comparing whole `InubitVersion` records in the baseline; breaks once T005 adds
@@ -80,19 +116,17 @@ refusal on 7.4 names no tool (IMC-14).
   capabilities still noted (review T007-r1).
 - Since T007, `production().declares(7.4)` is true, so `ConfigValidator.checkCliClients` no longer
   warns "7.4 is not declared supported" for a `cliClients` key 7.4; the 7.4 warnings come with T014.
-- Open minor findings (all approved, non-blocking; details in `reviews/T0xx-r<n>.md`), candidates
-  for a clean-up before the PR:
-  - T006: `ClientVersion.compare(server, depth)` does not null-check `depth`.
-  - T008: `V74PortSetTest` skips interface default methods, so `queueEntries` is not checked for 7.4.
-  - T009: method Javadoc of `VersionGate.refuseUnsupported` does not mention the 7.4 note branch.
-  - T010: `V74RefusalTest.java:67` Javadoc line over 100 characters.
+- Open minor findings (all approved, non-blocking; details in `reviews/`). Fixed in the clean-up
+  `b27813ab`: T006, T008, T009, T010, T015, T018, T019, T020 and the T025 doc minors. Still open:
   - T014: `MainTest` "not evaluable" check should be one contiguous excerpt.
-  - T015: `ConfigValidatorTest.aV74NodeHasNoClientOptionFinding` cannot catch a regression; rename
-    or drop.
   - T016: pin name built as `"V" + line.replace('.', '_')` duplicates the `VersionSetting` naming.
   - T017: the 6.1 case in `ListNodesToolTest` uses an observed version instead of a pin.
-  - T018: unclear failure message in `V74FixturesShapeTest:66`.
-  - T019: awkward Javadoc of `monitoring(SupportState)` in `V74RecordedFixturesTest`.
+  - T021: recorder Kind `export-backslash` is not in the data model.
+  - T023: no test covers the launch of the `v74_login_failed` case.
+  - cleanup-r1: `V74RefusalTest.java:537` is 101 characters; `docs/setup.md:2814` and
+    `README.md:181` lack "(unless `knowledge.recording: false`)".
+  - Seen while writing T025, outside the touch set: README says 6.1 is "not on Windows" (D-14);
+    the README link `docs/setup.md#4-credentials-credential-store` points to a missing anchor.
 - Recurring theme in the minors: tests that pass for the wrong reason (T008, T015) and Javadoc
   that lags behind the code (T009, T019).
 - Mandate A is offline only: no INUBIT command, no network call to any INUBIT server; the recorder
@@ -112,18 +146,20 @@ refusal on 7.4 names no tool (IMC-14).
 - Worktree: `/Users/dadecker/Development/Privat/inubit-mcp-server/.claude/worktrees/025-mandate-a-imc-9`
   (branch `claude/025-mandate-a-imc-9`, pushed). The main checkout is on another branch; do not
   work there.
-- Start `d4ld4r-speckit-duo:implement` for T020–T025 (Mandate A only, never T026–T037), one
-  commit and push per task, HANDOFF status line before each full suite.
-- After T025: full suite `mvn -q -o clean verify`, then one PR for all of Mandate A (no AI hint in
-  the PR text, English, short), wait for green CI, commit HANDOFF and tasks.md, then M4 (Executing →
-  Verifying) with a comment linking PR, CI and handoff. Stop at M4; verification is another agent.
+- Mandate A is finished; nothing to implement. Remaining: M4 by the executor account (drafted
+  comment above), then verification by another agent. Mandate B (T026–T037) is not started.
+- The subagent `mvn` wrapper note above still applies; `d4ld4r-speckit-duo:implement` was emulated
+  in this run (implementer and task reviewer as separate subagents, same role prompts).
 
 ## Claims for verification
-- T001–T019 implemented test-first and approved by an independent task reviewer; see
-  `specs/025-inubit-74-support/reviews/`. Verification tasks (T003, T011, T012, T013, T018 parts)
-  passed at once by design.
-- No production code beyond the tasks' touch set; Mandate A ran fully offline.
+- T001–T025 implemented test-first and approved by an independent task reviewer; see
+  `specs/025-inubit-74-support/reviews/`. Verification tasks (T003, T011, T012, T013, T018 parts,
+  T024) passed at once by design.
+- No production code beyond the tasks' touch set; Mandate A ran fully offline (the recorder was
+  changed and tested, never run).
+- Local full suite and CI green at `23a97fd2` (see above).
 
 ## Budget
-Run started 2026-11-19 12:10 CET, paused about 16:25 CET (about 4 h 15 min). No token cap set by an
+Run started 2026-11-19 12:10 CET, paused about 16:25 CET (about 4 h 15 min); resumed 16:30 CET,
+ready for M4 at 18:35 CET (about 2 h 05 min). Total about 6 h 20 min. No token cap set by an
 orchestrator (manual start).
