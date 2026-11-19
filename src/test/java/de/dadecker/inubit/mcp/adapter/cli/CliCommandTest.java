@@ -813,15 +813,14 @@ class CliCommandTest {
     }
 
     @Test
-    void aTagIsRemovedInADiagramGroupOrARepositoryPath() {
-        CliCommand.TagScope group = new CliCommand.TagScope.DiagramGroup("GRP-01", "technical");
+    void aTagIsDeletedInADiagramGroupOfItsOwnerOrRemovedInARepositoryPath() {
+        CliCommand.TagScope group =
+            new CliCommand.TagScope.DiagramGroup("GRP-01", "technical", "jdoe");
         CliCommand.TagScope path = new CliCommand.TagScope.RepositoryPath("/Root/jdoe/My Dir");
-        assertThat(CliCommand.tagRemoval(CliCommand.TagRemovalKind.REMOVE, "REL-1", group)
-            .commandLine()).isEqualTo("tag --tagRemove 'REL-1' --tagWorkflowGroup 'GRP-01'"
-                + " --tagWorkflowType 'technical'");
+        // T055 run 2 (8.1.17): --tagDelete without --tagUser answers "Missing user name."
         assertThat(CliCommand.tagRemoval(CliCommand.TagRemovalKind.DELETE, "REL-1", group)
             .commandLine()).isEqualTo("tag --tagDelete 'REL-1' --tagWorkflowGroup 'GRP-01'"
-                + " --tagWorkflowType 'technical'");
+                + " --tagWorkflowType 'technical' --tagUser 'jdoe'");
         // spike: StartCLI refuses --tagUser together with --tagRepositoryPath
         assertThat(CliCommand.tagRemoval(CliCommand.TagRemovalKind.REMOVE, "REL-1", path)
             .commandLine()).isEqualTo("tag --tagRemove 'REL-1' --tagRepositoryPath"
@@ -831,19 +830,31 @@ class CliCommandTest {
                 + " '/Root/jdoe/My Dir'");
     }
 
+    @Test
+    void aTagIsNeverRemovedInADiagramGroup() {
+        // T055 run 2 (8.1.17): "Insufficient options provided for action remove tag:
+        // tagRepositoryPath is needed"
+        assertThatThrownBy(() -> CliCommand.tagRemoval(CliCommand.TagRemovalKind.REMOVE, "REL-1",
+            new CliCommand.TagScope.DiagramGroup("GRP-01", "technical", "jdoe")))
+            .isInstanceOfSatisfying(ToolErrorException.class, e -> assertThat(e.error().message())
+                .contains("--tagRemove takes only a repository path"));
+    }
+
     @ParameterizedTest
     @EnumSource(CliCommand.TagRemovalKind.class)
     void aRemovalWithoutScopeIsRejected(CliCommand.TagRemovalKind kind) {
         assertInvalidInput(() -> CliCommand.tagRemoval(kind, "REL-1", null));
         // an empty group is "all groups" for StartCLI, and a list acts on several groups
         assertInvalidInput(() -> CliCommand.tagRemoval(kind, "REL-1",
-            new CliCommand.TagScope.DiagramGroup("", "technical")));
+            new CliCommand.TagScope.DiagramGroup("", "technical", "jdoe")));
         assertInvalidInput(() -> CliCommand.tagRemoval(kind, "REL-1",
-            new CliCommand.TagScope.DiagramGroup("G1,G2", "technical")));
+            new CliCommand.TagScope.DiagramGroup("G1,G2", "technical", "jdoe")));
         assertInvalidInput(() -> CliCommand.tagRemoval(kind, "REL-1",
-            new CliCommand.TagScope.DiagramGroup(null, "technical")));
+            new CliCommand.TagScope.DiagramGroup(null, "technical", "jdoe")));
         assertInvalidInput(() -> CliCommand.tagRemoval(kind, "REL-1",
-            new CliCommand.TagScope.DiagramGroup("GRP-01", null)));
+            new CliCommand.TagScope.DiagramGroup("GRP-01", null, "jdoe")));
+        assertInvalidInput(() -> CliCommand.tagRemoval(kind, "REL-1",
+            new CliCommand.TagScope.DiagramGroup("GRP-01", "technical", null)));
         for (String repositoryPath : Arrays.asList(null, "", "/Root", "/Root/", "Root/jdoe",
             "/Root/jdoe/../other", "/Root/jdoe/./x", "/Root/jdoe'x")) {
             assertInvalidInput(() -> CliCommand.tagRemoval(kind, "REL-1",
@@ -853,17 +864,23 @@ class CliCommandTest {
 
     @Test
     void theTagFormsTakeOnlySafeValues() {
-        CliCommand.TagScope group = new CliCommand.TagScope.DiagramGroup("GRP-01", "technical");
+        CliCommand.TagScope group =
+            new CliCommand.TagScope.DiagramGroup("GRP-01", "technical", "jdoe");
+        CliCommand.TagScope path = new CliCommand.TagScope.RepositoryPath("/Root/jdoe/xsd");
         for (String unsafe : Arrays.asList(null, "", "a'b", "-x", "--tagDiagram")) {
             assertInvalidInput(() -> CliCommand.tagSetActive(unsafe, "jdoe"));
             assertInvalidInput(() -> CliCommand.tagSetActive("REL-1", unsafe));
             assertInvalidInput(() -> CliCommand.tagRemoveActive(unsafe));
             assertInvalidInput(() -> CliCommand.tagRemoval(CliCommand.TagRemovalKind.REMOVE,
+                unsafe, path));
+            assertInvalidInput(() -> CliCommand.tagRemoval(CliCommand.TagRemovalKind.DELETE,
                 unsafe, group));
             assertInvalidInput(() -> CliCommand.tagRemoval(CliCommand.TagRemovalKind.DELETE,
-                "REL-1", new CliCommand.TagScope.DiagramGroup(unsafe, "technical")));
+                "REL-1", new CliCommand.TagScope.DiagramGroup(unsafe, "technical", "jdoe")));
             assertInvalidInput(() -> CliCommand.tagRemoval(CliCommand.TagRemovalKind.DELETE,
-                "REL-1", new CliCommand.TagScope.DiagramGroup("GRP-01", unsafe)));
+                "REL-1", new CliCommand.TagScope.DiagramGroup("GRP-01", unsafe, "jdoe")));
+            assertInvalidInput(() -> CliCommand.tagRemoval(CliCommand.TagRemovalKind.DELETE,
+                "REL-1", new CliCommand.TagScope.DiagramGroup("GRP-01", "technical", unsafe)));
         }
         assertInvalidInput(() -> CliCommand.tagRemoval(null, "REL-1", group));
     }

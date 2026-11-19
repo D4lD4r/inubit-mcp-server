@@ -97,7 +97,14 @@ public interface TagAdministrationPort {
 
     /**
      * Removes or deletes {@code tag} in {@code scope} ({@code tag --tagRemove|--tagDelete} with
-     * {@code --tagWorkflowGroup}/{@code --tagWorkflowType} or {@code --tagRepositoryPath}).
+     * {@code --tagWorkflowGroup}/{@code --tagWorkflowType}/{@code --tagUser '<owner>'} or
+     * {@code --tagRepositoryPath}). {@code owner} owns a {@link Scope.DiagramGroup} (8.1.17
+     * refuses {@code --tagDelete} there without it); it is not sent with a
+     * {@link Scope.RepositoryPath}. {@link Removal#REMOVE} takes only a repository path (8.1.17,
+     * T055).
+     *
+     * @throws de.dadecker.inubit.mcp.domain.model.ToolErrorException {@code INVALID_INPUT} for
+     *     {@link Removal#REMOVE} in a diagram group, before anything is launched
      */
-    void removeTag(Removal removal, String tag, Scope scope, WritePermit permit);
+    void removeTag(Removal removal, String tag, String owner, Scope scope, WritePermit permit);
 }

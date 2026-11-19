@@ -68,6 +68,8 @@ class TagAdministrationServiceTest {
         "diagramType", "technical");
     private static final String GROUP_OPTIONS = "--tagWorkflowGroup Orders --tagWorkflowType"
         + " technical";
+    /** A deletion in {@link #GROUP} sends its owner, inventory.owner (8.1.17, T055 run 2). */
+    private static final String OWNER_OPTION = " --tagUser acme-dev";
     private static final List<TaggedVersion> TAGGED = List.of(
         new TaggedVersion(TaggedVersion.Kind.WORKFLOW, "acme-orders", 3),
         new TaggedVersion(TaggedVersion.Kind.WORKFLOW, "acme-orders", 4),
@@ -290,6 +292,18 @@ class TagAdministrationServiceTest {
     }
 
     @Test
+    void as13ARemoveTagInADiagramGroupIsInvalidInputBeforeAnythingIsRead() {
+        ToolError error = refusal(DEV, "removeTag", removal(GROUP));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+        assertThat(error.message()).isEqualTo("removeTag takes only a repositoryPath: INUBIT"
+            + " 8.1.17 refuses --tagRemove in a diagram group ('tagRepositoryPath is needed');"
+            + " use deleteTag for a diagram group. Nothing was read or changed");
+        assertThat(server.calls).as("not even the admission's StartCLI check").isEmpty();
+        assertThat(outcomes()).containsExactly(AuditOutcome.REFUSED);
+    }
+
+    @Test
     void eachActionTakesOnlyItsOwnFields() {
         assertThat(refusal(DEV, "setActiveTag", Map.of("user", "jdoe")).code())
             .isEqualTo(ErrorCode.INVALID_INPUT);
@@ -311,7 +325,7 @@ class TagAdministrationServiceTest {
         server.inScope = TAGGED;
         server.outsideScopeCount = 2;
 
-        ChangePreview preview = preview("removeTag", removal(GROUP));
+        ChangePreview preview = preview("deleteTag", removal(GROUP));
 
         assertThat(server.calls).containsExactly("check dev/node1",
             "tagged REL-1 of acme-dev " + GROUP_OPTIONS);
@@ -319,13 +333,14 @@ class TagAdministrationServiceTest {
             .isEqualTo("tag REL-1 in the diagram group Orders (technical) of acme-dev");
         assertThat(preview.before()).isEqualTo("3 versions carry the tag in the diagram group;"
             + " 2 workflows and modules outside it carry it too");
-        assertThat(preview.requested()).isEqualTo("remove the tag in the diagram group (tag"
-            + " --tagRemove)");
+        assertThat(preview.requested()).isEqualTo("delete the tag in the diagram group (tag"
+            + " --tagDelete)");
         assertThat(preview.affected()).contains(new ChangePreview.Affected(3, List.of(
             "workflow acme-orders version 3", "workflow acme-orders version 4",
             "module acme-mapping version 2"), false));
         assertThat(preview.effects()).containsExactly(
-            "StartCLI's help says that --tagRemove removes the tag only from the repository.",
+            "StartCLI's help says that --tagDelete removes the tag from diagrams, modules and the"
+                + " repository.",
             "The tag is meant to stay on the workflows and modules outside the diagram group;"
                 + " the result reads both again.",
             "A diagram group references repository files that other diagram groups may"
@@ -349,7 +364,7 @@ class TagAdministrationServiceTest {
 
         assertThat(server.calls).containsExactly("check dev/node1",
             "tagged REL-1 of acme-dev " + GROUP_OPTIONS,
-            "tag --tagDelete REL-1 " + GROUP_OPTIONS,
+            "tag --tagDelete REL-1 " + GROUP_OPTIONS + OWNER_OPTION,
             "tagged REL-1 of acme-dev " + GROUP_OPTIONS);
         assertThat(result.outcome()).isEqualTo(ChangeOutcome.EXECUTED);
         assertThat(result.before()).isEqualTo(preview.before());
@@ -383,13 +398,13 @@ class TagAdministrationServiceTest {
     void whenTheBackupCannotBeWrittenNothingIsSent() {
         service = service(PrivateFiles.failingFiles());
         server.inScope = TAGGED;
-        ChangePreview preview = preview("removeTag", removal(GROUP));
+        ChangePreview preview = preview("deleteTag", removal(GROUP));
 
         ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
-            () -> confirm("removeTag", removal(GROUP), preview));
+            () -> confirm("deleteTag", removal(GROUP), preview));
 
         assertThat(exception.error().code()).isEqualTo(ErrorCode.INTERNAL);
-        assertThat(exception.error().message()).isEqualTo("The tag list backup for removeTag on"
+        assertThat(exception.error().message()).isEqualTo("The tag list backup for deleteTag on"
             + " dev/node1 could not be stored; nothing was sent");
         assertThat(server.changes()).isEmpty();
         assertThat(server.permits).isEmpty();
@@ -401,11 +416,11 @@ class TagAdministrationServiceTest {
     void whenThePendingRecordCannotBeWrittenNothingIsSentAndTheBackupSaysNotStarted()
         throws IOException {
         server.inScope = TAGGED;
-        ChangePreview preview = preview("removeTag", removal(GROUP));
+        ChangePreview preview = preview("deleteTag", removal(GROUP));
         records.failing.add(AuditOutcome.PENDING);
 
         ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
-            () -> confirm("removeTag", removal(GROUP), preview));
+            () -> confirm("deleteTag", removal(GROUP), preview));
 
         assertThat(exception.error().code()).isEqualTo(ErrorCode.INTERNAL);
         assertThat(exception.error().message())
@@ -428,11 +443,11 @@ class TagAdministrationServiceTest {
     void aTaggedListChangedSinceThePreviewIsAConflictAndNothingIsSentOrBackedUp() {
         server.inScope = TAGGED;
         server.outsideScopeCount = 2;
-        ChangePreview preview = preview("removeTag", removal(GROUP));
+        ChangePreview preview = preview("deleteTag", removal(GROUP));
         server.outsideScopeCount = 1;
 
         ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
-            () -> confirm("removeTag", removal(GROUP), preview));
+            () -> confirm("deleteTag", removal(GROUP), preview));
 
         assertThat(exception).isInstanceOf(ChangeChallenges.Conflict.class);
         assertThat(((ChangeChallenges.Conflict) exception).preview().before()).isEqualTo("3"
@@ -449,8 +464,8 @@ class TagAdministrationServiceTest {
             ErrorCode.UNEXPECTED_RESPONSE, "StartCLI answered n-NOK", "cause", "next")
             .withNode(DEV));
 
-        ChangeResult result = confirm("removeTag", removal(GROUP),
-            preview("removeTag", removal(GROUP)));
+        ChangeResult result = confirm("deleteTag", removal(GROUP),
+            preview("deleteTag", removal(GROUP)));
 
         assertThat(result.outcome()).isEqualTo(ChangeOutcome.FAILED);
         assertThat(result.inubitAnswer())
@@ -473,8 +488,8 @@ class TagAdministrationServiceTest {
         server.inScope = remaining;
         server.remainingAfterRemoval = remaining;
 
-        ChangeResult result = confirm("removeTag", removal(GROUP),
-            preview("removeTag", removal(GROUP)));
+        ChangeResult result = confirm("deleteTag", removal(GROUP),
+            preview("deleteTag", removal(GROUP)));
 
         assertThat(result.outcome()).isEqualTo(ChangeOutcome.EXECUTED);
         assertThat(result.after()).contains("53 versions carry the tag in the diagram group;"
@@ -501,10 +516,10 @@ class TagAdministrationServiceTest {
 
     @Test
     void aRemovalWithoutInventoryOwnerIsNotConfiguredBeforeAnythingIsRead() {
-        ToolError error = refusal(NO_OWNER, "removeTag", removal(GROUP));
+        ToolError error = refusal(NO_OWNER, "deleteTag", removal(GROUP));
 
         assertThat(error.code()).isEqualTo(ErrorCode.NOT_CONFIGURED);
-        assertThat(error.message()).isEqualTo("removeTag needs the owner of the diagram group,"
+        assertThat(error.message()).isEqualTo("deleteTag needs the owner of the diagram group,"
             + " and inventory.owner is not set for dev/node3; nothing was read or sent");
         assertThat(server.calls).containsExactly("check dev/node3");
     }
@@ -515,11 +530,12 @@ class TagAdministrationServiceTest {
     void underClientConfirmationTheFirstCallRemovesWithItsBackup() {
         server.inScope = TAGGED;
 
-        Response response = call(TEST_CLIENT, "removeTag", removal(GROUP), Optional.empty());
+        Response response = call(TEST_CLIENT, "deleteTag", removal(GROUP), Optional.empty());
 
         assertThat(response).isInstanceOfSatisfying(Response.Completed.class,
             completed -> assertThat(completed.result().backup()).isPresent());
-        assertThat(server.changes()).containsExactly("tag --tagRemove REL-1 " + GROUP_OPTIONS);
+        assertThat(server.changes())
+            .containsExactly("tag --tagDelete REL-1 " + GROUP_OPTIONS + OWNER_OPTION);
     }
 
     @Test
@@ -529,23 +545,24 @@ class TagAdministrationServiceTest {
         AtomicReference<Response> otherGroup = new AtomicReference<>();
         server.duringRead = () -> {
             server.duringRead = () -> { };
-            // removeTag and deleteTag of one tag in one scope share the key
-            // node|OPERATION|tag:<tag>@<scope>
+            // the key node|OPERATION|tag:<tag>@<scope> (removeTag would share it, but takes
+            // only a repository path)
             sameKey.set(catchThrowableOfType(ToolErrorException.class, () -> call(TEST_CLIENT,
                 "deleteTag", removal(GROUP), Optional.empty())).error());
-            otherGroup.set(call(TEST_CLIENT, "removeTag", removal(Map.of("diagramGroup",
+            otherGroup.set(call(TEST_CLIENT, "deleteTag", removal(Map.of("diagramGroup",
                 "Billing", "diagramType", "technical")), Optional.empty()));
         };
 
-        call(TEST_CLIENT, "removeTag", removal(GROUP), Optional.empty());
+        call(TEST_CLIENT, "deleteTag", removal(GROUP), Optional.empty());
 
         assertThat(sameKey.get().code()).isEqualTo(ErrorCode.PRECONDITION_FAILED);
         assertThat(sameKey.get().message()).startsWith("Another change of"
             + " tag:REL-1@technical/Orders (OPERATION) on test/node2 is running");
         assertThat(otherGroup.get()).isInstanceOf(Response.Completed.class);
         assertThat(server.changes()).containsExactly(
-            "tag --tagRemove REL-1 --tagWorkflowGroup Billing --tagWorkflowType technical",
-            "tag --tagRemove REL-1 " + GROUP_OPTIONS);
+            "tag --tagDelete REL-1 --tagWorkflowGroup Billing --tagWorkflowType technical"
+                + OWNER_OPTION,
+            "tag --tagDelete REL-1 " + GROUP_OPTIONS + OWNER_OPTION);
     }
 
     @Test
@@ -575,15 +592,18 @@ class TagAdministrationServiceTest {
     // --- the coverage rows decide what the description offers --------------------------------
 
     @Test
-    void theRemovalsAreOfferedOnlyWhereTheirRowsAreReachable() {
-        assertThat(TagAdministrationService.offeredRemovals(
-            InterfaceCoverage.load(new StringReader(LIST))))
-            .containsExactly("removeTag", "deleteTag");
-        assertThat(TagAdministrationService.offeredRemovals(InterfaceCoverage.load(
+    void deleteTagIsOfferedOnlyWhereItsRowsInADiagramGroupAreReachable() {
+        assertThat(TagAdministrationService.deleteTagOffered(
+            InterfaceCoverage.load(new StringReader(LIST)))).isTrue();
+        assertThat(TagAdministrationService.deleteTagOffered(InterfaceCoverage.load(
             new StringReader(LIST.replace("reachable:manage_tags/deleteTag", "planned")))))
-            .containsExactly("removeTag");
-        assertThat(TagAdministrationService.offeredRemovals(InterfaceCoverage.production()))
-            .as("planned until the live check T055").isEmpty();
+            .isFalse();
+        assertThat(TagAdministrationService.deleteTagOffered(InterfaceCoverage.load(
+            new StringReader(LIST.lines().filter(line -> !line.startsWith("CLI\ttag --tagUser\t"))
+                .collect(Collectors.joining("\n"))))))
+            .as("--tagUser is sent with the group").isFalse();
+        assertThat(TagAdministrationService.deleteTagOffered(InterfaceCoverage.production()))
+            .as("planned until the live check T055").isFalse();
     }
 
     @Test
@@ -601,7 +621,7 @@ class TagAdministrationServiceTest {
             audit), new ChangeLocks(), new ChangeChallenges(registry), audit, server,
             new BackupStore(backups(), clock, FILES), node -> Optional.of("acme-dev"));
 
-        ToolError error = refusal(DEV, "removeTag", removal(GROUP));
+        ToolError error = refusal(DEV, "deleteTag", removal(GROUP));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
         assertThat(error.message()).contains("not yet verified");
@@ -618,8 +638,8 @@ class TagAdministrationServiceTest {
             ErrorCode.UNEXPECTED_RESPONSE, "StartCLI said " + TestSecrets.FREE_TEXT_SECRETS,
             "cause", "next").withNode(DEV));
 
-        ChangePreview preview = preview("removeTag", removal(GROUP));
-        ChangeResult result = confirm("removeTag", removal(GROUP), preview);
+        ChangePreview preview = preview("deleteTag", removal(GROUP));
+        ChangeResult result = confirm("deleteTag", removal(GROUP), preview);
 
         assertThat(result.after().orElseThrow()).contains("still carrying it in the diagram"
             + " group: workflow acme ");

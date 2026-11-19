@@ -126,13 +126,14 @@ final class V81TagAdministrationAdapter implements TagAdministrationPort {
     }
 
     @Override
-    public void removeTag(Removal removal, String tag, Scope scope, WritePermit permit) {
+    public void removeTag(Removal removal, String tag, String owner, Scope scope,
+        WritePermit permit) {
         tags.removeTag(switch (removal) {
             case REMOVE -> TagRemovalKind.REMOVE;
             case DELETE -> TagRemovalKind.DELETE;
         }, tag, switch (scope) {
             case Scope.DiagramGroup group -> new TagScope.DiagramGroup(group.group(),
-                group.type());
+                group.type(), owner);
             case Scope.RepositoryPath path -> new TagScope.RepositoryPath(path.path());
         }, permit);
     }

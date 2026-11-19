@@ -338,7 +338,8 @@ class RefusingPortsTest {
             () -> port.setActiveTag("jdoe", "REL-1", permit),
             () -> port.removeActiveTag("jdoe", permit),
             () -> port.tagged("REL-1", "jdoe", group),
-            () -> port.removeTag(TagAdministrationPort.Removal.DELETE, "REL-1", group, permit));
+            () -> port.removeTag(TagAdministrationPort.Removal.DELETE, "REL-1", "jdoe", group,
+                permit));
     }
 
     @Test

@@ -183,17 +183,21 @@ each tool's test, as for the existing tools. Types and validation: [data-model.m
 - **Actions**:
   - `setActiveTag {user, tag}`;
   - `removeActiveTag {user}`;
-  - `removeTag {tag, scope}`;
-  - `deleteTag {tag, scope}`.
+  - `removeTag {tag, scope}` (`--tagRemove`, scope `{repositoryPath}` only);
+  - `deleteTag {tag, scope}` (`--tagDelete`; in a diagram group with
+    `--tagUser <inventory.owner>`).
 - **Scope**: `scope` = `{diagramGroup, diagramType}` | `{repositoryPath}`, required. A missing
-  scope gives `INVALID_INPUT` before any read (AS13).
+  scope, and a `removeTag` with a diagram group (INUBIT 8.1.17: "tagRepositoryPath is needed",
+  T055), give `INVALID_INPUT` before any read (AS13).
 - **Preview**:
   - active tag: the user's current and new active tag;
   - removal: `affected` = the objects and versions carrying the tag in the scope, plus
     `outsideScopeCount`; `backup` = the tag list.
 - **Result**: the re-read active tag, or the re-read lists inside and outside the scope.
-- **Description**: `removeTag` and `deleteTag` appear only once L-4 has made them reachable;
-  otherwise the description says that they are not offered and why.
+- **Description**: `deleteTag` appears only once L-4 has made it reachable; otherwise the
+  description says that it is not offered and why. `removeTag` is described as not offered: it
+  acts only in a repository path, which is refused until the tagged repository files can be read
+  for the backup.
 
 ## `transfer_runtime_data` (US5)
 

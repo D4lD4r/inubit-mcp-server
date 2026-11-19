@@ -41,10 +41,12 @@ import java.util.function.Supplier;
  *
  * <p>T055 (L-4) recorded the {@code user} session on 8.1.17 for a user without an active tag
  * (fixture {@code admin-tags-user-no-active-tag-session}): the three rows, no {@code Active tag}
- * row, exit code 1 although no command was refused. The tag forms are not recorded yet. StartCLI
- * prints no result line for {@code tag --tagMove} (fixture {@code tag_ok}), so a tag form counts
- * as done when it exits with 0 without an {@code n-NOK} message; the active-tag row of
- * {@link ActiveTagParser} is RECONSTRUCTED.
+ * row, exit code 1 although no command was refused. T055 run 2 recorded only refusals of the
+ * removal forms (exit 1, {@code EXECUTION ERROR}: {@code --tagRemove} in a diagram group,
+ * {@code --tagDelete} without {@code --tagUser}), which {@link CliCommand#tagRemoval} no longer
+ * builds. StartCLI prints no result line for {@code tag --tagMove} (fixture {@code tag_ok}), so a
+ * tag form counts as done when it exits with 0 without an {@code n-NOK} message; the active-tag
+ * row of {@link ActiveTagParser} is RECONSTRUCTED.
  *
  * <p>A value {@link CliCommand} or {@link CliSessionCommand} cannot send is {@code INVALID_INPUT}
  * before anything is launched. A failed run (credentials, pin, launch, timeout, an exit code
@@ -144,8 +146,8 @@ public final class CliTagAdminRunner {
     /**
      * Removes or deletes {@code tag} in {@code scope}.
      *
-     * @throws ToolErrorException {@code INVALID_INPUT} without a kind or scope; otherwise see the
-     *     class comment
+     * @throws ToolErrorException {@code INVALID_INPUT} without a kind or scope, or for
+     *     {@code --tagRemove} in a diagram group; otherwise see the class comment
      */
     public void removeTag(TagRemovalKind kind, String tag, TagScope scope, WritePermit permit) {
         run(checked(() -> CliCommand.tagRemoval(kind, tag, scope)), permit);

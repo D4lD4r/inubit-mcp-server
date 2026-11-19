@@ -6,9 +6,7 @@ import de.dadecker.inubit.mcp.application.TagAdministrationService.Response;
 import de.dadecker.inubit.mcp.mcp.CallContext;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
 import de.dadecker.inubit.mcp.mcp.ToolHints;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -16,8 +14,8 @@ import java.util.function.Function;
 
 /**
  * {@code manage_tags} (feature 022, US4, FR-019a, contracts/mcp-tools-delta.md "manage_tags",
- * research D-18): sets or removes the active tag of an INUBIT user, or removes or deletes a tag in
- * one diagram group of one server ({@code TagAdministrationService::execute}). The arguments,
+ * research D-18): sets or removes the active tag of an INUBIT user, or deletes a tag in one diagram
+ * group of one server ({@code TagAdministrationService::execute}). The arguments,
  * validated by the SDK against the input schema, go to the service with the MCP client's
  * {@code name/version} for the audit; the service repeats every input check. The schema does not
  * require {@code scope}, so that a removal without one reaches the service and is refused with
@@ -26,9 +24,10 @@ import java.util.function.Function;
  * Refusals are tool errors; a {@code CONFLICT} carries the fresh preview as
  * {@code error.details.preview}.
  *
- * <p>The description offers {@code removeTag} and {@code deleteTag} only when their coverage rows
- * are {@code reachable} ({@link TagAdministrationService#offeredRemovals}); otherwise it says that
- * they are not offered yet and why. Announced if some server has write access.
+ * <p>The description offers {@code deleteTag} only when its coverage rows are {@code reachable}
+ * ({@link TagAdministrationService#deleteTagOffered}); otherwise it says that it is not offered
+ * yet and why. It never offers {@code removeTag}, which INUBIT 8.1.17 runs only in a repository
+ * path (research D-18, T055). Announced if some server has write access.
  */
 public final class ManageTagsTool implements ToolHandler {
 
@@ -37,25 +36,28 @@ public final class ManageTagsTool implements ToolHandler {
         + " tag of an INUBIT user, removeActiveTag (`user`) removes it; the preview names the"
         + " user's current and requested active tag, and the result reads it again. An unknown"
         + " user gives NOT_FOUND.";
-    private static final String REMOVAL = " With %s (`tag`, `scope`), a tag is removed in"
-        + " exactly one technical diagram group of the inventory.owner of the {node} (`scope`"
-        + " with `diagramGroup` and `diagramType`); a call without `scope` is refused with"
-        + " INVALID_INPUT before anything is read, and a `scope` with `repositoryPath` is refused"
-        + " because the tagged repository files cannot be read for the backup yet. The preview"
-        + " lists the workflow and module versions carrying the tag in the diagram group and"
-        + " counts those outside it, which keep the tag; that list is stored as a backup before"
-        + " anything is sent, and nothing is sent if the backup fails. The result reads both"
-        + " again.";
-    private static final String NOT_OFFERED = " Not offered yet: %s. A check on a test system"
-        + " must first show that INUBIT limits the removal of a tag to the named diagram group"
-        + " or repository path; until then such a call is refused.";
+    private static final String DELETION = " With deleteTag (`tag`, `scope`), a tag is deleted"
+        + " in exactly one technical diagram group of the inventory.owner of the {node} (`scope`"
+        + " with `diagramGroup` and `diagramType`; the owner is sent with it); a call without"
+        + " `scope` is refused with INVALID_INPUT before anything is read, and a `scope` with"
+        + " `repositoryPath` is refused because the tagged repository files cannot be read for"
+        + " the backup yet. The preview lists the workflow and module versions carrying the tag"
+        + " in the diagram group and counts those outside it, which keep the tag; that list is"
+        + " stored as a backup before anything is sent, and nothing is sent if the backup fails."
+        + " The result reads both again.";
+    private static final String DELETION_NOT_OFFERED = " Not offered yet: deleteTag. A check on"
+        + " a test system must first show that INUBIT limits the deletion of a tag to the named"
+        + " diagram group; until then such a call is refused.";
+    private static final String REMOVAL_NOT_OFFERED = " Not offered: removeTag. INUBIT removes a"
+        + " tag with it only in a repository path (a diagram group gives INVALID_INPUT), and a"
+        + " repository path is refused because the tagged repository files cannot be read for"
+        + " the backup yet.";
     private static final String CONFIRMATION = " Every call needs a `reason` (stored in the"
         + " audit log). On {nodes} with `confirmationMode` `SERVER` (the default), the first call"
         + " only returns a preview and a confirmation code; call again with the same inputs and"
         + " `confirmationCode` to execute. If the state changed meanwhile, the CONFLICT error"
         + " carries a new preview in its details. With `CLIENT` (never on production) the first"
         + " call executes. Needs write access; production only with write.productionOptIn.";
-    private static final List<String> REMOVALS = List.of("removeTag", "deleteTag");
 
     /** The inputs of every action; the other arguments are the fields of the action. */
     private static final Set<String> COMMON_INPUTS = Set.of("node", "action", "reason",
@@ -65,25 +67,19 @@ public final class ManageTagsTool implements ToolHandler {
     private final String description;
 
     /**
-     * @param execute         the tag administration of the profile
-     *                        ({@code TagAdministrationService::execute})
-     * @param offeredRemovals {@code removeTag} and/or {@code deleteTag}, as
-     *                        {@link TagAdministrationService#offeredRemovals} returns them
+     * @param execute          the tag administration of the profile
+     *                         ({@code TagAdministrationService::execute})
+     * @param deleteTagOffered as {@link TagAdministrationService#deleteTagOffered} returns it
      */
-    public ManageTagsTool(Function<Request, Response> execute, List<String> offeredRemovals) {
+    public ManageTagsTool(Function<Request, Response> execute, boolean deleteTagOffered) {
         this.execute = Objects.requireNonNull(execute, "execute");
-        this.description = description(offeredRemovals);
+        this.description = description(deleteTagOffered);
     }
 
-    /** The description when {@code offeredRemovals} of {@code removeTag, deleteTag} are offered. */
-    static String description(List<String> offeredRemovals) {
-        List<String> missing = new ArrayList<>(REMOVALS);
-        missing.removeAll(offeredRemovals);
-        return ACTIVE_TAG
-            + (offeredRemovals.isEmpty() ? ""
-                : REMOVAL.formatted(String.join(" and ", offeredRemovals)))
-            + (missing.isEmpty() ? "" : NOT_OFFERED.formatted(String.join(" and ", missing)))
-            + CONFIRMATION;
+    /** The description, offering {@code deleteTag} or not. */
+    static String description(boolean deleteTagOffered) {
+        return ACTIVE_TAG + (deleteTagOffered ? DELETION : DELETION_NOT_OFFERED)
+            + REMOVAL_NOT_OFFERED + CONFIRMATION;
     }
 
     @Override

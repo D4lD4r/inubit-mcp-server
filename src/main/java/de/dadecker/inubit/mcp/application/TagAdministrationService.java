@@ -42,12 +42,13 @@ import org.slf4j.LoggerFactory;
 /**
  * The actions of {@code manage_tags} on one server (feature 022, US4 AS12–AS14, FR-018, FR-019a,
  * research D-12–D-15, D-17, D-18; contracts/mcp-tools-delta.md → manage_tags): the active tag of
- * a user, and the removal ({@code tag --tagRemove}) or deletion ({@code tag --tagDelete}) of a tag
- * in one diagram group. A call runs in this order:
+ * a user, and the deletion ({@code tag --tagDelete}) of a tag in one diagram group. A call runs in
+ * this order:
  *
  * <ol>
- *   <li>the inputs are checked before anything is read; a removal without a scope is
- *       {@code INVALID_INPUT} (AS13);
+ *   <li>the inputs are checked before anything is read; a removal without a scope, and a
+ *       {@code removeTag} with a diagram group (8.1.17 accepts {@code --tagRemove} only with a
+ *       repository path, T055), are {@code INVALID_INPUT} (AS13);
  *   <li>{@link ChangeGuard#admit} (D-12; it audits its own refusals): a removal whose coverage
  *       rows are not {@code reachable} is refused there ({@code UNSUPPORTED_VERSION});
  *   <li>the key {@code node|OPERATION|activeTag:<user>} or
@@ -74,10 +75,11 @@ import org.slf4j.LoggerFactory;
  *       written. The result names the versions still carrying the tag in the scope.
  * </ol>
  *
- * <p>The removal sends no {@code --tagUser}; the owner whose diagram group the preview, backup and
- * re-read read is {@code inventory.owner}, the owner {@code tag_artifacts} tags for by default.
- * That the removal acts on that owner's diagram group is an assumption the live check T055
- * confirms (D-18). Every refusal after the admission is audited {@code REFUSED}.
+ * <p>The owner whose diagram group the preview, backup and re-read read is {@code inventory.owner},
+ * the owner {@code tag_artifacts} tags for by default; the deletion sends it as {@code --tagUser},
+ * which 8.1.17 requires (T055 run 2). That the deletion leaves the tag in that owner's other
+ * diagram groups is what the live check T055 checks (D-18). Every refusal after the admission is
+ * audited {@code REFUSED}.
  */
 public final class TagAdministrationService {
 
@@ -111,8 +113,8 @@ public final class TagAdministrationService {
         activeTagSpec(SET_ACTIVE_TAG, "--tagSetActive");
     public static final ActionSpec REMOVE_ACTIVE_TAG_SPEC =
         activeTagSpec(REMOVE_ACTIVE_TAG, "--tagRemoveActive");
-    public static final ActionSpec REMOVE_TAG_SPEC = removalSpec(REMOVE_TAG, "--tagRemove");
-    public static final ActionSpec DELETE_TAG_SPEC = removalSpec(DELETE_TAG, "--tagDelete");
+    public static final ActionSpec REMOVE_TAG_SPEC = removalSpec(REMOVE_TAG, "--tagRemove", false);
+    public static final ActionSpec DELETE_TAG_SPEC = removalSpec(DELETE_TAG, "--tagDelete", true);
 
     /** The specs of the actions, for the coverage gate (research D-2). */
     public static final List<ActionSpec> SPECS = List.of(SET_ACTIVE_TAG_SPEC,
@@ -200,15 +202,14 @@ public final class TagAdministrationService {
     }
 
     /**
-     * Which removals the coverage list offers: {@code removeTag} and {@code deleteTag} each when
-     * its form in a diagram group is {@code reachable} on some line (research D-18). In the
-     * production list they stay {@code planned} until the live check T055.
+     * Whether the coverage list offers {@code deleteTag}: its form in a diagram group is
+     * {@code reachable} on some line (research D-18); in the production list it stays
+     * {@code planned} until the live check T055. {@code removeTag} is never offered: it acts only
+     * in a repository path, which is refused until the tagged repository files can be read.
      */
-    public static List<String> offeredRemovals(InterfaceCoverage coverage) {
-        return List.of(REMOVE_TAG_SPEC, DELETE_TAG_SPEC).stream()
-            .filter(spec -> CoverageEntry.LINES.stream().anyMatch(line -> coverage.offered(
-                removalEntries(option(spec.action()), false), line)))
-            .map(ActionSpec::action).toList();
+    public static boolean deleteTagOffered(InterfaceCoverage coverage) {
+        return CoverageEntry.LINES.stream().anyMatch(line -> coverage.offered(
+            removalEntries("--tagDelete", false), line));
     }
 
     /**
@@ -348,7 +349,7 @@ public final class TagAdministrationService {
         ChangeOutcome outcome;
         String answer;
         try {
-            send(checked, node, policy.permit());
+            send(checked, node, owner, policy.permit());
             answer = "tag " + option(action) + " was sent; StartCLI reported no error";
             outcome = ChangeOutcome.EXECUTED;
         } catch (ToolErrorException e) {
@@ -486,7 +487,7 @@ public final class TagAdministrationService {
                 + version.version())).toList();
     }
 
-    private void send(Checked checked, NodeId node, WritePermit permit) {
+    private void send(Checked checked, NodeId node, Optional<String> owner, WritePermit permit) {
         TagAdministrationPort port = gateways.tagAdministration(node);
         switch (checked.action()) {
             case SET_ACTIVE_TAG -> port.setActiveTag(checked.user().orElseThrow(),
@@ -494,7 +495,8 @@ public final class TagAdministrationService {
             case REMOVE_ACTIVE_TAG -> port.removeActiveTag(checked.user().orElseThrow(), permit);
             default -> port.removeTag(checked.action().equals(REMOVE_TAG)
                 ? TagAdministrationPort.Removal.REMOVE : TagAdministrationPort.Removal.DELETE,
-                checked.tag().orElseThrow(), checked.scope().orElseThrow(), permit);
+                checked.tag().orElseThrow(), owner.orElseThrow(), checked.scope().orElseThrow(),
+                permit);
         }
     }
 
@@ -533,7 +535,7 @@ public final class TagAdministrationService {
         return switch (checked.action()) {
             case SET_ACTIVE_TAG -> "active tag " + checked.tag().orElseThrow();
             case REMOVE_ACTIVE_TAG -> "no active tag";
-            case REMOVE_TAG -> "remove the tag in the diagram group (tag --tagRemove)";
+            case REMOVE_TAG -> "remove the tag in the repository path (tag --tagRemove)";
             default -> "delete the tag in the diagram group (tag --tagDelete)";
         };
     }
@@ -550,7 +552,7 @@ public final class TagAdministrationService {
             case REMOVE_ACTIVE_TAG -> List.of(checked.user().orElseThrow()
                 + " has no active tag until one is set again.");
             case REMOVE_TAG -> List.of("StartCLI's help says that --tagRemove removes the tag only"
-                + " from the repository.", stays, references);
+                + " from the repository.");
             default -> List.of("StartCLI's help says that --tagDelete removes the tag from"
                 + " diagrams, modules and the repository.", stays, references);
         };
@@ -594,6 +596,11 @@ public final class TagAdministrationService {
             : Optional.empty();
         Optional<Scope> scope = allowed.contains(SCOPE)
             ? Optional.of(scope(action, fields.get(SCOPE))) : Optional.empty();
+        if (action.equals(REMOVE_TAG) && scope.orElse(null) instanceof Scope.DiagramGroup) {
+            throw invalid("removeTag takes only a repositoryPath: INUBIT 8.1.17 refuses"
+                + " --tagRemove in a diagram group ('tagRepositoryPath is needed'); use deleteTag"
+                + " for a diagram group. Nothing was read or changed");
+        }
         if (request.reason() == null || !REASON.matcher(request.reason()).matches()) {
             throw invalid("reason must be 1 to 500 characters on one line; nothing was read or"
                 + " changed");
@@ -663,11 +670,14 @@ public final class TagAdministrationService {
         return new CoverageKey(Channel.CLI, entry);
     }
 
-    /** {@code tag <option>} with the scope options of a diagram group or a repository path. */
+    /**
+     * {@code tag <option>} with the scope options of a diagram group (with its owner) or a
+     * repository path.
+     */
     private static Set<CoverageKey> removalEntries(String option, boolean repositoryPath) {
         return repositoryPath ? Set.of(cli("tag " + option), cli("tag --tagRepositoryPath"))
             : Set.of(cli("tag " + option), cli("tag --tagWorkflowGroup"),
-                cli("tag --tagWorkflowType"));
+                cli("tag --tagWorkflowType"), cli("tag --tagUser"));
     }
 
     private static ActionSpec activeTagSpec(String action, String option) {
@@ -677,10 +687,14 @@ public final class TagAdministrationService {
             Set.of(), false, Optional.empty(), ActionSpec.RestartNotice.NONE);
     }
 
-    /** A removal; the call's entries follow its scope (a missing scope is refused before). */
-    private static ActionSpec removalSpec(String action, String option) {
-        Set<CoverageKey> group = removalEntries(option, false);
+    /**
+     * A removal; the call's entries follow its scope (a missing scope, and a diagram group
+     * without {@code inDiagramGroup}, are refused before).
+     */
+    private static ActionSpec removalSpec(String action, String option,
+        boolean inDiagramGroup) {
         Set<CoverageKey> path = removalEntries(option, true);
+        Set<CoverageKey> group = inDiagramGroup ? removalEntries(option, false) : path;
         Set<CoverageKey> all = new HashSet<>(group);
         all.addAll(path);
         return new ActionSpec(TOOL, action, Capability.TAG_ADMINISTRATION,

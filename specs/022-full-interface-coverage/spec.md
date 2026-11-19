@@ -385,13 +385,16 @@ audit record. Testable offline.
     **Then** the call names the user and the tag, the preview names the user's current active
     tag and the new one, and the result re-reads it (FR-019a).
 13. **Given** a call to remove a tag without a diagram group or repository path, **When** it is
-    made, **Then** it is refused with `INVALID_INPUT` before anything is read.
-14. **Given** the check on a test system showed that INUBIT limits tag removal to the named
-    diagram group, **When** a tag is removed from one group, **Then** the preview names every
+    made, **Then** it is refused with `INVALID_INPUT` before anything is read. A `removeTag`
+    with a diagram group is refused the same way: INUBIT 8.1.17 accepts `--tagRemove` only with a
+    repository path (T055).
+14. **Given** the check on a test system showed that INUBIT limits tag deletion (`deleteTag`,
+    sent with the group's owner as `--tagUser`, which INUBIT 8.1.17 requires) to the named
+    diagram group, **When** a tag is deleted in one group, **Then** the preview names every
     object and version in that group that carries the tag, the backup holds that list (FR-018),
     and the same tag in other groups stays (the result re-reads both). If the check showed that
-    removal acts on the whole owner, tag removal is not offered and its entries are excluded with
-    that reason.
+    deletion acts on the whole owner, tag deletion is not offered and its entries are excluded
+    with that reason.
 
 ---
 
@@ -721,7 +724,8 @@ offline.
   by FR-014 (write enablement, production opt-in), not by the development-stage rules of
   `tag_artifacts`, which is not changed. A tag removal or deletion MUST name an explicit diagram
   group (with diagram type) or repository path; a call without one is refused before anything is
-  read. Tag removal is offered only if a check on a test system shows that INUBIT limits it to the
+  read. A removal (`--tagRemove`) names only a repository path, the only scope INUBIT 8.1.17
+  accepts for it (T055). Tag removal is offered only if a check on a test system shows that INUBIT limits it to the
   named diagram group or repository path; otherwise its entries are excluded with that reason.
   `--tagDiagram` and `--tagWorkflowGroupExclude` are excluded (Background).
 - **FR-019b**: A file-based import of users, groups or roles MUST be refused when the file

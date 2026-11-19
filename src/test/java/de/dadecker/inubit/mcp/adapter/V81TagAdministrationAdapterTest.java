@@ -191,17 +191,21 @@ class V81TagAdministrationAdapterTest {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
         List<String> forms = List.of("tag --tagSetActive 'REL-1' --tagUser 'jdoe'",
             "tag --tagRemoveActive --tagUser 'jdoe'",
-            "tag --tagRemove 'REL-1' --tagWorkflowGroup 'GRP-01' --tagWorkflowType 'technical'",
+            "tag --tagRemove 'REL-1' --tagRepositoryPath '/Root/jdoe/xsd'",
+            "tag --tagDelete 'REL-1' --tagWorkflowGroup 'GRP-01' --tagWorkflowType 'technical'"
+                + " --tagUser 'jdoe'",
             "tag --tagDelete 'REL-1' --tagRepositoryPath '/Root/jdoe/xsd'");
         forms.forEach(form -> cli.expect(Pattern.compile(Pattern.quote(form))).replying("tag_ok"));
         TagAdministrationPort adapter = adapter(cli);
 
         adapter.setActiveTag("jdoe", "REL-1", PERMIT);
         adapter.removeActiveTag("jdoe", PERMIT);
-        adapter.removeTag(Removal.REMOVE, "REL-1", new Scope.DiagramGroup("GRP-01", "technical"),
-            PERMIT);
-        adapter.removeTag(Removal.DELETE, "REL-1", new Scope.RepositoryPath("/Root/jdoe/xsd"),
-            PERMIT);
+        adapter.removeTag(Removal.REMOVE, "REL-1", "jdoe",
+            new Scope.RepositoryPath("/Root/jdoe/xsd"), PERMIT);
+        adapter.removeTag(Removal.DELETE, "REL-1", "jdoe",
+            new Scope.DiagramGroup("GRP-01", "technical"), PERMIT);
+        adapter.removeTag(Removal.DELETE, "REL-1", "jdoe",
+            new Scope.RepositoryPath("/Root/jdoe/xsd"), PERMIT);
 
         cli.verifyComplete();
         assertThat(cli.execCommands()).containsExactlyElementsOf(forms);

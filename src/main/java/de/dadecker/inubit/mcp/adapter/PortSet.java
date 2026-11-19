@@ -211,7 +211,7 @@ public record PortSet(ProcessQueryPort processes, LogPort logs, InventoryPort in
             }
 
             @Override
-            public void removeTag(Removal removal, String tag, Scope scope,
+            public void removeTag(Removal removal, String tag, String owner, Scope scope,
                 WritePermit permit) {
                 throw noTagAdministration();
             }

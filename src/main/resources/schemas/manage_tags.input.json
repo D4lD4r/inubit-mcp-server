@@ -23,12 +23,12 @@
     },
     "scope": {
       "type": "object",
-      "description": "Where `removeTag` and `deleteTag` act: one diagram group with its type, or one repository path; required for them (a call without it is refused with INVALID_INPUT before anything is read)",
+      "description": "Where `removeTag` and `deleteTag` act: one diagram group with its type (only `deleteTag`; a `removeTag` with it is refused with INVALID_INPUT before anything is read, INUBIT removes a tag only in a repository path), or one repository path; required for them (a call without it is refused with INVALID_INPUT before anything is read)",
       "properties": {
         "diagramGroup": {
           "type": "string",
           "pattern": "^[A-Za-z0-9_.][A-Za-z0-9_.\\- ]{0,199}$",
-          "description": "The diagram group, with `diagramType`"
+          "description": "The diagram group of the inventory.owner, with `diagramType`; only for `deleteTag`"
         },
         "diagramType": {
           "type": "string",

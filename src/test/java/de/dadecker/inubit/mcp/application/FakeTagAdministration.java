@@ -129,9 +129,12 @@ final class FakeTagAdministration implements GatewayFactory {
             }
 
             @Override
-            public void removeTag(Removal removal, String tag, Scope scope, WritePermit permit) {
+            public void removeTag(Removal removal, String tag, String owner, Scope scope,
+                WritePermit permit) {
                 change("tag " + (removal == Removal.REMOVE ? "--tagRemove " : "--tagDelete ")
-                    + tag + " " + scope(scope), permit, () -> inScope = remainingAfterRemoval);
+                    + tag + " " + scope(scope) + (scope instanceof Scope.DiagramGroup
+                        ? " --tagUser " + owner : ""), permit,
+                    () -> inScope = remainingAfterRemoval);
             }
         };
     }

@@ -488,17 +488,23 @@ admission and sending refuses it, as for the existing write tools (`WriteRaceToo
 
 - `setActiveTag {user, tag}` and `removeActiveTag {user}` (`tag --tagSetActive|--tagRemoveActive
   --tagUser`);
-- `removeTag` and `deleteTag` with exactly one scope: `{diagramGroup, diagramType}`
-  (`--tagWorkflowGroup` + `--tagWorkflowType`) or `{repositoryPath}` (`--tagRepositoryPath`).
+- `deleteTag` with exactly one scope: `{diagramGroup, diagramType}` (`--tagWorkflowGroup` +
+  `--tagWorkflowType` + `--tagUser <inventory.owner>`) or `{repositoryPath}`
+  (`--tagRepositoryPath`, no `--tagUser`);
+- `removeTag` only with `{repositoryPath}` (`--tagRepositoryPath`): a `removeTag` with a diagram
+  group is `INVALID_INPUT` before anything is read (T055 run 2, below).
 
 `CliCommand.OPTIONS["tag"]` gains `--tagSetActive`, `--tagRemoveActive`, `--tagDelete`,
 `--tagRemove` and `--tagRepositoryPath`. A builder rule rejects `--tagDelete` / `--tagRemove`
-without a scope option. `--tagDiagram` and `--tagWorkflowGroupExclude` are never admitted
+without a scope option, `--tagRemove` with a diagram group, and `--tagDelete` in a diagram group
+without its owner. `--tagDiagram` and `--tagWorkflowGroupExclude` are never admitted
 (`CliCommandTest`).
 
 `removeTag` and `deleteTag` start as `planned` and become `reachable` only if L-4 shows that
 INUBIT limits them to the scope; otherwise they are `excluded:acts-on-whole-owner`. The tool then
-offers only the active-tag actions.
+offers only the active-tag actions. `removeTag` acts only in a repository path, which the service
+refuses until the tagged repository files can be read (below), so the description never offers
+it; only `deleteTag` can be offered (`TagAdministrationService.deleteTagOffered`).
 
 Before a removal the preview lists the objects and versions carrying the tag in the scope (version
 history export, as `tag_artifacts` reads it) and the count outside the scope that must stay; the
@@ -529,6 +535,25 @@ code only for a session cut off before it or with output after it. Login failure
 `EXECUTION ERROR` (`NOT_FOUND`) and unknown rows still fail. The `Active tag <tag>` row stays
 RECONSTRUCTED until a user with an active tag is recorded.
 
+**Recorded in T055 run 2 (2026-11-19, 8.1.17)**:
+- `tag --tagMove <tag> --tagWorkflowGroup <g> --tagWorkflowType technical --tagUser <owner>`
+  exits with 0 and prints no result line, and tags the group's workflow **and the modules it
+  uses** (the history export of the group shows the workflow version and one version of each
+  module carrying the tag: g1 a workflow and 2 modules, g2 a workflow and 3 modules). The owner's
+  export by the tag held no repository file with the tag.
+- `tag --tagRemove <tag> --tagWorkflowGroup <g> --tagWorkflowType technical` exits with 1:
+  `EXECUTION ERROR` / `Internal INUBIT error!` / `Insufficient options provided for action remove
+  tag: tagRepositoryPath is needed`. `--tagRemove` works only with `--tagRepositoryPath`, so
+  `removeTag` takes only `{repositoryPath}`.
+- `tag --tagDelete <tag> --tagWorkflowGroup <g> --tagWorkflowType technical` (no `--tagUser`)
+  exits with 1: `EXECUTION ERROR` / `Internal INUBIT error!` / `Missing user name.`. `deleteTag`
+  in a diagram group therefore sends `--tagUser <inventory.owner>`, the owner the preview, backup
+  and re-read read. `--tagDelete` with `--tagRepositoryPath` sends no `--tagUser` (the spike saw
+  StartCLI refuse `--tagUser` with `--tagRepositoryPath`); not recorded yet.
+- Whether `--tagDelete … --tagUser <owner>` in g1 leaves the tag in g2 (and on modules g2 shares)
+  is still open: the next run starts from this state (the tag on both test groups) with the
+  approved list `W15,X1,X2,W17,W18` (docs/live-tests.md "Tags of L-4").
+
 **Follow-up, not fixed in T055**: `CliUserRunner.session` and `CliSettingsRunner.session` still use
 the old rule (their `commandRefused` looks only for `EXECUTION ERROR`). On a real 8.1.17 session in
 which no command is refused (`read_users` with only `user`/`finger`; `get_server_settings` without
@@ -556,18 +581,19 @@ group also tags the repository files the group references (spike "Tags"), and St
 may therefore touch referenced repository files that other groups reference too.
 
 **Service and tool (T064)**: `TagAdministrationService` and `manage_tags`.
-- **Owner**: the removal sends no `--tagUser`; the preview, backup and re-read read the diagram
-  group of `inventory.owner`, the owner `tag_artifacts` tags for by default. Without it a removal
-  is `NOT_CONFIGURED` before any read. T055 confirms that a removal without `--tagUser` acts on
-  that owner's group (or names the owner it acts on); the contract input stays `{tag, scope}`.
+- **Owner**: the preview, backup and re-read read the diagram group of `inventory.owner`, the
+  owner `tag_artifacts` tags for by default, and `deleteTag` in that group sends it as
+  `--tagUser` (8.1.17 requires it, T055 run 2). Without it a removal is `NOT_CONFIGURED` before
+  any read. The contract input stays `{tag, scope}`.
 - **Repository path**: the backup (FR-018) needs the tagged repository files, and `tagged` has no
   read form for them, so a `{repositoryPath}` removal is refused (`UNSUPPORTED_VERSION`, "not
   supported yet") after the admission and before any read; nothing is sent. The owner decides on
   this scope with T055.
 - **Rows**: the gate refuses each removal while its rows are not `reachable`. The description
-  names `removeTag`/`deleteTag` only for the rows that are `reachable` in a diagram group
-  (`offeredRemovals`), otherwise it says they are not offered yet. Offline tests use a test
-  coverage list.
+  offers `deleteTag` only when its rows in a diagram group (`tag --tagDelete`,
+  `--tagWorkflowGroup`, `--tagWorkflowType`, `--tagUser`) are `reachable` (`deleteTagOffered`),
+  otherwise it says it is not offered yet; it never offers `removeTag` (repository path only).
+  Offline tests use a test coverage list.
 - **Missing scope**: the input schema does not require `scope`, so the call reaches the service and
   gets `INVALID_INPUT` before any read (AS13).
 - **Order of a removal**: tag list backup (`BackupStore.writeTagList`, scope name

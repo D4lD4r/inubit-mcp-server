@@ -185,7 +185,9 @@ class ChangeToolsProductionRefusalTest {
                 "operate_server/deleteErrorProcesses" -> Map.of();
             case "manage_tags/setActiveTag" -> Map.of("user", "jdoe", "tag", "REL-2");
             case "manage_tags/removeActiveTag" -> Map.of("user", "jdoe");
-            case "manage_tags/removeTag", "manage_tags/deleteTag" -> Map.of("tag", "REL-1",
+            case "manage_tags/removeTag" -> Map.of("tag", "REL-1",
+                "scope", Map.of("repositoryPath", "/Root/acme-dev/xsd"));
+            case "manage_tags/deleteTag" -> Map.of("tag", "REL-1",
                 "scope", Map.of("diagramGroup", "Orders", "diagramType", "technical"));
             default -> throw unknown(spec);
         };

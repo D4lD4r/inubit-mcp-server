@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import de.dadecker.inubit.mcp.adapter.cli.CliCommand.TagRemovalKind;
 import de.dadecker.inubit.mcp.adapter.cli.CliCommand.TagScope;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.UnlistedTagCommand;
@@ -18,6 +19,7 @@ import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.FolderTags;
 import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.GroupTags;
 import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.Inputs;
 import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.Outcome;
+import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.Plan;
 import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.Read;
 import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.Removal;
 import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.RemoveActive;
@@ -59,14 +61,16 @@ import org.opentest4j.TestAbortedException;
 /**
  * Feature 022 T055 (live check L-4): the offline parts of {@link ManageTagsLiveTest} — the gate
  * and inputs, the steps and cleanup commands in their forms, the derived reads on the recorded
- * fixtures, the W15 folder, the sequence with its precondition, stop and cleanup on a simulated
- * node, and the records and lines. A plain unit test (not tagged {@code live}): nothing is
- * contacted.
+ * fixtures, the W15 folder, the sequences of both step lists with their precondition, stop, X2
+ * condition and cleanup on a simulated node, and the records and lines. A plain unit test (not
+ * tagged {@code live}): nothing is contacted.
  */
 class ManageTagsLiveTestSupportTest {
 
     private static final NodeId NODE = NodeId.of("test", "node1");
     private static final String STEPS = "S1,S2,W13,S3,W14,S4,W15,W16,W17,W18";
+    /** The list from the state run 2 left (the tag on both test groups). */
+    private static final String TAGGED_STEPS = "W15,X1,X2,W17,W18";
     private static final String TAG = "l4-test";
     private static final String G1 = "GRP-T1";
     private static final String G2 = "GRP-T2";
@@ -98,7 +102,8 @@ class ManageTagsLiveTestSupportTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"S1,S2", "S2,S1,W13,S3,W14,S4,W15,W16,W17,W18",
-        "S1,S2,W13,S3,W14,S4,W15,W16,W17,W18,C1", "approved"})
+        "S1,S2,W13,S3,W14,S4,W15,W16,W17,W18,C1", "approved", "X1,X2,W15,W17,W18",
+        "W15,X1,W17,W18", "W15,X1,X2,W17,W18,C1", "S1,S2,W13,S3,W14,S4,W15,X1,X2,W17,W18"})
     void onlyTheExactStepListRuns(String list) {
         env.put(ManageTagsLiveTestSupport.STEPS_VARIABLE, list);
 
@@ -107,12 +112,15 @@ class ManageTagsLiveTestSupportTest {
     }
 
     @Test
-    void theExactStepListPassesTheGate() {
+    void eachExactStepListPassesTheGateAsItsPlan() {
         env.put(ManageTagsLiveTestSupport.STEPS_VARIABLE, " S1, S2,W13,S3,W14,S4,W15,W16,W17,W18 ");
+        assertThat(ManageTagsLiveTestSupport.requireApproval(env)).isEqualTo(Plan.FROM_UNTAGGED);
 
-        assertThatCode(() -> ManageTagsLiveTestSupport.requireApproval(env))
-            .doesNotThrowAnyException();
-        assertThat(String.join(",", ManageTagsLiveTestSupport.STEP_IDS)).isEqualTo(STEPS);
+        env.put(ManageTagsLiveTestSupport.STEPS_VARIABLE, "W15, X1,X2,W17,W18");
+        assertThat(ManageTagsLiveTestSupport.requireApproval(env)).isEqualTo(Plan.FROM_TAGGED);
+
+        assertThat(String.join(",", Plan.FROM_UNTAGGED.ids)).isEqualTo(STEPS);
+        assertThat(String.join(",", Plan.FROM_TAGGED.ids)).isEqualTo(TAGGED_STEPS);
     }
 
     @Test
@@ -211,9 +219,10 @@ class ManageTagsLiveTestSupportTest {
     void theStepsAreTheApprovedFormsInOrder() {
         Inputs stated = new Inputs(TAG, G1, G2, Optional.of(FOLDER), USER, OWNER);
 
-        assertThat(ManageTagsLiveTestSupport.steps(stated)).extracting(Step::id)
-            .containsExactly(STEPS.split(","));
-        assertThat(ManageTagsLiveTestSupport.steps(stated)).extracting(Step::form)
+        assertThat(ManageTagsLiveTestSupport.steps(stated, Plan.FROM_UNTAGGED))
+            .extracting(Step::id).containsExactly(STEPS.split(","));
+        assertThat(ManageTagsLiveTestSupport.steps(stated, Plan.FROM_UNTAGGED))
+            .extracting(Step::form)
             .containsExactly(
                 "tag --tagMove 'l4-test' --tagWorkflowGroup 'GRP-T1' --tagWorkflowType 'technical'"
                     + " --tagUser 'owner1'",
@@ -232,13 +241,37 @@ class ManageTagsLiveTestSupportTest {
                     + " 'technical' --tagUser 'owner1'",
                 "tag --tagSetActive 'l4-test' --tagUser 'tester'",
                 "tag --tagRemoveActive --tagUser 'tester'");
-        assertThat(ManageTagsLiveTestSupport.steps(DERIVED).get(6).form())
+        assertThat(ManageTagsLiveTestSupport.steps(DERIVED, Plan.FROM_UNTAGGED).get(6).form())
             .isEqualTo("tag --tagRemove 'l4-test' --tagRepositoryPath '<derived folder>'");
-        assertThat(ManageTagsLiveTestSupport.steps(stated)).extracting(Step::stem)
-            .doesNotHaveDuplicates();
-        assertThat(ManageTagsLiveTestSupport.steps(stated))
+        assertThat(ManageTagsLiveTestSupport.steps(stated, Plan.FROM_UNTAGGED))
+            .extracting(Step::stem).doesNotHaveDuplicates();
+        assertThat(ManageTagsLiveTestSupport.steps(stated, Plan.FROM_UNTAGGED))
             .extracting(step -> step.expectTagged().orElse("-"))
             .containsExactly("g1", "g2", "-", "g1", "-", "g1", "-", "-", "-", "-");
+        // the group forms 8.1.17 refused are test-only forms now (T055 run 2)
+        assertThat(ManageTagsLiveTestSupport.steps(stated, Plan.FROM_UNTAGGED))
+            .filteredOn(step -> step.action() instanceof Unlisted).extracting(Step::id)
+            .containsExactly("W13", "W14", "W16");
+    }
+
+    @Test
+    void theStepsFromTheTaggedStateAreTheApprovedFormsInOrder() {
+        Inputs stated = new Inputs(TAG, G1, G2, Optional.of(FOLDER), USER, OWNER);
+
+        assertThat(ManageTagsLiveTestSupport.steps(stated, Plan.FROM_TAGGED))
+            .extracting(step -> step.id() + " " + step.form()).containsExactly(
+                "W15 tag --tagRemove 'l4-test' --tagRepositoryPath '/Root/owner1/xsd'",
+                "X1 tag --tagDelete 'l4-test' --tagWorkflowGroup 'GRP-T1' --tagWorkflowType"
+                    + " 'technical' --tagUser 'owner1'",
+                "X2 tag --tagDelete 'l4-test' --tagWorkflowGroup 'GRP-T2' --tagWorkflowType"
+                    + " 'technical' --tagUser 'owner1'",
+                "W17 tag --tagSetActive 'l4-test' --tagUser 'tester'",
+                "W18 tag --tagRemoveActive --tagUser 'tester'");
+        assertThat(ManageTagsLiveTestSupport.steps(stated, Plan.FROM_TAGGED))
+            .extracting(Step::stem).doesNotHaveDuplicates();
+        assertThat(ManageTagsLiveTestSupport.steps(stated, Plan.FROM_TAGGED))
+            .noneMatch(step -> step.action() instanceof Unlisted
+                || step.expectTagged().isPresent());
     }
 
     @Test
@@ -246,9 +279,9 @@ class ManageTagsLiveTestSupportTest {
         assertThat(ManageTagsLiveTestSupport.cleanupSteps(DERIVED, Optional.of(FOLDER)))
             .extracting(step -> step.id() + " " + step.form()).containsExactly(
                 "C1 tag --tagDelete 'l4-test' --tagWorkflowGroup 'GRP-T1' --tagWorkflowType"
-                    + " 'technical'",
+                    + " 'technical' --tagUser 'owner1'",
                 "C2 tag --tagDelete 'l4-test' --tagWorkflowGroup 'GRP-T2' --tagWorkflowType"
-                    + " 'technical'",
+                    + " 'technical' --tagUser 'owner1'",
                 "C3 tag --tagRemove 'l4-test' --tagRepositoryPath '/Root/owner1/xsd'",
                 "C4 tag --tagRemoveActive --tagUser 'tester'");
         assertThat(ManageTagsLiveTestSupport.cleanupSteps(DERIVED, Optional.empty()))
@@ -257,8 +290,8 @@ class ManageTagsLiveTestSupportTest {
 
     @Test
     void theUnlistedFormTakesOnlyValuesStartCliCanCarry() {
-        assertThatThrownBy(() -> UnlistedTagCommand.removeWithOwner(TAG, G1, "technical",
-            "jd'oe")).isInstanceOf(ToolErrorException.class)
+        assertThatThrownBy(() -> UnlistedTagCommand.groupRemoval(TagRemovalKind.REMOVE, TAG, G1,
+            "technical", Optional.of("jd'oe"))).isInstanceOf(ToolErrorException.class)
             .hasMessageNotContaining("jd'oe");
     }
 
@@ -381,7 +414,7 @@ class ManageTagsLiveTestSupportTest {
         throws IOException {
         FakeNode node = new FakeNode();
 
-        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED);
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.FROM_UNTAGGED);
 
         assertThat(node.sent).containsExactly("S1", "S2", "W13", "S3", "W14", "S4", "W15",
             "W16", "W17", "W18", "C1", "C2");
@@ -394,7 +427,8 @@ class ManageTagsLiveTestSupportTest {
         assertThat(outcome.stop()).isEmpty();
         assertThat(outcome.cleanup()).containsExactly("C1 done", "C2 done");
         assertThat(outcome.remains()).isEmpty();
-        assertThat(outcome.notes()).containsExactly("W16 refused by INUBIT (exit 1)");
+        assertThat(outcome.notes()).containsExactly("W13 refused by INUBIT (exit 1)",
+            "W14 refused by INUBIT (exit 1)", "W16 refused by INUBIT (exit 1)");
         assertThatCode(() -> ManageTagsLiveTestSupport.assertOutcome(outcome))
             .doesNotThrowAnyException();
         assertThat(node.records.get("W15-folder")).contains("folder ~/xsd", "derived");
@@ -419,9 +453,12 @@ class ManageTagsLiveTestSupportTest {
         FakeNode empty = new FakeNode();
         empty.workflows = 0;
 
-        Outcome first = ManageTagsLiveTestSupport.run(used, DERIVED);
-        Outcome second = ManageTagsLiveTestSupport.run(active, DERIVED);
-        Outcome third = ManageTagsLiveTestSupport.run(empty, DERIVED);
+        Outcome first = ManageTagsLiveTestSupport.run(used, DERIVED,
+            Plan.FROM_UNTAGGED);
+        Outcome second = ManageTagsLiveTestSupport.run(active, DERIVED,
+            Plan.FROM_UNTAGGED);
+        Outcome third = ManageTagsLiveTestSupport.run(empty, DERIVED,
+            Plan.FROM_UNTAGGED);
 
         assertThat(used.sent).isEmpty();
         assertThat(active.sent).isEmpty();
@@ -439,7 +476,7 @@ class ManageTagsLiveTestSupportTest {
         FakeNode node = new FakeNode();
         node.failing.put("W13", "IMPORT_FAILED");
 
-        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED);
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.FROM_UNTAGGED);
 
         assertThat(node.sent).containsExactly("S1", "S2", "W13", "C1", "C2");
         assertThat(node.reads).contains("W13-after-H1").doesNotContain("S3-after-H1");
@@ -458,7 +495,7 @@ class ManageTagsLiveTestSupportTest {
         FakeNode node = new FakeNode();
         node.noEffect.add("S2");
 
-        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED);
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.FROM_UNTAGGED);
 
         assertThat(outcome.stop().orElseThrow().code())
             .isEqualTo("DEVIATION (g2 carries no version with the tag)");
@@ -470,10 +507,11 @@ class ManageTagsLiveTestSupportTest {
         FakeNode node = new FakeNode();
         node.unknownRead = "W14-after-H2";
 
-        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED);
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.FROM_UNTAGGED);
 
         assertThat(outcome.stop()).contains(new Stop("W14", "READ g2 unknown"));
-        assertThat(node.sent).endsWith("W14", "C2");
+        // W13 and W14 were refused (as on 8.1.17), so g1 still carries the tag
+        assertThat(node.sent).endsWith("W14", "C1", "C2");
     }
 
     @Test
@@ -481,7 +519,7 @@ class ManageTagsLiveTestSupportTest {
         FakeNode node = new FakeNode();
         node.repository = List.of();
 
-        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED);
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.FROM_UNTAGGED);
 
         assertThat(node.sent).doesNotContain("W15", "C3");
         assertThat(node.reads).noneMatch(read -> read.endsWith("-P"));
@@ -495,7 +533,8 @@ class ManageTagsLiveTestSupportTest {
         FakeNode node = new FakeNode();
 
         Outcome outcome = ManageTagsLiveTestSupport.run(node,
-            new Inputs(TAG, G1, G2, Optional.of("/Root/owner1/other"), USER, OWNER));
+            new Inputs(TAG, G1, G2, Optional.of("/Root/owner1/other"), USER, OWNER),
+            Plan.FROM_UNTAGGED);
 
         assertThat(outcome.stop()).contains(new Stop("W15", "FOLDER NOT TAGGED"));
         assertThat(node.sent).containsExactly("S1", "S2", "W13", "S3", "W14", "S4", "C1", "C2");
@@ -506,7 +545,7 @@ class ManageTagsLiveTestSupportTest {
         FakeNode node = new FakeNode();
         node.failing.put("W17", "TIMEOUT");
 
-        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED);
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.FROM_UNTAGGED);
 
         assertThat(outcome.stop()).contains(new Stop("W17", "TIMEOUT"));
         assertThat(node.sent).endsWith("W17", "C1", "C2", "C4");
@@ -518,7 +557,7 @@ class ManageTagsLiveTestSupportTest {
         FakeNode node = new FakeNode();
         node.noEffect.add("C2");
 
-        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED);
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.FROM_UNTAGGED);
 
         assertThat(outcome.remains()).containsExactly("g2 1 workflow, 1 tagged: workflow W-2 v2",
             "by tag groups g2, 1 versions, 0 repository files tagged");
@@ -532,7 +571,7 @@ class ManageTagsLiveTestSupportTest {
         FakeNode node = new FakeNode();
         node.repository = List.of(FILE, "/Root/owner1/other/b.xsd");
 
-        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED);
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.FROM_UNTAGGED);
 
         assertThat(node.sentForms.get("W15"))
             .isEqualTo("tag --tagRemove 'l4-test' --tagRepositoryPath '/Root/owner1/other'");
@@ -552,13 +591,102 @@ class ManageTagsLiveTestSupportTest {
         FakeNode node = new FakeNode();
         node.throwing.add("S1");
 
-        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED);
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.FROM_UNTAGGED);
 
         // the last read (B0) showed nothing tagged, yet S1 took effect before the exception
         assertThat(outcome.stop()).contains(new Stop("S1", "IllegalStateException"));
         assertThat(node.sent).containsExactly("S1", "C1", "C2");
         assertThat(outcome.remains()).isEmpty();
         assertThat(outcome.cleanup()).containsExactly("C1 done", "C2 done");
+    }
+
+    // --- the sequence from the tagged state (run 3) --------------------------------------------
+
+    @Test
+    void fromTheTaggedStateW15RunsFirstThenX1AndX2WithTheOwnerAndTheCheckPasses()
+        throws IOException {
+        FakeNode node = FakeNode.tagged();
+
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.FROM_TAGGED);
+
+        assertThat(node.sent).containsExactly("W15", "X1", "X2", "W17", "W18");
+        assertThat(node.sentForms.get("W15"))
+            .isEqualTo("tag --tagRemove 'l4-test' --tagRepositoryPath '/Root/owner1/xsd'");
+        assertThat(node.sentForms.get("X1")).isEqualTo("tag --tagDelete 'l4-test'"
+            + " --tagWorkflowGroup 'GRP-T1' --tagWorkflowType 'technical' --tagUser 'owner1'");
+        assertThat(node.reads).containsSubsequence("B0-H1", "B0-H2", "B0-T", "B0-A",
+            "W15-before-P", "W15-after-T", "W15-after-P", "X1-after-H1", "X1-after-H2",
+            "X1-after-T", "X1-after-P", "X2-after-T", "W17-after-A", "W18-after-A", "V-H1",
+            "V-H2", "V-T", "V-A", "V-F1-P");
+        assertThat(outcome.stop()).isEmpty();
+        assertThat(outcome.cleanup()).isEmpty();
+        assertThat(outcome.remains()).isEmpty();
+        assertThat(outcome.notes()).isEmpty();
+        // the L-4 answer: g1 clear, g2 keeps its versions
+        assertThat(node.records.get("X1-tag-delete-g1-owner")).contains("after: g1 1 workflow,"
+            + " none tagged; g2 1 workflow, 1 tagged: workflow W-2 v2; by tag groups g2");
+        assertThat(String.join("\n", node.records.values())).doesNotContain(G1, G2, OWNER, USER);
+    }
+
+    @Test
+    void x2IsNotSentWhenX1TookTheTagFromG2TooAndW15HasNoFileToRemove() throws IOException {
+        FakeNode node = FakeNode.tagged();
+        node.repository = List.of();
+        node.fileTags.clear();
+        node.ownerWide = true;
+
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.FROM_TAGGED);
+
+        assertThat(node.sent).containsExactly("X1", "W17", "W18");
+        assertThat(node.records.get("X2-tag-delete-g2-owner"))
+            .isEqualTo("not needed: g2 no longer carries the tag; nothing was sent");
+        assertThat(outcome.notes()).containsExactly(
+            "W15 not applicable: the tag reached no repository file",
+            "X2 not needed (g2 no longer carries the tag)");
+        assertThat(outcome.stop()).isEmpty();
+        assertThat(outcome.cleanup()).isEmpty();
+        assertThat(outcome.remains()).isEmpty();
+    }
+
+    @Test
+    void fromTheTaggedStateB0NeedsTheTagOnExactlyTheTwoGroupsAndNoActiveTag()
+        throws IOException {
+        FakeNode untagged = FakeNode.tagged();
+        untagged.g2 = false;
+        FakeNode elsewhere = FakeNode.tagged();
+        elsewhere.elsewhere = true;
+        FakeNode active = FakeNode.tagged();
+        active.active = ActiveTag.TEST_TAG;
+
+        Outcome first = ManageTagsLiveTestSupport.run(untagged, DERIVED, Plan.FROM_TAGGED);
+        Outcome second = ManageTagsLiveTestSupport.run(elsewhere, DERIVED, Plan.FROM_TAGGED);
+        Outcome third = ManageTagsLiveTestSupport.run(active, DERIVED, Plan.FROM_TAGGED);
+
+        assertThat(untagged.sent).isEmpty();
+        assertThat(elsewhere.sent).isEmpty();
+        assertThat(active.sent).isEmpty();
+        assertThat(first.stop().orElseThrow().code()).contains("g2 does not carry the test tag",
+            "the export by the tag shows groups g1, 1 versions", "nothing was written");
+        assertThat(second.stop().orElseThrow().code()).contains("the export by the tag shows"
+            + " groups g1, g2, 1 other, 3 versions, 1 repository files tagged: " + SHOWN
+            + " v1.0, not exactly g1 and g2");
+        assertThat(third.stop().orElseThrow().code())
+            .contains("active tag is the test tag, not none");
+        assertThat(first.cleanup()).isEmpty();
+    }
+
+    @Test
+    void anErrorOfX1StopsAndTheCleanupDeletesTheTagWithTheOwner() throws IOException {
+        FakeNode node = FakeNode.tagged();
+        node.failing.put("X1", "UNEXPECTED_RESPONSE");
+
+        Outcome outcome = ManageTagsLiveTestSupport.run(node, DERIVED, Plan.FROM_TAGGED);
+
+        assertThat(outcome.stop()).contains(new Stop("X1", "UNEXPECTED_RESPONSE"));
+        assertThat(node.sent).containsExactly("W15", "X1", "C1", "C2");
+        assertThat(node.sentForms.get("C2")).isEqualTo("tag --tagDelete 'l4-test'"
+            + " --tagWorkflowGroup 'GRP-T2' --tagWorkflowType 'technical' --tagUser 'owner1'");
+        assertThat(outcome.remains()).isEmpty();
     }
 
     // --- records ---------------------------------------------------------------------------------
@@ -612,15 +740,19 @@ class ManageTagsLiveTestSupportTest {
     }
 
     /**
-     * A node whose tags act as scoped: a group-scoped form changes that group only (never a
-     * repository file), the folder form the files below the folder only; {@code --tagMove} also
-     * tags the {@link #repository} files. W16 is refused with exit 1. Steps in {@link #noEffect}
-     * answer but change nothing; a step in {@link #throwing} throws after its effect.
+     * A node whose tags act as scoped: a group-scoped form changes that group only (both with
+     * {@link #ownerWide}, never a repository file), the folder form the files below the folder
+     * only; {@code --tagMove} also tags the {@link #repository} files. An unlisted form is refused
+     * with exit 1, as 8.1.17 refused W13, W14 and W16. Steps in {@link #noEffect} answer but
+     * change nothing; a step in {@link #throwing} throws after its effect. With
+     * {@link #elsewhere} the export by the tag names a third group.
      */
     private static final class FakeNode implements ManageTagsLiveTestSupport.Node {
 
         boolean g1;
         boolean g2;
+        boolean ownerWide;
+        boolean elsewhere;
         List<String> repository = List.of(FILE);
         final Set<String> fileTags = new TreeSet<>();
         final Set<String> throwing = new HashSet<>();
@@ -633,6 +765,15 @@ class ManageTagsLiveTestSupportTest {
         final Map<String, String> sentForms = new HashMap<>();
         final List<String> reads = new ArrayList<>();
         final Map<String, String> records = new LinkedHashMap<>();
+
+        /** The state run 2 left: the tag on both groups and the {@link #repository} files. */
+        static FakeNode tagged() {
+            FakeNode node = new FakeNode();
+            node.g1 = true;
+            node.g2 = true;
+            node.fileTags.addAll(node.repository);
+            return node;
+        }
 
         @Override
         public Optional<GroupTags> group(String label, int which) {
@@ -656,6 +797,9 @@ class ManageTagsLiveTestSupportTest {
             }
             if (g2) {
                 groups.add(G2);
+            }
+            if (elsewhere) {
+                groups.add("GRP-OTHER");
             }
             return Optional.of(groups.isEmpty() ? TagExport.NONE
                 : export(groups, versions(fileTags)));
@@ -704,7 +848,10 @@ class ManageTagsLiveTestSupportTest {
                 }
                 case Removal removal -> {
                     if (removal.scope() instanceof TagScope.DiagramGroup group) {
-                        if (group.group().equals(G1)) {
+                        if (ownerWide) {
+                            g1 = false;
+                            g2 = false;
+                        } else if (group.group().equals(G1)) {
                             g1 = false;
                         } else {
                             g2 = false;

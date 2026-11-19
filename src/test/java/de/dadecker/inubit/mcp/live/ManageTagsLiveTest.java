@@ -22,6 +22,7 @@ import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.FolderTags;
 import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.GroupTags;
 import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.Inputs;
 import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.Outcome;
+import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.Plan;
 import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.Read;
 import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.Step;
 import de.dadecker.inubit.mcp.live.ManageTagsLiveTestSupport.TagExport;
@@ -40,10 +41,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * Feature 022 T055, live check L-4 (research D-18, "Live checks"): the owner-approved tag steps
- * S1–S4 and W13–W18 ({@link ManageTagsLiveTestSupport#steps}) against a real,
- * <b>non-production</b> INUBIT 8.1 development node whose profile enables writes (opt-in,
- * Constitution III), each run once in that order, every read and command recorded owner-only in
+ * Feature 022 T055, live check L-4 (research D-18, "Live checks"): one owner-approved step list
+ * ({@link Plan}: S1–S4 and W13–W18 from a tag on nothing, or W15, X1, X2, W17, W18 from the tag
+ * on the two test groups) against a real, <b>non-production</b> INUBIT 8.1 development node whose
+ * profile enables writes (opt-in, Constitution III), each step run once in that order, every read
+ * and command recorded owner-only in
  * {@code <INUBIT_LIVE_RECORD_DIR>/T055/} (a later run with {@code INUBIT_LIVE_T055_RUN=<n>} in
  * {@code T055-<n>/}).
  *
@@ -52,13 +54,13 @@ import org.junit.jupiter.api.Timeout;
  * {@code tag --tagMove} through {@link CliTagRunner#tag} (as {@code tag_artifacts}), the removals
  * and active-tag forms through {@link CliTagAdminRunner}, the reads through
  * {@link CliExportRunner#exportHistory} and {@link CliExportRunner#exportRelease} (as the
- * {@code manage_tags} preview) and {@link CliTagAdminRunner#activeTag}. Two forms have no
- * production runner: W16 ({@code --tagRemove} in a group with {@code --tagUser}, built by
+ * {@code manage_tags} preview) and {@link CliTagAdminRunner#activeTag}. Some forms have no
+ * production runner: W13, W14 and W16 of the first list (group forms 8.1.17 refused, built by
  * {@code UnlistedTagCommand}) and the candidate folder read {@code export --exportRepositoryPath
- * --exportTag} (allow-listed form, record-only); both run on {@link CliRunner#run}.
+ * --exportTag} (allow-listed form, record-only); they run on {@link CliRunner#run}.
  *
  * <p>Run with {@code INUBIT_MCP_PROFILE=<profile> INUBIT_LIVE_NODE=<group>/<node>
- * INUBIT_LIVE_T055_STEPS=S1,S2,W13,S3,W14,S4,W15,W16,W17,W18 INUBIT_LIVE_T055_TAG=<tag>
+ * INUBIT_LIVE_T055_STEPS=W15,X1,X2,W17,W18 INUBIT_LIVE_T055_TAG=<tag>
  * INUBIT_LIVE_T055_GROUPS=<g1>,<g2> INUBIT_LIVE_T055_REPOSITORY_PATH=derived|<folder>
  * INUBIT_LIVE_T055_USER=login|<user> INUBIT_LIVE_RECORD_DIR=<private dir> mvn verify -Plive
  * -Dtest=ManageTagsLiveTest}, only after the owner approved each command (docs/live-tests.md).
@@ -73,7 +75,7 @@ class ManageTagsLiveTest {
     void theStepsOfL4RunOnceEachAndTheTestTagIsRemovedAfterwards() throws IOException {
         LiveTarget live = LiveTarget.resolve();
         Map<String, String> environment = System.getenv();
-        ManageTagsLiveTestSupport.requireApproval(environment);
+        Plan plan = ManageTagsLiveTestSupport.requireApproval(environment);
         Path recordDirectory = OperateServerReadsLiveTestSupport.recordDirectory(environment,
             Path.of("").toAbsolutePath());
         NodeId node = live.node();
@@ -98,7 +100,7 @@ class ManageTagsLiveTest {
             outcome = ManageTagsLiveTestSupport.run(new LiveNode(connection,
                 connection.cli(version), new CliOutputClassifier(live.scrubber(),
                     server.secretLabels(), live.windows()), version, inputs, files, directory,
-                live.windows()), inputs);
+                live.windows()), inputs, plan);
         }
         ManageTagsLiveTestSupport.assertOutcome(outcome);
     }
@@ -255,7 +257,10 @@ class ManageTagsLiveTest {
             return new Answer(attempt.error().map(ErrorCode::name), false);
         }
 
-        /** W16's answer: a login failure or cut output is an error, a refusal INUBIT's answer. */
+        /**
+         * The answer of an unlisted form: a login failure or cut output is an error, a refusal
+         * INUBIT's answer.
+         */
         private Answer answer(CliResult result) {
             if (CliOutputClassifier.isLoginFailure(result)) {
                 return new Answer(Optional.of(ErrorCode.AUTH_FAILED.name()), false);

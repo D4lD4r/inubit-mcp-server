@@ -254,7 +254,7 @@ class OperationSecretLeakTest {
             challenges, audit, gateways, new BackupStore(temp.resolve("backups"), clock,
                 PrivateFiles.forHost()), node -> Optional.of("acme-dev"));
         client = McpTestClient.start(List.of(new OperateServerTool(operations::execute),
-            new ManageTagsTool(tags::execute, List.of("removeTag", "deleteTag"))), scrubber);
+            new ManageTagsTool(tags::execute, true)), scrubber);
         client.initialize();
     }
 
@@ -347,7 +347,11 @@ class OperationSecretLeakTest {
 
     // --- the calls -----------------------------------------------------------------------------
 
-    /** One call of each action of both tools, in the order of their specs. */
+    /**
+     * One call of each action of both tools that sends a change, in the order of their specs;
+     * not {@code removeTag}, which takes only a repository path and is refused before anything is
+     * read.
+     */
     private List<JsonNode> everyAction() {
         List<JsonNode> results = new ArrayList<>();
         results.add(operate(Map.of("action", "setMaintenance", "on", true)));
@@ -359,14 +363,13 @@ class OperationSecretLeakTest {
         results.add(tags(Map.of("action", "setActiveTag", "user", USER, "tag", "REL-2")));
         results.add(tags(Map.of("action", "removeActiveTag", "user", USER)));
         Map<String, Object> group = Map.of("diagramGroup", "Orders", "diagramType", "technical");
-        results.add(tags(Map.of("action", "removeTag", "tag", "REL-1", "scope", group)));
         results.add(tags(Map.of("action", "deleteTag", "tag", "REL-1", "scope", group)));
         assertThat(results.stream().map(result -> result.path("structuredContent")
             .path("result").path("action").asString()))
-            .as("every action of both tools")
+            .as("every action of both tools that sends a change")
             .containsExactlyElementsOf(Stream.concat(
                 ServerOperationService.SPECS.stream(), TagAdministrationService.SPECS.stream())
-                .map(ActionSpec::action).toList());
+                .map(ActionSpec::action).filter(action -> !action.equals("removeTag")).toList());
         return results;
     }
 
@@ -612,12 +615,12 @@ class OperationSecretLeakTest {
                 }
 
                 @Override
-                public void removeTag(Removal removal, String tag, Scope scope,
+                public void removeTag(Removal removal, String tag, String owner, Scope scope,
                     WritePermit permit) {
                     Scope.DiagramGroup group = (Scope.DiagramGroup) scope;
                     cli.removeTag(removal == Removal.REMOVE ? TagRemovalKind.REMOVE
                         : TagRemovalKind.DELETE, tag, new TagScope.DiagramGroup(group.group(),
-                            group.type()), permit);
+                            group.type(), owner), permit);
                 }
             };
         }

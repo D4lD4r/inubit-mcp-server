@@ -41,13 +41,14 @@ import org.junit.jupiter.api.Assumptions;
 
 /**
  * The offline parts of {@link ManageTagsLiveTest} (feature 022 T055, live check L-4), tested by
- * {@link ManageTagsLiveTestSupportTest}: the inputs and the gate, the owner-approved steps in their
- * order and forms, the derived reads (version history of a group, export by the tag, the folder
- * export by the tag, the active tag), the sequence with its precondition, stop, W15 folder and
- * cleanup, and the lines. Lines and failure messages name steps, codes, byte counts and what the
- * reads derive about the test tag: the workflow and module names and the repository file paths
- * (relative to the owner's repository root, {@link #relative}) carrying it with their versions, and
- * counts; the groups only as {@code g1} and {@code g2}, never output, another tag, the owner or
+ * {@link ManageTagsLiveTestSupportTest}: the inputs and the gate, the owner-approved step lists
+ * ({@link Plan}) in their order and forms, the derived reads (version history of a group, export
+ * by the tag, the folder export by the tag, the active tag), the sequence with its precondition,
+ * stop, W15 folder, X2 condition and cleanup, and the lines. Lines and failure messages name
+ * steps, codes, byte counts and what the reads derive about the test tag: the workflow and module
+ * names and the repository file paths (relative to the owner's repository root,
+ * {@link #relative}) carrying it with their versions, and counts; the groups only as {@code g1} and
+ * {@code g2}, never output, another tag, the owner or
  * the user.
  */
 final class ManageTagsLiveTestSupport {
@@ -68,9 +69,27 @@ final class ManageTagsLiveTestSupport {
     /** The test user is the StartCLI login of the node's credentials. */
     static final String LOGIN = "login";
     static final String TECHNICAL = "technical";
-    /** The owner-approved write steps, in the order they run. */
-    static final List<String> STEP_IDS =
-        List.of("S1", "S2", "W13", "S3", "W14", "S4", "W15", "W16", "W17", "W18");
+
+    /** The owner-approved step lists, each run only as a whole and in its order. */
+    enum Plan {
+        /**
+         * Runs 1 and 2: from a tag on nothing. Not run live again: 8.1.17 refused W13 and the
+         * cleanup's {@code --tagDelete} without {@code --tagUser} (T055 run 2, research D-18).
+         */
+        FROM_UNTAGGED(List.of("S1", "S2", "W13", "S3", "W14", "S4", "W15", "W16", "W17", "W18")),
+        /**
+         * From the state run 2 left: the tag on the objects of the two test groups only. W15 runs
+         * first, while the export by the tag still shows the repository files the groups tagged
+         * ({@code --tagDelete} may take the tag from them too).
+         */
+        FROM_TAGGED(List.of("W15", "X1", "X2", "W17", "W18"));
+
+        final List<String> ids;
+
+        Plan(List<String> ids) {
+            this.ids = ids;
+        }
+    }
 
     private static final Pattern RUN_NUMBER = Pattern.compile("[2-9]|[1-9][0-9]+");
     private static final ReleaseArchivePort RELEASES = new V81ReleaseArchives();
@@ -89,19 +108,20 @@ final class ManageTagsLiveTestSupport {
     }
 
     /**
-     * Skips without {@link #STEPS_VARIABLE}; fails unless it lists exactly {@link #STEP_IDS} in
-     * their order, comma-separated.
+     * The approved {@link Plan}; skips without {@link #STEPS_VARIABLE}; fails unless it lists
+     * exactly the ids of one plan in their order, comma-separated.
      */
-    static void requireApproval(Map<String, String> environment) {
+    static Plan requireApproval(Map<String, String> environment) {
         String value = environment.get(STEPS_VARIABLE);
-        String steps = String.join(",", STEP_IDS);
+        String steps = Arrays.stream(Plan.values()).map(plan -> String.join(",", plan.ids))
+            .collect(Collectors.joining(" or "));
         Assumptions.assumeTrue(value != null && !value.isBlank(), STEPS_VARIABLE + " is not set ("
             + steps + ", only after the owner approved each command); the T055 live check is"
             + " skipped");
-        if (!Arrays.stream(value.split(",", -1)).map(String::strip).toList().equals(STEP_IDS)) {
-            fail(STEPS_VARIABLE + " must list exactly " + steps + " (only after the owner approved"
-                + " each command), or be unset to skip T055; nothing was run");
-        }
+        List<String> listed = Arrays.stream(value.split(",", -1)).map(String::strip).toList();
+        return Arrays.stream(Plan.values()).filter(plan -> plan.ids.equals(listed)).findFirst()
+            .orElseGet(() -> fail(STEPS_VARIABLE + " must list exactly " + steps + " (only after"
+                + " the owner approved each command), or be unset to skip T055; nothing was run"));
     }
 
     /** Fails unless the profile enables writes and development on {@code node}. */
@@ -158,7 +178,9 @@ final class ManageTagsLiveTestSupport {
             path.equals(DERIVED) ? Optional.empty() : Optional.of(path),
             userValue.equals(LOGIN) ? login : userValue, owner.get());
         try {
-            steps(inputs).forEach(step -> step.action().form());
+            for (Plan plan : Plan.values()) {
+                steps(inputs, plan).forEach(step -> step.action().form());
+            }
             cleanupSteps(inputs, inputs.repositoryPath()).forEach(step -> step.action().form());
             CliSessionCommand.command("user").login(inputs.user()).build();
         } catch (ToolErrorException e) {
@@ -180,8 +202,8 @@ final class ManageTagsLiveTestSupport {
     // --- steps -----------------------------------------------------------------------------------
 
     /** What a step sends; {@link #form} is its command line. */
-    sealed interface Action permits TagGroup, Removal, FolderRemoval, SetActive, RemoveActive,
-        Unlisted {
+    sealed interface Action permits TagGroup, Removal, FolderRemoval, IfStillTagged, SetActive,
+        RemoveActive, Unlisted {
 
         String form();
     }
@@ -221,6 +243,18 @@ final class ManageTagsLiveTestSupport {
         }
     }
 
+    /**
+     * X2: {@code removal} in group {@code which} (1 or 2), sent only if the latest round shows
+     * that group carrying the tag; otherwise it is "not needed" and nothing is sent.
+     */
+    record IfStillTagged(int which, Removal removal) implements Action {
+
+        @Override
+        public String form() {
+            return removal.form();
+        }
+    }
+
     /** {@code tag --tagSetActive} through the production {@code CliTagAdminRunner}. */
     record SetActive(String user, String tag) implements Action {
 
@@ -239,7 +273,10 @@ final class ManageTagsLiveTestSupport {
         }
     }
 
-    /** A form outside the production forms, on the production {@code CliRunner.run} (W16). */
+    /**
+     * A form outside the production forms, on the production {@code CliRunner.run} (W13, W14 and
+     * W16 of {@link Plan#FROM_UNTAGGED}).
+     */
     record Unlisted(CliCommand command) implements Action {
 
         @Override
@@ -261,25 +298,43 @@ final class ManageTagsLiveTestSupport {
         }
     }
 
-    /** The owner-approved steps {@link #STEP_IDS} for {@code in}. */
-    static List<Step> steps(Inputs in) {
-        TagScope.DiagramGroup g1 = new TagScope.DiagramGroup(in.group1(), TECHNICAL);
-        return List.of(
-            tagStep("S1", "tag-move-g1", in, in.group1(), "g1"),
-            tagStep("S2", "tag-move-g2", in, in.group2(), "g2"),
-            new Step("W13", "tag-remove-g1", new Removal(TagRemovalKind.REMOVE, in.tag(), g1),
-                Optional.empty()),
-            tagStep("S3", "tag-move-g1", in, in.group1(), "g1"),
-            new Step("W14", "tag-delete-g1", new Removal(TagRemovalKind.DELETE, in.tag(), g1),
-                Optional.empty()),
-            tagStep("S4", "tag-move-g1", in, in.group1(), "g1"),
-            new Step("W15", "tag-remove-folder", new FolderRemoval(in.tag(), in.repositoryPath()),
-                Optional.empty()),
-            new Step("W16", "tag-remove-g1-owner", new Unlisted(UnlistedTagCommand.removeWithOwner(
-                in.tag(), in.group1(), TECHNICAL, in.owner())), Optional.empty()),
-            new Step("W17", "tag-set-active", new SetActive(in.user(), in.tag()),
-                Optional.empty()),
-            new Step("W18", "tag-remove-active", new RemoveActive(in.user()), Optional.empty()));
+    /** The owner-approved steps of {@code plan} for {@code in}, in the order of its ids. */
+    static List<Step> steps(Inputs in, Plan plan) {
+        Step w15 = new Step("W15", "tag-remove-folder",
+            new FolderRemoval(in.tag(), in.repositoryPath()), Optional.empty());
+        Step w17 = new Step("W17", "tag-set-active", new SetActive(in.user(), in.tag()),
+            Optional.empty());
+        Step w18 = new Step("W18", "tag-remove-active", new RemoveActive(in.user()),
+            Optional.empty());
+        return switch (plan) {
+            case FROM_UNTAGGED -> List.of(
+                tagStep("S1", "tag-move-g1", in, in.group1(), "g1"),
+                tagStep("S2", "tag-move-g2", in, in.group2(), "g2"),
+                new Step("W13", "tag-remove-g1", new Unlisted(UnlistedTagCommand.groupRemoval(
+                    TagRemovalKind.REMOVE, in.tag(), in.group1(), TECHNICAL, Optional.empty())),
+                    Optional.empty()),
+                tagStep("S3", "tag-move-g1", in, in.group1(), "g1"),
+                new Step("W14", "tag-delete-g1", new Unlisted(UnlistedTagCommand.groupRemoval(
+                    TagRemovalKind.DELETE, in.tag(), in.group1(), TECHNICAL, Optional.empty())),
+                    Optional.empty()),
+                tagStep("S4", "tag-move-g1", in, in.group1(), "g1"),
+                w15,
+                new Step("W16", "tag-remove-g1-owner", new Unlisted(UnlistedTagCommand
+                    .groupRemoval(TagRemovalKind.REMOVE, in.tag(), in.group1(), TECHNICAL,
+                        Optional.of(in.owner()))), Optional.empty()),
+                w17, w18);
+            case FROM_TAGGED -> List.of(w15,
+                new Step("X1", "tag-delete-g1-owner", delete(in, in.group1()), Optional.empty()),
+                new Step("X2", "tag-delete-g2-owner", new IfStillTagged(2, delete(in, in.group2())),
+                    Optional.empty()),
+                w17, w18);
+        };
+    }
+
+    /** {@code tag --tagDelete} in {@code group} with its owner, the production form. */
+    private static Removal delete(Inputs in, String group) {
+        return new Removal(TagRemovalKind.DELETE, in.tag(),
+            new TagScope.DiagramGroup(group, TECHNICAL, in.owner()));
     }
 
     private static Step tagStep(String id, String slug, Inputs in, String group, String label) {
@@ -287,16 +342,14 @@ final class ManageTagsLiveTestSupport {
     }
 
     /**
-     * The cleanup commands, each a scoped form of the catalogue: C1/C2 {@code --tagDelete} in g1/g2,
-     * C3 {@code --tagRemove} in the W15 {@code folder} (none without one), C4
-     * {@code --tagRemoveActive} of the test user.
+     * The cleanup commands, each a scoped production form: C1/C2 {@code --tagDelete} in g1/g2 with
+     * the owner ({@code --tagUser}, which 8.1.17 requires), C3 {@code --tagRemove} in the W15
+     * {@code folder} (none without one), C4 {@code --tagRemoveActive} of the test user.
      */
     static List<Step> cleanupSteps(Inputs in, Optional<String> folder) {
         List<Step> steps = new ArrayList<>();
-        steps.add(new Step("C1", "tag-delete-g1", new Removal(TagRemovalKind.DELETE, in.tag(),
-            new TagScope.DiagramGroup(in.group1(), TECHNICAL)), Optional.empty()));
-        steps.add(new Step("C2", "tag-delete-g2", new Removal(TagRemovalKind.DELETE, in.tag(),
-            new TagScope.DiagramGroup(in.group2(), TECHNICAL)), Optional.empty()));
+        steps.add(new Step("C1", "tag-delete-g1", delete(in, in.group1()), Optional.empty()));
+        steps.add(new Step("C2", "tag-delete-g2", delete(in, in.group2()), Optional.empty()));
         folder.ifPresent(path -> steps.add(new Step("C3", "tag-remove-folder",
             new Removal(TagRemovalKind.REMOVE, in.tag(), new TagScope.RepositoryPath(path)),
             Optional.empty())));
@@ -600,25 +653,26 @@ final class ManageTagsLiveTestSupport {
     }
 
     /**
-     * Runs the T055 sequence on {@code node}: the read B0 must show the tag on nothing and no
-     * active tag of the test user (else nothing is written); then each step of {@link #steps}
-     * once, each followed by its read; at the first error, unknown read or deviation it stops.
+     * Runs the T055 sequence of {@code plan} on {@code node}: the read B0 must show the state the
+     * plan starts from ({@link #unclean}; else nothing is written); then each step of
+     * {@link #steps} once, each followed by its read; at the first error, unknown read or
+     * deviation it stops.
      * Then the {@link #cleanupPlan} runs once and the read V checks that nothing carries the tag:
      * the groups, the export by the tag, and with the folder export by the tag every folder in
      * which a read showed a file carrying it (W15's folder included).
      */
-    static Outcome run(Node node, Inputs in) throws IOException {
+    static Outcome run(Node node, Inputs in, Plan plan) throws IOException {
         Round b0 = round(node, "B0", Optional.empty());
         Optional<ActiveTag> a0 = node.activeTag("B0");
         node.record("B0", describe(b0, in) + "; active tag " + describe(a0));
-        List<String> unclean = unclean(b0, a0);
+        List<String> unclean = unclean(b0, a0, plan, in);
         if (!unclean.isEmpty()) {
             return new Outcome(Optional.of(new Stop("B0", "PRECONDITION (" + String.join("; ",
                 unclean) + "); nothing was written")), List.of(), List.of(), List.of());
         }
         Progress progress = new Progress(b0);
         Optional<Stop> stop = Optional.empty();
-        for (Step step : steps(in)) {
+        for (Step step : steps(in, plan)) {
             try {
                 stop = runStep(node, in, step, progress).map(code -> new Stop(step.id(), code));
             } catch (IOException | RuntimeException | AssertionError e) {
@@ -692,6 +746,20 @@ final class ManageTagsLiveTestSupport {
             sent = new Step(step.id(), step.slug(), new Removal(TagRemovalKind.REMOVE, in.tag(),
                 new TagScope.RepositoryPath(folder.path().get())), Optional.empty());
         }
+        if (step.action() instanceof IfStillTagged conditional) {
+            String label = "g" + conditional.which();
+            Optional<GroupTags> group = conditional.which() == 1 ? progress.latest.group1()
+                : progress.latest.group2();
+            if (!carries(group, progress.latest.byTag(),
+                conditional.which() == 1 ? in.group1() : in.group2())) {
+                node.record(step.stem(), "not needed: " + label + " no longer carries the tag;"
+                    + " nothing was sent");
+                progress.notes.add(step.id() + " not needed (" + label + " no longer carries the"
+                    + " tag)");
+                return Optional.empty();
+            }
+            sent = new Step(step.id(), step.slug(), conditional.removal(), Optional.empty());
+        }
         if (sent.action() instanceof SetActive) {
             progress.activeSet = true;
         }
@@ -748,20 +816,31 @@ final class ManageTagsLiveTestSupport {
     }
 
     /**
-     * Why B0 refuses to write: a read unknown, a group without workflow, anything carrying the
-     * tag, or a test user whose active tag is set or unknown.
+     * Why B0 refuses to write: a read unknown, a group without workflow, a test user whose active
+     * tag is set or unknown, and for {@link Plan#FROM_UNTAGGED} anything carrying the tag, for
+     * {@link Plan#FROM_TAGGED} a group not carrying it or an export by the tag that names any
+     * group but g1 and g2.
      */
-    static List<String> unclean(Round b0, Optional<ActiveTag> active) {
+    static List<String> unclean(Round b0, Optional<ActiveTag> active, Plan plan, Inputs in) {
         List<String> reasons = new ArrayList<>();
         unknown(b0).forEach(part -> reasons.add(part + " unknown"));
         b0.group1().filter(tags -> tags.workflows() == 0).ifPresent(tags ->
             reasons.add("g1 holds no workflow"));
         b0.group2().filter(tags -> tags.workflows() == 0).ifPresent(tags ->
             reasons.add("g2 holds no workflow"));
-        if (b0.group1().filter(tags -> !tags.tagged().isEmpty()).isPresent()
-            || b0.group2().filter(tags -> !tags.tagged().isEmpty()).isPresent()
-            || b0.byTag().filter(export -> !export.equals(TagExport.NONE)).isPresent()) {
+        if (plan == Plan.FROM_UNTAGGED && (b0.group1().filter(tags -> !tags.tagged().isEmpty())
+            .isPresent() || b0.group2().filter(tags -> !tags.tagged().isEmpty()).isPresent()
+            || b0.byTag().filter(export -> !export.equals(TagExport.NONE)).isPresent())) {
             reasons.add("the test tag is in use: choose a new tag");
+        }
+        if (plan == Plan.FROM_TAGGED) {
+            b0.group1().filter(tags -> tags.tagged().isEmpty()).ifPresent(tags ->
+                reasons.add("g1 does not carry the test tag"));
+            b0.group2().filter(tags -> tags.tagged().isEmpty()).ifPresent(tags ->
+                reasons.add("g2 does not carry the test tag"));
+            b0.byTag().filter(export -> !export.groups().equals(new TreeSet<>(
+                List.of(in.group1(), in.group2())))).ifPresent(export -> reasons.add("the export"
+                    + " by the tag shows " + describe(export, in) + ", not exactly g1 and g2"));
         }
         if (active.isEmpty() || active.get() != ActiveTag.NONE) {
             reasons.add("the test user's active tag is " + describe(active) + ", not none");

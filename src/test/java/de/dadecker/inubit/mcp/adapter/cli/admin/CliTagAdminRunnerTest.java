@@ -75,7 +75,9 @@ class CliTagAdminRunnerTest {
     private static final String PASSWORD = TestSecrets.CONFIGURED_PASSWORD;
     private static final String PROMPT = "CLI|jdoe@inubit-dev-1.example.test> ";
     private static final String PREAMBLE = "JAVA_HOME is set\nPassword: \n";
-    private static final TagScope GROUP = new TagScope.DiagramGroup("GRP-01", "technical");
+    private static final TagScope GROUP =
+        new TagScope.DiagramGroup("GRP-01", "technical", "jdoe");
+    private static final TagScope PATH = new TagScope.RepositoryPath("/Root/jdoe/xsd");
 
     @TempDir
     Path cliHome;
@@ -257,7 +259,9 @@ class CliTagAdminRunnerTest {
         ScriptedProcessLauncher cli = new ScriptedProcessLauncher();
         for (String form : List.of("tag --tagSetActive 'REL-1' --tagUser 'jdoe'",
             "tag --tagRemoveActive --tagUser 'jdoe'",
-            "tag --tagRemove 'REL-1' --tagWorkflowGroup 'GRP-01' --tagWorkflowType 'technical'",
+            "tag --tagRemove 'REL-1' --tagRepositoryPath '/Root/jdoe/xsd'",
+            "tag --tagDelete 'REL-1' --tagWorkflowGroup 'GRP-01' --tagWorkflowType 'technical'"
+                + " --tagUser 'jdoe'",
             "tag --tagDelete 'REL-1' --tagRepositoryPath '/Root/jdoe/xsd'")) {
             cli.expect(Pattern.compile(Pattern.quote(form))).replying("tag_ok");
         }
@@ -265,9 +269,9 @@ class CliTagAdminRunnerTest {
 
         runner.setActiveTag("jdoe", "REL-1", PERMIT);
         runner.removeActiveTag("jdoe", PERMIT);
-        runner.removeTag(TagRemovalKind.REMOVE, "REL-1", GROUP, PERMIT);
-        runner.removeTag(TagRemovalKind.DELETE, "REL-1",
-            new TagScope.RepositoryPath("/Root/jdoe/xsd"), PERMIT);
+        runner.removeTag(TagRemovalKind.REMOVE, "REL-1", PATH, PERMIT);
+        runner.removeTag(TagRemovalKind.DELETE, "REL-1", GROUP, PERMIT);
+        runner.removeTag(TagRemovalKind.DELETE, "REL-1", PATH, PERMIT);
 
         cli.verifyComplete();
         ScriptedProcessLauncher.Launch launch = cli.launches().getFirst();
@@ -331,9 +335,11 @@ class CliTagAdminRunnerTest {
         for (ThrowingCallable call : List.<ThrowingCallable>of(
             () -> runner.setActiveTag("jdoe", "REL'1", PERMIT),
             () -> runner.removeActiveTag("-jdoe", PERMIT),
-            () -> runner.removeTag(TagRemovalKind.REMOVE, "REL-1",
-                new TagScope.DiagramGroup("*", "technical"), PERMIT),
-            () -> runner.removeTag(TagRemovalKind.REMOVE, "REL-1", null, PERMIT))) {
+            () -> runner.removeTag(TagRemovalKind.DELETE, "REL-1",
+                new TagScope.DiagramGroup("*", "technical", "jdoe"), PERMIT),
+            () -> runner.removeTag(TagRemovalKind.REMOVE, "REL-1", null, PERMIT),
+            // 8.1.17 refuses --tagRemove in a diagram group (T055 run 2)
+            () -> runner.removeTag(TagRemovalKind.REMOVE, "REL-1", GROUP, PERMIT))) {
             ToolError error = errorOf(call);
             assertThat(error.code()).isEqualTo(ErrorCode.INVALID_INPUT);
             assertThat(error.node()).contains(DEV);
@@ -368,7 +374,7 @@ class CliTagAdminRunnerTest {
         cli.expect("tag --tagRemove").replying("tag_repository_user_refused");
 
         ToolError error = errorOf(() -> runner(cli).removeTag(TagRemovalKind.REMOVE, "REL-1",
-            GROUP, PERMIT));
+            PATH, PERMIT));
 
         assertThat(error.node()).contains(DEV);
         assertThat(error.excerpt()).hasValueSatisfying(excerpt ->

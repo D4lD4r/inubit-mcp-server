@@ -45,9 +45,9 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Feature 022 T064: {@code manage_tags} over MCP (contracts/mcp-tools-delta.md "Common rules" and
- * "manage_tags", spec US4 AS12–AS14, FR-019a) — the description offering {@code removeTag} and
- * {@code deleteTag} only where their coverage rows are reachable, the destructive annotations, the
- * input schema refusing bad actions and fields before the service while a removal without
+ * "manage_tags", spec US4 AS12–AS14, FR-019a) — the description offering {@code deleteTag} only
+ * where its coverage rows are reachable and never {@code removeTag}, the destructive annotations,
+ * the input schema refusing bad actions and fields before the service while a removal without
  * {@code scope} reaches it (AS13), the arguments and the MCP client reaching the service, the
  * preview and result shapes validating against {@code manage_tags.output.json}, and the
  * {@code CONFLICT} error carrying the fresh preview in its details. The service is replaced by a
@@ -68,21 +68,25 @@ class ManageTagsToolTest {
         + " `confirmationCode` to execute. If the state changed meanwhile, the CONFLICT error"
         + " carries a new preview in its details. With `CLIENT` (never on production) the first"
         + " call executes. Needs write access; production only with write.productionOptIn.";
-    /** Today's production description: both removals wait for the live check (FR-019a). */
-    private static final String NOT_OFFERED = ACTIVE_TAG + " Not offered yet: removeTag and"
-        + " deleteTag. A check on a test system must first show that INUBIT limits the removal of"
-        + " a tag to the named diagram group or repository path; until then such a call is"
-        + " refused." + CONFIRMATION;
-    /** The description once both removals are reachable (AS13, AS14, FR-018). */
-    private static final String OFFERED = ACTIVE_TAG + " With removeTag and deleteTag (`tag`,"
-        + " `scope`), a tag is removed in exactly one technical diagram group of the"
-        + " inventory.owner of the {node} (`scope` with `diagramGroup` and `diagramType`); a call"
+    /** removeTag acts only in a repository path, which is refused (T055 run 2, research D-18). */
+    private static final String REMOVE_TAG = " Not offered: removeTag. INUBIT removes a tag with"
+        + " it only in a repository path (a diagram group gives INVALID_INPUT), and a repository"
+        + " path is refused because the tagged repository files cannot be read for the backup"
+        + " yet.";
+    /** Today's production description: deleteTag waits for the live check (FR-019a). */
+    private static final String NOT_OFFERED = ACTIVE_TAG + " Not offered yet: deleteTag. A check"
+        + " on a test system must first show that INUBIT limits the deletion of a tag to the"
+        + " named diagram group; until then such a call is refused." + REMOVE_TAG + CONFIRMATION;
+    /** The description once deleteTag is reachable (AS13, AS14, FR-018). */
+    private static final String OFFERED = ACTIVE_TAG + " With deleteTag (`tag`, `scope`), a tag is"
+        + " deleted in exactly one technical diagram group of the inventory.owner of the {node}"
+        + " (`scope` with `diagramGroup` and `diagramType`; the owner is sent with it); a call"
         + " without `scope` is refused with INVALID_INPUT before anything is read, and a `scope`"
         + " with `repositoryPath` is refused because the tagged repository files cannot be read"
         + " for the backup yet. The preview lists the workflow and module versions carrying the"
         + " tag in the diagram group and counts those outside it, which keep the tag; that list"
         + " is stored as a backup before anything is sent, and nothing is sent if the backup"
-        + " fails. The result reads both again." + CONFIRMATION;
+        + " fails. The result reads both again." + REMOVE_TAG + CONFIRMATION;
     private static final List<String> ACTIONS = List.of("setActiveTag", "removeActiveTag",
         "removeTag", "deleteTag");
     private static final NodeId TEST = NodeId.parse("test/node1");
@@ -106,7 +110,7 @@ class ManageTagsToolTest {
         client = McpTestClient.start(List.of(new ManageTagsTool(request -> {
             requests.add(request);
             return response.get();
-        }, List.of())), scrubber);
+        }, false)), scrubber);
         client.initialize();
     }
 
@@ -144,24 +148,16 @@ class ManageTagsToolTest {
     }
 
     @Test
-    void theDescriptionOffersTheRemovalsOnlyWhereTheirRowsAreReachable() {
-        assertThat(ManageTagsTool.description(List.of())).isEqualTo(NOT_OFFERED);
-        assertThat(ManageTagsTool.description(List.of("removeTag", "deleteTag")))
-            .isEqualTo(OFFERED);
-        assertThat(ManageTagsTool.description(List.of("removeTag"))).isEqualTo(ACTIVE_TAG
-            + " With removeTag (`tag`, `scope`), a tag is removed in exactly one technical"
-            + " diagram group" + OFFERED.substring(OFFERED.indexOf(" of the inventory.owner"),
-                OFFERED.indexOf(CONFIRMATION)) + " Not offered yet: deleteTag. A check on a test"
-            + " system must first show that INUBIT limits the removal of a tag to the named"
-            + " diagram group or repository path; until then such a call is refused."
-            + CONFIRMATION);
+    void theDescriptionOffersDeleteTagOnlyWhereItsRowsAreReachableAndNeverRemoveTag() {
+        assertThat(ManageTagsTool.description(false)).isEqualTo(NOT_OFFERED);
+        assertThat(ManageTagsTool.description(true)).isEqualTo(OFFERED);
     }
 
     @Test
     void theAnnotationsAreThoseOfAChangeTool() {
         assertThat(new ManageTagsTool(request -> {
             throw new AssertionError("not called");
-        }, List.of()).annotations())
+        }, false).annotations())
             .isEqualTo(ToolHints.destructive("Manage the tags of an INUBIT {node}"));
     }
 

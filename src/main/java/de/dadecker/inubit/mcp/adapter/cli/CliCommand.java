@@ -66,8 +66,9 @@ import java.util.regex.Pattern;
  *       --tagUser '<user>'} ({@link #tagSetActive}), {@code tag --tagRemoveActive --tagUser
  *       '<user>'} ({@link #tagRemoveActive}), and {@code tag --tagRemove|--tagDelete '<tag>'}
  *       with exactly one {@link TagScope}: {@code --tagWorkflowGroup '<group>'
- *       --tagWorkflowType '<type>'} or {@code --tagRepositoryPath '<path>'}
- *       ({@link #tagRemoval}). Never {@code --tagDiagram} or {@code --tagWorkflowGroupExclude}.
+ *       --tagWorkflowType '<type>' --tagUser '<owner>'} (only {@code --tagDelete}) or
+ *       {@code --tagRepositoryPath '<path>'} ({@link #tagRemoval}). Never {@code --tagDiagram}
+ *       or {@code --tagWorkflowGroupExclude}.
  *   <li>Process ids are 1–19 decimal digits without leading zero ({@code ^[1-9][0-9]{0,18}$}).
  *   <li>Every other value (workflow, type, group, owner) must match
  *       {@link #VALUE} (no leading {@code -}) and is wrapped in single quotes; a value with
@@ -322,13 +323,17 @@ public final class CliCommand {
 
     /**
      * The scope of a tag removal (feature 022, research D-18): one diagram group of one diagram
-     * type, or one repository path. Without it StartCLI acts on the whole owner, so a removal
-     * always takes one.
+     * type of its owner, or one repository path. Without it StartCLI acts on the whole owner, so a
+     * removal always takes one.
      */
     public sealed interface TagScope {
 
-        /** {@code --tagWorkflowGroup '<group>' --tagWorkflowType '<type>'}: one group. */
-        record DiagramGroup(String group, String type) implements TagScope {
+        /**
+         * {@code --tagWorkflowGroup '<group>' --tagWorkflowType '<type>' --tagUser '<owner>'}: one
+         * group of {@code owner} (8.1.17 answers {@code --tagDelete} without {@code --tagUser}
+         * with "Missing user name.", T055).
+         */
+        record DiagramGroup(String group, String type, String owner) implements TagScope {
         }
 
         /** {@code --tagRepositoryPath '<path>'}, a {@link #REPOSITORY_PATH}. */
@@ -357,7 +362,9 @@ public final class CliCommand {
     /**
      * {@code tag --tagRemove|--tagDelete '<tag>'} limited to {@code scope} (feature 022, research
      * D-18). The group is one {@link #VALUE}, so never the empty list ("all groups") nor a comma
-     * list; a repository path scope takes no {@code --tagUser}, which StartCLI refuses with it.
+     * list, and is sent with its owner; a repository path scope takes no {@code --tagUser}, which
+     * StartCLI refuses with it. {@code --tagRemove} takes only a repository path: 8.1.17 refuses
+     * it in a diagram group ("tagRepositoryPath is needed", T055).
      */
     public static CliCommand tagRemoval(TagRemovalKind kind, String tag, TagScope scope) {
         if (kind == null) {
@@ -368,12 +375,18 @@ public final class CliCommand {
             throw invalid("A tag removal needs a diagram group or a repository path",
                 "Without a scope StartCLI removes the tag for the whole owner (research D-18)");
         }
+        if (kind == TagRemovalKind.REMOVE && scope instanceof TagScope.DiagramGroup) {
+            throw invalid("--tagRemove takes only a repository path, not a diagram group",
+                "INUBIT 8.1.17 answers it in a diagram group with 'tagRepositoryPath is needed'"
+                    + " (research D-18, T055)");
+        }
         List<String> tokens = new ArrayList<>(
             List.of("tag", kind.option, quotedValue(kind.option, tag)));
         switch (scope) {
             case TagScope.DiagramGroup group -> tokens.addAll(List.of(
                 "--tagWorkflowGroup", quotedValue("--tagWorkflowGroup", group.group()),
-                "--tagWorkflowType", quotedValue("--tagWorkflowType", group.type())));
+                "--tagWorkflowType", quotedValue("--tagWorkflowType", group.type()),
+                "--tagUser", quotedValue("--tagUser", group.owner())));
             case TagScope.RepositoryPath path -> tokens.addAll(List.of("--tagRepositoryPath",
                 quotedRepositoryPath("--tagRepositoryPath", path.path())));
         }
