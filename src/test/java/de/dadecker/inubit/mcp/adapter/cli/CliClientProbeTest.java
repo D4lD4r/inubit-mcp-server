@@ -139,6 +139,19 @@ class CliClientProbeTest {
     }
 
     @Test
+    void aSevenFourNodeStartsNoHelpRunWhileNothingIsVerifiedOnIt() {
+        // feature 025 T015 (research D-9, FR-010a): 7.4 is CLI-only, but no tool uses its client
+        for (VersionSetting version : List.of(VersionSetting.V7_4,
+            new VersionSetting.Pinned(InubitVersion.parse("7.4.0.90").orElseThrow()))) {
+            server = node(version).cliJavaHome(javaHome).build();
+            FakeProcessLauncher launcher = FakeProcessLauncher.replaying("v6_1", "help");
+
+            assertThat(probe(launcher).optionsFor(ID, TIMEOUT)).as(version.toString()).isEmpty();
+            assertThat(launcher.launchCount()).as(version.toString()).isZero();
+        }
+    }
+
+    @Test
     void nodesNotPinnedToACliOnlyVersionStartNoHelpRun() {
         FakeProcessLauncher launcher = FakeProcessLauncher.replaying("v6_1", "help");
         CliClientProbe probe = probe(launcher);

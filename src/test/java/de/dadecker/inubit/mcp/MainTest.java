@@ -1282,12 +1282,12 @@ class MainTest {
                 + " is verified, secrets: credentialStore (macOS Keychain), username ←")
             .contains("\nclient " + c74 + " (Java 8): CLI 7.4.0.90\n")
             .doesNotContain("ships with", "not declared supported", "probe failed",
-                "reached through StartCLI only")
+                "reached through StartCLI only", "options:", "StartCLI client offers no")
             .contains("Result: OK")
             .doesNotContain("://", "example.test", PASSWORD, USERNAME);
-        // local probes only: the version probe runs first, no call carries a server address
-        String arguments = Files.readString(c74.resolve("bin/arguments"));
-        assertThat(arguments).startsWith("-v\n").doesNotContain("://", "example.test", "-u");
+        // local version probe only (T015, research D-9): no -h option probe while 7.4 is not
+        // verified, and no call carries a server address
+        assertThat(Files.readString(c74.resolve("bin/arguments"))).isEqualTo("-v\n");
     }
 
     /** An executable {@code <home>/client/bin/startcli.sh} running {@code body}; the CLI home. */

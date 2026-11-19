@@ -922,6 +922,27 @@ class ConfigValidatorTest {
         }
 
         @Test
+        void aV74NodeHasNoClientOptionFinding() {
+            // feature 025 T015 (research D-9, FR-010a): no -h option probe runs for 7.4, so the
+            // settings that warn for a 6.1 client without these options give no option finding
+            ValidationReport report = validate(server("""
+                versionLine: V7_4
+                tls:
+                  trustStore: /opt/truststore.p12
+                  disableHostnameVerification: true
+                  pinnedCertificateSha256: '%s'
+                cli:
+                  home: /opt/client
+                  javaHome: /opt/jdk17
+                """.formatted(PIN)));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("dev/node1: hostname verification is"
+                + " disabled; the certificate is checked against the pinned SHA-256 fingerprint"
+                + " instead");
+        }
+
+        @Test
         void aClientWithoutHostNameOptionIsAWarningWhenHostNamesAreSkippedWithAPin() {
             // feature 012 (FR-012a, US5-4): an option that could not be read counts as absent
             EffectiveNodeConfig node = node("versionLine: V6_1\ntls:\n"

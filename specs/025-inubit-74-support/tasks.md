@@ -214,7 +214,7 @@ and `--check-config` tests, offline, on both CI jobs.
   (`--check-config` builds its own `SystemProcessLauncher`, `Launcher.java:415`; with a POSIX
   `startcli.sh` stand-in that records its arguments, as `MainTest` does today, disabled on Windows:
   a `"7.4"` entry runs `-v`, shows a "not evaluable" result and the suffix, contacts no node).
-- [ ] T015 [US1] No `-h` option probe while 7.4 is not verified (research D-9, spec FR-010a,
+- [X] T015 [US1] No `-h` option probe while 7.4 is not verified (research D-9, spec FR-010a,
   FR-007): `main/adapter/cli/CliClientProbe.java` `optionsFor` (`:75-79`) returns empty while
   `matrix.allNotYetVerified(pin)` (as for a non-CLI-only node), so `--check-config`
   (`Launcher.java:420-441`) runs no `-h` for a 7.4 node and neither `ConfigValidator.clientOptionWarnings`

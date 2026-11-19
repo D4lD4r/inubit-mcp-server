@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
+import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -68,13 +69,16 @@ public final class CliClientProbe {
     }
 
     /**
-     * The client options of {@code node}: empty for a node not pinned to a CLI-only version,
-     * else the cached options or those of a synchronous {@code -h} run bounded by
-     * {@code timeout}. Concurrent first calls may each run {@code -h}.
+     * The client options of {@code node}: empty for a node not pinned to a CLI-only version or
+     * to a version on which nothing is verified yet (feature 025, research D-9: 7.4), else the
+     * cached options or those of a synchronous {@code -h} run bounded by {@code timeout}.
+     * Concurrent first calls may each run {@code -h}.
      */
     public Optional<CliClientOptions> optionsFor(NodeId node, Duration timeout) {
         EffectiveNodeConfig server = nodes.apply(node);
-        if (!matrix.isCliOnly(NodeVersionState.initial(server.versionLine()).effectiveVersion())) {
+        Optional<InubitVersion> version =
+            NodeVersionState.initial(server.versionLine()).effectiveVersion();
+        if (!matrix.isCliOnly(version) || matrix.allNotYetVerified(version)) {
             return Optional.empty();
         }
         CliRunner.Selection selection = runner.select(server);
