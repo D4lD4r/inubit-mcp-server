@@ -34,18 +34,31 @@ public record ClientVersion(InubitVersion version, Optional<InubitVersion> suppo
         range(supportedFrom, supportedTo); // rejects a lower bound above the upper bound
     }
 
+    /** {@link #compare(Optional, PatchDepth)} with {@link PatchDepth#THREE}. */
+    public Comparison compare(Optional<InubitVersion> server) {
+        return compare(server, PatchDepth.THREE);
+    }
+
     /**
      * {@code MATCH} if major, minor and patch are equal, {@code MISMATCH} if any differs,
      * {@code NOT_COMPARABLE} if the server is unknown or either version has no patch. Suffixes
-     * are ignored.
+     * are ignored. With {@link PatchDepth#FOUR} an equal major.minor.patch is then decided by the
+     * build: equal or absent on both sides {@code MATCH}, different {@code MISMATCH}, present on
+     * one side only {@code NOT_COMPARABLE} (FR-003).
      */
-    public Comparison compare(Optional<InubitVersion> server) {
+    public Comparison compare(Optional<InubitVersion> server, PatchDepth depth) {
         if (server.isEmpty() || version.patch().isEmpty() || server.get().patch().isEmpty()) {
             return Comparison.NOT_COMPARABLE;
         }
         InubitVersion s = server.get();
-        return version.sameMinor(s) && version.patch().equals(s.patch())
-            ? Comparison.MATCH : Comparison.MISMATCH;
+        if (!version.sameMinor(s) || !version.patch().equals(s.patch())) {
+            return Comparison.MISMATCH;
+        }
+        if (depth == PatchDepth.THREE || version.build().equals(s.build())) {
+            return Comparison.MATCH;
+        }
+        return version.build().isPresent() && s.build().isPresent()
+            ? Comparison.MISMATCH : Comparison.NOT_COMPARABLE;
     }
 
     /**

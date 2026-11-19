@@ -118,7 +118,7 @@ tests may pass at once.
   `"6.1.0.89-HF1"` → build 89; `"8.1.17"` → build empty; `"7.4.0.90"` and `"7.4.0.80"` compare as
   equal (`compareTo` = 0); `"7.4.0.90-HF1"` → build 90, raw `7.4.0.90-HF1`; `"7.4.0.90.5"` →
   build 90, the rest only in raw.
-- [ ] T006 Patch depth (research D-3, spec FR-003, data-model "ClientVersion.Comparison"): new
+- [X] T006 Patch depth (research D-3, spec FR-003, data-model "ClientVersion.Comparison"): new
   `main/domain/model/PatchDepth.java` (`THREE`, `FOUR`); `main/domain/model/ClientVersion.java`
   gets `compare(server, PatchDepth)`, the existing `compare(server)` delegates with `THREE`. Test
   first: `ClientVersionTest`, every row of the data-model table with `FOUR` (`7.4.0.90`/`7.4.0.90`

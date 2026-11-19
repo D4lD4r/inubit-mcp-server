@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class ClientVersionTest {
@@ -114,6 +115,43 @@ class ClientVersionTest {
         ClientVersion clientWithoutPatch =
             new ClientVersion(known("8.1"), Optional.empty(), Optional.empty());
         assertThat(clientWithoutPatch.compare(version("8.1.17")))
+            .isEqualTo(Comparison.NOT_COMPARABLE);
+    }
+
+    /** Every row of data-model.md "ClientVersion.Comparison" with depth FOUR (FR-003). */
+    @ParameterizedTest(name = "client {0} vs server {1} -> {2}")
+    @CsvSource({
+        "7.4.0.90, 7.4.0.90, MATCH",
+        "7.4.0.80, 7.4.0.90, MISMATCH",
+        "7.4.0,    7.4.0.90, NOT_COMPARABLE",
+        "7.4.0.90, 7.4.0,    NOT_COMPARABLE",
+        "7.4.0,    7.4.1.5,  MISMATCH",
+        "7.4.0,    7.4.0,    MATCH",
+        "7.4,      7.4.0.90, NOT_COMPARABLE",
+        "7.4.0.90, 7.4,      NOT_COMPARABLE"
+    })
+    void depthFourComparesTheBuildAfterAnEqualPatch(String client, String server,
+        Comparison expected) {
+        ClientVersion c = new ClientVersion(known(client), Optional.empty(), Optional.empty());
+        assertThat(c.compare(version(server), PatchDepth.FOUR)).isEqualTo(expected);
+    }
+
+    @Test
+    void depthThreeIgnoresTheBuildAndIsTheDefault() {
+        ClientVersion client6189 =
+            new ClientVersion(known("6.1.0.89"), Optional.empty(), Optional.empty());
+        assertThat(client6189.compare(version("6.1.0.80"), PatchDepth.THREE))
+            .isEqualTo(Comparison.MATCH);
+        assertThat(client6189.compare(version("6.1.0.80"))).isEqualTo(Comparison.MATCH);
+        ClientVersion client740 =
+            new ClientVersion(known("7.4.0"), Optional.empty(), Optional.empty());
+        assertThat(client740.compare(version("7.4.0.90"), PatchDepth.THREE))
+            .isEqualTo(Comparison.MATCH);
+    }
+
+    @Test
+    void depthFourStillNeedsAKnownServer() {
+        assertThat(client817.compare(Optional.empty(), PatchDepth.FOUR))
             .isEqualTo(Comparison.NOT_COMPARABLE);
     }
 
