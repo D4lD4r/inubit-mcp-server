@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.io.TempDir;
  * {@code adapter/ProfileSecrets} delegates to it), is built within 20 s, and neither configured
  * password is in it.
  */
+@Tag("serial")
 class LogExcerptPerformanceTest {
 
     private static final String FIRST = TestSecrets.CONFIGURED_PASSWORD;

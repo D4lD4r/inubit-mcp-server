@@ -37,6 +37,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -56,6 +57,7 @@ import tools.jackson.databind.JsonNode;
  * with {@code TIMEOUT} within the same 10 s, and its baseUrl (a WireMock server) gets no request.
  */
 @Timeout(120)
+@Tag("serial")
 class HealthOverviewPerformanceTest {
 
     private static final Duration BUDGET = Duration.ofSeconds(10);

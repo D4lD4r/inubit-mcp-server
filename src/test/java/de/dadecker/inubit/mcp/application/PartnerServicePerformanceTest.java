@@ -33,6 +33,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -45,6 +46,7 @@ import org.junit.jupiter.api.Timeout;
  * JSON text of the tool.
  */
 @Timeout(60)
+@Tag("serial")
 class PartnerServicePerformanceTest {
 
     private static final NodeId NODE1 = NodeId.parse("dev/node1");
