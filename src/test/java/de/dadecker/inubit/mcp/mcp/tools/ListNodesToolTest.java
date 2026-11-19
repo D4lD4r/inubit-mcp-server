@@ -934,6 +934,30 @@ class ListNodesToolTest {
     }
 
     @Test
+    void theClientOfA74PinIsComparedOnFourPartsAndOfA61NodeOnThree() {
+        // 025-T017 (FR-003, research D-3): client line and client warning
+        NodeId node6 = NodeId.parse("qa/node6");
+        versions.clientProbed(node6, new ProbedClient(ClientKey.NONE,
+            clientVersion("7.4.0.80", "4.0.1", "7.4.0.80")));
+        versions.observed(QA4, InubitVersion.parse("6.1.0.89").orElseThrow());
+        versions.clientProbed(QA4, new ProbedClient(ClientKey.NONE,
+            clientVersion("6.1.0.80", "4.0.1", "6.1.0.80")));
+
+        Map<String, JsonNode> byNode = listVersions();
+
+        JsonNode on74 = byNode.get("qa/node6");
+        assertThat(on74.path("client").path("comparison").asString()).isEqualTo("mismatch");
+        assertThat(texts(on74.path("warnings"))).contains("StartCLI client 7.4.0.80 on qa/node6"
+            + " differs from INUBIT 7.4.0.90 (mismatch); StartCLI-backed tools still run, but"
+            + " their results may be unreliable");
+        JsonNode on61 = byNode.get("qa/node4");
+        assertThat(on61.path("server").path("version").asString()).isEqualTo("6.1.0.89");
+        assertThat(on61.path("client").path("comparison").asString())
+            .as("the fourth part is ignored on 6.1").isEqualTo("match");
+        assertThat(on61.has("warnings")).isFalse();
+    }
+
+    @Test
     void nodesOfOtherVersionsCarryNoWarningAbout74() {
         // 025-T014: 6.1, 8.1 (line and pin) and 9.0 keep their warnings (none here)
         versions.detected(DEV1, InubitVersion.parse("9.0.7").orElseThrow());

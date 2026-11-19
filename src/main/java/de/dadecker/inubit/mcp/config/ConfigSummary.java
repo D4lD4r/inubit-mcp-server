@@ -408,7 +408,8 @@ public final class ConfigSummary {
             + (read.disableHostNameVerification() ? "" : "no ") + "host-name option"));
         String range = details.isEmpty() ? "" : " (" + String.join("; ", details) + ")";
         String server = setting instanceof VersionSetting.Pinned pinned
-            ? "client vs pin: " + switch (client.compare(Optional.of(pinned.version()))) {
+            ? "client vs pin: " + switch (matrix.comparePatch(client,
+                    Optional.of(pinned.version()))) {
                 case MATCH -> "match";
                 case MISMATCH -> "mismatch";
                 case NOT_COMPARABLE -> "not comparable";

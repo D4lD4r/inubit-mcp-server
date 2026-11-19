@@ -247,7 +247,7 @@ and `--check-config` tests, offline, on both CI jobs.
 
 **Goal**: spec US3, FR-003, SC-004.
 
-- [ ] T017 [US3] Patch depth at every comparison (research D-3): replace every
+- [X] T017 [US3] Patch depth at every comparison (research D-3): replace every
   `ClientVersion.compare(...)` call by `matrix.comparePatch(...)` — `main/application/VersionGate.java:819`
   (`checkClient`), `main/config/ConfigSummary.java:408` ("client vs pin"),
   `main/application/NodeOverview.java:145` and `:250` (`list_nodes` client warning and line). The

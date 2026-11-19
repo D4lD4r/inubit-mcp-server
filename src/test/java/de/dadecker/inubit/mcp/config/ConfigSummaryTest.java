@@ -1086,6 +1086,20 @@ class ConfigSummaryTest {
         assertThat(summary.split("not used until", -1)).hasSize(3);
     }
 
+    @Test
+    void theClientIsComparedWithA74PinOnFourPartsAndWithA61PinOnThree() {
+        // feature 025 T017 (FR-003, research D-3)
+        String on74 = render(V7_4,
+            Map.of(NodeId.parse("test/node2"), client("7.4.0.80", null, null)));
+        String on61 = render(V6_1.replace("\"6.1.0.89-HF1\"", "\"6.1.0.89\""),
+            Map.of(NodeId.parse("test/node2"), client("6.1.0.80", null, null)));
+
+        assertThat(on74).contains("managing tags), client: 7.4.0.80, client vs pin: mismatch;"
+            + " not used until a 7.4 capability is verified, secrets:");
+        assertThat(on61).as("the fourth part is ignored on 6.1")
+            .contains("managing tags), client: 6.1.0.80, client vs pin: match, secrets:");
+    }
+
     // --- feature 012 T021: the client options of a 6.1 node (FR-012a, research D-8) -----------
 
     @Test

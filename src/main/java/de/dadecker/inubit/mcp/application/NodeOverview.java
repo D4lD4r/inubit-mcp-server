@@ -143,7 +143,7 @@ public final class NodeOverview {
         }
         // FR-011, US1-4: what the client means for the StartCLI-backed tools, as in get_health
         client.flatMap(state::clientFor).map(Timed::value).flatMap(known ->
-            HealthService.clientWarning(id, known, version, known.compare(version)))
+            HealthService.clientWarning(id, known, version, matrix.comparePatch(known, version)))
             .ifPresent(warnings::add);
         // feature 025 (FR-010a, research D-9): with or without a client, no tool uses one yet
         if (matrix.allNotYetVerified(judged)) {
@@ -247,7 +247,7 @@ public final class NodeOverview {
             .orElse(NodeSummary.Server.NOT_YET_DETECTED);
     }
 
-    private static NodeSummary.Client client(NodeVersionState state,
+    private NodeSummary.Client client(NodeVersionState state,
         Optional<InubitVersion> version, Optional<ClientKey> current) {
         if (current.isEmpty()) {
             return NodeSummary.Client.state("not_available", Optional.empty(), Optional.empty());
@@ -255,7 +255,7 @@ public final class NodeOverview {
         ClientKey key = current.get();
         if (state.clientFor(key).isPresent()) {
             ClientVersion client = state.clientFor(key).get().value();
-            return NodeSummary.Client.of(client, client.compare(version));
+            return NodeSummary.Client.of(client, matrix.comparePatch(client, version));
         }
         return state.clientFailureFor(key)
             .map(failure -> NodeSummary.Client.state(failure.value() == ErrorCode.TIMEOUT

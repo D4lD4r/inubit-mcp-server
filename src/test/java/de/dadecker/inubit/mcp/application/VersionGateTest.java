@@ -20,6 +20,7 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
+import de.dadecker.inubit.mcp.domain.model.PatchDepth;
 import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
@@ -1227,6 +1228,42 @@ class VersionGateTest {
             + " verified for INUBIT 7.4; modules of INUBIT 7.4 cannot be looked up");
         assertThat(detection.calls).isZero();
         assertThat(probe.calls).as("no StartCLI run").isEmpty();
+    }
+
+    /**
+     * Feature 025 T017 (FR-003, research D-3): the patch comparison of the client check uses the
+     * depth of the server's matrix entry, four parts on 7.4 and three on 6.1. A test matrix
+     * supports monitoring through StartCLI on both, so the comparison is reached.
+     */
+    @Test
+    void theClientPatchComparisonUsesTheFourthPartOn74AndNotOn61() {
+        Map<Capability, Set<Channel>> cli = Map.of(Capability.MONITORING, CLI);
+        Map<Capability, SupportState> monitoring =
+            Map.of(Capability.MONITORING, SupportState.SUPPORTED);
+        CapabilityMatrix matrix = new CapabilityMatrix(List.of(
+            new CapabilityMatrix.Entry(new VersionRange(6, 1, 6, 1), monitoring, cli, true),
+            new CapabilityMatrix.Entry(new VersionRange(7, 4, 7, 4), monitoring, cli, true,
+                Map.of(), PatchDepth.FOUR)),
+            all(SupportState.SUPPORTED));
+        withClient.add(V7_4_PINNED);
+        withClient.add(V6_1_PINNED);
+
+        versions.clientProbed(V7_4_PINNED, new ProbedClient(ClientKey.NONE,
+            client("7.4.0.80", "4.0.1", "7.4.0.80")));
+        Admission older = gate(matrix).admit(V7_4_PINNED, Capability.MONITORING, Kind.READ, REST);
+        versions.clientProbed(V7_4_PINNED, new ProbedClient(ClientKey.NONE,
+            client("7.4.0.90", "4.0.1", "7.4.0.90")));
+        Admission equal = gate(matrix).admit(V7_4_PINNED, Capability.MONITORING, Kind.READ, REST);
+        versions.clientProbed(V6_1_PINNED, new ProbedClient(ClientKey.NONE,
+            client("6.1.0.80", "4.0.1", "6.1.0.80")));
+        Admission on61 = gate(matrix).admit(V6_1_PINNED, Capability.MONITORING, Kind.READ, REST);
+
+        assertThat(older.warnings()).containsExactly("StartCLI client 7.4.0.80 on legacy74/node2"
+            + " differs from INUBIT 7.4.0.90 (mismatch);"
+            + " StartCLI-backed tools still run, but their results may be unreliable");
+        assertThat(equal.warnings()).isEmpty();
+        assertThat(on61.warnings()).as("the fourth part is ignored on 6.1").isEmpty();
+        assertThat(probe.calls).as("the clients are known, no StartCLI run").isEmpty();
     }
 
     @Test

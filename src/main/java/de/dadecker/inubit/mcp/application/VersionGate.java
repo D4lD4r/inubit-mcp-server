@@ -870,7 +870,7 @@ public final class VersionGate {
                     + unknown(node, state, matrix.cliOnlyLines())
                     + "; StartCLI results may be unreliable");
             case COMPATIBLE -> {
-                if (client.compare(version) == ClientVersion.Comparison.MISMATCH) {
+                if (matrix.comparePatch(client, version) == ClientVersion.Comparison.MISMATCH) {
                     warnings.add(mismatchWarning(node, client, version.orElseThrow()));
                 }
             }
@@ -879,7 +879,8 @@ public final class VersionGate {
 
     /**
      * The warning about a client whose major.minor.patch differs from the server's (FR-011), in
-     * tool results as in {@code get_health} and {@code list_nodes}.
+     * tool results as in {@code get_health} and {@code list_nodes}; on a version whose matrix
+     * entry compares four parts (feature 025: 7.4) also a differing fourth part.
      */
     static String mismatchWarning(NodeId node, ClientVersion client, InubitVersion server) {
         return "StartCLI client " + client.version().raw() + " on " + node
