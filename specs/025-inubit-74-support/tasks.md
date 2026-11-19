@@ -297,7 +297,7 @@ and `--check-config` tests, offline, on both CI jobs.
   host-name-verification option (input for spec FR-029 and feature 012 FR-012a), and the help text
   contains `--execCommand`. No production change expected; if the parser cannot read the 7.4
   format, report it as a finding instead of changing the parser (the 7.4 client path is Mandate B).
-- [ ] T021 [US4] Recorder case table (research D-12, data-model "Recorder case"):
+- [X] T021 [US4] Recorder case table (research D-12, data-model "Recorder case"):
   `tools/record-fixtures.ps1` — replace the `$Cases` hashtable (`:87-94`) by a table of case objects
   (`Name`, `Description`, `Kind`, `Arguments`/`Commands`, `Credentials`, `Contacts`, `Folder`,
   `FixtureName`); the six `win_*` cases keep exactly their behaviour, output names and folder

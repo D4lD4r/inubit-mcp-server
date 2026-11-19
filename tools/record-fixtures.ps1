@@ -79,19 +79,81 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $RepositoryRoot = Split-Path -Parent $PSScriptRoot
-if (-not $OutputDirectory) {
-    $OutputDirectory = Join-Path $RepositoryRoot 'src\test\resources\fixtures\windows'
-}
 
-# The case catalogue; credentials = the case asks for the username and password.
-$Cases = [ordered]@{
-    win_version   = 'startcli.bat -v (no server, no credentials)'
-    win_help      = 'startcli.bat -h (no server, no credentials)'
-    win_modules   = 'module export of -Owner into a C:/ path (credentials, -CliUrl, -Owner)'
-    win_failure   = 'uptime against https://127.0.0.1:9 (no server, dummy password)'
-    win_argv      = 'argument list the Java main receives for the contract test values'
-    win_backslash = 'module export with a C:\ path in the command (credentials, -CliUrl, -Owner)'
-}
+# The case catalogue (feature 025, research D-12): the only place for the StartCLI arguments and
+# session commands of a case. Kind = how the case runs; Arguments = the case's own arguments
+# (<owner> and <file> are filled in by the export kinds); Commands = the session commands;
+# Credentials = the case asks for the username and password; Contacts = the case contacts the
+# server of -CliUrl; Folder (repository-relative, unless -OutputDirectory) and FixtureName = where
+# and under which name the case's files are written.
+$Cases = @(
+    [pscustomobject]@{
+        Name        = 'win_version'
+        Description = 'startcli.bat -v (no server, no credentials)'
+        Kind        = 'local'
+        Arguments   = @('-v')
+        Commands    = @()
+        Credentials = $false
+        Contacts    = $false
+        Folder      = 'src\test\resources\fixtures\windows'
+        FixtureName = 'win_version'
+    }
+    [pscustomobject]@{
+        Name        = 'win_help'
+        Description = 'startcli.bat -h (no server, no credentials)'
+        Kind        = 'local'
+        Arguments   = @('-h')
+        Commands    = @()
+        Credentials = $false
+        Contacts    = $false
+        Folder      = 'src\test\resources\fixtures\windows'
+        FixtureName = 'win_help'
+    }
+    [pscustomobject]@{
+        Name        = 'win_modules'
+        Description = 'module export of -Owner into a C:/ path (credentials, -CliUrl, -Owner)'
+        Kind        = 'export'
+        Arguments   = @('--execCommand', "export --exportModule '' --exportModuleGroup '' --exportModuleUser '<owner>' --exportFile <file>")
+        Commands    = @()
+        Credentials = $true
+        Contacts    = $true
+        Folder      = 'src\test\resources\fixtures\windows'
+        FixtureName = 'win_modules'
+    }
+    [pscustomobject]@{
+        Name        = 'win_failure'
+        Description = 'uptime against https://127.0.0.1:9 (no server, dummy password)'
+        Kind        = 'failure'
+        Arguments   = @('--execCommand', 'uptime')
+        Commands    = @()
+        Credentials = $false
+        Contacts    = $false
+        Folder      = 'src\test\resources\fixtures\windows'
+        FixtureName = 'win_failure'
+    }
+    [pscustomobject]@{
+        Name        = 'win_argv'
+        Description = 'argument list the Java main receives for the contract test values'
+        Kind        = 'argv'
+        Arguments   = @('--execCommand', 'uptime')
+        Commands    = @()
+        Credentials = $false
+        Contacts    = $false
+        Folder      = 'src\test\resources\fixtures\windows'
+        FixtureName = 'win_argv'
+    }
+    [pscustomobject]@{
+        Name        = 'win_backslash'
+        Description = 'module export with a C:\ path in the command (credentials, -CliUrl, -Owner)'
+        Kind        = 'export-backslash'
+        Arguments   = @('--execCommand', "export --exportModule '' --exportModuleGroup '' --exportModuleUser '<owner>' --exportFile <file>")
+        Commands    = @()
+        Credentials = $true
+        Contacts    = $true
+        Folder      = 'src\test\resources\fixtures\windows'
+        FixtureName = 'win_backslash'
+    }
+)
 
 # Same as StartCliEnvironment.WINDOWS_VARIABLES and WINDOWS_JAVA_TOOL_OPTIONS (research R-6).
 $AllowedVariables = @('SystemRoot', 'windir', 'SystemDrive', 'PATHEXT', 'TEMP', 'TMP', 'USERPROFILE', 'USERNAME', 'USERDOMAIN', 'APPDATA', 'LOCALAPPDATA', 'ProgramData', 'OS', 'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS')
@@ -287,9 +349,10 @@ function Assert-ExportInputs {
     }
 }
 
-function Get-ExportCommand {
-    param([string] $ExportFile)
-    return "export --exportModule '' --exportModuleGroup '' --exportModuleUser '$Owner' --exportFile $ExportFile"
+# The arguments of an export case with -Owner for <owner> and the export file for <file>.
+function Get-ExportArguments {
+    param([string[]] $Arguments, [string] $ExportFile)
+    return , @($Arguments | ForEach-Object { $_.Replace('<owner>', $Owner).Replace('<file>', $ExportFile) })
 }
 
 function Write-ExitCode {
@@ -309,28 +372,29 @@ function Write-ZipEntries {
     [IO.File]::WriteAllText($Target, (($names -join "`n") + "`n"), $Utf8)
 }
 
-function Invoke-CaseVersion {
-    param([string] $Flag)
-    $prefix = Join-Path $script:RawDirectory $script:CaseName
-    $code = Invoke-StartCli -Arguments @($Flag) -Stdin $null -OutputPrefix $prefix `
+function Invoke-CaseLocal {
+    param([object] $Entry)
+    $prefix = Join-Path $script:RawDirectory $Entry.FixtureName
+    $code = Invoke-StartCli -Arguments @($Entry.Arguments) -Stdin $null -OutputPrefix $prefix `
         -WorkingDirectory $CliHome
     Write-ExitCode $prefix $code
 }
 
 function Invoke-CaseFailure {
-    $prefix = Join-Path $script:RawDirectory $script:CaseName
+    param([object] $Entry)
+    $prefix = Join-Path $script:RawDirectory $Entry.FixtureName
     $dummy = $Utf8.GetBytes("not-a-password`n")
-    $code = Invoke-StartCli -Arguments (@('-u', 'recorder') + (Get-TlsArguments) +
-        @('--execCommand', 'uptime', $FailureUrl)) -Stdin $dummy -OutputPrefix $prefix `
+    $code = Invoke-StartCli -Arguments (@('-u', 'recorder') + (Get-TlsArguments) + $Entry.Arguments +
+        @($FailureUrl)) -Stdin $dummy -OutputPrefix $prefix `
         -WorkingDirectory $CliHome
     Write-ExitCode $prefix $code
 }
 
 function Invoke-CaseExport {
-    param([switch] $Backslash)
+    param([object] $Entry, [switch] $Backslash)
     Assert-ExportInputs
     $name = Read-Username
-    $prefix = Join-Path $script:RawDirectory $script:CaseName
+    $prefix = Join-Path $script:RawDirectory $Entry.FixtureName
     $exportDirectory = Join-Path $script:PrivateDirectory ($script:CaseName + '-export')
     New-Item -ItemType Directory -Path $exportDirectory | Out-Null
     $exportFile = Join-Path $exportDirectory 'export.zip'
@@ -342,8 +406,8 @@ function Invoke-CaseExport {
     $passwordBytes = Read-PasswordBytes
     try {
         $code = Invoke-StartCli -Arguments (@('-u', $name) + (Get-TlsArguments) +
-            @('--execCommand', (Get-ExportCommand $commandPath), $CliUrl)) -Stdin $passwordBytes `
-            -OutputPrefix $prefix -WorkingDirectory $CliHome
+            (Get-ExportArguments $Entry.Arguments $commandPath) + @($CliUrl)) `
+            -Stdin $passwordBytes -OutputPrefix $prefix -WorkingDirectory $CliHome
         Write-ExitCode $prefix $code
         $script:SecretChecks += , @{ Prefix = $prefix; Username = $name }
         Assert-NoSecret $prefix $passwordBytes
@@ -417,7 +481,8 @@ function Get-ArgvObstacle {
 }
 
 function Invoke-CaseArgv {
-    $prefix = Join-Path $script:RawDirectory $script:CaseName
+    param([object] $Entry)
+    $prefix = Join-Path $script:RawDirectory $Entry.FixtureName
     $obstacle = Get-ArgvObstacle
     if ($obstacle) {
         Write-Warning "win_argv not recorded: $obstacle"
@@ -448,8 +513,8 @@ function Invoke-CaseArgv {
         [IO.File]::WriteAllText((Join-Path $wrapperBin 'java.cmd'), "@echo off`r`n" + $wrapper,
             [Text.Encoding]::ASCII)
         $tls = @('--trustStoreFilePath', $value)
-        $code = Invoke-StartCli -Arguments (@('-u', $value) + $tls +
-            @('--execCommand', 'uptime', $FailureUrl)) -Stdin $null `
+        $code = Invoke-StartCli -Arguments (@('-u', $value) + $tls + $Entry.Arguments +
+            @($FailureUrl)) -Stdin $null `
             -OutputPrefix (Join-Path $script:PrivateDirectory "argv-$index") `
             -WorkingDirectory $CliHome -EffectiveJavaHome $wrapperHome
         $exitCodes.Add("$index $code")
@@ -573,23 +638,22 @@ function Invoke-Neutralize {
 }
 
 function Invoke-RecordCase {
-    param([string] $Name)
+    param([object] $Entry)
     Assert-AllowedGroup
-    $script:CaseName = $Name
-    Write-Host "recording $Name for $Group/$Node"
-    switch ($Name) {
-        'win_version'   { Invoke-CaseVersion '-v' }
-        'win_help'      { Invoke-CaseVersion '-h' }
-        'win_modules'   { Invoke-CaseExport }
-        'win_failure'   { Invoke-CaseFailure }
-        'win_argv'      { Invoke-CaseArgv }
-        'win_backslash' { Invoke-CaseExport -Backslash }
+    $script:CaseName = $Entry.Name
+    Write-Host "recording $($Entry.Name) for $Group/$Node"
+    switch ($Entry.Kind) {
+        'local'            { Invoke-CaseLocal $Entry }
+        'export'           { Invoke-CaseExport $Entry }
+        'failure'          { Invoke-CaseFailure $Entry }
+        'argv'             { Invoke-CaseArgv $Entry }
+        'export-backslash' { Invoke-CaseExport $Entry -Backslash }
     }
 }
 
 if ($List) {
-    foreach ($entry in $Cases.GetEnumerator()) {
-        '{0,-14} {1}' -f $entry.Key, $entry.Value
+    foreach ($entry in $Cases) {
+        '{0,-14} {1}' -f $entry.Name, $entry.Description
     }
     return
 }
@@ -599,9 +663,11 @@ if (-not $Group -or -not $Node -or -not $Case -or -not $CliHome -or -not $JavaHo
 }
 # powershell -File passes "a,b" as one string
 $Case = @($Case | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-foreach ($name in $Case) {
-    if (-not $Cases.Contains($name)) { Stop-Recording "unknown case '$name' (-List prints them)" }
-}
+$Selected = @(foreach ($name in $Case) {
+        $entry = $Cases | Where-Object { $_.Name -eq $name } | Select-Object -First 1
+        if (-not $entry) { Stop-Recording "unknown case '$name' (-List prints them)" }
+        $entry
+    })
 $CliHome = (Resolve-Path -LiteralPath $CliHome).ProviderPath
 $JavaHome = (Resolve-Path -LiteralPath $JavaHome).ProviderPath
 $WorkRoot = (Resolve-Path -LiteralPath $WorkRoot).ProviderPath
@@ -619,15 +685,20 @@ try {
     $script:PrivateDirectory = $private
     $script:RawDirectory = Join-Path $private 'raw'
     New-Item -ItemType Directory -Path $script:RawDirectory | Out-Null
-    foreach ($name in $Case) {
-        Invoke-RecordCase $name
+    foreach ($entry in $Selected) {
+        Invoke-RecordCase $entry
     }
     Protect-Outputs
     Invoke-Neutralize
     Assert-NoHost
-    New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
     foreach ($file in Get-ChildItem -LiteralPath $script:RawDirectory -File) {
-        Copy-Item -LiteralPath $file.FullName -Destination $OutputDirectory -Force
+        $target = $OutputDirectory
+        if (-not $target) {
+            $fixture = [IO.Path]::GetFileNameWithoutExtension($file.Name)
+            $target = Join-Path $RepositoryRoot ($Cases | Where-Object { $_.FixtureName -eq $fixture }).Folder
+        }
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+        Copy-Item -LiteralPath $file.FullName -Destination $target -Force
         Write-Host "written: $($file.Name)"
     }
     Write-Host 'next: review the files, then run NoCustomerIdentifiersTest'

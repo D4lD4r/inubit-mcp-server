@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
@@ -54,12 +55,63 @@ class RecordFixturesPs1Test {
         return code.substring(start, end);
     }
 
-    @Test
-    void listsAllSixReadOnlyCases() throws IOException {
+    /** The case table {@code $Cases = @( … )}: up to the next line that is a lone ')'. */
+    private static String table() throws IOException {
         String code = code();
+        int start = code.indexOf("$Cases = @(");
+        assertThat(start).as("the case table $Cases").isNotNegative();
+        int end = code.indexOf("\n)", start);
+        return code.substring(start, end + 2);
+    }
+
+    /** Feature 025, research D-12, data-model "Recorder case": one object per case. */
+    private static List<String> rows() throws IOException {
+        return Pattern.compile("(?s)\\[pscustomobject\\]@\\{.*?\\n\\s*\\}").matcher(table())
+            .results().map(MatchResult::group).toList();
+    }
+
+    private static String field(String row, String name) {
+        Matcher value = Pattern.compile("(?m)^\\s*" + name + "\\s*=\\s*(.*?)\\s*$").matcher(row);
+        assertThat(value.find()).as(name + " in " + row).isTrue();
+        return value.group(1);
+    }
+
+    @Test
+    void listsEveryCaseOfTheTable() throws IOException {
+        List<String> rows = rows();
+        assertThat(rows).hasSize(table().split("\\[pscustomobject\\]", -1).length - 1);
+        assertThat(rows).allSatisfy(row -> {
+            for (String name : List.of("Name", "Description", "Kind", "Arguments", "Commands",
+                "Credentials", "Contacts", "Folder", "FixtureName")) {
+                field(row, name);
+            }
+        });
+        assertThat(rows.stream().map(row -> field(row, "Name")))
+            .containsSubsequence(CASES.stream().map(name -> "'" + name + "'").toList());
         for (String name : CASES) {
-            assertThat(code).containsPattern("(?m)^\\s*" + name + "\\s*=");
+            String row = rows.stream().filter(r -> field(r, "Name").equals("'" + name + "'"))
+                .findFirst().orElseThrow();
+            assertThat(field(row, "FixtureName")).as(name).isEqualTo("'" + name + "'");
+            assertThat(field(row, "Folder")).as(name)
+                .isEqualTo("'src\\test\\resources\\fixtures\\windows'");
         }
+        assertThat(code()).containsPattern("foreach \\(\\$entry in \\$Cases\\) \\{\\s*"
+            + "'\\{0,-14\\} \\{1\\}' -f \\$entry\\.Name, \\$entry\\.Description");
+    }
+
+    /** Spec FR-018: the arguments and commands of every case are edited in one place. */
+    @Test
+    void definesTheArgumentsAndCommandsOfEveryCaseOnlyInTheTable() throws IOException {
+        String table = table();
+        assertThat(table).contains("'-v'", "'-h'", "'--execCommand'", "'uptime'",
+            "--exportModuleUser '<owner>' --exportFile <file>");
+        String outside = code().replace(table, "");
+        assertThat(outside).doesNotContain("'-v'", "'-h'", "--execCommand", "'uptime'",
+            "--exportModule", "Commands = ");
+        assertThat(Pattern.compile("(?s)Invoke-StartCli -Arguments (.*?) -Stdin").matcher(outside)
+            .results().map(call -> call.group(1)).toList())
+            .as("every launch takes the case's arguments from its table entry").isNotEmpty()
+            .allSatisfy(arguments -> assertThat(arguments).contains("$Entry.Arguments"));
     }
 
     @Test
