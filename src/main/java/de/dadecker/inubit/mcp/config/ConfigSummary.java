@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.MajorMinor;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeVersionState;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
@@ -393,9 +394,11 @@ public final class ConfigSummary {
      * for a concrete pin, followed by {@code , pin outside client range} if the client's range
      * excludes the pin (FR-011), else {@code , server version: determined at runtime}. Feature
      * 012 (FR-012a): with client options, {@code ; options: [no ]trust-store option, [no
-     * ]host-name option} closes the parentheses ({@code (options: …)} without range).
+     * ]host-name option} closes the parentheses ({@code (options: …)} without range). Feature
+     * 025 (FR-010a, research D-9): {@code ; not used until a <major.minor> capability is
+     * verified} follows for a setting whose version has no verified capability yet (7.4).
      */
-    private static String client(VersionSetting setting, ClientVersion client,
+    private String client(VersionSetting setting, ClientVersion client,
         Optional<CliClientOptions> options) {
         List<String> details = new ArrayList<>();
         client.supportedFrom().ifPresent(from -> details.add(from.raw() + "–"
@@ -412,7 +415,10 @@ public final class ConfigSummary {
             } + (client.compatibleWith(Optional.of(pinned.version()))
                 == ClientVersion.Compatibility.INCOMPATIBLE ? ", pin outside client range" : "")
             : "server version: determined at runtime";
-        return ", client: " + client.version().raw() + range + ", " + server;
+        Optional<InubitVersion> version = NodeVersionState.initial(setting).effectiveVersion();
+        String notUsed = matrix.allNotYetVerified(version) ? "; not used until a "
+            + MajorMinor.of(version.orElseThrow()).text() + " capability is verified" : "";
+        return ", client: " + client.version().raw() + range + ", " + server + notUsed;
     }
 
     /**

@@ -826,6 +826,18 @@ class ConfigValidatorTest {
         }
 
         @Test
+        void aV74NodeWithoutCliHomeHasNoFindingWhileNoCapabilityIsVerified() {
+            // feature 025 (FR-010a, research D-9): every 7.4 capability is not yet verified, so
+            // no tool would use a client; the 6.1 warning above stays
+            for (String line : List.of("V7_4", "\"7.4.0.90\"", "\"7.4.0.90-HF1\"")) {
+                ValidationReport report = validate(server("versionLine: " + line + "\n"));
+
+                assertThat(report.errors()).as(line).isEmpty();
+                assertThat(report.warnings()).as(line).isEmpty();
+            }
+        }
+
+        @Test
         void aV61NodeWhoseCliHomeHasNoStartCliKeepsTheExistingWarning() {
             ValidationReport report = validate(server(
                 "versionLine: V6_1\ncli:\n  home: /opt/other\n  javaHome: /opt/jdk17\n"));

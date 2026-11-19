@@ -375,7 +375,8 @@ class ListNodesToolTest {
      * (pinned {@code 8.1.17}, no StartCLI, reads) and qa/node3 ({@code V9_X}, StartCLI,
      * {@link #DEVELOPMENT}), all at the WireMock server; feature 012: qa/node4 ({@code V6_1},
      * StartCLI, {@link #DEVELOPMENT}); feature 025: qa/node5 ({@code V7_4}) and qa/node6 (pinned
-     * {@code 7.4.0.90}), both StartCLI, {@link #DEVELOPMENT}.
+     * {@code 7.4.0.90}), both StartCLI, {@link #DEVELOPMENT}, and qa/node7 ({@code V7_4}, no
+     * StartCLI, reads).
      */
     @BeforeEach
     void startVersionClient() {
@@ -393,7 +394,8 @@ class ListNodesToolTest {
             versionNode("qa/node4", baseUrl, VersionSetting.V6_1).cliHome(CLI_HOME).build(),
             versionNode("qa/node5", baseUrl, VersionSetting.V7_4).cliHome(CLI_HOME).build(),
             versionNode("qa/node6", baseUrl, VersionSetting.parse("7.4.0.90").orElseThrow())
-                .cliHome(CLI_HOME).build());
+                .cliHome(CLI_HOME).build(),
+            versionNode("qa/node7", baseUrl, VersionSetting.V7_4).build());
         Map<NodeId, EffectiveNodeConfig> byId = new HashMap<>();
         nodes.forEach(node -> byId.put(node.id(), node));
         clock = new MutableClock(NOW);
@@ -409,7 +411,8 @@ class ListNodesToolTest {
                     PrivateFiles.forHost())), versions, PortSetRegistry.v81Default());
         allowed = Map.of(DEV1, DEVELOPMENT, DEV2, READS, QA1, DEVELOPMENT,
             NodeId.parse("qa/node2"), READS, QA3, DEVELOPMENT, QA4, DEVELOPMENT,
-            NodeId.parse("qa/node5"), DEVELOPMENT, NodeId.parse("qa/node6"), DEVELOPMENT);
+            NodeId.parse("qa/node5"), DEVELOPMENT, NodeId.parse("qa/node6"), DEVELOPMENT,
+            NodeId.parse("qa/node7"), READS);
         summaries = nodes.stream().map(node -> node.summary(EXISTS, false)).toList();
         NodeOverview overview = new NodeOverview(summaries, versions,
             CapabilityMatrix.production(), (id, withClient) -> allowed.get(id),
@@ -888,6 +891,35 @@ class ListNodesToolTest {
             + ": monitoring is not yet verified for INUBIT 7.4");
         assertThat(reason(version, "development_writes")).isEqualTo(name + " on " + id
             + ": development writes is not yet verified for INUBIT 7.4");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "qa/node5, true",
+        "qa/node6, true",
+        "qa/node7, false"})
+    void aV74NodeWarnsThatItsClientIsNotUsedUntilA74CapabilityIsVerified(String id,
+        boolean withClient) {
+        // 025-T014 (FR-010a, research D-9): with and without a client, no schema change
+        JsonNode version = listVersions().get(id);
+
+        assertThat(version.path("client").path("state").asString()).as("client")
+            .isEqualTo(withClient ? "not_yet_detected" : "not_available");
+        assertThat(texts(version.path("warnings"))).containsExactly("INUBIT 7.4 is recognised,"
+            + " but no tool is verified on it yet; the StartCLI client of " + id + " is not used"
+            + " until a 7.4 capability is verified");
+    }
+
+    @Test
+    void nodesOfOtherVersionsCarryNoWarningAbout74() {
+        // 025-T014: 6.1, 8.1 (line and pin) and 9.0 keep their warnings (none here)
+        versions.detected(DEV1, InubitVersion.parse("9.0.7").orElseThrow());
+
+        Map<String, JsonNode> byNode = listVersions();
+
+        for (String id : List.of("qa/node4", "qa/node1", "qa/node2", "dev/node1")) {
+            assertThat(byNode.get(id).has("warnings")).as(id).isFalse();
+        }
     }
 
     /** The version block of {@code node} in an overview with {@code matrix}. */

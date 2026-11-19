@@ -776,13 +776,17 @@ public final class ConfigValidator {
         }
         checkCliUrl(server, findings);
         checkTls(server, findings);
+        Optional<InubitVersion> pin =
+            NodeVersionState.initial(server.versionLine()).effectiveVersion();
         if (server.cliConfigured()) {
             checkCli(server, findings);
-        } else if (CapabilityMatrix.production().isCliOnly(
-            NodeVersionState.initial(server.versionLine()).effectiveVersion())) {
-            // feature 012 (FR-014): the server starts, the node answers CLI_UNAVAILABLE
-            findings.warning(id + ": INUBIT 6.1 is reached through StartCLI only, but no cliHome"
-                + " is configured; its capabilities report CLI_UNAVAILABLE");
+        } else if (CapabilityMatrix.production().isCliOnly(pin)
+            && !CapabilityMatrix.production().allNotYetVerified(pin)) {
+            // feature 012 (FR-014): the server starts, the node answers CLI_UNAVAILABLE; feature
+            // 025 (research D-9): not while no tool would use the client (7.4 in Mandate A)
+            findings.warning(id + ": INUBIT " + MajorMinor.of(pin.orElseThrow()).text() + " is"
+                + " reached through StartCLI only, but no cliHome is configured; its capabilities"
+                + " report CLI_UNAVAILABLE");
         }
         if (server.versionLine().equals(VersionSetting.V9_X)) {
             // feature 017 (FR-011, research D-9); writes refused, reads unverified (009 D-13)

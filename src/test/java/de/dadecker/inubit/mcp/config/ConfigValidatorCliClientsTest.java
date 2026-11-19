@@ -221,6 +221,23 @@ class ConfigValidatorCliClientsTest {
         }
 
         @Test
+        void a74EntryIsAcceptedWithoutJdkWarningAlsoForANodePinnedTo74() {
+            // feature 025 (FR-010a, research D-9): the matrix declares 7.4; the JDK 7.4 ships
+            // with is not verified, so no Java major is checked for the entry or the node
+            existing.add(Path.of("/opt/c74"));
+            existing.add(Path.of("/opt/c74", "bin", "startcli.sh"));
+
+            for (String line : List.of("V7_4", "\"7.4.0.90\"")) {
+                List<String> warnings = warnings(profile("""
+                    cliClients:
+                      "7.4": { home: /opt/c74, javaHome: /opt/jdk-11 }
+                    """, "versionLine: " + line + "\n"));
+
+                assertThat(warnings).as(line).isEmpty();
+            }
+        }
+
+        @Test
         void entriesAloneCountAsAConfiguredCli() {
             // the profile-level checks of a configured CLI apply to an AUTO node with entries only
             List<String> warnings = warnings("""

@@ -7,6 +7,7 @@ import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
+import de.dadecker.inubit.mcp.domain.model.MajorMinor;
 import de.dadecker.inubit.mcp.domain.model.NodeAccess;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
@@ -144,6 +145,13 @@ public final class NodeOverview {
         client.flatMap(state::clientFor).map(Timed::value).flatMap(known ->
             HealthService.clientWarning(id, known, version, known.compare(version)))
             .ifPresent(warnings::add);
+        // feature 025 (FR-010a, research D-9): with or without a client, no tool uses one yet
+        if (matrix.allNotYetVerified(judged)) {
+            String release = MajorMinor.of(judged.orElseThrow()).text();
+            warnings.add("INUBIT " + release + " is recognised, but no tool is verified on it yet;"
+                + " the StartCLI client of " + id + " is not used until a " + release
+                + " capability is verified");
+        }
         NodeAccess access = cliOnly ? NodeAccess.CLI_ONLY : NodeAccess.REST_AND_CLI;
         return new NodeSummary.Version(state.setting().text(),
             access.name().toLowerCase(Locale.ROOT), server(state, version),

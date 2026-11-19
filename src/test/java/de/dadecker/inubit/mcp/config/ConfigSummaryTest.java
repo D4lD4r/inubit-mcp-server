@@ -1066,6 +1066,26 @@ class ConfigSummaryTest {
         TestSecrets.assertNoLeak(summary);
     }
 
+    @Test
+    void theClientOfAV74NodeIsShownAsNotUsedUntilA74CapabilityIsVerified() {
+        // feature 025 T014 (FR-010a, research D-9)
+        String summary = render(V7_4, Map.of(
+            NodeId.parse("test/node1"), client("7.4.0.90", null, null),
+            NodeId.parse("test/node2"), client("7.4.0.90", null, null),
+            NodeId.parse("test/node3"), client("8.1.17", "4.0.1", "8.1.17")));
+
+        String notUsed = "; not used until a 7.4 capability is verified, secrets: credentialStore"
+            + " (macOS Keychain), username ←";
+        assertThat(summary)
+            .contains("managing tags), client: 7.4.0.90, server version: determined at runtime"
+                + notUsed)
+            .contains("managing tags), client: 7.4.0.90, client vs pin: match" + notUsed);
+        assertThat(summary).as("8.1 client lines are unchanged")
+            .contains("test/node3: read-only, cli: available, inubit: V8_1, client: 8.1.17"
+                + " (4.0.1–8.1.17), server version: determined at runtime, secrets:");
+        assertThat(summary.split("not used until", -1)).hasSize(3);
+    }
+
     // --- feature 012 T021: the client options of a 6.1 node (FR-012a, research D-8) -----------
 
     @Test

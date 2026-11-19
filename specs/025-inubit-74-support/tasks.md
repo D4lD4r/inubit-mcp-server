@@ -196,7 +196,7 @@ and `--check-config` tests, offline, on both CI jobs.
   all four parts for the pin, `access: cli_only`, no usable capability, the
   summary "(INUBIT 7.4, StartCLI only; available: none; refused: …)"); change
   `main/application/NodeOverview.java` / `main/config/ConfigSummary.java` only if a case fails.
-- [ ] T014 [US1] Client configuration and display for 7.4 (research D-9, spec FR-010a,
+- [X] T014 [US1] Client configuration and display for 7.4 (research D-9, spec FR-010a,
   contracts/configuration-delta.md, contracts/mcp-tools-delta.md "list_nodes entry"):
   `main/config/ConfigValidator.java:779-786` gives the "reached through StartCLI only, but no
   cliHome" warning only when `!matrix.allNotYetVerified(pin)`, with the release taken from the pin
