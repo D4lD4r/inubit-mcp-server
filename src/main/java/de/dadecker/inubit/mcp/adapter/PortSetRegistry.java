@@ -32,8 +32,8 @@ import java.util.Optional;
  * <p>Production uses {@link #v81Default(HelperInstallation.Host, ProcessRun,
  * CliConcurrencyLimiter)}, the 8.1 port set with the queue-entry helper (feature 020) for every
  * version, so unverified reads run on the 8.1 adapters; {@code Wiring} registers the 9.0 range
- * ({@link #withV90()}) and the CLI-only 6.1 range on top. A later version adds its range with its
- * own factory.
+ * ({@link #withV90()}) and the CLI-only 6.1 and 7.4 ranges on top. A later version adds its
+ * range with its own factory.
  */
 public final class PortSetRegistry {
 

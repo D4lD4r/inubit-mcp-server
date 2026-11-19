@@ -150,7 +150,7 @@ tests may pass at once.
 **Goal**: spec US1, FR-006 – FR-013. **Independent test**: `V74RefusalTest` plus the `list_nodes`
 and `--check-config` tests, offline, on both CI jobs.
 
-- [ ] T008 [US1] Refusing 7.4 port set (research D-5, spec FR-011): new
+- [X] T008 [US1] Refusing 7.4 port set (research D-5, spec FR-011): new
   `main/adapter/cli/v74/V74PortSet.java` (`RANGE` 7.4–7.4; `factory` → `RefusingPorts` for every
   port; `cliHealth` → a `CliHealthPort` that throws the same refusal); `main/adapter/RefusingPorts.java`
   takes the release and the likely cause (message "(INUBIT <release>, StartCLI only)"; likely
