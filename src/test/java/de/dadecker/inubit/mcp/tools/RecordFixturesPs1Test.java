@@ -33,6 +33,7 @@ class RecordFixturesPs1Test {
     private static final Path SCRIPT = Path.of("tools/record-fixtures.ps1");
     private static final List<String> CASES = List.of("win_version", "win_help", "win_modules",
         "win_failure", "win_argv", "win_backslash");
+    private static final String SESSION_PASSWORD = "session-test-password";
 
     @TempDir
     Path temp;
@@ -127,9 +128,42 @@ class RecordFixturesPs1Test {
         }
         assertThat(lines).isNotEmpty().allSatisfy(line -> assertThat(line)
             .containsAnyOf("$passwordBytes =", "[Array]::Clear", "-Stdin $passwordBytes",
-                "Assert-NoSecret $prefix $passwordBytes"));
+                "-PasswordLine $passwordBytes", "Assert-NoSecret $prefix $passwordBytes"));
         assertThat(code).contains("Read-Host -AsSecureString", "RedirectStandardInput = $true",
             "StandardInput.BaseStream.Write($Stdin");
+    }
+
+    /**
+     * Feature 025, spec FR-017, research D-12: a session case is one StartCLI process whose
+     * standard input is the password line, then the case's commands (the end-of-session command
+     * last), one per line; the password is never an argument, and the secret check runs on the
+     * session's output.
+     */
+    @Test
+    void runsASessionAsOneStartCliProcessWithItsInputOnStandardInputOnly() throws IOException {
+        assertThat(code()).doesNotContainPattern("(?i)--?encryptString");
+        String session = function("Invoke-StartCliSession");
+        List<String> launches = Pattern
+            .compile("(?s)Invoke-StartCli -Arguments (.*?) -Stdin (\\S+)").matcher(session)
+            .results().map(launch -> launch.group(1) + " | " + launch.group(2)).toList();
+        assertThat(launches).as("one startcli.bat process per session").hasSize(1);
+        assertThat(launches.getFirst()).isEqualTo(
+            "(@('-u', $UserName) + $Entry.Arguments + @($CliUrl)) | $stdin");
+        assertThat(session).contains("[Array]::Copy($PasswordLine, $stdin, $PasswordLine.Length)",
+            "@($Entry.Commands)", "\"`n\"", "[Array]::Clear($stdin, 0, $stdin.Length)");
+
+        assertThat(function("Invoke-RecordCase"))
+            .contains("'session'", "Invoke-CaseSession $Entry");
+        String caseSession = function("Invoke-CaseSession");
+        int launch = caseSession.indexOf("Invoke-StartCliSession");
+        assertThat(caseSession.indexOf("Assert-AllowedHost")).as("host allowlist before the launch")
+            .isNotNegative().isLessThan(launch);
+        assertThat(caseSession.indexOf("$passwordBytes = Read-PasswordBytes")).isNotNegative()
+            .isLessThan(launch);
+        assertThat(caseSession).contains("-PasswordLine $passwordBytes",
+            "[Array]::Clear($passwordBytes, 0, $passwordBytes.Length)");
+        assertThat(caseSession.indexOf("Assert-NoSecret $prefix $passwordBytes"))
+            .as("the secret check on the session's output").isGreaterThan(launch);
     }
 
     @Test
@@ -210,16 +244,56 @@ class RecordFixturesPs1Test {
 
     private Process record(Path cliHome, String group, Path out, Path log, String... more)
         throws IOException {
+        return record(SCRIPT, "win_help,win_version", cliHome, group, out, log, more);
+    }
+
+    private Process record(Path script, String cases, Path cliHome, String group, Path out,
+        Path log, String... more) throws IOException {
         List<String> command = new ArrayList<>(List.of("powershell.exe", "-NoProfile",
-            "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", SCRIPT.toString(),
-            "-Group", group, "-Node", "node1", "-Case", "win_help,win_version", "-CliHome",
+            "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script.toString(),
+            "-Group", group, "-Node", "node1", "-Case", cases, "-CliHome",
             cliHome.toString(), "-JavaHome", System.getProperty("java.home"),
             "-OutputDirectory", out.toString(), "-WorkRoot", temp.toRealPath().toString()));
         command.addAll(List.of(more));
         ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true)
             .redirectOutput(log.toFile());
         builder.environment().put("RECORD_ALLOWED_GROUPS", "dev test");
+        builder.environment().put("RECORD_ALLOWED_HOSTS", "node1.example.test");
         return builder.start();
+    }
+
+    /**
+     * The recorder with two test-only edits, so that a session case runs without a console and
+     * without a 7.4 case in the production table: one extra session case in {@code $Cases}, and a
+     * {@code Read-PasswordBytes} that returns a fixed password line ({@code Read-Host
+     * -AsSecureString} reads the console, which a test process has not). It lives in a copy of
+     * the repository's {@code tools} directory, next to {@code neutralize.py}.
+     */
+    private Path sessionScript() throws IOException {
+        Path tools = Files.createDirectories(temp.resolve("repository").resolve("tools"));
+        Files.copy(Path.of("tools/neutralize.py"), tools.resolve("neutralize.py"));
+        String script = script();
+        int tableEnd = script.indexOf("\n)", script.indexOf("$Cases = @(")) + 1;
+        script = script.substring(0, tableEnd) + String.join("\n",
+            "    [pscustomobject]@{",
+            "        Name        = 'test_session'",
+            "        Description = 'test-only session case'",
+            "        Kind        = 'session'",
+            "        Arguments   = @()",
+            "        Commands    = @('uname', 'ps -c -e', 'exit')",
+            "        Credentials = $true",
+            "        Contacts    = $true",
+            "        Folder      = 'out'",
+            "        FixtureName = 'test_session'",
+            "    }", "") + script.substring(tableEnd);
+        int readStart = script.indexOf("function Read-PasswordBytes {");
+        int readEnd = script.indexOf("\n}", readStart) + 2;
+        script = script.substring(0, readStart) + "function Read-PasswordBytes {\n"
+            + "    return , $Utf8.GetBytes('" + SESSION_PASSWORD + "' + \"`n\")\n}"
+            + script.substring(readEnd);
+        Path copy = tools.resolve("record-fixtures.ps1");
+        Files.writeString(copy, script, StandardCharsets.US_ASCII);
+        return copy;
     }
 
     /**
@@ -252,6 +326,37 @@ class RecordFixturesPs1Test {
         assertThat(Files.readString(out.resolve("win_version.exit")).strip()).isEqualTo("0");
         assertThat(FakeStartCli.read(cliHome.resolve("argv-record.json")).args())
             .containsExactly("-v");
+        try (var left = Files.list(temp)) {
+            assertThat(left.map(path -> path.getFileName().toString()))
+                .noneMatch(name -> name.startsWith("inubit-record-"));
+        }
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    @Timeout(180)
+    void recordsASessionCaseThroughTheSubstitute() throws Exception {
+        Path cliHome = temp.resolve("client");
+        FakeStartCli.replaying(cliHome, "version");
+        Path out = Files.createDirectories(temp.resolve("out"));
+        Path map = temp.resolve("test.map");
+        Files.writeString(map, "NeverPresentInTheOutput\tneutral\n");
+        Path log = temp.resolve("log.txt");
+        String url = "https://node1.example.test:8443/ibis/servlet/IBISSoapServlet";
+
+        Process process = record(sessionScript(), "test_session", cliHome, "dev", out, log,
+            "-NeutralizeMap", map.toString(), "-CliUrl", url, "-Username", "tester");
+
+        assertThat(process.waitFor(150, TimeUnit.SECONDS)).isTrue();
+        assertThat(process.exitValue()).as(log(log)).isZero();
+        FakeStartCli.Recorded session = FakeStartCli.read(cliHome.resolve("argv-record.json"));
+        assertThat(session.args()).containsExactly("-u", "tester", url);
+        assertThat(new String(session.stdin(), StandardCharsets.UTF_8))
+            .isEqualTo(SESSION_PASSWORD + "\nuname\nps -c -e\nexit\n");
+        assertThat(Files.readString(out.resolve("test_session.stdout")))
+            .contains("Supported inubit Process Engine versions");
+        assertThat(out.resolve("test_session.stderr")).exists();
+        assertThat(Files.readString(out.resolve("test_session.exit")).strip()).isEqualTo("0");
         try (var left = Files.list(temp)) {
             assertThat(left.map(path -> path.getFileName().toString()))
                 .noneMatch(name -> name.startsWith("inubit-record-"));

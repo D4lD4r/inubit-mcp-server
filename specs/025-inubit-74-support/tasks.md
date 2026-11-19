@@ -304,7 +304,7 @@ and `--check-config` tests, offline, on both CI jobs.
   `fixtures/windows/`. Test first: `test/tools/RecordFixturesPs1Test` — the existing cases stay
   green (`listsAllSixReadOnlyCases` becomes "lists every case of the table"), plus a check that
   every case's arguments and commands are defined only in the table.
-- [ ] T022 [US4] Recorder session mode (research D-12, spec FR-017): new function
+- [X] T022 [US4] Recorder session mode (research D-12, spec FR-017): new function
   `Invoke-StartCliSession` in `tools/record-fixtures.ps1` — one `startcli.bat` process through the
   existing `Invoke-StartCli` (`cmd.exe /d /v:off /s /c`, allowlisted environment), standard input =
   password line, the case's commands, the case's end-of-session command; raw output in the private

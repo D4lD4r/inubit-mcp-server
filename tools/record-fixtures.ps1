@@ -27,6 +27,10 @@ export cases also check that the host of -CliUrl is listed in RECORD_ALLOWED_HOS
 NON-PRODUCTION host names), so that no other server is contacted. StartCLI runs in -CliHome, like
 under the server. -Case takes one or more names, also comma-separated in one argument.
 
+A case of kind session (feature 025, spec FR-017) runs one interactive StartCLI session against
+-CliUrl (host allowlist as above, credentials): startcli.bat -u <user> <url>, standard input = the
+password line, the case's commands from the table and its end-of-session command, one per line.
+
 Raw output only lives in a private directory under -WorkRoot (inheritance removed, full control
 for the current user and SYSTEM) that is removed at the end. There the script replaces the paths
 of the run (work directory, client, Java home, trust store, user profile, also in 8.3 form), the
@@ -360,6 +364,23 @@ function Write-ExitCode {
     [IO.File]::WriteAllText($Prefix + '.exit', "$Code`n")
 }
 
+# One interactive StartCLI session (spec FR-017, research D-12): one startcli.bat process whose
+# standard input is the password line, then the case's commands with its end-of-session command
+# last, one per line, as the server's sessions do (CliRunner.runSession).
+function Invoke-StartCliSession {
+    param([object] $Entry, [string] $UserName, [byte[]] $PasswordLine, [string] $OutputPrefix)
+    $commands = $Utf8.GetBytes((@($Entry.Commands) | ForEach-Object { $_ + "`n" }) -join '')
+    $stdin = New-Object byte[] ($PasswordLine.Length + $commands.Length)
+    [Array]::Copy($PasswordLine, $stdin, $PasswordLine.Length)
+    [Array]::Copy($commands, 0, $stdin, $PasswordLine.Length, $commands.Length)
+    try {
+        return Invoke-StartCli -Arguments (@('-u', $UserName) + $Entry.Arguments + @($CliUrl)) -Stdin $stdin `
+            -OutputPrefix $OutputPrefix -WorkingDirectory $CliHome
+    } finally {
+        [Array]::Clear($stdin, 0, $stdin.Length)
+    }
+}
+
 function Write-ZipEntries {
     param([string] $Zip, [string] $Target)
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -440,6 +461,25 @@ function Invoke-CaseExport {
     foreach ($file in $outside) {
         Remove-Item -LiteralPath $file.FullName -Force
         Write-Host "deleted the export StartCLI wrote outside the work directory: $($file.Name)"
+    }
+}
+
+function Invoke-CaseSession {
+    param([object] $Entry)
+    if (-not $CliUrl) { Stop-Recording "$script:CaseName needs -CliUrl" }
+    Assert-Passable 'CliUrl' $CliUrl
+    Assert-AllowedHost
+    $name = Read-Username
+    $prefix = Join-Path $script:RawDirectory $Entry.FixtureName
+    $passwordBytes = Read-PasswordBytes
+    try {
+        $code = Invoke-StartCliSession -Entry $Entry -UserName $name -PasswordLine $passwordBytes `
+            -OutputPrefix $prefix
+        Write-ExitCode $prefix $code
+        $script:SecretChecks += , @{ Prefix = $prefix; Username = $name }
+        Assert-NoSecret $prefix $passwordBytes
+    } finally {
+        [Array]::Clear($passwordBytes, 0, $passwordBytes.Length)
     }
 }
 
@@ -648,6 +688,7 @@ function Invoke-RecordCase {
         'failure'          { Invoke-CaseFailure $Entry }
         'argv'             { Invoke-CaseArgv $Entry }
         'export-backslash' { Invoke-CaseExport $Entry -Backslash }
+        'session'          { Invoke-CaseSession $Entry }
     }
 }
 
