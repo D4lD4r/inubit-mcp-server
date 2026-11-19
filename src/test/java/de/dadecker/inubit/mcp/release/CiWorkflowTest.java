@@ -35,7 +35,7 @@ class CiWorkflowTest {
                 assertThat(step.path("with").path("java-version").asString()).isEqualTo("21");
             })
             .anySatisfy(step -> assertThat(step.path("run").asString())
-                .contains("mvn -B -ntp clean verify"));
+                .containsPattern("mvn -B -ntp (-D\\S+ )*clean verify"));
     }
 
     @Test
@@ -61,7 +61,7 @@ class CiWorkflowTest {
 
         assertThat(windows.path("timeout-minutes").asInt()).isPositive();
         assertThat(steps(windows)).anySatisfy(step -> assertThat(step.path("run").asString())
-            .isEqualTo("./.github/scripts/windows-build.ps1 mvn -B -ntp clean verify"));
+            .isEqualTo("./.github/scripts/windows-build.ps1 mvn -B -ntp -DforkCount=3 clean verify"));
         assertThat(Path.of(".github/scripts/windows-build.ps1")).isRegularFile();
     }
 
