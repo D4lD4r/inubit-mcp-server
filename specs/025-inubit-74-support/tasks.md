@@ -182,7 +182,7 @@ and `--check-config` tests, offline, on both CI jobs.
   the same refusal; a write tool with writes enabled and with writes disabled gets the same
   outcome as the corresponding 6.1 case in `V61RefusalTest`. Fix production code only if a case
   fails (expected: none beyond T007–T009).
-- [ ] T011 [P] [US1] `check_artifacts` on 7.4 (spec FR-008; verification task): an
+- [X] T011 [P] [US1] `check_artifacts` on 7.4 (spec FR-008; verification task): an
   `ArtifactCheckServiceTest` case — module lookup on a `V7_4` node runs the offline checks and
   returns the gate's refusal message as notice, which contains "modules of INUBIT 7.4 cannot be
   looked up" (T009 (b), `ArtifactCheckService.java:528-535`), no contact.

@@ -355,6 +355,29 @@ class ArtifactCheckServiceTest {
         assertThat(detection.requests()).as("no REST request").isEmpty();
     }
 
+    // --- T011 (feature 025, FR-008): no module lookup on a 7.4 node ------------------------------
+
+    @Test
+    void onA74NodeTheLookupIsSkippedWithTheGatesRefusalAndTheOfflineChecksRun()
+        throws IOException {
+        twoMissingModulesAndAnOfflineDefect();
+        versionLine = VersionSetting.V7_4;
+
+        List<CheckFinding> findings = service().checkPaths(List.of("dev"), true);
+
+        assertThat(findings).extracting(CheckFinding::code).containsExactlyInAnyOrder(
+            "MODULE_UNVERIFIED", "MODULE_UNVERIFIED", "EDGE_TARGET_MISSING");
+        assertThat(findings).filteredOn(f -> f.code().equals("MODULE_UNVERIFIED"))
+            .allSatisfy(finding -> {
+                assertThat(finding.severity()).isEqualTo(Severity.WARNING);
+                assertThat(finding.message()).endsWith("could not be verified: check_artifacts:"
+                    + " INUBIT 7.4 on dev/node1: inventory is not yet verified for INUBIT 7.4;"
+                    + " modules of INUBIT 7.4 cannot be looked up; nothing was sent");
+            });
+        assertThat(server.calls).as("no StartCLI run").isEmpty();
+        assertThat(detection.requests()).as("no REST request").isEmpty();
+    }
+
     @Test
     void anEndlessStylesheetReleasesTheWorkspaceLock() throws IOException {
         // review I1: a deadline ends the run, the lock is free again
