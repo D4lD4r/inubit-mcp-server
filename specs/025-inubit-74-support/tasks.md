@@ -186,9 +186,11 @@ and `--check-config` tests, offline, on both CI jobs.
   `ArtifactCheckServiceTest` case — module lookup on a `V7_4` node runs the offline checks and
   returns the gate's refusal message as notice, which contains "modules of INUBIT 7.4 cannot be
   looked up" (T009 (b), `ArtifactCheckService.java:528-535`), no contact.
-- [ ] T012 [P] [US1] Announcement (spec FR-009; verification task): a `test/ToolAnnouncementTest`
-  case — a profile whose only nodes are pinned `V7_4` does not announce `get_health`,
-  `find_processes` and the other node tools.
+- [X] T012 [P] [US1] Announcement (spec FR-009; verification task): a `test/ToolAnnouncementTest`
+  case — a profile whose only nodes are pinned `V7_4` announces only `list_nodes`, `get_health`,
+  `read_knowledge`, `record_knowledge` and `check_artifacts`; no other tool (reads, opt-in, write,
+  log-level; development, deployment and e2e in `test/DevelopmentWiringTest`). `get_health` stays
+  announced under the unchanged feature 009/012 rule (FR-009; review T012-r1).
 - [ ] T013 [US1] Display (spec FR-010, SC-001, contracts/mcp-tools-delta.md "list_nodes entry"):
   `ListNodesToolTest` and `ConfigSummaryTest` cases for `V7_4` and `"7.4.0.90"` (version shown with
   all four parts for the pin, `access: cli_only`, no usable capability, the

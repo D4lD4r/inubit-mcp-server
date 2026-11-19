@@ -306,6 +306,24 @@ class ToolAnnouncementTest {
     }
 
     @Test
+    void onlySevenFourNodesAnnounceOnlyTheToolsThatAreAlwaysAnnounced() {
+        // feature 025 T012 (FR-009, research D-8): every 7.4 capability is unsupported, so no
+        // read, opt-in, write or log-level tool is announced, even with a client home, write
+        // access and every opt-in (development, deployment and e2e tools: DevelopmentWiringTest);
+        // get_health stays announced as for 6.1 (feature 012 D-12) and refuses per node
+        String groupLines = writeEnabled(true) + "    unsupported:\n"
+            + "      queueEntryRead: true\n      serverLogRead: true\n"
+            + "      nodeStatusRead: true\n      ioLogRead: true\n"
+            + "      nodeConfigRead: true\n      logLevelWrite: true\n" + cliHome();
+        for (String line : List.of("V7_4", "\"7.4.0.90\"")) {
+            assertThat(groupTools(line, groupLines, false, CapabilityMatrix.production()))
+                .as(line).containsExactlyElementsOf(ALWAYS);
+        }
+        assertThat(toolNames("V7_4", "\"7.4.0.90\"", CapabilityMatrix.production()))
+            .containsExactlyElementsOf(ALWAYS);
+    }
+
+    @Test
     void anAutoProfileAnnouncesEveryReadTool() {
         List<String> names = toolNames("AUTO", "AUTO", CapabilityMatrix.production());
 
