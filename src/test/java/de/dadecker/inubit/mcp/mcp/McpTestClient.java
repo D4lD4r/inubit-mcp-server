@@ -44,7 +44,12 @@ public final class McpTestClient implements AutoCloseable {
      */
     public static final ProfileInfo TEST_PROFILE = new ProfileInfo("acme", Optional.empty(),
         Terminology.DEFAULT, "INUBIT_ACME");
-    private static final Duration RESPONSE_TIMEOUT = Duration.ofSeconds(10);
+    /**
+     * How long a response may take before the test fails: a guard against a hanging server, not
+     * a time budget. A deploy through the launch took more than 10 s on the Windows runner while
+     * other test JVMs ran in parallel.
+     */
+    private static final Duration RESPONSE_TIMEOUT = Duration.ofSeconds(30);
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final PipedOutputStream toServer;
