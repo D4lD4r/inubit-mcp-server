@@ -50,6 +50,8 @@ jobs:
 
       # Time-stamped Maven output plus a status line per minute (free memory, CPU, Java
       # processes); stops the build with its log when memory runs out, see the script.
+      # Three test JVMs: most of the time goes to git processes the import tests start, which
+      # are 20x slower to start on Windows than on Linux; one JVM left the 4 cores half idle.
       - name: Build and test
         shell: pwsh
-        run: ./.github/scripts/windows-build.ps1 mvn -B -ntp clean verify
+        run: ./.github/scripts/windows-build.ps1 mvn -B -ntp -DforkCount=3 clean verify
