@@ -907,7 +907,11 @@ public final class VersionGate {
     /**
      * On a CLI-only version the message names the configured line and ends with the next step of
      * the capability (feature 012, FR-007), e.g. "INUBIT 6.1 (versionLine V6_1) on old/node1 does
-     * not support log diagnosis; read the logs of INUBIT 6.1 in the Workbench".
+     * not support log diagnosis; read the logs of INUBIT 6.1 in the Workbench". A version whose
+     * matrix entry carries a note for the capability keeps the note message instead; if it is
+     * CLI-only (7.4) the next step is "INUBIT 7.4 is recognised, but no tool is verified on it
+     * yet; use the INUBIT Workbench for &lt;capability&gt; on &lt;node&gt;" (feature 025,
+     * research D-6).
      *
      * @param version the version {@code name} was built from
      */

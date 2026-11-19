@@ -64,10 +64,11 @@ import tools.jackson.databind.json.JsonMapper;
  * (and so cannot be a deployment target, which needs one). Their INUBIT endpoint is a
  * TLS listener that counts connections and handshakes, their SOAP endpoint a WireMock without
  * stubs, which is also the INUBIT endpoint of the 6.1 nodes, so that its check of no request
- * covers the 6.1 nodes as well; the StartCLI launcher fails and records every launch. The 8.1 nodes share another
- * WireMock and get every tool announced; {@code legacy74/node2} gives the group calls their 8.1
- * entry. The 6.1 nodes {@code old/node1} (writes enabled) and {@code readonly/node1} (writes
- * disabled) give the outcome a 7.4 write must match (pattern {@link V61RefusalTest}).
+ * covers the 6.1 nodes as well; the StartCLI launcher fails and records every launch. The 8.1
+ * nodes share another WireMock and get every tool announced; {@code legacy74/node2} gives the
+ * group calls their 8.1 entry. The 6.1 nodes {@code old/node1} (writes enabled) and
+ * {@code readonly/node1} (writes disabled) give the outcome a 7.4 write must match (pattern
+ * {@link V61RefusalTest}).
  */
 class V74RefusalTest {
 

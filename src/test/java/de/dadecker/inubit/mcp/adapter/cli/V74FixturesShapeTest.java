@@ -111,6 +111,8 @@ class V74FixturesShapeTest {
             "one of the thirteen cases or in the README's recorded list");
         for (String line : listLines(FOLDER.resolve("RECONSTRUCTED.txt"))) {
             String name = line.split(" ")[0];
+            assertThat(RECONSTRUCTED_CASES).as("RECONSTRUCTED.txt case %s is one of the twelve"
+                + " reconstructed cases", name).containsKey(name);
             assertThat(line).isEqualTo(name + " " + RECONSTRUCTED_CASES.get(name));
         }
     }

@@ -126,8 +126,8 @@ class V74RecordedFixturesTest {
     }
 
     /**
-     * A test matrix whose 7.4 entry declares monitoring {@code monitoring} and process diagnosis
-     * {@code UNSUPPORTED}.
+     * A test matrix whose 7.4 entry declares monitoring as {@code monitoring} and process
+     * diagnosis {@code UNSUPPORTED}.
      */
     private static CapabilityMatrix monitoring(SupportState monitoring) {
         return new CapabilityMatrix(

@@ -43,7 +43,7 @@ class V74HelpContractTest {
 
     private static final NodeId NODE = NodeId.parse("legacy74/node1");
 
-    /** 7.4 as in production, but without the "not yet verified" notes. */
+    /** A 7.4 entry that is CLI-only without the "not yet verified" notes. */
     private static final CapabilityMatrix VERIFIED_74 = new CapabilityMatrix(List.of(
         new CapabilityMatrix.Entry(new VersionRange(7, 4, 7, 4), Map.of(),
             Map.of(Capability.MONITORING, Set.of(Channel.CLI),

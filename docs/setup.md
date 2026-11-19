@@ -451,14 +451,14 @@ groups:
   runs 7.4 is a node of unknown version (reads with a warning, writes refused). If its detection
   is answered with HTTP 404, the warning names the pins: "…; if `<node>` runs INUBIT 6.1, pin
   V6_1; if it runs INUBIT 7.4, pin V7_4; results are unverified".
-- **What runs in this version: nothing but `list_nodes` and the offline checks of
-  `check_artifacts`.** INUBIT 7.4 is recognised, but no tool is verified on it yet: every
-  capability is declared "not yet verified" for 7.4, so every tool that would contact the node is
-  refused with `UNSUPPORTED_VERSION` before any contact (no StartCLI run, also no client probe, no
-  TLS handshake, no request), `get_health` included (its report for the node carries the
-  refusal). Nothing runs with the 8.1 adapters and a warning, as it would on an unknown version.
-  In a call for several nodes only the 7.4 node is refused. Texts in
-  [tools.md](tools.md#inubit-74-feature-025).
+- **What runs in this version: nothing but `list_nodes`, `read_knowledge`, `record_knowledge`
+  and the offline checks of `check_artifacts`.** INUBIT 7.4 is recognised, but no tool is
+  verified on it yet: every capability is declared "not yet verified" for 7.4, so every tool
+  that would contact the node is refused with `UNSUPPORTED_VERSION` before any contact (no
+  StartCLI run, also no client probe, no TLS handshake, no request), `get_health` included (its
+  report for the node carries the refusal). Nothing runs with the 8.1 adapters and a warning, as
+  it would on an unknown version. In a call for several nodes only the 7.4 node is refused. Texts
+  in [tools.md](tools.md#inubit-74-feature-025).
 - The tool list follows the rule of 6.1: `get_health` is always offered and refuses the node; a
   profile of 7.4 nodes only offers just `list_nodes`, `get_health`, `check_artifacts`,
   `read_knowledge` and `record_knowledge` (unless `knowledge.recording: false`), also with write
@@ -2811,12 +2811,12 @@ desktop; no start script is needed (only for the optional certificate check on m
 2. `/mcp` shows `inubit-acme` as connected with at least the six read-only tools `list_nodes`,
    `get_health`, `find_processes`, `query_logs`, `list_inventory` and `get_inventory_item`, and
    `check_artifacts` (in a profile of [INUBIT 6.1 nodes](#inubit-61-nodes-v6_1) or
-   [INUBIT 7.4 nodes](#inubit-74-nodes-v7_4) only, just `list_nodes`, `get_health` and
-   `check_artifacts`). `export_artifacts` appears when a node has
-   a StartCLI installation (`cli.home`), `restart_process` and `kill_process` when at least one
-   node has effective write access (section 3, "Write settings"), the development tools when a
-   node has `development.enabled: true`, and `deploy_release` when a group has a `deploy` record;
-   the full list is in the [README](../README.md#tools).
+   [INUBIT 7.4 nodes](#inubit-74-nodes-v7_4) only, just `list_nodes`, `get_health`,
+   `check_artifacts`, `read_knowledge` and `record_knowledge`). `export_artifacts` appears when
+   a node has a StartCLI installation (`cli.home`), `restart_process` and `kill_process` when at
+   least one node has effective write access (section 3, "Write settings"), the development
+   tools when a node has `development.enabled: true`, and `deploy_release` when a group has a
+   `deploy` record; the full list is in the [README](../README.md#tools).
 3. Ask "Which INUBIT systems do you know?" (`list_nodes`) and "Is dev up?" (`get_health`); see
    [tools.md](tools.md) for all tools and example prompts.
 

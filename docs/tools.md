@@ -806,7 +806,11 @@ The same node pinned to INUBIT 7.4 (feature 025, see [INUBIT 7.4](#inubit-74-fea
    {"capability":"log_diagnosis","reason":"INUBIT 7.4 on legacy74/node1: log diagnosis is not yet verified for INUBIT 7.4"},
    {"capability":"inventory","reason":"INUBIT 7.4 on legacy74/node1: inventory is not yet verified for INUBIT 7.4"},
    {"capability":"partner_management","reason":"INUBIT 7.4 on legacy74/node1: partner management is not yet verified for INUBIT 7.4"},
-   {"capability":"workspace_export","reason":"INUBIT 7.4 on legacy74/node1: workspace export is not yet verified for INUBIT 7.4"}]},
+   {"capability":"workspace_export","reason":"INUBIT 7.4 on legacy74/node1: workspace export is not yet verified for INUBIT 7.4"},
+   {"capability":"trace_log_read","reason":"INUBIT 7.4 on legacy74/node1: downloading the trace log is not yet verified for INUBIT 7.4"},
+   {"capability":"server_settings","reason":"INUBIT 7.4 on legacy74/node1: reading server settings is not yet verified for INUBIT 7.4"},
+   {"capability":"user_directory","reason":"INUBIT 7.4 on legacy74/node1: reading users is not yet verified for INUBIT 7.4"},
+   {"capability":"model_details","reason":"INUBIT 7.4 on legacy74/node1: reading model details is not yet verified for INUBIT 7.4"}]},
  "warnings":["INUBIT 7.4 is recognised, but no tool is verified on it yet; the StartCLI client of legacy74/node1 is not used until a 7.4 capability is verified"]}
 ```
 

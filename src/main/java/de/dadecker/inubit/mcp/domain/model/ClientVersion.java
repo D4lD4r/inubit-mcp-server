@@ -47,6 +47,7 @@ public record ClientVersion(InubitVersion version, Optional<InubitVersion> suppo
      * one side only {@code NOT_COMPARABLE} (FR-003).
      */
     public Comparison compare(Optional<InubitVersion> server, PatchDepth depth) {
+        Objects.requireNonNull(depth, "depth");
         if (server.isEmpty() || version.patch().isEmpty() || server.get().patch().isEmpty()) {
             return Comparison.NOT_COMPARABLE;
         }

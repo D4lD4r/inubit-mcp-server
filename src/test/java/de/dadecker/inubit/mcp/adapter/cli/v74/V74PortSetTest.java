@@ -38,19 +38,29 @@ class V74PortSetTest {
         new PortSetRegistry.NodeResources(TestNodeConfig.node().id(NODE.value())
             .versionLine(VersionSetting.V7_4).build(), null, null, null, null, null);
 
-    /** Every abstract method of every port of the 7.4 port set, with the port it is called on. */
+    /**
+     * Every abstract method of every port of the 7.4 port set, and every default method the port
+     * overrides (such as {@code queueEntries}), with the port it is called on.
+     */
     static Stream<Arguments> portMethods() throws ReflectiveOperationException {
         PortSet ports = V74PortSet.factory().create(RESOURCES);
         Stream.Builder<Arguments> calls = Stream.builder();
         for (RecordComponent component : PortSet.class.getRecordComponents()) {
             Object port = component.getAccessor().invoke(ports);
             for (Method method : component.getType().getMethods()) {
-                if (!method.isDefault() && !Modifier.isStatic(method.getModifiers())) {
+                if (!Modifier.isStatic(method.getModifiers())
+                    && (!method.isDefault() || overrides(port, method))) {
                     calls.add(Arguments.of(component.getName(), method, port));
                 }
             }
         }
         return calls.build();
+    }
+
+    private static boolean overrides(Object port, Method method)
+        throws NoSuchMethodException {
+        return port.getClass().getMethod(method.getName(), method.getParameterTypes())
+            .getDeclaringClass() != method.getDeclaringClass();
     }
 
     @Test

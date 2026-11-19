@@ -922,9 +922,10 @@ class ConfigValidatorTest {
         }
 
         @Test
-        void aV74NodeHasNoClientOptionFinding() {
-            // feature 025 T015 (research D-9, FR-010a): no -h option probe runs for 7.4, so the
-            // settings that warn for a 6.1 client without these options give no option finding
+        void aV74NodeHasNoClientOptionFindingWithoutTheProbeOfCheckConfig() {
+            // feature 025 T015 (FR-010a): as for 6.1, validate() runs no probe and gives a 7.4
+            // node with these settings no option finding; that --check-config runs no -h probe
+            // for 7.4 (research D-9) is pinned in CliClientProbeTest
             ValidationReport report = validate(server("""
                 versionLine: V7_4
                 tls:

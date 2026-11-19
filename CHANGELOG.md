@@ -49,8 +49,9 @@ for recording a non-production 7.4 node later.
   verified on 9.0) and `tag_administration` (`managing tags`; not yet verified on 8.1 and 9.0) in
   `list_nodes`.
 - `versionLine: V7_4` and concrete 7.4 pins (feature 025). Every capability is "not yet verified"
-  on 7.4: each tool except `list_nodes` and the offline checks of `check_artifacts` refuses a 7.4
-  node with `UNSUPPORTED_VERSION` (`<tool>: INUBIT 7.4 on <node>: <capability> is not yet verified
+  on 7.4: each tool that would contact a node (all but `list_nodes`, `read_knowledge`,
+  `record_knowledge` and the offline checks of `check_artifacts`) refuses a 7.4 node with
+  `UNSUPPORTED_VERSION` (`<tool>: INUBIT 7.4 on <node>: <capability> is not yet verified
   for INUBIT 7.4; nothing was sent`, the `get_health` report without the tool name) and sends
   nothing: no StartCLI run, no client probe, no request. In a group only the 7.4 node is refused.
   `AUTO` never selects 7.4. A profile of 7.4 nodes only offers just `list_nodes`, `get_health`,
