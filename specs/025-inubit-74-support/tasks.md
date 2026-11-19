@@ -167,11 +167,12 @@ and `--check-config` tests, offline, on both CI jobs.
   "INUBIT 7.4 is recognised, but no tool is verified on it yet; use the INUBIT Workbench for
   `<label>` on `<node>`" (release from the version, not a literal) and (b) for INVENTORY appends
   "; modules of INUBIT <release> cannot be looked up" as the CLI-only branch does (`:893-894`).
-  Expected message: `get_health: INUBIT 7.4 on legacy74/node1: monitoring is not yet verified for
-  INUBIT 7.4; nothing was sent` (`INUBIT 7.4.0.90 on …` for the concrete pin). Test first:
+  Expected message: `INUBIT 7.4 on legacy74/node1: monitoring is not yet verified for INUBIT 7.4;
+  nothing was sent` for `get_health`, which names no tool (as on 6.1); every other tool's message
+  starts with `<tool>: ` (IMC-14, option 1) (`INUBIT 7.4.0.90 on …` for the concrete pin). Test first:
   `VersionGateTest` cases for a `V7_4` and a `"7.4.0.90"` pin (read, write, monitoring, inventory
   suffix); the 6.1, 8.1 and 9.0 refusal texts in `VersionLineRegressionTest` unchanged.
-- [ ] T010 [US1] Per-tool refusal without contact (spec FR-007, FR-012, FR-013, SC-003):
+- [X] T010 [US1] Per-tool refusal without contact (spec FR-007, FR-012, FR-013, SC-003):
   `test/application/V74RefusalTest` (pattern `V61RefusalTest`): one case per tool that contacts a
   node (every tool registered in `Wiring` except `list_nodes`, `check_artifacts`,
   `read_knowledge`, `record_knowledge`) against a profile with a `V7_4` node, asserting

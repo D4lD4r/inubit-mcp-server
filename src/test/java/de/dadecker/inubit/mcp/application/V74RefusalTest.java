@@ -63,7 +63,8 @@ import tools.jackson.databind.json.JsonMapper;
  * a StartCLI installation and is a deployment target, {@code bare74/node1} has no client at all
  * (and so cannot be a deployment target, which needs one). Their INUBIT endpoint is a
  * TLS listener that counts connections and handshakes, their SOAP endpoint a WireMock without
- * stubs, and the StartCLI launcher fails and records every launch. The 8.1 nodes share another
+ * stubs, which is also the INUBIT endpoint of the 6.1 nodes, so that its check of no request
+ * covers the 6.1 nodes as well; the StartCLI launcher fails and records every launch. The 8.1 nodes share another
  * WireMock and get every tool announced; {@code legacy74/node2} gives the group calls their 8.1
  * entry. The 6.1 nodes {@code old/node1} (writes enabled) and {@code readonly/node1} (writes
  * disabled) give the outcome a 7.4 write must match (pattern {@link V61RefusalTest}).
@@ -295,6 +296,16 @@ class V74RefusalTest {
             + "; nothing was sent";
     }
 
+    /**
+     * The likely cause of the refusal (contracts/mcp-tools-delta.md): the gate's wording for a
+     * read or a write capability.
+     */
+    private static String likelyCause(Capability capability) {
+        return capability.kind() == Capability.Kind.WRITE
+            ? "The node runs a version for which no verified write access exists"
+            : "This server declares " + capability.label() + " unsupported for that version";
+    }
+
     /** The next step of T009 for {@code capability} on {@code node}. */
     private static String nextStep(String node, Capability capability) {
         return "INUBIT 7.4 is recognised, but no tool is verified on it yet; use the INUBIT"
@@ -319,12 +330,14 @@ class V74RefusalTest {
             .contains("INUBIT 7.4"));
     }
 
-    private static void assertRefusal(JsonNode error, String node, String message,
-        String nextStep) {
+    /** The refusal of {@code tool} on the 7.4 node {@code node}, as T009 words it. */
+    private static void assertRefusal(JsonNode error, String tool, String node,
+        Capability capability) {
         assertThat(error.path("code").asString()).as(error.toString())
             .isEqualTo("UNSUPPORTED_VERSION");
-        assertThat(error.path("message").asString()).isEqualTo(message);
-        assertThat(error.path("nextStep").asString()).isEqualTo(nextStep);
+        assertThat(error.path("message").asString()).isEqualTo(refusal(tool, node, capability));
+        assertThat(error.path("likelyCause").asString()).isEqualTo(likelyCause(capability));
+        assertThat(error.path("nextStep").asString()).isEqualTo(nextStep(node, capability));
         assertThat(error.path("node").asString()).isEqualTo(node);
     }
 
@@ -459,8 +472,7 @@ class V74RefusalTest {
 
         JsonNode result = client.callTool(tool, call);
 
-        assertRefusal(errorOf(result, node), node, refusal(tool, node, capability),
-            nextStep(node, capability));
+        assertRefusal(errorOf(result, node), tool, node, capability);
         assertRefusalLogged(node, capability);
         assertNothingReachedA74Node();
     }
@@ -479,9 +491,7 @@ class V74RefusalTest {
             JsonNode result = client.callTool("read_io_log", Map.of("target", node,
                 "workflow", "Workflow-0001", "processId", "110219899"));
 
-            assertRefusal(errorOf(result, node), node,
-                refusal("read_io_log", node, Capability.IO_LOG_READ),
-                nextStep(node, Capability.IO_LOG_READ));
+            assertRefusal(errorOf(result, node), "read_io_log", node, Capability.IO_LOG_READ);
             assertRefusalLogged(node, Capability.IO_LOG_READ);
         }
         assertNothingReachedA74Node();
@@ -532,8 +542,7 @@ class V74RefusalTest {
 
         assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
         assertThat(errorOf(result, MIXED_81).isMissingNode()).as(result.toString()).isTrue();
-        assertRefusal(errorOf(result, NODE), NODE, refusal(tool, NODE, capability),
-            nextStep(NODE, capability));
+        assertRefusal(errorOf(result, NODE), tool, NODE, capability);
         assertThat(current.findAll(anyRequestedFor(anyUrl()))).as("reads of " + MIXED_81)
             .isNotEmpty();
         assertNothingReachedA74Node();
