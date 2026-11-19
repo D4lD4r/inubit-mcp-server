@@ -8,11 +8,9 @@ tasks live there (Spec Kit); this mandate owns tasks T001–T025 only. T001–T0
 complete). Question IMC-14 answered (option 1) and applied in T010; the **Blocked flag is still
 set** — clearing it (M14) and moving IMC-14 (QC2/QC5) are the Product Engineer's moves.
 
-**Paused (2026-11-19, on Daniel's request)** before T020. The implementer of T020 was stopped
-before it reported; its partial, unreviewed `src/test/java/de/dadecker/inubit/mcp/adapter/cli/v74/
-V74HelpContractTest.java` is left **untracked and uncommitted** in the worktree. Last finished
-task: T010 (`9a1cdf43`). Full suite after Phases 4–5: exit 0, 11,245 tests (before T010 round 2,
-T018, T019; those ran their touched-area tests only).
+**Resumed 2026-11-19 16:30 CET.** T020–T023 done (Phase 6 complete, `aa9cfe19`); full suite after
+Phase 6 running. The partial T020 test of the stopped implementer was kept and finished (its node
+lacked a `cliJavaHome`, so `CliRunner` refused the launch before `-h`).
 
 ## Done since last handoff
 | Task | Commit | Review rounds |
