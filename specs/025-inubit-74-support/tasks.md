@@ -269,7 +269,7 @@ and `--check-config` tests, offline, on both CI jobs.
 **Goal**: spec US4, FR-014 – FR-019, SC-006. **Independent test**: `V74FixturesShapeTest`,
 `V74RecordedFixturesTest`, `V74HelpContractTest`, `RecordFixturesPs1Test`, `tools\record-fixtures.ps1 -List`.
 
-- [ ] T018 [P] [US4] Reconstructed 7.4 cases (research D-11, spec FR-014 table): create
+- [X] T018 [P] [US4] Reconstructed 7.4 cases (research D-11, spec FR-014 table): create
   `fixtures/v7_4/cli/<case>.stdout/.stderr/.exit` for `health_session_ok`,
   `health_session_maintenance`, `health_session_alive_failed`, `login_failed`, `unreachable`,
   `ps_session_all`, `ps_session_error`, `ps_session_waiting`, `ps_session_queued`,

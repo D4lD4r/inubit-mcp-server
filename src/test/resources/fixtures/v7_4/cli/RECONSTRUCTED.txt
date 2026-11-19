@@ -5,3 +5,34 @@
 # from this list when a recording of a real 7.4 node replaces it (it then moves to the README's
 # recorded list) or when it is derived from a recorded case (it then moves to DERIVED.txt). Lines
 # starting with # are comments.
+# Mandate A: built from the 6.1 case of the same purpose in ../../v6_1/cli/ with server version
+# 7.4.0.90; ps_session_waiting and ps_session_queued split ps_session_waiting_queued,
+# ps_session_limit5 is ps_session_all cut to its first five rows. Each comment names the case that
+# replaces the line (spec FR-014 table).
+# health session (get_health)
+# replaced by v74_health_session
+health_session_ok monitoring
+# replaced by a case derived from health_session_ok (FR-016a): maintenance on
+health_session_maintenance monitoring
+# replaced by a case derived from health_session_ok (FR-016a): alive check fails
+health_session_alive_failed monitoring
+# replaced by v74_login_failed
+login_failed monitoring
+# replaced by v74_failure
+unreachable monitoring
+# process session (find_processes)
+# replaced by v74_ps_all
+ps_session_all process_diagnosis
+# replaced by v74_ps_error
+ps_session_error process_diagnosis
+# replaced by v74_ps_waiting
+ps_session_waiting process_diagnosis
+# replaced by v74_ps_queued
+ps_session_queued process_diagnosis
+# replaced by v74_ps_limit5
+ps_session_limit5 process_diagnosis
+# replaced by a recorded empty listing if one occurs, else derived from ps_session_error (FR-016a)
+ps_session_empty process_diagnosis
+# replaced by a recorded row without a cluster node if one occurs, else derived from
+# ps_session_all (FR-016a)
+ps_session_unassigned process_diagnosis

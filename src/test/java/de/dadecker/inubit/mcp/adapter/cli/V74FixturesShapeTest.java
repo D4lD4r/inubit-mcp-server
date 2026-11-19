@@ -10,9 +10,11 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -38,6 +40,20 @@ class V74FixturesShapeTest {
         Pattern.compile("^([a-z0-9_]+) ([a-z0-9_]+) ([a-z_]+) (\\S.*)$");
     /** README, section {@code ## Recorded cases}: one list item {@code - <case> <source>}. */
     private static final Pattern RECORDED_LINE = Pattern.compile("^- ([a-z0-9_]+) ([a-z0-9_]+)$");
+    /** The reconstructed cases of Mandate A and their capability (spec FR-014 table). */
+    private static final Map<String, String> RECONSTRUCTED_CASES = Map.ofEntries(
+        Map.entry("health_session_ok", "monitoring"),
+        Map.entry("health_session_maintenance", "monitoring"),
+        Map.entry("health_session_alive_failed", "monitoring"),
+        Map.entry("login_failed", "monitoring"),
+        Map.entry("unreachable", "monitoring"),
+        Map.entry("ps_session_all", "process_diagnosis"),
+        Map.entry("ps_session_error", "process_diagnosis"),
+        Map.entry("ps_session_waiting", "process_diagnosis"),
+        Map.entry("ps_session_queued", "process_diagnosis"),
+        Map.entry("ps_session_limit5", "process_diagnosis"),
+        Map.entry("ps_session_empty", "process_diagnosis"),
+        Map.entry("ps_session_unassigned", "process_diagnosis"));
 
     @Test
     void theFolderHasItsReadmeAndBothLists() {
@@ -69,6 +85,34 @@ class V74FixturesShapeTest {
         assertThat(recordedLines(FOLDER)).contains("- help attachment");
         assertThat(listLines(FOLDER.resolve("RECONSTRUCTED.txt")))
             .noneMatch(line -> line.split(" ")[0].equals("help"));
+    }
+
+    /**
+     * T018 (spec FR-014 table, research D-11): the folder holds the twelve reconstructed cases and
+     * {@code help}; any other case must be in the README's recorded list (the research cases of
+     * Mandate B). Every {@code RECONSTRUCTED.txt} line names its case's capability.
+     */
+    @Test
+    void theFolderHoldsTheTwelveReconstructedCasesAndHelp() throws IOException {
+        Set<String> expected = new LinkedHashSet<>(RECONSTRUCTED_CASES.keySet());
+        expected.add("help");
+        Set<String> recorded =
+            cases("README.md", recordedLines(FOLDER), RECORDED_LINE, new ArrayList<>());
+        Set<String> folderCases;
+        try (Stream<Path> files = Files.list(FOLDER)) {
+            folderCases = files.map(file -> file.getFileName().toString())
+                .filter(name -> name.endsWith(".stdout"))
+                .map(name -> name.substring(0, name.length() - ".stdout".length()))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        }
+
+        assertThat(folderCases).containsAll(expected);
+        assertThat(folderCases).allMatch(name -> expected.contains(name) || recorded.contains(name),
+            "one of the thirteen cases or in the README's recorded list");
+        for (String line : listLines(FOLDER.resolve("RECONSTRUCTED.txt"))) {
+            String name = line.split(" ")[0];
+            assertThat(line).isEqualTo(name + " " + RECONSTRUCTED_CASES.get(name));
+        }
     }
 
     @Test

@@ -1,0 +1,9 @@
+Password: 
+cli> NODE                 UID             PID        PRIO       STATE      DATE                 WORKFLOW             MODULE
+node1                jdoe            400101     normal     Error      2026-10-30T08:15:42  OrderImport          Mapping(10234)
+node2                jdoe            400102     normal     Waiting    2026-10-28T09:00:00  OrderApproval        TaskListEntry(10301)
+node1                jdoe            400103     high       Error      2026-10-31T14:02:10  OrderImport          Mapping(10234)
+node1                jdoe            400104     normal     Processing 2026-11-01T06:58:31  PartnerSync          HttpCall(10777)
+node2                jdoe            400105     normal     Retry      2026-11-01T05:45:00  InvoiceExport        Sender(10511)
+Total: 5
+cli> 

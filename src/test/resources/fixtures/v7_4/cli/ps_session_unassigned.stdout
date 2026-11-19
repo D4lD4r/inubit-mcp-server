@@ -1,0 +1,6 @@
+Password: 
+cli> NODE                 UID             PID        PRIO       STATE      DATE                 WORKFLOW             MODULE
+__NotAssigned__      jdoe            400201     normal     Waiting    2026-10-24T12:38:06  OrderApproval        TaskListEntry(10301)
+node1                jdoe            400202     normal     Error      2026-10-31T10:11:12  OrderImport
+Total: 2
+cli> 
