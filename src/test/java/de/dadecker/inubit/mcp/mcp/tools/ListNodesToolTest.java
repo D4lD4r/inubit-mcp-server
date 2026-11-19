@@ -72,6 +72,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -372,7 +374,8 @@ class ListNodesToolTest {
      * StartCLI, reads), qa/node1 ({@code V8_1}, StartCLI, {@link #DEVELOPMENT}), qa/node2
      * (pinned {@code 8.1.17}, no StartCLI, reads) and qa/node3 ({@code V9_X}, StartCLI,
      * {@link #DEVELOPMENT}), all at the WireMock server; feature 012: qa/node4 ({@code V6_1},
-     * StartCLI, {@link #DEVELOPMENT}).
+     * StartCLI, {@link #DEVELOPMENT}); feature 025: qa/node5 ({@code V7_4}) and qa/node6 (pinned
+     * {@code 7.4.0.90}), both StartCLI, {@link #DEVELOPMENT}.
      */
     @BeforeEach
     void startVersionClient() {
@@ -387,7 +390,10 @@ class ListNodesToolTest {
             versionNode("qa/node2", baseUrl, VersionSetting.parse("8.1.17").orElseThrow())
                 .build(),
             versionNode("qa/node3", baseUrl, VersionSetting.V9_X).cliHome(CLI_HOME).build(),
-            versionNode("qa/node4", baseUrl, VersionSetting.V6_1).cliHome(CLI_HOME).build());
+            versionNode("qa/node4", baseUrl, VersionSetting.V6_1).cliHome(CLI_HOME).build(),
+            versionNode("qa/node5", baseUrl, VersionSetting.V7_4).cliHome(CLI_HOME).build(),
+            versionNode("qa/node6", baseUrl, VersionSetting.parse("7.4.0.90").orElseThrow())
+                .cliHome(CLI_HOME).build());
         Map<NodeId, EffectiveNodeConfig> byId = new HashMap<>();
         nodes.forEach(node -> byId.put(node.id(), node));
         clock = new MutableClock(NOW);
@@ -402,7 +408,8 @@ class ListNodesToolTest {
                 new CliResources("acme",
                     PrivateFiles.forHost())), versions, PortSetRegistry.v81Default());
         allowed = Map.of(DEV1, DEVELOPMENT, DEV2, READS, QA1, DEVELOPMENT,
-            NodeId.parse("qa/node2"), READS, QA3, DEVELOPMENT, QA4, DEVELOPMENT);
+            NodeId.parse("qa/node2"), READS, QA3, DEVELOPMENT, QA4, DEVELOPMENT,
+            NodeId.parse("qa/node5"), DEVELOPMENT, NodeId.parse("qa/node6"), DEVELOPMENT);
         summaries = nodes.stream().map(node -> node.summary(EXISTS, false)).toList();
         NodeOverview overview = new NodeOverview(summaries, versions,
             CapabilityMatrix.production(), (id, withClient) -> allowed.get(id),
@@ -844,6 +851,43 @@ class ListNodesToolTest {
             + " qa/node4 contradicts INUBIT 8.1.17 observed by get_health at");
         assertThat(reason(version, "development_writes")).startsWith("versionLine V6_1 of"
             + " qa/node4 contradicts INUBIT 8.1.17");
+    }
+
+    // --- 025-T013: a 7.4 node (FR-010, SC-001, research D-8) --------------------------------
+
+    @ParameterizedTest
+    @CsvSource({
+        "qa/node5, V7_4,     7.4,      INUBIT 7.4",
+        "qa/node6, 7.4.0.90, 7.4.0.90, INUBIT 7.4.0.90"})
+    void aV74NodeIsCliOnlyWithItsVersionAndNoUsableCapabilityWithoutContactingIt(String id,
+        String setting, String shown, String name) {
+        // the production matrix refuses every 7.4 capability as not yet verified; listVersions
+        // fails on any request, and the launcher on any StartCLI run
+        JsonNode result = versionClient.callTool("list_nodes", Map.of());
+        JsonNode node = StreamSupport.stream(result.path("structuredContent").path("groups")
+                .spliterator(), false)
+            .flatMap(group -> StreamSupport.stream(group.path("nodes").spliterator(), false))
+            .filter(item -> item.path("id").asString().equals(id))
+            .findFirst().orElseThrow();
+        assertThat(node.path("versionLine").asString()).isEqualTo(setting);
+
+        JsonNode version = listVersions().get(id);
+
+        assertThat(requests()).isZero();
+        assertThat(version.path("setting").asString()).isEqualTo(setting);
+        assertThat(version.path("access").asString()).isEqualTo("cli_only");
+        assertThat(version.path("server").path("version").asString())
+            .as("a pin keeps all four parts").isEqualTo(shown);
+        assertThat(version.path("server").path("source").asString()).isEqualTo("pinned");
+        assertThat(version.path("status").asString()).isEqualTo("unsupported");
+        assertThat(usable(version)).isEmpty();
+        assertThat(notUsable(version)).containsExactly("monitoring", "process_diagnosis",
+            "log_diagnosis", "inventory", "workspace_export", "development_writes",
+            "process_control");
+        assertThat(reason(version, "monitoring")).isEqualTo(name + " on " + id
+            + ": monitoring is not yet verified for INUBIT 7.4");
+        assertThat(reason(version, "development_writes")).isEqualTo(name + " on " + id
+            + ": development writes is not yet verified for INUBIT 7.4");
     }
 
     /** The version block of {@code node} in an overview with {@code matrix}. */

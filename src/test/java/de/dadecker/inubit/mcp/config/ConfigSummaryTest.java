@@ -1024,6 +1024,48 @@ class ConfigSummaryTest {
             .contains("Result: OK");
     }
 
+    // --- feature 025 T013: a 7.4 node is StartCLI only (FR-010, SC-001, research D-8) ---------
+
+    private static final String V7_4 = """
+        profile:
+          name: acme
+        groups:
+          - name: test
+            cli:
+              home: /opt/client
+            nodes:
+              - name: node1
+                baseUrl: https://inubit-legacy74-1.example.test:8443
+                versionLine: V7_4
+              - name: node2
+                baseUrl: https://inubit-legacy74-2.example.test:8443
+                versionLine: "7.4.0.90"
+              - name: node3
+                baseUrl: https://inubit-legacy-03.example.test:8443
+                versionLine: V8_1
+        """;
+
+    @Test
+    void aV74NodeShowsItsVersionAndStartCliOnlyWithoutAnyAvailableCapability() {
+        String summary = render(V7_4);
+
+        String access = " (INUBIT 7.4, StartCLI only; available: none; refused: monitoring,"
+            + " process diagnosis, log diagnosis, inventory, partner management, workspace"
+            + " export, development writes, deployment, end-to-end test, process control,"
+            + " downloading the trace log, reading server settings, reading users, reading model"
+            + " details, operating the server, managing tags), secrets: credentialStore (macOS"
+            + " Keychain), username ←";
+        assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V7_4"
+            + access);
+        assertThat(summary).as("the pin is shown with all four parts")
+            .contains("test/node2: read-only, cli: available, inubit: 7.4.0.90" + access);
+        assertThat(summary).as("8.1 lines are unchanged")
+            .contains("test/node3: read-only, cli: available, inubit: V8_1, secrets:"
+                + " credentialStore (macOS Keychain), username ←");
+        assertThat(summary).contains("Result: OK");
+        TestSecrets.assertNoLeak(summary);
+    }
+
     // --- feature 012 T021: the client options of a 6.1 node (FR-012a, research D-8) -----------
 
     @Test

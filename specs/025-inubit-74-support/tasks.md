@@ -191,7 +191,7 @@ and `--check-config` tests, offline, on both CI jobs.
   `read_knowledge`, `record_knowledge` and `check_artifacts`; no other tool (reads, opt-in, write,
   log-level; development, deployment and e2e in `test/DevelopmentWiringTest`). `get_health` stays
   announced under the unchanged feature 009/012 rule (FR-009; review T012-r1).
-- [ ] T013 [US1] Display (spec FR-010, SC-001, contracts/mcp-tools-delta.md "list_nodes entry"):
+- [X] T013 [US1] Display (spec FR-010, SC-001, contracts/mcp-tools-delta.md "list_nodes entry"):
   `ListNodesToolTest` and `ConfigSummaryTest` cases for `V7_4` and `"7.4.0.90"` (version shown with
   all four parts for the pin, `access: cli_only`, no usable capability, the
   summary "(INUBIT 7.4, StartCLI only; available: none; refused: …)"); change
