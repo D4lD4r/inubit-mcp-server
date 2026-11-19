@@ -1,19 +1,21 @@
-# Handoff — IMC-9 · Executing · 2026-11-19 · run executor-1
+# Handoff — IMC-9 · Verifying · 2026-11-19 · run executor-1
 
 ## Status
-IMC-9 is `Executing` (M3 on 2026-11-19), assignee APEX Executor, accountable Daniel Decker (Product
+IMC-9 is `Verifying` (M3 and M4 on 2026-11-19; M4 taken by the APEX Executor account via REST at
+19:15 CET), assignee APEX Executor, accountable Daniel Decker (Product
 Engineer). Branch `claude/025-mandate-a-imc-9`, cut from `origin/main` `c98bd7e3` (IMC-2 merged as
 #102). Spec: `specs/025-inubit-74-support/` US1–US5, FR-001 – FR-020, pinned `2bfe55e7`. Plan and
 tasks live there (Spec Kit); this mandate owns tasks T001–T025 only. **T001–T025 done (Mandate A
-complete).** Question IMC-14 answered (option 1) and applied in T010; the **Blocked flag is still
-set** — clearing it (M14) and moving IMC-14 (QC2/QC5) are the Product Engineer's moves.
+complete).** Question IMC-14 answered (option 1) and applied in T010. Daniel cleared the Blocked
+flag on IMC-9 (M14) and removed the wrong link "IMC-9 blocks IMC-14"; the link "IMC-14 blocks
+IMC-9" remains. IMC-14 is still `Open`; its QC2/QC5 moves are the Product Engineer's.
 
 **Resumed 2026-11-19 16:30 CET, ready for M4 at 18:35 CET.** T020–T025 done plus a clean-up of
 open minors (`b27813ab`). Full suite after T025 (`23a97fd2`): exit 0, 11,264 tests, 0 failures,
 62 skipped. [PR #104](https://github.com/D4lD4r/inubit-mcp-server/pull/104) open against `main`,
-CI all green on the first attempt (no rerun). M4 not taken: this run had no
-`atlassian-apex-executor` connector and used no other Jira identity, so the move is left to the
-executor account (drafted comment below).
+CI all green on the first attempt (no rerun), also on head `d7375c24`. This run had no
+`atlassian-apex-executor` connector and used no other Jira identity; M4 was taken separately by
+the executor account, and the comment below is posted on IMC-9 as a separate comment.
 
 ## Done since last handoff
 | Task | Commit | Review rounds |
@@ -57,11 +59,9 @@ CI on PR #104 at `23a97fd2`, run
 23m54s, CodeQL (actions, java-kotlin) — all pass, first attempt.
 
 ## Next step
-M4 (Executing → Verifying) by the executor account, with the comment drafted below. Then
-verification by another agent. Before or with M4, the Product Engineer clears the Blocked flag on
-IMC-9 (M14) and removes the wrong link "IMC-9 blocks IMC-14".
+Verification of IMC-9 by another agent (PR #104, the claims below). Nothing left for this run.
 
-### Drafted M4 comment
+### M4 comment (posted on IMC-9)
 > M4 Executing → Verifying. Mandate A (tasks T001–T025 of feature 025, INUBIT 7.4 recognised by
 > pin and refused clearly, CLI only) is implemented test-first, one commit per task, each approved
 > by an independent task reviewer.
@@ -75,11 +75,10 @@ IMC-9 (M14) and removes the wrong link "IMC-9 blocks IMC-14".
 
 ## Open questions
 - None blocking. [IMC-14](https://danieldecker.atlassian.net/browse/IMC-14) is answered and
-  applied in T010 (`9a1cdf43`); the card's QC2/QC5 moves and clearing the Blocked flag on IMC-9 are
-  the Product Engineer's.
-- Jira housekeeping: a wrong link "IMC-9 blocks IMC-14" was created first; the executor connector
-  cannot delete links. The correct link "IMC-14 blocks IMC-9" exists. The wrong one needs removing
-  by a human.
+  applied in T010 (`9a1cdf43`); the card is still `Open`, its QC2/QC5 moves are the Product
+  Engineer's.
+- Jira housekeeping resolved: Daniel cleared the Blocked flag and removed the wrong link "IMC-9
+  blocks IMC-14"; the correct link "IMC-14 blocks IMC-9" remains.
 
 ## Decisions received
 - M1 by Daniel Decker (card description).
@@ -140,14 +139,16 @@ IMC-9 (M14) and removes the wrong link "IMC-9 blocks IMC-14".
   - the Blocked flag is `customfield_10021` = `[{"value": "Impediment"}]`;
   - `createJiraIssueLink` with type Blocks: `inwardIssue` is the blocker, `outwardIssue` the
     blocked card ("A blocks B" = inward A, outward B);
-  - the connector cannot delete issue links.
+  - the connector cannot delete issue links;
+  - M4 (Executing → Verifying) has no transition screen: a comment sent with the transition is
+    dropped silently. Post the comment as a separate comment.
 
 ## How to resume
 - Worktree: `/Users/dadecker/Development/Privat/inubit-mcp-server/.claude/worktrees/025-mandate-a-imc-9`
   (branch `claude/025-mandate-a-imc-9`, pushed). The main checkout is on another branch; do not
   work there.
-- Mandate A is finished; nothing to implement. Remaining: M4 by the executor account (drafted
-  comment above), then verification by another agent. Mandate B (T026–T037) is not started.
+- Mandate A is finished and M4 is taken; nothing to implement. Remaining: verification by another
+  agent. Mandate B (T026–T037) is not started.
 - The subagent `mvn` wrapper note above still applies; `d4ld4r-speckit-duo:implement` was emulated
   in this run (implementer and task reviewer as separate subagents, same role prompts).
 
