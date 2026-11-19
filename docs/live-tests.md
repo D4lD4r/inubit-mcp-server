@@ -604,6 +604,9 @@ non-production node and with the person's approval in the chat for each step:
 recording call is in `specs/013-windows-startcli/quickstart.md`). It starts `startcli.bat` the way
 the server does, only for the groups in `RECORD_ALLOWED_GROUPS` and the hosts in
 `RECORD_ALLOWED_HOSTS`, and writes neutralised files to `src/test/resources/fixtures/windows/`.
+Its `v74_*` cases (feature 025) record an INUBIT 7.4 node, partly in a session (the password on
+standard input only), and write to `src/test/resources/fixtures/v7_4/cli/`; their plan is in the
+[research notes](research/inubit-interfaces.md#73-recording-plan).
 
 Steps, in PowerShell:
 

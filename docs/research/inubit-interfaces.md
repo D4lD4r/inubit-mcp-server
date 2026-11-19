@@ -224,3 +224,58 @@ below is still to be checked against a real 9.0 system.
   https://docs.virtimo.net/en/inubit-docs/9.0/administration-guide/command-line-interface.html,
   https://docs.virtimo.net/en/inubit-docs/9.0/breaking-changes.html,
   https://docs.virtimo.net/en/inubit-docs/9.0/changelog.html
+
+## 7. INUBIT 7.4 (feature 025)
+
+Source: the output of `startcli.sh -h` of a 7.4 client, kept byte for byte in
+[evidence/startcli-7.4-help.txt](../../specs/025-inubit-74-support/evidence/startcli-7.4-help.txt)
+and in the fixture `src/test/resources/fixtures/v7_4/cli/help.*` (exit code and stderr assumed). No vendor
+documentation of 7.4 is available. Everything else about 7.4 is **UNVERIFIED**; in this version the
+server recognises 7.4 nodes by pin and refuses every tool on them
+([setup.md, INUBIT 7.4 nodes](../setup.md#inubit-74-nodes-v7_4)).
+
+### 7.1 Facts of the help output
+
+- Usage `CLI [OPTIONS] [Url]`; default URL `http://localhost:8000/ibis/servlet/IBISSoapServlet`,
+  so a 7.4 node is addressed at the servlet path, as 8.1.
+- Script mode `--execCommand "[Command] [option(s)] [arg(s)]"`, with `--execMode` (`CACHE` or
+  default); an interactive mode after login (`<command> <options> <args>`).
+- Client options: `-a`, `-c/--check`, `--debug`, `--encryptString`, `-h`, `-l <rows>`,
+  `--licenseTimeout`, `--maintenance on|off`, `--maintenanceState`, `-n`, `-ne`, `-nq`, `-nw`,
+  `-nx`, `--who`, `--nwho`, `-p/--password`, `--pctmem`, `-q`, `-r/--rvs` with `--rhost`,
+  `--rlogin`, `--rmwname`, `--rpassword`, `--searchClass`, `-sv`, `-t/--timeout` (default 300 s),
+  `-u/--user`, `-v/--version`, `-x`.
+- **No TLS option**: no trust-store, key-store or host-name verification option (8.1:
+  `--trustStoreFilePath`, `--disableHostNameVerification`). The recorder passes a trust store as
+  the Java system properties `javax.net.ssl.trustStore` and `javax.net.ssl.trustStoreType`.
+- Batch commands listed with their options: `tag`, `rename`, `delete`, `export`, `import`,
+  `backup`, `deploy`, `restore`, `process` (`export`, `import`, `deleteBlocked`, `listBlocked`,
+  `resume`, `validateExport`).
+
+### 7.2 Unknown
+
+- The interactive commands (e.g. `ps`, `uptime`, a health check) and their output formats.
+- Exit codes and stderr of every command, also of `-h`.
+- Whether the password prompt can be fed through stdin without `-p`.
+- The node's exact version text and the client's version and range output (`-v`), the JDK the 7.4
+  client ships with.
+- The REST endpoints of 7.4, if any; the server sends a 7.4 node no REST request.
+
+### 7.3 Recording plan
+
+The Windows recorder `tools/record-fixtures.ps1` has 13 `v74_*` cases and a session mode (one
+`startcli.bat -u <user> <url>` run; the password line, the commands and `exit` on stdin; the
+password never on the command line). The recordings are made by hand, with the owner's approval,
+against a **non-production** 7.4.0.90 node with the 7.4 client and its JDK
+([quickstart, Mandate B](../../specs/025-inubit-74-support/quickstart.md)):
+
+1. Set `RECORD_ALLOWED_GROUPS` and `RECORD_ALLOWED_HOSTS` for the run.
+2. The research cases: `v74_help`, `v74_version`, `v74_exec_help`, `v74_exec_ps_help`,
+   `v74_direct_health`.
+3. If the 7.4 commands differ from the recorder's case table, adjust the 7.4 cases there.
+4. The session and failure cases: `v74_health_session`, `v74_ps_all`, `v74_ps_error`,
+   `v74_ps_waiting`, `v74_ps_queued`, `v74_ps_limit5`, `v74_login_failed`, `v74_failure`.
+5. Run `NoCustomerIdentifiersTest`, review and commit the recordings.
+6. Live check with a `V7_4` node and an `AUTO` node.
+
+A 7.4 capability is declared verified only after its parser has passed against these recordings.

@@ -351,7 +351,7 @@ and `--check-config` tests, offline, on both CI jobs.
 
 ## Phase 8: Polish — documentation and changelog (Mandate A)
 
-- [ ] T025 Docs and changelog (research D-14, spec FR-020): `docs/setup.md` (requirements row,
+- [X] T025 Docs and changelog (research D-14, spec FR-020): `docs/setup.md` (requirements row,
   versionLine table with `V7_4`, 404 hint, new section "INUBIT 7.4 nodes (`V7_4`)": recognised,
   every tool refused until verified, pin instead of `AUTO`, `defaults.cliClients."7.4"` not used
   yet; `--check-config` summary), `docs/tools.md` (capability table with a 7.4 column, hint, refusal

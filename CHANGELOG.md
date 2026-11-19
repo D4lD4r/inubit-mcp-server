@@ -17,6 +17,12 @@ as active tagging was off on the test node. Removing or deleting a tag is not of
 deletes a tag for the whole owner even when one diagram group is named, and removes it only in a
 repository path whose tagged files cannot be listed for a backup.
 
+Feature 025, first increment: INUBIT 7.4 nodes are **recognised by pin and refused clearly**.
+A node pinned with `versionLine: V7_4` (or a concrete 7.4 version such as `"7.4.0.90"`) is
+reached through StartCLI only; no tool is verified on 7.4 yet, so every tool that would contact
+it refuses it before any contact. The Windows recorder gained a session mode and the 7.4 cases
+for recording a non-production 7.4 node later.
+
 ### Added
 
 - `operate_server` (feature 022) changes the operating state of ONE node with one `action`:
@@ -42,6 +48,35 @@ repository path whose tagged files cannot be listed for a backup.
 - The capabilities `server_operation` (`operating the server`; supported on INUBIT 8.1, not yet
   verified on 9.0) and `tag_administration` (`managing tags`; not yet verified on 8.1 and 9.0) in
   `list_nodes`.
+- `versionLine: V7_4` and concrete 7.4 pins (feature 025). Every capability is "not yet verified"
+  on 7.4: each tool except `list_nodes` and the offline checks of `check_artifacts` refuses a 7.4
+  node with `UNSUPPORTED_VERSION` (`<tool>: INUBIT 7.4 on <node>: <capability> is not yet verified
+  for INUBIT 7.4; nothing was sent`, the `get_health` report without the tool name) and sends
+  nothing: no StartCLI run, no client probe, no request. In a group only the 7.4 node is refused.
+  `AUTO` never selects 7.4. A profile of 7.4 nodes only offers just `list_nodes`, `get_health`,
+  `check_artifacts`, `read_knowledge` and `record_knowledge`.
+- `list_nodes` shows a 7.4 node as `cli_only` and `unsupported`, with the warning that its StartCLI
+  client is not used until a 7.4 capability is verified; `--check-config` shows it as `INUBIT 7.4,
+  StartCLI only; available: none`. `cli.home` and `defaults.cliClients."7.4"` are accepted but
+  not used yet; a 7.4 node gets only the local version probe, and none of the 6.1 client
+  warnings.
+- `tools/record-fixtures.ps1`: a case table as the only place for arguments and commands, a
+  session mode (one `startcli.bat` run, the password line, the commands and `exit` on stdin; the
+  password never on the command line) and 13 `v74_*` cases (help, version, health, process
+  listings, login failure, unreachable server) that write to `fixtures/v7_4/cli/`, after the group
+  and host allowlists are checked.
+- Test fixtures `fixtures/v7_4/cli/`: the recorded `help` output of a 7.4 client and cases
+  reconstructed from 6.1, listed in `RECONSTRUCTED.txt` until they are recorded.
+
+### Changed
+
+- The hint after a version detection answered with HTTP 404 names both pins: `…; if <node> runs
+  INUBIT 6.1, pin V6_1; if it runs INUBIT 7.4, pin V7_4; …` (feature 025). The `versionLine`
+  load error lists `V7_4`.
+- The fourth part of a concrete version (`"6.1.0.89"`, `"7.4.0.90"`) is kept and shown in
+  `list_nodes`, `--check-config` and the refusal texts. The StartCLI client check compares it on
+  7.4 (a 7.4.0.80 client at a 7.4.0.90 node is a `mismatch`); on every other version it still
+  compares major, minor and patch.
 
 ### Documentation
 
@@ -50,6 +85,11 @@ repository path whose tagged files cannot be listed for a backup.
   recorded 8.1.17 answers of the maintenance, readiness, trace, midnight task, `processdelete` and
   tag forms; `docs/interface-coverage.md`: the operate rows reachable on 8.1, the active-tag rows
   planned (live check L-4), the tag removal rows excluded.
+- Feature 025: `docs/setup.md` section "INUBIT 7.4 nodes (`V7_4`)", the `versionLine` table, the
+  404 hint and the `--check-config` output; `docs/tools.md` the 7.4 column of the capability
+  table, section "INUBIT 7.4" with the refusal texts and a `list_nodes` example; README the
+  supported versions; `docs/research/inubit-interfaces.md` the facts of the 7.4 help output, what
+  is unknown and the recording plan.
 
 ## [0.10.2] - 2026-11-16
 

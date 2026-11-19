@@ -22,6 +22,7 @@ guide walks through it. All host names below are examples (`*.example.test`).
 | Temurin (or another) JDK **17** | StartCLI 8.1 runs on Java 17, not on the JDK of the server |
 | Only for INUBIT 9.0 nodes: the INUBIT 9.0 client installation, e.g. `/opt/inubit-9.0/client`, and a JDK **21** | StartCLI 9.0 runs on Java 21; one client per INUBIT version is configured with `defaults.cliClients` ([StartCLI client per INUBIT version](#startcli-client-per-inubit-version-defaultscliclients)) |
 | Only for INUBIT 6.1 nodes: a StartCLI client whose declared INUBIT range includes 6.1 (e.g. the INUBIT 6.1 client) and the Java runtime it runs on | 6.1 nodes are reached through StartCLI only ([INUBIT 6.1 nodes](#inubit-61-nodes-v6_1)); on Windows with the rules of [StartCLI on Windows](#startcli-on-windows) |
+| Only for INUBIT 7.4 nodes: nothing yet | 7.4 nodes are recognised, but no tool is verified on them yet, so a configured 7.4 client is not used ([INUBIT 7.4 nodes](#inubit-74-nodes-v7_4)) |
 | An INUBIT account per group (or node) with rights to read logs, monitoring and models, plus "CLI login access" for CLI-backed tools, and rights to export, import and tag the owner's diagrams and modules where the development tools or deployments are used; `get_server_settings` reads the license and the configuration only with the INUBIT role "System Administrator" (without it, these two parts are reported as unavailable with `FORBIDDEN` and the other settings are still returned) | REST and CLI access |
 | The credential store of the system: macOS Keychain and Windows Credential Manager are built in; on Linux `secret-tool` (package `libsecret-tools` on Debian/Ubuntu, `libsecret` on Fedora/Arch) and a running Secret Service (e.g. GNOME Keyring) in the desktop session | the INUBIT credentials (section 4); without a usable store (a container, a headless server) use AWS Parameter Store. Environment variables are not a credential source |
 | `keytool` (part of the JDK), on macOS and Linux also `openssl` | only for a self-signed server certificate (section 5) |
@@ -175,6 +176,8 @@ use REST tools only.
   node on first use. Write tools run only on a known, supported version (8.1 or 9.0); see
   [INUBIT version](#inubit-version-versionline). `V6_1` marks an INUBIT 6.1 node, which is
   reached through StartCLI only and never written to ([INUBIT 6.1 nodes](#inubit-61-nodes-v6_1)).
+  `V7_4` marks an INUBIT 7.4 node: recognised, but every tool that would contact it is refused
+  until a 7.4 capability is verified ([INUBIT 7.4 nodes](#inubit-74-nodes-v7_4)).
 - Durations are ISO-8601 (`PT5S`, `PT10M`); `~` at the start of a path is your home directory
   (on Windows `%USERPROFILE%`, so `~/.config/inubit-mcp/…` is not the profile directory there;
   write such paths in full, e.g. `C:/Users/jdoe/AppData/Roaming/inubit-mcp/acme-truststore.p12`).
@@ -263,15 +266,19 @@ read tools run with the 8.1 adapters and a warning in the result (except the rea
 INUBIT 6.1 is the
 exception: it has no 8.1 adapters to fall back to, so a 6.1 node runs only what is declared
 supported for 6.1 and refuses everything else ([INUBIT 6.1 nodes](#inubit-61-nodes-v6_1)).
+INUBIT 7.4 (feature 025) is recognised the same way, StartCLI only, but no capability is verified
+on it yet, so every tool that would contact a 7.4 node is refused
+([INUBIT 7.4 nodes](#inubit-74-nodes-v7_4)).
 
 | Value | Detection | What runs on the node |
 |---|---|---|
 | `AUTO` (default) | from the node itself, see below | per the detected version; while the version is unknown, reads run with a warning and writes are refused |
 | `V6_1` | none | INUBIT 6.1, StartCLI only, read-only; in this version every tool that would contact the node is refused ([INUBIT 6.1 nodes](#inubit-61-nodes-v6_1)) |
+| `V7_4` | none | INUBIT 7.4, StartCLI only; recognised, but no tool is verified on it yet, so every tool that would contact the node is refused ([INUBIT 7.4 nodes](#inubit-74-nodes-v7_4)) |
 | `V8_1` | none | everything (INUBIT 8.1) |
 | `V9_0` | none | everything (INUBIT 9.0.x, feature 017) except the view `logins` of `read_users`, which is refused; StartCLI-backed tools need a client whose declared range includes 9.0 |
 | `V9_X` | none | some INUBIT 9 version, not 9.0 support: reads with a warning that the version is not verified; writes refused; never chooses a `cliClients` entry |
-| a concrete version, e.g. `"8.1.17"`, `"9.0.7-HF1"`, `"9.1.0"` or `"6.1.0.89"` | none | per the version's major.minor (`"8.1.17"`: everything; `"9.0.7-HF1"`: as `V9_0`; `"9.1.0"`: reads with a warning, writes refused; `"6.1.0.89"`: as `V6_1`); the patch is used for the [StartCLI client check](#startcli-client-check) |
+| a concrete version, e.g. `"8.1.17"`, `"9.0.7-HF1"`, `"9.1.0"`, `"6.1.0.89"` or `"7.4.0.90"` | none | per the version's major.minor (`"8.1.17"`: everything; `"9.0.7-HF1"`: as `V9_0`; `"9.1.0"`: reads with a warning, writes refused; `"6.1.0.89"`: as `V6_1`; `"7.4.0.90"`: as `V7_4`); the patch is used for the [StartCLI client check](#startcli-client-check) |
 
 ```yaml
 groups:
@@ -290,12 +297,16 @@ groups:
         baseUrl: https://inubit-next-1.example.test:8443
 ```
 
-- A concrete version needs major, minor and patch; a suffix (`-HF1`, ` build 42`) and a fourth
-  part (`.89` in `"6.1.0.89"`) are kept for display and ignored for matching. **Quote it**: an
+- A concrete version needs major, minor and patch; a suffix (`-HF1`, ` build 42`) is kept for
+  display and ignored for matching. A fourth part (`.89` in `"6.1.0.89"`, `.90` in
+  `"7.4.0.90"`) is kept and shown (`list_nodes`, `--check-config`, the refusal texts); the
+  version range and the `cliClients` entry are still chosen by major.minor. The
+  [client check](#startcli-client-check) compares major.minor.patch, and on INUBIT 7.4 also the
+  fourth part (feature 025). **Quote it**: an
   unquoted `8.1` is a YAML number and is refused. The values are case-sensitive (`auto` is
   refused). Any other value — a number, a version without patch such as `"8.1"`, `V10` — is a
   configuration error that names the key, not the value:
-  `Invalid versionLine at groups[0].nodes[1].versionLine in <file>: expected AUTO, V6_1, V8_1, V9_0, V9_X or a full version such as "8.1.17"`.
+  `Invalid versionLine at groups[0].nodes[1].versionLine in <file>: expected AUTO, V6_1, V7_4, V8_1, V9_0, V9_X or a full version such as "8.1.17"`.
 - `--check-config` and `list_nodes` show the value as configured.
 - `list_nodes` shows per node the setting, the last known server version with its source and
   time (or `not_yet_detected` / `unknown` with the reason), the StartCLI client, a support status
@@ -320,8 +331,10 @@ groups:
   refused too, while reads keep the version known before.
 - If the detection request was answered with HTTP 404 (`/system/info` does not exist on the
   node, as on INUBIT 6.1), the warning adds a conditional hint after the parentheses:
-  "… unknown (`UNEXPECTED_RESPONSE` at `<time>`); if `<node>` runs INUBIT 6.1, pin V6_1; results
-  are unverified". `AUTO` never selects 6.1 by itself.
+  "… unknown (`UNEXPECTED_RESPONSE` at `<time>`); if `<node>` runs INUBIT 6.1, pin V6_1; if it
+  runs INUBIT 7.4, pin V7_4; results are unverified" (the 7.4 part since feature 025). `AUTO`
+  never selects 6.1 or 7.4 by itself. Other detection failures (e.g. `TIMEOUT`, `TLS_ERROR`,
+  `AUTH_FAILED`, HTTP 500) give no hint.
 - To skip the detection, pin the version the node actually runs (`V8_1`, `V9_0` or a concrete
   version).
 
@@ -414,6 +427,64 @@ groups:
   its standard input, and at most two StartCLI sessions run at once per 6.1 node: a further call
   waits at most the node's `cliTimeout` for a free slot, then fails with `TIMEOUT`.
 
+#### INUBIT 7.4 nodes (`V7_4`)
+
+A node runs as INUBIT 7.4 only when it is pinned to it: `versionLine: V7_4` or a concrete 7.4
+version such as `"7.4.0"` or `"7.4.0.90"` (feature 025). Like a 6.1 node, a 7.4 node is reached
+through **StartCLI only**: the server sends it no REST or SOAP request, also not for a version
+detection. There is no `V7_X`; other 7.x versions and 8.0 are not declared and count as any other
+version.
+
+```yaml
+groups:
+  - name: legacy74
+    versionLine: V7_4                    # INUBIT 7.4: recognised, every tool refused
+    nodes:
+      - name: node1
+        baseUrl: https://inubit-legacy74-1.example.test:8443
+      - name: node2
+        baseUrl: https://inubit-legacy74-2.example.test:8443
+        versionLine: "7.4.0.90"          # concrete pin: all four parts are kept
+```
+
+- **Pin a 7.4 node; do not leave it on `AUTO`.** `AUTO` never selects 7.4: an `AUTO` node that
+  runs 7.4 is a node of unknown version (reads with a warning, writes refused). If its detection
+  is answered with HTTP 404, the warning names the pins: "…; if `<node>` runs INUBIT 6.1, pin
+  V6_1; if it runs INUBIT 7.4, pin V7_4; results are unverified".
+- **What runs in this version: nothing but `list_nodes` and the offline checks of
+  `check_artifacts`.** INUBIT 7.4 is recognised, but no tool is verified on it yet: every
+  capability is declared "not yet verified" for 7.4, so every tool that would contact the node is
+  refused with `UNSUPPORTED_VERSION` before any contact (no StartCLI run, also no client probe, no
+  TLS handshake, no request), `get_health` included (its report for the node carries the
+  refusal). Nothing runs with the 8.1 adapters and a warning, as it would on an unknown version.
+  In a call for several nodes only the 7.4 node is refused. Texts in
+  [tools.md](tools.md#inubit-74-feature-025).
+- The tool list follows the rule of 6.1: `get_health` is always offered and refuses the node; a
+  profile of 7.4 nodes only offers just `list_nodes`, `get_health`, `check_artifacts`,
+  `read_knowledge` and `record_knowledge` (unless `knowledge.recording: false`), also with write
+  access, every opt-in and a StartCLI installation.
+- `list_nodes` shows the node with `access: cli_only`, `status: unsupported`, the pin as server
+  version (`7.4`, or `7.4.0.90` with all four parts) and the warning `INUBIT 7.4 is recognised,
+  but no tool is verified on it yet; the StartCLI client of <node> is not used until a 7.4
+  capability is verified`. `--check-config` shows it as `INUBIT 7.4, StartCLI only; available:
+  none; refused: …` ([section 6](#6-check-the-configuration)).
+- **StartCLI client: accepted, not used yet.** `cli.home`, `cli.javaHome` and
+  `defaults.cliClients."7.4"` are accepted; a 7.4 node chooses the `"7.4"` entry like any node
+  chooses the entry of its major.minor, and its StartCLI address is
+  `<baseUrl>/ibis/servlet/IBISSoapServlet` unless `cli.url` overrides it. No tool uses the client
+  while every 7.4 capability is refused. `--check-config` runs only the local version probe
+  (`startcli.sh -v`), not the option probe (`-h`) of 6.1 nodes. Accordingly a 7.4 node gets no
+  warning without `cliHome`, no client option warning (trust store, host-name verification) and
+  no JDK warning; a `"7.4"` entry gets no JDK warning either, since the Java version of the 7.4
+  client is not verified. The other checks of an entry (a `home` or `javaHome` that does not
+  exist, a `home` without StartCLI script, no JDK at all) apply as to every entry.
+- The [client check](#startcli-client-check) compares four version parts on 7.4: a 7.4.0.80
+  client at a `"7.4.0.90"` node is a `mismatch`; on 6.1 the fourth part is ignored (6.1.0.80 at
+  `"6.1.0.89"` is a `match`).
+- A 7.4 capability becomes available only once its StartCLI outputs have been verified against
+  recordings of a real non-production 7.4 node. What is known of the 7.4 client and the recording
+  plan: [research notes](research/inubit-interfaces.md#7-inubit-74-feature-025).
+
 ### StartCLI client check
 
 For every node with a StartCLI installation (`cliHome` with `bin/startcli.sh`, or
@@ -441,7 +512,7 @@ The client is compared with the node's server version (the most recent one detec
 | Case | Effect |
 |---|---|
 | the server's major.minor lies outside the client's declared range (bounds inclusive, by major.minor; e.g. an 8.1.17 client at a 9.0 or `V9_X` node) | StartCLI-backed tools refused on that node with `UNSUPPORTED_VERSION`, naming the client version and range (with `cliClients` configured or on a 9.x node, the next step adds `, or add defaults.cliClients."9.0"`); REST-backed tools are unaffected |
-| inside the range, different patch (8.1.17 client, 8.1.18 server: `mismatch`) | StartCLI-backed tools run with a warning that their results may be unreliable |
+| inside the range, different patch (8.1.17 client, 8.1.18 server: `mismatch`; on INUBIT 7.4 also a different fourth part, 7.4.0.80 client, 7.4.0.90 server) | StartCLI-backed tools run with a warning that their results may be unreliable |
 | the range cannot be evaluated (no range printed, the check failed or timed out, server version unknown) | StartCLI-backed reads run with a warning naming the cause (writes on an unknown version are refused by the version check anyway) |
 | no StartCLI installation | client `not_available`; StartCLI-backed tools report `CLI_UNAVAILABLE` as before |
 
@@ -452,7 +523,8 @@ runs before the first StartCLI session on the node and in `--check-config`, boun
 `cliTimeout`; the result is kept until the server stops, a failed run is retried at most once per
 60 s. An option the help output does not list, or a help output that cannot be read, counts as
 absent. The options decide what reaches the client (8.1 and 9.x nodes are unchanged: no `-h`
-run, the trust store always as `--trustStoreFilePath`):
+run, the trust store always as `--trustStoreFilePath`; a 7.4 node gets no `-h` run while no 7.4
+capability is verified, see [INUBIT 7.4 nodes](#inubit-74-nodes-v7_4)):
 
 - Trust store (`tls.trustStore`): as `--trustStoreFilePath <path>` if the client offers that
   option, otherwise through the Java runtime settings `-Djavax.net.ssl.trustStore=<path>` and
@@ -2536,20 +2608,28 @@ The version part of a node line ([INUBIT version](#inubit-version-versionline)):
   ([StartCLI client per INUBIT version](#startcli-client-per-inubit-version-defaultscliclients)).
   Other nodes keep their line unchanged. After the node lines, one line per distinct client checked:
   `client /opt/inubit-8.1/client (Java 17): CLI 8.1.17 (4.0.1–8.1.17)`.
-- `inubit: <setting>`: the effective `versionLine` as configured (`AUTO`, `V6_1`, `V8_1`, `V9_0`,
-  `V9_X` or the concrete version). For an INUBIT 6.1 node (feature 012) it is followed by
+- `inubit: <setting>`: the effective `versionLine` as configured (`AUTO`, `V6_1`, `V7_4`, `V8_1`,
+  `V9_0`, `V9_X` or the concrete version). For an INUBIT 6.1 node (feature 012) it is followed by
   `(INUBIT 6.1, StartCLI only; available: <capabilities> | none; refused: <capabilities> | none)`;
   in this version every capability is refused there (`available: none`, see
-  [INUBIT 6.1 nodes](#inubit-61-nodes-v6_1)).
+  [INUBIT 6.1 nodes](#inubit-61-nodes-v6_1)). An INUBIT 7.4 node (feature 025) gets the same
+  part with `INUBIT 7.4` and `available: none`, and its client part ends with `; not used until
+  a 7.4 capability is verified` (see below and [INUBIT 7.4 nodes](#inubit-74-nodes-v7_4)).
 - With a StartCLI installation and a successful client check: `client: <version> (<from>–<to>)`
   (without the range if the client declares none; for a 6.1 node the
   [client options](#startcli-client-check) follow inside the parentheses:
   `(<from>–<to>; options: [no ]trust-store option, [no ]host-name option)`), then
-  - for a concrete pin `client vs pin: match`, `mismatch` (any of major, minor, patch differs) or
-    `not comparable` (the client version has no patch), followed by `, pin outside client range`
-    when the client's declared range excludes the pin's major.minor (StartCLI-backed tools are
-    then refused on that node at runtime);
-  - otherwise `server version: determined at runtime`.
+  - for a concrete pin `client vs pin: match`, `mismatch` (any of major, minor, patch differs;
+    on INUBIT 7.4 also the fourth part) or `not comparable` (the client version has no patch; on
+    7.4 also a fourth part on one side only), followed by `, pin outside client range` when the
+    client's declared range excludes the pin's major.minor (StartCLI-backed tools are then
+    refused on that node at runtime);
+  - otherwise `server version: determined at runtime`;
+  - on a 7.4 node followed by `; not used until a 7.4 capability is verified`, e.g.
+    `client: 7.4.0.90, server version: determined at runtime; not used until a 7.4 capability is
+    verified` or `client: 7.4.0.90, client vs pin: match; not used until a 7.4 capability is
+    verified`. The client line after the node lines shows the range only if the client prints
+    one the probe can evaluate (`client /opt/inubit-7.4/client (Java <major>): CLI 7.4.0.90`).
 - A client check that fails (e.g. no JDK at `cliJavaHome`, a timeout) is a warning
   (`<id>: StartCLI client probe failed: <message>`), not an error, and the line shows no client.
 
@@ -2578,6 +2658,10 @@ StartCLI-backed tools at runtime, see [StartCLI client check](#startcli-client-c
   (`Java unknown` if the runtime's version could not be read)
 - `<id>: the trust-store path contains spaces, which the StartCLI runtime settings cannot carry; use a path without spaces`
   (only for a client without trust-store option)
+
+An INUBIT 7.4 node gets none of these warnings while no 7.4 capability is verified
+([INUBIT 7.4 nodes](#inubit-74-nodes-v7_4)); the general TLS warnings, such as the one for
+`disableHostnameVerification`, stay.
 
 The server itself refuses to start on any configuration error and prints all of them to stderr;
 warnings are printed to stderr as well. `--version` prints `inubit-mcp-server <version>` to
@@ -2726,8 +2810,9 @@ desktop; no start script is needed (only for the optional certificate check on m
    client: AWS environment variables such as `AWS_PROFILE` come from the client's environment.
 2. `/mcp` shows `inubit-acme` as connected with at least the six read-only tools `list_nodes`,
    `get_health`, `find_processes`, `query_logs`, `list_inventory` and `get_inventory_item`, and
-   `check_artifacts` (in a profile of [INUBIT 6.1 nodes](#inubit-61-nodes-v6_1) only, just
-   `list_nodes`, `get_health` and `check_artifacts`). `export_artifacts` appears when a node has
+   `check_artifacts` (in a profile of [INUBIT 6.1 nodes](#inubit-61-nodes-v6_1) or
+   [INUBIT 7.4 nodes](#inubit-74-nodes-v7_4) only, just `list_nodes`, `get_health` and
+   `check_artifacts`). `export_artifacts` appears when a node has
    a StartCLI installation (`cli.home`), `restart_process` and `kill_process` when at least one
    node has effective write access (section 3, "Write settings"), the development tools when a
    node has `development.enabled: true`, and `deploy_release` when a group has a `deploy` record;

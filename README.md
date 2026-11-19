@@ -174,6 +174,11 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
   recorded outputs of a real 6.1 node. Such nodes need a StartCLI client that supports INUBIT 6.1
   and its Java runtime ([INUBIT 6.1 nodes](docs/setup.md#inubit-61-nodes-v6_1)); like every
   StartCLI-backed part, not on Windows.
+- **INUBIT 7.4** is recognised, but not yet supported: a node pinned with `versionLine: V7_4`
+  (or a concrete 7.4 version such as `"7.4.0.90"`) is reached through StartCLI only, and every
+  tool except `list_nodes` and the offline checks of `check_artifacts` refuses it clearly
+  (`UNSUPPORTED_VERSION`, nothing is sent), since no tool is verified on 7.4 yet. `AUTO` never
+  selects 7.4; pin such a node ([INUBIT 7.4 nodes](docs/setup.md#inubit-74-nodes-v7_4)).
 - Only for the CLI-based parts (`restart_process`, `kill_process`, the module list and version
   histories of the inventory tools, and every tool that exports, imports or tags artifacts —
   `export_artifacts`, `export_archives`, the development tools and `deploy_release`, which needs
