@@ -21,6 +21,14 @@ IMC-10 (T054), IMC-11 (T055).
   secret leak). Full `mvn clean verify` green after every task.
 
 ## Next step
+- 2026-11-19: T055 runs 1–3 (results on IMC-11). Run 1 stopped at the active-tag read (fixed
+  f6be0005). Run 2: group-scoped `--tagRemove` needs `--tagRepositoryPath`; `--tagDelete` needs
+  `--tagUser` (fixed 2149c277). Run 3: `--tagDelete` on g1 with owner deleted the test tag
+  owner-wide (g2 lost it, the tag no longer exists) → `deleteTag` to be excluded (acts on the whole
+  owner, D-18); `tagMove` tags workflow + modules, no repository files (repository-path removal not
+  exercised); W17 refused because the tag no longer existed. Server clean (verified). Open: active-tag
+  pair W17/W18 (needs a run that tags first), IMC-7 answer from these results, exclusions in spec,
+  then T066. IMC-8 answered (contract text with T066).
 - 2026-11-18: T054 done (40238211): recorded 8.1.17 answer forms as neutralized fixtures; ready-off
   503 "No Service." counts as success; trace level from `/system/info` TracingLevel; delete answer
   without count (no invented count; IMC-8 untouched); `setDebug` excluded (4e7841a0). Next: T055
