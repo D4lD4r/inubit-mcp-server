@@ -1,0 +1,8 @@
+# Derived INUBIT 7.4 StartCLI cases (feature 025, research D-11, spec FR-016a), one per line:
+#   <case> <source-case> <capability> <edit…>
+# <case> names the files <case>.stdout, <case>.stderr and <case>.exit in this folder, built from
+# the recorded case <source-case> by a minimal edit that cannot be recorded read-only on a healthy
+# non-production node (maintenance on, a negative alive check, an empty listing); <capability> is
+# the capability name the case serves (as in list_nodes); <edit…> describes the edit in one line.
+# A derived case counts as verified only while <source-case> is in the README's recorded list.
+# Lines starting with # are comments.

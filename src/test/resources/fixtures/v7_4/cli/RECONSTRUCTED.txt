@@ -1,0 +1,7 @@
+# Reconstructed INUBIT 7.4 StartCLI cases (feature 025, research D-11), one per line:
+#   <case> <capability>
+# <case> names the files <case>.stdout, <case>.stderr and <case>.exit in this folder; <capability>
+# is the capability name the case serves (as in list_nodes, e.g. monitoring). A case is removed
+# from this list when a recording of a real 7.4 node replaces it (it then moves to the README's
+# recorded list) or when it is derived from a recorded case (it then moves to DERIVED.txt). Lines
+# starting with # are comments.

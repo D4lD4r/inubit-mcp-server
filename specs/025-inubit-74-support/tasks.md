@@ -68,7 +68,7 @@ tests may pass at once.
 
 ## Phase 1: Setup
 
-- [ ] T001 Fixture scaffold (research D-11): create `fixtures/v7_4/cli/README.md` (case layout
+- [X] T001 Fixture scaffold (research D-11): create `fixtures/v7_4/cli/README.md` (case layout
   as `fixtures/v6_1/cli/README.md`; source "reconstructed from the 7.4 help output and the 6.1
   cases until recorded"; neutral names of the safety rules; a section `## Recorded cases` with one
   case per line, the single source for recorded cases, spec FR-015), `fixtures/v7_4/cli/RECONSTRUCTED.txt`
