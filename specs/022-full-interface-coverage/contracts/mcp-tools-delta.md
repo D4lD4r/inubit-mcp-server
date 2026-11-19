@@ -169,7 +169,8 @@ each tool's test, as for the existing tools. Types and validation: [data-model.m
   `debug on|off` is not offered: excluded after T054 (no observable server effect, research
   D-2, D-22).
 - **Preview**: `before` / `requested` per action. `deleteErrorProcesses` gives `affected` (count,
-  ids, workflows). `effects`:
+  ≤ 50 process ids, `truncated`); its `before` names the workflows concerned (up to 50, then "and
+  N more"), and above 10,000 rows the count only (D-14; owner decision IMC-8). `effects`:
   - maintenance: no processes run, REST answers "service unavailable", the meaning of `-eq`;
   - readiness: stays NOT READY while maintenance is on;
   - level and trace: stay until set back;

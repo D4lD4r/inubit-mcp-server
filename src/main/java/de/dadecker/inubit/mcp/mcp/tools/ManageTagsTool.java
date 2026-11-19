@@ -47,7 +47,7 @@ public final class ManageTagsTool implements ToolHandler {
     private static final Set<String> COMMON_INPUTS = Set.of("node", "action", "reason",
         "confirmationCode");
 
-    private static final String DESCRIPTION = ACTIVE_TAG + REMOVAL_NOT_OFFERED + CONFIRMATION;
+    static final String DESCRIPTION = ACTIVE_TAG + REMOVAL_NOT_OFFERED + CONFIRMATION;
 
     private final Function<Request, Response> execute;
 

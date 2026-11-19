@@ -1056,6 +1056,24 @@ enabled, executes only with the code and leaves audit records (US4 AS1–AS14).
 
   Then open the US4 PR.
 
+### US4 9.0 follow-up (separate PR after the US4 PR, as for US1–US3)
+
+- [ ] T054a [LIVE-W] [OWNER] [US4] The approved T054 operate forms on the 9.0 test server, each
+  command approved:
+  - `maintenance -s`, `maintenance on -eq false`, `maintenance off`;
+  - `POST /ready/off`, `POST /ready/on`;
+  - `trace on`, `trace off`, `trace -l <level>`;
+  - `triggerMidnightTask`;
+  - `processdelete error` after a `find_processes` preview.
+
+  Into `fixtures/v9_0/{cli,rest}/admin-operate-*` with `.origin` and `V90Cases` entries.
+- [ ] T066a [US4] 9.0 contracts and flips (after T054a):
+  - `OperateV90ContractTest`;
+  - the `v9_0` column of the operate rows flipped to `reachable:operate_server/<action>`;
+  - `SERVER_OPERATION` removed from `V9_0_NOT_YET_VERIFIED`;
+  - the Versions line of `docs/tools.md` `operate_server`;
+  - `9.0-followup` removed from the `waits` of the operate rows.
+
 ## Phase 7: User Story 5 – Transfer and repair run-time data (P3)
 
 **Goal**: `transfer_runtime_data` exports (a change), validates, imports, lists, resumes and
@@ -1548,7 +1566,8 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
 
 - [ ] T103 9.0 recordings for US2–US7 [LIVE] [OWNER] (after the 9.0 pin is renewed):
   - run the read checks of T028 and the approved write checks of T054, T055, T069, T079, T092 on
-    the 9.0 test server (US3 9.0: T039a, T046a, unless already done in the US3 follow-up PR);
+    the 9.0 test server (US3 9.0: T039a, T046a, unless already done in the US3 follow-up PR;
+    US4 9.0: T054a, T066a, unless already done in the US4 follow-up PR);
   - fixtures with `.origin`, catalogue entries;
   - `*V90ContractTest` per story;
   - the `v9_0` rows flipped.
@@ -1558,7 +1577,10 @@ takes or returns a password; the login user cannot be changed (US7 AS1–AS10).
   fallback from research "Live checks" (L-19 and L-20: the rows `GET /process/metadata/{name}` and
   `GET /isconnector` become `excluded:cannot be built from the documentation: answer form not
   recordable` and `excluded:cannot be built from the documentation: authentication not documented`,
-  FR-002). Remove the backlog entry "Further read access to INUBIT" from `docs/backlog.md`.
+  FR-002; L-4 for the active-tag pair: without a node with active tagging, `setActiveTag` and
+  `removeActiveTag` are not offered and the rows `tag --tagSetActive` and `tag --tagRemoveActive`
+  become `excluded:` with an FR-002 reason). Remove the backlog entry "Further read access to
+  INUBIT" from `docs/backlog.md`.
 - [ ] T105 [P] `live/AdministrationLiveTest.java` (`@Tag("live")`, opt-in, refused for production
   groups):
   - reads of US1–US3;

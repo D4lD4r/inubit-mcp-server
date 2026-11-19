@@ -1268,12 +1268,12 @@ class ListNodesToolTest {
         assertThat(notUsable(prod)).doesNotContain("model_details");
     }
 
-    // --- feature 022 T058, T063: server_operation and tag_administration not yet verified ----
+    // --- feature 022 T058, T063, T066: server_operation and tag_administration -----------------
 
     @Test
-    void theUs4CapabilitiesAreListedForWriteNodesAsNotYetVerified() {
-        // test and lab have write access, prod has not; until their recordings (T054, T055) no
-        // version runs them
+    void theUs4CapabilitiesAreListedForWriteNodesAsVerifiedOrNotYetVerified() {
+        // test (8.1) and lab (9.0) have write access, prod has not; since T066 8.1 runs
+        // server_operation, 9.0 does not yet, and no version runs tag_administration (T055)
         String baseUrl = "https://localhost:" + wireMock.httpsPort();
         String yaml = """
             profile:
@@ -1311,8 +1311,11 @@ class ListNodesToolTest {
 
         Map<String, String> labels = Map.of("server_operation", "operating the server",
             "tag_administration", "managing tags");
+        assertThat(usable(versions.get("test/node1"))).contains("server_operation");
+        assertThat(notUsable(versions.get("test/node1"))).doesNotContain("server_operation");
         labels.forEach((capability, label) -> {
-            for (String node : List.of("test/node1", "lab/node1")) {
+            for (String node : capability.equals("server_operation") ? List.of("lab/node1")
+                : List.of("test/node1", "lab/node1")) {
                 JsonNode version = versions.get(node);
                 assertThat(usable(version)).as(node).doesNotContain(capability);
                 assertThat(notUsable(version)).as(node).contains(capability);

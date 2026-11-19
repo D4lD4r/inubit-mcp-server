@@ -31,6 +31,9 @@ import org.junit.jupiter.api.Test;
  * errors and state per version in the same way. T047 (US3): {@code read_model_details} is the
  * twenty-fifth tool, with its actions, fields, errors and state per version in the same way, and
  * {@code find_processes} quotes its description with {@code userColumn} and describes the column.
+ * T066 (US4): {@code operate_server} and {@code manage_tags} are the thirty-first and thirty-second
+ * tools, quoted as announced, with their actions, fields, errors and state per version as the
+ * production matrix declares it; docs/setup.md names their write settings and {@code CLIENT}.
  */
 class DevelopmentToolsReferenceTest {
 
@@ -64,7 +67,7 @@ class DevelopmentToolsReferenceTest {
             "| [`restore_backup`](#restore_backup) |", "| [`set_active`](#set_active) |",
             "| [`tag_artifacts`](#tag_artifacts) |", "| [`run_e2e_test`](#run_e2e_test) |",
             "| [`deploy_release`](#deploy_release) |",
-            "All thirty tools");
+            "All thirty-two tools");
     }
 
     @Test
@@ -102,8 +105,8 @@ class DevelopmentToolsReferenceTest {
         assertThat(reference).contains(
             "[acme] " + Terminology.DEFAULT.render(GetServerSettingsTool.DESCRIPTION),
             "| [`get_server_settings`](#get_server_settings) |",
-            "`get_server_settings`, `read_users` and `read_model_details` of feature 022 [their"
-                + " delta]("
+            "`get_server_settings`, `read_users`, `read_model_details`, `operate_server` and"
+                + " `manage_tags` of feature 022 [their delta]("
                 + "../specs/022-full-interface-coverage/contracts/mcp-tools-delta.md)",
             "| `get_server_settings` | `server_settings` |", "`reading server settings`",
             "`get_server_settings` is **offered only if**");
@@ -213,6 +216,62 @@ class DevelopmentToolsReferenceTest {
             "| `userColumn` | integer 1–5 |", "| `userColumnValue` |", "`userDefined<i>`",
             "`ps -u <i>`", "[coverage page](interface-coverage.md)",
             "`userColumn unavailable (UNSUPPORTED_VERSION):");
+    }
+
+    @Test
+    void operateServerIsQuotedAsRenderedAndDescribed() throws IOException {
+        String reference = folded(TOOLS);
+
+        assertThat(reference).contains(
+            "[acme] " + Terminology.DEFAULT.render(OperateServerTool.DESCRIPTION),
+            "| [`operate_server`](#operate_server) |",
+            "| `operate_server` (feature 022) | `server_operation` |", "`operating the server`");
+        String section = section(reference, "## `operate_server`");
+        // every action, input and output field
+        assertThat(section).contains("`setMaintenance`", "`setReadiness`", "`setTrace`",
+            "`setTraceLevel`", "`triggerMidnightTask`", "`deleteErrorProcesses`", "`node`",
+            "`action`", "`on`", "`executeQueued`", "`ready`", "`level`", "`reason`",
+            "`confirmationCode`", "`preview`", "`result`", "`warnings`", "`target`", "`before`",
+            "`requested`", "`affected`", "`ids`", "`truncated`", "`effects`", "`backup`",
+            "`confirmation`", "`outcome`", "`inubitAnswer`", "`after`", "`reReadFailed`",
+            "`affectedCount`", "`restartNeeded`", "`auditId`");
+        // the recorded 8.1.17 forms, debug excluded, the coverage page and the errors
+        assertThat(section).contains("503 `No Service.`", "`debug on|off` is not offered",
+            "\"and N more\"", "[interface-coverage.md](interface-coverage.md)",
+            "`destructiveHint: true`", "| `INVALID_INPUT` |", "| `TARGET_UNKNOWN` |",
+            "| `PRODUCTION_PROTECTED` |", "| `WRITE_DISABLED` |", "| `UNSUPPORTED_VERSION` |",
+            "| `PRECONDITION_FAILED` |", "| `CONFIRMATION_INVALID` |", "| `CONFLICT` |",
+            "| `INTERNAL` |", "**Example prompts**");
+        assertVersionStates(section, Capability.SERVER_OPERATION);
+    }
+
+    @Test
+    void manageTagsIsQuotedAsRenderedAndDescribed() throws IOException {
+        String reference = folded(TOOLS);
+
+        assertThat(reference).contains(
+            "[acme] " + Terminology.DEFAULT.render(ManageTagsTool.DESCRIPTION),
+            "| [`manage_tags`](#manage_tags) |",
+            "| `manage_tags` (feature 022) | `tag_administration` |", "`managing tags`");
+        String section = section(reference, "## `manage_tags`");
+        assertThat(section).contains("`setActiveTag`", "`removeActiveTag`", "`user`", "`tag`",
+            "`removeTag`", "`deleteTag`", "`TagNameWasNotFound`", "L-4", "`NOT_FOUND`",
+            "`PRECONDITION_FAILED`");
+        assertVersionStates(section, Capability.TAG_ADMINISTRATION);
+
+        assertThat(folded(SETUP)).contains("`operate_server` and `manage_tags` (feature 022,",
+            "with `CLIENT` (non-production only) the first call executes without a preview");
+    }
+
+    /** The state per version follows the production matrix (US4: 8.1 flipped in T066). */
+    private static void assertVersionStates(String section, Capability capability) {
+        CapabilityMatrix matrix = CapabilityMatrix.production();
+        for (String line : List.of("8.1", "9.0")) {
+            boolean verified = matrix.state(InubitVersion.parse(line + ".0"), capability)
+                == SupportState.SUPPORTED;
+            assertThat(section).contains("- INUBIT " + line + ": "
+                + (verified ? "supported" : "not yet verified"));
+        }
     }
 
     @Test

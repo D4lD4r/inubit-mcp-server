@@ -810,16 +810,17 @@ to pin `versionLine` for the node.
 
 **Port (T058)**: `ServerOperationPort`, in the 8.1 port set (9.0 reuses it) as
 `V81ServerOperationAdapter`, capability `SERVER_OPERATION` (REST and StartCLI, "not yet verified"
-until T054). The states before and after come from the port (`maintenance -s`) and from
-`MonitoringPort`, the source of `get_health`: readiness `GET /ready`, trace on/off
-`tracingEnabled` and the trace level `TracingLevel` of `/system/info` (a value outside
-`TraceLevel` is shown as unknown), maintenance `healthcheck`.
-`POST /ready/{status}` is handed off under the node's write lock like
-the StartCLI writes (`InubitHttpClient.post(…, WritePermit, WriteLock, acceptedStatuses)`,
-`sendAsync` inside the hand-off, the answer awaited outside); of its answer only the 503 of `off`
-is read, as above. The set of `processdelete error`
-is the `find_processes` query of state `ERROR`, 1,000 rows per request up to 10,000 rows, its ids
-and workflows distinct and sorted; with more rows the count only (D-14).
+until T054; supported on 8.1 since the contract tests T066, `OperateV81ContractTest`, which flip the
+operate rows to `reachable:operate_server/<action>` on 8.1; 9.0 stays "not yet verified", its rows
+`planned` with `waits` `9.0-followup`). The states before and after come from the port
+(`maintenance -s`) and from `MonitoringPort`, the source of `get_health`: readiness `GET /ready`,
+trace on/off `tracingEnabled` and the trace level `TracingLevel` of `/system/info` (a value outside
+`TraceLevel` is shown as unknown), maintenance `healthcheck`. `POST /ready/{status}` is handed off
+under the node's write lock like the StartCLI writes
+(`InubitHttpClient.post(…, WritePermit, WriteLock, acceptedStatuses)`, `sendAsync` inside the
+hand-off, the answer awaited outside); of its answer only the 503 of `off` is read, as above. The
+set of `processdelete error` is the `find_processes` query of state `ERROR`, 1,000 rows per request
+up to 10,000 rows, its ids and workflows distinct and sorted; with more rows the count only (D-14).
 
 ## D-23 Settings changes (US6, settings area)
 
@@ -925,7 +926,7 @@ check marked (W) changes the server and runs only after the operator's approval 
 | L-1 | Stdin session on 8.1/9.0: prompt format, command echo, `exit` | D-7 fallback: password commands excluded, user pages of 10 |
 | L-2 (W) | `maintenance on/off`, `-s`, `-eq`; StartCLI and `POST /ready` while maintenance is on | readiness during maintenance reported as not switchable |
 | L-3 (W) | `trace on/off`, `trace -l` levels, `debug on/off` outputs | entry excluded with the reason found (T054: `debug on\|off` excluded, no observable server effect) |
-| L-4 (W) | `tag --tagRemove/--tagDelete` with a group or path scope: is another group's tag kept? | `removeTag` / `deleteTag` excluded (acts on the whole owner) (T055: `deleteTag` acts on the whole owner, `removeTag` exists only for a repository path that cannot be backed up; both excluded, IMC-7) |
+| L-4 (W) | `tag --tagRemove/--tagDelete` with a group or path scope: is another group's tag kept? The active-tag pair `--tagSetActive/--tagRemoveActive` on a node with active tagging | `removeTag` / `deleteTag` excluded (acts on the whole owner) (T055: `deleteTag` acts on the whole owner, `removeTag` exists only for a repository path that cannot be backed up; both excluded, IMC-7); no node with active tagging: `setActiveTag` / `removeActiveTag` not offered, rows `excluded:` with an FR-002 reason, applied in T104 |
 | L-5 | Output of `threads`, `privilegedWorkflows`, `dbconnectiontolerance show`, `license -td`, `date` | parser per recorded form |
 | L-6 | `user <name>`, `finger`, `-who`, `GET /user/users`: fields, account state | no account state in the result |
 | L-7 | `fetchXSLT1.0 -ef`: where the file is written (8.1: the command does not exist, T039; 9.0 open, T039a) | entry excluded (file on the INUBIT host, or command not found) |
