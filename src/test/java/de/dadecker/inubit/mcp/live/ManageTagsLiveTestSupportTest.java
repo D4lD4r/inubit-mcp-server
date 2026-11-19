@@ -221,10 +221,13 @@ class ManageTagsLiveTestSupportTest {
 
     @Test
     void theFolderReadNeedsARecordFolderStartCliCanTake() {
+        // a path of the host the build runs on, checked with that host's StartCLI rule
+        boolean windows = java.io.File.separatorChar == '\\';
+        String root = windows ? "C:/tester" : "/home/tester";
         assertThatCode(() -> ManageTagsLiveTestSupport.requireExportPath(
-            Path.of("/home/tester/recordings/T055"), false)).doesNotThrowAnyException();
+            Path.of(root + "/recordings/T055"), windows)).doesNotThrowAnyException();
         assertThatThrownBy(() -> ManageTagsLiveTestSupport.requireExportPath(
-            Path.of("/home/tester/rec'ordings/T055"), false))
+            Path.of(root + "/rec'ordings/T055"), windows))
             .hasMessageContaining("nothing was run");
     }
 
