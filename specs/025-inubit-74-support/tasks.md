@@ -312,7 +312,7 @@ and `--check-config` tests, offline, on both CI jobs.
   first: `RecordFixturesPs1Test` static checks (session input only through stdin, never `-p`,
   never `--encryptString`, `Assert-NoSecret` on session output) and, on the Windows CI job, a run
   test of a session case against the substitute client of `recordsTheClientVersionThroughTheSubstitute`.
-- [ ] T023 [US4] Recorder 7.4 catalogue (research D-12, spec FR-016 – FR-018, quickstart): the
+- [X] T023 [US4] Recorder 7.4 catalogue (research D-12, spec FR-016 – FR-018, quickstart): the
   cases `v74_help`, `v74_version` (local), `v74_exec_help` (`--execCommand "help"`),
   `v74_exec_ps_help` (`--execCommand "ps -h"`), `v74_direct_health` (`-c -sv --pctmem
   --maintenanceState -ne -nx -nw -nq`), `v74_health_session` (`uname`, `uptime`, `maintenance`,

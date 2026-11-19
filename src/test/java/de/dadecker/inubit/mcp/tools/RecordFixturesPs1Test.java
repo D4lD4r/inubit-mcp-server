@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledOnOs;
@@ -34,6 +35,25 @@ class RecordFixturesPs1Test {
     private static final List<String> CASES = List.of("win_version", "win_help", "win_modules",
         "win_failure", "win_argv", "win_backslash");
     private static final String SESSION_PASSWORD = "session-test-password";
+    /**
+     * Spec FR-016 and the FR-014 table: each 7.4 case with its kind and the fixture name it
+     * writes; the research cases keep their {@code v74_} name.
+     */
+    private static final List<List<String>> V74_CASES = List.of(
+        List.of("v74_help", "local", "help"),
+        List.of("v74_version", "local", "v74_version"),
+        List.of("v74_exec_help", "exec", "v74_exec_help"),
+        List.of("v74_exec_ps_help", "exec", "v74_exec_ps_help"),
+        List.of("v74_direct_health", "direct", "v74_direct_health"),
+        List.of("v74_health_session", "session", "health_session_ok"),
+        List.of("v74_ps_all", "session", "ps_session_all"),
+        List.of("v74_ps_error", "session", "ps_session_error"),
+        List.of("v74_ps_waiting", "session", "ps_session_waiting"),
+        List.of("v74_ps_queued", "session", "ps_session_queued"),
+        List.of("v74_ps_limit5", "session", "ps_session_limit5"),
+        List.of("v74_login_failed", "failure", "login_failed"),
+        List.of("v74_failure", "failure", "unreachable"));
+    private static final Path V74_FIXTURES = Path.of("src/test/resources/fixtures/v7_4/cli");
 
     @TempDir
     Path temp;
@@ -77,6 +97,17 @@ class RecordFixturesPs1Test {
         return value.group(1);
     }
 
+    private static String row(String name) throws IOException {
+        return rows().stream().filter(r -> field(r, "Name").equals("'" + name + "'")).findFirst()
+            .orElseThrow(() -> new AssertionError("no case " + name + " in the table"));
+    }
+
+    /** The string literals of an {@code @( … )} field, without their quotes. */
+    private static List<String> literals(String field) {
+        return Pattern.compile("\"([^\"]*)\"|'([^']*)'").matcher(field).results()
+            .map(match -> match.group(1) != null ? match.group(1) : match.group(2)).toList();
+    }
+
     @Test
     void listsEveryCaseOfTheTable() throws IOException {
         List<String> rows = rows();
@@ -97,18 +128,61 @@ class RecordFixturesPs1Test {
                 .isEqualTo("'src\\test\\resources\\fixtures\\windows'");
         }
         assertThat(code()).containsPattern("foreach \\(\\$entry in \\$Cases\\) \\{\\s*"
-            + "'\\{0,-14\\} \\{1\\}' -f \\$entry\\.Name, \\$entry\\.Description");
+            + "'\\{0,-18\\} \\{1\\}' -f \\$entry\\.Name, \\$entry\\.Description");
+    }
+
+    /**
+     * Feature 025, spec FR-014, FR-016, research D-12: the 7.4 cases with a one-line description,
+     * their kind, and their files in {@code fixtures/v7_4/cli/} under the fixture names of the
+     * FR-014 table; a session ends with its end-of-session command, one {@code ps} listing each
+     * for the {@code v74_ps_*} cases.
+     */
+    @Test
+    void lists74CasesWithTheirKindAndFixtureNameInThe74Folder() throws IOException {
+        for (List<String> v74 : V74_CASES) {
+            String name = v74.get(0);
+            String row = row(name);
+            assertThat(field(row, "Description")).as(name).matches("'[^']{10,}'");
+            assertThat(field(row, "Kind")).as(name).isEqualTo("'" + v74.get(1) + "'");
+            assertThat(field(row, "Folder")).as(name)
+                .isEqualTo("'src\\test\\resources\\fixtures\\v7_4\\cli'");
+            assertThat(field(row, "FixtureName")).as(name).isEqualTo("'" + v74.get(2) + "'");
+            List<String> arguments = literals(field(row, "Arguments"));
+            List<String> commands = literals(field(row, "Commands"));
+            if (v74.get(1).equals("session")) {
+                assertThat(arguments).as(name).isEmpty();
+                assertThat(commands).as(name).hasSizeGreaterThan(1).endsWith("exit");
+            } else {
+                assertThat(arguments).as(name).isNotEmpty();
+                assertThat(commands).as(name).isEmpty();
+            }
+            if (name.startsWith("v74_ps_")) {
+                assertThat(commands).as(name).hasSize(2);
+                assertThat(commands.getFirst()).as(name).startsWith("ps ");
+            }
+            if (!v74.get(2).startsWith("v74_")) {
+                assertThat(V74_FIXTURES.resolve(v74.get(2) + ".stdout"))
+                    .as("the FR-014 case " + name + " replaces").exists();
+            }
+        }
+        assertThat(field(row("v74_login_failed"), "Contacts")).isEqualTo("$true");
+        assertThat(field(row("v74_failure"), "Contacts")).isEqualTo("$false");
     }
 
     /** Spec FR-018: the arguments and commands of every case are edited in one place. */
     @Test
     void definesTheArgumentsAndCommandsOfEveryCaseOnlyInTheTable() throws IOException {
-        String table = table();
-        assertThat(table).contains("'-v'", "'-h'", "'--execCommand'", "'uptime'",
-            "--exportModuleUser '<owner>' --exportFile <file>");
-        String outside = code().replace(table, "");
-        assertThat(outside).doesNotContain("'-v'", "'-h'", "--execCommand", "'uptime'",
-            "--exportModule", "Commands = ");
+        String outside = code().replace(table(), "");
+        List<String> literals = rows().stream().flatMap(row -> Stream.concat(
+            literals(field(row, "Arguments")).stream(), literals(field(row, "Commands")).stream()))
+            .distinct().toList();
+        assertThat(literals).contains("-v", "-h", "--execCommand", "uptime", "exit",
+            "export --exportModule '' --exportModuleGroup '' --exportModuleUser '<owner>'"
+                + " --exportFile <file>");
+        assertThat(literals).allSatisfy(literal -> assertThat(outside)
+            .as("defined outside the table").doesNotContain("'" + literal + "'")
+            .doesNotContain("\"" + literal + "\""));
+        assertThat(outside).doesNotContain("--execCommand", "--exportModule", "Commands = ");
         assertThat(Pattern.compile("(?s)Invoke-StartCli -Arguments (.*?) -Stdin").matcher(outside)
             .results().map(call -> call.group(1)).toList())
             .as("every launch takes the case's arguments from its table entry").isNotEmpty()
@@ -156,14 +230,121 @@ class RecordFixturesPs1Test {
             .contains("'session'", "Invoke-CaseSession $Entry");
         String caseSession = function("Invoke-CaseSession");
         int launch = caseSession.indexOf("Invoke-StartCliSession");
-        assertThat(caseSession.indexOf("Assert-AllowedHost")).as("host allowlist before the launch")
-            .isNotNegative().isLessThan(launch);
         assertThat(caseSession.indexOf("$passwordBytes = Read-PasswordBytes")).isNotNegative()
             .isLessThan(launch);
         assertThat(caseSession).contains("-PasswordLine $passwordBytes",
             "[Array]::Clear($passwordBytes, 0, $passwordBytes.Length)");
         assertThat(caseSession.indexOf("Assert-NoSecret $prefix $passwordBytes"))
             .as("the secret check on the session's output").isGreaterThan(launch);
+    }
+
+    /**
+     * Feature 025, spec FR-016, FR-017: a script-mode ({@code exec}) or direct-option
+     * ({@code direct}) 7.4 case logs in with the password on standard input only, its arguments
+     * from the table before the URL, and the secret check runs on its output.
+     */
+    @Test
+    void runsAnExecOrDirectCaseWithThePasswordOnStandardInputOnly() throws IOException {
+        assertThat(function("Invoke-RecordCase")).contains("'exec'", "'direct'",
+            "Invoke-CaseExec $Entry");
+        String exec = function("Invoke-CaseExec");
+        List<String> launches = Pattern
+            .compile("(?s)Invoke-StartCli -Arguments (.*?) -Stdin (\\S+)").matcher(exec)
+            .results().map(call -> call.group(1) + " | " + call.group(2)).toList();
+        assertThat(launches).containsExactly(
+            "(@('-u', $name) + $Entry.Arguments + @($CliUrl)) | $passwordBytes");
+        int launch = exec.indexOf("Invoke-StartCli ");
+        assertThat(exec.indexOf("$passwordBytes = Read-PasswordBytes")).isNotNegative()
+            .isLessThan(launch);
+        assertThat(exec.indexOf("Assert-NoSecret $prefix $passwordBytes")).isGreaterThan(launch);
+        assertThat(exec).contains("[Array]::Clear($passwordBytes, 0, $passwordBytes.Length)");
+    }
+
+    /** Feature 025, spec FR-016, US4 scenario 1: StartCLI only, no REST request. */
+    @Test
+    void contactsServersThroughStartCliOnly() throws IOException {
+        assertThat(code()).doesNotContainPattern(
+            "(?i)Invoke-WebRequest|Invoke-RestMethod|\\bcurl\\b|\\bwget\\b|WebClient|HttpClient"
+                + "|Net\\.Http|\\biwr\\b|\\birm\\b");
+        assertThat(Pattern.compile("Process\\]::Start\\(").matcher(code()).results().count())
+            .as("one process launch, the one of Invoke-StartCli").isEqualTo(1);
+        assertThat(function("Invoke-StartCli")).contains("[Diagnostics.Process]::Start($info)");
+    }
+
+    /**
+     * Feature 025, spec FR-017, US4 scenario 7: a case that contacts the server of -CliUrl checks
+     * the group allowlist and then the host allowlist before its kind runs, so before any launch;
+     * every kind that logs in to -CliUrl is marked as contacting it, and a failure case reaches
+     * -CliUrl only when it is marked.
+     */
+    @Test
+    void checksBothAllowlistsBeforeAnyLaunchOfACaseThatContactsAServer() throws IOException {
+        String record = function("Invoke-RecordCase");
+        int group = record.indexOf("Assert-AllowedGroup");
+        int host = record.indexOf("if ($Entry.Contacts) { Assert-CliUrl }");
+        int dispatch = record.indexOf("switch ($Entry.Kind)");
+        assertThat(group).isNotNegative().isLessThan(host);
+        assertThat(host).isNotNegative().isLessThan(dispatch);
+        assertThat(function("Assert-CliUrl")).contains("Assert-Passable 'CliUrl' $CliUrl",
+            "Assert-AllowedHost");
+        assertThat(rows()).allSatisfy(row -> {
+            if (List.of("'export'", "'export-backslash'", "'exec'", "'direct'", "'session'")
+                .contains(field(row, "Kind"))) {
+                assertThat(field(row, "Contacts")).as(field(row, "Name")).isEqualTo("$true");
+            }
+        });
+        for (String kind : List.of("Invoke-CaseLocal", "Invoke-CaseArgv")) {
+            assertThat(function(kind)).doesNotContain("$CliUrl");
+        }
+        assertThat(function("Invoke-CaseFailure").replaceFirst(
+            "(?s)if \\(\\$Entry\\.Contacts\\) \\{[^}]*\\}", "")).doesNotContain("$CliUrl");
+    }
+
+    /**
+     * Feature 025, spec FR-017, US4 scenario 8: the 7.4 client lists neither a trust-store nor a
+     * host-name option; a v74_* case never gets them, its trust store goes to the client's Java
+     * runtime settings, and -DisableHostNameVerification with a 7.4 case stops the run before the
+     * work directory exists and before any case runs.
+     */
+    @Test
+    void neverPassesTheClientTlsOptionsToA74Case() throws IOException {
+        String code = code();
+        for (String option : List.of("--trustStoreFilePath", "--disableHostNameVerification")) {
+            assertThat(Pattern.compile(Pattern.quote(option)).matcher(code).results()
+                .map(MatchResult::start).toList()).as(option).isNotEmpty()
+                .allSatisfy(at -> assertThat(enclosingFunction(code, at))
+                    .isIn("Get-TlsArguments", "Invoke-CaseArgv"));
+        }
+        assertThat(Pattern.compile("(?<!function )Get-TlsArguments").matcher(code).results()
+            .map(call -> enclosingFunction(code, call.start())).toList()).isNotEmpty()
+            .allSatisfy(caller -> assertThat(caller)
+                .isIn("Invoke-CaseExport", "Invoke-CaseFailure"));
+        assertThat(function("Invoke-CaseFailure")).containsPattern(
+            "if \\(\\$Entry\\.Name -notlike 'v74_\\*'\\) \\{[^}]*Get-TlsArguments");
+        assertThat(function("Get-TrustStoreToolOptions")).contains(
+            "-Djavax.net.ssl.trustStore=$TrustStore", "-Djavax.net.ssl.trustStoreType=$type");
+        assertThat(function("Invoke-StartCli"))
+            .contains("['JAVA_TOOL_OPTIONS'] = $JavaToolOptions + $ToolOptions");
+        assertThat(function("Invoke-CaseExec")).contains("-ToolOptions $TrustStoreOptions");
+        assertThat(function("Invoke-StartCliSession")).contains("-ToolOptions $TrustStoreOptions");
+
+        Matcher stop = Pattern.compile("if \\(\\$DisableHostNameVerification\\) \\{\\s*"
+            + "Stop-Recording").matcher(code);
+        assertThat(stop.find()).isTrue();
+        assertThat(code.substring(code.lastIndexOf("\nif (", stop.start()), stop.start()))
+            .contains("$_.Name -like 'v74_*'");
+        assertThat(stop.start()).isGreaterThan(code.indexOf("$Selected = @("))
+            .isLessThan(code.indexOf("$private = New-PrivateDirectory"));
+    }
+
+    /** The name of the function whose body holds the offset, or "" outside any function. */
+    private static String enclosingFunction(String code, int at) {
+        Matcher start = Pattern.compile("(?m)^function ([\\w-]+) \\{").matcher(code);
+        String name = "";
+        while (start.find() && start.start() < at) {
+            name = code.indexOf("\n}", start.start()) > at ? start.group(1) : "";
+        }
+        return name;
     }
 
     @Test
@@ -214,7 +395,7 @@ class RecordFixturesPs1Test {
     @Test
     void contactsOnlyAllowlistedHostsAndRunsInTheClientDirectoryLikeTheServer()
         throws IOException {
-        assertThat(function("Assert-ExportInputs")).contains("Assert-AllowedHost");
+        assertThat(function("Assert-CliUrl")).contains("Assert-AllowedHost");
         assertThat(function("Assert-AllowedHost")).contains("$env:RECORD_ALLOWED_HOSTS");
         assertThat(Pattern.compile("-WorkingDirectory (\\S+)").matcher(code()).results()
             .map(match -> match.group(1)).toList()).isNotEmpty().containsOnly("$CliHome");
@@ -247,13 +428,17 @@ class RecordFixturesPs1Test {
         return record(SCRIPT, "win_help,win_version", cliHome, group, out, log, more);
     }
 
+    /** Without {@code out}, the script writes into the folders of its case table. */
     private Process record(Path script, String cases, Path cliHome, String group, Path out,
         Path log, String... more) throws IOException {
         List<String> command = new ArrayList<>(List.of("powershell.exe", "-NoProfile",
             "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script.toString(),
             "-Group", group, "-Node", "node1", "-Case", cases, "-CliHome",
             cliHome.toString(), "-JavaHome", System.getProperty("java.home"),
-            "-OutputDirectory", out.toString(), "-WorkRoot", temp.toRealPath().toString()));
+            "-WorkRoot", temp.toRealPath().toString()));
+        if (out != null) {
+            command.addAll(List.of("-OutputDirectory", out.toString()));
+        }
         command.addAll(List.of(more));
         ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true)
             .redirectOutput(log.toFile());
@@ -263,8 +448,8 @@ class RecordFixturesPs1Test {
     }
 
     /**
-     * The recorder with two test-only edits, so that a session case runs without a console and
-     * without a 7.4 case in the production table: one extra session case in {@code $Cases}, and a
+     * The recorder with two test-only edits, so that session and login cases run without a
+     * console: one extra session case with the test's own commands in {@code $Cases}, and a
      * {@code Read-PasswordBytes} that returns a fixed password line ({@code Read-Host
      * -AsSecureString} reads the console, which a test process has not). It lives in a copy of
      * the repository's {@code tools} directory, next to {@code neutralize.py}.
@@ -376,6 +561,88 @@ class RecordFixturesPs1Test {
         assertThat(process.waitFor(100, TimeUnit.SECONDS)).isTrue();
         assertThat(process.exitValue()).isNotZero();
         assertThat(log(log)).contains("RECORD_ALLOWED_GROUPS");
+        assertThat(cliHome.resolve("argv-record.json")).doesNotExist();
+    }
+
+    /**
+     * Feature 025, spec FR-016 – FR-017, research D-12: an exec and a session case of 7.4 log in
+     * with the password on standard input, get no client TLS option, get the trust store through
+     * JAVA_TOOL_OPTIONS, and write into {@code fixtures/v7_4/cli/} under their fixture names.
+     */
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    @Timeout(240)
+    void records74CasesIntoThe74FolderWithTheTrustStoreInTheJavaRuntimeSettings()
+        throws Exception {
+        Path cliHome = temp.resolve("client");
+        FakeStartCli.replaying(cliHome, "version");
+        Path map = temp.resolve("test.map");
+        Files.writeString(map, "NeverPresentInTheOutput\tneutral\n");
+        Path trustStore = temp.toRealPath().resolve("trust.jks");
+        Files.writeString(trustStore, "not a real trust store");
+        Path log = temp.resolve("log.txt");
+        String url = "https://node1.example.test:8443/ibis/servlet/IBISSoapServlet";
+        Path script = sessionScript();
+
+        Process process = record(script, "v74_ps_all,v74_exec_help", cliHome, "dev", null, log,
+            "-NeutralizeMap", map.toString(), "-CliUrl", url, "-Username", "tester",
+            "-TrustStore", trustStore.toString());
+
+        assertThat(process.waitFor(220, TimeUnit.SECONDS)).isTrue();
+        assertThat(process.exitValue()).as(log(log)).isZero();
+        FakeStartCli.Recorded exec = FakeStartCli.read(cliHome.resolve("argv-record.json"));
+        assertThat(exec.args()).containsExactly("-u", "tester", "--execCommand", "help", url);
+        assertThat(new String(exec.stdin(), StandardCharsets.UTF_8))
+            .isEqualTo(SESSION_PASSWORD + "\n");
+        assertThat(exec.environment().entrySet().stream()
+            .filter(variable -> variable.getKey().equalsIgnoreCase("JAVA_TOOL_OPTIONS"))
+            .map(variable -> variable.getValue()).toList())
+            .containsExactly(StartCliEnvironment.WINDOWS_JAVA_TOOL_OPTIONS
+                + " -Djavax.net.ssl.trustStore=" + trustStore
+                + " -Djavax.net.ssl.trustStoreType=JKS");
+        Path folder = script.getParent().getParent()
+            .resolve("src/test/resources/fixtures/v7_4/cli");
+        for (String fixture : List.of("ps_session_all", "v74_exec_help")) {
+            for (String extension : List.of(".stdout", ".stderr", ".exit")) {
+                assertThat(folder.resolve(fixture + extension)).exists();
+            }
+        }
+    }
+
+    /** Feature 025, spec FR-017, US4 scenario 8: the whole run stops before any launch. */
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    @Timeout(120)
+    void stopsA74RunOnDisableHostNameVerificationBeforeAnyLaunch() throws Exception {
+        Path cliHome = temp.resolve("client");
+        FakeStartCli.replaying(cliHome, "version");
+        Path log = temp.resolve("log.txt");
+
+        Process process = record(SCRIPT, "win_help,v74_help", cliHome, "dev",
+            temp.resolve("out"), log, "-DisableHostNameVerification");
+
+        assertThat(process.waitFor(100, TimeUnit.SECONDS)).isTrue();
+        assertThat(process.exitValue()).isNotZero();
+        assertThat(log(log)).contains("-DisableHostNameVerification");
+        assertThat(cliHome.resolve("argv-record.json")).doesNotExist();
+    }
+
+    /** Feature 025, spec FR-017, US4 scenario 7: a host outside the allowlist, no launch. */
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    @Timeout(120)
+    void refusesA74CaseForAHostOutsideTheAllowlistBeforeAnyLaunch() throws Exception {
+        Path cliHome = temp.resolve("client");
+        FakeStartCli.replaying(cliHome, "version");
+        Path log = temp.resolve("log.txt");
+
+        Process process = record(SCRIPT, "v74_ps_all", cliHome, "dev", temp.resolve("out"), log,
+            "-CliUrl", "https://prod-node1.example.test:8443/ibis/servlet/IBISSoapServlet",
+            "-Username", "tester");
+
+        assertThat(process.waitFor(100, TimeUnit.SECONDS)).isTrue();
+        assertThat(process.exitValue()).isNotZero();
+        assertThat(log(log)).contains("RECORD_ALLOWED_HOSTS");
         assertThat(cliHome.resolve("argv-record.json")).doesNotExist();
     }
 }
