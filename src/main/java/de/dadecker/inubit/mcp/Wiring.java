@@ -26,6 +26,7 @@ import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLiveness;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
+import de.dadecker.inubit.mcp.adapter.cli.v74.V74PortSet;
 import de.dadecker.inubit.mcp.adapter.os.JnaDriveTypeApi;
 import de.dadecker.inubit.mcp.adapter.os.NoJob;
 import de.dadecker.inubit.mcp.adapter.os.OsPrivateFileSystem;
@@ -468,7 +469,9 @@ final class Wiring implements AutoCloseable {
             versions::effectiveVersion, versions, versions);
         // feature 009 (research D-16): the 8.1 port set, as default for every version; feature
         // 017 (research D-14): explicitly for 9.0 too; feature 012 (research D-4): the 6.1 port
-        // set and health port, CLI-only (no REST client)
+        // set and health port, CLI-only (no REST client); feature 025 (research D-5): after it
+        // the 7.4 port set, CLI-only and refusing every port (the gate refuses first, so the 6.1
+        // query rules passed for it are never reached)
         Map<NodeId, NodeSecrets> secrets = secrets(servers, credentialStore, scrubber, clock,
             parameterStore);
         // one client-option probe for all 6.1 nodes and one concurrency limiter for every node's
@@ -486,7 +489,9 @@ final class Wiring implements AutoCloseable {
         this.gateways = new AdapterGatewayFactory(servers, secrets, scrubber, clock.clock(),
             cliRunner, versions, portSets.withV90()
                 .register(V61PortSet.RANGE, V61PortSet.factory(clientOptions, cliLimiter),
-                    V61QueryRules.INSTANCE, V61PortSet.cliHealth(clientOptions, cliLimiter)));
+                    V61QueryRules.INSTANCE, V61PortSet.cliHealth(clientOptions, cliLimiter))
+                .register(V74PortSet.RANGE, V74PortSet.factory(), V61QueryRules.INSTANCE,
+                    V74PortSet.cliHealth()));
         // feature 009 (research D-7): the StartCLI client probe, on the same runner so that a
         // shutdown also stops a running probe
         this.clientVersions = new CliVersionProbe(cliRunner, byId::get);

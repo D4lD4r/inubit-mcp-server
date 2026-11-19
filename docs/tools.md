@@ -27,7 +27,9 @@ parameter, field or error code; see
 [its delta](../specs/015-workbench-archives/contracts/mcp-tools-delta.md), the read-only
 INUBIT 6.1 nodes of feature 012
 [its delta](../specs/012-inubit-61-cli-reads/contracts/mcp-tools-delta.md) (see
-[INUBIT 6.1](#inubit-61-feature-012)), `find_partners` and the partner usage in
+[INUBIT 6.1](#inubit-61-feature-012)), the INUBIT 7.4 nodes of feature 025
+[its delta](../specs/025-inubit-74-support/contracts/mcp-tools-delta.md) (see
+[INUBIT 7.4](#inubit-74-feature-025)), `find_partners` and the partner usage in
 `get_inventory_item` of feature 018
 [its contract](../specs/018-partner-management-read/contracts/find_partners.md) (see
 [`find_partners`](#find_partners)), the local knowledge of feature 019
@@ -128,8 +130,8 @@ the profile sets `knowledge.recording: false` (feature 019, see
 [The local knowledge](#the-local-knowledge-feature-019)). `find_processes`, `query_logs`,
 `list_inventory`, `get_inventory_item`, `find_partners`, `export_artifacts` and `export_archives`
 are not offered when no configured node may run their capability (feature 012), e.g. in a profile
-of INUBIT 6.1 nodes only (see [tool announcement](#tool-announcement)). `find_partners` needs no
-StartCLI installation and no write setting (feature 018).
+of INUBIT 6.1 or 7.4 nodes only (see [tool announcement](#tool-announcement)). `find_partners`
+needs no StartCLI installation and no write setting (feature 018).
 
 `read_queue_entry` is **offered only if** a node's group has `unsupported.queueEntryRead: true`
 ([setup.md](setup.md#unsupported-functions)), that node is not pinned to a version that refuses
@@ -183,33 +185,33 @@ a call, and refuses or warns. How a node's version is configured, detected and p
 [setup.md, INUBIT version](setup.md#inubit-version-versionline); the StartCLI client check in
 [setup.md, StartCLI client check](setup.md#startcli-client-check).
 
-| Tool | Capability (name in `list_nodes`) | Kind | Channels | INUBIT 8.1.x, INUBIT 9.0.x (`V9_0`, feature 017) | any other version (e.g. 9.1), an unknown version, `V9_X` | INUBIT 6.1.x (`V6_1`, StartCLI only) |
-|---|---|---|---|---|---|---|
-| `list_nodes` | – | read | none | runs | runs (no INUBIT contact) | runs (no INUBIT contact) |
-| `get_health` | `monitoring` | read | REST; on 6.1 StartCLI | supported | runs with a warning; never refused | refused in this version (the report carries the refusal) |
-| `get_server_settings` | `server_settings` | read | REST + StartCLI | 8.1 and 9.0 supported, see [its section](#get_server_settings) | refused (no warning run) | refused |
-| `read_users` | `user_directory` | read | REST + StartCLI | 8.1 and 9.0 supported (view `logins` refused on 9.0), see [its section](#read_users) | refused (no warning run) | refused |
-| `read_model_details` | `model_details` | read | REST + StartCLI | 8.1 and 9.0 supported, see [its section](#read_model_details) | refused (no warning run) | refused |
-| `find_processes` | `process_diagnosis` | read | REST; on 6.1 StartCLI | supported | runs with a warning | refused in this version; the input `tag` always |
-| `query_logs` | `log_diagnosis` | read | REST | supported | runs with a warning | refused |
-| `list_inventory` `DIAGRAM` | `inventory` | read | REST | supported | runs with a warning | refused |
-| `list_inventory` `MODULE`, `get_inventory_item` (diagram details via REST; the module list and every version history via StartCLI) | `inventory` | read | REST + StartCLI | supported | the REST part runs with a warning; the StartCLI part also needs the client check | refused |
-| `find_partners`, the partner usage of `get_inventory_item` (feature 018) | `partner_management` | read | REST | 8.1: supported; 9.0: **runs with a warning** (not verified on 9.0) | runs with a warning | refused |
-| `export_artifacts`, `export_archives` | `workspace_export` | read on INUBIT | StartCLI | supported | runs with a warning if the client check passes (refused on 9.1 with an 8.1 client) | refused |
-| `check_artifacts` | – (its optional module lookup: `inventory` over StartCLI) | read | none, optional module lookup | runs | runs; the module lookup as `inventory` | runs; the module lookup is skipped |
-| `read_queue_entry` | `queue_entry_read` | read (unsupported vendor interface) | REST lookup + helper on the INUBIT client | supported (8.1 and 9.0) | refused (no warning run) | refused |
-| `download_server_log` `log: trace` | `trace_log_read` | read on INUBIT, writes a local file | StartCLI | supported (8.1 and 9.0) | refused (no warning run) | refused |
-| `download_server_log` `log: webservice` | `webservice_log_read` | read (unsupported vendor interface), writes a local file | helper on the INUBIT client | supported (8.1 and 9.0; on 9.0 verified against a recorded empty log only, see [its section](#download_server_log)) | refused (no warning run) | refused |
-| `list_cluster_nodes` (feature 024) | `cluster_nodes_read` | read (unsupported vendor interface) | helper on the INUBIT client | supported (8.1 and 9.0) | refused (no warning run) | refused |
-| `read_io_log` (feature 024) | `io_log_read` | read (unsupported vendor interface) | helper on the INUBIT client | 8.1: refused (not yet verified); 9.0: refused (not yet verified) | refused (no warning run) | refused |
-| `get_node_config` (feature 024) | `node_config_read` | read (unsupported vendor interface) | helper on the INUBIT client | supported (8.1 and 9.0) | refused (no warning run) | refused |
-| `import_artifacts`, `restore_backup` of a development backup, `set_active`, `tag_artifacts` | `development_writes` | write | StartCLI + REST | supported | refused | refused |
-| `restore_backup` of a deployment backup, `deploy_release` | `deployment` | write | StartCLI + REST | supported; `deploy_release` only within one minor version (8.1 → 8.1, 9.0 → 9.0) | refused; `deploy_release` also only within one minor version | refused |
-| `run_e2e_test` | `e2e_test` | write | SOAP + REST | supported | refused | refused |
-| `restart_process`, `kill_process` | `process_control` | write | REST + StartCLI | supported | refused | refused |
-| `set_temporary_log_level`, `reset_temporary_log_level` (feature 024) | `log_level_write` | write | StartCLI + helper on the INUBIT client (answering node) | supported (8.1 and 9.0) | refused | refused |
-| `operate_server` (feature 022) | `server_operation` | write | StartCLI + REST | 8.1: supported; 9.0: refused (not yet verified), see [its section](#operate_server) | refused | refused |
-| `manage_tags` (feature 022) | `tag_administration` | write | StartCLI | 8.1: refused (not yet verified); 9.0: refused (not yet verified), see [its section](#manage_tags) | refused | refused |
+| Tool | Capability (name in `list_nodes`) | Kind | Channels | INUBIT 8.1.x, INUBIT 9.0.x (`V9_0`, feature 017) | any other version (e.g. 9.1), an unknown version, `V9_X` | INUBIT 6.1.x (`V6_1`, StartCLI only) | INUBIT 7.4.x (`V7_4`, StartCLI only, feature 025) |
+|---|---|---|---|---|---|---|---|
+| `list_nodes` | – | read | none | runs | runs (no INUBIT contact) | runs (no INUBIT contact) | runs (no INUBIT contact) |
+| `get_health` | `monitoring` | read | REST; on 6.1 and 7.4 StartCLI | supported | runs with a warning; never refused | refused in this version (the report carries the refusal) | refused (not yet verified; the report carries the refusal) |
+| `get_server_settings` | `server_settings` | read | REST + StartCLI | 8.1 and 9.0 supported, see [its section](#get_server_settings) | refused (no warning run) | refused | refused (not yet verified) |
+| `read_users` | `user_directory` | read | REST + StartCLI | 8.1 and 9.0 supported (view `logins` refused on 9.0), see [its section](#read_users) | refused (no warning run) | refused | refused (not yet verified) |
+| `read_model_details` | `model_details` | read | REST + StartCLI | 8.1 and 9.0 supported, see [its section](#read_model_details) | refused (no warning run) | refused | refused (not yet verified) |
+| `find_processes` | `process_diagnosis` | read | REST; on 6.1 and 7.4 StartCLI | supported | runs with a warning | refused in this version; the input `tag` always | refused (not yet verified) |
+| `query_logs` | `log_diagnosis` | read | REST | supported | runs with a warning | refused | refused (not yet verified) |
+| `list_inventory` `DIAGRAM` | `inventory` | read | REST | supported | runs with a warning | refused | refused (not yet verified) |
+| `list_inventory` `MODULE`, `get_inventory_item` (diagram details via REST; the module list and every version history via StartCLI) | `inventory` | read | REST + StartCLI | supported | the REST part runs with a warning; the StartCLI part also needs the client check | refused | refused (not yet verified) |
+| `find_partners`, the partner usage of `get_inventory_item` (feature 018) | `partner_management` | read | REST | 8.1: supported; 9.0: **runs with a warning** (not verified on 9.0) | runs with a warning | refused | refused (not yet verified) |
+| `export_artifacts`, `export_archives` | `workspace_export` | read on INUBIT | StartCLI | supported | runs with a warning if the client check passes (refused on 9.1 with an 8.1 client) | refused | refused (not yet verified) |
+| `check_artifacts` | – (its optional module lookup: `inventory` over StartCLI) | read | none, optional module lookup | runs | runs; the module lookup as `inventory` | runs; the module lookup is skipped | runs; the module lookup is skipped (`MODULE_UNVERIFIED`) |
+| `read_queue_entry` | `queue_entry_read` | read (unsupported vendor interface) | REST lookup + helper on the INUBIT client | supported (8.1 and 9.0) | refused (no warning run) | refused | refused (not yet verified) |
+| `download_server_log` `log: trace` | `trace_log_read` | read on INUBIT, writes a local file | StartCLI | supported (8.1 and 9.0) | refused (no warning run) | refused | refused (not yet verified) |
+| `download_server_log` `log: webservice` | `webservice_log_read` | read (unsupported vendor interface), writes a local file | helper on the INUBIT client | supported (8.1 and 9.0; on 9.0 verified against a recorded empty log only, see [its section](#download_server_log)) | refused (no warning run) | refused | refused (not yet verified) |
+| `list_cluster_nodes` (feature 024) | `cluster_nodes_read` | read (unsupported vendor interface) | helper on the INUBIT client | supported (8.1 and 9.0) | refused (no warning run) | refused | refused (not yet verified) |
+| `read_io_log` (feature 024) | `io_log_read` | read (unsupported vendor interface) | helper on the INUBIT client | 8.1: refused (not yet verified); 9.0: refused (not yet verified) | refused (no warning run) | refused | refused (not yet verified) |
+| `get_node_config` (feature 024) | `node_config_read` | read (unsupported vendor interface) | helper on the INUBIT client | supported (8.1 and 9.0) | refused (no warning run) | refused | refused (not yet verified) |
+| `import_artifacts`, `restore_backup` of a development backup, `set_active`, `tag_artifacts` | `development_writes` | write | StartCLI + REST | supported | refused | refused | refused (not yet verified) |
+| `restore_backup` of a deployment backup, `deploy_release` | `deployment` | write | StartCLI + REST | supported; `deploy_release` only within one minor version (8.1 → 8.1, 9.0 → 9.0) | refused; `deploy_release` also only within one minor version | refused | refused (not yet verified) |
+| `run_e2e_test` | `e2e_test` | write | SOAP + REST | supported | refused | refused | refused (not yet verified) |
+| `restart_process`, `kill_process` | `process_control` | write | REST + StartCLI | supported | refused | refused | refused (not yet verified) |
+| `set_temporary_log_level`, `reset_temporary_log_level` (feature 024) | `log_level_write` | write | StartCLI + helper on the INUBIT client (answering node) | supported (8.1 and 9.0) | refused | refused | refused (not yet verified) |
+| `operate_server` (feature 022) | `server_operation` | write | StartCLI + REST | 8.1: supported; 9.0: refused (not yet verified), see [its section](#operate_server) | refused | refused | refused (not yet verified) |
+| `manage_tags` (feature 022) | `tag_administration` | write | StartCLI | 8.1: refused (not yet verified); 9.0: refused (not yet verified), see [its section](#manage_tags) | refused | refused | refused (not yet verified) |
 
 A deployment backup restored on a node that is also a development stage is checked as
 `development_writes`; both capabilities have the same states in this version. Refusal and
@@ -224,7 +226,8 @@ model details`, `reading the cluster's node list`, `reading module input/output 
 contract test; until then that line is refused like any other (`… is not yet verified for INUBIT
 9.0; nothing was sent`). Before feature 012, `find_processes` and `query_logs` shared the
 capability `diagnosis`; `list_nodes` and `--check-config` now show the two capabilities instead,
-with the same states on every version other than 6.1.
+with the same states on every version other than 6.1. On INUBIT 7.4 (feature 025) every
+capability is "not yet verified" and refused (see [INUBIT 7.4](#inubit-74-feature-025)).
 
 INUBIT 9.0 (feature 017) has the capabilities of 8.1, with the same result shapes and without
 the "not verified" warning — except `partner_management` (feature 018): the Partner Management
@@ -297,7 +300,7 @@ client has not been checked yet" with the next step "Call the tool again".
 |---|---|---|
 | unverified version | `INUBIT 9.1.0 on dev/node1 is not verified for process diagnosis; results may be incomplete` (`INUBIT 9.x (versionLine V9_X) on …` for a `V9_X` node) | read tools, `get_health` |
 | unknown version | `the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T09:12:03Z); results are unverified` (`(not yet detected)` if no detection was attempted) | read tools, `get_health` |
-| unknown version, the detection request answered with HTTP 404 (feature 012) | `the INUBIT version of dev/node1 is unknown (UNEXPECTED_RESPONSE at 2026-10-18T08:00:00Z); if dev/node1 runs INUBIT 6.1, pin V6_1; results are unverified` | read tools, `get_health` |
+| unknown version, the detection request answered with HTTP 404 (feature 012) | `the INUBIT version of dev/node1 is unknown (UNEXPECTED_RESPONSE at 2026-10-18T08:00:00Z); if dev/node1 runs INUBIT 6.1, pin V6_1; if it runs INUBIT 7.4, pin V7_4; results are unverified` (the 7.4 part since feature 025) | read tools, `get_health` |
 | client and server differ (major, minor or patch) | `StartCLI client 8.1.17 on dev/node1 differs from INUBIT 8.1.18 (mismatch); StartCLI-backed tools still run, but their results may be unreliable` | StartCLI-backed tools, `get_health`, `list_nodes` |
 | server outside the client's range | `StartCLI client 8.1.17 of next/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7; StartCLI-backed tools are refused on next/node1 (UNSUPPORTED_VERSION) until a StartCLI client that supports INUBIT 9.0 is installed` | `get_health`, `list_nodes` (the tools themselves refuse) |
 | client probe failed | `The StartCLI client probe of dev/node1 failed (TIMEOUT at 2026-10-18T09:12:03Z); the INUBIT range of the client cannot be checked, StartCLI results may be unreliable` | StartCLI-backed tools |
@@ -326,6 +329,7 @@ in the message):
 |---|---|---|
 | the version does not support the capability (9.1, `V9_X`, a version other than 8.1 and 9.0) | `INUBIT 9.x (versionLine V9_X) on next/node1 does not support process control yet; nothing was sent` | as in the example above |
 | the node runs INUBIT 6.1 (feature 012) | `INUBIT 6.1 (versionLine V6_1) on legacy/node1 does not support log diagnosis; read the logs of INUBIT 6.1 in the Workbench; nothing was sent` | the next step of the capability, see [INUBIT 6.1](#inubit-61-feature-012) |
+| the node runs INUBIT 7.4 (feature 025) | `INUBIT 7.4 on legacy74/node1: log diagnosis is not yet verified for INUBIT 7.4; nothing was sent` | `INUBIT 7.4 is recognised, but no tool is verified on it yet; use the INUBIT Workbench for log diagnosis on legacy74/node1`, see [INUBIT 7.4](#inubit-74-feature-025) |
 | the version is unknown (failed `AUTO` detection or re-detection) | `Development writes refused: the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T09:12:03Z); nothing was sent` | `Fix the cause of the failed version detection and retry in a minute, or set versionLine of dev/node1 to the version the node actually runs and restart the server` |
 | the pin is contradicted by `get_health` | `versionLine V8_1 of qa/node1 contradicts INUBIT 9.0.7 observed by get_health at 2026-10-18T09:12:03Z; development writes refused; nothing was sent` | `Correct versionLine of qa/node1 (get_health observed INUBIT 9.0.7) and restart the server` |
 | the client's range excludes the server | `StartCLI client 8.1.17 of next/node1 supports INUBIT 4.0.1 to 8.1.17, which excludes INUBIT 9.0.7; workspace export via StartCLI refused; nothing was sent` | `Install a StartCLI client on the host of this server that supports INUBIT 9.0, or add defaults.cliClients."9.0"` (the `cliClients` hint with `cliClients` configured or on INUBIT 9) |
@@ -372,14 +376,17 @@ whose only development nodes are `V9_X`. Since feature 012 the same rule applies
 `find_processes` (process diagnosis), `query_logs` (log diagnosis), `list_inventory` and
 `get_inventory_item` (inventory), `find_partners` (partner management), `export_artifacts` and
 `export_archives` (workspace export),
-e.g. in a profile whose only nodes are pinned to INUBIT 6.1; `list_nodes`, `get_health`,
+e.g. in a profile whose only nodes are pinned to INUBIT 6.1 or, since feature 025, to INUBIT 7.4
+(such a profile offers just `list_nodes`, `get_health`, `check_artifacts`, `read_knowledge` and
+`record_knowledge`, also with write access, every opt-in and a StartCLI installation);
+`list_nodes`, `get_health`,
 `check_artifacts` and `read_knowledge` are always offered (`record_knowledge` unless
 `knowledge.recording: false`). Feature 020: `read_queue_entry` is offered only if a node
 of a group with `unsupported.queueEntryRead: true` is not pinned to a version that refuses
-`queue_entry_read` (6.1, a line other than 8.1 and 9.0) and has an INUBIT client home for one of
+`queue_entry_read` (6.1, 7.4, a line other than 8.1 and 9.0) and has an INUBIT client home for one of
 its possible versions. Feature 021: `download_server_log` is offered only if a node has an INUBIT
 client home for one of its possible versions and either is not pinned to a version that refuses
-`trace_log_read` (6.1, a line other than 8.1 and 9.0), or its group has
+`trace_log_read` (6.1, 7.4, a line other than 8.1 and 9.0), or its group has
 `unsupported.serverLogRead: true` and it is not pinned to a version that refuses
 `webservice_log_read`; write settings do not matter. Feature 022: `get_server_settings` is offered
 only if a node is not pinned to a version that refuses `server_settings` (8.1, 9.0 and `AUTO`
@@ -391,7 +398,7 @@ capability; a later detection does not change the list, it leads to refusals.
 
 Feature 024: `list_cluster_nodes` is offered only if a node of a group with
 `unsupported.nodeStatusRead: true` is not pinned to a version that refuses `cluster_nodes_read`
-(6.1, a line other than 8.1 and 9.0, a line on which it is not yet verified) and has an INUBIT
+(6.1, 7.4, a line other than 8.1 and 9.0, a line on which it is not yet verified) and has an INUBIT
 client home for one of its possible versions; `read_io_log` (`unsupported.ioLogRead`,
 `io_log_read`) and `get_node_config` (`unsupported.nodeConfigRead`, `node_config_read`) likewise;
 write settings do not matter for them. `set_temporary_log_level` and `reset_temporary_log_level`
@@ -446,6 +453,47 @@ The tools that return one entry per node (`get_health`, `find_processes`, `query
 `list_inventory`, `get_inventory_item`, `find_partners`) refuse a 6.1 node in its own entry
 (`error`), and the other nodes of a group are still served. Every refusal is logged on stderr;
 refusals of write tools and of `find_partners` are audited as `REFUSED`.
+
+### INUBIT 7.4 (feature 025)
+
+A node pinned to INUBIT 7.4 (`versionLine: V7_4` or a concrete 7.4 version such as `"7.4.0.90"`;
+`AUTO` never selects 7.4) is recognised and, like a 6.1 node, reached through StartCLI only.
+Configuration and client rules are in
+[setup.md, INUBIT 7.4 nodes](setup.md#inubit-74-nodes-v7_4).
+
+**In this version no tool is verified on 7.4**: every capability is "not yet verified" there, so
+every tool that would contact a 7.4 node refuses it with `UNSUPPORTED_VERSION` before any contact
+(no StartCLI run, also no client probe, no TLS handshake, no request). `list_nodes` shows the node
+with `status: unsupported` and no usable capability; `check_artifacts` runs its offline checks.
+A capability becomes available only once its StartCLI outputs have been verified against
+recordings of a real 7.4 node.
+
+A refusal names the tool (except in a `get_health` report), the version (`INUBIT 7.4`, or for a
+concrete pin `INUBIT 7.4.0.90`), the node and the capability, and ends with `is not yet verified
+for INUBIT 7.4; nothing was sent`. Unlike on 6.1, the next step is only in `nextStep`, the same
+for every tool; `likelyCause` is `This server declares <capability> unsupported for that version`
+for reads and `The node runs a version for which no verified write access exists` for writes:
+
+```json
+{"code": "UNSUPPORTED_VERSION",
+ "message": "query_logs: INUBIT 7.4 on legacy74/node1: log diagnosis is not yet verified for INUBIT 7.4; nothing was sent",
+ "likelyCause": "This server declares log diagnosis unsupported for that version",
+ "nextStep": "INUBIT 7.4 is recognised, but no tool is verified on it yet; use the INUBIT Workbench for log diagnosis on legacy74/node1",
+ "node": "legacy74/node1"}
+```
+
+| Tool | The refusal on a 7.4 node |
+|---|---|
+| `get_health` | the node's report carries the refusal, without the `get_health: ` prefix: `INUBIT 7.4 on legacy74/node1: monitoring is not yet verified for INUBIT 7.4; nothing was sent` |
+| `list_inventory`, `get_inventory_item` | the capability part is `inventory is not yet verified for INUBIT 7.4; modules of INUBIT 7.4 cannot be looked up` |
+| `deploy_release` | `deploy_release: refused nodes: legacy74/node1; deployment from lab into legacy74 refused …`, naming the node as `legacy74/node1 INUBIT 7.4 (refused: INUBIT 7.4 on legacy74/node1: deployment is not yet verified for INUBIT 7.4)`; no node of the call is read |
+| `check_artifacts` | no refusal: the module lookup is skipped and each module not in the workspace is `MODULE_UNVERIFIED` with `could not be verified: check_artifacts: INUBIT 7.4 on dev/node1: inventory is not yet verified for INUBIT 7.4; modules of INUBIT 7.4 cannot be looked up; nothing was sent`; the offline checks run |
+| every other tool | `<tool>: INUBIT 7.4 on <node>: <capability> is not yet verified for INUBIT 7.4; nothing was sent`, with the capability in words (see [Versions](#inubit-versions-and-capabilities-feature-009)) |
+
+The tools that return one entry per node refuse a 7.4 node in its own entry (`error`), and the
+other nodes of a group (e.g. an 8.1 node) are still served. The other checks of a write tool come
+first as before: with write access disabled, a 7.4 node gets the same error as any other node.
+Every refusal is logged on stderr as `<CAPABILITY> on <node>: REFUSED (UNSUPPORTED_VERSION): …`.
 
 ## Common shapes: Page and ToolError
 
@@ -688,7 +736,7 @@ part of the result.
 | `developmentEnabled` | a development stage: `development.enabled && !production`; `import_artifacts`, `restore_backup`, `set_active` and `tag_artifacts` work on this node |
 | `confirmationMode` | `SERVER` (two-step confirmation by the MCP server) or `CLIENT` |
 | `repositoryWrite` | `import_artifacts` and `restore_backup` may create and change repository files on this node (feature 008): `development.repository` resolves to `WRITE` and the node is a development stage (`developmentEnabled`); `false` by default (see [setup.md](setup.md#development-settings)) |
-| `versionLine` | as configured: `AUTO`, `V6_1`, `V8_1`, `V9_0`, `V9_X` or a concrete version such as `8.1.17` (a string; see [setup.md](setup.md#inubit-version-versionline)) |
+| `versionLine` | as configured: `AUTO`, `V6_1`, `V7_4`, `V8_1`, `V9_0`, `V9_X` or a concrete version such as `8.1.17` (a string; see [setup.md](setup.md#inubit-version-versionline)) |
 | `cliAvailable` | a CLI home is configured and its `bin/startcli.sh` (`.bat` on Windows) exists; since feature 017 for the client currently chosen (see `startCli`) |
 | `startCli` | the StartCLI client chosen for the node's current version (feature 017), see the table below |
 | `version` | the version block below (feature 009) |
@@ -696,12 +744,12 @@ part of the result.
 | `version` field | Meaning |
 |---|---|
 | `setting` | the configured `versionLine` |
-| `access` | how the node is reached: `rest_and_cli`, or `cli_only` (StartCLI only) for a node pinned to INUBIT 6.1 (feature 012) |
-| `server` | `{version, source, at?}` with `source` `detected` (an `AUTO` node, detected before a tool call), `observed` (read by `get_health`, also on a pinned node) or `pinned` (the pin, without `at`; `6.1` for `V6_1`, `8.1` for `V8_1`, `9.0` for `V9_0`, `9.x` for `V9_X`); or only `{"state": "not_yet_detected"}` (call `get_health`), or `{"state": "unknown", "reason": "<error code>", "at": …}` after a failed detection. Times are ISO-8601 to the second |
+| `access` | how the node is reached: `rest_and_cli`, or `cli_only` (StartCLI only) for a node pinned to INUBIT 6.1 (feature 012) or 7.4 (feature 025) |
+| `server` | `{version, source, at?}` with `source` `detected` (an `AUTO` node, detected before a tool call), `observed` (read by `get_health`, also on a pinned node) or `pinned` (the pin, without `at`; `6.1` for `V6_1`, `7.4` for `V7_4`, a concrete pin with all its parts, e.g. `7.4.0.90`, `8.1` for `V8_1`, `9.0` for `V9_0`, `9.x` for `V9_X`); or only `{"state": "not_yet_detected"}` (call `get_health`), or `{"state": "unknown", "reason": "<error code>", "at": …}` after a failed detection. Times are ISO-8601 to the second |
 | `client` | the StartCLI client as in `get_health`: `{version, supportedFrom?, supportedTo?, comparison}` with `comparison` `match`, `mismatch` or `not_comparable` (the server version is unknown or has no patch, e.g. `V8_1`); or only `state`: `not_available` (no StartCLI installation), `not_yet_detected` (not probed yet; after a timed-out probe with `reason` `TIMEOUT` and `at`) or `unknown` (the probe failed: error code in `reason`, `at`) |
 | `status` | `supported` (every capability the configuration allows is supported), `partially_supported` (some are usable, others are unverified or not usable; e.g. an INUBIT 9.0 node, on which `partner_management` is unverified, feature 018), `unsupported` (none is usable) or `unknown` (an `AUTO` node whose version is not yet detected or unknown) |
 | `capabilities` | `usable`: the capabilities whose tools run on the node now (supported, or unverified for reads except on INUBIT 6.1, and not refused by the client), out of those its configuration allows (the reads always; `workspace_export` with a StartCLI installation; `development_writes` on a development stage; `deployment` in a group that receives deployments; `e2e_test` where `e2eTests` allows it; `process_control` with write access; `queue_entry_read` only for nodes whose group has `unsupported.queueEntryRead: true`; `trace_log_read` for nodes with an INUBIT client home; `webservice_log_read` only for nodes whose group has `unsupported.serverLogRead: true` and that have an INUBIT client home; feature 024: `cluster_nodes_read` only for nodes whose group has `unsupported.nodeStatusRead: true`, `io_log_read` only for nodes whose group has `unsupported.ioLogRead: true`, `node_config_read` only for nodes whose group has `unsupported.nodeConfigRead: true` and `log_level_write` only for nodes with write access whose group has `unsupported.logLevelWrite: true`, each only with an INUBIT client home). `notUsable`: `[{capability, reason}]` with the reason the call would be refused; `inventory (StartCLI parts)` when `inventory` runs for its REST part but the client refuses its StartCLI parts (module list, version histories) |
-| `warnings` | only when non-empty: a pin contradicted by `get_health`, a client that differs from the server or excludes it (see [the warnings](#inubit-versions-and-capabilities-feature-009)) |
+| `warnings` | only when non-empty: a pin contradicted by `get_health`, a client that differs from the server or excludes it (see [the warnings](#inubit-versions-and-capabilities-feature-009)); on an INUBIT 7.4 node always `INUBIT 7.4 is recognised, but no tool is verified on it yet; the StartCLI client of <node> is not used until a 7.4 capability is verified` (feature 025) |
 
 | `startCli` field | Meaning |
 |---|---|
@@ -743,6 +791,27 @@ its pin, and in this version no capability is supported on 6.1 (see
    {"capability":"inventory","reason":"INUBIT 6.1 (versionLine V6_1) on legacy/node1 does not support inventory"},
    {"capability":"partner_management","reason":"INUBIT 6.1 (versionLine V6_1) on legacy/node1 does not support partner management"},
    {"capability":"workspace_export","reason":"INUBIT 6.1 (versionLine V6_1) on legacy/node1 does not support workspace export"}]}}
+```
+
+The same node pinned to INUBIT 7.4 (feature 025, see [INUBIT 7.4](#inubit-74-feature-025)); with
+`versionLine: "7.4.0.90"` the server version and the reasons show `7.4.0.90`:
+
+```json
+{"setting":"V7_4","access":"cli_only","server":{"version":"7.4","source":"pinned"},
+ "client":{"state":"not_yet_detected"},
+ "status":"unsupported",
+ "capabilities":{"usable":[],
+  "notUsable":[{"capability":"monitoring","reason":"INUBIT 7.4 on legacy74/node1: monitoring is not yet verified for INUBIT 7.4"},
+   {"capability":"process_diagnosis","reason":"INUBIT 7.4 on legacy74/node1: process diagnosis is not yet verified for INUBIT 7.4"},
+   {"capability":"log_diagnosis","reason":"INUBIT 7.4 on legacy74/node1: log diagnosis is not yet verified for INUBIT 7.4"},
+   {"capability":"inventory","reason":"INUBIT 7.4 on legacy74/node1: inventory is not yet verified for INUBIT 7.4"},
+   {"capability":"partner_management","reason":"INUBIT 7.4 on legacy74/node1: partner management is not yet verified for INUBIT 7.4"},
+   {"capability":"workspace_export","reason":"INUBIT 7.4 on legacy74/node1: workspace export is not yet verified for INUBIT 7.4"},
+   {"capability":"trace_log_read","reason":"INUBIT 7.4 on legacy74/node1: downloading the trace log is not yet verified for INUBIT 7.4"},
+   {"capability":"server_settings","reason":"INUBIT 7.4 on legacy74/node1: reading server settings is not yet verified for INUBIT 7.4"},
+   {"capability":"user_directory","reason":"INUBIT 7.4 on legacy74/node1: reading users is not yet verified for INUBIT 7.4"},
+   {"capability":"model_details","reason":"INUBIT 7.4 on legacy74/node1: reading model details is not yet verified for INUBIT 7.4"}]},
+ "warnings":["INUBIT 7.4 is recognised, but no tool is verified on it yet; the StartCLI client of legacy74/node1 is not used until a 7.4 capability is verified"]}
 ```
 
 A capability that is not usable because the version is unknown names the cause and the next step,
@@ -887,6 +956,11 @@ maintenance mode, memory in `load` and the number of processes per state in a ne
 figures (`threads`) and the blocking queue (`blockingQueue`) are listed in `unavailable` with
 `NOT_AVAILABLE_ON_6_1`. Its budget is 15 s for a call for one 6.1 node and the overview budget
 of 10 s for a call for several nodes.
+
+**INUBIT 7.4 nodes** (feature 025, [INUBIT 7.4](#inubit-74-feature-025)): `get_health` sends a
+7.4 node nothing, as a 6.1 node. Monitoring is not yet verified on 7.4, so the node's report
+carries the refusal `INUBIT 7.4 on legacy74/node1: monitoring is not yet verified for INUBIT 7.4;
+nothing was sent`, without a tool name and with the next step in `nextStep` only.
 
 **Example prompts** (quickstart V2, V3):
 
@@ -1446,6 +1520,10 @@ the node either way. The listing over StartCLI (`ps`) is built for 6.1 and becom
 it has been verified against recorded outputs of a real 6.1 node; its results have the shape
 above without `tag`, `moduleType` and `globalProcessId`, and carry the warning `logs of INUBIT
 6.1 cannot be read with query_logs; read them in the Workbench`.
+
+**INUBIT 7.4 nodes** (feature 025, [INUBIT 7.4](#inubit-74-feature-025)): a 7.4 node's entry is
+the refusal `find_processes: INUBIT 7.4 on legacy74/node1: process diagnosis is not yet verified
+for INUBIT 7.4; nothing was sent`; nothing is sent to the node.
 
 **Example prompts** (quickstart V4, V5):
 
@@ -3426,7 +3504,10 @@ offline checks run and each missing module becomes `MODULE_UNVERIFIED` with a me
 `could not be verified: check_artifacts: INUBIT 6.1 (versionLine V6_1) on dev/node1 does not
 support inventory; modules of INUBIT 6.1 cannot be looked up; use the Workbench, or another node
 with a different INUBIT version; nothing was sent`; nothing is sent to the node (no StartCLI run,
-no TLS handshake, no request). Writes only below `.tests/` (stylesheet outputs) and `.reports/`
+no TLS handshake, no request). On a node pinned to INUBIT 7.4 (feature 025) the same holds; the
+message ends `could not be verified: check_artifacts: INUBIT 7.4 on dev/node1: inventory is not
+yet verified for INUBIT 7.4; modules of INUBIT 7.4 cannot be looked up; nothing was sent`. Writes
+only below `.tests/` (stylesheet outputs) and `.reports/`
 (full finding lists).
 
 **Input** (`check_artifacts.input.json`):
@@ -3455,7 +3536,7 @@ findings), `findings` (most severe first, at most `resultLimits.maxItems`, each
 | `DEMUX_KEY_STALE` | WARNING | a Demultiplexer key or `DefaultOutput` names a node that no longer exists in the workflow, or an old name of a renamed node that also has a key under its current name (leftovers the Workbench keeps; INUBIT ignores them) |
 | `PARENT_REF_MISSING` | ERROR | `ParentModule` or `EndLoopId` names a node that does not exist (`Connection@scopeChildId` names internal ids of a scope and is not checked) |
 | `MODULE_MISSING` | ERROR | a module is neither in the workspace (any owner of the group) nor in the module list of the artifact's owner or of `inventory.owner` |
-| `MODULE_UNVERIFIED` | WARNING | not in the workspace, and the module list could not be read, the version check refused the lookup (e.g. a StartCLI client that does not support the node's INUBIT version, or an INUBIT 6.1 node; the reason is in the message) or `verifyOnServer` is `false` |
+| `MODULE_UNVERIFIED` | WARNING | not in the workspace, and the module list could not be read, the version check refused the lookup (e.g. a StartCLI client that does not support the node's INUBIT version, or an INUBIT 6.1 or 7.4 node; the reason is in the message) or `verifyOnServer` is `false` |
 | `MODULE_LOOKUP_WARNING` | WARNING | the module lookup on a node ran with a version warning (unverified INUBIT version, StartCLI client mismatch); once per node and check |
 | `REPOSITORY_REF_MISSING` | ERROR | a referenced repository file is not in the workspace repository: an `inubitrepository:` reference; in a repository file, also a relative `xsl:import`/`xsl:include` or `xs:import`/`xs:include`/`xs:redefine`; a message-type schema named in a module index entry or module file (`InputMessageTypeSchema`, `OutputMessageTypeSchema`) |
 | `REPOSITORY_REF_UNVERIFIED` | WARNING | the reference lies in another owner's repository (`Root/<owner>/…`), which an export does not include |

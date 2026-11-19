@@ -91,6 +91,59 @@ class InubitVersionTest {
     }
 
     @Test
+    void keepsTheFourthPartAsBuild() {
+        InubitVersion version = version("7.4.0.90");
+
+        assertThat(version.patch()).hasValue(0);
+        assertThat(version.build()).hasValue(90);
+        assertThat(version.raw()).isEqualTo("7.4.0.90");
+    }
+
+    @Test
+    void hasNoBuildWithThreeParts() {
+        assertThat(version("7.4.0").build()).isEmpty();
+        assertThat(version("8.1.17").build()).isEmpty();
+    }
+
+    @Test
+    void readsTheBuildBeforeAHyphenSuffix() {
+        assertThat(version("6.1.0.89-HF1").build()).hasValue(89);
+
+        InubitVersion hotfix = version("7.4.0.90-HF1");
+        assertThat(hotfix.build()).hasValue(90);
+        assertThat(hotfix.raw()).isEqualTo("7.4.0.90-HF1");
+    }
+
+    @Test
+    void keepsAFifthPartInRawOnly() {
+        InubitVersion version = version("7.4.0.90.5");
+
+        assertThat(version.patch()).hasValue(0);
+        assertThat(version.build()).hasValue(90);
+        assertThat(version.raw()).isEqualTo("7.4.0.90.5");
+    }
+
+    @Test
+    void ignoresTheBuildForOrderingAndSameMinor() {
+        assertThat(version("7.4.0.90")).isEqualByComparingTo(version("7.4.0.80"));
+        assertThat(version("7.4.0.90")).isEqualByComparingTo(version("7.4.0"));
+        assertThat(version("7.4.0.90").sameMinor(version("7.4.0.80"))).isTrue();
+    }
+
+    @Test
+    void theFourArgumentConstructorHasNoBuild() {
+        assertThat(new InubitVersion(7, 4, OptionalInt.of(0), "7.4.0.90").build()).isEmpty();
+    }
+
+    @Test
+    void rejectsANegativeBuildAndABuildWithoutPatch() {
+        assertThatIllegalArgumentException()
+            .isThrownBy(() -> new InubitVersion(7, 4, OptionalInt.of(0), OptionalInt.of(-1), "x"));
+        assertThatIllegalArgumentException()
+            .isThrownBy(() -> new InubitVersion(7, 4, OptionalInt.empty(), OptionalInt.of(90), "x"));
+    }
+
+    @Test
     void treatsANullPatchAsAbsent() {
         assertThat(new InubitVersion(8, 1, null, "8.1").patch()).isEmpty();
     }

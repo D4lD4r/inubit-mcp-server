@@ -1,0 +1,236 @@
+package de.dadecker.inubit.mcp.adapter.cli;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.HexFormat;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+/**
+ * T001 (feature 025, research D-11, spec FR-015): the 7.4 fixture folder has its {@code README.md}
+ * with a {@code ## Recorded cases} section, {@code RECONSTRUCTED.txt} and {@code DERIVED.txt};
+ * every line of the three lists has its format, every listed case has its three files, and every
+ * {@code <case>.stdout} of the folder is in exactly one of the three lists.
+ */
+class V74FixturesShapeTest {
+
+    static final Path FOLDER = Path.of("src/test/resources/fixtures/v7_4/cli");
+    static final String RECORDED_HEADING = "## Recorded cases";
+    /** SHA-256 of the IMC-6 attachment (tasks.md, Prerequisites). */
+    private static final String HELP_SHA_256 =
+        "c7b04fd434d7e36127ca6ae32bbaa363c244c478ced625d5f64e6637d1f6416e";
+
+    /** {@code RECONSTRUCTED.txt}: {@code <case> <capability>}. */
+    private static final Pattern RECONSTRUCTED_LINE = Pattern.compile("^([a-z0-9_]+) ([a-z_]+)$");
+    /** {@code DERIVED.txt}: {@code <case> <source-case> <capability> <edit…>}. */
+    private static final Pattern DERIVED_LINE =
+        Pattern.compile("^([a-z0-9_]+) ([a-z0-9_]+) ([a-z_]+) (\\S.*)$");
+    /** README, section {@code ## Recorded cases}: one list item {@code - <case> <source>}. */
+    private static final Pattern RECORDED_LINE = Pattern.compile("^- ([a-z0-9_]+) ([a-z0-9_]+)$");
+    /** The reconstructed cases of Mandate A and their capability (spec FR-014 table). */
+    private static final Map<String, String> RECONSTRUCTED_CASES = Map.ofEntries(
+        Map.entry("health_session_ok", "monitoring"),
+        Map.entry("health_session_maintenance", "monitoring"),
+        Map.entry("health_session_alive_failed", "monitoring"),
+        Map.entry("login_failed", "monitoring"),
+        Map.entry("unreachable", "monitoring"),
+        Map.entry("ps_session_all", "process_diagnosis"),
+        Map.entry("ps_session_error", "process_diagnosis"),
+        Map.entry("ps_session_waiting", "process_diagnosis"),
+        Map.entry("ps_session_queued", "process_diagnosis"),
+        Map.entry("ps_session_limit5", "process_diagnosis"),
+        Map.entry("ps_session_empty", "process_diagnosis"),
+        Map.entry("ps_session_unassigned", "process_diagnosis"));
+
+    @Test
+    void theFolderHasItsReadmeAndBothLists() {
+        for (String file : List.of("README.md", "RECONSTRUCTED.txt", "DERIVED.txt")) {
+            assertThat(FOLDER.resolve(file)).as(file).isRegularFile();
+        }
+    }
+
+    @Test
+    void theReadmeHasTheRecordedCasesSection() throws IOException {
+        assertThat(Files.readAllLines(FOLDER.resolve("README.md"))).contains(RECORDED_HEADING);
+    }
+
+    @Test
+    void theFolderMatchesItsLists() throws IOException {
+        assertThat(violations(FOLDER)).isEmpty();
+    }
+
+    /**
+     * T002 (spec FR-014, FR-019): {@code help} is the IMC-6 attachment byte for byte
+     * ({@code specs/025-inubit-74-support/evidence/startcli-7.4-help.txt}), listed as recorded
+     * and not as reconstructed.
+     */
+    @Test
+    void theHelpCaseIsTheAttachmentByteForByte() throws Exception {
+        byte[] stdout = Files.readAllBytes(FOLDER.resolve("help.stdout"));
+        assertThat(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(stdout)))
+            .isEqualTo(HELP_SHA_256);
+        assertThat(recordedLines(FOLDER)).contains("- help attachment");
+        assertThat(listLines(FOLDER.resolve("RECONSTRUCTED.txt")))
+            .noneMatch(line -> line.split(" ")[0].equals("help"));
+    }
+
+    /**
+     * T018 (spec FR-014 table, research D-11): the folder holds the twelve reconstructed cases and
+     * {@code help}; any other case must be in the README's recorded list (the research cases of
+     * Mandate B). Every {@code RECONSTRUCTED.txt} line names its case's capability.
+     */
+    @Test
+    void theFolderHoldsTheTwelveReconstructedCasesAndHelp() throws IOException {
+        Set<String> expected = new LinkedHashSet<>(RECONSTRUCTED_CASES.keySet());
+        expected.add("help");
+        Set<String> recorded =
+            cases("README.md", recordedLines(FOLDER), RECORDED_LINE, new ArrayList<>());
+        Set<String> folderCases;
+        try (Stream<Path> files = Files.list(FOLDER)) {
+            folderCases = files.map(file -> file.getFileName().toString())
+                .filter(name -> name.endsWith(".stdout"))
+                .map(name -> name.substring(0, name.length() - ".stdout".length()))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        }
+
+        assertThat(folderCases).containsAll(expected);
+        assertThat(folderCases).allMatch(name -> expected.contains(name) || recorded.contains(name),
+            "one of the thirteen cases or in the README's recorded list");
+        for (String line : listLines(FOLDER.resolve("RECONSTRUCTED.txt"))) {
+            String name = line.split(" ")[0];
+            assertThat(RECONSTRUCTED_CASES).as("RECONSTRUCTED.txt case %s is one of the twelve"
+                + " reconstructed cases", name).containsKey(name);
+            assertThat(line).isEqualTo(name + " " + RECONSTRUCTED_CASES.get(name));
+        }
+    }
+
+    @Test
+    void violationsReportBadLinesMissingFilesAndCasesNotInExactlyOneList(@TempDir Path folder)
+        throws IOException {
+        Files.writeString(folder.resolve("README.md"), """
+            # Fixtures
+
+            ## Recorded cases
+
+            One case per line.
+
+            - rec attachment
+            - rec
+
+            ## Next
+
+            - after the section x
+            """);
+        Files.writeString(folder.resolve("RECONSTRUCTED.txt"), """
+            # comment
+            rec monitoring
+            missing monitoring
+            Bad Line
+            """);
+        Files.writeString(folder.resolve("DERIVED.txt"), """
+            # comment
+            der rec monitoring maintenance switched on
+            der rec
+            """);
+        for (String name : List.of("rec", "der", "stray")) {
+            for (String suffix : List.of(".stdout", ".stderr", ".exit")) {
+                Files.writeString(folder.resolve(name + suffix), "");
+            }
+        }
+
+        assertThat(violations(folder)).containsExactlyInAnyOrder(
+            "README.md: bad line: - rec",
+            "RECONSTRUCTED.txt: bad line: Bad Line",
+            "DERIVED.txt: bad line: der rec",
+            "missing.stdout missing",
+            "missing.stderr missing",
+            "missing.exit missing",
+            "rec.stdout is in 2 lists",
+            "stray.stdout is in 0 lists");
+    }
+
+    /** Every rule of this class the folder breaks, one message per finding. */
+    static List<String> violations(Path folder) throws IOException {
+        List<String> violations = new ArrayList<>();
+        Set<String> reconstructed = cases("RECONSTRUCTED.txt",
+            listLines(folder.resolve("RECONSTRUCTED.txt")), RECONSTRUCTED_LINE, violations);
+        Set<String> derived = cases("DERIVED.txt", listLines(folder.resolve("DERIVED.txt")),
+            DERIVED_LINE, violations);
+        Set<String> recorded = cases("README.md", recordedLines(folder), RECORDED_LINE, violations);
+        Set<String> listed = new LinkedHashSet<>(reconstructed);
+        listed.addAll(derived);
+        listed.addAll(recorded);
+        for (String name : listed) {
+            for (String suffix : List.of(".stdout", ".stderr", ".exit")) {
+                if (!Files.isRegularFile(folder.resolve(name + suffix))) {
+                    violations.add(name + suffix + " missing");
+                }
+            }
+        }
+        try (Stream<Path> files = Files.list(folder)) {
+            for (Path file : files.sorted().toList()) {
+                String fileName = file.getFileName().toString();
+                if (!fileName.endsWith(".stdout")) {
+                    continue;
+                }
+                String name = fileName.substring(0, fileName.length() - ".stdout".length());
+                long lists = Stream.of(reconstructed, derived, recorded)
+                    .filter(list -> list.contains(name)).count();
+                if (lists != 1) {
+                    violations.add(fileName + " is in " + lists + " lists");
+                }
+            }
+        }
+        return violations;
+    }
+
+    /** The lines of a list file without blank lines and {@code #} comments. */
+    static List<String> listLines(Path file) throws IOException {
+        return Files.readAllLines(file).stream()
+            .map(String::strip)
+            .filter(line -> !line.isEmpty() && !line.startsWith("#"))
+            .toList();
+    }
+
+    /** The list items ({@code - …}) of the README's {@code ## Recorded cases} section. */
+    static List<String> recordedLines(Path folder) throws IOException {
+        List<String> items = new ArrayList<>();
+        boolean inSection = false;
+        for (String line : Files.readAllLines(folder.resolve("README.md"))) {
+            if (line.startsWith("## ")) {
+                inSection = line.strip().equals(RECORDED_HEADING);
+            } else if (inSection && line.startsWith("- ")) {
+                items.add(line.strip());
+            }
+        }
+        return items;
+    }
+
+    /** The case names of the lines that match {@code format}; every other line is a violation. */
+    private static Set<String> cases(String file, List<String> lines, Pattern format,
+        List<String> violations) {
+        Set<String> cases = new LinkedHashSet<>();
+        for (String line : lines) {
+            Matcher entry = format.matcher(line);
+            if (entry.matches()) {
+                cases.add(entry.group(1));
+            } else {
+                violations.add(file + ": bad line: " + line);
+            }
+        }
+        return cases;
+    }
+}

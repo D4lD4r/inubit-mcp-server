@@ -1,0 +1,5 @@
+Password: 
+cli> NODE                 UID             PID        PRIO       STATE      DATE                 WORKFLOW             MODULE
+node1                jdoe            400108     normal     Queued     2026-11-01T07:01:44  OrderImport          Mapping(10234)
+Total: 1
+cli> 

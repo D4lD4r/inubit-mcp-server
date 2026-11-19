@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.domain.model;
 
 import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -32,7 +33,8 @@ public final class CapabilityMatrix {
      * without declared {@code channels} uses its own channels.
      */
     public record Entry(VersionRange range, Map<Capability, SupportState> states,
-        Map<Capability, Set<Channel>> channels, boolean cliOnly, Map<Capability, String> notes) {
+        Map<Capability, Set<Channel>> channels, boolean cliOnly, Map<Capability, String> notes,
+        PatchDepth patchDepth) {
 
         public Entry {
             Objects.requireNonNull(range, "range");
@@ -41,6 +43,13 @@ public final class CapabilityMatrix {
             channels.forEach((capability, declared) -> copy.put(capability, Set.copyOf(declared)));
             channels = Map.copyOf(copy);
             notes = Map.copyOf(notes);
+            Objects.requireNonNull(patchDepth, "patchDepth");
+        }
+
+        /** An entry whose patch comparison uses major.minor.patch ({@link PatchDepth#THREE}). */
+        public Entry(VersionRange range, Map<Capability, SupportState> states,
+            Map<Capability, Set<Channel>> channels, boolean cliOnly, Map<Capability, String> notes) {
+            this(range, states, channels, cliOnly, notes, PatchDepth.THREE);
         }
 
         /** An entry without notes. */
@@ -71,6 +80,18 @@ public final class CapabilityMatrix {
         Map.of(Capability.MONITORING, Set.of(Channel.CLI),
             Capability.PROCESS_DIAGNOSIS, Set.of(Channel.CLI)),
         true);
+
+    /**
+     * Feature 025 (FR-006, research D-4): 7.4 is StartCLI only and recognised, but no capability
+     * is verified on it yet: everything is refused with the note "not yet verified", never run
+     * with the 8.1 adapters as unverified. Monitoring and process diagnosis use StartCLI, so a
+     * recording only flips their state and removes their note. The client/server patch comparison
+     * uses the fourth part (FR-003, research D-3).
+     */
+    private static final Entry V7_4 = new Entry(new VersionRange(7, 4, 7, 4), Map.of(),
+        Map.of(Capability.MONITORING, Set.of(Channel.CLI),
+            Capability.PROCESS_DIAGNOSIS, Set.of(Channel.CLI)),
+        true, notYetVerified(EnumSet.allOf(Capability.class)), PatchDepth.FOUR);
 
     /**
      * Feature 024 (FR-005, research D-4, D-27): the node tools refused on 8.1 with the note "not
@@ -122,7 +143,7 @@ public final class CapabilityMatrix {
      * node tools is refused, not run with a warning.
      */
     private static final CapabilityMatrix PRODUCTION = new CapabilityMatrix(
-        List.of(V6_1, V8_1, V9_0),
+        List.of(V6_1, V7_4, V8_1, V9_0),
         unsupported(READS_UNVERIFIED, Set.of(Capability.QUEUE_ENTRY_READ,
             Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ,
             Capability.SERVER_SETTINGS, Capability.USER_DIRECTORY, Capability.MODEL_DETAILS,
@@ -167,7 +188,10 @@ public final class CapabilityMatrix {
      * temporary log levels is supported on 8.1 and 9.0 (T025, T062; T038, T064; T058, T065);
      * reading the I/O log on 8.1 and 9.0 is unsupported with the note "not yet verified", as on
      * any other and on unknown versions (without the note). Feature 022 (US4): operating the
-     * server and managing tags likewise.
+     * server and managing tags likewise. Feature 025 (FR-006, research D-3, D-4): 7.4.x CLI-only
+     * with every capability unsupported and the note "not yet verified" (it is therefore no line
+     * of {@link #lines}), monitoring and process diagnosis on StartCLI, and the fourth version
+     * part in the client/server patch comparison; every other range compares three parts.
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;
@@ -201,14 +225,48 @@ public final class CapabilityMatrix {
     }
 
     /**
+     * How many version parts the client/server patch comparison uses on {@code version}
+     * (feature 025, FR-003): the entry's depth; {@link PatchDepth#THREE} for an unknown version
+     * and a version outside every range.
+     */
+    public PatchDepth patchDepth(Optional<InubitVersion> version) {
+        return entry(version).map(Entry::patchDepth).orElse(PatchDepth.THREE);
+    }
+
+    /**
+     * {@code client} against {@code server} with the patch depth of {@code server}: the one entry
+     * point for client/server patch comparisons (feature 025, research D-3).
+     */
+    public ClientVersion.Comparison comparePatch(ClientVersion client,
+        Optional<InubitVersion> server) {
+        return client.compare(server, patchDepth(server));
+    }
+
+    /** The version lines reached through StartCLI only, in declaration order: "6.1", "7.4". */
+    public List<String> cliOnlyLines() {
+        return entries.stream().filter(Entry::cliOnly).map(e -> line(e.range())).toList();
+    }
+
+    /**
+     * Whether the entry containing {@code version} carries a note on every capability: the line is
+     * recognised, but nothing is verified on it yet (feature 025, 7.4); false for an unknown
+     * version and a version outside every range.
+     */
+    public boolean allNotYetVerified(Optional<InubitVersion> version) {
+        return entry(version).map(CapabilityMatrix::allNoted).orElse(false);
+    }
+
+    /**
      * The version lines that declare {@code capability} {@code SUPPORTED} or carry a note for it
-     * (supported once verified), in declaration order: "8.1", or "7.8–7.9" for a wider range.
+     * (supported once verified), in declaration order: "8.1", or "7.8–7.9" for a wider range. The
+     * notes of an entry that carries one on every capability do not count: such a line is only
+     * recognised (feature 025, research D-4: 7.4).
      */
     public List<String> lines(Capability capability) {
         Objects.requireNonNull(capability, "capability");
         return entries.stream()
             .filter(e -> e.states().get(capability) == SupportState.SUPPORTED
-                || e.notes().containsKey(capability))
+                || e.notes().containsKey(capability) && !allNoted(e))
             .map(e -> line(e.range()))
             .toList();
     }
@@ -255,6 +313,10 @@ public final class CapabilityMatrix {
     private Optional<Entry> entry(Optional<InubitVersion> version) {
         return version.flatMap(
             v -> entries.stream().filter(e -> e.range().contains(v)).findFirst());
+    }
+
+    private static boolean allNoted(Entry entry) {
+        return entry.notes().size() == Capability.values().length;
     }
 
     private static String line(VersionRange range) {

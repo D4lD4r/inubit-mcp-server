@@ -26,6 +26,7 @@ import de.dadecker.inubit.mcp.adapter.cli.SystemProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
+import de.dadecker.inubit.mcp.adapter.cli.v74.V74PortSet;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81QueryRules;
@@ -1507,6 +1508,25 @@ class AdapterGatewayFactoryTest {
                 Instant.EPOCH, Duration.ofHours(1)))).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
             assertThat(factory.logs(DEV)).as("still wrapped by the stale trigger")
                 .isInstanceOf(StaleReportingPorts.Logs.class);
+
+            // the REST client of this node fails to build, so the calls above built none
+            assertThat(codeOf(() -> factory.monitoring(DEV))).isEqualTo(ErrorCode.TLS_ERROR);
+        }
+        assertThat(wireMock.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void aSevenFourNodeIsCliOnlyAndRefusesWithoutRestClient() {
+        // feature 025 T008 (research D-5): registered after 6.1 as Wiring does
+        PortSetRegistry portSets = WITH_V61.register(V74PortSet.RANGE, V74PortSet.factory(),
+            V61QueryRules.INSTANCE, V74PortSet.cliHealth());
+        EffectiveNodeConfig node = withoutUsableClient(VersionSetting.V7_4);
+        try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(node), node)) {
+            assertThat(factory.access(DEV)).isEqualTo(NodeAccess.CLI_ONLY);
+            assertThat(codeOf(() -> factory.logs(DEV).query(null)))
+                .isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+            assertThat(codeOf(() -> factory.cliHealth(DEV).orElseThrow()
+                .snapshot(Duration.ofSeconds(5)))).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
 
             // the REST client of this node fails to build, so the calls above built none
             assertThat(codeOf(() -> factory.monitoring(DEV))).isEqualTo(ErrorCode.TLS_ERROR);

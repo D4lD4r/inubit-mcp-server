@@ -804,7 +804,7 @@ public final class ConfigLoader {
             return "an ISO-8601 duration such as PT5S";
         }
         if (type == VersionSetting.class) {
-            return "AUTO, V6_1, V8_1, V9_0, V9_X or a full version such as \"8.1.17\"";
+            return "AUTO, V6_1, V7_4, V8_1, V9_0, V9_X or a full version such as \"8.1.17\"";
         }
         if (type == MajorMinor.class) {
             return "major.minor, e.g. \"9.0\"";

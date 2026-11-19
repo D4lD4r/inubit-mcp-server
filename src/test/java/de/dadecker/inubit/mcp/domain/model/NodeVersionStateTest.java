@@ -19,6 +19,7 @@ class NodeVersionStateTest {
         VersionSetting pin = VersionSetting.parse("6.1.0.89-HF1").orElseThrow();
 
         assertThat(NodeVersionState.initial(pin).effectiveVersion())
-            .contains(new InubitVersion(6, 1, OptionalInt.of(0), "6.1.0.89-HF1"));
+            .contains(new InubitVersion(6, 1, OptionalInt.of(0), OptionalInt.of(89),
+                "6.1.0.89-HF1"));
     }
 }

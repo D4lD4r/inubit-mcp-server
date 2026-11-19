@@ -99,8 +99,9 @@ depends on them.
   yet; use the INUBIT Workbench for `<label>` on `<node>`", and for INVENTORY the suffix "; modules
   of INUBIT 7.4 cannot be looked up" of the CLI-only branch (`:893-894`) is appended to the message,
   because `check_artifacts` uses that message as its notice (`ArtifactCheckService.java:528-535`).
-  Full example: `get_health: INUBIT 7.4 on legacy74/node1: monitoring is not yet verified for INUBIT
-  7.4; nothing was sent`. 6.1 has no notes (unchanged texts); 8.1/9.0 are not
+  Full example (`get_health`, whose per-node refusal names no tool, as on 6.1; every other tool's
+  message starts with `<tool>: `, IMC-14 option 1): `INUBIT 7.4 on legacy74/node1: monitoring is
+  not yet verified for INUBIT 7.4; nothing was sent`. 6.1 has no notes (unchanged texts); 8.1/9.0 are not
   CLI-only (unchanged texts). `refuse()` logs as today (FR-012, feature 012 D-14). The order of the
   write checks and the gate is untouched, so it is the same as for 6.1 (FR-007). `notes()`
   (`:946-955`) adds no note for 7.4, because no admission happens.

@@ -11,30 +11,42 @@ import java.util.regex.Pattern;
  * InubitVersion, research D-1).
  *
  * <p>The natural ordering compares major, minor, then patch (an absent patch counts as 0) and
- * ignores the suffix in {@code raw}; it is therefore inconsistent with {@link #equals}, which
- * includes {@code raw} and the presence of the patch.
+ * ignores {@code build} and the suffix in {@code raw}; it is therefore inconsistent with
+ * {@link #equals}, which includes {@code raw}, {@code build} and the presence of the patch.
  *
  * @param patch absent if the raw value has none
- * @param raw   the value as reported or configured, suffix kept (e.g. {@code 8.1.17-HF3})
+ * @param build the fourth numeric part (research D-2); present only if {@code patch} is present
+ *              and the value has a fourth numeric part
+ * @param raw   the value as reported or configured, suffix and all parts kept (e.g.
+ *              {@code 8.1.17-HF3}, {@code 7.4.0.90})
  */
-public record InubitVersion(int major, int minor, OptionalInt patch, String raw)
+public record InubitVersion(int major, int minor, OptionalInt patch, OptionalInt build, String raw)
     implements Comparable<InubitVersion> {
 
     private static final Pattern LEADING_VERSION =
-        Pattern.compile("^(\\d{1,9})\\.(\\d{1,9})(?:\\.(\\d{1,9}))?(?!\\d)");
+        Pattern.compile("^(\\d{1,9})\\.(\\d{1,9})(?:\\.(\\d{1,9})(?:\\.(\\d{1,9}))?)?(?!\\d)");
 
     public InubitVersion {
         patch = patch == null ? OptionalInt.empty() : patch;
+        build = build == null ? OptionalInt.empty() : build;
         Objects.requireNonNull(raw, "raw");
-        if (major < 0 || minor < 0 || patch.orElse(0) < 0) {
+        if (major < 0 || minor < 0 || patch.orElse(0) < 0 || build.orElse(0) < 0) {
             throw new IllegalArgumentException("Negative version component in "
                 + Names.quote(raw));
         }
+        if (build.isPresent() && patch.isEmpty()) {
+            throw new IllegalArgumentException("Build without patch in " + Names.quote(raw));
+        }
+    }
+
+    /** A version without a fourth part ({@code build} empty). */
+    public InubitVersion(int major, int minor, OptionalInt patch, String raw) {
+        this(major, minor, patch, OptionalInt.empty(), raw);
     }
 
     /**
-     * Reads the leading {@code major.minor[.patch]} of {@code value}; anything after it stays in
-     * {@code raw} only. Empty if {@code value} does not start with a parsable major.minor
+     * Reads the leading {@code major.minor[.patch[.build]]} of {@code value}; anything after it
+     * stays in {@code raw} only. Empty if {@code value} does not start with a parsable major.minor
      * (the version is then unknown).
      */
     public static Optional<InubitVersion> parse(String value) {
@@ -47,8 +59,10 @@ public record InubitVersion(int major, int minor, OptionalInt patch, String raw)
         }
         OptionalInt patch = m.group(3) == null
             ? OptionalInt.empty() : OptionalInt.of(Integer.parseInt(m.group(3)));
+        OptionalInt build = m.group(4) == null
+            ? OptionalInt.empty() : OptionalInt.of(Integer.parseInt(m.group(4)));
         return Optional.of(new InubitVersion(Integer.parseInt(m.group(1)),
-            Integer.parseInt(m.group(2)), patch, value));
+            Integer.parseInt(m.group(2)), patch, build, value));
     }
 
     /** Whether {@code other} has the same major and minor version. */

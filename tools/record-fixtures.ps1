@@ -22,10 +22,42 @@ Cases (all read-only; -List prints them):
   win_backslash  module export with a C:\... path inside the quoted --execCommand value; lists
                  where StartCLI wrote the ZIP (credentials)
 
-Each case first checks that -Group is listed in RECORD_ALLOWED_GROUPS (space-separated); the
-export cases also check that the host of -CliUrl is listed in RECORD_ALLOWED_HOSTS (space-separated
+INUBIT 7.4 cases (feature 025, spec FR-016; written to src\test\resources\fixtures\v7_4\cli under
+the fixture names of spec FR-014, the research cases under their own name):
+  v74_help            -h of the 7.4 client (no server, no credentials) -> help
+  v74_version         -v of the 7.4 client (no server, no credentials)
+  v74_exec_help       script mode, the 7.4 interactive commands (credentials)
+  v74_exec_ps_help    script mode, the 7.4 ps options (credentials)
+  v74_direct_health   the direct health options in one run (credentials)
+  v74_health_session  one session with the health commands of the 6.1 session (credentials)
+                      -> health_session_ok
+  v74_ps_all, v74_ps_error, v74_ps_waiting, v74_ps_queued, v74_ps_limit5
+                      one session with one ps listing each (credentials) -> ps_session_all,
+                      ps_session_error, ps_session_waiting, ps_session_queued, ps_session_limit5
+  v74_login_failed    uptime as -FailedLoginUser (default mcp-record-no-such-user, a user that
+                      does not exist) with the dummy password of win_failure -> login_failed
+  v74_failure         uptime against https://127.0.0.1:9/... (no server, dummy password)
+                      -> unreachable
+The arguments, session commands and end-of-session command of every case live only in the case
+table $Cases (spec FR-018): adjust them there after v74_exec_help and v74_exec_ps_help.
+
+Each case first checks that -Group is listed in RECORD_ALLOWED_GROUPS (space-separated); a case
+that contacts the server of -CliUrl (the export, exec, direct and session cases and
+v74_login_failed) then checks that its host is listed in RECORD_ALLOWED_HOSTS (space-separated
 NON-PRODUCTION host names), so that no other server is contacted. StartCLI runs in -CliHome, like
 under the server. -Case takes one or more names, also comma-separated in one argument.
+
+A case of kind session (feature 025, spec FR-017) runs one interactive StartCLI session against
+-CliUrl (host allowlist as above, credentials): startcli.bat -u <user> <url>, standard input = the
+password line, the case's commands from the table and its end-of-session command, one per line.
+A case of kind exec or direct runs startcli.bat -u <user> <its arguments> <url> with the password
+line on standard input.
+
+TLS: the win_* cases pass -TrustStore and -DisableHostNameVerification as client options. The 7.4
+client has neither option (spec FR-017): a v74_* case gets -TrustStore (password-less; .jks, .p12
+or .pfx, no whitespace in the path) as -Djavax.net.ssl.trustStore and -trustStoreType in
+JAVA_TOOL_OPTIONS, and -DisableHostNameVerification with a v74_* case stops the run before any
+launch.
 
 Raw output only lives in a private directory under -WorkRoot (inheritance removed, full control
 for the current user and SYSTEM) that is removed at the end. There the script replaces the paths
@@ -54,6 +86,12 @@ powershell -ExecutionPolicy Bypass -File tools\record-fixtures.ps1 -Group dev -N
   -CliHome C:\inubit\client -JavaHome C:\java\jdk-17 -TrustStore C:\inubit\truststore.jks `
   -CliUrl https://dev-node1.example.test:8443/ibis/servlet/IBISSoapServlet -Owner acme_dev `
   -WorkRoot C:\inubit-record -Case win_modules,win_backslash
+
+.EXAMPLE
+powershell -ExecutionPolicy Bypass -File tools\record-fixtures.ps1 -Group dev -Node node1 `
+  -CliHome C:\inubit74\client -JavaHome C:\inubit74\jdk -TrustStore C:\inubit74\truststore.jks `
+  -CliUrl https://dev-node1.example.test:8443/ibis/servlet/IBISSoapServlet `
+  -Case v74_health_session,v74_ps_all,v74_login_failed,v74_failure
 #>
 [CmdletBinding()]
 param(
@@ -68,6 +106,7 @@ param(
     [string] $Owner,
     [string] $DumpJavaHome,
     [string] $Username,
+    [string] $FailedLoginUser = 'mcp-record-no-such-user',
     [string] $OutputDirectory,
     [string] $WorkRoot = $env:TEMP,
     [string] $NeutralizeMap,
@@ -79,19 +118,225 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $RepositoryRoot = Split-Path -Parent $PSScriptRoot
-if (-not $OutputDirectory) {
-    $OutputDirectory = Join-Path $RepositoryRoot 'src\test\resources\fixtures\windows'
-}
 
-# The case catalogue; credentials = the case asks for the username and password.
-$Cases = [ordered]@{
-    win_version   = 'startcli.bat -v (no server, no credentials)'
-    win_help      = 'startcli.bat -h (no server, no credentials)'
-    win_modules   = 'module export of -Owner into a C:/ path (credentials, -CliUrl, -Owner)'
-    win_failure   = 'uptime against https://127.0.0.1:9 (no server, dummy password)'
-    win_argv      = 'argument list the Java main receives for the contract test values'
-    win_backslash = 'module export with a C:\ path in the command (credentials, -CliUrl, -Owner)'
-}
+# The case catalogue (feature 025, research D-12): the only place for the StartCLI arguments and
+# session commands of a case. Kind = how the case runs; Arguments = the case's own arguments
+# (<owner> and <file> are filled in by the export kinds); Commands = the session commands;
+# Credentials = the case asks for the username and password; Contacts = the case contacts the
+# server of -CliUrl (its host is checked against RECORD_ALLOWED_HOSTS before the case runs);
+# Folder (repository-relative, unless -OutputDirectory) and FixtureName = where
+# and under which name the case's files are written.
+$Cases = @(
+    [pscustomobject]@{
+        Name        = 'win_version'
+        Description = 'startcli.bat -v (no server, no credentials)'
+        Kind        = 'local'
+        Arguments   = @('-v')
+        Commands    = @()
+        Credentials = $false
+        Contacts    = $false
+        Folder      = 'src\test\resources\fixtures\windows'
+        FixtureName = 'win_version'
+    }
+    [pscustomobject]@{
+        Name        = 'win_help'
+        Description = 'startcli.bat -h (no server, no credentials)'
+        Kind        = 'local'
+        Arguments   = @('-h')
+        Commands    = @()
+        Credentials = $false
+        Contacts    = $false
+        Folder      = 'src\test\resources\fixtures\windows'
+        FixtureName = 'win_help'
+    }
+    [pscustomobject]@{
+        Name        = 'win_modules'
+        Description = 'module export of -Owner into a C:/ path (credentials, -CliUrl, -Owner)'
+        Kind        = 'export'
+        Arguments   = @('--execCommand', "export --exportModule '' --exportModuleGroup '' --exportModuleUser '<owner>' --exportFile <file>")
+        Commands    = @()
+        Credentials = $true
+        Contacts    = $true
+        Folder      = 'src\test\resources\fixtures\windows'
+        FixtureName = 'win_modules'
+    }
+    [pscustomobject]@{
+        Name        = 'win_failure'
+        Description = 'uptime against https://127.0.0.1:9 (no server, dummy password)'
+        Kind        = 'failure'
+        Arguments   = @('--execCommand', 'uptime')
+        Commands    = @()
+        Credentials = $false
+        Contacts    = $false
+        Folder      = 'src\test\resources\fixtures\windows'
+        FixtureName = 'win_failure'
+    }
+    [pscustomobject]@{
+        Name        = 'win_argv'
+        Description = 'argument list the Java main receives for the contract test values'
+        Kind        = 'argv'
+        Arguments   = @('--execCommand', 'uptime')
+        Commands    = @()
+        Credentials = $false
+        Contacts    = $false
+        Folder      = 'src\test\resources\fixtures\windows'
+        FixtureName = 'win_argv'
+    }
+    [pscustomobject]@{
+        Name        = 'win_backslash'
+        Description = 'module export with a C:\ path in the command (credentials, -CliUrl, -Owner)'
+        Kind        = 'export-backslash'
+        Arguments   = @('--execCommand', "export --exportModule '' --exportModuleGroup '' --exportModuleUser '<owner>' --exportFile <file>")
+        Commands    = @()
+        Credentials = $true
+        Contacts    = $true
+        Folder      = 'src\test\resources\fixtures\windows'
+        FixtureName = 'win_backslash'
+    }
+    [pscustomobject]@{
+        Name        = 'v74_help'
+        Description = '-h of the 7.4 client (no server, no credentials)'
+        Kind        = 'local'
+        Arguments   = @('-h')
+        Commands    = @()
+        Credentials = $false
+        Contacts    = $false
+        Folder      = 'src\test\resources\fixtures\v7_4\cli'
+        FixtureName = 'help'
+    }
+    [pscustomobject]@{
+        Name        = 'v74_version'
+        Description = '-v of the 7.4 client (no server, no credentials)'
+        Kind        = 'local'
+        Arguments   = @('-v')
+        Commands    = @()
+        Credentials = $false
+        Contacts    = $false
+        Folder      = 'src\test\resources\fixtures\v7_4\cli'
+        FixtureName = 'v74_version'
+    }
+    [pscustomobject]@{
+        Name        = 'v74_exec_help'
+        Description = 'script mode help: the 7.4 interactive commands (credentials, -CliUrl)'
+        Kind        = 'exec'
+        Arguments   = @('--execCommand', 'help')
+        Commands    = @()
+        Credentials = $true
+        Contacts    = $true
+        Folder      = 'src\test\resources\fixtures\v7_4\cli'
+        FixtureName = 'v74_exec_help'
+    }
+    [pscustomobject]@{
+        Name        = 'v74_exec_ps_help'
+        Description = 'script mode ps -h: the 7.4 ps options (credentials, -CliUrl)'
+        Kind        = 'exec'
+        Arguments   = @('--execCommand', 'ps -h')
+        Commands    = @()
+        Credentials = $true
+        Contacts    = $true
+        Folder      = 'src\test\resources\fixtures\v7_4\cli'
+        FixtureName = 'v74_exec_ps_help'
+    }
+    [pscustomobject]@{
+        Name        = 'v74_direct_health'
+        Description = 'the direct health options in one run (credentials, -CliUrl)'
+        Kind        = 'direct'
+        Arguments   = @('-c', '-sv', '--pctmem', '--maintenanceState', '-ne', '-nx', '-nw', '-nq')
+        Commands    = @()
+        Credentials = $true
+        Contacts    = $true
+        Folder      = 'src\test\resources\fixtures\v7_4\cli'
+        FixtureName = 'v74_direct_health'
+    }
+    [pscustomobject]@{
+        Name        = 'v74_health_session'
+        Description = 'one session with the health commands of the 6.1 session (credentials, -CliUrl)'
+        Kind        = 'session'
+        Arguments   = @()
+        Commands    = @('uname', 'uptime', 'maintenance', 'free -m', 'ps -c -e', 'ps -c -w', 'ps -c -q', 'ps -c -a', 'exit')
+        Credentials = $true
+        Contacts    = $true
+        Folder      = 'src\test\resources\fixtures\v7_4\cli'
+        FixtureName = 'health_session_ok'
+    }
+    [pscustomobject]@{
+        Name        = 'v74_ps_all'
+        Description = 'one session listing all processes (credentials, -CliUrl)'
+        Kind        = 'session'
+        Arguments   = @()
+        Commands    = @('ps -a -l 10000', 'exit')
+        Credentials = $true
+        Contacts    = $true
+        Folder      = 'src\test\resources\fixtures\v7_4\cli'
+        FixtureName = 'ps_session_all'
+    }
+    [pscustomobject]@{
+        Name        = 'v74_ps_error'
+        Description = 'one session listing the failed processes (credentials, -CliUrl)'
+        Kind        = 'session'
+        Arguments   = @()
+        Commands    = @('ps -e -l 10000', 'exit')
+        Credentials = $true
+        Contacts    = $true
+        Folder      = 'src\test\resources\fixtures\v7_4\cli'
+        FixtureName = 'ps_session_error'
+    }
+    [pscustomobject]@{
+        Name        = 'v74_ps_waiting'
+        Description = 'one session listing the waiting processes (credentials, -CliUrl)'
+        Kind        = 'session'
+        Arguments   = @()
+        Commands    = @('ps -w -l 10000', 'exit')
+        Credentials = $true
+        Contacts    = $true
+        Folder      = 'src\test\resources\fixtures\v7_4\cli'
+        FixtureName = 'ps_session_waiting'
+    }
+    [pscustomobject]@{
+        Name        = 'v74_ps_queued'
+        Description = 'one session listing the queued processes (credentials, -CliUrl)'
+        Kind        = 'session'
+        Arguments   = @()
+        Commands    = @('ps -q -l 10000', 'exit')
+        Credentials = $true
+        Contacts    = $true
+        Folder      = 'src\test\resources\fixtures\v7_4\cli'
+        FixtureName = 'ps_session_queued'
+    }
+    [pscustomobject]@{
+        Name        = 'v74_ps_limit5'
+        Description = 'one session listing at most five processes (credentials, -CliUrl)'
+        Kind        = 'session'
+        Arguments   = @()
+        Commands    = @('ps -a -l 5', 'exit')
+        Credentials = $true
+        Contacts    = $true
+        Folder      = 'src\test\resources\fixtures\v7_4\cli'
+        FixtureName = 'ps_session_limit5'
+    }
+    [pscustomobject]@{
+        Name        = 'v74_login_failed'
+        Description = 'uptime as -FailedLoginUser with a dummy password (-CliUrl)'
+        Kind        = 'failure'
+        Arguments   = @('--execCommand', 'uptime')
+        Commands    = @()
+        Credentials = $false
+        Contacts    = $true
+        Folder      = 'src\test\resources\fixtures\v7_4\cli'
+        FixtureName = 'login_failed'
+    }
+    [pscustomobject]@{
+        Name        = 'v74_failure'
+        Description = 'uptime against https://127.0.0.1:9 (no server, dummy password)'
+        Kind        = 'failure'
+        Arguments   = @('--execCommand', 'uptime')
+        Commands    = @()
+        Credentials = $false
+        Contacts    = $false
+        Folder      = 'src\test\resources\fixtures\v7_4\cli'
+        FixtureName = 'unreachable'
+    }
+)
 
 # Same as StartCliEnvironment.WINDOWS_VARIABLES and WINDOWS_JAVA_TOOL_OPTIONS (research R-6).
 $AllowedVariables = @('SystemRoot', 'windir', 'SystemDrive', 'PATHEXT', 'TEMP', 'TMP', 'USERPROFILE', 'USERNAME', 'USERDOMAIN', 'APPDATA', 'LOCALAPPDATA', 'ProgramData', 'OS', 'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS')
@@ -178,10 +423,11 @@ function New-PrivateDirectory {
 }
 
 # Starts bin\startcli.bat like the server and returns the exit code; stdout and stderr go to
-# <OutputPrefix>.stdout and .stderr byte for byte.
+# <OutputPrefix>.stdout and .stderr byte for byte. ToolOptions are appended to JAVA_TOOL_OPTIONS.
 function Invoke-StartCli {
     param([string[]] $Arguments, [byte[]] $Stdin, [string] $OutputPrefix,
-        [string] $WorkingDirectory, [string] $EffectiveJavaHome = $JavaHome)
+        [string] $WorkingDirectory, [string] $EffectiveJavaHome = $JavaHome,
+        [string] $ToolOptions = '')
     $systemDirectory = [Environment]::SystemDirectory
     $interpreter = Join-Path $systemDirectory 'cmd.exe'
     $batch = Join-Path $CliHome 'bin\startcli.bat'
@@ -212,7 +458,7 @@ function Invoke-StartCli {
     $info.EnvironmentVariables['PATH'] = (Join-Path $EffectiveJavaHome 'bin') + ';' + $systemDirectory
     $info.EnvironmentVariables['NoDefaultCurrentDirectoryInExePath'] = '1'
     $info.EnvironmentVariables['JAVA_HOME'] = $EffectiveJavaHome
-    $info.EnvironmentVariables['JAVA_TOOL_OPTIONS'] = $JavaToolOptions
+    $info.EnvironmentVariables['JAVA_TOOL_OPTIONS'] = $JavaToolOptions + $ToolOptions
 
     $stdout = [IO.File]::Create($OutputPrefix + '.stdout')
     $stderr = [IO.File]::Create($OutputPrefix + '.stderr')
@@ -278,23 +524,68 @@ function Get-TlsArguments {
     return , $tls
 }
 
-function Assert-ExportInputs {
+# The trust store of a 7.4 case (spec FR-017): the 7.4 client has no trust-store option, so
+# -TrustStore goes to its Java runtime settings like CliRunner.trustStoreProperties does, with a
+# leading space. JAVA_TOOL_OPTIONS is split at whitespace without quoting.
+function Get-TrustStoreToolOptions {
+    if (-not $TrustStore) { return '' }
+    Assert-Passable 'TrustStore' $TrustStore
+    if ($TrustStore -match '\s') {
+        Stop-Recording 'a -TrustStore path with whitespace cannot be passed in JAVA_TOOL_OPTIONS'
+    }
+    $type = switch ([IO.Path]::GetExtension($TrustStore).ToLowerInvariant()) {
+        '.jks' { 'JKS' }
+        '.p12' { 'PKCS12' }
+        '.pfx' { 'PKCS12' }
+        default { Stop-Recording '-TrustStore needs the extension .jks, .p12 or .pfx (its type)' }
+    }
+    return " -Djavax.net.ssl.trustStore=$TrustStore -Djavax.net.ssl.trustStoreType=$type"
+}
+
+# A case that contacts the server of -CliUrl (spec FR-017): only a host of RECORD_ALLOWED_HOSTS.
+function Assert-CliUrl {
     if (-not $CliUrl) { Stop-Recording "$script:CaseName needs -CliUrl" }
     Assert-Passable 'CliUrl' $CliUrl
     Assert-AllowedHost
+}
+
+function Assert-ExportInputs {
     if ($Owner -notmatch '^[A-Za-z0-9_.-]{1,200}$') {
         Stop-Recording "$script:CaseName needs -Owner matching ^[A-Za-z0-9_.-]{1,200}$"
     }
 }
 
-function Get-ExportCommand {
-    param([string] $ExportFile)
-    return "export --exportModule '' --exportModuleGroup '' --exportModuleUser '$Owner' --exportFile $ExportFile"
+# The arguments of an export case with -Owner for <owner> and the export file for <file>.
+function Get-ExportArguments {
+    param([string[]] $Arguments, [string] $ExportFile)
+    return , @($Arguments | ForEach-Object { $_.Replace('<owner>', $Owner).Replace('<file>', $ExportFile) })
 }
 
 function Write-ExitCode {
     param([string] $Prefix, [int] $Code)
     [IO.File]::WriteAllText($Prefix + '.exit', "$Code`n")
+}
+
+# One interactive StartCLI session (spec FR-017, research D-12): one startcli.bat process whose
+# standard input is the password line, then the case's commands with its end-of-session command
+# last, one per line, as the server's sessions do (CliRunner.runSession).
+function Invoke-StartCliSession {
+    param([object] $Entry, [string] $UserName, [byte[]] $PasswordLine, [string] $OutputPrefix)
+    foreach ($command in @($Entry.Commands)) {
+        if ($command -match '[\x00-\x1f\x7f]') {
+            Stop-Recording "a session command of $($Entry.Name) contains a line feed or control character"
+        }
+    }
+    $commands = $Utf8.GetBytes((@($Entry.Commands) | ForEach-Object { $_ + "`n" }) -join '')
+    $stdin = New-Object byte[] ($PasswordLine.Length + $commands.Length)
+    [Array]::Copy($PasswordLine, $stdin, $PasswordLine.Length)
+    [Array]::Copy($commands, 0, $stdin, $PasswordLine.Length, $commands.Length)
+    try {
+        return Invoke-StartCli -Arguments (@('-u', $UserName) + $Entry.Arguments + @($CliUrl)) -Stdin $stdin `
+            -OutputPrefix $OutputPrefix -WorkingDirectory $CliHome -ToolOptions $TrustStoreOptions
+    } finally {
+        [Array]::Clear($stdin, 0, $stdin.Length)
+    }
 }
 
 function Write-ZipEntries {
@@ -309,28 +600,43 @@ function Write-ZipEntries {
     [IO.File]::WriteAllText($Target, (($names -join "`n") + "`n"), $Utf8)
 }
 
-function Invoke-CaseVersion {
-    param([string] $Flag)
-    $prefix = Join-Path $script:RawDirectory $script:CaseName
-    $code = Invoke-StartCli -Arguments @($Flag) -Stdin $null -OutputPrefix $prefix `
+function Invoke-CaseLocal {
+    param([object] $Entry)
+    $prefix = Join-Path $script:RawDirectory $Entry.FixtureName
+    $code = Invoke-StartCli -Arguments @($Entry.Arguments) -Stdin $null -OutputPrefix $prefix `
         -WorkingDirectory $CliHome
     Write-ExitCode $prefix $code
 }
 
 function Invoke-CaseFailure {
-    $prefix = Join-Path $script:RawDirectory $script:CaseName
+    param([object] $Entry)
+    $prefix = Join-Path $script:RawDirectory $Entry.FixtureName
+    $user = 'recorder'
+    $url = $FailureUrl
+    if ($Entry.Contacts) {
+        Assert-Passable 'FailedLoginUser' $FailedLoginUser
+        $user = $FailedLoginUser
+        $url = $CliUrl
+        $script:SecretChecks += , @{ Prefix = $prefix; Username = $user }
+    }
+    $tls = @()
+    $options = $TrustStoreOptions
+    if ($Entry.Name -notlike 'v74_*') {
+        $tls = Get-TlsArguments
+        $options = ''
+    }
     $dummy = $Utf8.GetBytes("not-a-password`n")
-    $code = Invoke-StartCli -Arguments (@('-u', 'recorder') + (Get-TlsArguments) +
-        @('--execCommand', 'uptime', $FailureUrl)) -Stdin $dummy -OutputPrefix $prefix `
-        -WorkingDirectory $CliHome
+    $code = Invoke-StartCli -Arguments (@('-u', $user) + $tls + $Entry.Arguments +
+        @($url)) -Stdin $dummy -OutputPrefix $prefix `
+        -WorkingDirectory $CliHome -ToolOptions $options
     Write-ExitCode $prefix $code
 }
 
 function Invoke-CaseExport {
-    param([switch] $Backslash)
+    param([object] $Entry, [switch] $Backslash)
     Assert-ExportInputs
     $name = Read-Username
-    $prefix = Join-Path $script:RawDirectory $script:CaseName
+    $prefix = Join-Path $script:RawDirectory $Entry.FixtureName
     $exportDirectory = Join-Path $script:PrivateDirectory ($script:CaseName + '-export')
     New-Item -ItemType Directory -Path $exportDirectory | Out-Null
     $exportFile = Join-Path $exportDirectory 'export.zip'
@@ -342,8 +648,8 @@ function Invoke-CaseExport {
     $passwordBytes = Read-PasswordBytes
     try {
         $code = Invoke-StartCli -Arguments (@('-u', $name) + (Get-TlsArguments) +
-            @('--execCommand', (Get-ExportCommand $commandPath), $CliUrl)) -Stdin $passwordBytes `
-            -OutputPrefix $prefix -WorkingDirectory $CliHome
+            (Get-ExportArguments $Entry.Arguments $commandPath) + @($CliUrl)) `
+            -Stdin $passwordBytes -OutputPrefix $prefix -WorkingDirectory $CliHome
         Write-ExitCode $prefix $code
         $script:SecretChecks += , @{ Prefix = $prefix; Username = $name }
         Assert-NoSecret $prefix $passwordBytes
@@ -376,6 +682,40 @@ function Invoke-CaseExport {
     foreach ($file in $outside) {
         Remove-Item -LiteralPath $file.FullName -Force
         Write-Host "deleted the export StartCLI wrote outside the work directory: $($file.Name)"
+    }
+}
+
+function Invoke-CaseSession {
+    param([object] $Entry)
+    $name = Read-Username
+    $prefix = Join-Path $script:RawDirectory $Entry.FixtureName
+    $passwordBytes = Read-PasswordBytes
+    try {
+        $code = Invoke-StartCliSession -Entry $Entry -UserName $name -PasswordLine $passwordBytes `
+            -OutputPrefix $prefix
+        Write-ExitCode $prefix $code
+        $script:SecretChecks += , @{ Prefix = $prefix; Username = $name }
+        Assert-NoSecret $prefix $passwordBytes
+    } finally {
+        [Array]::Clear($passwordBytes, 0, $passwordBytes.Length)
+    }
+}
+
+# A 7.4 script-mode (exec) or direct-option (direct) case: startcli.bat -u <user> <the case's
+# arguments> <url>, the password line on standard input (spec FR-016, FR-017).
+function Invoke-CaseExec {
+    param([object] $Entry)
+    $name = Read-Username
+    $prefix = Join-Path $script:RawDirectory $Entry.FixtureName
+    $passwordBytes = Read-PasswordBytes
+    try {
+        $code = Invoke-StartCli -Arguments (@('-u', $name) + $Entry.Arguments + @($CliUrl)) -Stdin $passwordBytes `
+            -OutputPrefix $prefix -WorkingDirectory $CliHome -ToolOptions $TrustStoreOptions
+        Write-ExitCode $prefix $code
+        $script:SecretChecks += , @{ Prefix = $prefix; Username = $name }
+        Assert-NoSecret $prefix $passwordBytes
+    } finally {
+        [Array]::Clear($passwordBytes, 0, $passwordBytes.Length)
     }
 }
 
@@ -417,7 +757,8 @@ function Get-ArgvObstacle {
 }
 
 function Invoke-CaseArgv {
-    $prefix = Join-Path $script:RawDirectory $script:CaseName
+    param([object] $Entry)
+    $prefix = Join-Path $script:RawDirectory $Entry.FixtureName
     $obstacle = Get-ArgvObstacle
     if ($obstacle) {
         Write-Warning "win_argv not recorded: $obstacle"
@@ -448,8 +789,8 @@ function Invoke-CaseArgv {
         [IO.File]::WriteAllText((Join-Path $wrapperBin 'java.cmd'), "@echo off`r`n" + $wrapper,
             [Text.Encoding]::ASCII)
         $tls = @('--trustStoreFilePath', $value)
-        $code = Invoke-StartCli -Arguments (@('-u', $value) + $tls +
-            @('--execCommand', 'uptime', $FailureUrl)) -Stdin $null `
+        $code = Invoke-StartCli -Arguments (@('-u', $value) + $tls + $Entry.Arguments +
+            @($FailureUrl)) -Stdin $null `
             -OutputPrefix (Join-Path $script:PrivateDirectory "argv-$index") `
             -WorkingDirectory $CliHome -EffectiveJavaHome $wrapperHome
         $exitCodes.Add("$index $code")
@@ -573,23 +914,26 @@ function Invoke-Neutralize {
 }
 
 function Invoke-RecordCase {
-    param([string] $Name)
+    param([object] $Entry)
     Assert-AllowedGroup
-    $script:CaseName = $Name
-    Write-Host "recording $Name for $Group/$Node"
-    switch ($Name) {
-        'win_version'   { Invoke-CaseVersion '-v' }
-        'win_help'      { Invoke-CaseVersion '-h' }
-        'win_modules'   { Invoke-CaseExport }
-        'win_failure'   { Invoke-CaseFailure }
-        'win_argv'      { Invoke-CaseArgv }
-        'win_backslash' { Invoke-CaseExport -Backslash }
+    $script:CaseName = $Entry.Name
+    if ($Entry.Contacts) { Assert-CliUrl }
+    Write-Host "recording $($Entry.Name) for $Group/$Node"
+    switch ($Entry.Kind) {
+        'local'            { Invoke-CaseLocal $Entry }
+        'export'           { Invoke-CaseExport $Entry }
+        'failure'          { Invoke-CaseFailure $Entry }
+        'argv'             { Invoke-CaseArgv $Entry }
+        'export-backslash' { Invoke-CaseExport $Entry -Backslash }
+        'session'          { Invoke-CaseSession $Entry }
+        'exec'             { Invoke-CaseExec $Entry }
+        'direct'           { Invoke-CaseExec $Entry }
     }
 }
 
 if ($List) {
-    foreach ($entry in $Cases.GetEnumerator()) {
-        '{0,-14} {1}' -f $entry.Key, $entry.Value
+    foreach ($entry in $Cases) {
+        '{0,-18} {1}' -f $entry.Name, $entry.Description
     }
     return
 }
@@ -599,9 +943,11 @@ if (-not $Group -or -not $Node -or -not $Case -or -not $CliHome -or -not $JavaHo
 }
 # powershell -File passes "a,b" as one string
 $Case = @($Case | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-foreach ($name in $Case) {
-    if (-not $Cases.Contains($name)) { Stop-Recording "unknown case '$name' (-List prints them)" }
-}
+$Selected = @(foreach ($name in $Case) {
+        $entry = $Cases | Where-Object { $_.Name -eq $name } | Select-Object -First 1
+        if (-not $entry) { Stop-Recording "unknown case '$name' (-List prints them)" }
+        $entry
+    })
 $CliHome = (Resolve-Path -LiteralPath $CliHome).ProviderPath
 $JavaHome = (Resolve-Path -LiteralPath $JavaHome).ProviderPath
 $WorkRoot = (Resolve-Path -LiteralPath $WorkRoot).ProviderPath
@@ -612,6 +958,14 @@ Assert-Passable 'JavaHome' $JavaHome ';'
 if (-not (Test-Path -LiteralPath (Join-Path $CliHome 'bin\startcli.bat'))) {
     Stop-Recording "no bin\startcli.bat under -CliHome '$CliHome'"
 }
+# The 7.4 client has no TLS options (spec FR-017): checked for the whole run, before any case.
+$TrustStoreOptions = ''
+if (@($Selected | Where-Object { $_.Name -like 'v74_*' }).Count -gt 0) {
+    if ($DisableHostNameVerification) {
+        Stop-Recording '-DisableHostNameVerification stops a run with v74_* cases: the 7.4 client cannot skip host-name verification'
+    }
+    $TrustStoreOptions = Get-TrustStoreToolOptions
+}
 
 $script:SecretChecks = @()
 $private = New-PrivateDirectory $WorkRoot
@@ -619,15 +973,20 @@ try {
     $script:PrivateDirectory = $private
     $script:RawDirectory = Join-Path $private 'raw'
     New-Item -ItemType Directory -Path $script:RawDirectory | Out-Null
-    foreach ($name in $Case) {
-        Invoke-RecordCase $name
+    foreach ($entry in $Selected) {
+        Invoke-RecordCase $entry
     }
     Protect-Outputs
     Invoke-Neutralize
     Assert-NoHost
-    New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
     foreach ($file in Get-ChildItem -LiteralPath $script:RawDirectory -File) {
-        Copy-Item -LiteralPath $file.FullName -Destination $OutputDirectory -Force
+        $target = $OutputDirectory
+        if (-not $target) {
+            $fixture = [IO.Path]::GetFileNameWithoutExtension($file.Name)
+            $target = Join-Path $RepositoryRoot ($Cases | Where-Object { $_.FixtureName -eq $fixture }).Folder
+        }
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+        Copy-Item -LiteralPath $file.FullName -Destination $target -Force
         Write-Host "written: $($file.Name)"
     }
     Write-Host 'next: review the files, then run NoCustomerIdentifiersTest'

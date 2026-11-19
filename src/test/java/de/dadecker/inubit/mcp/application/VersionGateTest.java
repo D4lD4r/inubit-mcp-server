@@ -20,6 +20,7 @@ import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
+import de.dadecker.inubit.mcp.domain.model.PatchDepth;
 import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
@@ -54,6 +55,8 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.slf4j.LoggerFactory;
 
 /**
@@ -73,6 +76,9 @@ class VersionGateTest {
     private static final NodeId V6_1_PINNED = NodeId.parse("old/node2");
     /** Feature 017: a node on the 9.0 line. */
     private static final NodeId V9_0 = NodeId.parse("prod/node4");
+    /** Feature 025: a node on the 7.4 line and one pinned to a concrete 7.4 version. */
+    private static final NodeId V7_4 = NodeId.parse("legacy74/node1");
+    private static final NodeId V7_4_PINNED = NodeId.parse("legacy74/node2");
     private static final Instant T0 = Instant.parse("2026-10-18T08:00:00Z");
     private static final Duration TTL = Duration.ofMinutes(10);
     private static final Duration CLI_TIMEOUT = Duration.ofSeconds(45);
@@ -93,7 +99,9 @@ class VersionGateTest {
             V9_X, VersionSetting.V9_X,
             V6_1, VersionSetting.V6_1,
             V6_1_PINNED, VersionSetting.parse("6.1.0.89").orElseThrow(),
-            V9_0, VersionSetting.V9_0)::get,
+            V9_0, VersionSetting.V9_0,
+            V7_4, VersionSetting.V7_4,
+            V7_4_PINNED, VersionSetting.parse("7.4.0.90").orElseThrow())::get,
         node -> TTL);
     private final ScriptedDetection detection = new ScriptedDetection();
     private final ScriptedProbe probe = new ScriptedProbe();
@@ -306,9 +314,12 @@ class VersionGateTest {
             .isEqualTo(1);
     }
 
-    /** Feature 012 T011 (FR-003): the 6.1 hint follows only a detection answered with 404. */
+    /**
+     * Feature 012 T011 (FR-003), feature 025 T016 (FR-005, research D-7): the hint follows only a
+     * detection answered with 404 and names every StartCLI-only line of the matrix, 6.1 and 7.4.
+     */
     @Test
-    void theUnknownVersionHintsAtV61OnlyAfterADetectionAnsweredWith404() {
+    void theUnknownVersionHintsAtV61AndV74OnlyAfterADetectionAnsweredWith404() {
         detection.failEndpointMissing(detectionError(ErrorCode.UNEXPECTED_RESPONSE));
 
         Admission afterNotFound = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ,
@@ -318,10 +329,10 @@ class VersionGateTest {
 
         assertThat(afterNotFound.warnings()).containsExactly("the INUBIT version of dev/node1"
             + " is unknown (UNEXPECTED_RESPONSE at 2026-10-18T08:00:00Z); if dev/node1 runs"
-            + " INUBIT 6.1, pin V6_1; results are unverified");
+            + " INUBIT 6.1, pin V6_1; if it runs INUBIT 7.4, pin V7_4; results are unverified");
         assertThat(write.message()).contains("the INUBIT version of dev/node1 is unknown"
             + " (UNEXPECTED_RESPONSE at 2026-10-18T08:00:00Z); if dev/node1 runs INUBIT 6.1,"
-            + " pin V6_1");
+            + " pin V6_1; if it runs INUBIT 7.4, pin V7_4");
         assertThat(versions.state(AUTO).effectiveVersion()).as("AUTO never selects 6.1")
             .isEmpty();
 
@@ -335,6 +346,31 @@ class VersionGateTest {
             + " dev/node1 is unknown (UNEXPECTED_RESPONSE at 2026-10-18T08:01:00Z); results are"
             + " unverified");
         assertThat(detection.calls).isEqualTo(2);
+    }
+
+    /**
+     * Feature 025 T016 (FR-005, US2-2): every other detection failure keeps today's text; the
+     * adapter reports a 401 as {@code AUTH_FAILED}, a 500 and an unparsable answer as
+     * {@code UNEXPECTED_RESPONSE}, all without the missing endpoint. The failure is recorded as
+     * the adapter reports it; the gate judges it within the back-off without detecting again (a
+     * {@code TLS_ERROR} of the gate's own detection would be passed through instead).
+     */
+    @ParameterizedTest(name = "{0}")
+    @CsvSource({"timeout, TIMEOUT", "TLS error, TLS_ERROR", "HTTP 401, AUTH_FAILED",
+        "HTTP 500, UNEXPECTED_RESPONSE", "unparsable answer, UNEXPECTED_RESPONSE"})
+    void anyOtherFailedDetectionKeepsTheUnknownVersionTextWithoutHint(String failure,
+        ErrorCode code) {
+        versions.detectionFailed(AUTO, code);
+
+        Admission read = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+        ToolError write = refusal(() -> gate().admit(AUTO, Capability.DEVELOPMENT_WRITE,
+            Kind.WRITE, CLI_REST));
+
+        assertThat(read.warnings()).containsExactly("the INUBIT version of dev/node1 is unknown ("
+            + code + " at 2026-10-18T08:00:00Z); results are unverified");
+        assertThat(write.message()).contains("the INUBIT version of dev/node1 is unknown ("
+            + code + " at 2026-10-18T08:00:00Z)").doesNotContain("pin V6_1", "pin V7_4");
+        assertThat(detection.calls).as("judged on the recorded failure").isZero();
     }
 
     @Test
@@ -1113,6 +1149,121 @@ class VersionGateTest {
         assertThat(Stream.of(inventory, write).flatMap(error -> Stream.of(error.message(),
             error.likelyCause(), error.nextStep())))
             .allSatisfy(text -> assertThat(text).doesNotContainPattern("(?i)\\bnodes?\\b"));
+    }
+
+    // --- feature 025, T009: refusal texts on 7.4 (research D-6, FR-007) ------------------------
+
+    @Test
+    void a74RefusalKeepsTheNoteMessageAndNamesTheRecognisedReleaseInItsNextStep() {
+        ToolError monitoring = refusal(() -> gate().admit("get_health", V7_4,
+            Capability.MONITORING, Kind.READ, CLI_REST));
+        ToolError read = refusal(() -> gate().admit("find_processes", V7_4,
+            Capability.PROCESS_DIAGNOSIS, Kind.READ, CLI_REST));
+        ToolError write = refusal(() -> gate().admit(V7_4, Capability.DEPLOYMENT, Kind.WRITE,
+            CLI_REST));
+        ToolError access = refusal(() -> gate().monitoringAccess(V7_4));
+
+        assertThat(monitoring.message()).isEqualTo("get_health: INUBIT 7.4 on legacy74/node1:"
+            + " monitoring is not yet verified for INUBIT 7.4; nothing was sent");
+        assertThat(monitoring.likelyCause())
+            .isEqualTo("This server declares monitoring unsupported for that version");
+        assertThat(monitoring.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is"
+            + " verified on it yet; use the INUBIT Workbench for monitoring on legacy74/node1");
+        assertThat(access.message()).isEqualTo("INUBIT 7.4 on legacy74/node1: monitoring is not"
+            + " yet verified for INUBIT 7.4; nothing was sent");
+        assertThat(access.nextStep()).isEqualTo(monitoring.nextStep());
+        assertThat(read.message()).isEqualTo("find_processes: INUBIT 7.4 on legacy74/node1:"
+            + " process diagnosis is not yet verified for INUBIT 7.4; nothing was sent");
+        assertThat(read.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is verified"
+            + " on it yet; use the INUBIT Workbench for process diagnosis on legacy74/node1");
+        assertThat(write.message()).isEqualTo("INUBIT 7.4 on legacy74/node1: deployment is not"
+            + " yet verified for INUBIT 7.4; nothing was sent");
+        assertThat(write.likelyCause())
+            .isEqualTo("The node runs a version for which no verified write access exists");
+        assertThat(write.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is verified"
+            + " on it yet; use the INUBIT Workbench for deployment on legacy74/node1");
+        assertThat(Stream.of(monitoring, read, write, access)).allSatisfy(error ->
+            assertThat(error.node()).contains(V7_4));
+        assertThat(detection.calls).isZero();
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+    }
+
+    @Test
+    void a74PinIsNamedByItsVersionAndItsReleaseIsTakenFromIt() {
+        ToolError monitoring = refusal(() -> gate().admit("get_health", V7_4_PINNED,
+            Capability.MONITORING, Kind.READ, CLI_REST));
+        ToolError write = refusal(() -> gate().admit(V7_4_PINNED, Capability.PROCESS_CONTROL,
+            Kind.WRITE, CLI_REST));
+
+        assertThat(monitoring.message()).isEqualTo("get_health: INUBIT 7.4.0.90 on"
+            + " legacy74/node2: monitoring is not yet verified for INUBIT 7.4; nothing was sent");
+        assertThat(monitoring.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is"
+            + " verified on it yet; use the INUBIT Workbench for monitoring on legacy74/node2");
+        assertThat(write.message()).isEqualTo("INUBIT 7.4.0.90 on legacy74/node2: process control"
+            + " is not yet verified for INUBIT 7.4; nothing was sent");
+        assertThat(write.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is verified"
+            + " on it yet; use the INUBIT Workbench for process control on legacy74/node2");
+        assertThat(detection.calls).isZero();
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+    }
+
+    @Test
+    void a74InventoryRefusalAppendsThatModulesCannotBeLookedUp() {
+        ToolError line = refusal(() -> gate().admit("list_inventory", V7_4, Capability.INVENTORY,
+            Kind.READ, CLI_REST));
+        ToolError pinned = refusal(() -> gate().admit("list_inventory", V7_4_PINNED,
+            Capability.INVENTORY, Kind.READ, CLI_REST));
+        // check_artifacts takes its notice from the cause of the evaluation
+        Evaluation notice = gate().evaluate(V7_4, Capability.INVENTORY, Kind.READ, CLI_REST);
+
+        assertThat(line.message()).isEqualTo("list_inventory: INUBIT 7.4 on legacy74/node1:"
+            + " inventory is not yet verified for INUBIT 7.4; modules of INUBIT 7.4 cannot be"
+            + " looked up; nothing was sent");
+        assertThat(line.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is verified"
+            + " on it yet; use the INUBIT Workbench for inventory on legacy74/node1");
+        assertThat(pinned.message()).isEqualTo("list_inventory: INUBIT 7.4.0.90 on legacy74/node2:"
+            + " inventory is not yet verified for INUBIT 7.4; modules of INUBIT 7.4 cannot be"
+            + " looked up; nothing was sent");
+        assertThat(notice.cause()).contains("INUBIT 7.4 on legacy74/node1: inventory is not yet"
+            + " verified for INUBIT 7.4; modules of INUBIT 7.4 cannot be looked up");
+        assertThat(detection.calls).isZero();
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+    }
+
+    /**
+     * Feature 025 T017 (FR-003, research D-3): the patch comparison of the client check uses the
+     * depth of the server's matrix entry, four parts on 7.4 and three on 6.1. A test matrix
+     * supports monitoring through StartCLI on both, so the comparison is reached.
+     */
+    @Test
+    void theClientPatchComparisonUsesTheFourthPartOn74AndNotOn61() {
+        Map<Capability, Set<Channel>> cli = Map.of(Capability.MONITORING, CLI);
+        Map<Capability, SupportState> monitoring =
+            Map.of(Capability.MONITORING, SupportState.SUPPORTED);
+        CapabilityMatrix matrix = new CapabilityMatrix(List.of(
+            new CapabilityMatrix.Entry(new VersionRange(6, 1, 6, 1), monitoring, cli, true),
+            new CapabilityMatrix.Entry(new VersionRange(7, 4, 7, 4), monitoring, cli, true,
+                Map.of(), PatchDepth.FOUR)),
+            all(SupportState.SUPPORTED));
+        withClient.add(V7_4_PINNED);
+        withClient.add(V6_1_PINNED);
+
+        versions.clientProbed(V7_4_PINNED, new ProbedClient(ClientKey.NONE,
+            client("7.4.0.80", "4.0.1", "7.4.0.80")));
+        Admission older = gate(matrix).admit(V7_4_PINNED, Capability.MONITORING, Kind.READ, REST);
+        versions.clientProbed(V7_4_PINNED, new ProbedClient(ClientKey.NONE,
+            client("7.4.0.90", "4.0.1", "7.4.0.90")));
+        Admission equal = gate(matrix).admit(V7_4_PINNED, Capability.MONITORING, Kind.READ, REST);
+        versions.clientProbed(V6_1_PINNED, new ProbedClient(ClientKey.NONE,
+            client("6.1.0.80", "4.0.1", "6.1.0.80")));
+        Admission on61 = gate(matrix).admit(V6_1_PINNED, Capability.MONITORING, Kind.READ, REST);
+
+        assertThat(older.warnings()).containsExactly("StartCLI client 7.4.0.80 on legacy74/node2"
+            + " differs from INUBIT 7.4.0.90 (mismatch);"
+            + " StartCLI-backed tools still run, but their results may be unreliable");
+        assertThat(equal.warnings()).isEmpty();
+        assertThat(on61.warnings()).as("the fourth part is ignored on 6.1").isEmpty();
+        assertThat(probe.calls).as("the clients are known, no StartCLI run").isEmpty();
     }
 
     @Test

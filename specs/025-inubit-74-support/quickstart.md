@@ -15,7 +15,7 @@ mvn -q -o clean verify
 | every contacting tool refused on 7.4, before any launch, request or handshake | `V74RefusalTest` (one case per tool) | FR-006, FR-007, FR-011, SC-003 |
 | refusal logged | `V74RefusalTest` (log record) | FR-012 |
 | `check_artifacts` skips the lookup | `ArtifactCheckServiceTest` (7.4 case) | FR-008 |
-| tool not announced for 7.4-only profiles | `ToolAnnouncementTest` (7.4 case) | FR-009 |
+| 7.4-only profiles announce only the always-announced tools (`get_health` stays announced and refuses per node, feature 012 D-12); no read, opt-in, write, log-level, development, deployment or e2e tool | `ToolAnnouncementTest`, `DevelopmentWiringTest` (7.4 cases) | FR-009 |
 | `list_nodes` / `--check-config` show 7.4 | `ListNodesToolTest`, `ConfigSummaryTest` | FR-010, SC-001 |
 | `cliClients."7.4"` handling, no 6.1-style warning, note in `--check-config` and `list_nodes` warnings | `ConfigValidatorTest`, `ConfigSummaryTest`, `ListNodesToolTest`, `MainTest` (`--check-config`, POSIX only) | FR-010a |
 | no `-h` option probe for 7.4 | `CliClientProbeTest`, `ConfigValidatorTest`, `MainTest` (POSIX only) | FR-010a, FR-007 |
@@ -68,4 +68,32 @@ Preconditions (spec): Windows machine with the 7.4 Workbench client and its JDK;
 
 | Date | Step | Platform | Outcome |
 |---|---|---|---|
-| | | | |
+| 2026-11-19 | Mandate A: `mvn -q -o clean verify` at `b17b853f` (T001–T023) | macOS | exit 0; 11,263 tests, 0 failures, 0 errors, 62 skipped |
+| 2026-11-19 | `VersionLineRegressionTest`: unchanged since T003 (`66f2f420`), run alone | macOS | green (38 tests) |
+| 2026-11-19 | `NoCustomerIdentifiersTest` with the local identifier lists, in the full suite and alone | macOS | green (20 tests, none skipped) |
+| 2026-11-19 | Mandate A: `mvn -q -o clean verify` at `23a97fd2` (T001–T025 and clean-up) | macOS | exit 0; 11,264 tests, 0 failures, 0 errors, 62 skipped |
+| 2026-11-19 | CI on [PR #104](https://github.com/D4lD4r/inubit-mcp-server/pull/104) at `23a97fd2`: [build](https://github.com/D4lD4r/inubit-mcp-server/actions/runs/44573778803/job/135735630386) and [windows](https://github.com/D4lD4r/inubit-mcp-server/actions/runs/44573778803/job/135735629782) (run 44573778803), CodeQL | Linux, Windows | all green, first attempt, no rerun |
+
+### Adjusted existing tests
+
+Existing assertions changed on this branch (new cases and new test files are not listed):
+
+- `VersionGateTest` (T016, FR-005): the 404 hint text names `V6_1` and `V7_4`; the case is renamed
+  `theUnknownVersionHintsAtV61AndV74OnlyAfterADetectionAnsweredWith404`.
+- `ConfigLoaderTest.VersionLineValues` (T004, FR-001): the error text lists `V7_4`; `V7_X` added to
+  the refused values. `VersionSettingTest.refusesEverythingElse` (T004): `V7_X` and `7.4` added.
+- `RefusingPorts` constructor (T008), production entries in `CapabilityMatrixTest` (T007), static
+  `unknown` callers (T016): no existing test needed a change; only new cases were added.
+- Beyond the four expected kinds, spec-backed:
+  - `ConfigLoaderTest` (`6.1.0.89-HF1` pin), `VersionSettingTest.aFourPartSixOnePinIsSixOneZeroWithTheTextKept`,
+    `NodeVersionStateTest` (T005, FR-002): a parsed `6.1.0.89` now keeps its fourth part, so the
+    expected value is built with `OptionalInt.of(89)`; these three used the four-argument
+    constructor (no fourth part), contrary to research D-2's "no existing equality changes".
+    Ordering, range membership and contradiction are unchanged (FR-004, `VersionLineRegressionTest`).
+  - `RecordFixturesPs1Test` (T021–T023, FR-016 – FR-018): `listsAllSixReadOnlyCases` became
+    `listsEveryCaseOfTheTable` (named in T021); the password-use check accepts
+    `-PasswordLine $passwordBytes` (T022, FR-017); the host allowlist is checked in the shared
+    `Assert-CliUrl` instead of `Assert-ExportInputs` (T023, FR-017); the `record` helper takes an
+    optional `-OutputDirectory` and sets `RECORD_ALLOWED_HOSTS`. The `win_*` cases are unchanged.
+- Shared test fixtures extended without changing an existing assertion: the node map of
+  `VersionGateTest` (T009, two 7.4 nodes), the nodes of `ListNodesToolTest` (T013, `qa/node5`–`7`).

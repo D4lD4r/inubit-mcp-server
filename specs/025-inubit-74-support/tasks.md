@@ -68,7 +68,7 @@ tests may pass at once.
 
 ## Phase 1: Setup
 
-- [ ] T001 Fixture scaffold (research D-11): create `fixtures/v7_4/cli/README.md` (case layout
+- [X] T001 Fixture scaffold (research D-11): create `fixtures/v7_4/cli/README.md` (case layout
   as `fixtures/v6_1/cli/README.md`; source "reconstructed from the 7.4 help output and the 6.1
   cases until recorded"; neutral names of the safety rules; a section `## Recorded cases` with one
   case per line, the single source for recorded cases, spec FR-015), `fixtures/v7_4/cli/RECONSTRUCTED.txt`
@@ -78,7 +78,7 @@ tests may pass at once.
   the folder or a file is missing; it checks the README, the line formats of both lists, that every
   listed case has its three files, and that every `<case>.stdout` in the folder is in exactly one of
   `RECONSTRUCTED.txt`, `DERIVED.txt` and the README's recorded list.
-- [ ] T002 The real help case (after T001: same README and test) (spec FR-014, FR-019): copy
+- [X] T002 The real help case (after T001: same README and test) (spec FR-014, FR-019): copy
   `specs/025-inubit-74-support/evidence/startcli-7.4-help.txt` byte for byte to
   `fixtures/v7_4/cli/help.stdout`; `help.exit` = `0`, `help.stderr` empty; README: provenance
   ("IMC-6 attachment, `startcli.sh -h` of a 7.4 node on Linux; exit code and stderr assumed"),
@@ -92,7 +92,7 @@ tests may pass at once.
 
 ## Phase 2: Foundational (blocks every Mandate A story)
 
-- [ ] T003 Regression baseline (research D-13, spec FR-020, SC-005; verification task, written
+- [X] T003 Regression baseline (research D-13, spec FR-020, SC-005; verification task, written
   against the unchanged code): `test/application/VersionLineRegressionTest` (in `application`,
   because it uses the package-private `VersionGate` helpers), parameterised over
   `V6_1`, `V8_1`, `V9_0`, `V9_X` and the pins `"6.1.0.89"`, `"8.1.17"`, `"9.0.10"`: the parsed
@@ -102,7 +102,7 @@ tests may pass at once.
   capability per line, and a `QUEUE_ENTRY_READ` refusal on `V6_1`, on a pin outside every range
   (`"8.0.5"`) and on `V9_X`, each ending in "; supported: 8.1, 9.0" (the `supportedLines` texts). It must pass now and stay unchanged
   through T004–T015.
-- [ ] T004 Line value `V7_4` (research D-1, spec FR-001): `main/domain/model/VersionSetting.java`
+- [X] T004 Line value `V7_4` (research D-1, spec FR-001): `main/domain/model/VersionSetting.java`
   (`V7_4 = new Line(7, OptionalInt.of(4))`, `parse`, Javadoc), `main/config/ConfigLoader.java:807`
   (error text "expected AUTO, V6_1, V7_4, V8_1, V9_0, V9_X or a full version such as \"8.1.17\""),
   `main/domain/model/NodeSummary.java:22` (doc), `res/schemas/list_nodes.output.json:63,117`
@@ -110,7 +110,7 @@ tests may pass at once.
   `V7_4`; `"7.4.0"`, `"7.4.0.90"`, `"7.4.0.90-HF1"` are `Pinned`; `"V7_X"` is refused),
   `ConfigLoaderTest` (the new error text; the existing assertion of the old text is the deliberate
   change of SC-005).
-- [ ] T005 Fourth version part (research D-2, spec FR-002, FR-004): `main/domain/model/InubitVersion.java`
+- [X] T005 Fourth version part (research D-2, spec FR-002, FR-004): `main/domain/model/InubitVersion.java`
   gets `OptionalInt build` ("present only if `patch` is present and the value has a fourth numeric
   part"), the regex `^(\d{1,9})\.(\d{1,9})(?:\.(\d{1,9})(?:\.(\d{1,9}))?)?(?!\d)`, and a kept
   four-argument constructor (build empty); `compareTo` and `sameMinor` unchanged. Test first:
@@ -118,14 +118,14 @@ tests may pass at once.
   `"6.1.0.89-HF1"` → build 89; `"8.1.17"` → build empty; `"7.4.0.90"` and `"7.4.0.80"` compare as
   equal (`compareTo` = 0); `"7.4.0.90-HF1"` → build 90, raw `7.4.0.90-HF1`; `"7.4.0.90.5"` →
   build 90, the rest only in raw.
-- [ ] T006 Patch depth (research D-3, spec FR-003, data-model "ClientVersion.Comparison"): new
+- [X] T006 Patch depth (research D-3, spec FR-003, data-model "ClientVersion.Comparison"): new
   `main/domain/model/PatchDepth.java` (`THREE`, `FOUR`); `main/domain/model/ClientVersion.java`
   gets `compare(server, PatchDepth)`, the existing `compare(server)` delegates with `THREE`. Test
   first: `ClientVersionTest`, every row of the data-model table with `FOUR` (`7.4.0.90`/`7.4.0.90`
   MATCH, `7.4.0.80`/`7.4.0.90` MISMATCH, `7.4.0`/`7.4.0.90` NOT_COMPARABLE, `7.4.0`/`7.4.1.5`
   MISMATCH, `7.4.0`/`7.4.0` MATCH, patch absent NOT_COMPARABLE) and with `THREE`
   (`6.1.0.89`/`6.1.0.80` MATCH).
-- [ ] T007 Matrix entry 7.4 (research D-4, spec FR-006, data-model "CapabilityMatrix.Entry"):
+- [X] T007 Matrix entry 7.4 (research D-4, spec FR-006, data-model "CapabilityMatrix.Entry"):
   `main/domain/model/CapabilityMatrix.java` — `Entry` gets `PatchDepth patchDepth` (default
   `THREE`, existing constructors keep it), the production entry `V7_4` (range 7.4–7.4, no
   `SUPPORTED` state, channels MONITORING and PROCESS_DIAGNOSIS = {CLI}, `cliOnly = true`, note "not
@@ -150,7 +150,7 @@ tests may pass at once.
 **Goal**: spec US1, FR-006 – FR-013. **Independent test**: `V74RefusalTest` plus the `list_nodes`
 and `--check-config` tests, offline, on both CI jobs.
 
-- [ ] T008 [US1] Refusing 7.4 port set (research D-5, spec FR-011): new
+- [X] T008 [US1] Refusing 7.4 port set (research D-5, spec FR-011): new
   `main/adapter/cli/v74/V74PortSet.java` (`RANGE` 7.4–7.4; `factory` → `RefusingPorts` for every
   port; `cliHealth` → a `CliHealthPort` that throws the same refusal); `main/adapter/RefusingPorts.java`
   takes the release and the likely cause (message "(INUBIT <release>, StartCLI only)"; likely
@@ -161,17 +161,18 @@ and `--check-config` tests, offline, on both CI jobs.
   `UNSUPPORTED_VERSION` naming the node and "INUBIT 7.4", and the 7.4 likely cause), an `AdapterGatewayFactoryTest` case (a
   node pinned `V7_4` gets `NodeAccess.CLI_ONLY` and no REST client is built), and the 6.1
   `RefusingPorts` text assertion unchanged.
-- [ ] T009 [US1] Refusal text on 7.4 (research D-6, spec FR-007, contracts/mcp-tools-delta.md):
+- [X] T009 [US1] Refusal text on 7.4 (research D-6, spec FR-007, contracts/mcp-tools-delta.md):
   in `main/application/VersionGate.java` `refuseUnsupported`, the note branch (`:878-885`) keeps its
   message for every version and, only when the version is CLI-only, (a) uses the next step
   "INUBIT 7.4 is recognised, but no tool is verified on it yet; use the INUBIT Workbench for
   `<label>` on `<node>`" (release from the version, not a literal) and (b) for INVENTORY appends
   "; modules of INUBIT <release> cannot be looked up" as the CLI-only branch does (`:893-894`).
-  Expected message: `get_health: INUBIT 7.4 on legacy74/node1: monitoring is not yet verified for
-  INUBIT 7.4; nothing was sent` (`INUBIT 7.4.0.90 on …` for the concrete pin). Test first:
+  Expected message: `INUBIT 7.4 on legacy74/node1: monitoring is not yet verified for INUBIT 7.4;
+  nothing was sent` for `get_health`, which names no tool (as on 6.1); every other tool's message
+  starts with `<tool>: ` (IMC-14, option 1) (`INUBIT 7.4.0.90 on …` for the concrete pin). Test first:
   `VersionGateTest` cases for a `V7_4` and a `"7.4.0.90"` pin (read, write, monitoring, inventory
   suffix); the 6.1, 8.1 and 9.0 refusal texts in `VersionLineRegressionTest` unchanged.
-- [ ] T010 [US1] Per-tool refusal without contact (spec FR-007, FR-012, FR-013, SC-003):
+- [X] T010 [US1] Per-tool refusal without contact (spec FR-007, FR-012, FR-013, SC-003):
   `test/application/V74RefusalTest` (pattern `V61RefusalTest`): one case per tool that contacts a
   node (every tool registered in `Wiring` except `list_nodes`, `check_artifacts`,
   `read_knowledge`, `record_knowledge`) against a profile with a `V7_4` node, asserting
@@ -182,19 +183,21 @@ and `--check-config` tests, offline, on both CI jobs.
   the same refusal; a write tool with writes enabled and with writes disabled gets the same
   outcome as the corresponding 6.1 case in `V61RefusalTest`. Fix production code only if a case
   fails (expected: none beyond T007–T009).
-- [ ] T011 [P] [US1] `check_artifacts` on 7.4 (spec FR-008; verification task): an
+- [X] T011 [P] [US1] `check_artifacts` on 7.4 (spec FR-008; verification task): an
   `ArtifactCheckServiceTest` case — module lookup on a `V7_4` node runs the offline checks and
   returns the gate's refusal message as notice, which contains "modules of INUBIT 7.4 cannot be
   looked up" (T009 (b), `ArtifactCheckService.java:528-535`), no contact.
-- [ ] T012 [P] [US1] Announcement (spec FR-009; verification task): a `test/ToolAnnouncementTest`
-  case — a profile whose only nodes are pinned `V7_4` does not announce `get_health`,
-  `find_processes` and the other node tools.
-- [ ] T013 [US1] Display (spec FR-010, SC-001, contracts/mcp-tools-delta.md "list_nodes entry"):
+- [X] T012 [P] [US1] Announcement (spec FR-009; verification task): a `test/ToolAnnouncementTest`
+  case — a profile whose only nodes are pinned `V7_4` announces only `list_nodes`, `get_health`,
+  `read_knowledge`, `record_knowledge` and `check_artifacts`; no other tool (reads, opt-in, write,
+  log-level; development, deployment and e2e in `test/DevelopmentWiringTest`). `get_health` stays
+  announced under the unchanged feature 009/012 rule (FR-009; review T012-r1).
+- [X] T013 [US1] Display (spec FR-010, SC-001, contracts/mcp-tools-delta.md "list_nodes entry"):
   `ListNodesToolTest` and `ConfigSummaryTest` cases for `V7_4` and `"7.4.0.90"` (version shown with
   all four parts for the pin, `access: cli_only`, no usable capability, the
   summary "(INUBIT 7.4, StartCLI only; available: none; refused: …)"); change
   `main/application/NodeOverview.java` / `main/config/ConfigSummary.java` only if a case fails.
-- [ ] T014 [US1] Client configuration and display for 7.4 (research D-9, spec FR-010a,
+- [X] T014 [US1] Client configuration and display for 7.4 (research D-9, spec FR-010a,
   contracts/configuration-delta.md, contracts/mcp-tools-delta.md "list_nodes entry"):
   `main/config/ConfigValidator.java:779-786` gives the "reached through StartCLI only, but no
   cliHome" warning only when `!matrix.allNotYetVerified(pin)`, with the release taken from the pin
@@ -212,7 +215,7 @@ and `--check-config` tests, offline, on both CI jobs.
   (`--check-config` builds its own `SystemProcessLauncher`, `Launcher.java:415`; with a POSIX
   `startcli.sh` stand-in that records its arguments, as `MainTest` does today, disabled on Windows:
   a `"7.4"` entry runs `-v`, shows a "not evaluable" result and the suffix, contacts no node).
-- [ ] T015 [US1] No `-h` option probe while 7.4 is not verified (research D-9, spec FR-010a,
+- [X] T015 [US1] No `-h` option probe while 7.4 is not verified (research D-9, spec FR-010a,
   FR-007): `main/adapter/cli/CliClientProbe.java` `optionsFor` (`:75-79`) returns empty while
   `matrix.allNotYetVerified(pin)` (as for a non-CLI-only node), so `--check-config`
   (`Launcher.java:420-441`) runs no `-h` for a 7.4 node and neither `ConfigValidator.clientOptionWarnings`
@@ -229,7 +232,7 @@ and `--check-config` tests, offline, on both CI jobs.
 
 **Goal**: spec US2, FR-005, SC-002.
 
-- [ ] T016 [US2] 404 hint (research D-7): `main/application/VersionGate.java` `unknown`
+- [X] T016 [US2] 404 hint (research D-7): `main/application/VersionGate.java` `unknown`
   (`:1004-1011`) stays static and takes `List<String> cliOnlyLines`; it builds "; if <node> runs
   INUBIT 6.1, pin V6_1; if it runs INUBIT 7.4, pin V7_4" from them. Both callers pass
   `matrix.cliOnlyLines()`: inside `VersionGate` and `main/application/NodeOverview.java:194`
@@ -245,7 +248,7 @@ and `--check-config` tests, offline, on both CI jobs.
 
 **Goal**: spec US3, FR-003, SC-004.
 
-- [ ] T017 [US3] Patch depth at every comparison (research D-3): replace every
+- [X] T017 [US3] Patch depth at every comparison (research D-3): replace every
   `ClientVersion.compare(...)` call by `matrix.comparePatch(...)` — `main/application/VersionGate.java:819`
   (`checkClient`), `main/config/ConfigSummary.java:408` ("client vs pin"),
   `main/application/NodeOverview.java:145` and `:250` (`list_nodes` client warning and line). The
@@ -267,7 +270,7 @@ and `--check-config` tests, offline, on both CI jobs.
 **Goal**: spec US4, FR-014 – FR-019, SC-006. **Independent test**: `V74FixturesShapeTest`,
 `V74RecordedFixturesTest`, `V74HelpContractTest`, `RecordFixturesPs1Test`, `tools\record-fixtures.ps1 -List`.
 
-- [ ] T018 [P] [US4] Reconstructed 7.4 cases (research D-11, spec FR-014 table): create
+- [X] T018 [P] [US4] Reconstructed 7.4 cases (research D-11, spec FR-014 table): create
   `fixtures/v7_4/cli/<case>.stdout/.stderr/.exit` for `health_session_ok`,
   `health_session_maintenance`, `health_session_alive_failed`, `login_failed`, `unreachable`,
   `ps_session_all`, `ps_session_error`, `ps_session_waiting`, `ps_session_queued`,
@@ -280,28 +283,28 @@ and `--check-config` tests, offline, on both CI jobs.
   table). Test first: `V74FixturesShapeTest` — in Mandate A the folder holds exactly these twelve
   plus `help` (the recorded research cases of Mandate B go into the README's recorded list and are
   allowed then).
-- [ ] T019 [P] [US4] Guard (spec FR-015, FR-016a, FR-030): `test/adapter/cli/V74RecordedFixturesTest`
+- [X] T019 [P] [US4] Guard (spec FR-015, FR-016a, FR-030): `test/adapter/cli/V74RecordedFixturesTest`
   (pattern `V61RecordedFixturesTest`): fails if `CapabilityMatrix.production()` declares a 7.4
   capability `SUPPORTED` while (a) a case of it is in `RECONSTRUCTED.txt`, (b) a case of it is in
   `DERIVED.txt` with a source case not in the README's recorded list, or (c) the README's recorded
   line for `help` does not name `v74_help` as its source. Self-tests with a flipped test matrix for
   (a), (b) and (c) use their own synthetic lists in a temporary directory (the guard's list reading
   takes a folder), so T019 does not depend on T018.
-- [ ] T020 [P] [US4] Contract test of the real help case (research D-11; after T002, T007 and
+- [X] T020 [P] [US4] Contract test of the real help case (research D-11; after T002, T007 and
   T015): `test/adapter/cli/v74/V74HelpContractTest` — `main/adapter/cli/CliClientProbe.java` with a
   **test** matrix whose 7.4 entry is CLI-only without notes (so `optionsFor` runs `-h`), fed with
   `FakeProcessLauncher.replaying("v7_4", "help")`, reports no trust-store option and no
   host-name-verification option (input for spec FR-029 and feature 012 FR-012a), and the help text
   contains `--execCommand`. No production change expected; if the parser cannot read the 7.4
   format, report it as a finding instead of changing the parser (the 7.4 client path is Mandate B).
-- [ ] T021 [US4] Recorder case table (research D-12, data-model "Recorder case"):
+- [X] T021 [US4] Recorder case table (research D-12, data-model "Recorder case"):
   `tools/record-fixtures.ps1` — replace the `$Cases` hashtable (`:87-94`) by a table of case objects
   (`Name`, `Description`, `Kind`, `Arguments`/`Commands`, `Credentials`, `Contacts`, `Folder`,
   `FixtureName`); the six `win_*` cases keep exactly their behaviour, output names and folder
   `fixtures/windows/`. Test first: `test/tools/RecordFixturesPs1Test` — the existing cases stay
   green (`listsAllSixReadOnlyCases` becomes "lists every case of the table"), plus a check that
   every case's arguments and commands are defined only in the table.
-- [ ] T022 [US4] Recorder session mode (research D-12, spec FR-017): new function
+- [X] T022 [US4] Recorder session mode (research D-12, spec FR-017): new function
   `Invoke-StartCliSession` in `tools/record-fixtures.ps1` — one `startcli.bat` process through the
   existing `Invoke-StartCli` (`cmd.exe /d /v:off /s /c`, allowlisted environment), standard input =
   password line, the case's commands, the case's end-of-session command; raw output in the private
@@ -309,7 +312,7 @@ and `--check-config` tests, offline, on both CI jobs.
   first: `RecordFixturesPs1Test` static checks (session input only through stdin, never `-p`,
   never `--encryptString`, `Assert-NoSecret` on session output) and, on the Windows CI job, a run
   test of a session case against the substitute client of `recordsTheClientVersionThroughTheSubstitute`.
-- [ ] T023 [US4] Recorder 7.4 catalogue (research D-12, spec FR-016 – FR-018, quickstart): the
+- [X] T023 [US4] Recorder 7.4 catalogue (research D-12, spec FR-016 – FR-018, quickstart): the
   cases `v74_help`, `v74_version` (local), `v74_exec_help` (`--execCommand "help"`),
   `v74_exec_ps_help` (`--execCommand "ps -h"`), `v74_direct_health` (`-c -sv --pctmem
   --maintenanceState -ne -nx -nw -nq`), `v74_health_session` (`uname`, `uptime`, `maintenance`,
@@ -336,7 +339,7 @@ and `--check-config` tests, offline, on both CI jobs.
 
 **Goal**: spec US5, FR-020, SC-005.
 
-- [ ] T024 [US5] Regression verification (verification task): `VersionLineRegressionTest`
+- [X] T024 [US5] Regression verification (verification task): `VersionLineRegressionTest`
   unchanged since T003 and green; the full suite green with `mvn -q -o clean verify`; the CI jobs
   for macOS/Linux and Windows green on the PR; `NoCustomerIdentifiersTest` run locally with the
   identifier lists. Record in [quickstart.md](quickstart.md) (validation record) every existing
@@ -348,7 +351,7 @@ and `--check-config` tests, offline, on both CI jobs.
 
 ## Phase 8: Polish — documentation and changelog (Mandate A)
 
-- [ ] T025 Docs and changelog (research D-14, spec FR-020): `docs/setup.md` (requirements row,
+- [X] T025 Docs and changelog (research D-14, spec FR-020): `docs/setup.md` (requirements row,
   versionLine table with `V7_4`, 404 hint, new section "INUBIT 7.4 nodes (`V7_4`)": recognised,
   every tool refused until verified, pin instead of `AUTO`, `defaults.cliClients."7.4"` not used
   yet; `--check-config` summary), `docs/tools.md` (capability table with a 7.4 column, hint, refusal

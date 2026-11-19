@@ -826,6 +826,18 @@ class ConfigValidatorTest {
         }
 
         @Test
+        void aV74NodeWithoutCliHomeHasNoFindingWhileNoCapabilityIsVerified() {
+            // feature 025 (FR-010a, research D-9): every 7.4 capability is not yet verified, so
+            // no tool would use a client; the 6.1 warning above stays
+            for (String line : List.of("V7_4", "\"7.4.0.90\"", "\"7.4.0.90-HF1\"")) {
+                ValidationReport report = validate(server("versionLine: " + line + "\n"));
+
+                assertThat(report.errors()).as(line).isEmpty();
+                assertThat(report.warnings()).as(line).isEmpty();
+            }
+        }
+
+        @Test
         void aV61NodeWhoseCliHomeHasNoStartCliKeepsTheExistingWarning() {
             ValidationReport report = validate(server(
                 "versionLine: V6_1\ncli:\n  home: /opt/other\n  javaHome: /opt/jdk17\n"));
@@ -894,6 +906,28 @@ class ConfigValidatorTest {
             // feature 012 (FR-012a): the client options are read by --check-config only
             ValidationReport report = validate(server("""
                 versionLine: V6_1
+                tls:
+                  trustStore: /opt/truststore.p12
+                  disableHostnameVerification: true
+                  pinnedCertificateSha256: '%s'
+                cli:
+                  home: /opt/client
+                  javaHome: /opt/jdk17
+                """.formatted(PIN)));
+
+            assertThat(report.errors()).isEmpty();
+            assertThat(report.warnings()).containsExactly("dev/node1: hostname verification is"
+                + " disabled; the certificate is checked against the pinned SHA-256 fingerprint"
+                + " instead");
+        }
+
+        @Test
+        void aV74NodeHasNoClientOptionFindingWithoutTheProbeOfCheckConfig() {
+            // feature 025 T015 (FR-010a): as for 6.1, validate() runs no probe and gives a 7.4
+            // node with these settings no option finding; that --check-config runs no -h probe
+            // for 7.4 (research D-9) is pinned in CliClientProbeTest
+            ValidationReport report = validate(server("""
+                versionLine: V7_4
                 tls:
                   trustStore: /opt/truststore.p12
                   disableHostnameVerification: true

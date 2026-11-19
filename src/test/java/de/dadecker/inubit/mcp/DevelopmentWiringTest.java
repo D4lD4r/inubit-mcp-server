@@ -172,4 +172,18 @@ class DevelopmentWiringTest {
         assertThat(toolNames("", target + "\nversionLine: V8_1")).contains("deploy_release",
             "restore_backup");
     }
+
+    @Test
+    void nodesOnSevenFourOfferNoDevelopmentDeploymentOrE2eTool() {
+        // feature 025 T012 (FR-009): the same profiles offer these tools on 8.1 (see above)
+        for (String line : List.of("V7_4", "\"7.4.0.90\"")) {
+            assertThat(toolNames(DEVELOPMENT, "", devNode("node1", line, 1))).as(line)
+                .doesNotContain("import_artifacts", "restore_backup", "set_active",
+                    "tag_artifacts", "run_e2e_test");
+        }
+        String target = "deploy:\n  from: dev\nwrite:\n  enabled: true\n"
+            + "  productionOptIn: true";
+        assertThat(toolNames("", target + "\nversionLine: V7_4")).doesNotContain(
+            "deploy_release", "restore_backup");
+    }
 }

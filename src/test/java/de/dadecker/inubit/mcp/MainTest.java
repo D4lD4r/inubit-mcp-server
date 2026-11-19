@@ -1244,6 +1244,52 @@ class MainTest {
         assertThat(out().replace(home.toString(), "/opt")).contains(excerpt);
     }
 
+    @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "a POSIX shell substitute of startcli.sh;"
+        + " the Windows launch is covered by CliRunnerTest")
+    void checkConfigProbesA74EntryLocallyAndShowsItsClientAsNotUsedYet() throws IOException {
+        // feature 025 T014 (FR-010a, research D-9): the generic rules of feature 017; the range
+        // is printed in a form the probe cannot evaluate, the client is shown without range
+        credentials();
+        Path c74 = fakeStartCli("c74", """
+            echo "$@" >> "$(dirname "$0")/arguments"
+            echo "CLI 7.4.0.90"
+            echo "Supported inubit Process Engine versions from x to 7.4.0.90."
+            """);
+        Path file = config("""
+            profile:
+              name: acme
+            defaults:
+              cliClients:
+                "7.4": { home: "%s", javaHome: "%s" }
+            groups:
+              - name: dev
+                nodes:
+                  - name: node1
+                    baseUrl: https://inubit-legacy74-1.example.test:8443
+                    versionLine: V7_4
+            """.formatted(c74, jdk("jdk-8", "1.8.0_402")));
+
+        int exit = run("--check-config", "--config", file.toString());
+
+        assertThat(exit).as(out() + err()).isZero();
+        assertThat(out())
+            .contains("dev/node1: read-only, cli: available, client: " + c74
+                + " (cliClients \"7.4\"), address: ")
+            .contains("inubit: V7_4 (INUBIT 7.4, StartCLI only; available: none; refused: ")
+            .contains("), client: 7.4.0.90")
+            .contains(", server version: determined at runtime; not used until a 7.4 capability"
+                + " is verified, secrets: credentialStore (macOS Keychain), username ←")
+            .contains("\nclient " + c74 + " (Java 8): CLI 7.4.0.90\n")
+            .doesNotContain("ships with", "not declared supported", "probe failed",
+                "reached through StartCLI only", "options:", "StartCLI client offers no")
+            .contains("Result: OK")
+            .doesNotContain("://", "example.test", PASSWORD, USERNAME);
+        // local version probe only (T015, research D-9): no -h option probe while 7.4 is not
+        // verified, and no call carries a server address
+        assertThat(Files.readString(c74.resolve("bin/arguments"))).isEqualTo("-v\n");
+    }
+
     /** An executable {@code <home>/client/bin/startcli.sh} running {@code body}; the CLI home. */
     private Path fakeStartCli(String body) throws IOException {
         return fakeStartCli("client", body);

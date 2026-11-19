@@ -8,7 +8,7 @@ No tool is added or removed; no input or output schema changes shape. Changes ar
 {
   "code": "UNSUPPORTED_VERSION",
   "node": "legacy74/node1",
-  "message": "get_health: INUBIT 7.4 on legacy74/node1: monitoring is not yet verified for INUBIT 7.4; nothing was sent",
+  "message": "INUBIT 7.4 on legacy74/node1: monitoring is not yet verified for INUBIT 7.4; nothing was sent",
   "likelyCause": "This server declares monitoring unsupported for that version",
   "nextStep": "INUBIT 7.4 is recognised, but no tool is verified on it yet; use the INUBIT Workbench for monitoring on legacy74/node1"
 }
@@ -18,6 +18,9 @@ No tool is added or removed; no input or output schema changes shape. Changes ar
 - Per node in calls that address several nodes.
 - Write tools: the existing order of the write checks and the version check (as for 6.1).
 - For a concrete pin the name is the pin, e.g. `INUBIT 7.4.0.90 on legacy74/node1: …`.
+- The example is the per-node `get_health` refusal, which names no tool, as on 6.1. Every other
+  tool's message starts with `<tool>: `, e.g. `find_processes: INUBIT 7.4 on legacy74/node1:
+  process diagnosis is not yet verified for INUBIT 7.4; nothing was sent` (IMC-14, option 1).
 - Inventory (and therefore the `check_artifacts` notice) appends `; modules of INUBIT 7.4 cannot be
   looked up` to the message.
 

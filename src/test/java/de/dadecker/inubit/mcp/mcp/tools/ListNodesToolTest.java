@@ -1,10 +1,12 @@
 package de.dadecker.inubit.mcp.mcp.tools;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyUrl;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.TestWiring;
@@ -36,6 +38,7 @@ import de.dadecker.inubit.mcp.domain.model.ProbedClient;
 import de.dadecker.inubit.mcp.domain.model.ProfileInfo;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
 import de.dadecker.inubit.mcp.domain.model.Terminology;
+import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
 import de.dadecker.inubit.mcp.infra.ResultJson;
@@ -72,6 +75,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -372,7 +377,9 @@ class ListNodesToolTest {
      * StartCLI, reads), qa/node1 ({@code V8_1}, StartCLI, {@link #DEVELOPMENT}), qa/node2
      * (pinned {@code 8.1.17}, no StartCLI, reads) and qa/node3 ({@code V9_X}, StartCLI,
      * {@link #DEVELOPMENT}), all at the WireMock server; feature 012: qa/node4 ({@code V6_1},
-     * StartCLI, {@link #DEVELOPMENT}).
+     * StartCLI, {@link #DEVELOPMENT}); feature 025: qa/node5 ({@code V7_4}) and qa/node6 (pinned
+     * {@code 7.4.0.90}), both StartCLI, {@link #DEVELOPMENT}, and qa/node7 ({@code V7_4}, no
+     * StartCLI, reads).
      */
     @BeforeEach
     void startVersionClient() {
@@ -387,7 +394,11 @@ class ListNodesToolTest {
             versionNode("qa/node2", baseUrl, VersionSetting.parse("8.1.17").orElseThrow())
                 .build(),
             versionNode("qa/node3", baseUrl, VersionSetting.V9_X).cliHome(CLI_HOME).build(),
-            versionNode("qa/node4", baseUrl, VersionSetting.V6_1).cliHome(CLI_HOME).build());
+            versionNode("qa/node4", baseUrl, VersionSetting.V6_1).cliHome(CLI_HOME).build(),
+            versionNode("qa/node5", baseUrl, VersionSetting.V7_4).cliHome(CLI_HOME).build(),
+            versionNode("qa/node6", baseUrl, VersionSetting.parse("7.4.0.90").orElseThrow())
+                .cliHome(CLI_HOME).build(),
+            versionNode("qa/node7", baseUrl, VersionSetting.V7_4).build());
         Map<NodeId, EffectiveNodeConfig> byId = new HashMap<>();
         nodes.forEach(node -> byId.put(node.id(), node));
         clock = new MutableClock(NOW);
@@ -402,7 +413,9 @@ class ListNodesToolTest {
                 new CliResources("acme",
                     PrivateFiles.forHost())), versions, PortSetRegistry.v81Default());
         allowed = Map.of(DEV1, DEVELOPMENT, DEV2, READS, QA1, DEVELOPMENT,
-            NodeId.parse("qa/node2"), READS, QA3, DEVELOPMENT, QA4, DEVELOPMENT);
+            NodeId.parse("qa/node2"), READS, QA3, DEVELOPMENT, QA4, DEVELOPMENT,
+            NodeId.parse("qa/node5"), DEVELOPMENT, NodeId.parse("qa/node6"), DEVELOPMENT,
+            NodeId.parse("qa/node7"), READS);
         summaries = nodes.stream().map(node -> node.summary(EXISTS, false)).toList();
         NodeOverview overview = new NodeOverview(summaries, versions,
             CapabilityMatrix.production(), (id, withClient) -> allowed.get(id),
@@ -592,6 +605,26 @@ class ListNodesToolTest {
         assertThat(version.path("status").asString()).isEqualTo("unknown");
         assertThat(usable(version)).containsExactly("monitoring", "process_diagnosis",
             "log_diagnosis", "inventory");
+    }
+
+    /**
+     * Feature 025 T016 (FR-005, US2-1): after a detection answered with HTTP 404 the refusal of an
+     * {@code AUTO} node names the pins of both StartCLI-only lines, 6.1 and 7.4.
+     */
+    @Test
+    void aDetectionAnswered404HintsAtV61AndV74() {
+        wireMock.stubFor(get(urlPathEqualTo("/ibis/rest/system/info"))
+            .willReturn(aResponse().withStatus(404).withBody("<html>Not Found</html>")));
+        assertThatThrownBy(() -> gateways.detect(DEV1)).isInstanceOf(ToolErrorException.class);
+
+        JsonNode version = listVersions().get("dev/node1");
+
+        assertThat(version.path("server").path("reason").asString())
+            .isEqualTo("UNEXPECTED_RESPONSE");
+        assertThat(reason(version, "development_writes")).isEqualTo("the INUBIT version of"
+            + " dev/node1 is unknown (UNEXPECTED_RESPONSE at " + NOW + "); if dev/node1 runs"
+            + " INUBIT 6.1, pin V6_1; if it runs INUBIT 7.4, pin V7_4; call get_health to detect"
+            + " it");
     }
 
     @Test
@@ -844,6 +877,96 @@ class ListNodesToolTest {
             + " qa/node4 contradicts INUBIT 8.1.17 observed by get_health at");
         assertThat(reason(version, "development_writes")).startsWith("versionLine V6_1 of"
             + " qa/node4 contradicts INUBIT 8.1.17");
+    }
+
+    // --- 025-T013: a 7.4 node (FR-010, SC-001, research D-8) --------------------------------
+
+    @ParameterizedTest
+    @CsvSource({
+        "qa/node5, V7_4,     7.4,      INUBIT 7.4",
+        "qa/node6, 7.4.0.90, 7.4.0.90, INUBIT 7.4.0.90"})
+    void aV74NodeIsCliOnlyWithItsVersionAndNoUsableCapabilityWithoutContactingIt(String id,
+        String setting, String shown, String name) {
+        // the production matrix refuses every 7.4 capability as not yet verified; listVersions
+        // fails on any request, and the launcher on any StartCLI run
+        JsonNode result = versionClient.callTool("list_nodes", Map.of());
+        JsonNode node = StreamSupport.stream(result.path("structuredContent").path("groups")
+                .spliterator(), false)
+            .flatMap(group -> StreamSupport.stream(group.path("nodes").spliterator(), false))
+            .filter(item -> item.path("id").asString().equals(id))
+            .findFirst().orElseThrow();
+        assertThat(node.path("versionLine").asString()).isEqualTo(setting);
+
+        JsonNode version = listVersions().get(id);
+
+        assertThat(requests()).isZero();
+        assertThat(version.path("setting").asString()).isEqualTo(setting);
+        assertThat(version.path("access").asString()).isEqualTo("cli_only");
+        assertThat(version.path("server").path("version").asString())
+            .as("a pin keeps all four parts").isEqualTo(shown);
+        assertThat(version.path("server").path("source").asString()).isEqualTo("pinned");
+        assertThat(version.path("status").asString()).isEqualTo("unsupported");
+        assertThat(usable(version)).isEmpty();
+        assertThat(notUsable(version)).containsExactly("monitoring", "process_diagnosis",
+            "log_diagnosis", "inventory", "workspace_export", "development_writes",
+            "process_control");
+        assertThat(reason(version, "monitoring")).isEqualTo(name + " on " + id
+            + ": monitoring is not yet verified for INUBIT 7.4");
+        assertThat(reason(version, "development_writes")).isEqualTo(name + " on " + id
+            + ": development writes is not yet verified for INUBIT 7.4");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "qa/node5, true",
+        "qa/node6, true",
+        "qa/node7, false"})
+    void aV74NodeWarnsThatItsClientIsNotUsedUntilA74CapabilityIsVerified(String id,
+        boolean withClient) {
+        // 025-T014 (FR-010a, research D-9): with and without a client, no schema change
+        JsonNode version = listVersions().get(id);
+
+        assertThat(version.path("client").path("state").asString()).as("client")
+            .isEqualTo(withClient ? "not_yet_detected" : "not_available");
+        assertThat(texts(version.path("warnings"))).containsExactly("INUBIT 7.4 is recognised,"
+            + " but no tool is verified on it yet; the StartCLI client of " + id + " is not used"
+            + " until a 7.4 capability is verified");
+    }
+
+    @Test
+    void theClientOfA74PinIsComparedOnFourPartsAndOfA61NodeOnThree() {
+        // 025-T017 (FR-003, research D-3): client line and client warning
+        NodeId node6 = NodeId.parse("qa/node6");
+        versions.clientProbed(node6, new ProbedClient(ClientKey.NONE,
+            clientVersion("7.4.0.80", "4.0.1", "7.4.0.80")));
+        versions.observed(QA4, InubitVersion.parse("6.1.0.89").orElseThrow());
+        versions.clientProbed(QA4, new ProbedClient(ClientKey.NONE,
+            clientVersion("6.1.0.80", "4.0.1", "6.1.0.80")));
+
+        Map<String, JsonNode> byNode = listVersions();
+
+        JsonNode on74 = byNode.get("qa/node6");
+        assertThat(on74.path("client").path("comparison").asString()).isEqualTo("mismatch");
+        assertThat(texts(on74.path("warnings"))).contains("StartCLI client 7.4.0.80 on qa/node6"
+            + " differs from INUBIT 7.4.0.90 (mismatch); StartCLI-backed tools still run, but"
+            + " their results may be unreliable");
+        JsonNode on61 = byNode.get("qa/node4");
+        assertThat(on61.path("server").path("version").asString()).isEqualTo("6.1.0.89");
+        assertThat(on61.path("client").path("comparison").asString())
+            .as("the fourth part is ignored on 6.1").isEqualTo("match");
+        assertThat(on61.has("warnings")).isFalse();
+    }
+
+    @Test
+    void nodesOfOtherVersionsCarryNoWarningAbout74() {
+        // 025-T014: 6.1, 8.1 (line and pin) and 9.0 keep their warnings (none here)
+        versions.detected(DEV1, InubitVersion.parse("9.0.7").orElseThrow());
+
+        Map<String, JsonNode> byNode = listVersions();
+
+        for (String id : List.of("qa/node4", "qa/node1", "qa/node2", "dev/node1")) {
+            assertThat(byNode.get(id).has("warnings")).as(id).isFalse();
+        }
     }
 
     /** The version block of {@code node} in an overview with {@code matrix}. */

@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.QueueEntryRef;
 import de.dadecker.inubit.mcp.domain.model.ServerLogKind;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.TraceLevel;
 import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
@@ -74,6 +75,18 @@ class RefusingPortsTest {
             assertThat(e.error().code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
             assertThat(e.error().node()).contains(NODE);
         });
+    }
+
+    @Test
+    void theSixOneRefusalTextsAreUnchanged() {
+        // feature 025 T008 (research D-5): the release and likely cause are now parameters
+        assertThat(refusing.refusal().error()).isEqualTo(ToolError.of(
+            ErrorCode.UNSUPPORTED_VERSION,
+            "This operation is not available on dev/node1 (INUBIT 6.1, StartCLI only);"
+                + " nothing was sent",
+            "INUBIT 6.1 is supported read-only through StartCLI, for a few reads only",
+            "Call list_nodes for what this node supports, or use the INUBIT Workbench")
+            .withNode(NODE));
     }
 
     @Test

@@ -64,10 +64,10 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * The ports an INUBIT 6.1 node does not offer (feature 012, research D-4): every method throws
- * {@code UNSUPPORTED_VERSION} without contacting the node. The version gate refuses these calls
- * first; this is the second line of defence. One instance can serve as each port of a
- * {@link PortSet}.
+ * The ports a StartCLI-only node does not offer (feature 012, research D-4; INUBIT 7.4: feature
+ * 025, research D-5): every method throws {@code UNSUPPORTED_VERSION} naming the node and its
+ * release, without contacting the node. The version gate refuses these calls first; this is the
+ * second line of defence. One instance can serve as each port of a {@link PortSet}.
  */
 public final class RefusingPorts implements ProcessQueryPort, LogPort, InventoryPort,
     ProcessControlPort, ArtifactPort, ImportPort, TagPort, PartnerManagementPort,
@@ -76,17 +76,28 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
     TagAdministrationPort {
 
     private final NodeId node;
+    private final String release;
+    private final String likelyCause;
 
+    /** The refusal of an INUBIT 6.1 node. */
     public RefusingPorts(NodeId node) {
+        this(node, "6.1",
+            "INUBIT 6.1 is supported read-only through StartCLI, for a few reads only");
+    }
+
+    /** The refusal of a node of {@code release} (e.g. "7.4") with its likely cause. */
+    public RefusingPorts(NodeId node, String release, String likelyCause) {
         this.node = Objects.requireNonNull(node, "node");
+        this.release = Objects.requireNonNull(release, "release");
+        this.likelyCause = Objects.requireNonNull(likelyCause, "likelyCause");
     }
 
     /** The refusal every method of this class throws. */
     public ToolErrorException refusal() {
         return new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
-            "This operation is not available on " + node + " (INUBIT 6.1, StartCLI only);"
-                + " nothing was sent",
-            "INUBIT 6.1 is supported read-only through StartCLI, for a few reads only",
+            "This operation is not available on " + node + " (INUBIT " + release
+                + ", StartCLI only); nothing was sent",
+            likelyCause,
             "Call list_nodes for what this node supports, or use the INUBIT Workbench")
             .withNode(node));
     }
