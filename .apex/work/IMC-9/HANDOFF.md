@@ -5,11 +5,11 @@ IMC-9 is `Executing` (M3 on 2026-11-19), assignee APEX Executor, accountable Dan
 Engineer). Branch `claude/025-mandate-a-imc-9`, cut from `origin/main` `c98bd7e3` (IMC-2 merged as
 #102). Spec: `specs/025-inubit-74-support/` US1–US5, FR-001 – FR-020, pinned `2bfe55e7`. Plan and
 tasks live there (Spec Kit); this mandate owns tasks T001–T025 only. Phases 1–2 done (T001–T007),
-T008–T009 done. **Blocked flag set (M13)** by Question IMC-14; T010 waits for its answer, the other
-tasks continue (T011 next).
+Phase 3 done except T010. **Blocked flag set (M13)** by Question IMC-14; T010 waits for its answer,
+the other tasks continue (T016 next).
 
-**Now (2026-11-19 14:35 CET):** T011 implementation and review, expected about 10 minutes per task.
-Last finished task: T009 (`009f34d3`); T010 test committed open (`40ba35d5`).
+**Now (2026-11-19 15:10 CET):** full suite `mvn -q -o clean verify` after Phase 3, expected about
+5 minutes. Last finished task: T015 (`f7fdabbf`); T010 test committed open (`40ba35d5`).
 
 ## Done since last handoff
 | Task | Commit | Review rounds |
@@ -24,12 +24,17 @@ Last finished task: T009 (`009f34d3`); T010 test committed open (`40ba35d5`).
 | T008 refusing 7.4 port set | `fd782036` | 1 |
 | T009 refusal text on 7.4 | `009f34d3` | 1 |
 | T010 per-tool refusal test | `40ba35d5` (open) | 1, changes requested |
+| T011 `check_artifacts` on 7.4 | `b02131f8` | 1 |
+| T012 announcement | `fa46149c` | 2 |
+| T013 display | `e189390e` | 1 |
+| T014 client configuration 7.4 | `0d4de76f` | 1 |
+| T015 no `-h` probe on 7.4 | `f7fdabbf` | 1 |
 
 Full suites: after Phase 1 exit 0, 11,012 tests; after Phase 2 exit 0, 11,103 tests (0 failures,
 58 skipped each). Reviews in `specs/025-inubit-74-support/reviews/T0xx-r<n>.md`.
 
 ## Next step
-T011 (`check_artifacts` on 7.4), then T012 … T025 in order with `d4ld4r-speckit-duo:implement`,
+T016 (404 hint), then T017 … T025 in order with `d4ld4r-speckit-duo:implement`,
 one commit and push per task. When IMC-14 is answered: T010 round 2 (apply the answer, plus the two
 minor findings of T010-r1), then tick T010.
 
@@ -45,6 +50,11 @@ minor findings of T010-r1), then tick T010.
 
 ## Decisions received
 - M1 by Daniel Decker (card description).
+
+## Readings taken (spec wins over tasks.md, P2-14 rule 2)
+- T012: the task text said a 7.4-only profile does not announce `get_health`. FR-009 ("feature 009
+  rule, unchanged"), the contract and feature 012 D-12 keep `get_health` always announced. The test
+  follows the spec; the T012 description in tasks.md was reworded (review T012-r1/r2).
 
 ## Tried and discarded
 - T003 round 1: comparing whole `InubitVersion` records in the baseline; breaks once T005 adds
