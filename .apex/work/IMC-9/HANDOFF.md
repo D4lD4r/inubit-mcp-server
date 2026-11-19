@@ -81,15 +81,50 @@ refusal on 7.4 names no tool (IMC-14).
   capabilities still noted (review T007-r1).
 - Since T007, `production().declares(7.4)` is true, so `ConfigValidator.checkCliClients` no longer
   warns "7.4 is not declared supported" for a `cliClients` key 7.4; the 7.4 warnings come with T014.
-- Open minor: `ClientVersion.compare(server, depth)` does not null-check `depth` (review T006-r1).
+- Open minor findings (all approved, non-blocking; details in `reviews/T0xx-r<n>.md`), candidates
+  for a clean-up before the PR:
+  - T006: `ClientVersion.compare(server, depth)` does not null-check `depth`.
+  - T008: `V74PortSetTest` skips interface default methods, so `queueEntries` is not checked for 7.4.
+  - T009: method Javadoc of `VersionGate.refuseUnsupported` does not mention the 7.4 note branch.
+  - T010: `V74RefusalTest.java:67` Javadoc line over 100 characters.
+  - T014: `MainTest` "not evaluable" check should be one contiguous excerpt.
+  - T015: `ConfigValidatorTest.aV74NodeHasNoClientOptionFinding` cannot catch a regression; rename
+    or drop.
+  - T016: pin name built as `"V" + line.replace('.', '_')` duplicates the `VersionSetting` naming.
+  - T017: the 6.1 case in `ListNodesToolTest` uses an observed version instead of a pin.
+  - T018: unclear failure message in `V74FixturesShapeTest:66`.
+  - T019: awkward Javadoc of `monitoring(SupportState)` in `V74RecordedFixturesTest`.
+- Recurring theme in the minors: tests that pass for the wrong reason (T008, T015) and Javadoc
+  that lags behind the code (T009, T019).
 - Mandate A is offline only: no INUBIT command, no network call to any INUBIT server; the recorder
   is changed and tested, never run.
 - A local context-mode hook blocks plain `mvn` calls for subagents in some runs; they use a wrapper.
-- Jira: setting the assignee as a bare accountId string clears the field silently; use
-  `{"accountId": "…"}`.
+- Full suite timing varies with machine load: 3, 6 and 13 minutes so far. Run it in the background
+  and announce about 15 minutes. Do not start an implementer while it runs: both use `target/`.
+- Jira (connector `atlassian-apex-executor` only, cloudId `693d2be5-6c84-4b10-a061-a48c71dabe8f`):
+  - setting the assignee as a bare accountId string clears the field silently; use
+    `{"accountId": "…"}`;
+  - the Blocked flag is `customfield_10021` = `[{"value": "Impediment"}]`;
+  - `createJiraIssueLink` with type Blocks: `inwardIssue` is the blocker, `outwardIssue` the
+    blocked card ("A blocks B" = inward A, outward B);
+  - the connector cannot delete issue links.
+
+## How to resume
+- Worktree: `/Users/dadecker/Development/Privat/inubit-mcp-server/.claude/worktrees/025-mandate-a-imc-9`
+  (branch `claude/025-mandate-a-imc-9`, pushed). The main checkout is on another branch; do not
+  work there.
+- Start `d4ld4r-speckit-duo:implement` for T020–T025 (Mandate A only, never T026–T037), one
+  commit and push per task, HANDOFF status line before each full suite.
+- After T025: full suite `mvn -q -o clean verify`, then one PR for all of Mandate A (no AI hint in
+  the PR text, English, short), wait for green CI, commit HANDOFF and tasks.md, then M4 (Executing →
+  Verifying) with a comment linking PR, CI and handoff. Stop at M4; verification is another agent.
 
 ## Claims for verification
-- T001–T007 implemented test-first and approved by an independent task reviewer; see reviews.
+- T001–T019 implemented test-first and approved by an independent task reviewer; see
+  `specs/025-inubit-74-support/reviews/`. Verification tasks (T003, T011, T012, T013, T018 parts)
+  passed at once by design.
+- No production code beyond the tasks' touch set; Mandate A ran fully offline.
 
 ## Budget
-Run started 2026-11-19 12:10 CET. No token cap set by an orchestrator (manual start).
+Run started 2026-11-19 12:10 CET, paused about 16:25 CET (about 4 h 15 min). No token cap set by an
+orchestrator (manual start).
