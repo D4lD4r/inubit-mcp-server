@@ -20,6 +20,10 @@ AS8, AS13, AS14, FR-017, FR-018, FR-019a). Plan and tasks are in the same folder
 - Evidence package: comment on IMC-2 (2026-11-19, verifier).
 
 ## Next step
+- 2026-11-19: PR #102 CI green (Windows rerun after a flaky timing test). Follow-ups on the board:
+  [IMC-12](https://danieldecker.atlassian.net/browse/IMC-12) read_users/get_server_settings session
+  exit code 1 on 8.1; [IMC-13](https://danieldecker.atlassian.net/browse/IMC-13) get_health
+  not-ready fixture. Process lessons recorded in the APEX spec (P3-01). Waiting for the verifier run.
 M8 by the approver for risk class high: Quality Owner, and Engineering Lead for the two tool
 contracts. Read the evidence package on IMC-2 and the spec amendment in this PR, then accept
 (→ Integrating, then merge) or reject with a reason (M9 → Executing).
