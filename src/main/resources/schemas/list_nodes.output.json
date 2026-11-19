@@ -60,7 +60,7 @@
                 },
                 "versionLine": {
                   "type": "string",
-                  "description": "As configured: AUTO, V6_1, V8_1, V9_0, V9_X or a full version such as 8.1.17"
+                  "description": "As configured: AUTO, V6_1, V7_4, V8_1, V9_0, V9_X or a full version such as 8.1.17"
                 },
                 "cliAvailable": {
                   "type": "boolean",
@@ -114,7 +114,7 @@
       "properties": {
         "setting": {
           "type": "string",
-          "description": "The configured versionLine: AUTO, V6_1, V8_1, V9_0, V9_X or a full version such as 8.1.17"
+          "description": "The configured versionLine: AUTO, V6_1, V7_4, V8_1, V9_0, V9_X or a full version such as 8.1.17"
         },
         "access": {
           "enum": ["rest_and_cli", "cli_only"],

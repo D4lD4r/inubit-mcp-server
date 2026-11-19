@@ -11,7 +11,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 /**
  * Feature 009 (T005, research D-2, data-model.md → VersionSetting); feature 012 (T003, FR-002,
  * research D-1): {@code V6_1} and concrete 6.1 pins; feature 017 (T003, research D-9):
- * {@code V9_0}.
+ * {@code V9_0}; feature 025 (T004, FR-001, research D-1): {@code V7_4} and concrete 7.4 pins.
  */
 class VersionSettingTest {
 
@@ -43,8 +43,28 @@ class VersionSettingTest {
             new InubitVersion(6, 1, OptionalInt.of(0), "6.1.0.89-HF1")));
     }
 
+    @Test
+    void sevenFourIsALine() {
+        assertThat(VersionSetting.parse("V7_4"))
+            .contains(new VersionSetting.Line(7, OptionalInt.of(4)))
+            .contains(VersionSetting.V7_4);
+        assertThat(VersionSetting.V7_4.text()).isEqualTo("V7_4");
+    }
+
     @ParameterizedTest
-    @ValueSource(strings = {"8.1", "6.1", "V6_X", "V10", "auto", "", " AUTO", "V8_2", "x8.1.17", "v9_0",
+    @ValueSource(strings = {"7.4.0", "7.4.0.90", "7.4.0.90-HF1"})
+    void aSevenFourVersionIsAPinWithTheTextKept(String text) {
+        assertThat(VersionSetting.parse(text)).get()
+            .isInstanceOfSatisfying(VersionSetting.Pinned.class, pinned -> {
+                assertThat(pinned.version().major()).isEqualTo(7);
+                assertThat(pinned.version().minor()).isEqualTo(4);
+                assertThat(pinned.version().patch()).hasValue(0);
+                assertThat(pinned.text()).isEqualTo(text);
+            });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"8.1", "6.1", "V6_X", "V7_X", "7.4", "V10", "auto", "", " AUTO", "V8_2", "x8.1.17", "v9_0",
         "V9_00", "V90"})
     void refusesEverythingElse(String text) {
         assertThat(VersionSetting.parse(text)).isEmpty();

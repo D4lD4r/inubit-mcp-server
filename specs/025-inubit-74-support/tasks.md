@@ -102,7 +102,7 @@ tests may pass at once.
   capability per line, and a `QUEUE_ENTRY_READ` refusal on `V6_1`, on a pin outside every range
   (`"8.0.5"`) and on `V9_X`, each ending in "; supported: 8.1, 9.0" (the `supportedLines` texts). It must pass now and stay unchanged
   through T004–T015.
-- [ ] T004 Line value `V7_4` (research D-1, spec FR-001): `main/domain/model/VersionSetting.java`
+- [X] T004 Line value `V7_4` (research D-1, spec FR-001): `main/domain/model/VersionSetting.java`
   (`V7_4 = new Line(7, OptionalInt.of(4))`, `parse`, Javadoc), `main/config/ConfigLoader.java:807`
   (error text "expected AUTO, V6_1, V7_4, V8_1, V9_0, V9_X or a full version such as \"8.1.17\""),
   `main/domain/model/NodeSummary.java:22` (doc), `res/schemas/list_nodes.output.json:63,117`

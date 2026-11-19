@@ -19,8 +19,9 @@ import java.util.Set;
  * @param confirmationMode   {@code SERVER} or {@code CLIENT} (of {@code write})
  * @param repositoryWrite    the effective {@code development.repository} is {@code WRITE} on a
  *                           development stage: the repository file tools may write (008, D-13)
- * @param versionLine        as configured: {@code AUTO}, {@code V6_1}, {@code V8_1},
- *                           {@code V9_X} or a full version such as {@code 8.1.17}
+ * @param versionLine        as configured: {@code AUTO}, {@code V6_1}, {@code V7_4},
+ *                           {@code V8_1}, {@code V9_0}, {@code V9_X} or a full version such as
+ *                           {@code 8.1.17}
  *                           ({@code VersionSetting#text()})
  * @param cliAvailable       CLI home configured and {@code startcli} script found; in
  *                           {@code list_nodes} of the client chosen for the node's version as
