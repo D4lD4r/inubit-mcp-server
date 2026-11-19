@@ -426,6 +426,35 @@
                     <groups>${surefire.groups}</groups>
                     <excludedGroups>${surefire.excludedGroups}</excludedGroups>
                 </configuration>
+                <!-- The tests that hold a time budget run on their own in one JVM after the others,
+                     so that parallel forks (-DforkCount, used by the Windows CI job) do not eat
+                     into their budget. -->
+                <executions>
+                    <execution>
+                        <id>default-test</id>
+                        <configuration>
+                            <excludes>
+                                <exclude>**/*$*</exclude>
+                                <exclude>**/*TimingTest.java</exclude>
+                                <exclude>**/*PerformanceTest.java</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>timing-tests</id>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <forkCount>1</forkCount>
+                            <includes>
+                                <include>**/*TimingTest.java</include>
+                                <include>**/*PerformanceTest.java</include>
+                            </includes>
+                            <failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <!-- feature 016 (FR-012): *IT tests run against the shaded JAR after "package" -->
             <plugin>
