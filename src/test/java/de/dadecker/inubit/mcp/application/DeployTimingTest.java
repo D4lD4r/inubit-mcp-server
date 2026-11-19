@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.io.TempDir;
  * checks, plans, verification) — the part SC-007 budgets besides INUBIT's export time.
  */
 @Timeout(120)
+@Tag("serial")
 class DeployTimingTest {
 
     private static final String TAG = "REL-SC007";

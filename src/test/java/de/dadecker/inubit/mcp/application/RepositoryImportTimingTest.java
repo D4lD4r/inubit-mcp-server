@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -30,6 +31,7 @@ import org.junit.jupiter.api.io.TempDir;
  * node state (D-6).
  */
 @Timeout(60)
+@Tag("serial")
 class RepositoryImportTimingTest {
 
     private static final Duration EXPORT = Duration.ofMillis(2700);

@@ -23,6 +23,7 @@ import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.DisabledOnOs;
@@ -175,6 +176,7 @@ class KnowledgeBoundsTest {
     }
 
     @Test
+    @Tag("serial")
     @Timeout(120)
     void fiveThousandNotesAndAOneMebibyteNoteStayWithinTheirBoundsAndReportTheCut()
         throws IOException {

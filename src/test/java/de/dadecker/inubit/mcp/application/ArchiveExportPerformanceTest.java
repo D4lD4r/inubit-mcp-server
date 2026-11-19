@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.io.TempDir;
  * Feature 015 T010 (SC-002, Q27): ten workflows are sliced, built and written in at most ten
  * seconds when StartCLI answers at once.
  */
+@Tag("serial")
 class ArchiveExportPerformanceTest {
 
     private static final NodeId DEV1 = NodeId.parse("dev/node1");

@@ -22,7 +22,9 @@ import java.util.stream.Stream;
 
 /**
  * Self-signed, test-only TLS material, generated once per test JVM with the JDK's
- * {@code keytool} into {@code target/test-tls/} (never committed, regenerated on every run).
+ * {@code keytool} into {@code target/test-tls/<pid>/} (never committed, regenerated on every run).
+ * Each JVM has its own directory: with several Surefire forks, a shared one was deleted and
+ * regenerated under the feet of the other forks, whose pinned fingerprints then no longer matched.
  *
  * <ul>
  *   <li>{@code localhost.p12}: key + certificate {@code CN=localhost}, SAN {@code localhost} and
@@ -117,7 +119,8 @@ public final class TestCertificates {
 
     private static TestCertificates generate() {
         try {
-            Path directory = Path.of(System.getProperty("basedir", "."), "target", "test-tls");
+            Path directory = Path.of(System.getProperty("basedir", "."), "target", "test-tls",
+                Long.toString(ProcessHandle.current().pid()));
             deleteRecursively(directory);
             Files.createDirectories(directory);
             keytool(directory, "localhost.p12", "CN=localhost",

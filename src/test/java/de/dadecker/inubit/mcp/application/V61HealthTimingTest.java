@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -49,6 +50,7 @@ import org.junit.jupiter.api.io.TempDir;
  * production bound gives the session at most 15 s less the fan-out grace.
  */
 @Timeout(30)
+@Tag("serial")
 class V61HealthTimingTest {
 
     private static final NodeId LEGACY = NodeId.parse("legacy/node1");

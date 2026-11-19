@@ -18,6 +18,7 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -352,6 +353,7 @@ class ImportServiceTest {
     }
 
     @Test
+    @Tag("serial")
     void anImportOf20WorkflowsAnd100ModulesTakesLessThanTwoMinutes() throws IOException {
         // SC-007, with StartCLI answering at once
         ImportHarness harness = new ImportHarness(temp, ExportHarness.large(20, 100), "jdoe",

@@ -257,11 +257,14 @@ class ImportSecretLeakTest {
         return out.toString(StandardCharsets.ISO_8859_1);
     }
 
+    /** This JVM's import directories ({@code inubit-mcp-export-<profile>-<pid>-<random>}). */
     private static Set<Path> importDirectories() throws IOException {
         Path tmp = Path.of(System.getProperty("java.io.tmpdir"));
+        // other test JVMs running in parallel create and delete their own directories here
+        String prefix = "inubit-mcp-export-acme-" + ProcessHandle.current().pid() + "-";
         try (Stream<Path> entries = Files.list(tmp)) {
-            return entries.filter(p -> p.getFileName().toString()
-                .startsWith("inubit-mcp-export-acme-")).collect(Collectors.toSet());
+            return entries.filter(p -> p.getFileName().toString().startsWith(prefix))
+                .collect(Collectors.toSet());
         }
     }
 

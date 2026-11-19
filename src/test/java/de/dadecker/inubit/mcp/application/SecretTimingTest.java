@@ -11,9 +11,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Feature 011 T015 (FR-008, research R-8, quickstart Q9): the fan-out allowance per node. */
+@Tag("serial")
 class SecretTimingTest {
 
     private static final NodeId AWS = NodeId.parse("prod/node1");
