@@ -802,6 +802,95 @@ class CapabilityMatrixTest {
         assertThat(Capability.TAG_ADMINISTRATION.admittedPerChannel()).isFalse();
     }
 
+    // --- feature 025 T007: the 7.4 entry (FR-003, FR-006, research D-3, D-4) -------------------
+
+    /** 7.4 is recognised, but nothing runs: every capability refused with the note. */
+    @ParameterizedTest
+    @EnumSource(Capability.class)
+    void everyCapabilityIsUnsupportedOn74WithTheNote(Capability capability) {
+        for (Optional<InubitVersion> v74 : List.of(version("7.4.0.90"), version("7.4.0"),
+                version("7.4"))) {
+            assertThat(production.state(v74, capability)).as("%s", v74)
+                .isEqualTo(SupportState.UNSUPPORTED);
+            assertThat(production.note(v74, capability)).as("%s", v74)
+                .contains("not yet verified");
+        }
+        assertThat(production.stateOfLine(7, OptionalInt.of(4), capability))
+            .isEqualTo(SupportState.UNSUPPORTED);
+    }
+
+    @Test
+    void v74IsCliOnlyWithStartCliForMonitoringAndProcessDiagnosis() {
+        assertThat(production.isCliOnly(version("7.4.0.90"))).isTrue();
+        assertThat(production.isCliOnly(version("7.4"))).isTrue();
+        assertThat(production.declares(new MajorMinor(7, 4))).isTrue();
+        assertThat(production.channels(version("7.4.0.90"), Capability.MONITORING))
+            .containsExactly(Channel.CLI);
+        assertThat(production.channels(version("7.4.0.90"), Capability.PROCESS_DIAGNOSIS))
+            .containsExactly(Channel.CLI);
+        assertThat(production.channels(version("7.4.0.90"), Capability.LOG_DIAGNOSIS))
+            .as("a capability without declared channels keeps its own")
+            .isEqualTo(Capability.LOG_DIAGNOSIS.channels());
+        assertThat(production.isCliOnly(version("7.3.0"))).isFalse();
+        assertThat(production.isCliOnly(version("7.5.0"))).isFalse();
+    }
+
+    @Test
+    void thePatchDepthIsFourOn74AndThreeElsewhere() {
+        assertThat(production.patchDepth(version("7.4.0.90"))).isEqualTo(PatchDepth.FOUR);
+        assertThat(production.patchDepth(version("7.4"))).isEqualTo(PatchDepth.FOUR);
+        for (Optional<InubitVersion> other : List.of(version("6.1.0.89"), version("8.1.17"),
+                version("9.0.7"), version("7.0"), version("10.0"),
+                Optional.<InubitVersion>empty())) {
+            assertThat(production.patchDepth(other)).as("%s", other).isEqualTo(PatchDepth.THREE);
+        }
+        assertThat(new CapabilityMatrix.Entry(new VersionRange(7, 9, 7, 9), Map.of(), Map.of(),
+                false, Map.of()).patchDepth())
+            .as("the existing constructors keep THREE").isEqualTo(PatchDepth.THREE);
+    }
+
+    @Test
+    void comparePatchUsesTheDepthOfTheServerVersion() {
+        assertThat(production.comparePatch(client("7.4.0.80"), version("7.4.0.90")))
+            .isEqualTo(ClientVersion.Comparison.MISMATCH);
+        assertThat(production.comparePatch(client("7.4.0.90"), version("7.4.0.90")))
+            .isEqualTo(ClientVersion.Comparison.MATCH);
+        assertThat(production.comparePatch(client("7.4.0"), version("7.4.0.90")))
+            .isEqualTo(ClientVersion.Comparison.NOT_COMPARABLE);
+        assertThat(production.comparePatch(client("6.1.0.89"), version("6.1.0.80")))
+            .as("6.1 keeps ignoring the fourth part").isEqualTo(ClientVersion.Comparison.MATCH);
+        assertThat(production.comparePatch(client("8.1.17"), Optional.empty()))
+            .isEqualTo(ClientVersion.Comparison.NOT_COMPARABLE);
+    }
+
+    @Test
+    void theCliOnlyLinesAre61And74() {
+        assertThat(production.cliOnlyLines()).containsExactly("6.1", "7.4");
+    }
+
+    @Test
+    void onlyEveryCapabilityNotedIsAllNotYetVerified() {
+        assertThat(production.allNotYetVerified(version("7.4.0.90"))).isTrue();
+        for (Optional<InubitVersion> other : List.of(version("6.1.0.89"), version("8.1.17"),
+                version("9.0.7"), version("10.0"), Optional.<InubitVersion>empty())) {
+            assertThat(production.allNotYetVerified(other)).as("%s", other).isFalse();
+        }
+    }
+
+    /** Research D-4: the notes of 7.4 do not make it a "supported once verified" line. */
+    @Test
+    void v74IsNoSupportedLine() {
+        assertThat(production.lines(Capability.QUEUE_ENTRY_READ)).containsExactly("8.1", "9.0");
+        assertThat(production.lines(Capability.IO_LOG_READ)).containsExactly("8.1", "9.0");
+        for (Capability capability : Capability.values()) {
+            assertThat(production.lines(capability)).as("%s", capability).doesNotContain("7.4");
+        }
+    }
+
+    private static ClientVersion client(String value) {
+        return new ClientVersion(version(value).orElseThrow(), Optional.empty(), Optional.empty());
+    }
+
     private static SupportState notBaseline(Capability capability) {
         return capability.kind() == Kind.READ ? SupportState.UNVERIFIED : SupportState.UNSUPPORTED;
     }

@@ -125,7 +125,7 @@ tests may pass at once.
   MATCH, `7.4.0.80`/`7.4.0.90` MISMATCH, `7.4.0`/`7.4.0.90` NOT_COMPARABLE, `7.4.0`/`7.4.1.5`
   MISMATCH, `7.4.0`/`7.4.0` MATCH, patch absent NOT_COMPARABLE) and with `THREE`
   (`6.1.0.89`/`6.1.0.80` MATCH).
-- [ ] T007 Matrix entry 7.4 (research D-4, spec FR-006, data-model "CapabilityMatrix.Entry"):
+- [X] T007 Matrix entry 7.4 (research D-4, spec FR-006, data-model "CapabilityMatrix.Entry"):
   `main/domain/model/CapabilityMatrix.java` — `Entry` gets `PatchDepth patchDepth` (default
   `THREE`, existing constructors keep it), the production entry `V7_4` (range 7.4–7.4, no
   `SUPPORTED` state, channels MONITORING and PROCESS_DIAGNOSIS = {CLI}, `cliOnly = true`, note "not
