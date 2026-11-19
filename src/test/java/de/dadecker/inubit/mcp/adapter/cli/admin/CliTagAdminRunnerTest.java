@@ -59,8 +59,9 @@ import org.junit.jupiter.api.io.TempDir;
  * T063 (feature 022, US4, research D-18): the active tag of a user is read in one stdin session
  * with {@code user '<user>'}, scripted in the recorded session form ({@code admin-users-session});
  * the tag forms of T062 are script-mode runs scripted by {@link ScriptedProcessLauncher}, started
- * inside the write hand-off of their {@link WritePermit}. No answer of these forms is recorded yet
- * (T055, L-4): the active-tag row is the RECONSTRUCTED
+ * inside the write hand-off of their {@link WritePermit}. T055 (L-4) recorded only the session of a
+ * user without an active tag ({@code admin-tags-user-no-active-tag-session}, exit code 1): the
+ * active-tag row is the RECONSTRUCTED
  * {@code admin-tags-user-active-tag-reconstructed}, and the tag forms are answered like the
  * recorded {@code tag --tagMove} ({@code tag_ok}: no result line) or its recorded refusal
  * ({@code tag_repository_user_refused}).
@@ -156,6 +157,32 @@ class CliTagAdminRunnerTest {
         assertThat(runner(launcher).activeTag("jdoe")).isEmpty();
     }
 
+    /** T055 (L-4): the recorded 8.1.17 session of a user without an active tag exits with 1. */
+    @Test
+    void theRecordedSessionOfAUserWithoutAnActiveTagNamesNone() {
+        FakeProcessLauncher launcher =
+            FakeProcessLauncher.replaying("admin-tags-user-no-active-tag-session");
+
+        assertThat(runner(launcher).activeTag("jdoe")).isEmpty();
+
+        assertThat(stdin(launcher)).isEqualTo(FakeProcessLauncher.fixtureText(
+            "admin-tags-user-no-active-tag-session.stdin").replace("<password>", PASSWORD));
+    }
+
+    /** An exit code other than 0 fails a session that stops before its exit prompt. */
+    @Test
+    void aSessionCutOffBeforeItsExitFailsWithTheNode() {
+        String recorded = FakeProcessLauncher.fixtureText(
+            "admin-tags-user-no-active-tag-session.stdout");
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(
+            recorded.substring(0, recorded.lastIndexOf("CLI|")), "", 1);
+
+        ToolError error = errorOf(() -> runner(launcher).activeTag("jdoe"));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.node()).contains(DEV);
+    }
+
     @Test
     void aRefusedUserCommandIsNotFoundNamingTheUser() {
         // the refused block of L-1, with a secret in its reason line for the leak check
@@ -172,6 +199,29 @@ class CliTagAdminRunnerTest {
     @Test
     void anUnknownAnswerIsUnexpectedForTheNode() {
         FakeProcessLauncher launcher = session(List.of("Something else"), 0);
+
+        ToolError error = errorOf(() -> runner(launcher).activeTag("jdoe"));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.node()).contains(DEV);
+    }
+
+    /** A session that ran to its exit with 1 (as 8.1.17 ends it) is still judged by its block. */
+    @Test
+    void anUnknownAnswerOfASessionEndingWithOneIsUnexpectedForTheNode() {
+        FakeProcessLauncher launcher = session(List.of("Something else"), 1);
+
+        ToolError error = errorOf(() -> runner(launcher).activeTag("jdoe"));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.node()).contains(DEV);
+    }
+
+    /** Output after the exit prompt: the session did not end as recorded, so exit 1 fails it. */
+    @Test
+    void textAfterTheExitPromptWithExitCodeOneFailsWithTheNode() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(FakeProcessLauncher.fixtureText(
+            "admin-tags-user-no-active-tag-session.stdout") + "Something after exit\r\n", "", 1);
 
         ToolError error = errorOf(() -> runner(launcher).activeTag("jdoe"));
 

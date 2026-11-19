@@ -513,6 +513,27 @@ result re-reads both.
   `export_release.zip`), a possible other source for L-4 to check;
 - a tag form is done when StartCLI exits with 0 without `n-NOK`, as `tag --tagMove` (`tag_ok`).
 
+**Recorded in T055 run 1 (2026-11-19, 8.1.17)**: the `user '<login>'` session for the profile
+account (no active tag set) answers in the recorded session form (preamble, `CLI|<user>@<host>>
+user '<login>'`, the rows `User name`, `User group`, `Super group` in CRLF with trailing spaces, a
+`\r` line, `CLI|<user>@<host>> exit`) with **no `Active tag` row**, so the user has none; the
+process exits with **1** although no command was refused (fixture
+`admin-tags-user-no-active-tag-session`). Each earlier 8.1 session with exit 1 had a command that
+failed: `admin-settings-session` (T014) three answered `EXECUTION ERROR`, `admin-users-session`
+(T028: `-who`, `-nwho`) and `admin-model-session` (US3: `fetchXSLT1.0`) answered
+`Command not found.`, so their exit 1 was read as caused by those. `CliTagAdminRunner.activeTag`
+judged the session like `CliSettingsRunner` (an exit code other than 0 fails unless a block starts
+with `EXECUTION ERROR`) and threw `UNEXPECTED_RESPONSE`; it now judges a session that ran to its
+`exit` prompt (one block per command, empty `exit` block) by its block alone and fails on the exit
+code only for a session cut off before it or with output after it. Login failure, cut output,
+`EXECUTION ERROR` (`NOT_FOUND`) and unknown rows still fail. The `Active tag <tag>` row stays
+RECONSTRUCTED until a user with an active tag is recorded.
+
+**Follow-up, not fixed in T055**: `CliUserRunner.session` and `CliSettingsRunner.session` still use
+the old rule (their `commandRefused` looks only for `EXECUTION ERROR`). On a real 8.1.17 session in
+which no command is refused (`read_users` with only `user`/`finger`; `get_server_settings` without
+the root-only reads) they will most likely fail the same way with `UNEXPECTED_RESPONSE`.
+
 The versions in a diagram group come from the group's history export of the owner; the count
 outside it is the number of workflows and modules of the owner's export by the tag (`--exportTag`,
 feature 005 D-4: no check-in comment is appended, unlike an owner-wide history export) whose name is

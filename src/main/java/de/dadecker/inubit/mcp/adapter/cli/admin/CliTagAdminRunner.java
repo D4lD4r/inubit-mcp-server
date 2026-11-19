@@ -39,15 +39,18 @@ import java.util.function.Supplier;
  *       starts nothing.
  * </ul>
  *
- * <p>No answer of these forms is recorded yet (T055, L-4). StartCLI prints no result line for
- * {@code tag --tagMove} (fixture {@code tag_ok}), so a tag form counts as done when it exits with
- * 0 without an {@code n-NOK} message; the active-tag row of {@link ActiveTagParser} is
- * RECONSTRUCTED.
+ * <p>T055 (L-4) recorded the {@code user} session on 8.1.17 for a user without an active tag
+ * (fixture {@code admin-tags-user-no-active-tag-session}): the three rows, no {@code Active tag}
+ * row, exit code 1 although no command was refused. The tag forms are not recorded yet. StartCLI
+ * prints no result line for {@code tag --tagMove} (fixture {@code tag_ok}), so a tag form counts
+ * as done when it exits with 0 without an {@code n-NOK} message; the active-tag row of
+ * {@link ActiveTagParser} is RECONSTRUCTED.
  *
  * <p>A value {@link CliCommand} or {@link CliSessionCommand} cannot send is {@code INVALID_INPUT}
  * before anything is launched. A failed run (credentials, pin, launch, timeout, an exit code
  * other than 0, cut output, a refused login, or an {@code n-NOK} message) is thrown with the node
- * set and the classifier's excerpt, secret-named values masked. A refused {@code user} command
+ * set and the classifier's excerpt, secret-named values masked; the session's exit code counts
+ * only if the session stopped before its {@code exit} prompt. A refused {@code user} command
  * ({@code EXECUTION ERROR} in its block, L-1) is {@code NOT_FOUND} naming the user, without the
  * block's reason line; any other unknown {@code user} answer is {@code UNEXPECTED_RESPONSE}. Both
  * have the node set.
@@ -99,7 +102,9 @@ public final class CliTagAdminRunner {
         } catch (ToolErrorException e) {
             throw failed(e.error());
         }
-        if (result.exitCode() != 0 && !commandRefused(result.stdout(), commands)
+        // 8.1.17 ends a session that ran to its exit with 1 even when no command was refused (T055,
+        // admin-tags-user-no-active-tag-session): only a session cut off before it fails here
+        if (result.exitCode() != 0 && !ranToExit(result.stdout(), commands)
             || result.truncated() || CliOutputClassifier.isLoginFailure(result)) {
             // the session prints no n-OK message, so the classifier never calls this a success
             if (classifier.classify(result) instanceof CliOutcome.Failure failure) {
@@ -176,11 +181,11 @@ public final class CliTagAdminRunner {
         }
     }
 
-    /** Whether the session's blocks split and one of them is a refused command (L-1). */
-    private static boolean commandRefused(String stdout, List<CliSessionCommand> commands) {
+    /** Whether the session's blocks split: one prompt per command and the empty exit block. */
+    private static boolean ranToExit(String stdout, List<CliSessionCommand> commands) {
         try {
-            return CliSessionParser.STANDARD.blocks(stdout, commands).stream()
-                .anyMatch(block -> !block.isEmpty() && block.getFirst().equals(EXECUTION_ERROR));
+            CliSessionParser.STANDARD.blocks(stdout, commands);
+            return true;
         } catch (ToolErrorException e) {
             return false;
         }

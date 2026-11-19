@@ -297,6 +297,23 @@ The `admin-tags-user-active-tag-reconstructed` case (T063, US4) is SYNTHETIC as 
 tag, described in its own `.README`. T055 (L-4) records the real answer as `admin-tags-*` and
 replaces it together with the form of `ActiveTagParser`.
 
+The `admin-tags-user-no-active-tag-session` case was recorded in the live check T055 (L-4, run 1)
+on 2026-11-19 on an 8.1.17 server, by `live/ManageTagsLiveTest` through `CliTagAdminRunner`: the
+stdin session `user '<login>'`, `exit` (`.stdin`) for the profile account (no active tag set).
+Preamble and echo as in `admin-settings-session`; the block is the three rows `User name`,
+`User group`, `Super group` (CRLF, padded), then a `\r` line; **no `Active tag` row**; exit 1
+although no command was refused. The earlier 8.1 sessions did not show this: in
+`admin-settings-session` three commands answered `EXECUTION ERROR`, in `admin-users-session`
+(`-who`, `-nwho`) and `admin-model-session` (`fetchXSLT1.0`) commands answered
+`Command not found.`. `CliTagAdminRunner` reads a session that ran to its `exit` prompt by its
+block whatever its exit code; `CliUserRunner.session` and `CliSettingsRunner.session` still fail
+an exit code other than 0 unless a block starts with `EXECUTION ERROR`, so they will most likely
+fail on a real 8.1.17 session with nothing refused (follow-up, research D-18). Neutralized
+as the T028 cases: the account → `jdoe`, the user group → `OPS`, the super group → `headoffice`,
+the column padding rebuilt with the same rule (the rows equal the `jdoe` block of
+`admin-users-session`), host, URL and trust-store path as in T014; checked with
+`tools/check-identifiers.py`.
+
 Neutralization of the T028 cases (recorded 2026-11-13 on the same server and account; raw outputs
 private, never committed). Every value was replaced in one pass, the same way in every file:
 

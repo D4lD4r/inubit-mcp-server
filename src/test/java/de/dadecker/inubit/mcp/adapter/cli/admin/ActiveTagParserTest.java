@@ -10,9 +10,10 @@ import org.junit.jupiter.api.Test;
 
 /**
  * T063 (feature 022, US4, research D-18): the active tag of a user from the answer of
- * {@code user <name>}. The three rows are the recorded form ({@code admin-users-user});
- * RECONSTRUCTED: the row {@code Active tag <tag>} of
- * {@code admin-tags-user-active-tag-reconstructed} is SYNTHETIC until the live check T055 (L-4)
+ * {@code user <name>}. The three rows are the recorded form ({@code admin-users-user}; T055
+ * recorded them as the whole block for a user without an active tag,
+ * {@code admin-tags-user-no-active-tag-session}); RECONSTRUCTED: the row {@code Active tag <tag>}
+ * of {@code admin-tags-user-active-tag-reconstructed} is SYNTHETIC until the live check T055 (L-4)
  * records the answer for a user with an active tag.
  */
 class ActiveTagParserTest {
@@ -33,6 +34,10 @@ class ActiveTagParserTest {
     @Test
     void theRecordedAnswerWithoutTheRowNamesNoActiveTag() {
         assertThat(ActiveTagParser.parse("jdoe", AdminCliFixtures.answer("admin-users-user")))
+            .isEmpty();
+        // T055 (L-4): the recorded session block of a user without an active tag
+        assertThat(ActiveTagParser.parse("jdoe",
+            AdminCliFixtures.sessionBlocks("admin-tags-user-no-active-tag-session", 1).getFirst()))
             .isEmpty();
         assertThat(ActiveTagParser.parse("jdoe", List.of(USER, GROUP, SUPER,
             "Additional user group  QA"))).isEmpty();
