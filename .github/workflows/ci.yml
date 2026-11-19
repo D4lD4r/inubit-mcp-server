@@ -35,8 +35,8 @@ jobs:
   # Feature 013 (FR-013): the offline suite on Windows. The operator-tool tests stay on Linux.
   windows:
     runs-on: windows-latest
-    # A normal run takes 35-40 minutes; a hang ends here with its log instead of running on.
-    timeout-minutes: 75
+    # A normal run takes about 25 minutes; a hang ends here with its log instead of running on.
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v7
         with:
