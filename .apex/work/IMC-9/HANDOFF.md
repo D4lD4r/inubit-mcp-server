@@ -5,11 +5,12 @@ IMC-9 is `Executing` (M3 on 2026-11-19), assignee APEX Executor, accountable Dan
 Engineer). Branch `claude/025-mandate-a-imc-9`, cut from `origin/main` `c98bd7e3` (IMC-2 merged as
 #102). Spec: `specs/025-inubit-74-support/` US1–US5, FR-001 – FR-020, pinned `2bfe55e7`. Plan and
 tasks live there (Spec Kit); this mandate owns tasks T001–T025 only. Phases 1–2 done (T001–T007),
-Phase 3 done except T010. **Blocked flag set (M13)** by Question IMC-14; T010 waits for its answer,
-the other tasks continue (T016 next).
+Phases 1–5 done except T010. **Blocked flag set (M13)** by Question IMC-14; T010 waits for its
+answer, the other tasks continue (T018 next).
 
-**Now (2026-11-19 15:10 CET):** full suite `mvn -q -o clean verify` after Phase 3, expected about
-5 minutes. Last finished task: T015 (`f7fdabbf`); T010 test committed open (`40ba35d5`).
+**Now (2026-11-19 15:50 CET):** full suite `mvn -q -o clean verify` after Phases 4–5, expected
+about 15 minutes (the Phase 3 run took 13 minutes on a loaded machine). Last finished task: T017
+(`9d7c0990`); T010 test committed open (`40ba35d5`).
 
 ## Done since last handoff
 | Task | Commit | Review rounds |
@@ -29,12 +30,14 @@ the other tasks continue (T016 next).
 | T013 display | `e189390e` | 1 |
 | T014 client configuration 7.4 | `0d4de76f` | 1 |
 | T015 no `-h` probe on 7.4 | `f7fdabbf` | 1 |
+| T016 404 hint | `8824eb74` | 1 |
+| T017 patch depth at every comparison | `9d7c0990` | 1 |
 
 Full suites: after Phase 1 exit 0, 11,012 tests; after Phase 2 exit 0, 11,103 tests (0 failures,
 58 skipped each). Reviews in `specs/025-inubit-74-support/reviews/T0xx-r<n>.md`.
 
 ## Next step
-T016 (404 hint), then T017 … T025 in order with `d4ld4r-speckit-duo:implement`,
+T018 (reconstructed 7.4 cases), then T019 … T025 in order with `d4ld4r-speckit-duo:implement`,
 one commit and push per task. When IMC-14 is answered: T010 round 2 (apply the answer, plus the two
 minor findings of T010-r1), then tick T010.
 
