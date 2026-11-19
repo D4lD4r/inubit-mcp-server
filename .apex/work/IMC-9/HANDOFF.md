@@ -8,9 +8,10 @@ tasks live there (Spec Kit); this mandate owns tasks T001–T025 only. T001–T0
 complete). Question IMC-14 answered (option 1) and applied in T010; the **Blocked flag is still
 set** — clearing it (M14) and moving IMC-14 (QC2/QC5) are the Product Engineer's moves.
 
-**Resumed 2026-11-19 16:30 CET.** T020–T023 done (Phase 6 complete, `aa9cfe19`); full suite after
-Phase 6 running. The partial T020 test of the stopped implementer was kept and finished (its node
-lacked a `cliJavaHome`, so `CliRunner` refused the launch before `-h`).
+**Resumed 2026-11-19 16:30 CET.** T020–T025 done (Mandate A complete) plus a clean-up of open
+minors (`b27813ab`); full suite after T025 running. Full suite after Phase 6 (`b17b853f`): exit 0,
+11,263 tests, 0 failures, 62 skipped. The partial T020 test of the stopped implementer was kept and
+finished (its node lacked a `cliJavaHome`, so `CliRunner` refused the launch before `-h`).
 
 ## Done since last handoff
 | Task | Commit | Review rounds |
