@@ -1260,7 +1260,7 @@ class MainTest {
               name: acme
             defaults:
               cliClients:
-                "7.4": { home: "%s", javaHome: "%s" }
+                "7.4": { home: '%s', javaHome: '%s' }
             groups:
               - name: dev
                 nodes:
@@ -1272,7 +1272,7 @@ class MainTest {
         int exit = run("--check-config", "--config", file.toString());
 
         assertThat(exit).as(out() + err()).isZero();
-        assertThat(out())
+        assertThat(out().replace("\r\n", "\n"))
             .contains("dev/node1: read-only, cli: available, client: " + c74
                 + " (cliClients \"7.4\"), address: ")
             .contains("inubit: V7_4 (INUBIT 7.4, StartCLI only; available: none; refused: ")
@@ -1306,10 +1306,11 @@ class MainTest {
             return fakeStartCli(name, body.toString());
         }
         Path cliHome = Files.createDirectories(home.resolve(name + "/bin")).getParent();
-        StringBuilder script = new StringBuilder("@echo off\r\necho %*>>\"%~dp0arguments\"\r\n");
+        StringBuilder script = new StringBuilder("@echo off\r\n>>\"%~dp0arguments\" echo(%*\r\n");
         for (String line : lines) {
-            script.append("echo ").append(line).append("\r\n");
+            script.append("echo(").append(line).append("\r\n");
         }
+        script.append("exit /b 0\r\n");
         Files.writeString(cliHome.resolve("bin/startcli.bat"), script, StandardCharsets.US_ASCII);
         return cliHome;
     }
