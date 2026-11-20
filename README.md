@@ -172,13 +172,13 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
   of `check_artifacts` is still refused on 6.1 (`UNSUPPORTED_VERSION`); health and the process
   listing (`get_health`, `find_processes`) become available once they have been verified against
   recorded outputs of a real 6.1 node. Such nodes need a StartCLI client that supports INUBIT 6.1
-  and its Java runtime ([INUBIT 6.1 nodes](docs/setup.md#inubit-61-nodes-v6_1)); like every
-  StartCLI-backed part, not on Windows.
+  and its Java runtime ([INUBIT 6.1 nodes](docs/setup.md#inubit-61-nodes-v6_1)); on Windows
+  with the rules of [StartCLI on Windows](docs/setup.md#startcli-on-windows).
 - **INUBIT 7.4** is recognised, but not yet supported: a node pinned with `versionLine: V7_4`
   (or a concrete 7.4 version such as `"7.4.0.90"`) is reached through StartCLI only, and every
   tool that would contact it refuses it clearly (`UNSUPPORTED_VERSION`, nothing is sent), since
-  no tool is verified on 7.4 yet; `list_nodes`, `read_knowledge`, `record_knowledge` and the
-  offline checks of `check_artifacts` still work. `AUTO` never selects 7.4; pin such a node
+  no tool is verified on 7.4 yet; `list_nodes`, `read_knowledge`, `record_knowledge` (unless
+  `knowledge.recording: false`) and the offline checks of `check_artifacts` still work. `AUTO` never selects 7.4; pin such a node
   ([INUBIT 7.4 nodes](docs/setup.md#inubit-74-nodes-v7_4)).
 - Only for the CLI-based parts (`restart_process`, `kill_process`, the module list and version
   histories of the inventory tools, and every tool that exports, imports or tags artifacts —
@@ -268,7 +268,7 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
 
 4. **Store the credentials** in the credential store of your system: one entry per value, service
    `inubit-mcp`, account `INUBIT_<PROFILE>_<GROUP>[_<NODE>]_USERNAME` / `_PASSWORD`
-   ([details](docs/setup.md#4-credentials-credential-store)). The commands prompt for the value,
+   ([details](docs/setup.md#4-credentials-sources)). The commands prompt for the value,
    so it never appears on a command line or in the shell history.
 
    macOS (Keychain):

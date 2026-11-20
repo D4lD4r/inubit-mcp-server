@@ -701,6 +701,74 @@ class RecordFixturesPs1Test {
         assertThat(result.raw().resolve("case.stdout")).exists();
     }
 
+    /**
+     * 025-T023 (IMC-20 m1, feature 013 FR-003): {@code v74_login_failed} is launched as
+     * {@code -FailedLoginUser} (by default {@code mcp-record-no-such-user}) with
+     * {@code --execCommand uptime} before {@code -CliUrl}, the trust store in the Java runtime
+     * settings and no client TLS option, and only the dummy password line on standard input. The
+     * table row and {@code Invoke-CaseFailure} run as written, StartCLI is a stub that records
+     * its launch.
+     */
+    @Test
+    @Timeout(120)
+    void launchesV74LoginFailedAsTheFailedLoginUserWithOnlyTheDummyPasswordOnStandardInput()
+        throws Exception {
+        String shell = powerShell();
+        Assumptions.assumeTrue(shell != null, "no PowerShell (pwsh) on the PATH");
+        Matcher user = Pattern.compile("\\[string\\] \\$FailedLoginUser = '([^']*)'")
+            .matcher(script());
+        assertThat(user.find()).as("the default of -FailedLoginUser").isTrue();
+        Matcher failureUrl = Pattern.compile("(?m)^\\$FailureUrl = .*$").matcher(code());
+        assertThat(failureUrl.find()).as("$FailureUrl").isTrue();
+        Path raw = Files.createDirectories(temp.resolve("raw"));
+        String cliUrl = "https://inubit74.example:8443/ibis/servlet/IBISSoapServlet";
+        Path driver = temp.resolve("driver.ps1");
+        Files.writeString(driver, String.join("\n",
+            "$Utf8 = New-Object Text.UTF8Encoding($false)",
+            function("Stop-Recording"), "}",
+            function("Assert-Passable"), "}",
+            function("Write-ExitCode"), "}",
+            function("Invoke-CaseFailure"), "}",
+            "function Get-TlsArguments { return @('--client-tls-option') }",
+            "function Invoke-StartCli {",
+            "    param([string[]] $Arguments, [byte[]] $Stdin, [string] $OutputPrefix,",
+            "        [string] $WorkingDirectory, [string] $ToolOptions = '')",
+            "    [IO.File]::WriteAllText($OutputPrefix + '.arguments', ($Arguments -join \"`n\"))",
+            "    [IO.File]::WriteAllBytes($OutputPrefix + '.stdin', $Stdin)",
+            "    [IO.File]::WriteAllText($OutputPrefix + '.options', $ToolOptions)",
+            "    return 1",
+            "}",
+            "$script:RawDirectory = " + quoted(raw),
+            "$script:SecretChecks = @()",
+            "$CliHome = " + quoted(temp),
+            "$CliUrl = '" + cliUrl + "'",
+            "$TrustStoreOptions = '-Djavax.net.ssl.trustStore=stub'",
+            failureUrl.group(),
+            "$FailedLoginUser = '" + user.group(1) + "'",
+            "$Cases = @(", row("v74_login_failed"), ")",
+            "Invoke-CaseFailure $Cases[0]",
+            "Write-Output ('checked: ' + $script:SecretChecks[0].Username)", ""),
+            StandardCharsets.US_ASCII);
+        Path log = temp.resolve("log.txt");
+
+        Process process = new ProcessBuilder(shell, "-NoProfile", "-NonInteractive",
+            "-ExecutionPolicy", "Bypass", "-File", driver.toString()).redirectErrorStream(true)
+            .redirectOutput(log.toFile()).start();
+
+        assertThat(process.waitFor(100, TimeUnit.SECONDS)).isTrue();
+        assertThat(process.exitValue()).as(log(log)).isZero();
+        assertThat(user.group(1)).isEqualTo("mcp-record-no-such-user");
+        assertThat(Files.readString(raw.resolve("login_failed.arguments")).split("\n"))
+            .containsExactly("-u", "mcp-record-no-such-user", "--execCommand", "uptime", cliUrl);
+        assertThat(Files.readAllBytes(raw.resolve("login_failed.stdin")))
+            .isEqualTo("not-a-password\n".getBytes(StandardCharsets.UTF_8));
+        assertThat(raw.resolve("login_failed.options"))
+            .hasContent("-Djavax.net.ssl.trustStore=stub");
+        assertThat(raw.resolve("login_failed.exit")).hasContent("1\n");
+        assertThat(log(log)).as("the secret check covers the failed login user")
+            .contains("checked: mcp-record-no-such-user");
+    }
+
     /** Feature 025, spec FR-017, US4 scenario 8: the whole run stops before any launch. */
     @Test
     @EnabledOnOs(OS.WINDOWS)
