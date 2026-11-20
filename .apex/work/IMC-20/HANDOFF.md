@@ -35,6 +35,15 @@ Specs referenced, unchanged except the one m1 line in
   - local on the branch: 11,249 tests, 0 failures, 62 skipped, plus 16 and 4 ITs.
   - baseline `bca0f0ae`: 11,244 tests, 62 skipped, plus 16 and 4 ITs.
 
+- Windows CI:
+  - The first run lost its runner (infrastructure).
+  - The rerun found a real bug in the m3 test: a Windows path in a double-quoted YAML scalar
+    (`\U` escape). Fixed in `3f493ac5` with single quotes, CRLF-normalized output, and a hardened
+    `.bat` stand-in.
+  - The same rerun had a temp-dir cleanup error in `WindowsProcessTreeTest`: the `client` folder
+    was still in use. The PR does not touch that class, so this is a pre-existing flake.
+  - All 27 RecordFixturesPs1Test cases ran on Windows PowerShell 5.1, none skipped.
+
 ## Next step
 Verifier: check the PR (CI build, windows, CodeQL) against the IMC-20 success criteria.
 
