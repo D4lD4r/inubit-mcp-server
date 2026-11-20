@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import de.dadecker.inubit.mcp.adapter.cli.StartCliEnvironment;
 import de.dadecker.inubit.mcp.testing.FakeStartCli;
+import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,11 +18,14 @@ import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * T030 (feature 013, FR-014, research R-13): {@code tools/record-fixtures.ps1} records the
@@ -35,6 +40,8 @@ class RecordFixturesPs1Test {
     private static final List<String> CASES = List.of("win_version", "win_help", "win_modules",
         "win_failure", "win_argv", "win_backslash");
     private static final String SESSION_PASSWORD = "session-test-password";
+    /** A password with a non-ASCII character, so that its UTF-8 and UTF-16 LE bytes differ. */
+    private static final String SECRET_PASSWORD = "secret-pr\u00fcfung-7";
     /**
      * Spec FR-016 and the FR-014 table: each 7.4 case with its kind and the fixture name it
      * writes; the research cases keep their {@code v74_} name.
@@ -607,6 +614,159 @@ class RecordFixturesPs1Test {
                 assertThat(folder.resolve(fixture + extension)).exists();
             }
         }
+    }
+
+    /**
+     * The PowerShell that runs {@code Assert-NoSecret} in this test: Windows PowerShell 5.1 on
+     * Windows (the recorder's target), elsewhere {@code pwsh} from the PATH, or {@code null}.
+     */
+    private static String powerShell() {
+        if (OS.WINDOWS.isCurrentOs()) {
+            return "powershell.exe";
+        }
+        return Stream.of(System.getenv().getOrDefault("PATH", "").split(File.pathSeparator))
+            .filter(directory -> !directory.isEmpty())
+            .map(directory -> Path.of(directory, "pwsh"))
+            .filter(Files::isExecutable).findFirst().map(Path::toString).orElse(null);
+    }
+
+    private static String quoted(Path path) {
+        return "'" + path.toString().replace("'", "''") + "'";
+    }
+
+    /**
+     * Runs the script's {@code Assert-NoSecret} (with its {@code Stop-Recording}) on a raw
+     * directory holding {@code case.stdout}, the password line read from a file like
+     * {@code Read-PasswordBytes} returns it: UTF-8 plus a line feed. Exit 3 when it stopped.
+     */
+    private ProcessResult assertNoSecret(byte[] stdout) throws Exception {
+        String shell = powerShell();
+        Assumptions.assumeTrue(shell != null, "no PowerShell (pwsh) on the PATH");
+        Path raw = Files.createDirectories(temp.resolve("raw"));
+        Files.write(raw.resolve("case.stdout"), stdout);
+        Path secret = temp.resolve("secret.bin");
+        Files.write(secret, (SECRET_PASSWORD + "\n").getBytes(StandardCharsets.UTF_8));
+        Path driver = temp.resolve("driver.ps1");
+        Files.writeString(driver, String.join("\n",
+            "$Utf8 = New-Object Text.UTF8Encoding($false)",
+            function("Stop-Recording"), "}",
+            function("Assert-NoSecret"), "}",
+            "try {",
+            "    Assert-NoSecret (Join-Path " + quoted(raw) + " 'case') "
+                + "([IO.File]::ReadAllBytes(" + quoted(secret) + "))",
+            "    Write-Output 'kept'",
+            "} catch {",
+            "    Write-Output $_.Exception.Message",
+            "    exit 3",
+            "}", ""), StandardCharsets.US_ASCII);
+        Path log = temp.resolve("log.txt");
+        Process process = new ProcessBuilder(shell, "-NoProfile", "-NonInteractive",
+            "-ExecutionPolicy", "Bypass", "-File", driver.toString()).redirectErrorStream(true)
+            .redirectOutput(log.toFile()).start();
+        assertThat(process.waitFor(100, TimeUnit.SECONDS)).isTrue();
+        return new ProcessResult(process.exitValue(), log(log), raw);
+    }
+
+    private record ProcessResult(int exit, String log, Path raw) {
+    }
+
+    /**
+     * IMC-20 m4 (feature 013 FR-003, feature 025 FR-017): the recorder refuses a recording whose
+     * output echoes the password, whether the client wrote it in UTF-8 or in UTF-16 LE (the
+     * encoding Java and Windows tools use for wide-character output). The outputs are removed.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"UTF-8", "UTF-16LE"})
+    @Timeout(120)
+    void refusesARecordingThatEchoesThePassword(String encoding) throws Exception {
+        byte[] echo = ("login as tester with " + SECRET_PASSWORD + " failed\r\n")
+            .getBytes(Charset.forName(encoding));
+
+        ProcessResult result = assertNoSecret(echo);
+
+        assertThat(result.exit()).as(result.log()).isEqualTo(3);
+        assertThat(result.log()).contains("the password appeared in case.stdout");
+        assertThat(result.raw()).doesNotExist();
+    }
+
+    @Test
+    @Timeout(120)
+    void keepsARecordingWithoutThePassword() throws Exception {
+        byte[] output = "login as tester failed\r\n".getBytes(StandardCharsets.UTF_16LE);
+
+        ProcessResult result = assertNoSecret(output);
+
+        assertThat(result.exit()).as(result.log()).isZero();
+        assertThat(result.log()).contains("kept");
+        assertThat(result.raw().resolve("case.stdout")).exists();
+    }
+
+    /**
+     * 025-T023 (IMC-20 m1, feature 013 FR-003): {@code v74_login_failed} is launched as
+     * {@code -FailedLoginUser} (by default {@code mcp-record-no-such-user}) with
+     * {@code --execCommand uptime} before {@code -CliUrl}, the trust store in the Java runtime
+     * settings and no client TLS option, and only the dummy password line on standard input. The
+     * table row and {@code Invoke-CaseFailure} run as written, StartCLI is a stub that records
+     * its launch.
+     */
+    @Test
+    @Timeout(120)
+    void launchesV74LoginFailedAsTheFailedLoginUserWithOnlyTheDummyPasswordOnStandardInput()
+        throws Exception {
+        String shell = powerShell();
+        Assumptions.assumeTrue(shell != null, "no PowerShell (pwsh) on the PATH");
+        Matcher user = Pattern.compile("\\[string\\] \\$FailedLoginUser = '([^']*)'")
+            .matcher(script());
+        assertThat(user.find()).as("the default of -FailedLoginUser").isTrue();
+        Matcher failureUrl = Pattern.compile("(?m)^\\$FailureUrl = .*$").matcher(code());
+        assertThat(failureUrl.find()).as("$FailureUrl").isTrue();
+        Path raw = Files.createDirectories(temp.resolve("raw"));
+        String cliUrl = "https://inubit74.example:8443/ibis/servlet/IBISSoapServlet";
+        Path driver = temp.resolve("driver.ps1");
+        Files.writeString(driver, String.join("\n",
+            "$Utf8 = New-Object Text.UTF8Encoding($false)",
+            function("Stop-Recording"), "}",
+            function("Assert-Passable"), "}",
+            function("Write-ExitCode"), "}",
+            function("Invoke-CaseFailure"), "}",
+            "function Get-TlsArguments { return @('--client-tls-option') }",
+            "function Invoke-StartCli {",
+            "    param([string[]] $Arguments, [byte[]] $Stdin, [string] $OutputPrefix,",
+            "        [string] $WorkingDirectory, [string] $ToolOptions = '')",
+            "    [IO.File]::WriteAllText($OutputPrefix + '.arguments', ($Arguments -join \"`n\"))",
+            "    [IO.File]::WriteAllBytes($OutputPrefix + '.stdin', $Stdin)",
+            "    [IO.File]::WriteAllText($OutputPrefix + '.options', $ToolOptions)",
+            "    return 1",
+            "}",
+            "$script:RawDirectory = " + quoted(raw),
+            "$script:SecretChecks = @()",
+            "$CliHome = " + quoted(temp),
+            "$CliUrl = '" + cliUrl + "'",
+            "$TrustStoreOptions = '-Djavax.net.ssl.trustStore=stub'",
+            failureUrl.group(),
+            "$FailedLoginUser = '" + user.group(1) + "'",
+            "$Cases = @(", row("v74_login_failed"), ")",
+            "Invoke-CaseFailure $Cases[0]",
+            "Write-Output ('checked: ' + $script:SecretChecks[0].Username)", ""),
+            StandardCharsets.US_ASCII);
+        Path log = temp.resolve("log.txt");
+
+        Process process = new ProcessBuilder(shell, "-NoProfile", "-NonInteractive",
+            "-ExecutionPolicy", "Bypass", "-File", driver.toString()).redirectErrorStream(true)
+            .redirectOutput(log.toFile()).start();
+
+        assertThat(process.waitFor(100, TimeUnit.SECONDS)).isTrue();
+        assertThat(process.exitValue()).as(log(log)).isZero();
+        assertThat(user.group(1)).isEqualTo("mcp-record-no-such-user");
+        assertThat(Files.readString(raw.resolve("login_failed.arguments")).split("\n"))
+            .containsExactly("-u", "mcp-record-no-such-user", "--execCommand", "uptime", cliUrl);
+        assertThat(Files.readAllBytes(raw.resolve("login_failed.stdin")))
+            .isEqualTo("not-a-password\n".getBytes(StandardCharsets.UTF_8));
+        assertThat(raw.resolve("login_failed.options"))
+            .hasContent("-Djavax.net.ssl.trustStore=stub");
+        assertThat(raw.resolve("login_failed.exit")).hasContent("1\n");
+        assertThat(log(log)).as("the secret check covers the failed login user")
+            .contains("checked: mcp-record-no-such-user");
     }
 
     /** Feature 025, spec FR-017, US4 scenario 8: the whole run stops before any launch. */

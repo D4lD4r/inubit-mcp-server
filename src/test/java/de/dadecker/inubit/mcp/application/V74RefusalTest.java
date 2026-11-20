@@ -534,7 +534,9 @@ class V74RefusalTest {
             .isEmpty();
     }
 
-    /** FR-007: in a call addressing several nodes the refusal is per node; 8.1 is read as before. */
+    /**
+     * FR-007: in a call addressing several nodes the refusal is per node; 8.1 is read as before.
+     */
     @ParameterizedTest(name = "{0}")
     @MethodSource("groupReads")
     void aGroupOf81And74AnswersThe81NodeAndRefusesThe74NodeInItsOwnEntry(String tool,

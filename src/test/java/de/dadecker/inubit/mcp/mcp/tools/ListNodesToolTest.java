@@ -379,7 +379,7 @@ class ListNodesToolTest {
      * {@link #DEVELOPMENT}), all at the WireMock server; feature 012: qa/node4 ({@code V6_1},
      * StartCLI, {@link #DEVELOPMENT}); feature 025: qa/node5 ({@code V7_4}) and qa/node6 (pinned
      * {@code 7.4.0.90}), both StartCLI, {@link #DEVELOPMENT}, and qa/node7 ({@code V7_4}, no
-     * StartCLI, reads).
+     * StartCLI, reads); qa/node8 (pinned {@code 6.1.0.89}, StartCLI, {@link #DEVELOPMENT}).
      */
     @BeforeEach
     void startVersionClient() {
@@ -398,7 +398,9 @@ class ListNodesToolTest {
             versionNode("qa/node5", baseUrl, VersionSetting.V7_4).cliHome(CLI_HOME).build(),
             versionNode("qa/node6", baseUrl, VersionSetting.parse("7.4.0.90").orElseThrow())
                 .cliHome(CLI_HOME).build(),
-            versionNode("qa/node7", baseUrl, VersionSetting.V7_4).build());
+            versionNode("qa/node7", baseUrl, VersionSetting.V7_4).build(),
+            versionNode("qa/node8", baseUrl, VersionSetting.parse("6.1.0.89").orElseThrow())
+                .cliHome(CLI_HOME).build());
         Map<NodeId, EffectiveNodeConfig> byId = new HashMap<>();
         nodes.forEach(node -> byId.put(node.id(), node));
         clock = new MutableClock(NOW);
@@ -415,7 +417,7 @@ class ListNodesToolTest {
         allowed = Map.of(DEV1, DEVELOPMENT, DEV2, READS, QA1, DEVELOPMENT,
             NodeId.parse("qa/node2"), READS, QA3, DEVELOPMENT, QA4, DEVELOPMENT,
             NodeId.parse("qa/node5"), DEVELOPMENT, NodeId.parse("qa/node6"), DEVELOPMENT,
-            NodeId.parse("qa/node7"), READS);
+            NodeId.parse("qa/node7"), READS, NodeId.parse("qa/node8"), DEVELOPMENT);
         summaries = nodes.stream().map(node -> node.summary(EXISTS, false)).toList();
         NodeOverview overview = new NodeOverview(summaries, versions,
             CapabilityMatrix.production(), (id, withClient) -> allowed.get(id),
@@ -935,12 +937,12 @@ class ListNodesToolTest {
 
     @Test
     void theClientOfA74PinIsComparedOnFourPartsAndOfA61NodeOnThree() {
-        // 025-T017 (FR-003, research D-3): client line and client warning
+        // 025-T017 (FR-003, research D-3): client line and client warning, both at a pin
         NodeId node6 = NodeId.parse("qa/node6");
         versions.clientProbed(node6, new ProbedClient(ClientKey.NONE,
             clientVersion("7.4.0.80", "4.0.1", "7.4.0.80")));
-        versions.observed(QA4, InubitVersion.parse("6.1.0.89").orElseThrow());
-        versions.clientProbed(QA4, new ProbedClient(ClientKey.NONE,
+        NodeId node8 = NodeId.parse("qa/node8");
+        versions.clientProbed(node8, new ProbedClient(ClientKey.NONE,
             clientVersion("6.1.0.80", "4.0.1", "6.1.0.80")));
 
         Map<String, JsonNode> byNode = listVersions();
@@ -950,7 +952,7 @@ class ListNodesToolTest {
         assertThat(texts(on74.path("warnings"))).contains("StartCLI client 7.4.0.80 on qa/node6"
             + " differs from INUBIT 7.4.0.90 (mismatch); StartCLI-backed tools still run, but"
             + " their results may be unreliable");
-        JsonNode on61 = byNode.get("qa/node4");
+        JsonNode on61 = byNode.get("qa/node8");
         assertThat(on61.path("server").path("version").asString()).isEqualTo("6.1.0.89");
         assertThat(on61.path("client").path("comparison").asString())
             .as("the fourth part is ignored on 6.1").isEqualTo("match");

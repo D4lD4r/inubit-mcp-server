@@ -2812,7 +2812,8 @@ desktop; no start script is needed (only for the optional certificate check on m
    `get_health`, `find_processes`, `query_logs`, `list_inventory` and `get_inventory_item`, and
    `check_artifacts` (in a profile of [INUBIT 6.1 nodes](#inubit-61-nodes-v6_1) or
    [INUBIT 7.4 nodes](#inubit-74-nodes-v7_4) only, just `list_nodes`, `get_health`,
-   `check_artifacts`, `read_knowledge` and `record_knowledge`). `export_artifacts` appears when
+   `check_artifacts`, `read_knowledge` and `record_knowledge` (unless
+   `knowledge.recording: false`)). `export_artifacts` appears when
    a node has a StartCLI installation (`cli.home`), `restart_process` and `kill_process` when at
    least one node has effective write access (section 3, "Write settings"), the development
    tools when a node has `development.enabled: true`, and `deploy_release` when a group has a

@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -1078,12 +1079,19 @@ public final class VersionGate {
             for (String line : cliOnlyLines) {
                 String subject = hint.isEmpty() ? node.toString() : "it";
                 hint.append("; if ").append(subject).append(" runs INUBIT ").append(line)
-                    .append(", pin V").append(line.replace('.', '_'));
+                    .append(", pin ").append(pin(line));
             }
         }
         return "the INUBIT version of " + node + " is unknown ("
             + failure.map(f -> f.value().code() + " at " + time(f)).orElse("not yet detected")
             + ")" + hint;
+    }
+
+    /** The {@code versionLine} that pins {@code line} ("6.1" → {@code V6_1}), as configured. */
+    private static String pin(String line) {
+        MajorMinor release = MajorMinor.parse(line).orElseThrow(
+            () -> new IllegalArgumentException("not a major.minor line: " + line));
+        return new VersionSetting.Line(release.major(), OptionalInt.of(release.minor())).text();
     }
 
     private static String timed(Timed<ErrorCode> failure) {

@@ -1244,24 +1244,23 @@ class MainTest {
         assertThat(out().replace(home.toString(), "/opt")).contains(excerpt);
     }
 
+    /**
+     * Feature 025 T014 (FR-010a, research D-9): the generic rules of feature 017; the range is
+     * printed in a form the probe cannot evaluate, the client is shown without range. FR-013
+     * (IMC-20 m3): on every platform, with {@code startcli.bat} as the stand-in on Windows.
+     */
     @Test
-    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "a POSIX shell substitute of startcli.sh;"
-        + " the Windows launch is covered by CliRunnerTest")
     void checkConfigProbesA74EntryLocallyAndShowsItsClientAsNotUsedYet() throws IOException {
-        // feature 025 T014 (FR-010a, research D-9): the generic rules of feature 017; the range
-        // is printed in a form the probe cannot evaluate, the client is shown without range
         credentials();
-        Path c74 = fakeStartCli("c74", """
-            echo "$@" >> "$(dirname "$0")/arguments"
-            echo "CLI 7.4.0.90"
-            echo "Supported inubit Process Engine versions from x to 7.4.0.90."
-            """);
+        windows = Platform.windows();
+        Path c74 = fakeStartCliOnThisPlatform("c74", "CLI 7.4.0.90",
+            "Supported inubit Process Engine versions from x to 7.4.0.90.");
         Path file = config("""
             profile:
               name: acme
             defaults:
               cliClients:
-                "7.4": { home: "%s", javaHome: "%s" }
+                "7.4": { home: '%s', javaHome: '%s' }
             groups:
               - name: dev
                 nodes:
@@ -1273,21 +1272,48 @@ class MainTest {
         int exit = run("--check-config", "--config", file.toString());
 
         assertThat(exit).as(out() + err()).isZero();
-        assertThat(out())
+        assertThat(out().replace("\r\n", "\n"))
             .contains("dev/node1: read-only, cli: available, client: " + c74
                 + " (cliClients \"7.4\"), address: ")
             .contains("inubit: V7_4 (INUBIT 7.4, StartCLI only; available: none; refused: ")
-            .contains("), client: 7.4.0.90")
-            .contains(", server version: determined at runtime; not used until a 7.4 capability"
-                + " is verified, secrets: credentialStore (macOS Keychain), username ←")
+            // "not evaluable": nothing (no range) between the client version and the next field
+            .contains("), client: 7.4.0.90, server version: determined at runtime; not used until"
+                + " a 7.4 capability is verified, secrets: credentialStore (macOS Keychain),"
+                + " username ←")
             .contains("\nclient " + c74 + " (Java 8): CLI 7.4.0.90\n")
             .doesNotContain("ships with", "not declared supported", "probe failed",
                 "reached through StartCLI only", "options:", "StartCLI client offers no")
             .contains("Result: OK")
             .doesNotContain("://", "example.test", PASSWORD, USERNAME);
         // local version probe only (T015, research D-9): no -h option probe while 7.4 is not
-        // verified, and no call carries a server address
-        assertThat(Files.readString(c74.resolve("bin/arguments"))).isEqualTo("-v\n");
+        // verified, and no call carries a server address; on Windows the server quotes every
+        // argument (WindowsArguments.quote) and the batch file records them as passed
+        assertThat(Files.readString(c74.resolve("bin/arguments")).replace("\r\n", "\n"))
+            .isEqualTo(windows ? "\"-v\"\n" : "-v\n");
+    }
+
+    /**
+     * A StartCLI stand-in {@code <home>/<name>/bin/startcli.sh}, or {@code startcli.bat} on
+     * Windows, that appends its arguments to {@code bin/arguments} and prints {@code lines}; the
+     * CLI home.
+     */
+    private Path fakeStartCliOnThisPlatform(String name, String... lines) throws IOException {
+        if (!Platform.windows()) {
+            StringBuilder body = new StringBuilder(
+                "echo \"$@\" >> \"$(dirname \"$0\")/arguments\"\n");
+            for (String line : lines) {
+                body.append("echo \"").append(line).append("\"\n");
+            }
+            return fakeStartCli(name, body.toString());
+        }
+        Path cliHome = Files.createDirectories(home.resolve(name + "/bin")).getParent();
+        StringBuilder script = new StringBuilder("@echo off\r\n>>\"%~dp0arguments\" echo(%*\r\n");
+        for (String line : lines) {
+            script.append("echo(").append(line).append("\r\n");
+        }
+        script.append("exit /b 0\r\n");
+        Files.writeString(cliHome.resolve("bin/startcli.bat"), script, StandardCharsets.US_ASCII);
+        return cliHome;
     }
 
     /** An executable {@code <home>/client/bin/startcli.sh} running {@code body}; the CLI home. */

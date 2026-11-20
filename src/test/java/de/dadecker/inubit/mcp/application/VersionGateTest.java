@@ -48,9 +48,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.regex.MatchResult;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -346,6 +349,24 @@ class VersionGateTest {
             + " dev/node1 is unknown (UNEXPECTED_RESPONSE at 2026-10-18T08:01:00Z); results are"
             + " unverified");
         assertThat(detection.calls).isEqualTo(2);
+    }
+
+    /**
+     * IMC-20 m1 (T016-r1): each pin the 404 hint names is the {@code versionLine} of
+     * {@link VersionSetting} for that line, so the hint and the configuration cannot diverge.
+     */
+    @Test
+    void theUnknownVersionHintNamesEachPinAsTheConfigurationSpellsIt() {
+        detection.failEndpointMissing(detectionError(ErrorCode.UNEXPECTED_RESPONSE));
+
+        String warning = gate().admit(AUTO, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST)
+            .warnings().get(0);
+
+        List<MatchResult> hints = Pattern.compile("runs INUBIT (\\d+)\\.(\\d+), pin (\\w+)")
+            .matcher(warning).results().toList();
+        assertThat(hints).as(warning).hasSize(2).allSatisfy(hint -> assertThat(
+            VersionSetting.parse(hint.group(3))).contains(new VersionSetting.Line(
+                Integer.parseInt(hint.group(1)), OptionalInt.of(Integer.parseInt(hint.group(2))))));
     }
 
     /**

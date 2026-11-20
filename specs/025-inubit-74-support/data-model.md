@@ -80,7 +80,7 @@ list, and the README's recorded line for `help` names `v74_help` as its source.
 | Field | Values |
 |---|---|
 | `Name` | `win_*` (feature 013) or `v74_*` |
-| `Kind` | `local`, `exec`, `direct`, `session`, `failure` (plus the existing `export`, `argv`) |
+| `Kind` | `local`, `exec`, `direct`, `session`, `failure` (plus the existing `export`, `export-backslash`, `argv`) |
 | `Arguments` / `Commands` | argument list (local, exec, direct) or session commands incl. the end-of-session command |
 | `Credentials` | whether the case asks for username and password |
 | `Contacts` | whether the case contacts a server (then group and host allowlists apply) |
