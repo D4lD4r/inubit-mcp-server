@@ -91,6 +91,21 @@ for recording a non-production 7.4 node later.
   table, section "INUBIT 7.4" with the refusal texts and a `list_nodes` example; README the
   supported versions; `docs/research/inubit-interfaces.md` the facts of the 7.4 help output, what
   is unknown and the recording plan.
+- IMC-20 (verifier minors of feature 025): the README credentials link points to setup section
+  "4. Credentials: sources"; README no longer says 6.1 nodes are not served on Windows; README and
+  setup say `record_knowledge` is offered in a 6.1/7.4-only profile unless
+  `knowledge.recording: false`; the 025 data model lists the recorder kind `export-backslash`.
+
+### Fixed
+
+- `tools/record-fixtures.ps1` also refuses a recording whose output echoes the password in
+  UTF-16 LE, not only in UTF-8 (IMC-20).
+
+### Tests
+
+- IMC-20: the `--check-config` local probe of a 7.4 entry (FR-013) runs on the Windows CI job
+  too; the launch of the recorder case `v74_login_failed` is pinned; the 6.1 client comparison in
+  `list_nodes` is tested on a 6.1 pin.
 
 ## [0.10.2] - 2026-11-16
 
