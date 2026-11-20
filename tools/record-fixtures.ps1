@@ -808,23 +808,34 @@ function Invoke-CaseArgv {
     [IO.File]::WriteAllText($prefix + '.exit', (($exitCodes -join "`n") + "`n"))
 }
 
-# Fails if the password (without its line feed) is in an output of the case.
+# Fails if the password (without its line feed) is in an output of the case, in UTF-8 (as the
+# client reads it) or in UTF-16 LE (the wide-character output of Java and Windows tools).
 function Assert-NoSecret {
     param([string] $Prefix, [byte[]] $Secret)
     $length = $Secret.Length - 1
     if ($length -le 0) { return }
-    foreach ($file in Get-ChildItem -LiteralPath (Split-Path $Prefix) -File) {
-        $bytes = [IO.File]::ReadAllBytes($file.FullName)
-        for ($i = 0; $i -le $bytes.Length - $length; $i++) {
-            $match = $true
-            for ($j = 0; $j -lt $length; $j++) {
-                if ($bytes[$i + $j] -ne $Secret[$j]) { $match = $false; break }
-            }
-            if ($match) {
-                Remove-Item -LiteralPath (Split-Path $Prefix) -Recurse -Force
-                Stop-Recording "the password appeared in $($file.Name); outputs removed"
+    $narrow = New-Object byte[] $length
+    [Array]::Copy($Secret, $narrow, $length)
+    $chars = $Utf8.GetChars($narrow)
+    $wide = [Text.Encoding]::Unicode.GetBytes($chars)
+    try {
+        foreach ($file in Get-ChildItem -LiteralPath (Split-Path $Prefix) -File) {
+            $bytes = [IO.File]::ReadAllBytes($file.FullName)
+            foreach ($needle in @($narrow, $wide)) {
+                for ($i = 0; $i -le $bytes.Length - $needle.Length; $i++) {
+                    $match = $true
+                    for ($j = 0; $j -lt $needle.Length; $j++) {
+                        if ($bytes[$i + $j] -ne $needle[$j]) { $match = $false; break }
+                    }
+                    if ($match) {
+                        Remove-Item -LiteralPath (Split-Path $Prefix) -Recurse -Force
+                        Stop-Recording "the password appeared in $($file.Name); outputs removed"
+                    }
+                }
             }
         }
+    } finally {
+        foreach ($buffer in @($narrow, $chars, $wide)) { [Array]::Clear($buffer, 0, $buffer.Length) }
     }
 }
 
