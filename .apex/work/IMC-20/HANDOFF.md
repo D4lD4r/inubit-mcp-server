@@ -39,7 +39,9 @@ Specs referenced, unchanged except the one m1 line in
   - The first run lost its runner (infrastructure).
   - The rerun found a real bug in the m3 test: a Windows path in a double-quoted YAML scalar
     (`\U` escape). Fixed in `3f493ac5` with single quotes, CRLF-normalized output, and a hardened
-    `.bat` stand-in.
+    `.bat` stand-in. The next Windows run showed that the server quotes every argument on
+    Windows (`WindowsArguments.quote`), so the recorded probe argument is `"-v"` there. The test
+    expects that exact value per platform.
   - The same rerun had a temp-dir cleanup error in `WindowsProcessTreeTest`: the `client` folder
     was still in use. The PR does not touch that class, so this is a pre-existing flake.
   - All 27 RecordFixturesPs1Test cases ran on Windows PowerShell 5.1, none skipped.

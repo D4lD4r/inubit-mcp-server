@@ -1286,9 +1286,10 @@ class MainTest {
             .contains("Result: OK")
             .doesNotContain("://", "example.test", PASSWORD, USERNAME);
         // local version probe only (T015, research D-9): no -h option probe while 7.4 is not
-        // verified, and no call carries a server address
+        // verified, and no call carries a server address; on Windows the server quotes every
+        // argument (WindowsArguments.quote) and the batch file records them as passed
         assertThat(Files.readString(c74.resolve("bin/arguments")).replace("\r\n", "\n"))
-            .isEqualTo("-v\n");
+            .isEqualTo(windows ? "\"-v\"\n" : "-v\n");
     }
 
     /**
