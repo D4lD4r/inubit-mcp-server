@@ -28,7 +28,8 @@ Branch `claude/025-imc-17-mandate-b-b4dc46`, based on main `065cc4f2`, pushed; n
   (`reviews/T030-r2.md`).
 
 ## Next step
-Owner runs the recording kit with the machine's owner (IMC-22). On receiving the three Research
+Kit (built at c09fd5c7) sent by the owner to the colleague with the 7.4 installation on
+2026-11-23; waiting for the session (IMC-22). On receiving the three Research
 files: compare `v74_exec_help` / `v74_exec_ps_help` with the 7.4 case table in
 `tools/record-fixtures.ps1` (T027); answer OK or send a corrected recorder (rebuild the kit). On
 receiving `imc17-v74-results-RAW.zip`: keep it outside every repository (a folder under the
