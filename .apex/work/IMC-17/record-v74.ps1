@@ -146,7 +146,14 @@ function Invoke-Check {
     if ($LASTEXITCODE -ne 0) { Fail 'neutralize.py --self-test failed' }
     Ok 'neutralize.py self-test passed'
     if (-not (Test-Path -LiteralPath $NeutralizeMap)) { Fail "neutralize map not found: $NeutralizeMap" }
-    Ok 'neutralize map found'
+    $head = [IO.File]::ReadAllBytes($NeutralizeMap) | Select-Object -First 3
+    if ($head.Count -eq 3 -and $head[0] -eq 0xEF -and $head[1] -eq 0xBB -and $head[2] -eq 0xBF) {
+        Fail 'the neutralize map is saved as "UTF-8 with BOM": save it again in Notepad with encoding "UTF-8"'
+    }
+    # Parses the map (rule format, regular expressions); --dry-run writes nothing and prints counts only.
+    & $python.Path (Join-Path $RepositoryRoot 'tools\neutralize.py') --dry-run --map $NeutralizeMap $FixtureFolder | Out-Null
+    if ($LASTEXITCODE -ne 0) { Fail 'the neutralize map is not valid (message above: rule number and reason)' }
+    Ok 'neutralize map found and valid'
     if ($TrustStore -and -not (Test-Path -LiteralPath $TrustStore)) { Fail "trust store not found: $TrustStore" }
     foreach ($pair in @(@('CliHome', $CliHome), @('JavaHome', $JavaHome), @('WorkRoot', $WorkRoot))) {
         if ($pair[1] -match '[^\x20-\x7e]|["%!^&|<>;]') {

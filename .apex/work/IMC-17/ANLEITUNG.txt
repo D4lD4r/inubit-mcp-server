@@ -27,7 +27,8 @@ CHECKLISTE - vor dem Start bereitlegen
   [ ] StartCLI-URL des Knotens: https://<host>:<port>/ibis/servlet/IBISSoapServlet
   [ ] INUBIT-Benutzer mit Lesezugriff und sein Passwort
   [ ] Python 3.7 oder neuer (siehe Schritt 2)
-  [ ] Die Neutralize-Map (Datei von Daniel; sie wird nach der Session geloescht)
+  [ ] Die Kunden- und Firmennamen, Hostnamen und IP-Bereiche fuer die Neutralize-Map
+      (Schritt 3; die Map wird nach der Session geloescht)
   [ ] Nur falls das Zertifikat des Knotens dem JDK nicht vertraut ist: ein Truststore ohne
       Passwort (.jks, .p12 oder .pfx, Pfad ohne Leerzeichen)
 
@@ -82,8 +83,78 @@ SCHRITT 2 - Python pruefen (und bei Bedarf installieren)
 ------------------------------------------------------------------------
 SCHRITT 3 - Neutralize-Map ablegen
 ------------------------------------------------------------------------
-  Die Datei von Daniel z. B. als C:\imc17-kit\neutralize-map.txt speichern. Sie enthaelt
-  Kundennamen und darf nicht weitergegeben werden; nach der Session loeschen (Schritt 9).
+  Wozu?
+    Die Aufnahmen kommen spaeter in ein oeffentliches Repository. Sie duerfen deshalb keine
+    Kunden- oder Firmendaten enthalten. Die Neutralize-Map ist eine Liste "Suchmuster -> Ersatz":
+    Bevor das Skript eine Aufnahme behaelt, ersetzt es jede Fundstelle eines Musters durch einen
+    neutralen Wert. Die Map selbst enthaelt die echten Namen; sie bleibt auf diesem Rechner,
+    wird nie weitergegeben und nach der Session geloescht (Schritt 9).
+
+  Was ersetzt das Skript schon selbst (muss NICHT in die Map)?
+    - den Hostnamen aus $CliUrl                -> node.example.test
+    - den INUBIT-Benutzer des Logins           -> recorder
+    - Windows-Benutzer, -Domaene, -Rechnername -> windows-user, windows-domain, windows-host
+    - die Pfade von Client, JDK, Arbeitsordner und Benutzerprofil
+
+  Was gehoert in die Map?
+    Alles andere, was den Kunden erkennen laesst und in den Ausgaben von StartCLI stehen kann,
+    vor allem in den Prozesslisten (Workflow-, Modul- und Prozessnamen) und im Health-Check:
+    - Kunden- und Firmennamen, auch Abkuerzungen und Praefixe in Workflow-Namen (z. B. "MB_")
+    - weitere Hostnamen und Domaenen (z. B. andere Server, Mail- oder Datenbankrechner)
+    - IP-Adressen und Netzbereiche
+    - Namen anderer INUBIT-Benutzer (z. B. Besitzer von Prozessen)
+    - Personen- oder E-Mail-Namen
+    Tipp: Der Besitzer des Rechners kennt diese Namen; am einfachsten in der Workbench die
+    Workflow- und Modulnamen ansehen und die Kundenteile davon sammeln.
+
+  Format (eine Regel pro Zeile):
+        Suchmuster<TAB>Ersatz
+    - Zwischen Muster und Ersatz steht genau ein Tabulator (Taste "Tab"), kein Leerzeichen.
+    - Zeilen, die mit # beginnen, sind Kommentare; leere Zeilen werden ignoriert.
+    - Mindestens eine Regel muss enthalten sein.
+    - Das Muster ist ein regulaerer Ausdruck. Fuer einfache Namen reicht:
+        .        als  \.     schreiben (ein Punkt muss mit \ davor stehen)
+        (?i)     am Anfang = Gross-/Kleinschreibung egal
+        \b       = Wortgrenze (z. B. \bMB_ trifft "MB_Rechnung", nicht "XMB_")
+        \d+      = eine oder mehrere Ziffern
+    - Der Ersatz ist normaler Text. Neutrale Werte: acme, ACME_, jdoe, host.example.test,
+      192.0.2.10 (Adressen aus 192.0.2.x sind fuer Beispiele reserviert).
+    - Reihenfolge: Die Regeln wirken von oben nach unten. Lange Muster (ganze Hostnamen) vor
+      kurzen (Firmenname) schreiben, sonst ersetzt die kurze Regel schon einen Teil.
+    - Ein Ersatz darf selbst kein Muster der Map treffen (z. B. nicht "Musterbau" durch
+      "Musterbau-neutral" ersetzen); das Skript lehnt eine solche Map ab.
+
+  So geht es:
+    1. In der PowerShell (Ordner C:\imc17-kit) die Datei anlegen und mit dem Editor oeffnen:
+
+          notepad .\neutralize-map.txt
+
+       Die Frage "Neue Datei erstellen?" mit "Ja" beantworten.
+    2. Die Regeln eintragen (Beispiel unten). Zwischen Muster und Ersatz die Taste "Tab".
+    3. "Datei > Speichern unter...": Codierung "UTF-8" waehlen (NICHT "UTF-8 mit BOM"),
+       Dateityp "Alle Dateien", Name neutralize-map.txt, speichern.
+    4. In Schritt 4 bei $NeutralizeMap eintragen: 'C:\imc17-kit\neutralize-map.txt'.
+       Schritt 5 (Pruefung) testet die Map; ein Fehler nennt die Nummer der Regel.
+
+  Beispiel (erfundene Firma "Musterbau GmbH"; <TAB> = Taste "Tab", nicht abtippen):
+
+        # Neutralize-Map fuer die INUBIT-7.4-Aufnahme
+        [a-z0-9.-]+\.musterbau\.local<TAB>host.example.test
+        (?i)musterbau<TAB>acme
+        \bMB_<TAB>ACME_
+        h\.schmidt<TAB>jdoe
+        10\.20\.\d+\.\d+<TAB>192.0.2.10
+
+    Wirkung auf eine Zeile einer Prozessliste:
+        vorher:  4711 MB_Rechnungseingang Error h.schmidt inubit01.musterbau.local 10.20.3.44
+        nachher: 4711 ACME_Rechnungseingang Error jdoe host.example.test 192.0.2.10
+
+  Kontrolle nach jeder Aufnahme (Schritt 6 und 8): nach den echten Namen suchen, es darf
+  nichts gefunden werden, z. B.
+
+        Select-String -Path .\src\test\resources\fixtures\v7_4\cli\* -Pattern 'musterbau','MB_'
+
+  Findet der Befehl etwas: die fehlende Regel in der Map ergaenzen und den Schritt wiederholen.
 
 
 ------------------------------------------------------------------------
