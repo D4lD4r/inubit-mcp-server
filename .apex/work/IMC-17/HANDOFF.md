@@ -1,7 +1,8 @@
 # Handoff — IMC-17 · Executing (Blocked) · 2026-11-23 · run executor-1
 
 ## Status
-Run ended: only blocked work is left. IMC-17 is `Executing` with flag `Blocked`, assignee APEX
+Run ended: only blocked work is left. IMC-21 answered (option A); IMC-17 stays `Executing` with flag
+`Blocked` until IMC-22 is done, assignee APEX
 Executor (claim read back), plan in comment 10052.
 Spec: `specs/025-inubit-74-support/` pinned `2bfe55e7`; this branch amends spec.md for the IMC-19
 decision (`c99fe5c8`, not yet reviewed with review-spec, not merged). Plan and tasks in the same
@@ -20,15 +21,14 @@ is a spec MR after T029).
   (`reviews/T030-r1.md`). `NoCustomerIdentifiersTest` green.
 
 ## Next step
-When IMC-21 is answered: if option A, keep IMC-22 as is and run T026 in the chat (machine, client
-version, node, non-production classification, approval); otherwise rewrite IMC-22 for the chosen
-option and, for B1/B2/C, amend the spec first (QC5). After the recordings: T028 commit, then T029.
+T026 in the chat with the owner: machine, client version (`v74_version` = 7.4), node
+`<group>/<node>`, its non-production classification, Python and neutralize map present, then the
+owner's approval for the recording. Record them without host names in quickstart.md. Then the
+owner runs IMC-22; after the recordings: T028 commit, then T029.
 
 ## Open questions
-- [IMC-21](https://danieldecker.atlassian.net/browse/IMC-21) — how the 7.4 recordings are made on
-  the Windows machine where only MCP releases can be rolled out (IMC-18). Options A (recorder copied
-  as the "additional Windows script"), B1 (recorder in the release archive), B2 (record mode in the
-  jar), C (no recording → re-cut). Recommendation A. Blocks T026–T028 and T035.
+- None. [IMC-21](https://danieldecker.atlassian.net/browse/IMC-21) answered (option A); its card
+  moves QC2/QC5 are the Product Engineer's.
 
 ## Owner actions open
 - [IMC-22](https://danieldecker.atlassian.net/browse/IMC-22) — recording session T026–T028 (commands
@@ -38,6 +38,9 @@ option and, for B1/B2/C, amend the spec first (QC5). After the recordings: T028 
 - Still to create after T029: the Windows live check of T035 (commands follow from T029).
 
 ## Decisions received
+- IMC-21 (Daniel Decker, in the chat with this agent, 2026-11-23): option A — the recorder is the
+  allowed "additional Windows script" and is copied to the machine; NoCustomerIdentifiersTest runs
+  on the development machine. Procedural, no spec amendment; IMC-22 stays valid.
 - IMC-19 (Daniel Decker, 2026-11-23): no macOS machine with 7.4; assume it works, fix bugs when
   they appear → Windows-only live check (the spec's open question foresaw this owner decision).
 - IMC-18 (Daniel Decker, 2026-11-23): a 7.4 installation exists; on that machine only a new MCP
