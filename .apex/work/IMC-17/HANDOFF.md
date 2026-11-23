@@ -1,87 +1,85 @@
 # Handoff — IMC-17 · Executing (Blocked) · 2026-11-23 · run executor-1
 
 ## Status
-Run ended: only blocked work is left. IMC-21 answered (option A); IMC-17 stays `Executing` with flag
-`Blocked` until IMC-22 is done, assignee APEX
-Executor (claim read back), plan in comment 10052.
-Spec: `specs/025-inubit-74-support/` pinned `2bfe55e7`; this branch amends spec.md for the IMC-19
-decision (`c99fe5c8`, not yet reviewed with review-spec, not merged). Plan and tasks in the same
-folder; this mandate's range is T026–T037 (T030 `[X]` as a proposal). Branch
-`claude/025-imc-17-mandate-b-b4dc46`, based on main `065cc4f2`, pushed; no PR yet (delivery step 1
-is a spec MR after T029).
+Only blocked work is left. IMC-17 is `Executing` with flag `Blocked`, assignee APEX Executor
+(claim read back), plan in comment 10052. Blocked by IMC-22 (recording session) and IMC-23
+(ratification); IMC-21 and IMC-24 are answered (their card moves QC2/QC5 are the Product
+Engineer's).
+Spec: `specs/025-inubit-74-support/` pinned `2bfe55e7`; this branch amends it for IMC-19
+(`c99fe5c8`) and IMC-24 (`4f7c6d4a`, `a0b9dace`). Not yet reviewed with review-spec, not merged;
+delivery step 1 (spec MR after T029) carries it. Task range T026–T037 (T030 `[X]` as a proposal).
+Branch `claude/025-imc-17-mandate-b-b4dc46`, based on main `065cc4f2`, pushed; no PR yet.
 
 ## Done since last handoff
-- Claim, plan comment, M3, flag; Question IMC-21, Owner actions IMC-22 and IMC-23, each linked
-  Blocks → IMC-17.
-- `c99fe5c8`: IMC-19 decision in spec.md (FR-031, SC-007, US6/US7 independent tests,
-  Preconditions, Open Questions → Decided), plan.md, tasks.md (Mandate B header, T035),
-  quickstart.md step 6 — the live check is Windows-only.
-- `a99e59fb`: T030 — constitution 1.2.0 proposed (Principle V: 7.4 read-only, StartCLI only),
-  marked PROPOSED, Last Amended a TODO; duo review round 1 APPROVED with two minors
-  (`reviews/T030-r1.md`). `NoCustomerIdentifiersTest` green.
+- IMC-21 answered (option A) → recording kit in `.apex/work/IMC-17/`: `ANLEITUNG.txt` (German,
+  step by step), `record-v74.ps1` (run sheet, phases Check / Research / Session / Pack),
+  `build-kit.py` (builds the ZIP with the recorder from `tools/`).
+- T026: owner approved the recording in the chat; the session runs with the machine's owner.
+- IMC-24 (owner, chat): recordings for evaluation only, raw, never in the repository →
+  spec FR-014/015/019/021–023/025/030, SC-009, Preconditions, Decided; tasks T027–T029;
+  quickstart. Kit writes raw results to `C:\imc17-results` (recorder `-OutputDirectory`) with a
+  map that replaces nothing; ZIP `imc17-v74-results-RAW.zip`.
+- T030 revised to constitution **2.0.0 (MAJOR)** on the owner's choice (`a0b9dace`): Principles
+  III and V accept fixtures adjusted to evaluated recordings plus a passed live check where storing
+  recordings is forbidden; 7.4 read-only, StartCLI only. Review round 2 APPROVED, two minors
+  (`reviews/T030-r2.md`).
 
 ## Next step
-The owner runs IMC-22 together with the owner of the Windows machine, using the recording kit
-ZIP (built by `python3 .apex/work/IMC-17/build-kit.py <out.zip>`: `ANLEITUNG.txt` in German,
-step by step; `record-v74.ps1`; recorder and neutralizer from `tools/`). Phases `Check` →
-`Research` → owner sends `v74_version`, `v74_exec_help`, `v74_exec_ps_help` stdout here → T027
-catalogue check (OK, or a new `record-fixtures.ps1` → rebuild the kit) → `Session` → `Pack`
-(`imc17-v74-recordings.zip`). Then unpack the ZIP into `src/test/resources/fixtures/v7_4/cli`, run
-`NoCustomerIdentifiersTest`, finish T028, then T029.
+Owner runs the recording kit with the machine's owner (IMC-22). On receiving the three Research
+files: compare `v74_exec_help` / `v74_exec_ps_help` with the 7.4 case table in
+`tools/record-fixtures.ps1` (T027); answer OK or send a corrected recorder (rebuild the kit). On
+receiving `imc17-v74-results-RAW.zip`: keep it outside every repository (a folder under the
+owner's home, not under `~/Development`), evaluate it, adjust the reconstructed fixtures with
+neutral values only (T028, FR-022), run `NoCustomerIdentifiersTest`, commit, then ask the owner to
+delete the raw ZIP. Then T029.
 
 ## Setup on the Windows machine (before `-Phase Check`)
-- Repository copy of branch `claude/025-imc-17-mandate-b-b4dc46` (ZIP from GitHub is enough).
-- **Python 3.7 or newer** — unknown whether installed. `tools\neutralize.py` needs only the
-  standard library (no pip packages). If missing: install from python.org ("Install for current
-  user", tick "Add python.exe to PATH"; no admin rights needed), or unpack the "Windows embeddable
-  package" and put its folder on PATH for that PowerShell session. The Microsoft Store placeholder
-  `python.exe` does not count; `-Phase Check` detects it. Undo: uninstall via Apps, or delete the
-  unpacked folder.
-- The local neutralize map (copied to the machine for the session, deleted afterwards).
-- 7.4 Workbench client with its JDK: present (owner, 2026-11-23).
+- **Python 3.7 or newer** — unknown whether installed; the recorder always runs
+  `tools\neutralize.py` (standard library only). If missing: python.org installer ("Install for
+  current user", "Add python.exe to PATH") or the "Windows embeddable package" on PATH for the
+  session; the Store placeholder does not count (`-Phase Check` detects it). Undo: uninstall via
+  Apps or delete the unpacked folder.
+- 7.4 Workbench client with its JDK: present (owner, 2026-11-23). No neutralize map (IMC-24).
 
 ## Open questions
-- None. [IMC-21](https://danieldecker.atlassian.net/browse/IMC-21) answered (option A); its card
-  moves QC2/QC5 are the Product Engineer's.
+- None.
 
 ## Owner actions open
-- [IMC-22](https://danieldecker.atlassian.net/browse/IMC-22) — recording session T026–T028 (commands
-  for option A, with undo), due 2026-12-04.
-- [IMC-23](https://danieldecker.atlassian.net/browse/IMC-23) — ratify constitution 1.2.0 before
+- [IMC-22](https://danieldecker.atlassian.net/browse/IMC-22) — recording session with the kit
+  (comment 10057 replaces the description's commands), due 2026-12-04.
+- [IMC-23](https://danieldecker.atlassian.net/browse/IMC-23) — ratify constitution **2.0.0** before
   T035, due 2026-12-11.
-- Still to create after T029: the Windows live check of T035 (commands follow from T029).
+- Still to create after T029: the Windows live check of T035.
 
 ## Decisions received
-- T026 (Daniel Decker, in the chat with this agent, 2026-11-23): recording **approved**. The
-  owner does not know the machine and runs the session with its owner; a 7.4 Workbench with JDK is
-  there; "the machine is not production". Still to confirm at the session: `v74_version` reports
-  7.4 and the INUBIT node is not classified production (machine owner sets `$NodeIsNonProduction`
-  in the run sheet; without it the sheet refuses to run). The approval covers the cases of IMC-22
-  only, read-only, against that non-production node.
-- IMC-21 (Daniel Decker, in the chat with this agent, 2026-11-23): option A — the recorder is the
-  allowed "additional Windows script" and is copied to the machine; NoCustomerIdentifiersTest runs
-  on the development machine. Procedural, no spec amendment; IMC-22 stays valid.
-- IMC-19 (Daniel Decker, 2026-11-23): no macOS machine with 7.4; assume it works, fix bugs when
-  they appear → Windows-only live check (the spec's open question foresaw this owner decision).
-- IMC-18 (Daniel Decker, 2026-11-23): a 7.4 installation exists; on that machine only a new MCP
-  version can be rolled out, maybe with an additional Windows script → reading unclear, IMC-21.
+- IMC-24 (Daniel Decker, chat, 2026-11-23): recordings evaluated only, no 7.4 fixtures from
+  recordings, raw hand-over without neutralization; constitution conflict solved by a MAJOR
+  amendment 2.0.0 (rejected: deviation in plan.md; revisiting IMC-24). Behaviour-changing:
+  applied as spec amendment.
+- T026 (chat): recording approved; machine unknown to the owner; 7.4 Workbench with JDK present;
+  "the machine is not production". At the session: `v74_version` = 7.4 and the node is not
+  production (`$NodeIsNonProduction`, set by the machine owner).
+- IMC-21 (chat): option A — recorder copied to the machine as the "additional Windows script".
+- IMC-19: Windows-only live check. IMC-18: only MCP releases on that machine (→ IMC-21).
 
 ## Tried and discarded
-- `addGraphContext` for the Blocks link: 403 (missing scope); `createJiraIssueLink` via
-  executeWrite works.
+- Neutralize map in the kit (guide step written, then dropped by IMC-24).
+- `addGraphContext` for Blocks links: 403; `createJiraIssueLink` via executeWrite works.
 
 ## Assumptions, risks, gotchas
-- The recorder needs Python (`tools/neutralize.py`) and the local neutralize map on the Windows
-  machine, besides the 7.4 client and its JDK — named in IMC-21 and IMC-22.
-- The live check needs a pre-flip MCP build on that machine; with "only MCP releases" this may mean
-  a release before the flip (owner decision, IMC-21).
-- T029 must run review-spec over the whole amended spec, including the IMC-19 change of `c99fe5c8`.
-- T030 minors: Principle V text reads as in force without the PROPOSED context; at ratification set
-  the version line and Last Amended date, drop the Sync Impact Report, update plan.md (cites 1.1.0).
-- IMC-16 m6 (`CapabilityMatrix.lines()` skips 7.4 only while every capability has a note) is part
-  of T029.
-- Jira: `editJiraIssue` needs `{"assignee": {"accountId": …}}`; a bare string is silently ignored.
-  The flag is `Flagged: ["Impediment"]`.
+- The raw results contain customer data: never under a repository, never in a commit, delete after
+  evaluation. Fixtures get neutral values only (`legacy74/node1`, `jdoe`,
+  `inubit-legacy74-1.example.test`).
+- The recorder still masks host, login user, Windows names and paths, and stops on the password
+  (built in, not changed).
+- Kit tested on macOS only (parse, Check up to the Windows-only `Test-NetConnection`, Pack guard,
+  no-op map); never run on Windows.
+- T029 must change the FR-015 guard (`V74RecordedFixturesTest`) to "adjusted to the evaluation",
+  run review-spec over all amendments, and handle IMC-16 m6 (`CapabilityMatrix.lines()`).
+- T030 minor for ratification: Principle III still calls integration tests "optional" while the
+  exception path needs a live check.
+- Shell edits: the safety check misreads heredocs containing `Remove-Item`; use a script file.
+- Jira: assignee needs `{"accountId": …}`; the flag is `Flagged: ["Impediment"]`.
 
 ## Claims for verification
 - None yet (no Mandate B code).
