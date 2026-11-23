@@ -478,13 +478,16 @@ cannot identify stays unknown with the US2 hint.
   German-language variants (as for 6.1) are added only if the recordings show language-dependent
   output; the recorder runs the client in English, as the server does. The research cases of
   FR-016 (`v74_version`, `v74_exec_help`, `v74_exec_ps_help`, `v74_direct_health`) back no
-  capability; their recordings are kept as evidence for the Mandate B design.
+  capability; their recordings are evaluated for the Mandate B design and not kept in the
+  repository (FR-021, IMC-24).
 - **FR-015**: A guard test MUST fail when the production matrix declares a 7.4 capability
   `supported` while any case of that capability is listed in `RECONSTRUCTED.txt`, or is a derived
   case whose source case is not recorded; and MUST fail when a listed case has no files or a fixture
   case is in none of `RECONSTRUCTED.txt`, `DERIVED.txt` and the README's list of recorded cases
   (the single source for recorded cases). The 7.4 fixtures MUST pass the customer identifier
-  scan.
+  scan. *Mandate B (IMC-24):* no 7.4 recording enters the repository, so the 7.4 cases stay
+  reconstructed; the guard's condition for `supported` changes to FR-030 as amended (every case of
+  the capability adjusted to the evaluation), the mechanism is fixed by T029.
 - **FR-016**: The Windows recorder MUST know these 7.4 cases, StartCLI only (no REST request),
   read-only, each storing standard output, standard error and exit code:
   - `v74_help` (`-h`, local, no server) and `v74_version` (`-v`, local, no server);
@@ -520,7 +523,8 @@ cannot identify stays unknown with the US2 hint.
   that the recording session can adjust them after `v74_exec_help` and `v74_exec_ps_help` without a
   code change elsewhere.
 - **FR-019**: Windows recordings MUST be stored byte-exact in the repository (line ends and code
-  page kept).
+  page kept). 7.4 recordings are not stored (FR-021, IMC-24); the adjusted 7.4 fixtures use the
+  line ends and code page the evaluation shows.
 
 #### Mandate A — Regression and documentation
 
@@ -536,22 +540,29 @@ cannot identify stays unknown with the US2 hint.
 - **FR-021**: The 7.4 cases MUST be recorded read-only, by hand, with the Windows recorder, on a
   Windows machine with the 7.4 client and its JDK, against a non-production 7.4.0.90 node, after the
   owner has approved the recording in the chat. A node classified `production` MUST NOT be
-  recorded. The recordings MUST be neutralized with the owner's local neutralize map before they
-  enter the repository.
-- **FR-022**: Each recorded case MUST replace its reconstructed counterpart and be removed from
-  `RECONSTRUCTED.txt`. Where a recording shows that a reconstructed case does not exist on 7.4 (for
-  example a command with another name), the case and every parser expectation built on it MUST be
-  replaced, not kept.
+  recorded. The recordings are for evaluation only (owner decision 2026-11-23, IMC-24): they MUST
+  NOT enter the repository, are handed to the owner raw (no customer neutralization; the recorder's
+  own replacement of the node's host, the login user, the Windows account names and local paths
+  and its password check stay), are kept outside every repository while they are evaluated, and
+  are deleted after the evaluation. The recorder writes them to a folder outside the repository
+  (its `-OutputDirectory`).
+- **FR-022**: Each reconstructed 7.4 case MUST be adjusted to what the evaluated recordings show
+  (commands, options, output format, line ends, language), with neutral values only, and stays
+  listed in `RECONSTRUCTED.txt` with a note that it was adjusted to the evaluation. Where a
+  recording shows that a reconstructed case does not exist on 7.4 (for example a command with
+  another name), the case and every parser expectation built on it MUST be replaced, not kept.
+  No recorded byte is copied into a fixture.
 - **FR-023**: The differences between 7.4 and 6.1 (options, interactive commands, output formats,
   password handling, Java runtime of the client) MUST be documented in the research notes from the
-  recordings.
+  evaluation, with neutral values only.
 
 #### Mandate B — Health and processes
 
 - **FR-024**: All 7.4-specific behaviour MUST live in adapters selected by the node's version; tool
   logic MUST NOT branch on version strings. The 7.4 adapters MAY reuse the 6.1 StartCLI adapters
   where the recordings show the same commands and formats.
-- **FR-025**: The 7.4 parsers MUST be tested against the recorded 7.4 outputs, MUST parse every
+- **FR-025**: The 7.4 parsers MUST be tested against the 7.4 fixtures adjusted to the evaluated
+  recordings (FR-022, IMC-24), MUST parse every
   language and line-end variant the recordings show, and MUST treat unrecognized output as
   `UNEXPECTED_RESPONSE`, never as an empty result.
 - **FR-026**: `get_health` on a 7.4 node MUST report, from StartCLI: `reachable`, `status` (`OK`
@@ -582,10 +593,11 @@ cannot identify stays unknown with the US2 hint.
   allowlist, CRLF and code page handling). Feature 012 FR-012 (the server's own TLS handshake for
   the pin, no HTTP request) and FR-012a apply; the 7.4 client counts as having neither a
   trust-store nor a host-name option until the recordings show otherwise.
-- **FR-030**: A 7.4 capability MAY be declared `supported` only when none of its cases is listed in
-  `RECONSTRUCTED.txt`, every derived case of it has a recorded source (FR-015, FR-016a), the `help` case has been
-  replaced by the `v74_help` recording and its contract tests run against the recordings (Constitution III,
-  V).
+- **FR-030**: A 7.4 capability MAY be declared `supported` only when every case of it (and the
+  `help` case) has been adjusted to the evaluated recordings (FR-022), its contract tests run
+  against these adjusted fixtures, the live check of FR-031 has passed and the constitution
+  amendment is ratified (Constitution III, V as amended). Recorded fixtures are not required
+  (IMC-24).
 - **FR-031**: `get_health` and `find_processes` on 7.4 MUST be declared `supported` only after a
   live check of that capability against the 7.4.0.90 node has passed from Windows, with the
   outcomes recorded in the quickstart. macOS and Linux are not live-checked (owner decision
@@ -655,8 +667,9 @@ cannot identify stays unknown with the US2 hint.
 - **SC-008** (IMC-6 criterion 1, detection — Mandate B): a 7.4 node on `AUTO` with a 7.4 client is
   detected as 7.4; no node whose REST detection succeeds (8.1, 9.0) receives an additional
   request during detection.
-- **SC-009** (Mandate B): no 7.4 capability is `supported` while one of its cases is reconstructed
-  (guard test green with the production matrix).
+- **SC-009** (Mandate B): no 7.4 capability is `supported` while one of its cases has not been
+  adjusted to the evaluated recordings (guard test green with the production matrix); no 7.4
+  recording is in the repository (IMC-24).
 
 ## Out of Scope
 
@@ -675,8 +688,9 @@ cannot identify stays unknown with the US2 hint.
 - **Mandate A**: none.
 - **Mandate B**:
   - a Windows machine with an INUBIT 7.4 Workbench client and its JDK, CLI login to a
-    non-production 7.4.0.90 node, and a person who runs the Windows recorder there (with the local
-    neutralize map) and the live check of the MCP server on that machine;
+    non-production 7.4.0.90 node, Python 3.7 or newer for the recorder, and a person who runs the
+    Windows recorder there (recording kit, raw output, IMC-24) and the live check of the MCP server
+    on that machine;
   - the constitution amendment that names INUBIT 7.4 as an additionally supported, read-only,
     CLI-only version under Principle V, ratified before the first 7.4 capability is declared
     `supported`.
@@ -709,6 +723,14 @@ cannot identify stays unknown with the US2 hint.
   read-only, StartCLI only, because its REST interface is unverified) before Mandate B declares the
   first 7.4 capability `supported`.
 ### Decided
+
+- **Recordings for evaluation only** (FR-015, FR-021 – FR-023, FR-030, SC-009) — **decided by the
+  owner, 2026-11-23 (IMC-24)**: the 7.4 recordings never enter the repository; they are handed
+  over raw, evaluated outside the repository and deleted afterwards. The reconstructed fixtures
+  are adjusted to the evaluation and stay reconstructed; 7.4 capabilities are enabled through the
+  Windows live check and the ratified constitution amendment. Rejected alternatives: synthetic
+  fixtures modelled on the recordings; neutralized recordings kept privately with local-only
+  contract tests; neutralizing on the Windows machine.
 
 - **macOS / Linux live check** (FR-031, SC-007) — **decided by the owner, 2026-11-23 (IMC-19)**:
   no macOS or Linux machine with the 7.4 client and access to a 7.4 node exists; the Windows-only

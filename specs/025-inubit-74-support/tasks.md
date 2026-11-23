@@ -385,15 +385,16 @@ the live check is Windows-only, spec FR-031, IMC-19.)
   `v74_exec_help`, `v74_exec_ps_help`, `v74_direct_health` with `tools/record-fixtures.ps1`;
   compare the interactive commands and `ps` options with the catalogue and adjust the 7.4 entries
   of the catalogue (one place, spec FR-018) before the session cases; note every adjustment in
-  the quickstart. The research recordings are stored in `fixtures/v7_4/cli/` under their `v74_`
-  names and added to the README's recorded list (they back no capability). Stop and ask the owner if the client reads the password from the console instead
+  the quickstart. The research recordings are evaluated only and never committed (spec FR-021,
+  IMC-24). Stop and ask the owner if the client reads the password from the console instead
   of standard input.
 - [ ] T028 [US7] Session and failure recordings (quickstart step 4): `v74_health_session`,
   `v74_ps_all`, `v74_ps_error`, `v74_ps_waiting`, `v74_ps_queued`, `v74_ps_limit5`,
-  `v74_login_failed`, `v74_failure`; replace each reconstructed case in `fixtures/v7_4/cli/`
-  (spec FR-022), remove it from `RECONSTRUCTED.txt`, add it to the README's recorded list (and
-  `help` with source `v74_help`); move the derivable cases to `DERIVED.txt` with source and edit
-  (spec FR-016a); run `NoCustomerIdentifiersTest`; commit.
+  `v74_login_failed`, `v74_failure`, into a folder outside the repository (recording kit,
+  `.apex/work/IMC-17/`; raw output, spec FR-021, IMC-24). Evaluate them outside the repository and
+  adjust each reconstructed case in `fixtures/v7_4/cli/` to the evaluation with neutral values
+  only (spec FR-022; it stays in `RECONSTRUCTED.txt` with an "adjusted" note); run
+  `NoCustomerIdentifiersTest`; commit; delete the raw recordings after the evaluation.
 
 ## Phase 10: Re-clarification from the recordings
 
@@ -402,7 +403,8 @@ the live check is Windows-only, spec FR-031, IMC-19.)
   addendum in `specs/025-inubit-74-support/research.md`; then update `spec.md` (Mandate B
   requirements as the recordings fix them), `plan.md` and this `tasks.md` (replace T031–T035 by
   detailed TDD tasks: adapters or parser profiles, script mode vs session, client selection,
-  detection trigger; revisit what switches at the first flip because it is keyed on "every 7.4
+  detection trigger, the changed FR-015 guard (`V74RecordedFixturesTest`: "adjusted to the
+  evaluation" instead of "recorded", IMC-24); revisit what switches at the first flip because it is keyed on "every 7.4
   capability carries a note": the next-step text of T009, the `lines()` exclusion of T007 (7.4 must
   not appear in "; supported: …" for capabilities out of scope on 7.4), the warning of T014 and the
   `-h` gate of T015; decide what a remaining "not yet verified" note means on 7.4, research D-15), each reviewed with `d4ld4r-speckit-duo:review-spec` / `review-plan` before any

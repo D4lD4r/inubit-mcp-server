@@ -38,9 +38,13 @@ powershell -ExecutionPolicy Bypass -File tools\record-fixtures.ps1 -List
 Preconditions (spec): Windows machine with the 7.4 Workbench client and its JDK; CLI login to a
 **non-production** 7.4.0.90 node; the local neutralize map; the owner's approval in the chat.
 
-For IMC-17 the steps below are wrapped in the run sheet `.apex/work/IMC-17/record-v74.ps1`
-(placeholders filled in with the owner of the machine; phases `Check`, `Research`, `Session`,
-`Pack`). It needs Python 3.7 or newer (standard library only) for `tools\neutralize.py`.
+For IMC-17 the steps below are wrapped in the recording kit (`.apex/work/IMC-17/`: run sheet
+`record-v74.ps1`, German guide `ANLEITUNG.txt`, built by `build-kit.py`; phases `Check`,
+`Research`, `Session`, `Pack`). It needs Python 3.7 or newer (standard library only) for
+`tools\neutralize.py`. IMC-24 (spec FR-021): the kit writes the raw results to `C:\imc17-results`
+(recorder `-OutputDirectory`) with a map that replaces nothing; they never enter the repository,
+are evaluated outside it and deleted afterwards. Steps 1–5 below describe the original
+in-repository recording and no longer apply as written.
 
 1. Set the allowlists for this run only:
 

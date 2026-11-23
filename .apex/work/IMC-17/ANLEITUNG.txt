@@ -4,18 +4,20 @@ ANLEITUNG - Aufnahme der INUBIT-7.4-Faelle (IMC-17, Aufgaben T026-T028)
 Worum geht es?
   Der MCP-Server soll INUBIT 7.4 lesen koennen (Health-Check und Prozesssuche). Dafuer brauchen
   wir echte Ausgaben des 7.4-Kommandozeilenclients (StartCLI). Dieses Paket nimmt sie auf einem
-  Windows-Rechner mit der 7.4 Workbench auf, entfernt Kundendaten daraus und packt sie in ein ZIP.
+  Windows-Rechner mit der 7.4 Workbench auf und packt sie in ein ZIP. Daniel wertet die
+  Ergebnisse aus und passt damit den MCP-Server an. Die Ergebnisse kommen NIE in ein Repository.
 
 Dauer: etwa 30 bis 60 Minuten.
 
 Sicherheit
   - Alle Faelle sind nur lesend. Auf dem INUBIT-Knoten wird nichts geaendert.
   - Nur der Rechner aus der eingetragenen StartCLI-URL wird kontaktiert.
-  - Benutzername und Passwort werden bei jedem Fall abgefragt und nirgends gespeichert. Das
-    Passwort geht nur ueber die Standardeingabe an StartCLI.
-  - Die Rohausgaben liegen nur kurz in einem privaten Ordner unter C:\inubit-record und werden
-    danach geloescht. Ins Ergebnis kommen nur neutralisierte Dateien; das Skript bricht ab, wenn
-    Passwort oder Hostname noch darin stehen.
+  - Das Passwort wird bei jedem Fall abgefragt und nirgends gespeichert. Es geht nur ueber die
+    Standardeingabe an StartCLI; ein Lauf bricht ab, wenn es in einer Ausgabe auftaucht.
+  - Hostname des Knotens, Login-Benutzer, Windows-Benutzer, -Domaene, -Rechnername und lokale
+    Pfade werden durch Platzhalter ersetzt. Alles andere bleibt unveraendert.
+  - Die Ergebnisse sind ROHDATEN: Sie koennen Kundennamen, Workflow-Namen und weitere
+    Rechnernamen enthalten. Nur direkt an Daniel geben, nicht oeffentlich ablegen.
   - Der Knoten darf NICHT als Produktion eingestuft sein.
 
 
@@ -27,22 +29,21 @@ CHECKLISTE - vor dem Start bereitlegen
   [ ] StartCLI-URL des Knotens: https://<host>:<port>/ibis/servlet/IBISSoapServlet
   [ ] INUBIT-Benutzer mit Lesezugriff und sein Passwort
   [ ] Python 3.7 oder neuer (siehe Schritt 2)
-  [ ] Die Kunden- und Firmennamen, Hostnamen und IP-Bereiche fuer die Neutralize-Map
-      (Schritt 3; die Map wird nach der Session geloescht)
   [ ] Nur falls das Zertifikat des Knotens dem JDK nicht vertraut ist: ein Truststore ohne
       Passwort (.jks, .p12 oder .pfx, Pfad ohne Leerzeichen)
+  [ ] Ein Weg, das Ergebnis-ZIP direkt an Daniel zu geben (z. B. USB-Stick oder ein interner,
+      nicht oeffentlicher Austauschordner)
 
 
 ------------------------------------------------------------------------
 SCHRITT 1 - Paket entpacken
 ------------------------------------------------------------------------
   1. Das ZIP entpacken: Rechtsklick > "Alle extrahieren...", als Ziel nur  C:\  eintragen.
-     Das ZIP enthaelt bereits den Ordner imc17-kit, es entsteht also C:\imc17-kit
-     (Pfad ohne Umlaute und Sonderzeichen). Danach gibt es dort:
-        C:\imc17-kit\ANLEITUNG.txt           (diese Datei)
-        C:\imc17-kit\record-v74.ps1          (das Ablaufskript)
-        C:\imc17-kit\tools\                  (Aufnahme-Skript und Neutralisierer)
-        C:\imc17-kit\src\test\resources\fixtures\v7_4\cli\   (hier landen die Aufnahmen)
+     Das ZIP enthaelt bereits den Ordner imc17-kit, es entsteht also C:\imc17-kit.
+     Darin:
+        ANLEITUNG.txt    (diese Datei)
+        record-v74.ps1   (das Ablaufskript)
+        tools\           (Aufnahme-Skript; der Neutralisierer laeuft mit, ersetzt aber nichts)
   2. PowerShell oeffnen (Startmenue: "Windows PowerShell"; keine Administratorrechte noetig) und
      in den Ordner wechseln:
 
@@ -56,13 +57,16 @@ SCHRITT 1 - Paket entpacken
 ------------------------------------------------------------------------
 SCHRITT 2 - Python pruefen (und bei Bedarf installieren)
 ------------------------------------------------------------------------
+  Das Aufnahme-Skript ruft immer ein kleines Python-Programm auf. Es werden keine Zusatzpakete
+  gebraucht.
+
   1. In der PowerShell eingeben:
 
         python --version
 
      Steht dort "Python 3.7" oder hoeher (z. B. "Python 3.12.4"): weiter mit Schritt 3.
   2. Steht dort eine Fehlermeldung, oeffnet sich der Microsoft Store, oder ist die Version
-     kleiner als 3.7: Python installieren. Es werden keine Zusatzpakete gebraucht.
+     kleiner als 3.7: Python installieren.
        Variante A (Installer, ohne Adminrechte):
          - https://www.python.org/downloads/windows/ -> "Windows installer (64-bit)"
          - Im Installer "Add python.exe to PATH" anhaken, dann "Install Now"
@@ -81,84 +85,7 @@ SCHRITT 2 - Python pruefen (und bei Bedarf installieren)
 
 
 ------------------------------------------------------------------------
-SCHRITT 3 - Neutralize-Map ablegen
-------------------------------------------------------------------------
-  Wozu?
-    Die Aufnahmen kommen spaeter in ein oeffentliches Repository. Sie duerfen deshalb keine
-    Kunden- oder Firmendaten enthalten. Die Neutralize-Map ist eine Liste "Suchmuster -> Ersatz":
-    Bevor das Skript eine Aufnahme behaelt, ersetzt es jede Fundstelle eines Musters durch einen
-    neutralen Wert. Die Map selbst enthaelt die echten Namen; sie bleibt auf diesem Rechner,
-    wird nie weitergegeben und nach der Session geloescht (Schritt 9).
-
-  Was ersetzt das Skript schon selbst (muss NICHT in die Map)?
-    - den Hostnamen aus $CliUrl                -> node.example.test
-    - den INUBIT-Benutzer des Logins           -> recorder
-    - Windows-Benutzer, -Domaene, -Rechnername -> windows-user, windows-domain, windows-host
-    - die Pfade von Client, JDK, Arbeitsordner und Benutzerprofil
-
-  Was gehoert in die Map?
-    Alles andere, was den Kunden erkennen laesst und in den Ausgaben von StartCLI stehen kann,
-    vor allem in den Prozesslisten (Workflow-, Modul- und Prozessnamen) und im Health-Check:
-    - Kunden- und Firmennamen, auch Abkuerzungen und Praefixe in Workflow-Namen (z. B. "MB_")
-    - weitere Hostnamen und Domaenen (z. B. andere Server, Mail- oder Datenbankrechner)
-    - IP-Adressen und Netzbereiche
-    - Namen anderer INUBIT-Benutzer (z. B. Besitzer von Prozessen)
-    - Personen- oder E-Mail-Namen
-    Tipp: Der Besitzer des Rechners kennt diese Namen; am einfachsten in der Workbench die
-    Workflow- und Modulnamen ansehen und die Kundenteile davon sammeln.
-
-  Format (eine Regel pro Zeile):
-        Suchmuster<TAB>Ersatz
-    - Zwischen Muster und Ersatz steht genau ein Tabulator (Taste "Tab"), kein Leerzeichen.
-    - Zeilen, die mit # beginnen, sind Kommentare; leere Zeilen werden ignoriert.
-    - Mindestens eine Regel muss enthalten sein.
-    - Das Muster ist ein regulaerer Ausdruck. Fuer einfache Namen reicht:
-        .        als  \.     schreiben (ein Punkt muss mit \ davor stehen)
-        (?i)     am Anfang = Gross-/Kleinschreibung egal
-        \b       = Wortgrenze (z. B. \bMB_ trifft "MB_Rechnung", nicht "XMB_")
-        \d+      = eine oder mehrere Ziffern
-    - Der Ersatz ist normaler Text. Neutrale Werte: acme, ACME_, jdoe, host.example.test,
-      192.0.2.10 (Adressen aus 192.0.2.x sind fuer Beispiele reserviert).
-    - Reihenfolge: Die Regeln wirken von oben nach unten. Lange Muster (ganze Hostnamen) vor
-      kurzen (Firmenname) schreiben, sonst ersetzt die kurze Regel schon einen Teil.
-    - Ein Ersatz darf selbst kein Muster der Map treffen (z. B. nicht "Musterbau" durch
-      "Musterbau-neutral" ersetzen); das Skript lehnt eine solche Map ab.
-
-  So geht es:
-    1. In der PowerShell (Ordner C:\imc17-kit) die Datei anlegen und mit dem Editor oeffnen:
-
-          notepad .\neutralize-map.txt
-
-       Die Frage "Neue Datei erstellen?" mit "Ja" beantworten.
-    2. Die Regeln eintragen (Beispiel unten). Zwischen Muster und Ersatz die Taste "Tab".
-    3. "Datei > Speichern unter...": Codierung "UTF-8" waehlen (NICHT "UTF-8 mit BOM"),
-       Dateityp "Alle Dateien", Name neutralize-map.txt, speichern.
-    4. In Schritt 4 bei $NeutralizeMap eintragen: 'C:\imc17-kit\neutralize-map.txt'.
-       Schritt 5 (Pruefung) testet die Map; ein Fehler nennt die Nummer der Regel.
-
-  Beispiel (erfundene Firma "Musterbau GmbH"; <TAB> = Taste "Tab", nicht abtippen):
-
-        # Neutralize-Map fuer die INUBIT-7.4-Aufnahme
-        [a-z0-9.-]+\.musterbau\.local<TAB>host.example.test
-        (?i)musterbau<TAB>acme
-        \bMB_<TAB>ACME_
-        h\.schmidt<TAB>jdoe
-        10\.20\.\d+\.\d+<TAB>192.0.2.10
-
-    Wirkung auf eine Zeile einer Prozessliste:
-        vorher:  4711 MB_Rechnungseingang Error h.schmidt inubit01.musterbau.local 10.20.3.44
-        nachher: 4711 ACME_Rechnungseingang Error jdoe host.example.test 192.0.2.10
-
-  Kontrolle nach jeder Aufnahme (Schritt 6 und 8): nach den echten Namen suchen, es darf
-  nichts gefunden werden, z. B.
-
-        Select-String -Path .\src\test\resources\fixtures\v7_4\cli\* -Pattern 'musterbau','MB_'
-
-  Findet der Befehl etwas: die fehlende Regel in der Map ergaenzen und den Schritt wiederholen.
-
-
-------------------------------------------------------------------------
-SCHRITT 4 - Einstellungen eintragen
+SCHRITT 3 - Einstellungen eintragen
 ------------------------------------------------------------------------
   1. record-v74.ps1 mit dem Editor oeffnen:
 
@@ -177,37 +104,37 @@ SCHRITT 4 - Einstellungen eintragen
      $CliUrl         StartCLI-URL des 7.4-Knotens.
                      Beispiel: 'https://inubit-test.firma.local:8443/ibis/servlet/IBISSoapServlet'
 
-     $Group, $Node   Neutrale Bezeichnungen; so lassen ('legacy74', 'node1').
+     $Group, $Node   So lassen ('legacy74', 'node1').
 
      $TrustStore     Leer lassen (''), ausser das Zertifikat des Knotens ist nicht vertraut.
 
-     $NeutralizeMap  Pfad aus Schritt 3, z. B. 'C:\imc17-kit\neutralize-map.txt'
-
      $Username       Optional: der INUBIT-Benutzer. Leer lassen = wird bei jedem Fall gefragt.
 
-     $WorkRoot       So lassen ('C:\inubit-record').
+     $WorkRoot, $ResultFolder
+                     So lassen ('C:\inubit-record', 'C:\imc17-results'). In C:\imc17-results
+                     landen die Ergebnisse.
 
      $NodeIsNonProduction
                      Erst auf $true setzen, wenn der Besitzer des Rechners bestaetigt hat, dass
                      der Knoten hinter $CliUrl KEINE Produktion ist. Sonst laeuft nichts.
 
   3. Speichern und den Editor schliessen.
-     Wichtig: Keine Hostnamen, Pfade oder Zugangsdaten in Jira oder Mails kopieren.
+     Keine Hostnamen, Pfade oder Zugangsdaten in Jira oder Mails kopieren.
 
 
 ------------------------------------------------------------------------
-SCHRITT 5 - Pruefung (ohne Login, ohne Aufnahme)
+SCHRITT 4 - Pruefung (ohne Login, ohne Aufnahme)
 ------------------------------------------------------------------------
 
         powershell -ExecutionPolicy Bypass -File .\record-v74.ps1 -Phase Check
 
   Erwartet: lauter gruene "ok"-Zeilen und am Ende "Check passed".
-  Bei einer roten "STOP"-Zeile: die Meldung sagt, was fehlt (Wert in Schritt 4 korrigieren,
-  Python aus Schritt 2, Netzwerk/VPN zum Knoten). Danach Schritt 5 wiederholen.
+  Bei einer roten "STOP"-Zeile: die Meldung sagt, was fehlt (Wert in Schritt 3 korrigieren,
+  Python aus Schritt 2, Netzwerk/VPN zum Knoten). Danach Schritt 4 wiederholen.
 
 
 ------------------------------------------------------------------------
-SCHRITT 6 - Erste Aufnahme: Version und Hilfetexte
+SCHRITT 5 - Erste Aufnahme: Version und Hilfetexte
 ------------------------------------------------------------------------
 
         powershell -ExecutionPolicy Bypass -File .\record-v74.ps1 -Phase Research
@@ -215,27 +142,26 @@ SCHRITT 6 - Erste Aufnahme: Version und Hilfetexte
   - Das Skript fragt dreimal nach dem Passwort (und ohne $Username auch nach dem Benutzer):
     einmal je Fall mit Login.
   - Am Ende zeigt es die Client-Version. Sie muss 7.4 sein (7.4.0.90).
-    Ist sie es nicht: hier aufhoeren und Daniel bzw. dem Agenten Bescheid geben.
-  - Danach diese drei Dateien aus
-        C:\imc17-kit\src\test\resources\fixtures\v7_4\cli\
-    an Daniel / den Agenten schicken (sie sind bereits neutralisiert):
+    Ist sie es nicht: hier aufhoeren und Daniel Bescheid geben.
+  - Danach diese drei Dateien aus C:\imc17-results an Daniel schicken:
         v74_version.stdout
         v74_exec_help.stdout
         v74_exec_ps_help.stdout
+    (Das sind Versions- und Hilfetexte des Clients, ohne Prozessdaten.)
 
 
 ------------------------------------------------------------------------
-SCHRITT 7 - Auf das OK des Agenten warten
+SCHRITT 6 - Auf Daniels OK warten
 ------------------------------------------------------------------------
-  Der Agent vergleicht die 7.4-Befehle mit seiner Liste (Aufgabe T027).
-  - Antwort "OK": weiter mit Schritt 8.
+  Daniel prueft, ob die 7.4-Befehle zur Liste des Aufnahme-Skripts passen (Aufgabe T027).
+  - Antwort "OK": weiter mit Schritt 7.
   - Antwort mit neuer Datei record-fixtures.ps1: damit C:\imc17-kit\tools\record-fixtures.ps1
-    ersetzen, dann weiter mit Schritt 8.
+    ersetzen, dann weiter mit Schritt 7.
   Die PowerShell kann solange offen bleiben.
 
 
 ------------------------------------------------------------------------
-SCHRITT 8 - Zweite Aufnahme: Health und Prozesse
+SCHRITT 7 - Zweite Aufnahme: Health und Prozesse
 ------------------------------------------------------------------------
 
         powershell -ExecutionPolicy Bypass -File .\record-v74.ps1 -Phase Session
@@ -243,22 +169,32 @@ SCHRITT 8 - Zweite Aufnahme: Health und Prozesse
   - Das Skript fragt sechsmal nach dem Passwort (je Fall mit Login). Der Fall "login_failed"
     nutzt absichtlich einen nicht existierenden Benutzer, "unreachable" eine tote Adresse;
     beide fragen nicht.
-  - Erwartet: Zeilen "written: ..." und am Ende "ok   recorded: ...".
+  - Erwartet: Zeilen "written: ..." und am Ende "ok   recorded into C:\imc17-results: ...".
 
   Dann einpacken:
 
         powershell -ExecutionPolicy Bypass -File .\record-v74.ps1 -Phase Pack
 
-  Ergebnis: imc17-v74-recordings.zip auf dem Desktop. Diese Datei an Daniel uebergeben.
+  Ergebnis: imc17-v74-results-RAW.zip auf dem Desktop.
 
 
 ------------------------------------------------------------------------
-SCHRITT 9 - Aufraeumen
+SCHRITT 8 - Ergebnis uebergeben
 ------------------------------------------------------------------------
-  Nach der Uebergabe des ZIPs:
-  - imc17-v74-recordings.zip vom Desktop loeschen
-  - C:\imc17-kit loeschen (enthaelt die Neutralize-Map und die Aufnahmen)
-  - C:\inubit-record loeschen (sollte leer sein)
+  - Das ZIP enthaelt Rohdaten des Kunden. Direkt an Daniel geben (USB-Stick oder interner,
+    nicht oeffentlicher Austauschordner); nicht per oeffentlichem Link, nicht in ein Repository.
+  - Daniel legt es auf seinem Rechner ausserhalb jedes Repositorys ab, wertet es aus und loescht
+    es nach der Auswertung.
+
+
+------------------------------------------------------------------------
+SCHRITT 9 - Aufraeumen auf dem Windows-Rechner
+------------------------------------------------------------------------
+  Nach der Uebergabe:
+  - imc17-v74-results-RAW.zip vom Desktop loeschen
+  - C:\imc17-results loeschen (enthaelt die Ergebnisse)
+  - C:\inubit-record loeschen
+  - C:\imc17-kit loeschen
   - Python wieder entfernen, falls es nur dafuer installiert wurde (siehe Schritt 2)
   Auf dem INUBIT-Knoten ist nichts aufzuraeumen.
 
@@ -266,11 +202,11 @@ SCHRITT 9 - Aufraeumen
 ------------------------------------------------------------------------
 WENN ETWAS SCHIEFGEHT
 ------------------------------------------------------------------------
-  - Rote "STOP"-Zeile: Meldung lesen; das Skript hat dann nichts behalten. Ursache beheben und
-    denselben Schritt wiederholen.
+  - Rote "STOP"-Zeile: Meldung lesen; das Skript hat fuer den fehlgeschlagenen Fall nichts
+    behalten. Ursache beheben und denselben Schritt wiederholen.
   - Das Skript fragt das Passwort nicht ueber die Tastatur ab, sondern der 7.4-Client will es
     selbst in der Konsole lesen: sofort abbrechen (Strg+C) und Daniel Bescheid geben.
   - Abbruch mitten in einem Lauf: den Ordner C:\inubit-record\inubit-record-* loeschen, dann den
     Schritt neu starten.
-  - "is still in ...; nothing written": der Neutralisierer hat einen Hostnamen oder Kundennamen
-    nicht ersetzt. Daniel Bescheid geben (er ergaenzt die Neutralize-Map).
+  - "is still in ...; nothing written": Der Hostname oder das Passwort stand noch in einer
+    Ausgabe. Nichts wurde behalten; Daniel Bescheid geben.

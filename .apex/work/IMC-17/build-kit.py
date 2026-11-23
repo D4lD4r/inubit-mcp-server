@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Builds the IMC-17 recording kit ZIP for the Windows machine (T026-T028, option A of IMC-21).
+r"""Builds the IMC-17 recording kit ZIP for the Windows machine (T026-T028, option A of IMC-21).
 
 Usage: python3 .apex/work/IMC-17/build-kit.py <output.zip>
 
 Contents (all from the repository, nothing local such as the neutralize map):
   ANLEITUNG.txt, record-v74.ps1                  (CRLF line ends for Notepad)
   tools/record-fixtures.ps1, tools/neutralize.py (as committed)
-  src/test/resources/fixtures/v7_4/cli/          (empty: the recordings land here)
+  (the results go to C:\imc17-results on the Windows machine, never into a repository; IMC-24)
 """
 import sys
 import zipfile
@@ -20,7 +20,6 @@ FILES = [
     (ROOT / "tools" / "record-fixtures.ps1", "tools/record-fixtures.ps1", False),
     (ROOT / "tools" / "neutralize.py", "tools/neutralize.py", False),
 ]
-EMPTY_DIR = "src/test/resources/fixtures/v7_4/cli/"
 
 
 def crlf(data: bytes) -> bytes:
@@ -36,7 +35,6 @@ def main() -> int:
         for source, name, to_crlf in FILES:
             data = source.read_bytes()
             kit.writestr("imc17-kit/" + name, crlf(data) if to_crlf else data)
-        kit.writestr(zipfile.ZipInfo("imc17-kit/" + EMPTY_DIR), b"")
     print(f"written: {out}")
     return 0
 
