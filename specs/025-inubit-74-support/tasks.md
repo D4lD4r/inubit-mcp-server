@@ -404,10 +404,10 @@ the live check is Windows-only, spec FR-031, IMC-19.)
   not appear in "; supported: …" for capabilities out of scope on 7.4), the warning of T014 and the
   `-h` gate of T015; decide what a remaining "not yet verified" note means on 7.4, research D-15), each reviewed with `d4ld4r-speckit-duo:review-spec` / `review-plan` before any
   Mandate B code is written.
-- [ ] T030 Constitution amendment (plan, Constitution Check V): propose with `/speckit-constitution`
+- [X] T030 Constitution amendment (plan, Constitution Check V): propose with `/speckit-constitution`
   a MINOR amendment of `.specify/memory/constitution.md` Principle V naming INUBIT 7.4 as supported
   read-only, StartCLI only, because its REST interface is unverified; the owner ratifies it before
-  T035.
+  T035. (Drafted 2026-11-23 as proposed 1.2.0, not yet ratified; 1.1.0 stays in force.)
 
 ## Phase 11: Implementation (placeholders, detailed by T029)
 

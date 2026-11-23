@@ -1,3 +1,28 @@
+<!--
+Sync Impact Report (PROPOSED amendment, not yet ratified)
+- Status: proposed on 2026-11-23 for feature 025 (task T030); the owner ratifies it before
+  Mandate B declares the first INUBIT 7.4 capability `supported` (task T035). Until then
+  version 1.1.0 is in force.
+- Version change: 1.1.0 → 1.2.0 (MINOR: Principle V guidance materially expanded to a further
+  supported version; no principle removed or redefined).
+- Modified principles:
+  - V. Adapter Isolation & Version Compatibility (title unchanged): INUBIT 7.4.x is named as
+    supported read-only next to 6.1.x; the CLI-only exception extends to 7.4 because its REST
+    interface is unverified (6.1: REST does not offer what the server needs). The existing rules
+    apply unchanged: contract tests against recorded 7.4 CLI outputs before a capability is
+    declared supported, write capabilities on 7.4 need a spec of their own. Rationale wording
+    made plural.
+- Added sections: none.
+- Removed sections: none.
+- Templates requiring updates: none (.specify/templates is not present; plan templates read the
+  constitution at runtime).
+- Follow-up TODOs:
+  - TODO(LAST_AMENDED_DATE): set to the owner's ratification date, drop the "PROPOSED" marker
+    from the version line and remove this report before the amendment is committed as ratified.
+  - specs/025-inubit-74-support/plan.md Constitution Check cites v1.1.0; update it once 1.2.0 is
+    ratified.
+-->
+
 # INUBIT MCP Server Constitution
 
 ## Core Principles
@@ -63,10 +88,11 @@ interfaces owned by the domain/tool layer. Tool logic MUST NOT depend on HTTP or
 
 - REST is the preferred channel; the CLI is used where REST does not offer the capability.
   Exception: for a version whose REST interface does not offer what the server needs (INUBIT
-  6.1), the CLI MAY be the only channel; the spec of that version states it.
-- INUBIT 8.1.x is the supported baseline. Differences for other versions (9.x, and INUBIT 6.1.x,
-  which is supported read-only) MUST be isolated in version-specific adapter code selected by
-  configuration or detected server version, never scattered through tool logic.
+  6.1) or is unverified (INUBIT 7.4), the CLI MAY be the only channel; the spec of that version
+  states it.
+- INUBIT 8.1.x is the supported baseline. Differences for other versions (9.x, and INUBIT 6.1.x
+  and 7.4.x, which are supported read-only) MUST be isolated in version-specific adapter code
+  selected by configuration or detected server version, never scattered through tool logic.
 - A version other than the baseline MAY be declared supported for a capability only when that
   capability's adapters have contract tests against recorded responses or CLI outputs of that
   version (Principle III). Write capabilities on an older version than the baseline require a
@@ -74,8 +100,8 @@ interfaces owned by the domain/tool layer. Tool logic MUST NOT depend on HTTP or
 - CLI invocations MUST use argument arrays (no shell interpolation), explicit timeouts, exit-code
   evaluation, and a tested output parser.
 
-Rationale: the planned 9.x upgrade must be an adapter change, not a rewrite; supporting an older
-installation read-only must follow the same rule and must not weaken the baseline.
+Rationale: the planned 9.x upgrade must be an adapter change, not a rewrite; supporting older
+installations read-only must follow the same rule and must not weaken the baseline.
 
 ### VI. Bounded, Structured Output
 
@@ -137,4 +163,6 @@ and committed. Versioning follows semantic versioning: MAJOR for removing or red
 principle, MINOR for adding a principle or materially expanding guidance, PATCH for
 clarifications and wording.
 
-**Version**: 1.1.0 | **Ratified**: 2026-10-01 | **Last Amended**: 2026-10-31
+**Version**: 1.2.0 (PROPOSED, not yet ratified by the owner; 1.1.0 is in force until then) |
+**Ratified**: 2026-10-01 | **Last Amended**: TODO(LAST_AMENDED_DATE): the owner's ratification
+date of 1.2.0
