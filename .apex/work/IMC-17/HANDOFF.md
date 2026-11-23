@@ -1,37 +1,45 @@
 # Handoff — IMC-17 · Executing (Blocked) · 2026-11-23 · run executor-1
 
 ## Status
-Running: T030 (constitution amendment draft) through d4ld4r-speckit-duo:implement — expected
-~20 minutes (started 2026-11-23, after commit "IMC-17: record IMC-19 decision").
-
-IMC-17 claimed (assignee APEX Executor, read back), plan posted (comment 10052), M3 → `Executing`,
-flag `Blocked` by [IMC-21](https://danieldecker.atlassian.net/browse/IMC-21) (Question) and
-[IMC-22](https://danieldecker.atlassian.net/browse/IMC-22) (Owner action).
+Run ended: only blocked work is left. IMC-17 is `Executing` with flag `Blocked`, assignee APEX
+Executor (claim read back), plan in comment 10052.
 Spec: `specs/025-inubit-74-support/` pinned `2bfe55e7`; this branch amends spec.md for the IMC-19
-decision (not yet reviewed or merged). Plan and tasks in the same folder; this mandate's range is
-T026–T037. Branch `claude/025-imc-17-mandate-b-b4dc46`, based on main `065cc4f2`.
+decision (`c99fe5c8`, not yet reviewed with review-spec, not merged). Plan and tasks in the same
+folder; this mandate's range is T026–T037 (T030 `[X]` as a proposal). Branch
+`claude/025-imc-17-mandate-b-b4dc46`, based on main `065cc4f2`, pushed; no PR yet (delivery step 1
+is a spec MR after T029).
 
 ## Done since last handoff
-- Claim, plan comment, M3, Question IMC-21, Owner action IMC-22 (due 2026-12-04), both linked as
-  Blocks → IMC-17; flag set.
-- IMC-19 decision applied to spec.md (FR-031, SC-007, US6/US7 independent tests, Preconditions,
-  Open Questions → Decided), plan.md, tasks.md (Mandate B header, T035) and quickstart.md step 6:
-  the live check is Windows-only.
+- Claim, plan comment, M3, flag; Question IMC-21, Owner actions IMC-22 and IMC-23, each linked
+  Blocks → IMC-17.
+- `c99fe5c8`: IMC-19 decision in spec.md (FR-031, SC-007, US6/US7 independent tests,
+  Preconditions, Open Questions → Decided), plan.md, tasks.md (Mandate B header, T035),
+  quickstart.md step 6 — the live check is Windows-only.
+- `a99e59fb`: T030 — constitution 1.2.0 proposed (Principle V: 7.4 read-only, StartCLI only),
+  marked PROPOSED, Last Amended a TODO; duo review round 1 APPROVED with two minors
+  (`reviews/T030-r1.md`). `NoCustomerIdentifiersTest` green.
 
 ## Next step
-Finish T030 (draft only; the owner ratifies before T035). Then only blocked work is left: wait for
-IMC-21 and IMC-22.
+When IMC-21 is answered: if option A, keep IMC-22 as is and run T026 in the chat (machine, client
+version, node, non-production classification, approval); otherwise rewrite IMC-22 for the chosen
+option and, for B1/B2/C, amend the spec first (QC5). After the recordings: T028 commit, then T029.
 
 ## Open questions
 - [IMC-21](https://danieldecker.atlassian.net/browse/IMC-21) — how the 7.4 recordings are made on
   the Windows machine where only MCP releases can be rolled out (IMC-18). Options A (recorder copied
   as the "additional Windows script"), B1 (recorder in the release archive), B2 (record mode in the
-  jar), C (no recording → re-cut). Recommendation A. Blocks T026–T028, T035, hence T029, T031–T037.
+  jar), C (no recording → re-cut). Recommendation A. Blocks T026–T028 and T035.
+
+## Owner actions open
+- [IMC-22](https://danieldecker.atlassian.net/browse/IMC-22) — recording session T026–T028 (commands
+  for option A, with undo), due 2026-12-04.
+- [IMC-23](https://danieldecker.atlassian.net/browse/IMC-23) — ratify constitution 1.2.0 before
+  T035, due 2026-12-11.
+- Still to create after T029: the Windows live check of T035 (commands follow from T029).
 
 ## Decisions received
 - IMC-19 (Daniel Decker, 2026-11-23): no macOS machine with 7.4; assume it works, fix bugs when
-  they appear → Windows-only live check (spec open question foresaw this owner decision). Applied
-  in spec.md on this branch; reaches main with the reviewed spec MR of delivery step 1.
+  they appear → Windows-only live check (the spec's open question foresaw this owner decision).
 - IMC-18 (Daniel Decker, 2026-11-23): a 7.4 installation exists; on that machine only a new MCP
   version can be rolled out, maybe with an additional Windows script → reading unclear, IMC-21.
 
@@ -44,9 +52,13 @@ IMC-21 and IMC-22.
   machine, besides the 7.4 client and its JDK — named in IMC-21 and IMC-22.
 - The live check needs a pre-flip MCP build on that machine; with "only MCP releases" this may mean
   a release before the flip (owner decision, IMC-21).
+- T029 must run review-spec over the whole amended spec, including the IMC-19 change of `c99fe5c8`.
+- T030 minors: Principle V text reads as in force without the PROPOSED context; at ratification set
+  the version line and Last Amended date, drop the Sync Impact Report, update plan.md (cites 1.1.0).
 - IMC-16 m6 (`CapabilityMatrix.lines()` skips 7.4 only while every capability has a note) is part
   of T029.
 - Jira: `editJiraIssue` needs `{"assignee": {"accountId": …}}`; a bare string is silently ignored.
+  The flag is `Flagged: ["Impediment"]`.
 
 ## Claims for verification
 - None yet (no Mandate B code).
