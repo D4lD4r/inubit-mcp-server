@@ -95,7 +95,7 @@ prerequisites (Preconditions) are met.
 | User stories | US1, US2, US3, US4, US5 | US6, US7, US8 |
 | Requirements | FR-001 – FR-020 (incl. FR-010a, FR-016a) | FR-021 – FR-034 |
 | IMC-6 criteria | 1 (pin), 3, 4, 5 | 1 (detection), 2 |
-| Result | 7.4 is known, pinned, shown, and refused clearly on every platform; the recording kit for Windows is ready | `get_health` and `find_processes` verified on a real 7.4.0.90 node on Windows and on macOS / Linux; automatic 7.4 detection |
+| Result | 7.4 is known, pinned, shown, and refused clearly on every platform; the recording kit for Windows is ready | `get_health` and `find_processes` verified on a real 7.4.0.90 node on Windows (macOS / Linux by the offline suite, FR-031); automatic 7.4 detection |
 
 Planning depth: plan.md and tasks.md design Mandate A in full. Mandate B is planned only as far
 as its inputs exist today (the order of steps, the gates, the recording session); its parsers,
@@ -280,7 +280,7 @@ both when the MCP server runs on Windows and on macOS or Linux.
 **Why this priority**: IMC-6 criterion 2; the health check is the entry point of every diagnosis.
 
 **Independent Test**: Contract tests against the recorded, neutralized 7.4 outputs; a live check on
-the 7.4.0.90 node from Windows and from macOS or Linux.
+the 7.4.0.90 node from Windows (macOS and Linux by the offline suite, FR-031).
 
 **Acceptance Scenarios**:
 
@@ -307,7 +307,7 @@ marks hanging ones where the recordings show the time in state.
 **Why this priority**: IMC-6 criterion 2; failed processes are the main diagnosis use case.
 
 **Independent Test**: Contract tests against recorded 7.4 process listings in every state; a live
-check from Windows and from macOS or Linux.
+check from Windows (macOS and Linux by the offline suite, FR-031).
 
 **Acceptance Scenarios**:
 
@@ -587,10 +587,13 @@ cannot identify stays unknown with the US2 hint.
   replaced by the `v74_help` recording and its contract tests run against the recordings (Constitution III,
   V).
 - **FR-031**: `get_health` and `find_processes` on 7.4 MUST be declared `supported` only after a
-  live check of that capability against the 7.4.0.90 node has passed both from Windows and from
-  macOS or Linux, with the outcomes recorded in the quickstart. The capability matrix stays
-  platform-independent: if one platform cannot be checked, the capability stays `unsupported`
-  everywhere and the owner decides how to proceed.
+  live check of that capability against the 7.4.0.90 node has passed from Windows, with the
+  outcomes recorded in the quickstart. macOS and Linux are not live-checked (owner decision
+  2026-11-23, IMC-19: no macOS or Linux machine with a 7.4 client and access to a 7.4 node
+  exists); they rest on the offline suite of the macOS/Linux test job against the recordings, and
+  defects reported from these platforms are fixed when they appear. The capability matrix stays
+  platform-independent: if the Windows check cannot be made or fails, the capability stays
+  `unsupported` everywhere and the owner decides how to proceed.
 
 #### Mandate B — Detection
 
@@ -645,7 +648,8 @@ cannot identify stays unknown with the US2 hint.
 - **SC-006** (Mandate A): a person with the Windows machine and the 7.4 client can record every 7.4
   case of FR-016 in one sitting by following the quickstart, without editing code.
 - **SC-007** (IMC-6 criterion 2 — Mandate B): `get_health` and `find_processes` return verified
-  results for the real 7.4.0.90 node through the 7.4 client, from Windows and from macOS or Linux;
+  results for the real 7.4.0.90 node through the 7.4 client, from Windows (macOS and Linux by the
+  offline suite, FR-031);
   `get_health` on one 7.4 node returns within 15 seconds, and listing up to 100 failed processes
   within 15 seconds.
 - **SC-008** (IMC-6 criterion 1, detection — Mandate B): a 7.4 node on `AUTO` with a 7.4 client is
@@ -673,8 +677,6 @@ cannot identify stays unknown with the US2 hint.
   - a Windows machine with an INUBIT 7.4 Workbench client and its JDK, CLI login to a
     non-production 7.4.0.90 node, and a person who runs the Windows recorder there (with the local
     neutralize map) and the live check of the MCP server on that machine;
-  - for the macOS / Linux half of FR-031: a macOS or Linux machine with a copy of the 7.4 client and
-    its JDK and network access to the same node;
   - the constitution amendment that names INUBIT 7.4 as an additionally supported, read-only,
     CLI-only version under Principle V, ratified before the first 7.4 capability is declared
     `supported`.
@@ -703,13 +705,15 @@ cannot identify stays unknown with the US2 hint.
 
 - **Why** (IMC-6): which installations and how many 7.4 nodes — accepted as open at I2; it decides
   no requirement of this spec.
-- **macOS / Linux live check** (FR-031): can a copy of the 7.4 client run on a macOS or Linux machine
-  with network access to the 7.4.0.90 node? If not, criterion 2 cannot be met in full, and the owner
-  decides whether a Windows-only live check suffices before 7.4 health and processes are enabled.
 - **Constitution amendment** (Preconditions): the owner ratifies the Principle V amendment (7.4
   read-only, StartCLI only, because its REST interface is unverified) before Mandate B declares the
   first 7.4 capability `supported`.
 ### Decided
+
+- **macOS / Linux live check** (FR-031, SC-007) — **decided by the owner, 2026-11-23 (IMC-19)**:
+  no macOS or Linux machine with the 7.4 client and access to a 7.4 node exists; the Windows-only
+  live check suffices before 7.4 health and processes are enabled. macOS and Linux rest on the
+  offline suite; defects found there are fixed when they appear.
 
 - **`AUTO` 7.4 nodes** (Edge Cases) — **decided: accepted by the owner, 2026-11-18**: a 7.4 node
   on `AUTO` that is not identified stays an unknown version as today (8.1 reads with the

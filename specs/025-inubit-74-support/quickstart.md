@@ -61,7 +61,8 @@ Preconditions (spec): Windows machine with the 7.4 Workbench client and its JDK;
    ```
 
 5. Run `NoCustomerIdentifiersTest`, review the diff, commit the recordings.
-6. Live check on Windows and on macOS or Linux (MCP server with a `V7_4` node and an `AUTO` node):
+6. Live check on Windows (MCP server with a `V7_4` node and an `AUTO` node; macOS and Linux are not
+   live-checked, spec FR-031):
    record here the outcome per step, including the detection failure code of the `AUTO` node.
 
 ## Validation record

@@ -150,7 +150,7 @@ without the refusing matrix entry or without the docs.
    recordings.
 9. **Re-clarification**: research addendum from the recordings, spec/plan/tasks update for
    adapters, client selection and detection; constitution amendment proposal.
-10. **Implementation** of the updated Mandate B tasks, live checks on Windows and macOS/Linux,
+10. **Implementation** of the updated Mandate B tasks, live check on Windows (FR-031, IMC-19),
     matrix flip, docs (FR-034).
 
 ## Complexity Tracking

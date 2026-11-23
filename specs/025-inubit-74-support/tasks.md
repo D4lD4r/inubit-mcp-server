@@ -369,8 +369,8 @@ and `--check-config` tests, offline, on both CI jobs.
 
 **Blocked until** (spec, Preconditions): a Windows machine with an INUBIT 7.4 Workbench client and
 its JDK; CLI login to a **non-production** 7.4.0.90 node; a person who runs the recorder there with
-the local neutralize map; for the macOS / Linux half of the live check, a macOS or Linux machine
-with a copy of the 7.4 client and network access to the node; the owner's approval in the chat.
+the local neutralize map; the owner's approval in the chat. (No macOS / Linux machine is needed:
+the live check is Windows-only, spec FR-031, IMC-19.)
 
 ## Phase 9: Recording session (manual, approved)
 
@@ -431,11 +431,11 @@ with a copy of the 7.4 client and network access to the node; the owner's approv
 
 - [ ] T035 [US6] Live checks and enablement (spec FR-030, FR-031, SC-007 – SC-009): run the live
   check of `get_health`, `find_processes` and `AUTO` detection against the 7.4.0.90 node from
-  Windows and from macOS or Linux; record the outcomes and the detection failure code of the
+  Windows (macOS and Linux are not live-checked, spec FR-031, IMC-19); record the outcomes and the detection failure code of the
   `AUTO` node in [quickstart.md](quickstart.md); only after both pass and T030 is ratified, flip
   MONITORING and PROCESS_DIAGNOSIS on 7.4 to `SUPPORTED` in `main/domain/model/CapabilityMatrix.java`
   and remove their "not yet verified" notes (the `V74RecordedFixturesTest` guard must stay green).
-  If one platform cannot be checked, stop and let the owner decide (spec FR-031).
+  If the Windows check cannot be made or fails, stop and let the owner decide (spec FR-031).
 - [ ] T036 Docs and changelog for Mandate B (spec FR-034): `docs/setup.md` (`defaults.cliClients."7.4"`
   with its JDK, client precedence for 7.4), `docs/tools.md` (7.4 health and processes),
   `README.md`, `CHANGELOG.md`.
