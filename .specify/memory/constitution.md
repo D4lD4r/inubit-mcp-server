@@ -1,44 +1,3 @@
-<!--
-Sync Impact Report (PROPOSED amendment, not yet ratified)
-- Status: proposed on 2026-11-23 for feature 025 (task T030); the owner ratifies it before
-  Mandate B declares the first INUBIT 7.4 capability `supported` (task T035). Until then
-  version 1.1.0 is in force.
-- Version change: 1.1.0 → 2.0.0 (MAJOR: Principle III, NON-NEGOTIABLE, is redefined — the
-  contract-test evidence a supported version needs no longer always means recorded responses /
-  CLI outputs; Principle V follows it). Supersedes the unratified 1.2.0 draft of the same day
-  (owner decision 2026-11-23, IMC-24: the 7.4 recordings never enter the repository; the owner
-  chose a MAJOR amendment over a documented deviation).
-- Modified principles:
-  - III. Test-First (title unchanged): the contract-test bullet keeps contract tests against
-    recorded INUBIT responses / CLI outputs as the default. New general rule: where the project
-    owner forbids storing recordings of a version (decision recorded in the spec), contract
-    tests against fixtures adjusted to evaluated recordings of that version (no recorded byte
-    copied), plus a passed live check against a real non-production node of that version, are
-    sufficient. Rationale extended by one sentence.
-  - V. Adapter Isolation & Version Compatibility (title unchanged): INUBIT 7.4.x is named as
-    supported read-only next to 6.1.x; the CLI-only exception extends to 7.4 because its REST
-    interface is unverified (6.1: REST does not offer what the server needs). The bullet on
-    declaring a non-baseline version supported now refers to both kinds of evidence of
-    Principle III. Unchanged: write capabilities on an older version than the baseline need a
-    spec of their own. Rationale wording made plural.
-  - Not weakened: Principles I and II, the rule that integration tests never target a
-    `production` environment, and the dedicated safety / scrubbing tests of Principle III.
-- Added sections: none.
-- Removed sections: none.
-- Templates requiring updates: none (.specify/templates is not present; plan templates read the
-  constitution at runtime).
-- Follow-up TODOs:
-  - TODO(LAST_AMENDED_DATE): set to the owner's ratification date, drop the "PROPOSED" marker
-    from the version line and remove this report before the amendment is committed as ratified.
-  - specs/025-inubit-74-support/plan.md: the Constitution Check cites v1.1.0 and calls the
-    amendment MINOR; update both (v2.0.0, MAJOR, Principles III and V) once 2.0.0 is ratified.
-  - specs/025-inubit-74-support/tasks.md T030 names a MINOR amendment of Principle V and the
-    1.2.0 draft; the orchestrator updates the task line.
-  - The IMC-17 handoff and IMC-23 name 1.2.0 for ratification; update them to 2.0.0.
-  - Plans of earlier features cite v1.1.0 as the version they were checked against; they stay
-    unchanged.
--->
-
 # INUBIT MCP Server Constitution
 
 ## Core Principles
@@ -187,6 +146,4 @@ and committed. Versioning follows semantic versioning: MAJOR for removing or red
 principle, MINOR for adding a principle or materially expanding guidance, PATCH for
 clarifications and wording.
 
-**Version**: 2.0.0 (PROPOSED, not yet ratified by the owner; 1.1.0 is in force until then) |
-**Ratified**: 2026-10-01 | **Last Amended**: TODO(LAST_AMENDED_DATE): the owner's ratification
-date of 2.0.0
+**Version**: 2.0.0 | **Ratified**: 2026-10-01 | **Last Amended**: 2026-11-23

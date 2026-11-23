@@ -73,15 +73,17 @@ suite runs on both CI jobs).
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.* Constitution v1.1.0.
+*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.* Constitution v1.1.0
+(Mandate A). Mandate B is checked against v2.0.0, ratified by the owner on 2026-11-23 (IMC-23,
+IMC-24); T029 re-checks it.
 
 | Principle | Pre-research | Post-design |
 |---|---|---|
 | I. Safe by Default | ✅ read-only; Mandate A refuses everything | ✅ <ul><li>Every 7.4 capability `UNSUPPORTED`, refused before contact (D-4, D-6).</li><li>The 7.4 port set refuses as a second line (D-5).</li><li>Write checks keep their order (FR-007).</li></ul> |
 | II. Secrets Stay Out | ⚠️ the recorder gains a session mode with a password | ✅ <ul><li>Password only on stdin; `Assert-NoSecret` on every case (D-12).</li><li>No trust-store password ever reaches the client; 7.4 trust store only through the Java runtime settings, no host-name skipping (D-12, feature 012 FR-012a).</li></ul> |
-| III. Test-First | ⚠️ no recorded 7.4 outputs | ✅ <ul><li>Every task starts with a failing test; the regression test is written before the version model changes (D-13).</li><li>No 7.4 capability can become `SUPPORTED` while a case is reconstructed (D-11 guard).</li><li>The one real case (help) has a contract test.</li></ul> |
+| III. Test-First | ⚠️ no recorded 7.4 outputs | ✅ <ul><li>Every task starts with a failing test; the regression test is written before the version model changes (D-13).</li><li>No 7.4 capability can become `SUPPORTED` while a case is reconstructed (D-11 guard; Mandate B: while a case is not adjusted to the evaluated recordings, IMC-24, constitution 2.0.0).</li><li>The one real case (help) has a contract test.</li></ul> |
 | IV. Use-Case-Oriented Tools | ✅ no new tool | ✅ unchanged |
-| V. Adapter Isolation & Version Compatibility | ⚠️ Principle V names 6.1 as the only CLI-only version | ✅ <ul><li>Mandate A declares no 7.4 capability supported and uses no channel, so it does not invoke the CLI-only exception.</li><li>7.4 code only in `adapter/cli/v74`; every rule read from the matrix entry.</li><li>Mandate B needs the MINOR amendment (7.4 read-only, CLI-only, REST unverified) before its first `SUPPORTED`; it is a Mandate B task gated on the owner.</li></ul> |
+| V. Adapter Isolation & Version Compatibility | ⚠️ Principle V names 6.1 as the only CLI-only version | ✅ <ul><li>Mandate A declares no 7.4 capability supported and uses no channel, so it does not invoke the CLI-only exception.</li><li>7.4 code only in `adapter/cli/v74`; every rule read from the matrix entry.</li><li>Mandate B needs the amendment (7.4 read-only, CLI-only, REST unverified) before its first `SUPPORTED`: ratified as constitution 2.0.0 on 2026-11-23 (T030, IMC-23).</li></ul> |
 | VI. Bounded, Structured Output | ✅ | ✅ refusals actionable (node, version, capability, next step) |
 | VII. Observability & Auditability | ✅ | ✅ refusals logged by `VersionGate.refuse()` |
 | Workflow: docs in the same change | ✅ | ✅ D-14 in Mandate A; FR-034 for Mandate B |
