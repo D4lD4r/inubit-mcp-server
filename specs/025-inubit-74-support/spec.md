@@ -691,9 +691,10 @@ cannot identify stays unknown with the US2 hint.
     non-production 7.4.0.90 node, Python 3.7 or newer for the recorder, and a person who runs the
     Windows recorder there (recording kit, raw output, IMC-24) and the live check of the MCP server
     on that machine;
-  - the constitution amendment that names INUBIT 7.4 as an additionally supported, read-only,
-    CLI-only version under Principle V, ratified before the first 7.4 capability is declared
-    `supported`.
+  - the constitution amendment 2.0.0 (MAJOR, IMC-24): Principle V names INUBIT 7.4 as an
+    additionally supported, read-only, CLI-only version, and Principles III and V accept fixtures
+    adjusted to evaluated recordings plus a passed live check where storing recordings is
+    forbidden; ratified before the first 7.4 capability is declared `supported`.
 
 ## Assumptions
 
@@ -719,9 +720,10 @@ cannot identify stays unknown with the US2 hint.
 
 - **Why** (IMC-6): which installations and how many 7.4 nodes — accepted as open at I2; it decides
   no requirement of this spec.
-- **Constitution amendment** (Preconditions): the owner ratifies the Principle V amendment (7.4
-  read-only, StartCLI only, because its REST interface is unverified) before Mandate B declares the
-  first 7.4 capability `supported`.
+- **Constitution amendment** (Preconditions): the owner ratifies the amendment 2.0.0 (Principle V:
+  7.4 read-only, StartCLI only, because its REST interface is unverified; Principles III and V:
+  evidence without stored recordings, IMC-24) before Mandate B declares the first 7.4 capability
+  `supported` (IMC-23).
 ### Decided
 
 - **Recordings for evaluation only** (FR-015, FR-021 – FR-023, FR-030, SC-009) — **decided by the

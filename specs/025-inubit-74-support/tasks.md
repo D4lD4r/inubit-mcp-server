@@ -412,7 +412,10 @@ the live check is Windows-only, spec FR-031, IMC-19.)
 - [X] T030 Constitution amendment (plan, Constitution Check V): propose with `/speckit-constitution`
   a MINOR amendment of `.specify/memory/constitution.md` Principle V naming INUBIT 7.4 as supported
   read-only, StartCLI only, because its REST interface is unverified; the owner ratifies it before
-  T035. (Drafted 2026-11-23 as proposed 1.2.0, not yet ratified; 1.1.0 stays in force.)
+  T035. (Drafted 2026-11-23 as proposed 1.2.0; revised the same day to proposed 2.0.0, MAJOR,
+  after IMC-24: Principles III and V also accept fixtures adjusted to evaluated recordings plus a
+  passed live check where storing recordings is forbidden. Not yet ratified (IMC-23); 1.1.0 stays
+  in force.)
 
 ## Phase 11: Implementation (placeholders, detailed by T029)
 
