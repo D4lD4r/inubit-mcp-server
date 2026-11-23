@@ -1,0 +1,205 @@
+ANLEITUNG - Aufnahme der INUBIT-7.4-Faelle (IMC-17, Aufgaben T026-T028)
+========================================================================
+
+Worum geht es?
+  Der MCP-Server soll INUBIT 7.4 lesen koennen (Health-Check und Prozesssuche). Dafuer brauchen
+  wir echte Ausgaben des 7.4-Kommandozeilenclients (StartCLI). Dieses Paket nimmt sie auf einem
+  Windows-Rechner mit der 7.4 Workbench auf, entfernt Kundendaten daraus und packt sie in ein ZIP.
+
+Dauer: etwa 30 bis 60 Minuten.
+
+Sicherheit
+  - Alle Faelle sind nur lesend. Auf dem INUBIT-Knoten wird nichts geaendert.
+  - Nur der Rechner aus der eingetragenen StartCLI-URL wird kontaktiert.
+  - Benutzername und Passwort werden bei jedem Fall abgefragt und nirgends gespeichert. Das
+    Passwort geht nur ueber die Standardeingabe an StartCLI.
+  - Die Rohausgaben liegen nur kurz in einem privaten Ordner unter C:\inubit-record und werden
+    danach geloescht. Ins Ergebnis kommen nur neutralisierte Dateien; das Skript bricht ab, wenn
+    Passwort oder Hostname noch darin stehen.
+  - Der Knoten darf NICHT als Produktion eingestuft sein.
+
+
+------------------------------------------------------------------------
+CHECKLISTE - vor dem Start bereitlegen
+------------------------------------------------------------------------
+  [ ] Windows-Rechner mit INUBIT 7.4 Workbench (Ordner mit bin\startcli.bat) und deren JDK
+  [ ] INUBIT-Knoten Version 7.4.0.90, vom Besitzer bestaetigt: KEINE Produktion
+  [ ] StartCLI-URL des Knotens: https://<host>:<port>/ibis/servlet/IBISSoapServlet
+  [ ] INUBIT-Benutzer mit Lesezugriff und sein Passwort
+  [ ] Python 3.7 oder neuer (siehe Schritt 2)
+  [ ] Die Neutralize-Map (Datei von Daniel; sie wird nach der Session geloescht)
+  [ ] Nur falls das Zertifikat des Knotens dem JDK nicht vertraut ist: ein Truststore ohne
+      Passwort (.jks, .p12 oder .pfx, Pfad ohne Leerzeichen)
+
+
+------------------------------------------------------------------------
+SCHRITT 1 - Paket entpacken
+------------------------------------------------------------------------
+  1. Das ZIP entpacken: Rechtsklick > "Alle extrahieren...", als Ziel nur  C:\  eintragen.
+     Das ZIP enthaelt bereits den Ordner imc17-kit, es entsteht also C:\imc17-kit
+     (Pfad ohne Umlaute und Sonderzeichen). Danach gibt es dort:
+        C:\imc17-kit\ANLEITUNG.txt           (diese Datei)
+        C:\imc17-kit\record-v74.ps1          (das Ablaufskript)
+        C:\imc17-kit\tools\                  (Aufnahme-Skript und Neutralisierer)
+        C:\imc17-kit\src\test\resources\fixtures\v7_4\cli\   (hier landen die Aufnahmen)
+  2. PowerShell oeffnen (Startmenue: "Windows PowerShell"; keine Administratorrechte noetig) und
+     in den Ordner wechseln:
+
+        cd C:\imc17-kit
+
+  3. Nur falls Windows die Dateien als "aus dem Internet" sperrt:
+
+        Get-ChildItem -Recurse | Unblock-File
+
+
+------------------------------------------------------------------------
+SCHRITT 2 - Python pruefen (und bei Bedarf installieren)
+------------------------------------------------------------------------
+  1. In der PowerShell eingeben:
+
+        python --version
+
+     Steht dort "Python 3.7" oder hoeher (z. B. "Python 3.12.4"): weiter mit Schritt 3.
+  2. Steht dort eine Fehlermeldung, oeffnet sich der Microsoft Store, oder ist die Version
+     kleiner als 3.7: Python installieren. Es werden keine Zusatzpakete gebraucht.
+       Variante A (Installer, ohne Adminrechte):
+         - https://www.python.org/downloads/windows/ -> "Windows installer (64-bit)"
+         - Im Installer "Add python.exe to PATH" anhaken, dann "Install Now"
+           (installiert nur fuer den aktuellen Benutzer).
+         - PowerShell schliessen, neu oeffnen, "cd C:\imc17-kit", erneut "python --version".
+       Variante B (ohne Installation):
+         - Von derselben Seite das "Windows embeddable package (64-bit)" laden und z. B. nach
+           C:\python-embed entpacken.
+         - In DIESER PowerShell (gilt nur fuer dieses Fenster):
+
+              $env:Path = "C:\python-embed;$env:Path"
+              python --version
+
+  Rueckgaengig nach der Session: Variante A ueber "Einstellungen > Apps" deinstallieren,
+  Variante B den Ordner C:\python-embed loeschen.
+
+
+------------------------------------------------------------------------
+SCHRITT 3 - Neutralize-Map ablegen
+------------------------------------------------------------------------
+  Die Datei von Daniel z. B. als C:\imc17-kit\neutralize-map.txt speichern. Sie enthaelt
+  Kundennamen und darf nicht weitergegeben werden; nach der Session loeschen (Schritt 9).
+
+
+------------------------------------------------------------------------
+SCHRITT 4 - Einstellungen eintragen
+------------------------------------------------------------------------
+  1. record-v74.ps1 mit dem Editor oeffnen:
+
+        notepad .\record-v74.ps1
+
+  2. Im Block "TO FILL IN" die Werte zwischen den Anfuehrungszeichen ersetzen:
+
+     $CliHome        Ordner der 7.4 Workbench, in dem der Unterordner bin\startcli.bat liegt.
+                     Beispiel: 'C:\inubit74\client'
+                     Pruefen: Test-Path 'C:\inubit74\client\bin\startcli.bat'  -> True
+
+     $JavaHome       Das JDK, mit dem die Workbench laeuft (Ordner mit bin\java.exe), oft ein
+                     jdk- oder jre-Ordner in der Workbench-Installation.
+                     Beispiel: 'C:\inubit74\jdk'
+
+     $CliUrl         StartCLI-URL des 7.4-Knotens.
+                     Beispiel: 'https://inubit-test.firma.local:8443/ibis/servlet/IBISSoapServlet'
+
+     $Group, $Node   Neutrale Bezeichnungen; so lassen ('legacy74', 'node1').
+
+     $TrustStore     Leer lassen (''), ausser das Zertifikat des Knotens ist nicht vertraut.
+
+     $NeutralizeMap  Pfad aus Schritt 3, z. B. 'C:\imc17-kit\neutralize-map.txt'
+
+     $Username       Optional: der INUBIT-Benutzer. Leer lassen = wird bei jedem Fall gefragt.
+
+     $WorkRoot       So lassen ('C:\inubit-record').
+
+     $NodeIsNonProduction
+                     Erst auf $true setzen, wenn der Besitzer des Rechners bestaetigt hat, dass
+                     der Knoten hinter $CliUrl KEINE Produktion ist. Sonst laeuft nichts.
+
+  3. Speichern und den Editor schliessen.
+     Wichtig: Keine Hostnamen, Pfade oder Zugangsdaten in Jira oder Mails kopieren.
+
+
+------------------------------------------------------------------------
+SCHRITT 5 - Pruefung (ohne Login, ohne Aufnahme)
+------------------------------------------------------------------------
+
+        powershell -ExecutionPolicy Bypass -File .\record-v74.ps1 -Phase Check
+
+  Erwartet: lauter gruene "ok"-Zeilen und am Ende "Check passed".
+  Bei einer roten "STOP"-Zeile: die Meldung sagt, was fehlt (Wert in Schritt 4 korrigieren,
+  Python aus Schritt 2, Netzwerk/VPN zum Knoten). Danach Schritt 5 wiederholen.
+
+
+------------------------------------------------------------------------
+SCHRITT 6 - Erste Aufnahme: Version und Hilfetexte
+------------------------------------------------------------------------
+
+        powershell -ExecutionPolicy Bypass -File .\record-v74.ps1 -Phase Research
+
+  - Das Skript fragt dreimal nach dem Passwort (und ohne $Username auch nach dem Benutzer):
+    einmal je Fall mit Login.
+  - Am Ende zeigt es die Client-Version. Sie muss 7.4 sein (7.4.0.90).
+    Ist sie es nicht: hier aufhoeren und Daniel bzw. dem Agenten Bescheid geben.
+  - Danach diese drei Dateien aus
+        C:\imc17-kit\src\test\resources\fixtures\v7_4\cli\
+    an Daniel / den Agenten schicken (sie sind bereits neutralisiert):
+        v74_version.stdout
+        v74_exec_help.stdout
+        v74_exec_ps_help.stdout
+
+
+------------------------------------------------------------------------
+SCHRITT 7 - Auf das OK des Agenten warten
+------------------------------------------------------------------------
+  Der Agent vergleicht die 7.4-Befehle mit seiner Liste (Aufgabe T027).
+  - Antwort "OK": weiter mit Schritt 8.
+  - Antwort mit neuer Datei record-fixtures.ps1: damit C:\imc17-kit\tools\record-fixtures.ps1
+    ersetzen, dann weiter mit Schritt 8.
+  Die PowerShell kann solange offen bleiben.
+
+
+------------------------------------------------------------------------
+SCHRITT 8 - Zweite Aufnahme: Health und Prozesse
+------------------------------------------------------------------------
+
+        powershell -ExecutionPolicy Bypass -File .\record-v74.ps1 -Phase Session
+
+  - Das Skript fragt sechsmal nach dem Passwort (je Fall mit Login). Der Fall "login_failed"
+    nutzt absichtlich einen nicht existierenden Benutzer, "unreachable" eine tote Adresse;
+    beide fragen nicht.
+  - Erwartet: Zeilen "written: ..." und am Ende "ok   recorded: ...".
+
+  Dann einpacken:
+
+        powershell -ExecutionPolicy Bypass -File .\record-v74.ps1 -Phase Pack
+
+  Ergebnis: imc17-v74-recordings.zip auf dem Desktop. Diese Datei an Daniel uebergeben.
+
+
+------------------------------------------------------------------------
+SCHRITT 9 - Aufraeumen
+------------------------------------------------------------------------
+  Nach der Uebergabe des ZIPs:
+  - imc17-v74-recordings.zip vom Desktop loeschen
+  - C:\imc17-kit loeschen (enthaelt die Neutralize-Map und die Aufnahmen)
+  - C:\inubit-record loeschen (sollte leer sein)
+  - Python wieder entfernen, falls es nur dafuer installiert wurde (siehe Schritt 2)
+  Auf dem INUBIT-Knoten ist nichts aufzuraeumen.
+
+
+------------------------------------------------------------------------
+WENN ETWAS SCHIEFGEHT
+------------------------------------------------------------------------
+  - Rote "STOP"-Zeile: Meldung lesen; das Skript hat dann nichts behalten. Ursache beheben und
+    denselben Schritt wiederholen.
+  - Das Skript fragt das Passwort nicht ueber die Tastatur ab, sondern der 7.4-Client will es
+    selbst in der Konsole lesen: sofort abbrechen (Strg+C) und Daniel Bescheid geben.
+  - Abbruch mitten in einem Lauf: den Ordner C:\inubit-record\inubit-record-* loeschen, dann den
+    Schritt neu starten.
+  - "is still in ...; nothing written": der Neutralisierer hat einen Hostnamen oder Kundennamen
+    nicht ersetzt. Daniel Bescheid geben (er ergaenzt die Neutralize-Map).

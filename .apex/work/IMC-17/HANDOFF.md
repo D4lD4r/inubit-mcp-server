@@ -21,10 +21,12 @@ is a spec MR after T029).
   (`reviews/T030-r1.md`). `NoCustomerIdentifiersTest` green.
 
 ## Next step
-The owner runs IMC-22 together with the owner of the Windows machine, using the run sheet
-`.apex/work/IMC-17/record-v74.ps1` (fill in the block TO FILL IN; phases `Check` → `Research` →
-send `v74_exec_help.stdout` / `v74_exec_ps_help.stdout` here → T027 catalogue check → `Session` →
-`Pack`). Then unpack the ZIP into `src/test/resources/fixtures/v7_4/cli`, run
+The owner runs IMC-22 together with the owner of the Windows machine, using the recording kit
+ZIP (built by `python3 .apex/work/IMC-17/build-kit.py <out.zip>`: `ANLEITUNG.txt` in German,
+step by step; `record-v74.ps1`; recorder and neutralizer from `tools/`). Phases `Check` →
+`Research` → owner sends `v74_version`, `v74_exec_help`, `v74_exec_ps_help` stdout here → T027
+catalogue check (OK, or a new `record-fixtures.ps1` → rebuild the kit) → `Session` → `Pack`
+(`imc17-v74-recordings.zip`). Then unpack the ZIP into `src/test/resources/fixtures/v7_4/cli`, run
 `NoCustomerIdentifiersTest`, finish T028, then T029.
 
 ## Setup on the Windows machine (before `-Phase Check`)

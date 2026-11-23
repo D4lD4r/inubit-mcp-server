@@ -5,24 +5,26 @@ Run sheet for IMC-17 T026-T028 (spec 025, quickstart "Mandate B - recording sess
 IMC-21): records the INUBIT 7.4 cases with tools\record-fixtures.ps1 on the Windows machine.
 
 .DESCRIPTION
-Fill in the block "TO FILL IN" together with the owner of the machine, then run, in this order:
+Fill in the block "TO FILL IN" together with the owner of the machine, then run, in this order
+(ANLEITUNG.txt of the recording kit walks through every step):
 
-  powershell -ExecutionPolicy Bypass -File .apex\work\IMC-17\record-v74.ps1 -Phase Check
-  powershell -ExecutionPolicy Bypass -File .apex\work\IMC-17\record-v74.ps1 -Phase Research
+  powershell -ExecutionPolicy Bypass -File record-v74.ps1 -Phase Check
+  powershell -ExecutionPolicy Bypass -File record-v74.ps1 -Phase Research
       -> send v74_exec_help.stdout and v74_exec_ps_help.stdout (already neutralized) to the
          execution agent; it adjusts the 7.4 case table if the commands differ (T027)
-  powershell -ExecutionPolicy Bypass -File .apex\work\IMC-17\record-v74.ps1 -Phase Session
-  powershell -ExecutionPolicy Bypass -File .apex\work\IMC-17\record-v74.ps1 -Phase Pack
+  powershell -ExecutionPolicy Bypass -File record-v74.ps1 -Phase Session
+  powershell -ExecutionPolicy Bypass -File record-v74.ps1 -Phase Pack
       -> bring the ZIP back to the development machine
 
-Run it from a copy of the repository (branch claude/025-imc-17-mandate-b-b4dc46); the recorder needs
-tools\ and src\test\resources\fixtures\v7_4\cli next to it. All cases are read-only. The INUBIT
+Runs from the recording kit (tools\ next to this file) or from a repository copy (this file in
+.apex\work\IMC-17). All cases are read-only. The INUBIT
 username and password are asked for at each run (the password only as a secure prompt, handed to
 StartCLI through its standard input); they are never stored. Nothing is written on the INUBIT node.
 
 Undo: the allowlists exist only in this PowerShell process. The recorder deletes its raw output
-(a private inubit-record-<id> folder under %TEMP%); after an interrupted run delete a leftover
-inubit-record-* folder there. "git checkout -- src/test/resources/fixtures/v7_4/cli" restores the
+(a private inubit-record-<id> folder under $WorkRoot, default C:\inubit-record); after an
+interrupted run delete a leftover inubit-record-* folder there, and C:\inubit-record itself when
+done. "git checkout -- src/test/resources/fixtures/v7_4/cli" restores the
 reconstructed cases. Delete the ZIP of -Phase Pack after handing it over.
 #>
 [CmdletBinding()]
@@ -58,12 +60,25 @@ $TrustStore = ''
 # line). It never leaves this machine and is never committed.
 $NeutralizeMap = '<path to the neutralize map>'
 
+# Optional: the INUBIT username for the StartCLI login (read access is enough). If empty, the
+# recorder asks for it at every case. The password is always asked for, once per case, as a
+# secure prompt; it is never stored.
+$Username = ''
+
+# Working folder for the recorder's private raw output (ASCII path without spaces or special
+# characters; created if missing). The recorder deletes its raw output at the end.
+$WorkRoot = 'C:\inubit-record'
+
 # Set to $true only after the owner of the machine has confirmed that the INUBIT node behind
 # $CliUrl is NOT classified production (spec FR-021).
 $NodeIsNonProduction = $false
 # ======================================================================================
 
-$RepositoryRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'tools\record-fixtures.ps1')) {
+    $RepositoryRoot = $PSScriptRoot   # recording kit
+} else {
+    $RepositoryRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+}
 $Recorder = Join-Path $RepositoryRoot 'tools\record-fixtures.ps1'
 $FixtureFolder = Join-Path $RepositoryRoot 'src\test\resources\fixtures\v7_4\cli'
 
@@ -83,7 +98,8 @@ function Ok([string] $Message) {
 function Assert-Filled {
     foreach ($pair in @(
             @('CliHome', $CliHome), @('JavaHome', $JavaHome), @('CliUrl', $CliUrl),
-            @('NeutralizeMap', $NeutralizeMap), @('Group', $Group), @('Node', $Node))) {
+            @('NeutralizeMap', $NeutralizeMap), @('Group', $Group), @('Node', $Node),
+            @('WorkRoot', $WorkRoot))) {
         if ([string]::IsNullOrWhiteSpace($pair[1]) -or $pair[1].Contains('<')) {
             Fail "fill in `$$($pair[0]) in the block TO FILL IN of $PSCommandPath"
         }
@@ -132,6 +148,12 @@ function Invoke-Check {
     if (-not (Test-Path -LiteralPath $NeutralizeMap)) { Fail "neutralize map not found: $NeutralizeMap" }
     Ok 'neutralize map found'
     if ($TrustStore -and -not (Test-Path -LiteralPath $TrustStore)) { Fail "trust store not found: $TrustStore" }
+    foreach ($pair in @(@('CliHome', $CliHome), @('JavaHome', $JavaHome), @('WorkRoot', $WorkRoot))) {
+        if ($pair[1] -match '[^\x20-\x7e]|["%!^&|<>;]') {
+            Fail "`$$($pair[0]) contains a character the recorder refuses (umlaut, ; or one of `"%!^&|<>): use another folder"
+        }
+    }
+    Ok 'paths contain no refused characters'
     $nodeHost = Get-NodeHost
     $port = ([Uri] $CliUrl).Port
     $tcp = Test-NetConnection -ComputerName $nodeHost -Port $port -WarningAction SilentlyContinue
@@ -144,11 +166,13 @@ function Invoke-Recorder([string] $Cases) {
     Assert-Filled
     $env:RECORD_ALLOWED_GROUPS = $Group
     $env:RECORD_ALLOWED_HOSTS = Get-NodeHost
+    if (-not (Test-Path -LiteralPath $WorkRoot)) { New-Item -ItemType Directory -Path $WorkRoot | Out-Null }
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $Recorder,
         '-Group', $Group, '-Node', $Node, '-CliHome', $CliHome, '-JavaHome', $JavaHome,
-        '-CliUrl', $CliUrl, '-NeutralizeMap', $NeutralizeMap, '-Case', $Cases)
+        '-CliUrl', $CliUrl, '-NeutralizeMap', $NeutralizeMap, '-WorkRoot', $WorkRoot, '-Case', $Cases)
     if ($TrustStore) { $arguments += @('-TrustStore', $TrustStore) }
-    $powershell = Join-Path $PSHOME 'powershell.exe'
+    if ($Username) { $arguments += @('-Username', $Username) }
+    $powershell = (Get-Process -Id $PID).Path   # the same PowerShell that runs this sheet
     & $powershell @arguments
     $code = $LASTEXITCODE
     Remove-Item Env:RECORD_ALLOWED_GROUPS, Env:RECORD_ALLOWED_HOSTS -ErrorAction SilentlyContinue
@@ -170,7 +194,15 @@ function Invoke-Pack {
 
 switch ($Phase) {
     'Check' { Invoke-Check }
-    'Research' { Invoke-Recorder $ResearchCases; Write-Host "Send v74_exec_help.stdout and v74_exec_ps_help.stdout from $FixtureFolder to the execution agent before -Phase Session." }
+    'Research' {
+        Invoke-Recorder $ResearchCases
+        $versionFile = Join-Path $FixtureFolder 'v74_version.stdout'
+        Write-Host '--- client version (v74_version.stdout) ---'
+        if (Test-Path -LiteralPath $versionFile) { Get-Content -LiteralPath $versionFile | Select-Object -First 5 }
+        Write-Host '---'
+        Write-Host 'The client version above must be 7.4 (7.4.0.90). If not: stop here and tell the execution agent.'
+        Write-Host "Send v74_version.stdout, v74_exec_help.stdout and v74_exec_ps_help.stdout from $FixtureFolder to the execution agent and wait for its OK before -Phase Session."
+    }
     'Session' { Invoke-Recorder $SessionCases; Write-Host 'Next: -Phase Pack.' }
     'Pack' { Invoke-Pack }
 }
