@@ -38,6 +38,10 @@ powershell -ExecutionPolicy Bypass -File tools\record-fixtures.ps1 -List
 Preconditions (spec): Windows machine with the 7.4 Workbench client and its JDK; CLI login to a
 **non-production** 7.4.0.90 node; the local neutralize map; the owner's approval in the chat.
 
+For IMC-17 the steps below are wrapped in the run sheet `.apex/work/IMC-17/record-v74.ps1`
+(placeholders filled in with the owner of the machine; phases `Check`, `Research`, `Session`,
+`Pack`). It needs Python 3.7 or newer (standard library only) for `tools\neutralize.py`.
+
 1. Set the allowlists for this run only:
 
    ```powershell
@@ -74,6 +78,7 @@ Preconditions (spec): Windows machine with the 7.4 Workbench client and its JDK;
 | 2026-11-19 | `NoCustomerIdentifiersTest` with the local identifier lists, in the full suite and alone | macOS | green (20 tests, none skipped) |
 | 2026-11-19 | Mandate A: `mvn -q -o clean verify` at `23a97fd2` (T001–T025 and clean-up) | macOS | exit 0; 11,264 tests, 0 failures, 0 errors, 62 skipped |
 | 2026-11-19 | CI on [PR #104](https://github.com/D4lD4r/inubit-mcp-server/pull/104) at `23a97fd2`: [build](https://github.com/D4lD4r/inubit-mcp-server/actions/runs/44573778803/job/135735630386) and [windows](https://github.com/D4lD4r/inubit-mcp-server/actions/runs/44573778803/job/135735629782) (run 44573778803), CodeQL | Linux, Windows | all green, first attempt, no rerun |
+| 2026-11-23 | Mandate B T026: owner's statements in the chat — a Windows machine (not known to the owner, run together with its owner) with an INUBIT 7.4 Workbench client and its JDK; not production; Python unknown (the run sheet's `Check` phase verifies it); recording approved by the owner. Open: client version (`v74_version` must report 7.4) and the node's non-production classification, confirmed by the machine owner in the run sheet (`$NodeIsNonProduction`) before the first recording | Windows | approval given; preconditions checked at the session |
 
 ### Adjusted existing tests
 

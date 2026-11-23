@@ -21,10 +21,22 @@ is a spec MR after T029).
   (`reviews/T030-r1.md`). `NoCustomerIdentifiersTest` green.
 
 ## Next step
-T026 in the chat with the owner: machine, client version (`v74_version` = 7.4), node
-`<group>/<node>`, its non-production classification, Python and neutralize map present, then the
-owner's approval for the recording. Record them without host names in quickstart.md. Then the
-owner runs IMC-22; after the recordings: T028 commit, then T029.
+The owner runs IMC-22 together with the owner of the Windows machine, using the run sheet
+`.apex/work/IMC-17/record-v74.ps1` (fill in the block TO FILL IN; phases `Check` → `Research` →
+send `v74_exec_help.stdout` / `v74_exec_ps_help.stdout` here → T027 catalogue check → `Session` →
+`Pack`). Then unpack the ZIP into `src/test/resources/fixtures/v7_4/cli`, run
+`NoCustomerIdentifiersTest`, finish T028, then T029.
+
+## Setup on the Windows machine (before `-Phase Check`)
+- Repository copy of branch `claude/025-imc-17-mandate-b-b4dc46` (ZIP from GitHub is enough).
+- **Python 3.7 or newer** — unknown whether installed. `tools\neutralize.py` needs only the
+  standard library (no pip packages). If missing: install from python.org ("Install for current
+  user", tick "Add python.exe to PATH"; no admin rights needed), or unpack the "Windows embeddable
+  package" and put its folder on PATH for that PowerShell session. The Microsoft Store placeholder
+  `python.exe` does not count; `-Phase Check` detects it. Undo: uninstall via Apps, or delete the
+  unpacked folder.
+- The local neutralize map (copied to the machine for the session, deleted afterwards).
+- 7.4 Workbench client with its JDK: present (owner, 2026-11-23).
 
 ## Open questions
 - None. [IMC-21](https://danieldecker.atlassian.net/browse/IMC-21) answered (option A); its card
@@ -38,6 +50,12 @@ owner runs IMC-22; after the recordings: T028 commit, then T029.
 - Still to create after T029: the Windows live check of T035 (commands follow from T029).
 
 ## Decisions received
+- T026 (Daniel Decker, in the chat with this agent, 2026-11-23): recording **approved**. The
+  owner does not know the machine and runs the session with its owner; a 7.4 Workbench with JDK is
+  there; "the machine is not production". Still to confirm at the session: `v74_version` reports
+  7.4 and the INUBIT node is not classified production (machine owner sets `$NodeIsNonProduction`
+  in the run sheet; without it the sheet refuses to run). The approval covers the cases of IMC-22
+  only, read-only, against that non-production node.
 - IMC-21 (Daniel Decker, in the chat with this agent, 2026-11-23): option A — the recorder is the
   allowed "additional Windows script" and is copied to the machine; NoCustomerIdentifiersTest runs
   on the development machine. Procedural, no spec amendment; IMC-22 stays valid.

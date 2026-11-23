@@ -378,6 +378,9 @@ the live check is Windows-only, spec FR-031, IMC-19.)
   client version (`v74_version` must report 7.4), the node and its non-production classification;
   record them (without host names) in [quickstart.md](quickstart.md). No recording before the
   owner's approval.
+  (2026-11-23: approval given in the chat; machine owner fills in the run sheet
+  `.apex/work/IMC-17/record-v74.ps1`; client version and node classification still to confirm at the
+  session — see the validation record.)
 - [ ] T027 [US6] Research recordings (quickstart steps 1–3): run `v74_help`, `v74_version`,
   `v74_exec_help`, `v74_exec_ps_help`, `v74_direct_health` with `tools/record-fixtures.ps1`;
   compare the interactive commands and `ps` options with the catalogue and adjust the 7.4 entries
