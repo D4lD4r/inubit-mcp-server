@@ -1,3 +1,34 @@
+<!--
+Sync Impact Report (PROPOSED amendment, not yet ratified)
+- Status: proposed on 2026-11-26 for feature 025 (replanning of Mandate B, owner decision
+  2026-11-26: the 7.4 recording session will not take place; 7.4 is offered as untested).
+  The owner ratifies it before Mandate B declares the first INUBIT 7.4 capability `unverified`.
+  Until then version 2.0.0 is in force.
+- Version change: 2.0.0 → 2.1.0 (MINOR: guidance materially expanded by a third, weaker
+  evidence level; no principle is removed or redefined, the two existing evidence levels for
+  `supported` stay unchanged).
+- Modified principles:
+  - III. Test-First (title unchanged): new bullet — a read capability that Principle V declares
+    unverified needs contract tests only against fixtures reconstructed from recordings of
+    another version plus the real help output of that version, each marked reconstructed; no
+    recording and no live check of that version.
+  - V. Adapter Isolation & Version Compatibility (title unchanged): new bullet — a read
+    capability of a non-baseline version MAY be declared unverified (runs, not supported) on
+    that evidence when every result carries a user-visible "unverified" warning and the user
+    documentation marks it untested; never for write capabilities; supported still needs the
+    evidence of the previous bullet. Rationale extended by one sentence.
+  - Not weakened: Principles I and II, the dedicated safety / scrubbing tests, the rule that
+    integration tests never target `production`, and the evidence needed for `supported`.
+- Added sections: none.
+- Removed sections: none.
+- Templates requiring updates: none (plan templates read the constitution at runtime).
+- Follow-up TODOs:
+  - TODO(LAST_AMENDED_DATE): set to the owner's ratification date, drop the "PROPOSED" marker
+    from the version line and remove this report before the amendment is committed as ratified.
+  - specs/025-inubit-74-support (spec, plan, tasks): replace the Mandate B route "recordings +
+    live check → supported" by "reconstructed fixtures → unverified"; Constitution Check cites
+    2.1.0.
+-->
 # INUBIT MCP Server Constitution
 
 ## Core Principles
@@ -41,6 +72,11 @@ makes it pass (Red → Green → Refactor). Specifically:
   against fixtures adjusted to evaluated recordings of that version (no recorded byte copied
   into a fixture), plus a passed live check of the capability against a real non-production
   node of that version, are sufficient.
+- A read capability that Principle V declares *unverified* on a version needs contract tests
+  only against fixtures reconstructed from recordings of another version and the real help
+  output of that version, each fixture marked as reconstructed; no recording and no live check
+  of that version are needed. Such tests show how the adapter handles the assumed output, not
+  how the version behaves.
 - Every safety rule from Principle I and every secret-scrubbing rule from Principle II has
   dedicated tests.
 - Integration tests against a real INUBIT test server are optional, opt-in, and MUST never target
@@ -80,11 +116,19 @@ interfaces owned by the domain/tool layer. Tool logic MUST NOT depend on HTTP or
   its recordings, against fixtures adjusted to evaluated recordings plus a passed live check
   against a real non-production node of that version. Write capabilities on an older version
   than the baseline require a spec of their own.
+- A read capability of a version other than the baseline MAY instead be declared *unverified*
+  (it runs, but is not supported) on the weaker evidence of Principle III when every result of
+  that capability on that version carries a user-visible warning that it is unverified, and the
+  user documentation marks the capability as untested on that version. Write capabilities MUST
+  NOT be declared unverified on that evidence. An unverified capability becomes supported only
+  with the evidence of the previous rule.
 - CLI invocations MUST use argument arrays (no shell interpolation), explicit timeouts, exit-code
   evaluation, and a tested output parser.
 
 Rationale: the planned 9.x upgrade must be an adapter change, not a rewrite; supporting older
-installations read-only must follow the same rule and must not weaken the baseline.
+installations read-only must follow the same rule and must not weaken the baseline. The
+unverified level lets operators read from an older installation that cannot be recorded, while
+every result says that it is unverified.
 
 ### VI. Bounded, Structured Output
 
@@ -146,4 +190,6 @@ and committed. Versioning follows semantic versioning: MAJOR for removing or red
 principle, MINOR for adding a principle or materially expanding guidance, PATCH for
 clarifications and wording.
 
-**Version**: 2.0.0 | **Ratified**: 2026-10-01 | **Last Amended**: 2026-11-23
+**Version**: 2.1.0 (PROPOSED, not yet ratified by the owner; 2.0.0 is in force until then) |
+**Ratified**: 2026-10-01 | **Last Amended**: TODO(LAST_AMENDED_DATE): the owner's ratification
+date of 2.1.0
