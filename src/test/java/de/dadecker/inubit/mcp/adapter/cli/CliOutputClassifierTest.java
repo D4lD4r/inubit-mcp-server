@@ -104,6 +104,32 @@ class CliOutputClassifierTest {
         assertThat(output.nokMessages()).isEmpty();
     }
 
+    /**
+     * A newer client against an older 8.1 server (reported: client 8.1.16, server 8.1.7 on
+     * Windows) prints {@code null} where the server sends no progress text, also directly before
+     * a message on the same line.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"null1-OK: Exported successfully",
+        "nullnull1-OK: Exported successfully", "null 1-OK: Exported successfully",
+        "Completed = 0 MB / 0 MB null1-OK: Exported successfully"})
+    void aMessageAfterALeadingNullIsRead(String line) {
+        CliResult result = result(0, "null\n" + line + "\n");
+
+        CliOutput output = classifier.parse(result);
+
+        assertThat(output.okMessages()).containsExactly("Exported successfully");
+        assertThat(classifier.classify(result)).isInstanceOf(CliOutcome.Success.class);
+    }
+
+    @Test
+    void aNokMessageAfterALeadingNullIsRead() {
+        CliOutput output = classifier.parse(result(1,
+            "null2-NOK: Workflow group not found: G\n"));
+
+        assertThat(output.nokMessages()).containsExactly("Workflow group not found: G");
+    }
+
     @Test
     void thePickedUpLineIsPreambleOnStdoutToo() {
         CliOutput output = classifier.parse(new CliResult(0, PICKED_UP + PREAMBLE

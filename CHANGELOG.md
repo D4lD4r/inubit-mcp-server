@@ -100,6 +100,10 @@ for recording a non-production 7.4 node later.
 
 - `tools/record-fixtures.ps1` also refuses a recording whose output echoes the password in
   UTF-16 LE, not only in UTF-8 (IMC-20).
+- StartCLI result lines prefixed with `null` (e.g. `null1-OK: …`) are read as results again
+  instead of failing as `UNEXPECTED_RESPONSE`. A newer 8.1 client prints this prefix against an
+  older 8.1 server (reported with client 8.1.16 and server 8.1.7), which broke
+  `export_artifacts` and the version history.
 
 ### Tests
 
