@@ -30,7 +30,8 @@ Branch `claude/025-imc-17-mandate-b-impl`, worktree `.claude/worktrees/inubit-74
 working tree clean, pushed. Done with `/d4ld4r-speckit-duo:implement` (each APPROVED in round 1):
 T038 (`a3e86d9e`), T031 (`b3e8c358`, 1 minor), T032 (`361de399`, 2 minors), T033 (`d9e5585a`,
 3 optional minors). Reviews in `specs/025-inubit-74-support/reviews/T0xx-r1.md`.
-Resume with T046 (stopped before any change), then T039, T040, T042, T041, T044, T045, T043,
+T046 implemented, saved as WIP commit `6fd78320` (review base `18db80d0`), task review not
+yet done. Resume with the T046 review, then T039, T040, T042, T041, T044, T045, T043,
 T035+T036 (one commit), T037; then a cleanup pass for the collected minors and the PR.
 
 ## Next step
