@@ -998,6 +998,53 @@ class ListNodesToolTest {
         assertThat(requests()).isZero();
     }
 
+    // --- 025-T046: the fail-closed client check of an own-client-only entry (FR-029) ---------
+
+    @Test
+    void a74ClientOfAnotherLineOrWithAnUnreadableVersionMakesTheStartCliCapabilitiesNotUsable() {
+        NodeId node5 = NodeId.parse("qa/node5");
+        NodeId node6 = NodeId.parse("qa/node6");
+        // 4.0.1 – 8.1.17 includes 7.4: only the own-client rule refuses it
+        versions.clientProbed(node5, new ProbedClient(ClientKey.NONE,
+            clientVersion("8.1.17", "4.0.1", "8.1.17")));
+        versions.clientProbeFailed(node6, ClientKey.NONE, ErrorCode.CLI_UNAVAILABLE);
+
+        NodeSummary.Version other = version(TestMatrices.unverified74(), node5);
+        NodeSummary.Version unreadable = version(TestMatrices.unverified74(), node6);
+
+        assertThat(other.capabilities().usable()).isEmpty();
+        assertThat(other.capabilities().notUsable()).startsWith(
+            new NodeSummary.NotUsable("monitoring", "StartCLI client 8.1.17 of qa/node5 is not"
+                + " an INUBIT 7.4 client"),
+            new NodeSummary.NotUsable("process_diagnosis", "StartCLI client 8.1.17 of qa/node5"
+                + " is not an INUBIT 7.4 client"));
+        assertThat(other.status()).isEqualTo("unsupported");
+        assertThat(unreadable.capabilities().usable()).isEmpty();
+        assertThat(unreadable.capabilities().notUsable()).first().isEqualTo(
+            new NodeSummary.NotUsable("monitoring", "The version of the StartCLI client of"
+                + " qa/node6 cannot be read (CLI_UNAVAILABLE at " + NOW + "), so it is not"
+                + " known to be an INUBIT 7.4 client"));
+    }
+
+    @Test
+    void a74ClientOfItsOwnLineAndA61NodeWithAnotherLineStayUsable() {
+        NodeId node6 = NodeId.parse("qa/node6");
+        versions.clientProbed(node6, new ProbedClient(ClientKey.NONE,
+            clientVersion("7.4.0.90", "4.0.1", "7.4.0.90")));
+        // FR-036: the 6.1 entry is not own-client-only, so a client whose range includes 6.1 runs
+        versions.clientProbed(QA4, new ProbedClient(ClientKey.NONE,
+            clientVersion("8.1.17", "4.0.1", "8.1.17")));
+        versions.clientProbeFailed(NodeId.parse("qa/node8"), ClientKey.NONE,
+            ErrorCode.CLI_UNAVAILABLE);
+
+        assertThat(version(TestMatrices.unverified74(), node6).capabilities().usable())
+            .containsExactly("monitoring", "process_diagnosis");
+        for (NodeId node : List.of(QA4, NodeId.parse("qa/node8"))) {
+            assertThat(version(TestMatrices.unverified61(), node).capabilities().usable())
+                .as(node.value()).containsExactly("monitoring", "process_diagnosis");
+        }
+    }
+
     /** The version block of {@code node} in an overview with {@code matrix}. */
     private NodeSummary.Version version(CapabilityMatrix matrix, NodeId node) {
         return new NodeOverview(summaries, versions, matrix, (id, withClient) -> allowed.get(id),

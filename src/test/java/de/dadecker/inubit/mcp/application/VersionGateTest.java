@@ -61,6 +61,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 
 /**
@@ -1351,15 +1352,21 @@ class VersionGateTest {
             Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
         versions.clientProbed(node, new ProbedClient(ClientKey.NONE,
             client("9.0.7", "8.1.0", "9.0.7")));
-        ToolError excluded = refusal(() -> gate(matrix).admit("find_processes", node,
-            Capability.PROCESS_DIAGNOSIS, Kind.READ, REST));
+        Runnable excludedCall = () -> gate(matrix).admit("find_processes", node,
+            Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
 
         assertThat(admission.warnings()).containsExactly(name + " on " + id + " is not verified"
             + " for process diagnosis; results may be incomplete");
         assertThat(probe.calls).as("one StartCLI run of the gate's client probe").hasSize(1);
-        assertThat(excluded.message()).isEqualTo("find_processes: StartCLI client 9.0.7 of " + id
-            + " supports INUBIT 8.1.0 to 9.0.7, which excludes " + name + "; process diagnosis"
-            + " via StartCLI refused; nothing was sent");
+        if (line.equals("74")) {
+            // T046 (FR-029): on 7.4 a client of another line is refused before its range
+            assertThat(clientUnavailable(excludedCall).message()).startsWith("StartCLI client"
+                + " 9.0.7 of " + id + " is not an INUBIT 7.4 client;");
+        } else {
+            assertThat(refusal(excludedCall).message()).isEqualTo("find_processes: StartCLI"
+                + " client 9.0.7 of " + id + " supports INUBIT 8.1.0 to 9.0.7, which excludes "
+                + name + "; process diagnosis via StartCLI refused; nothing was sent");
+        }
         assertThat(detection.calls).isZero();
     }
 
@@ -1453,6 +1460,130 @@ class VersionGateTest {
         assertThat(gate().cliMonitoringWarnings(AUTO)).as("not a CLI-only pin").isEmpty();
         assertThat(gate().cliMonitoringWarnings(V9_X)).isEmpty();
         assertThat(detection.calls).isZero();
+        assertThat(probe.calls).isEmpty();
+    }
+
+    // --- feature 025, T046: the fail-closed client check of an own-client-only entry (FR-029) --
+
+    /** The fixture case {@code fixtures/v7_4/cli/version} as {@code CliVersionProbe} reads it. */
+    private static final ClientVersion CLIENT_74090 = client("7.4.0.90", "4.0.1", "7.4.0.90");
+
+    private static ToolError clientUnavailable(Runnable call) {
+        ToolErrorException e = catchThrowableOfType(ToolErrorException.class, call::run);
+        assertThat(e).as("refused").isNotNull();
+        assertThat(e.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        return e.error();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"legacy74/node1", "legacy74/node2"})
+    void a74PinRefusesAClientOfAnotherLineAlthoughItsRangeIncludes74(String id) {
+        NodeId node = NodeId.parse(id);
+        withClient.add(node);
+        // 4.0.1 – 8.1.17 includes 7.4: the check of feature 009 alone would admit it
+        probe.answer(client("8.1.17", "4.0.1", "8.1.17"));
+
+        ToolError error = clientUnavailable(() -> gate(TestMatrices.unverified74())
+            .admit("find_processes", node, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST));
+
+        assertThat(error.message()).isEqualTo("StartCLI client 8.1.17 of " + id + " is not an"
+            + " INUBIT 7.4 client; StartCLI-backed tools are refused on " + id
+            + "; nothing was sent");
+        assertThat(error.likelyCause()).isEqualTo("INUBIT 7.4 runs StartCLI only with a client"
+            + " of its own release, and the client chosen for " + id + " is of another release"
+            + " or does not report its version");
+        assertThat(error.nextStep()).isEqualTo("Set cli.home of the node or its group, or"
+            + " defaults.cliClients.\"7.4\".home, to an INUBIT 7.4 StartCLI client whose -v"
+            + " reports CLI 7.4");
+        assertThat(error.node()).contains(node);
+        assertThat(probe.calls).as("one StartCLI run of the gate's client probe").hasSize(1);
+        assertThat(appender.list).extracting(ILoggingEvent::getFormattedMessage)
+            .containsExactly("PROCESS_DIAGNOSIS on " + id + ": REFUSED (CLI_UNAVAILABLE): "
+                + error.message());
+    }
+
+    @Test
+    void a74PinRefusesAClientWhoseVersionCannotBeReadAlsoInTheBackOff() {
+        withClient.add(V7_4);
+        probe.fail(ErrorCode.CLI_UNAVAILABLE);
+        VersionGate gate = gate(TestMatrices.unverified74());
+
+        ToolError first = clientUnavailable(() -> gate.admit("get_health", V7_4,
+            Capability.MONITORING, Kind.READ, REST));
+        clock.advance(Duration.ofSeconds(30));
+        ToolError again = clientUnavailable(() -> gate.admit("find_processes", V7_4,
+            Capability.PROCESS_DIAGNOSIS, Kind.READ, REST));
+
+        assertThat(first.message()).isEqualTo("The version of the StartCLI client of"
+            + " legacy74/node1 cannot be read (CLI_UNAVAILABLE at 2026-10-18T08:00:00Z), so it is"
+            + " not known to be an INUBIT 7.4 client; StartCLI-backed tools are refused on"
+            + " legacy74/node1; nothing was sent");
+        assertThat(again).isEqualTo(first);
+        assertThat(probe.calls).as("no second probe within 60 s").hasSize(1);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "legacy74/node1, INUBIT 7.4",
+        "legacy74/node2, INUBIT 7.4.0.90"})
+    void a74PinAdmitsTheClientOfTheReplayedVersionCase(String id, String name) {
+        NodeId node = NodeId.parse(id);
+        withClient.add(node);
+        probe.answer(CLIENT_74090);
+
+        Admission admission = gate(TestMatrices.unverified74()).admit("find_processes", node,
+            Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+
+        assertThat(admission.warnings()).containsExactly(name + " on " + id + " is not verified"
+            + " for process diagnosis; results may be incomplete");
+        assertThat(probe.calls).hasSize(1);
+    }
+
+    @Test
+    void a61PinWithoutTheFlagKeepsTheRangeCheckAndTheProbeFailureWarning() {
+        // FR-036: the 6.1 entry has no ownClientOnly, so another line within the range runs
+        withClient.add(V6_1);
+        withClient.add(V6_1_PINNED);
+        probe.answer(client("8.1.17", "4.0.1", "8.1.17"));
+        Admission otherLine = gate(TestMatrices.unverified61()).admit("find_processes", V6_1,
+            Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+        probe.fail(ErrorCode.CLI_UNAVAILABLE);
+        Admission unreadable = gate(TestMatrices.unverified61()).admit("find_processes",
+            V6_1_PINNED, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+
+        assertThat(otherLine.warnings()).containsExactly("INUBIT 6.1 on old/node1 is not"
+            + " verified for process diagnosis; results may be incomplete");
+        assertThat(unreadable.warnings()).contains("The StartCLI client probe of old/node2 failed"
+            + " (CLI_UNAVAILABLE at 2026-10-18T08:00:00Z); the INUBIT range of the client cannot"
+            + " be checked, StartCLI results may be unreliable");
+    }
+
+    @Test
+    void ownClientRefusalReadsTheRecordedClientWithoutProbing() {
+        // get_health (T046): HealthService probes first, then asks the gate
+        VersionGate gate = gate(TestMatrices.unverified74());
+        assertThat(gate.ownClientOnly(V7_4)).isTrue();
+        assertThat(gate.ownClientOnly(V6_1)).isFalse();
+        assertThat(gate(TestMatrices.unverified61()).ownClientOnly(V6_1)).isFalse();
+        assertThat(gate.ownClientRefusal(V7_4)).as("nothing known yet").isEmpty();
+
+        versions.clientProbed(V7_4, new ProbedClient(ClientKey.NONE,
+            client("8.1.17", "4.0.1", "8.1.17")));
+        versions.clientProbeFailed(V7_4_PINNED, ClientKey.NONE, ErrorCode.TIMEOUT);
+        versions.clientProbed(V6_1, new ProbedClient(ClientKey.NONE,
+            client("8.1.17", "4.0.1", "8.1.17")));
+
+        assertThat(gate.ownClientRefusal(V7_4)).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+            assertThat(error.message()).startsWith("StartCLI client 8.1.17 of legacy74/node1 is"
+                + " not an INUBIT 7.4 client;");
+        });
+        assertThat(gate.ownClientRefusal(V7_4_PINNED).orElseThrow().message())
+            .startsWith("The version of the StartCLI client of legacy74/node2 cannot be read"
+                + " (TIMEOUT at 2026-10-18T08:00:00Z)");
+        assertThat(gate(TestMatrices.unverified61()).ownClientRefusal(V6_1)).isEmpty();
+        versions.clientProbed(V7_4, new ProbedClient(ClientKey.NONE, CLIENT_74090));
+        assertThat(gate.ownClientRefusal(V7_4)).isEmpty();
         assertThat(probe.calls).isEmpty();
     }
 

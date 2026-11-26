@@ -40,20 +40,26 @@ class V74FixturesShapeTest {
         Pattern.compile("^([a-z0-9_]+) ([a-z0-9_]+) ([a-z_]+) (\\S.*)$");
     /** README, section {@code ## Recorded cases}: one list item {@code - <case> <source>}. */
     private static final Pattern RECORDED_LINE = Pattern.compile("^- ([a-z0-9_]+) ([a-z0-9_]+)$");
-    /** The reconstructed cases of Mandate A and their capability (spec FR-014 table). */
-    private static final Map<String, String> RECONSTRUCTED_CASES = Map.ofEntries(
-        Map.entry("health_session_ok", "monitoring"),
-        Map.entry("health_session_maintenance", "monitoring"),
-        Map.entry("health_session_alive_failed", "monitoring"),
-        Map.entry("login_failed", "monitoring"),
-        Map.entry("unreachable", "monitoring"),
-        Map.entry("ps_session_all", "process_diagnosis"),
-        Map.entry("ps_session_error", "process_diagnosis"),
-        Map.entry("ps_session_waiting", "process_diagnosis"),
-        Map.entry("ps_session_queued", "process_diagnosis"),
-        Map.entry("ps_session_limit5", "process_diagnosis"),
-        Map.entry("ps_session_empty", "process_diagnosis"),
-        Map.entry("ps_session_unassigned", "process_diagnosis"));
+    private static final Set<String> BOTH = Set.of("monitoring", "process_diagnosis");
+    /**
+     * The reconstructed cases and their capabilities (spec FR-014 table): the twelve of Mandate A
+     * and {@code version} of Mandate B (T046); a case of both capabilities is listed once per
+     * capability (spec FR-015).
+     */
+    private static final Map<String, Set<String>> RECONSTRUCTED_CASES = Map.ofEntries(
+        Map.entry("version", BOTH),
+        Map.entry("health_session_ok", Set.of("monitoring")),
+        Map.entry("health_session_maintenance", Set.of("monitoring")),
+        Map.entry("health_session_alive_failed", Set.of("monitoring")),
+        Map.entry("login_failed", BOTH),
+        Map.entry("unreachable", BOTH),
+        Map.entry("ps_session_all", Set.of("process_diagnosis")),
+        Map.entry("ps_session_error", Set.of("process_diagnosis")),
+        Map.entry("ps_session_waiting", Set.of("process_diagnosis")),
+        Map.entry("ps_session_queued", Set.of("process_diagnosis")),
+        Map.entry("ps_session_limit5", Set.of("process_diagnosis")),
+        Map.entry("ps_session_empty", Set.of("process_diagnosis")),
+        Map.entry("ps_session_unassigned", Set.of("process_diagnosis")));
 
     @Test
     void theFolderHasItsReadmeAndBothLists() {
@@ -88,12 +94,12 @@ class V74FixturesShapeTest {
     }
 
     /**
-     * T018 (spec FR-014 table, research D-11): the folder holds the twelve reconstructed cases and
-     * {@code help}; any other case must be in the README's recorded list (the research cases of
-     * Mandate B). Every {@code RECONSTRUCTED.txt} line names its case's capability.
+     * T018, T046 (spec FR-014 table, FR-015, research D-11): the folder holds the thirteen
+     * reconstructed cases and {@code help}; any other case must be in the README's recorded list.
+     * {@code RECONSTRUCTED.txt} has exactly one line per case and capability.
      */
     @Test
-    void theFolderHoldsTheTwelveReconstructedCasesAndHelp() throws IOException {
+    void theFolderHoldsTheThirteenReconstructedCasesAndHelp() throws IOException {
         Set<String> expected = new LinkedHashSet<>(RECONSTRUCTED_CASES.keySet());
         expected.add("help");
         Set<String> recorded =
@@ -108,13 +114,14 @@ class V74FixturesShapeTest {
 
         assertThat(folderCases).containsAll(expected);
         assertThat(folderCases).allMatch(name -> expected.contains(name) || recorded.contains(name),
-            "one of the thirteen cases or in the README's recorded list");
-        for (String line : listLines(FOLDER.resolve("RECONSTRUCTED.txt"))) {
-            String name = line.split(" ")[0];
-            assertThat(RECONSTRUCTED_CASES).as("RECONSTRUCTED.txt case %s is one of the twelve"
-                + " reconstructed cases", name).containsKey(name);
-            assertThat(line).isEqualTo(name + " " + RECONSTRUCTED_CASES.get(name));
-        }
+            "one of the fourteen cases or in the README's recorded list");
+        List<String> expectedLines = RECONSTRUCTED_CASES.entrySet().stream()
+            .flatMap(entry -> entry.getValue().stream().map(capability -> entry.getKey() + " "
+                + capability))
+            .toList();
+        assertThat(listLines(FOLDER.resolve("RECONSTRUCTED.txt")))
+            .as("one line per reconstructed case and capability")
+            .containsExactlyInAnyOrderElementsOf(expectedLines);
     }
 
     @Test
@@ -160,6 +167,20 @@ class V74FixturesShapeTest {
             "missing.exit missing",
             "rec.stdout is in 2 lists",
             "stray.stdout is in 0 lists");
+    }
+
+    /** T046 (spec FR-015): a case of both capabilities is listed once per capability. */
+    @Test
+    void aCaseListedUnderSeveralCapabilitiesIsInOneList(@TempDir Path folder) throws IOException {
+        Files.writeString(folder.resolve("README.md"), "## Recorded cases\n");
+        Files.writeString(folder.resolve("RECONSTRUCTED.txt"),
+            "version monitoring\nversion process_diagnosis\n");
+        Files.writeString(folder.resolve("DERIVED.txt"), "");
+        for (String suffix : List.of(".stdout", ".stderr", ".exit")) {
+            Files.writeString(folder.resolve("version" + suffix), "");
+        }
+
+        assertThat(violations(folder)).isEmpty();
     }
 
     /** Every rule of this class the folder breaks, one message per finding. */

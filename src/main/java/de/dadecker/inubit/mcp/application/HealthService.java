@@ -112,7 +112,11 @@ import org.slf4j.LoggerFactory;
  *       read continues for the next call. A failed read gives a failed report with its error.
  *   <li>StartCLI (feature 012, FR-008, FR-009, research D-6): a node with CLI access gets, after
  *       its credentials as above, one {@link CliHealthPort#snapshot} (the session's connection
- *       reads the client options and checks TLS first) in parallel with the client probe.
+ *       reads the client options and checks TLS first) in parallel with the client probe. On a
+ *       version that uses only a client of its own ({@link VersionGate#ownClientOnly}, feature
+ *       025, FR-029: 7.4) the probe runs first, within the same budget, and a client of another
+ *       major.minor or one whose version cannot be read gives a failed report with the
+ *       {@code CLI_UNAVAILABLE} of {@link VersionGate#ownClientRefusal}: no session, no warning.
  *       {@code reachable} means StartCLI connected and logged in; {@code status} is {@code OK}
  *       when the alive check succeeded, {@code ERROR} when it answered negatively and
  *       {@code UNKNOWN} when the session failed (its error is the report's, and version, load
@@ -436,6 +440,18 @@ public final class HealthService {
                 "while preparing the connection");
             if (port.failed()) {
                 return failed(server, port.error());
+            }
+            if (gate.ownClientOnly(server)) {
+                // feature 025 (FR-029): the client must report the pinned line before contact
+                StartedProbe first = startProbe(executor, server,
+                    versions.effectiveVersion(server), budgetEnd);
+                if (first != null) {
+                    record(server, first, deadline, budget);
+                }
+                Optional<ToolError> refusal = gate.ownClientRefusal(server);
+                if (refusal.isPresent()) {
+                    return failed(server, refusal.get());
+                }
             }
             CliHealthPort cli = port.value();
             Future<CliHealthSnapshot> session = executor.submit(() ->

@@ -1173,6 +1173,121 @@ class HealthServiceTest {
             + " results may be unreliable");
     }
 
+    // --- feature 025, T046: the fail-closed client check before the 7.4 session (FR-029) -----
+
+    /** The fixture case {@code fixtures/v7_4/cli/version} as {@code CliVersionProbe} reads it. */
+    private static final ClientVersion CLIENT_74090 = new ClientVersion(version("7.4.0.90"),
+        Optional.of(version("4.0.1")), Optional.of(version("7.4.0.90")));
+
+    /** The T046 refusal of get_health, the same as the gate's for a StartCLI-backed tool. */
+    private static String foreignClientMessage(String cause) {
+        return cause + "; StartCLI-backed tools are refused on dev/node1; nothing was sent";
+    }
+
+    @Test
+    void a74PinWithAClientOfAnotherLineIsRefusedBeforeTheSession() {
+        pin74(VersionSetting.V7_4, true);
+        withClient.add(DEV);
+        // 4.0.1 – 8.1.17 includes 7.4: only the own-client rule refuses it
+        clients.put(DEV, () -> CLIENT_8117);
+
+        HealthReport report = checkOne74();
+
+        assertThat(report.reachable()).isFalse();
+        assertThat(report.error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+            assertThat(error.message()).isEqualTo(foreignClientMessage("StartCLI client 8.1.17 of"
+                + " dev/node1 is not an INUBIT 7.4 client"));
+            assertThat(error.node()).contains(DEV);
+        });
+        assertThat(report.warnings()).as("no unverified warning").isEmpty();
+        assertThat(((FakeCliHealth) cliPorts.get(DEV)).budgets).as("no session").isEmpty();
+        assertThat(probeTimeouts).as("one probe, bounded by the node's budget").singleElement()
+            .satisfies(bound -> assertThat(bound).isPositive()
+                .isLessThanOrEqualTo(HealthService.CLI_ONLY_SINGLE_NODE_BUDGET));
+        assertThat(monitorings).as("no REST").isEmpty();
+    }
+
+    @Test
+    void a74PinWhoseClientVersionCannotBeReadIsRefusedBeforeTheSession() {
+        pin74(PIN_74090, true);
+        withClient.add(DEV);
+        clients.put(DEV, () -> {
+            throw error(ErrorCode.CLI_UNAVAILABLE, DEV, "StartCLI did not report its version"
+                + " (exit code 1)");
+        });
+
+        HealthReport report = checkOne74();
+
+        assertThat(report.error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+            assertThat(error.message()).isEqualTo(foreignClientMessage("The version of the"
+                + " StartCLI client of dev/node1 cannot be read (CLI_UNAVAILABLE at"
+                + " 2026-10-01T08:00:00Z), so it is not known to be an INUBIT 7.4 client"));
+        });
+        assertThat(report.warnings()).isEmpty();
+        assertThat(((FakeCliHealth) cliPorts.get(DEV)).budgets).as("no session").isEmpty();
+        assertThat(probeTimeouts).hasSize(1);
+    }
+
+    @Test
+    void a74PinRunsTheSessionAfterTheClientOfTheReplayedVersionCase() {
+        pin74(PIN_74090, true);
+        withClient.add(DEV);
+        FakeCliHealth port = (FakeCliHealth) cliPorts.get(DEV);
+        CountDownLatch sessionStarted = new CountDownLatch(1);
+        port.answer = budget -> {
+            sessionStarted.countDown();
+            return new CliHealthSnapshot(true, Optional.of("7.4.0.90"), false,
+                Optional.of(false), Optional.of(MEMORY), Optional.of(COUNTS), NOT_ON_7_4);
+        };
+        List<Long> sessionsBeforeTheProbe = java.util.Collections.synchronizedList(
+            new ArrayList<>());
+        clients.put(DEV, () -> {
+            sessionsBeforeTheProbe.add(1 - sessionStarted.getCount());
+            return CLIENT_74090;
+        });
+
+        HealthReport report = checkOne74();
+
+        assertThat(report.error()).isEmpty();
+        assertThat(report.status()).isEqualTo(HealthStatus.OK);
+        assertThat(report.client()).contains(HealthReport.Client.of(CLIENT_74090,
+            ClientVersion.Comparison.MATCH));
+        assertThat(report.warnings()).contains("INUBIT 7.4.0.90 on dev/node1 is not verified for"
+            + " monitoring; results may be incomplete");
+        assertThat(sessionsBeforeTheProbe).as("probed once, before the session")
+            .containsExactly(0L);
+        assertThat(port.budgets).hasSize(1);
+    }
+
+    @Test
+    void a61NodeKeepsTheProbeInParallelWithTheSession() {
+        CountDownLatch sessionStarted = new CountDownLatch(1);
+        pin61(budget -> {
+            sessionStarted.countDown();
+            return snapshot("6.1.0.89", false, true, false);
+        });
+        withClient.add(DEV);
+        List<Boolean> sawTheSession = java.util.Collections.synchronizedList(new ArrayList<>());
+        clients.put(DEV, () -> {
+            try {
+                sawTheSession.add(sessionStarted.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            // another line: the 6.1 entry is not own-client-only (FR-036)
+            return CLIENT_8117;
+        });
+
+        HealthReport report = checkOne61();
+
+        assertThat(sawTheSession).as("the probe ran while the session started").containsExactly(
+            true);
+        assertThat(report.error()).isEmpty();
+        assertThat(report.client()).isPresent();
+    }
+
     // --- feature 009: get_health observes the version of every node (T016, FR-012) ---------
 
     /** The warning about the pin V8_1 of dev/node1 contradicted by a read of {@code raw}. */

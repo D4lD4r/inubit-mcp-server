@@ -9,6 +9,12 @@
 # 7.4.0.90; ps_session_waiting and ps_session_queued split ps_session_waiting_queued,
 # ps_session_limit5 is ps_session_all cut to its first five rows. Each comment names the case that
 # replaces the line (spec FR-014 table).
+# Mandate B (T046): version is the client's -v in the format of ../../v8_1/cli/version with client
+# 7.4.0.90. A case that both capabilities use is listed once per capability (spec FR-015).
+# client version (the fail-closed client check of FR-029)
+# replaced by v74_version
+version monitoring
+version process_diagnosis
 # health session (get_health)
 # replaced by v74_health_session
 health_session_ok monitoring
@@ -18,8 +24,10 @@ health_session_maintenance monitoring
 health_session_alive_failed monitoring
 # replaced by v74_login_failed
 login_failed monitoring
+login_failed process_diagnosis
 # replaced by v74_failure
 unreachable monitoring
+unreachable process_diagnosis
 # process session (find_processes)
 # replaced by v74_ps_all
 ps_session_all process_diagnosis

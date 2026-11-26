@@ -203,9 +203,20 @@ public final class NodeOverview {
                 + "; call get_health to detect it"));
     }
 
-    /** Why the known StartCLI client refuses StartCLI calls; empty if it does not (FR-011). */
-    private static Optional<String> clientRefusal(NodeId node, NodeVersionState state,
+    /**
+     * Why the known StartCLI client refuses StartCLI calls; empty if it does not (FR-011). On a
+     * version that uses only a client of its own (feature 025, FR-029) also a client of another
+     * major.minor or one whose version could not be read, as the gate refuses it.
+     */
+    private Optional<String> clientRefusal(NodeId node, NodeVersionState state,
         Optional<InubitVersion> version, Optional<ClientKey> current) {
+        if (current.isPresent() && matrix.ownClientOnly(version)) {
+            Optional<String> foreign =
+                VersionGate.foreignClient(node, state, current.get(), version.orElseThrow());
+            if (foreign.isPresent()) {
+                return foreign;
+            }
+        }
         Optional<Timed<ClientVersion>> known = current.flatMap(state::clientFor);
         if (known.isEmpty()) {
             return Optional.empty();
