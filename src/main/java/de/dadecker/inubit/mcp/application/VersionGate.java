@@ -370,6 +370,16 @@ public final class VersionGate {
     }
 
     /**
+     * {@code client} against {@code server} with the patch depth of the gate's matrix
+     * ({@link CapabilityMatrix#comparePatch}, feature 025, research D-3), for {@code get_health},
+     * which holds no matrix of its own.
+     */
+    public ClientVersion.Comparison comparePatch(ClientVersion client,
+        Optional<InubitVersion> server) {
+        return matrix.comparePatch(client, server);
+    }
+
+    /**
      * The channels through which {@code capability} reaches {@code node}, decided on the pin
      * before any contact like {@link #monitoringAccess}: the matrix entry's channels of the
      * pinned version (StartCLI for process diagnosis on 6.1), else the capability's own. Callers

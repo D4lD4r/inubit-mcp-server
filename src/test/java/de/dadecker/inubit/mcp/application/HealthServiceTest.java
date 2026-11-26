@@ -55,6 +55,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.TestClientSelection;
+import de.dadecker.inubit.mcp.testing.TestMatrices;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -1085,6 +1086,91 @@ class HealthServiceTest {
         if (interrupted) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    // --- feature 025, T031: get_health on 7.4 through StartCLI, unverified (FR-026, FR-027) ---
+
+    private static final List<UnavailablePart> NOT_ON_7_4 = List.of(
+        new UnavailablePart(UnavailablePart.READY,
+            "NOT_AVAILABLE_ON_7_4: INUBIT 7.4 has no readiness check"),
+        new UnavailablePart(UnavailablePart.THREADS,
+            "NOT_AVAILABLE_ON_7_4: INUBIT 7.4 reports no thread figures"),
+        new UnavailablePart(UnavailablePart.BLOCKING_QUEUE,
+            "NOT_AVAILABLE_ON_7_4: INUBIT 7.4 reports no blocking queue"));
+    private static final ClientVersion CLIENT_74080 = new ClientVersion(version("7.4.0.80"),
+        Optional.of(version("4.0.1")), Optional.of(version("7.4.0.80")));
+    private static final VersionSetting PIN_74090 = VersionSetting.parse("7.4.0.90")
+        .orElseThrow();
+
+    /**
+     * Pins dev/node1 to {@code setting} with a StartCLI health port that reads a 7.4 session:
+     * {@code uname} gives 7.4.0.90 as the client's version (FR-027).
+     */
+    private void pin74(VersionSetting setting, boolean alive) {
+        versionLines.put(DEV, setting);
+        cliPorts.put(DEV, new FakeCliHealth(budget -> new CliHealthSnapshot(alive,
+            Optional.of("7.4.0.90"), false, Optional.of(false), Optional.of(MEMORY),
+            Optional.of(COUNTS), NOT_ON_7_4)));
+    }
+
+    /** The T038 test matrix: monitoring and process diagnosis unverified on 7.4. */
+    private HealthReport checkOne74() {
+        List<HealthReport> reports = service(TestMatrices.unverified74())
+            .check(Optional.of(DEV.value()), false);
+        assertThat(reports).hasSize(1);
+        return reports.get(0);
+    }
+
+    @Test
+    void a74NodeIsReadThroughStartCliWithTheUnverifiedWarning() {
+        pin74(VersionSetting.V7_4, true);
+
+        HealthReport report = checkOne74();
+
+        assertThat(report.reachable()).isTrue();
+        assertThat(report.status()).isEqualTo(HealthStatus.OK);
+        assertThat(report.error()).isEmpty();
+        assertThat(report.load()).contains(LoadFigures.of(MEMORY));
+        assertThat(report.processCounts()).contains(COUNTS);
+        assertThat(report.unavailable()).containsExactlyElementsOf(NOT_ON_7_4);
+        assertThat(report.version()).as("FR-027: the client's version is not the node's")
+            .isEmpty();
+        assertThat(report.warnings()).containsExactly(
+            "INUBIT 7.4 on dev/node1 is not verified for monitoring; results may be incomplete",
+            "the version 7.4.0.90 read on dev/node1 is the StartCLI client's; the server version"
+                + " cannot be read");
+        assertThat(versions.state(DEV).observed()).as("FR-027: not observed").isEmpty();
+        assertThat(monitorings).as("no REST").isEmpty();
+        assertThat(detections).hasValue(0);
+    }
+
+    @Test
+    void aNegativeAliveCheckOnAConcrete74PinIsErrorWithTheWarningNamingThePin() {
+        pin74(PIN_74090, false);
+
+        HealthReport report = checkOne74();
+
+        assertThat(report.reachable()).isTrue();
+        assertThat(report.status()).isEqualTo(HealthStatus.ERROR);
+        assertThat(report.processCounts()).contains(COUNTS);
+        assertThat(report.warnings()).contains("INUBIT 7.4.0.90 on dev/node1 is not verified for"
+            + " monitoring; results may be incomplete");
+    }
+
+    @Test
+    void a74080ClientAtA74090PinIsAMismatchInTheClientPart() {
+        // FR-003, T017: the fourth part counts on 7.4 (VersionGate.comparePatch)
+        pin74(PIN_74090, true);
+        withClient.add(DEV);
+        clients.put(DEV, () -> CLIENT_74080);
+
+        HealthReport report = checkOne74();
+
+        assertThat(report.client()).contains(HealthReport.Client.of(CLIENT_74080,
+            ClientVersion.Comparison.MISMATCH));
+        assertThat(report.warnings()).contains("StartCLI client 7.4.0.80 on dev/node1 differs"
+            + " from INUBIT 7.4.0.90 (mismatch); StartCLI-backed tools still run, but their"
+            + " results may be unreliable");
     }
 
     // --- feature 009: get_health observes the version of every node (T016, FR-012) ---------

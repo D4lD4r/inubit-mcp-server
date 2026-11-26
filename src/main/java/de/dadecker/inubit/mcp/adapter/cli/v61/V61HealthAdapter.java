@@ -18,8 +18,10 @@ import java.util.Optional;
 /**
  * The health port of an INUBIT 6.1 node (feature 012, research D-6): one StartCLI session with
  * {@link V61HealthParser#COMMANDS} through {@link V61Connection}, read into a
- * {@link CliHealthSnapshot}. Readiness, threads and blocking queue are always missing
- * ({@link UnavailablePart#NOT_AVAILABLE_ON_6_1}).
+ * {@link CliHealthSnapshot}. Readiness, threads and blocking queue are always missing, with the
+ * reason of the {@link CliLineProfile} ({@link UnavailablePart#NOT_AVAILABLE_ON_6_1} on 6.1); the
+ * profile also says whether {@code uname} reports the server's version. Feature 025 (FR-024)
+ * runs 7.4 on this adapter with the 7.4 profile.
  *
  * <p>A run that ended with another exit code than 0, cut output or a login failure is
  * classified by {@link CliOutputClassifier} (e.g. {@code AUTH_FAILED}, {@code UNREACHABLE},
@@ -27,31 +29,31 @@ import java.util.Optional;
  */
 public final class V61HealthAdapter implements CliHealthPort {
 
-    /**
-     * Whether {@code uname} reports the server's version rather than the StartCLI client's
-     * (FR-006, research D-6). Decided by the recordings (T037); until they confirm the server
-     * version, the version counts as the client's.
-     */
-    static final boolean UNAME_REPORTS_SERVER_VERSION = false;
-
-    /** The parts INUBIT 6.1 does not offer, as in contracts/mcp-tools-delta.md. */
-    private static final List<UnavailablePart> NOT_ON_6_1 = List.of(
-        new UnavailablePart(UnavailablePart.READY,
-            UnavailablePart.NOT_AVAILABLE_ON_6_1 + ": INUBIT 6.1 has no readiness check"),
-        new UnavailablePart(UnavailablePart.THREADS,
-            UnavailablePart.NOT_AVAILABLE_ON_6_1 + ": INUBIT 6.1 reports no thread figures"),
-        new UnavailablePart(UnavailablePart.BLOCKING_QUEUE,
-            UnavailablePart.NOT_AVAILABLE_ON_6_1 + ": INUBIT 6.1 reports no blocking queue"));
-
     private final NodeId node;
     private final V61Connection connection;
     private final CliOutputClassifier classifier;
+    private final CliLineProfile profile;
+    /** The parts the line does not offer, as in contracts/mcp-tools-delta.md. */
+    private final List<UnavailablePart> notOffered;
 
+    /** The health port of a 6.1 node ({@link CliLineProfile#V61}). */
     public V61HealthAdapter(NodeId node, V61Connection connection,
         CliOutputClassifier classifier) {
+        this(node, connection, classifier, CliLineProfile.V61);
+    }
+
+    public V61HealthAdapter(NodeId node, V61Connection connection,
+        CliOutputClassifier classifier, CliLineProfile profile) {
         this.node = Objects.requireNonNull(node, "node");
         this.connection = Objects.requireNonNull(connection, "connection");
         this.classifier = Objects.requireNonNull(classifier, "classifier");
+        this.profile = Objects.requireNonNull(profile, "profile");
+        String prefix = profile.unavailableReason() + ": INUBIT " + profile.release();
+        this.notOffered = List.of(
+            new UnavailablePart(UnavailablePart.READY, prefix + " has no readiness check"),
+            new UnavailablePart(UnavailablePart.THREADS, prefix + " reports no thread figures"),
+            new UnavailablePart(UnavailablePart.BLOCKING_QUEUE,
+                prefix + " reports no blocking queue"));
     }
 
     /**
@@ -77,8 +79,8 @@ public final class V61HealthAdapter implements CliHealthPort {
             throw failed(e.error());
         }
         return new CliHealthSnapshot(health.alive(), Optional.of(health.version()),
-            UNAME_REPORTS_SERVER_VERSION, Optional.of(health.maintenance()),
-            Optional.of(health.memory()), Optional.of(health.counts()), NOT_ON_6_1);
+            profile.unameReportsServerVersion(), Optional.of(health.maintenance()),
+            Optional.of(health.memory()), Optional.of(health.counts()), notOffered);
     }
 
     private ToolErrorException failed(ToolError error) {

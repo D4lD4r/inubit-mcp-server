@@ -99,7 +99,7 @@ import org.slf4j.LoggerFactory;
  *       state an overlapping call may have changed: when that is another client than the one
  *       probed, it is probed within what is left of the budget, or with nothing left it "has
  *       not been checked yet". The report gives the client with the comparison against the
- *       version this call read
+ *       version this call read ({@link VersionGate#comparePatch}: four parts on 7.4, feature 025)
  *       and warns what it means for StartCLI-backed tools (FR-011): refused when the server
  *       lies outside the client's declared range, otherwise a mismatch still runs with a
  *       warning; a failed or timed-out probe is the part
@@ -119,7 +119,8 @@ import org.slf4j.LoggerFactory;
  *       and process counts are unavailable with it); maintenance mode and counts do not change
  *       it. The version goes to {@link NodeVersions#observed} and the report only when the
  *       snapshot marks it as the server's; otherwise a warning names it as the client's
- *       (FR-006). Budget: a call for one node returns within
+ *       (FR-006). A report built from a successful session also carries the unverified warning
+ *       of {@link VersionGate#cliMonitoringWarnings} (feature 025, FR-030 (b)). Budget: a call for one node returns within
  *       {@link #CLI_ONLY_SINGLE_NODE_BUDGET}, a call for several within
  *       {@link #OVERVIEW_BUDGET}; the node's session and probe get that bound less
  *       {@link #FAN_OUT_GRACE}, and a session still running then is {@code TIMEOUT} worded for
@@ -451,6 +452,8 @@ public final class HealthService {
             List<String> versionWarnings = new ArrayList<>();
             Optional<InubitVersion> serverRead = Optional.empty();
             if (!snapshot.failed()) {
+                // feature 025 (FR-030 (b)): the unverified warning of a CLI-only pin
+                versionWarnings.addAll(gate.cliMonitoringWarnings(server));
                 CliHealthSnapshot read = snapshot.value();
                 if (read.versionIsServer()) {
                     serverRead = read.versionText().flatMap(InubitVersion::parse);
@@ -683,7 +686,7 @@ public final class HealthService {
                 Optional.empty(), Optional.of("Call get_health again after " + retry)));
         }
         ClientVersion known = result.get().value();
-        ClientVersion.Comparison comparison = known.compare(observed);
+        ClientVersion.Comparison comparison = gate.comparePatch(known, observed);
         return new ClientPart(Optional.of(HealthReport.Client.of(known, comparison)),
             Optional.empty(), clientWarning(server, known, observed, comparison));
     }

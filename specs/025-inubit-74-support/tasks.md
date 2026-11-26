@@ -439,7 +439,7 @@ production matrix changes only in T035.
   no suffix; `ConfigSummaryTest` with these test matrices: the `--check-config` summary line reads
   "(INUBIT 7.4, StartCLI only; available: monitoring, process diagnosis; refused: …)" (6.1 alike). Production unchanged: `V74RefusalTest`, `V61RefusalTest` and
   `VersionLineRegressionTest` stay green.
-- [ ] T031 [US6] Health on 7.4: profile, port set, data entries (spec FR-024 – FR-027, after T038):
+- [X] T031 [US6] Health on 7.4: profile, port set, data entries (spec FR-024 – FR-027, after T038):
   new `main/adapter/cli/v61/CliLineProfile.java` (record: release, unavailable reason, whether
   `uname` reports the server's version; constant `V61` = "6.1", `NOT_AVAILABLE_ON_6_1`, false);
   `main/adapter/cli/v61/V61HealthAdapter.java` takes the profile (the 6.1 constructor keeps today's
