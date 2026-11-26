@@ -127,3 +127,21 @@ writes.
 | release (in every text that names the version) | `6.1` | `7.4` |
 | reason of the unavailable parts (readiness, threads, blocking queue) | `NOT_AVAILABLE_ON_6_1` | `NOT_AVAILABLE_ON_7_4` (new in `UnavailablePart`) |
 | `uname` reports the server's version | false | false (6.1 behaviour; known limitation: no server version, no pin contradiction from 7.4) |
+
+Taken by `V61HealthAdapter`, `V61ProcessQueryAdapter`, `V61QueryRules` and `V61SessionParser`;
+`V61Connection`, `V61HealthParser` and `V61PsParser` are reused unchanged.
+
+### ContactedException (new, domain) and warnings on failures
+
+| Element | Change |
+|---|---|
+| `ContactedException` | **new**, extends `ToolErrorException` with the same `ToolError` (the error's JSON is unchanged): the error arose after contact began (the limiter permit was taken: handshake or StartCLI run), or from classifying or parsing a returned session. Every other `ToolErrorException` of the StartCLI path is pre-contact (missing credentials, refused TLS options, no client, no free slot). |
+| `ToolErrorException` | **new** `warnings()` (default empty) and `withWarnings(List<String>)` |
+| `NodeResult` | **new** component `warnings`: a failure may carry them (`failure(node, error)` keeps none) |
+| `FanOut` | maps a thrown exception with warnings to a failure with these warnings; its deadline `TIMEOUT` carries the warnings the node's task registered right after admission (per-call sink), none if it registered none |
+| `NodePages` | renders a failure's warnings beside `error` |
+
+Rule (spec FR-030 (b)): the admission warnings of a 7.4 or 6.1 node go onto data entries and onto
+contacted errors (and the `FanOut` deadline `TIMEOUT`), never onto pre-contact refusals. The
+`find_processes` output schema keeps its shape (`warnings` beside `error`); only its description
+changes ("a failed {node} has an error and possibly warnings").

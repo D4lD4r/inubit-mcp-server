@@ -93,8 +93,15 @@ tests (SC-007); not measured against a real node.
   `CapabilityMatrix` (`lines()`, the own-client flag, the flip), `UnavailablePart`,
   `V61HealthAdapter`, `V61ProcessQueryAdapter`, `V61QueryRules`, `V61SessionParser` (profile),
   `V74PortSet`, `Wiring`, `EffectiveNodeConfig` / `CliRunner` (client order), `ConfigValidator`,
-  `DiagnosisService` (warnings on per-node error entries), `V74RecordedFixturesTest` and
+  `ConfigSummary` (`cliOnly`: unverified reads count as available), `V61Connection` (the
+  "contacted" marker), `NodeResult` (warnings on a failure), `ToolErrorException` (`warnings`,
+  `withWarnings`), `FanOut` (keeps warnings; deadline `TIMEOUT` with the registered warnings),
+  `NodePages` (renders them), `DiagnosisService` and `HealthService` (warnings only on data and
+  contacted errors; `get_health` client check before the session for own-client entries),
+  `NodeOverview.clientRefusal`, `CliRunner.noHome` / `Selection.entryHint`,
+  `find_processes.output.json` (description only), `V74RecordedFixturesTest` and
   `V61RecordedFixturesTest` (guards), the production entries `V6_1` and `V7_4`, docs (incl. 6.1).
+  New: `ContactedException` (domain). New test class: `NodePagesTest`.
 
 ## Constitution Check
 
@@ -181,13 +188,16 @@ withdrawn (owner decision 2026-11-26; T026–T029, T034).
 
 8. **Review** of the 2026-11-26 spec, plan and tasks update (`review-spec`, `review-plan`);
    constitution 2.1.0 ratified 2026-11-26 (T030, IMC-25).
-9. **Gate and overview** (T038, T041): an `UNVERIFIED` read on a CLI-only version (7.4 and 6.1)
-   runs through the entry's channels with the warning; `get_health` reaches such a node over
-   StartCLI; per-node error entries after the gate keep the warning.
+9. **Gate and overview** (T038): an `UNVERIFIED` read on a CLI-only version (7.4 and 6.1) runs
+   through the entry's channels with the warning; `get_health` reaches such a node over StartCLI;
+   `list_nodes` and the `--check-config` summary count it as usable.
 10. **Adapters** (T031, T032): the 6.1 StartCLI adapters with the 7.4 profile in the 7.4 port set;
-    contract tests against the reconstructed 7.4 fixtures.
-11. **Client selection, `lines()`, guards, 6.1 verification** (T033, T039, T040, T042, T043).
-12. **Flip and docs** (T035 + T036, one commit; 7.4 and 6.1 together), **verification** on both CI
+    contract tests against the reconstructed 7.4 fixtures; warning on data entries.
+11. **Client selection and `lines()`** (T033 → T039; both edit `CapabilityMatrix`), **guards**
+    (T040, T042, test only, in parallel).
+12. **Warning on error entries** (T041: contacted marker, carrier, `FanOut` deadline), then **6.1
+    verification** (T043).
+13. **Flip and docs** (T035 + T036, one commit; 7.4 and 6.1 together), **verification** on both CI
     jobs (T037).
 
 ### Mandate B design (2026-11-26)
@@ -195,11 +205,15 @@ withdrawn (owner decision 2026-11-26; T026–T029, T034).
 | Point (T029 was to decide it from recordings) | Decision, from the code and the real 7.4 help | Spec |
 |---|---|---|
 | support state | existing `SupportState.UNVERIFIED` for MONITORING and PROCESS_DIAGNOSIS on 7.4 and 6.1 (production entries `V7_4`, `V6_1`); no new state; `SUPPORTED` forbidden | FR-030, FR-036 |
-| warning scope | admission warnings of the gate stay on every per-node entry after the gate, also on error entries (`DiagnosisService`: today a thrown `find` loses them; `HealthService.checkServerViaCli`: errors after the session start keep them via `assembleCli`); both result schemas already carry `warnings` beside `error` per node, no schema change; refusals before contact carry none | FR-030 (b) |
-| 6.1 specifics | existing 6.1 adapters, texts, budget and version-less `defaults.cliHome` unchanged (no own-client flag); `NOT_AVAILABLE_ON_6_1`; the 6.1 refusal texts of the other capabilities unchanged (`cliOnlyStep`); the 6.1 `--check-config` warning unchanged; `VersionLineRegressionTest` 6.1 rows of MONITORING and PROCESS_DIAGNOSIS (`:53-54`) adjusted deliberately at the flip | FR-020, FR-036 |
+| warning scope | a "contacted" marker: `ContactedException` (a `ToolErrorException`, same `ToolError` JSON) is thrown by `V61Connection` for every error once the limiter permit is taken (handshake, StartCLI run) and by `V61HealthAdapter` / `V61ProcessQueryAdapter` for classification and parse errors of a returned session; everything before (missing credentials, `checkCredentials`, refused TLS options, no client, no free slot) stays a plain `ToolErrorException`. `DiagnosisService` and `HealthService` attach the admission warnings to data entries and contacted errors only (T041) | FR-030 (b) |
+| warning carrier | `NodeResult` failure gets `warnings`; `ToolErrorException.withWarnings`; `FanOut` maps a thrown exception with warnings to such a failure and gives its deadline `TIMEOUT` (`FanOut.java:82`) the warnings the task registered after admission (per-call sink); `NodePages` renders them beside `error`; `find_processes.output.json` description "a failed {node} has only an error" → "an error and possibly warnings" (shape unchanged); `docs/tools.md` (T041) | FR-030 (b) |
+| `get_health` client check | `get_health` never reaches `VersionGate.checkClient`; for an entry with the own-client flag `HealthService.checkServerViaCli` runs the client probe before the session and refuses `CLI_UNAVAILABLE` (pre-contact, no warning) when `-v` does not report the line or is unreadable; `NodeOverview.clientRefusal` mirrors it (T033) | FR-029 |
+| `--check-config` summary | `ConfigSummary.cliOnly` (`:434-450`) counts an `UNVERIFIED` read on a CLI-only version as available (T038) | FR-010, FR-036 |
+| version note | `VersionGate.notes` adds "logs of INUBIT 7.4 (6.1) cannot be read with query_logs; read them in the Workbench" to every `find_processes` entry on 7.4 and 6.1 (existing behaviour, asserted in T032, T043) | FR-028, FR-036 |
+| 6.1 specifics | existing 6.1 adapters, texts, budget and version-less `defaults.cliHome` unchanged (no own-client flag); `NOT_AVAILABLE_ON_6_1`; the 6.1 refusal texts of the other capabilities unchanged (`cliOnlyStep`); the 6.1 `--check-config` warning unchanged; `VersionLineRegressionTest` 6.1 rows of MONITORING and PROCESS_DIAGNOSIS (`:53-55`) adjusted deliberately at the flip | FR-020, FR-036 |
 | `list_nodes` status | `NodeOverview` gives `partially_supported` for a node with some usable and some refused capabilities (as for 9.0 with unverified partner management); usable names without suffix | US6-14, US9-6 |
 | gate on a CLI-only version | `VersionGate.judge` today refuses every non-`SUPPORTED` state on a CLI-only version; it gets an `UNVERIFIED`-read branch: warning, then the client branch with the entry's channels (StartCLI). `monitoringAccess` returns CLI for `UNVERIFIED`; `cliMonitoringWarnings` gives `get_health`'s CLI path the warning. `NodeOverview` lists such a capability as usable | FR-030 |
-| adapters | `V61HealthAdapter`, `V61ProcessQueryAdapter`, `V61Connection`, `V61HealthParser`, `V61PsParser`, `V61QueryRules`, `V61SessionParser` reused with a `CliLineProfile` (release in texts, unavailable reason, `uname` = server version?); `V74Profile` in `adapter/cli/v74` | FR-024 |
+| adapters | reused: `V61HealthAdapter`, `V61ProcessQueryAdapter`, `V61QueryRules`, `V61SessionParser` take a `CliLineProfile` (release in texts, unavailable reason, `uname` = server version?); `V61Connection`, `V61HealthParser`, `V61PsParser` unchanged (`V61Connection` gets only the T041 marker); `V74Profile` in `adapter/cli/v74` | FR-024 |
 | session vs script mode | session, as on 6.1: the reconstructed fixtures are session outputs; the real help shows the interactive mode | FR-024 |
 | `uname` version | the client's, not observed (6.1 behaviour, `UNAME_REPORTS_SERVER_VERSION = false`); no `-sv` run; **known limitation** of the unverified level, accepted by the owner 2026-11-26: no server version and no pin contradiction from 7.4 | FR-027 |
 | unavailable parts | readiness, threads, blocking queue: `NOT_AVAILABLE_ON_7_4` | FR-026 |

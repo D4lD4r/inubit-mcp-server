@@ -829,7 +829,9 @@ other tool stays refused as in feature 012.
   `TIMEOUT`); refusals decided before any contact (`CLI_UNAVAILABLE`, missing credentials, `tag`,
   a TLS refusal before the handshake, `UNSUPPORTED_VERSION`) do not carry it: they return no output
   of that version, so they are not results of the capability in the sense of constitution
-  Principle V; (c) the
+  Principle V. A `TIMEOUT` from the call's deadline carries the warning once the node was
+  admitted, also while it still waits for a StartCLI slot; a `TIMEOUT` because no slot became
+  free is decided before any contact and does not; (c) the
   documentation of FR-034 is in the same change; and (d) constitution 2.1.0 is ratified by the
   owner (met: ratified 2026-11-26, IMC-25). On a version reached through StartCLI only, an `UNVERIFIED` read MUST run through
   StartCLI with that warning and the client check, instead of being refused, and MUST never fall

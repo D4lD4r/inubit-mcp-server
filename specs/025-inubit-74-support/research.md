@@ -311,11 +311,14 @@ reads of feature 012, in the same flip. Code facts verified in the worktree on
     CLI for `UNVERIFIED`; `cliMonitoringWarnings` hands the warning to `get_health`'s StartCLI path
     (`HealthService.checkServerViaCli`, which today adds no gate warning). `NodeOverview.refusal`
     counts such a capability as usable.
-  - Adapters: the 6.1 StartCLI adapters and parsers (`V61HealthAdapter`, `V61ProcessQueryAdapter`,
-    `V61Connection`, `V61HealthParser`, `V61PsParser`, `V61QueryRules`, `V61SessionParser`) take a
-    `CliLineProfile` (release in every text, reason for unavailable parts, whether `uname` reports
-    the server's version); `V74Profile` lives in `M/adapter/cli/v74`. Session mode as on 6.1: the
-    reconstructed fixtures are session outputs and the real help shows the interactive mode.
+  - Adapters: the 6.1 StartCLI adapters and parsers are reused. A `CliLineProfile` (release in
+    every text, reason for unavailable parts, whether `uname` reports the server's version) is
+    taken by `V61HealthAdapter`, `V61ProcessQueryAdapter`, `V61QueryRules` and `V61SessionParser`
+    (the classes whose texts name the release or that decide the unavailable parts);
+    `V61Connection`, `V61HealthParser` and `V61PsParser` are reused unchanged (T041 only adds the
+    "contacted" marker to `V61Connection`). `V74Profile` lives in `M/adapter/cli/v74`. Session mode
+    as on 6.1: the reconstructed fixtures are session outputs and the real help shows the
+    interactive mode.
   - Health: readiness, threads and blocking queue are `NOT_AVAILABLE_ON_7_4`.
   - Processes: hanging and time range on the `DATE` column, `tag` refused, as on 6.1.
   - Client (FR-029): node `cli.home` → group `cli.home` → `defaults.cliClients."7.4"`; never the
@@ -333,8 +336,22 @@ reads of feature 012, in the same flip. Code facts verified in the worktree on
   - Guard (FR-015): any `SUPPORTED` on 7.4 fails; `UNVERIFIED` only on the two capabilities, each
     with reconstructed cases and the recorded `help`. The same for 6.1 (FR-037), without `help`.
   - Warning scope (FR-030 (b)): every per-node entry after the version gate carries the warning,
-    data or error; refusals before contact need not. `DiagnosisService` today loses the admission
-    warnings when the port throws; it keeps them (T041).
+    with data or with an error of the attempt; refusals before contact do not. Code facts (plan
+    review plan-replan-r1): pre-contact refusals and attempt errors come from the same port call
+    (`V61Connection.session`) with overlapping codes (`AUTH_FAILED`, `TLS_ERROR`, `TIMEOUT`), and a
+    failed `NodeResult` has no payload, so the warnings get lost. Decision (coordinator,
+    2026-11-26): a "contacted" marker, `ContactedException` (a `ToolErrorException`), thrown by
+    `V61Connection` for every error once the limiter permit is taken (handshake, StartCLI run) and
+    by the adapters for classification and parse errors of a returned session; a failed
+    `NodeResult` carries warnings, `FanOut` keeps them and gives its deadline `TIMEOUT` the
+    warnings the task registered after admission, `NodePages` renders them; `DiagnosisService` and
+    `HealthService` attach the admission warnings only to data entries and contacted errors (T041).
+  - `get_health` and the fail-closed client check (FR-029): `get_health` never reaches
+    `VersionGate.checkClient`; for an entry with the own-client flag `HealthService` probes the
+    client before the session and refuses `CLI_UNAVAILABLE` (pre-contact, no warning) when `-v`
+    does not report the line; `NodeOverview.clientRefusal` mirrors it (T033).
+  - `--check-config` summary: `ConfigSummary.cliOnly` counts an `UNVERIFIED` read on a CLI-only
+    version as available (T038).
   - German (FR-025): variants built in the tests from the 7.4 fixtures with the 6.1 German texts;
     no German 7.4 fixture file.
   - 6.1 (FR-036): adapters, texts, budget, version-less `defaults.cliHome` and the refusals of the

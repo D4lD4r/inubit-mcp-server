@@ -42,6 +42,18 @@ and, since the owner's second decision of 2026-11-26, for 6.1 health and process
 only precondition, the ratified constitution 2.1.0, is met (2026-11-26, IMC-25). No step below is
 needed for Mandate B.
 
+| What | Test(s) | Spec |
+|---|---|---|
+| unverified read on a CLI-only version runs with the warning (7.4, 6.1); `list_nodes` and `--check-config` count it as usable | `VersionGateTest`, `ListNodesToolTest`, `ConfigSummaryTest` (test matrices, T038) | FR-010, FR-030, FR-036 |
+| 7.4 health: parts, `NOT_AVAILABLE_ON_7_4`, failures, CRLF and German variants, TLS | `V74HealthContractTest`, `V74PortSetTest`, `HealthServiceTest` (T031) | FR-024 – FR-027, FR-029 |
+| 7.4 processes: fields, states, hanging, time range, truncation, `tag`, variants, version note | `V74ProcessQueryContractTest`, `V74PortSetTest`, `DiagnosisServiceTest` (T032) | FR-024, FR-025, FR-028 |
+| client order, `defaults.cliClients."7.4"` text, fail-closed `-v` also for `get_health` | `EffectiveNodeConfigTest`, `CliRunnerTest`, `VersionGateTest`, `HealthServiceTest`, `ListNodesToolTest`, `CliClientProbeTest`, `V74FixturesShapeTest` (T033) | FR-014, FR-029 |
+| "; supported: …" never lists a CLI-only line | `CapabilityMatrixTest`, `VersionLineRegressionTest` (T039) | FR-035 |
+| guards | `V74RecordedFixturesTest`, `V74FixturesShapeTest` (T040), `V61RecordedFixturesTest` (T042) | FR-015, FR-037, SC-009, SC-010 |
+| warning on contacted error entries, none on pre-contact refusals, `FanOut` deadline | `V61ConnectionTest`, `NodeResultTest`, `NodePagesTest`, `FanOutTest`, `DiagnosisServiceTest`, `HealthServiceTest`, `FindProcessesToolTest` (T041) | FR-030 (b), SC-007 |
+| 6.1 reads as unverified | 6.1 contract tests, `DiagnosisServiceTest`, `HealthServiceTest` (T043) | FR-036 |
+| the flip and the deliberate test changes | `CapabilityMatrixTest`, `V74RefusalTest`, `V61RefusalTest`, `ToolAnnouncementTest`, `ListNodesToolTest`, `ConfigSummaryTest`, `CliClientProbeTest`, `MainTest`, `ConfigValidatorTest`, `VersionLineRegressionTest` (T035) | FR-020, FR-030, FR-035, FR-036, SC-005 |
+
 ## Optional later verification — recording session (Windows, by hand, after approval)
 
 Not a precondition of this feature since 2026-11-26. It is kept for a future mandate that may raise
