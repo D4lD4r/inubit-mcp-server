@@ -83,8 +83,9 @@ Guard rule (`V74RecordedFixturesTest`, spec FR-015, FR-030), Mandate A: a capabi
 README's recorded list, and the README's recorded line for `help` names `v74_help` as its source.
 *Replaced 2026-11-26 (Mandate B):* no 7.4 capability may be `SUPPORTED`; only monitoring and
 process diagnosis may be `UNVERIFIED`, each with at least one case in `RECONSTRUCTED.txt` and `help`
-in the README's recorded list. Mandate B adds the reconstructed case `version` (the client's `-v`,
-listed as `version monitoring`); `DERIVED.txt` stays comments only. The 6.1 guard
+in the README's recorded list. Mandate B adds the reconstructed case `version` (the client's `-v`)
+and lists every case both capabilities use (`version`, `login_failed`, `unreachable`) once per
+capability, one line per case and capability, as the 6.1 list does; `DERIVED.txt` stays comments only. The 6.1 guard
 (`V61RecordedFixturesTest`, spec FR-037) gets the same rule for 6.1: no 6.1 capability
 `SUPPORTED`; only monitoring and process diagnosis `UNVERIFIED`, each with a case in the 6.1
 `RECONSTRUCTED.txt`.

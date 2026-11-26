@@ -320,8 +320,10 @@ reads of feature 012, in the same flip. Code facts verified in the worktree on
   - Processes: hanging and time range on the `DATE` column, `tag` refused, as on 6.1.
   - Client (FR-029): node `cli.home` → group `cli.home` → `defaults.cliClients."7.4"`; never the
     version-less `cliHome` (an entry flag, since 6.1 is CLI-only and does use `cliHome`); the
-    client's `-v` must report 7.4 (a reconstructed `version` case); no trust-store or host-name
-    option (`V74HelpContractTest`).
+    client's `-v` must report 7.4 (a reconstructed `version` case, listed for both capabilities);
+    the TLS options come from the local `-h` probe as for 6.1 today (`V61Connection` via
+    `CliClientProbe.optionsFor`, unreadable = absent); for the real 7.4 help it finds no
+    trust-store or host-name option (`V74HelpContractTest`).
   - Switches (FR-035): `lines()` ignores the notes of CLI-only entries (IMC-16 m6); the refusal next
     step "INUBIT 7.4 is recognised, but no tool is verified on it yet" stays unchanged (it stays
     true; the D-15 idea of rewording it is dropped); the T014 note and `list_nodes` warning end with

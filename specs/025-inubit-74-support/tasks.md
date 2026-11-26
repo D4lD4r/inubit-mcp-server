@@ -454,8 +454,9 @@ production matrix changes only in T035.
   (`UNEXPECTED_RESPONSE`, never an empty report), and variants of `health_session_ok` built in the
   test: CRLF line ends, and German labels exactly as `V61HealthParser` accepts them (no German 7.4
   fixture file, spec FR-025); TLS (spec FR-029): an `https://` URL whose certificate the handshake
-  fake rejects gives `TLS_ERROR` and no launch, `disableHostnameVerification` gives `TLS_ERROR`
-  before contact (the 7.4 help offers no such option); `V74PortSetTest` (the health port is the
+  fake rejects gives `TLS_ERROR` and no launch, with the warning; `disableHostnameVerification`
+  gives `TLS_ERROR` before contact, without the warning, the client options coming from the `-h`
+  probe replaying the 7.4 `help` (as `V61Connection` does for 6.1); `V74PortSetTest` (the health port is the
   StartCLI adapter; every other port still refuses); `HealthServiceTest` with the T038 test matrix:
   the warning on the CLI path of a `V7_4` node, also on its `AUTH_FAILED`, `UNREACHABLE`,
   `UNEXPECTED_RESPONSE` and `TIMEOUT` (budget exhausted) entries, none on a `CLI_UNAVAILABLE` or
@@ -493,8 +494,12 @@ production matrix changes only in T035.
   `defaults.cliClients."7.4"`. In `VersionGate.checkClient` a client of such an entry whose `-v`
   does not report the entry's major.minor, or cannot be read, refuses with `CLI_UNAVAILABLE` naming
   the client and what it reported (fail-closed, spec FR-029). A reconstructed `fixtures/v7_4/cli/version.*` (the format of
-  `fixtures/v8_1/cli/version.*`, client 7.4.0.90) is listed in `RECONSTRUCTED.txt` as `version
-  monitoring`. Test first: `EffectiveNodeConfigTest` / `CliRunnerTest` (order node → group →
+  `fixtures/v8_1/cli/version.*`, client 7.4.0.90) is listed in `RECONSTRUCTED.txt` once per
+  capability, one line per case and capability as in the 6.1 list (spec FR-014, FR-015):
+  `version monitoring` and `version process_diagnosis`; the shared cases `login_failed` and
+  `unreachable` get their `process_diagnosis` line next to the existing `monitoring` line, and
+  `V74FixturesShapeTest` accepts a case listed under several capabilities (as
+  `V61FixturesShapeTest` does for `help`). Test first: `EffectiveNodeConfigTest` / `CliRunnerTest` (order node → group →
   `"7.4"`; a 7.4 pin with only `defaults.cliHome` gets no client; 6.1 with `cliHome` unchanged),
   `VersionGateTest` with the T038 test matrix (an 8.1.17 client at a 7.4 pin → `CLI_UNAVAILABLE`;
   an unreadable `-v` → `CLI_UNAVAILABLE`; the replayed `version` case is accepted; a 6.1 pin with
