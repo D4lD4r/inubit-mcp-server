@@ -45,6 +45,7 @@ Production entries:
 | **7.4 (new)** | yes | all `UNSUPPORTED` | monitoring, process diagnosis: CLI | "not yet verified" on every capability | **FOUR** |
 | 8.1 | no | unchanged | – | unchanged | THREE |
 | 9.0 | no | unchanged | – | unchanged | THREE |
+| 6.1 after Mandate B (T035) | yes | monitoring, process diagnosis `UNVERIFIED`; all others `UNSUPPORTED` | monitoring, process diagnosis: CLI | none | THREE |
 | 7.4 after Mandate B (T035) | yes | monitoring, process diagnosis `UNVERIFIED`; all others `UNSUPPORTED` | monitoring, process diagnosis: CLI | "not yet verified" on every capability except monitoring and process diagnosis | FOUR |
 
 New queries: `patchDepth(Optional<InubitVersion>)`, `comparePatch(ClientVersion,
@@ -83,7 +84,10 @@ README's recorded list, and the README's recorded line for `help` names `v74_hel
 *Replaced 2026-11-26 (Mandate B):* no 7.4 capability may be `SUPPORTED`; only monitoring and
 process diagnosis may be `UNVERIFIED`, each with at least one case in `RECONSTRUCTED.txt` and `help`
 in the README's recorded list. Mandate B adds the reconstructed case `version` (the client's `-v`,
-listed as `version monitoring`); `DERIVED.txt` stays comments only.
+listed as `version monitoring`); `DERIVED.txt` stays comments only. The 6.1 guard
+(`V61RecordedFixturesTest`, spec FR-037) gets the same rule for 6.1: no 6.1 capability
+`SUPPORTED`; only monitoring and process diagnosis `UNVERIFIED`, each with a case in the 6.1
+`RECONSTRUCTED.txt`.
 
 ## Recorder case (tools/record-fixtures.ps1)
 
@@ -111,7 +115,8 @@ of them.
 
 `UNVERIFIED`: a read runs with the adapters of the version's entry and the warning "<name> on
 <node> is not verified for <capability>; results may be incomplete": the 8.1 adapters for versions
-without own adapters (as today), the StartCLI adapters on a CLI-only version (7.4). Never for
+without own adapters (as today), the StartCLI adapters on a CLI-only version (7.4 and 6.1). The
+warning is on every per-node entry after the version gate, with data or an error. Never for
 writes.
 
 ### CliLineProfile (new, `adapter/cli/v61`) and V74Profile (new, `adapter/cli/v74`)

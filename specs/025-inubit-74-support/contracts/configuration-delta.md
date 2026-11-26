@@ -48,7 +48,9 @@ Mandate B (2026-11-26, after the flip T035; spec FR-029, FR-035):
 <id> … (INUBIT 7.4, StartCLI only; available: none; refused: monitoring, process diagnosis, …)
 ```
 
-After Mandate B: `available: monitoring, process diagnosis` (unverified); the rest refused.
+After Mandate B: `available: monitoring, process diagnosis` (unverified); the rest refused. The
+same holds for a pinned 6.1 node (spec FR-036); its client rules (version-less `cliHome`) and its
+`--check-config` warning are unchanged.
 
 ## Unchanged
 

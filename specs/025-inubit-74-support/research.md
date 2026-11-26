@@ -289,8 +289,14 @@ path of a future mandate that may raise 7.4 to supported.
 
 ## D-16 Mandate B without recordings: 7.4 unverified (FR-024 – FR-031, FR-034, FR-035)
 
-Decided by the owner, 2026-11-26; governing rule constitution 2.1.0 (proposed 2026-11-26,
-Principles III and V: the evidence level *unverified*). Code facts verified in the worktree on
+Decided by the owner, 2026-11-26 (two rounds); governing rule constitution 2.1.0 (ratified
+2026-11-26, IMC-25; Principles III and V: the evidence level *unverified*, on reconstructed
+fixtures from the vendor documentation of the version or from recordings, vendor documentation or
+reconstructed fixtures of another version, checked against real output where any exists).
+Provenance: the 7.4 fixtures derive from the 6.1 fixtures, which come from the 6.1 vendor
+documentation; the only real 7.4 or 6.1 output in the repository is the 7.4 `help`. Second round:
+6.1 `get_health` and `find_processes` become `UNVERIFIED` on the same basis, with the existing 6.1
+reads of feature 012, in the same flip. Code facts verified in the worktree on
 2026-11-26.
 
 - **Decision**:
@@ -323,7 +329,15 @@ Principles III and V: the evidence level *unverified*). Code facts verified in t
     probe runs for 7.4 after the flip; the `--check-config` warning for a CLI-only node without
     client applies to 7.4 and names `defaults.cliClients."7.4"`.
   - Guard (FR-015): any `SUPPORTED` on 7.4 fails; `UNVERIFIED` only on the two capabilities, each
-    with reconstructed cases and the recorded `help`.
+    with reconstructed cases and the recorded `help`. The same for 6.1 (FR-037), without `help`.
+  - Warning scope (FR-030 (b)): every per-node entry after the version gate carries the warning,
+    data or error; refusals before contact need not. `DiagnosisService` today loses the admission
+    warnings when the port throws; it keeps them (T041).
+  - German (FR-025): variants built in the tests from the 7.4 fixtures with the 6.1 German texts;
+    no German 7.4 fixture file.
+  - 6.1 (FR-036): adapters, texts, budget, version-less `defaults.cliHome` and the refusals of the
+    other capabilities unchanged; `VersionLineRegressionTest`'s 6.1 rows for the two capabilities
+    change at the flip.
   - Verification: the offline suite on the macOS/Linux and the Windows CI jobs; no live check.
 - **Known limitation of the unverified level**: as on 6.1, the version `uname` reports counts as the
   StartCLI client's, not the server's (`UNAME_REPORTS_SERVER_VERSION = false`). `get_health` on 7.4

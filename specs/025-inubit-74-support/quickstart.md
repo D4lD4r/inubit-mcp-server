@@ -37,13 +37,15 @@ powershell -ExecutionPolicy Bypass -File tools\record-fixtures.ps1 -List
 
 Owner decision 2026-11-26 (spec, Clarifications): the recording session (IMC-22) and the Windows
 live check will not take place. Mandate B is validated by the offline suite on the macOS/Linux and
-the Windows CI jobs (`mvn -q -o clean verify`; spec FR-030, FR-031, tasks T037); its only
-precondition is the ratified constitution 2.1.0. No step below is needed for Mandate B.
+the Windows CI jobs (`mvn -q -o clean verify`; spec FR-030, FR-031, FR-036, tasks T037), for 7.4
+and, since the owner's second decision of 2026-11-26, for 6.1 health and processes as well. Its
+only precondition, the ratified constitution 2.1.0, is met (2026-11-26, IMC-25). No step below is
+needed for Mandate B.
 
 ## Optional later verification — recording session (Windows, by hand, after approval)
 
 Not a precondition of this feature since 2026-11-26. It is kept for a future mandate that may raise
-7.4 from unverified to supported (recordings or evaluated recordings plus a live check,
+7.4 (or 6.1) from unverified to supported (recordings or evaluated recordings plus a live check,
 constitution 2.0.0 / 2.1.0). Preconditions of such a session: Windows machine with the 7.4
 Workbench client and its JDK; CLI login to a **non-production** 7.4.0.90 node; the owner's
 approval in the chat.
@@ -93,6 +95,7 @@ in-repository recording and no longer apply as written.
 | 2026-11-19 | CI on [PR #104](https://github.com/D4lD4r/inubit-mcp-server/pull/104) at `23a97fd2`: [build](https://github.com/D4lD4r/inubit-mcp-server/actions/runs/44573778803/job/135735630386) and [windows](https://github.com/D4lD4r/inubit-mcp-server/actions/runs/44573778803/job/135735629782) (run 44573778803), CodeQL | Linux, Windows | all green, first attempt, no rerun |
 | 2026-11-23 | Mandate B T026: owner's statements in the chat — a Windows machine (not known to the owner, run together with its owner) with an INUBIT 7.4 Workbench client and its JDK; not production; Python unknown (the run sheet's `Check` phase verifies it); recording approved by the owner. Open: client version (`v74_version` must report 7.4) and the node's non-production classification, confirmed by the machine owner in the run sheet (`$NodeIsNonProduction`) before the first recording | Windows | approval given; preconditions checked at the session |
 | 2026-11-26 | Mandate B replanned by the owner: no recording session, no live check; 7.4 health and processes to be offered as unverified (untested) on pinned nodes; detection withdrawn; constitution 2.1.0 proposed (T026–T029, T034 withdrawn) | – | decision recorded in the spec |
+| 2026-11-26 | Spec review spec-replan-r1 (CHANGES_REQUESTED) answered: the owner accepts 6.1-derived fixtures for 7.4 unverified and widens Mandate B to 6.1 health and processes; constitution 2.1.0 ratified by the owner (IMC-25, `660683ba`) | – | decisions recorded in the spec |
 
 ### Adjusted existing tests
 

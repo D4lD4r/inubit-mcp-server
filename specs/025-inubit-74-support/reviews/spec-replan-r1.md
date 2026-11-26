@@ -1,0 +1,21 @@
+SPEC: specs/025-inubit-74-support/spec.md  ROUND: 1 (Mandate B replanning, 2026-11-26)
+
+Scope: every passage marked 2026-11-26 (Mandate B) and the Mandate A passages they touch, against the proposed constitution 2.1.0 and the code/fixtures the amendment relies on (VersionGate, NodeOverview, CapabilityMatrix, Wiring, v6_1 and v7_4 fixture READMEs and lists). The reviewer had no shell and read the current files instead of the git diff.
+
+FINDINGS:
+- [blocker] Preconditions / FR-014 / FR-030(a),(d) vs. constitution 2.1.0 Principle III – The 7.4 fixtures do not meet the evidence rule as 2.1.0 words it. 2.1.0 allows "unverified" on "fixtures reconstructed from recordings of another version". The 7.4 cases are built from the 6.1 cases (v7_4/cli/RECONSTRUCTED.txt: "built from the 6.1 case of the same purpose"). The 6.1 cases were never recorded either: v6_1/cli/README.md says "Reconstructed from the vendor documentation of inubit 6.1 until recorded", and every 6.1 case, `help` included, is listed in v6_1/cli/RECONSTRUCTED.txt. Only the login-failure markers come from 8.1 recordings. Question for the owner: may 7.4 "unverified" rest on 6.1 fixtures that come from documentation? If yes, change the proposed 2.1.0 wording before ratification (e.g. "fixtures reconstructed from recordings or the vendor documentation of another version (directly or through that version's reconstructed fixtures), and the real help output of that version") and update its Sync Impact Report; state the 6.1 provenance in the spec's Context and Preconditions. If no, Mandate B as replanned has no constitutional basis.
+- [major] FR-026, FR-028, FR-030(b), SC-007, Edge Cases – Unclear which results carry the warning: per-node error entries (UNEXPECTED_RESPONSE, login failed, unreachable, timeout)? Refusals before contact (CLI_UNAVAILABLE, `tag`)? VersionGate.judge collects warnings at admission; a refusal returns an error without them. Proposed FR-030(b): "every per-node entry of `get_health` and `find_processes` for a 7.4 node that passed the version gate carries the warning, whether it reports data or an error (UNEXPECTED_RESPONSE, login failure, unreachable, timeout); refusals before any contact (CLI_UNAVAILABLE, `tag`) need not". Align SC-007.
+- [major] US6 / US7 vs. FR-025, FR-026 – No scenario for the likely failure paths: login failure, unreachable node, unrecognized output → UNEXPECTED_RESPONSE, 15-second budget exhausted. Add them to US6; add to US7 "unrecognized `ps` listing → UNEXPECTED_RESPONSE, never an empty result".
+- [major] FR-025 vs. FR-014 – "in English and German … as on 6.1" vs. no German 7.4 fixture. Which reading: reuse 6.1 `_de`, add reconstructed 7.4 `_de` (contradicts FR-014), or build German variants in the test like CRLF?
+- [minor] US6 / FR-026 – No mixed-group `get_health` scenario (8.1 + pinned 7.4, overview budget, warning only on the 7.4 entry).
+- [minor] FR-010 / US1 – `list_nodes` after the flip has no own scenario; `status` value unspecified (NodeOverview would say `partially_supported`); "(unverified)" in the usable list?
+- [minor] FR-029 / FR-014 / FR-015 – the reconstructed `version` case is missing from the FR-014 table and from RECONSTRUCTED.txt; name its capability so the FR-015 guard applies.
+- [minor] FR-029 – an unreadable reconstructed `-v` refuses every 7.4 tool with CLI_UNAVAILABLE; state whether fail-closed is intended.
+- [minor] SC-009 – "no 7.4 recording is in the repository" contradicts the recorded `help` case; reword.
+- [minor] Preconditions / Assumptions – the version that produced the help output is assumed (7.4.0.90); the owner should accept it as the 7.4 help output when ratifying.
+- [minor] Out of Scope / FR-020 – 6.1 stays `unsupported` while 7.4 becomes `unverified` on weaker evidence; name it in Out of Scope or ask the owner.
+- [minor] US6 / US7 / FR-029 – no TLS scenario for 7.4 (pinned certificate, refused host-name-verification skip).
+- [minor] FR-024 / FR-035 – implementation detail (package paths, method names, task IDs) in the spec; describe visible behaviour, leave references to plan.md.
+- [minor] FR-005 / FR-006 wording – "in Mandate A" vs. "in this feature"; FR-006 contradicts the Mandate B note that follows.
+
+VERDICT: CHANGES_REQUESTED

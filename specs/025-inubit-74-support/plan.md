@@ -32,9 +32,13 @@ tool is added. The work is cut into two mandates:
 declared with the existing `SupportState.UNVERIFIED`, so every result carries the existing
 warning "INUBIT <version> on <node> is not verified for <capability>; results may be incomplete".
 Every other tool keeps refusing 7.4 as in Mandate A; 7.4 stays read-only; `AUTO` never selects 7.4
-(detection withdrawn). The evidence is the reconstructed 7.4 fixtures plus the real 7.4 help
-output (constitution 2.1.0, proposed); no recording, no live check. The recording kit stays as an
-optional path for a future mandate that may raise 7.4 to supported.
+(detection withdrawn). The evidence is the reconstructed 7.4 fixtures (built from the 6.1
+fixtures, which come from the 6.1 vendor documentation) checked against the real 7.4 help output
+(constitution 2.1.0, ratified 2026-11-26, IMC-25); no recording, no live check. By the owner's
+second decision of 2026-11-26, INUBIT 6.1 `get_health` and `find_processes` become `UNVERIFIED` on
+the same basis, with the existing 6.1 reads, in the same flip (spec US9, FR-036, FR-037). The
+recording kit stays as an optional path for a future mandate that may raise 7.4 or 6.1 to
+supported.
 
 ## Technical Context
 
@@ -89,23 +93,26 @@ tests (SC-007); not measured against a real node.
   `CapabilityMatrix` (`lines()`, the own-client flag, the flip), `UnavailablePart`,
   `V61HealthAdapter`, `V61ProcessQueryAdapter`, `V61QueryRules`, `V61SessionParser` (profile),
   `V74PortSet`, `Wiring`, `EffectiveNodeConfig` / `CliRunner` (client order), `ConfigValidator`,
-  `V74RecordedFixturesTest` (guard), docs.
+  `DiagnosisService` (warnings on per-node error entries), `V74RecordedFixturesTest` and
+  `V61RecordedFixturesTest` (guards), the production entries `V6_1` and `V7_4`, docs (incl. 6.1).
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.* Constitution v1.1.0
-(Mandate A). Mandate B (replanned 2026-11-26) is checked against v2.1.0 (PROPOSED 2026-11-26 in
-`.specify/memory/constitution.md`, MINOR: Principles III and V add the evidence level
-*unverified*), on top of v2.0.0 (ratified 2026-11-23, IMC-23: 7.4 read-only, CLI-only). Until the
-owner ratifies 2.1.0, 2.0.0 is in force and the flip (T035) waits.
+(Mandate A). Mandate B (replanned 2026-11-26) is checked against v2.1.0, **ratified by the owner
+on 2026-11-26 (IMC-25)** (MINOR: Principles III and V add the evidence level *unverified*, on
+reconstructed fixtures built from the vendor documentation of the version or from recordings,
+vendor documentation or reconstructed fixtures of another version, checked against real output of
+the version where any exists), on top of v2.0.0 (ratified 2026-11-23, IMC-23: 7.4 read-only,
+CLI-only).
 
 | Principle | Pre-research | Post-design |
 |---|---|---|
-| I. Safe by Default | ✅ read-only; Mandate A refuses everything | ✅ <ul><li>Every 7.4 capability `UNSUPPORTED`, refused before contact (D-4, D-6).</li><li>The 7.4 port set refuses as a second line (D-5).</li><li>Write checks keep their order (FR-007).</li><li>Mandate B: two reads only, on pinned nodes only, each result warned; writes stay refused (`UNVERIFIED` is rejected for writes by `CapabilityMatrix`).</li></ul> |
+| I. Safe by Default | ✅ read-only; Mandate A refuses everything | ✅ <ul><li>Every 7.4 capability `UNSUPPORTED`, refused before contact (D-4, D-6).</li><li>The 7.4 port set refuses as a second line (D-5).</li><li>Write checks keep their order (FR-007).</li><li>Mandate B: two reads only on 7.4 and on 6.1, on pinned nodes only, every per-node entry after the gate warned; writes stay refused (`UNVERIFIED` is rejected for writes by `CapabilityMatrix`).</li></ul> |
 | II. Secrets Stay Out | ⚠️ the recorder gains a session mode with a password | ✅ <ul><li>Password only on stdin; `Assert-NoSecret` on every case (D-12).</li><li>No trust-store password ever reaches the client; 7.4 trust store only through the Java runtime settings, no host-name skipping (D-12, feature 012 FR-012a).</li></ul> |
-| III. Test-First | ⚠️ no recorded 7.4 outputs | ✅ <ul><li>Every task starts with a failing test; the regression test is written before the version model changes (D-13).</li><li>No 7.4 capability can become `SUPPORTED` while a case is reconstructed (D-11 guard).</li><li>The one real case (help) has a contract test.</li><li>Mandate B (2.1.0 III, unverified): contract tests of the 6.1 adapters with the 7.4 profile against the reconstructed 7.4 fixtures (each listed in `RECONSTRUCTED.txt`) plus the real 7.4 help; no recording, no live check. The guard (FR-015 as amended) forbids `SUPPORTED` on 7.4 and `UNVERIFIED` on any capability but monitoring and process diagnosis.</li></ul> |
+| III. Test-First | ⚠️ no recorded 7.4 outputs | ✅ <ul><li>Every task starts with a failing test; the regression test is written before the version model changes (D-13).</li><li>No 7.4 capability can become `SUPPORTED` while a case is reconstructed (D-11 guard).</li><li>The one real case (help) has a contract test.</li><li>Mandate B (2.1.0 III, unverified, ratified): 7.4: contract tests of the 6.1 adapters with the 7.4 profile against the reconstructed 7.4 fixtures (derived from the 6.1 fixtures, i.e. from the 6.1 vendor documentation; each listed in `RECONSTRUCTED.txt`), checked against the real 7.4 help (the only real output). 6.1: the existing 6.1 contract tests against the 6.1 fixtures from the vendor documentation (no real 6.1 output exists). No recording, no live check. The guards (FR-015 as amended, FR-037) forbid `SUPPORTED` on 7.4 and 6.1 and `UNVERIFIED` on any capability but monitoring and process diagnosis.</li></ul> |
 | IV. Use-Case-Oriented Tools | ✅ no new tool | ✅ unchanged |
-| V. Adapter Isolation & Version Compatibility | ⚠️ Principle V names 6.1 as the only CLI-only version | ✅ <ul><li>Mandate A declares no 7.4 capability supported and uses no channel, so it does not invoke the CLI-only exception.</li><li>7.4 code only in `adapter/cli/v74` (port set, `V74Profile`); the 6.1 adapters are reused through a profile, no version branch in tool logic; every rule read from the matrix entry (CLI-only, own-client flag, patch depth).</li><li>Mandate B (2.1.0 V, unverified): two read capabilities, monitoring and process diagnosis, `UNVERIFIED` on 7.4, every result with the user-visible warning, docs "untested" (FR-034); no write capability; `SUPPORTED` stays forbidden in this feature. 7.4 read-only, CLI-only per 2.0.0 (ratified 2026-11-23, IMC-23). The flip waits for the ratification of 2.1.0 (T030 → T035).</li></ul> |
+| V. Adapter Isolation & Version Compatibility | ⚠️ Principle V names 6.1 as the only CLI-only version | ✅ <ul><li>Mandate A declares no 7.4 capability supported and uses no channel, so it does not invoke the CLI-only exception.</li><li>7.4 code only in `adapter/cli/v74` (port set, `V74Profile`); the 6.1 adapters are reused through a profile, no version branch in tool logic; every rule read from the matrix entry (CLI-only, own-client flag, patch depth).</li><li>Mandate B (2.1.0 V, unverified, ratified 2026-11-26): two read capabilities, monitoring and process diagnosis, `UNVERIFIED` on 7.4 and 6.1, every per-node entry after the gate with the user-visible warning, docs "untested" (FR-034); no write capability; `SUPPORTED` stays forbidden in this feature. 7.4 and 6.1 read-only, CLI-only per 2.0.0.</li></ul> |
 | VI. Bounded, Structured Output | ✅ | ✅ refusals actionable (node, version, capability, next step) |
 | VII. Observability & Auditability | ✅ | ✅ refusals logged by `VersionGate.refuse()` |
 | Workflow: docs in the same change | ✅ | ✅ D-14 in Mandate A; FR-034 for Mandate B (T035 and T036 in one commit) |
@@ -173,35 +180,39 @@ original stages 8–10 (recording session, re-clarification from the recordings,
 withdrawn (owner decision 2026-11-26; T026–T029, T034).
 
 8. **Review** of the 2026-11-26 spec, plan and tasks update (`review-spec`, `review-plan`);
-   constitution 2.1.0 proposed (T030).
-9. **Gate and overview** (T038): an `UNVERIFIED` read on a CLI-only version runs through the
-   entry's channels with the warning; `get_health` reaches such a node over StartCLI.
+   constitution 2.1.0 ratified 2026-11-26 (T030, IMC-25).
+9. **Gate and overview** (T038, T041): an `UNVERIFIED` read on a CLI-only version (7.4 and 6.1)
+   runs through the entry's channels with the warning; `get_health` reaches such a node over
+   StartCLI; per-node error entries after the gate keep the warning.
 10. **Adapters** (T031, T032): the 6.1 StartCLI adapters with the 7.4 profile in the 7.4 port set;
     contract tests against the reconstructed 7.4 fixtures.
-11. **Client selection, `lines()`, guard** (T033, T039, T040).
-12. **Flip and docs** (T035 + T036, one commit, after 2.1.0 is ratified), **verification** on both
-    CI jobs (T037).
+11. **Client selection, `lines()`, guards, 6.1 verification** (T033, T039, T040, T042, T043).
+12. **Flip and docs** (T035 + T036, one commit; 7.4 and 6.1 together), **verification** on both CI
+    jobs (T037).
 
 ### Mandate B design (2026-11-26)
 
 | Point (T029 was to decide it from recordings) | Decision, from the code and the real 7.4 help | Spec |
 |---|---|---|
-| support state | existing `SupportState.UNVERIFIED` for MONITORING and PROCESS_DIAGNOSIS on 7.4; no new state; `SUPPORTED` forbidden | FR-030 |
+| support state | existing `SupportState.UNVERIFIED` for MONITORING and PROCESS_DIAGNOSIS on 7.4 and 6.1 (production entries `V7_4`, `V6_1`); no new state; `SUPPORTED` forbidden | FR-030, FR-036 |
+| warning scope | admission warnings of the gate stay on every per-node entry after the gate, also on error entries (`DiagnosisService`: today a thrown `find` loses them; `HealthService.checkServerViaCli`: errors after the session start keep them via `assembleCli`); both result schemas already carry `warnings` beside `error` per node, no schema change; refusals before contact carry none | FR-030 (b) |
+| 6.1 specifics | existing 6.1 adapters, texts, budget and version-less `defaults.cliHome` unchanged (no own-client flag); `NOT_AVAILABLE_ON_6_1`; the 6.1 refusal texts of the other capabilities unchanged (`cliOnlyStep`); the 6.1 `--check-config` warning unchanged; `VersionLineRegressionTest` 6.1 rows of MONITORING and PROCESS_DIAGNOSIS (`:53-54`) adjusted deliberately at the flip | FR-020, FR-036 |
+| `list_nodes` status | `NodeOverview` gives `partially_supported` for a node with some usable and some refused capabilities (as for 9.0 with unverified partner management); usable names without suffix | US6-13, US9-6 |
 | gate on a CLI-only version | `VersionGate.judge` today refuses every non-`SUPPORTED` state on a CLI-only version; it gets an `UNVERIFIED`-read branch: warning, then the client branch with the entry's channels (StartCLI). `monitoringAccess` returns CLI for `UNVERIFIED`; `cliMonitoringWarnings` gives `get_health`'s CLI path the warning. `NodeOverview` lists such a capability as usable | FR-030 |
 | adapters | `V61HealthAdapter`, `V61ProcessQueryAdapter`, `V61Connection`, `V61HealthParser`, `V61PsParser`, `V61QueryRules`, `V61SessionParser` reused with a `CliLineProfile` (release in texts, unavailable reason, `uname` = server version?); `V74Profile` in `adapter/cli/v74` | FR-024 |
 | session vs script mode | session, as on 6.1: the reconstructed fixtures are session outputs; the real help shows the interactive mode | FR-024 |
 | `uname` version | the client's, not observed (6.1 behaviour, `UNAME_REPORTS_SERVER_VERSION = false`); no `-sv` run; **known limitation** of the unverified level, accepted by the owner 2026-11-26: no server version and no pin contradiction from 7.4 | FR-027 |
 | unavailable parts | readiness, threads, blocking queue: `NOT_AVAILABLE_ON_7_4` | FR-026 |
 | hanging, time range | on the `DATE` column, as on 6.1; `tag` refused | FR-028 |
-| line ends, language | LF fixtures; CRLF variants built in the tests; English and German labels as on 6.1 | FR-025 |
-| client | node `cli.home` → group `cli.home` → `defaults.cliClients."7.4"`; never the version-less `cliHome` (an entry flag, no version check); `-v` must report 7.4 (reconstructed `version` case) | FR-029 |
+| line ends, language | LF fixtures; CRLF and German variants built in the tests from the 7.4 fixtures with the 6.1 German labels, column and state names (no German 7.4 fixture file) | FR-025 |
+| client | node `cli.home` → group `cli.home` → `defaults.cliClients."7.4"`; never the version-less `cliHome` (an entry flag, no version check); `-v` must report 7.4 (reconstructed `version` case, `version monitoring` in `RECONSTRUCTED.txt`); unreadable `-v` fail-closed (`CLI_UNAVAILABLE`) | FR-029 |
 | TLS options | none (the real 7.4 help lists no trust-store or host-name option, `V74HelpContractTest`) | FR-029 |
 | `lines()` (IMC-16 m6) | notes of a CLI-only entry do not count, so 7.4 never appears in "; supported: …" | FR-035 |
 | T009 next step | unchanged (owner, 2026-11-26); "no tool is verified on it yet" stays true for unverified capabilities | FR-007, FR-035 |
 | T014 note and warning | disappear with the flip (`allNotYetVerified` false for 7.4); no replacement in `list_nodes` (owner, 2026-11-26) | FR-010a, FR-035 |
 | T015 `-h` gate | the `-h` probe runs for 7.4 after the flip (`V61Connection` needs the options); local only | FR-035 |
 | `--check-config` without client | the CLI-only warning applies to 7.4 and names `defaults.cliClients."7.4"` | FR-029, FR-035 |
-| guard | any `SUPPORTED` on 7.4 fails; `UNVERIFIED` only on the two capabilities, backed by reconstructed cases and the recorded `help` | FR-015 |
+| guard | any `SUPPORTED` on 7.4 fails; `UNVERIFIED` only on the two capabilities, backed by reconstructed cases and the recorded `help` (`V74RecordedFixturesTest`); the same for 6.1 without the `help` condition (`V61RecordedFixturesTest`) | FR-015, FR-037 |
 | detection | withdrawn; `AUTO` never selects 7.4, the 404 hint stays | FR-032, FR-033 |
 | verification | offline suite on both CI jobs; no live check | FR-031 |
 

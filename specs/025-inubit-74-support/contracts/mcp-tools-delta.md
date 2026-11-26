@@ -72,7 +72,7 @@ as 7.4 and keeps the unknown-version behaviour and the 404 hint above.
 |---|---|
 | `get_health` | StartCLI session as on 6.1; `reachable`, `status`, maintenance, JVM memory, process counts; readiness, threads, blocking queue unavailable with `NOT_AVAILABLE_ON_7_4: INUBIT 7.4 has no readiness check` (and the like); no REST request |
 | `find_processes` | StartCLI `ps` listings as on 6.1, the 6.1 result fields, hanging and time range on the `DATE` column; `tag` refused: `find_processes: INUBIT 7.4 does not support the input tag; nothing was sent` |
-| both | every result carries the warning below; in a group only the 7.4 node's entry carries it |
+| both | every per-node entry after the version gate carries the warning below, with data or with an error (`UNEXPECTED_RESPONSE`, `AUTH_FAILED`, `UNREACHABLE`, `TLS_ERROR` from the handshake, `TIMEOUT`); refusals before contact (`CLI_UNAVAILABLE`, missing credentials, `tag`) do not; in a group only the 7.4 node's entry carries it |
 | every other tool | the Mandate A refusal above, text and next step unchanged |
 
 Warning in every result (existing text of feature 009, unchanged):
@@ -87,5 +87,14 @@ is the StartCLI client's, as on 6.1; `get_health` adds `the version <text> read 
 StartCLI client's; the server version cannot be read`, observes no server version, and a 7.4 pin is
 never contradicted from 7.4.
 
-`list_nodes` after Mandate B: monitoring and process diagnosis usable, every other capability not
-usable with its Mandate A text; client options shown (the `-h` probe runs); no extra warning.
+`list_nodes` after Mandate B: `status: partially_supported` (as for any node with usable
+unverified reads), monitoring and process diagnosis usable without suffix, every other capability
+not usable with its Mandate A text; client options shown (the `-h` probe runs); no extra warning.
+
+## Mandate B (2026-11-26, second round): `get_health` and `find_processes` on a pinned 6.1 node
+
+The same as for 7.4 above, with the existing 6.1 reads of feature 012 (`NOT_AVAILABLE_ON_6_1`, the
+6.1 texts, the version-less `defaults.cliHome`) and the warning `INUBIT 6.1 on legacy/node1 is not
+verified for monitoring; results may be incomplete`. Every other tool keeps the feature 012
+refusal. `list_nodes`: `partially_supported`, monitoring and process diagnosis usable;
+`find_processes` is announced for a 6.1-only profile.
