@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 import de.dadecker.inubit.mcp.domain.model.Capability.Kind;
+import de.dadecker.inubit.mcp.testing.TestMatrices;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -847,6 +848,20 @@ class CapabilityMatrixTest {
         assertThat(new CapabilityMatrix.Entry(new VersionRange(7, 9, 7, 9), Map.of(), Map.of(),
                 false, Map.of()).patchDepth())
             .as("the existing constructors keep THREE").isEqualTo(PatchDepth.THREE);
+    }
+
+    @Test
+    void ownClientOnlyIsTheFlagOfTheVersionsEntry() {
+        // feature 025 T033 (FR-029): production sets the flag on 7.4 with the flip (T035)
+        CapabilityMatrix flagged = TestMatrices.unverified74();
+
+        assertThat(flagged.ownClientOnly(version("7.4.0.90"))).isTrue();
+        assertThat(flagged.ownClientOnly(version("8.1.17"))).isFalse();
+        assertThat(flagged.ownClientOnly(version("6.1.0.89"))).as("outside every range").isFalse();
+        assertThat(flagged.ownClientOnly(Optional.empty())).as("unknown").isFalse();
+        assertThat(new CapabilityMatrix.Entry(new VersionRange(7, 9, 7, 9), Map.of(), Map.of(),
+                false, Map.of(), PatchDepth.FOUR).ownClientOnly())
+            .as("the existing constructors keep false").isFalse();
     }
 
     @Test

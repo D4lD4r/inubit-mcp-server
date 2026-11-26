@@ -489,7 +489,7 @@ production matrix changes only in T035.
   and the existing version note of `VersionGate.notes` (`:1016-1025`) "logs of INUBIT 7.4 cannot be
   read with query_logs; read them in the Workbench" on every admitted 7.4 `find_processes` entry (error
   entries: T041, T044, T045).
-- [ ] T033 [US6] Client choice for 7.4 (spec FR-029; after T031): the choice of StartCLI in
+- [X] T033 [US6] Client choice for 7.4 (spec FR-029; after T031): the choice of StartCLI in
   `main/config/EffectiveNodeConfig.java` (`cliFor` / `choose`, `:337-360`) and
   `main/adapter/cli/CliRunner.java` `select` (`:285`) does not fall back to the version-less
   `defaults.cliHome` for a version whose matrix entry says so: a new `CapabilityMatrix.Entry` flag

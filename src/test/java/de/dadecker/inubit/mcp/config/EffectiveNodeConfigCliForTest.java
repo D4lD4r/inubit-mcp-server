@@ -6,12 +6,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import de.dadecker.inubit.mcp.config.CliChoice.AddressKind;
 import de.dadecker.inubit.mcp.config.CliChoice.HomeSource;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig.Cli;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.MajorMinor;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.testing.TestMatrices;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -322,7 +325,7 @@ class EffectiveNodeConfigCliForTest {
         assertThat(built.cli()).isEqualTo(loaded.cli());
         assertThat(built.cliFor(Optional.empty())).isEqualTo(new CliChoice(loaded.cli(),
             HomeSource.NODE, Optional.empty(), AddressKind.SERVLET_PATH, OptionalInt.empty(),
-            false));
+            false, false));
         assertThat(built.cliFor(version("9.0.7")).address()).isEqualTo(AddressKind.BASE_URL);
         assertThat(built.cliFor(version("9.0.7")).cli().home()).isEqualTo(loaded.cli().home());
     }
@@ -332,11 +335,116 @@ class EffectiveNodeConfigCliForTest {
         Cli cli = server("auto/plain").cli();
 
         assertThatThrownBy(() -> new CliChoice(cli, HomeSource.DEFAULTS,
-            Optional.of(new MajorMinor(9, 0)), AddressKind.BASE_URL, OptionalInt.of(9), true))
+            Optional.of(new MajorMinor(9, 0)), AddressKind.BASE_URL, OptionalInt.of(9), true,
+            false))
             .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new CliChoice(cli, HomeSource.VERSION_ENTRY, Optional.empty(),
-            AddressKind.BASE_URL, OptionalInt.of(9), true))
+            AddressKind.BASE_URL, OptionalInt.of(9), true, false))
             .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /** Feature 025 (FR-029): 7.4 nodes, with and without the {@code "7.4"} entry. */
+    private static final String SEVEN_FOUR = """
+        profile:
+          name: acme
+        defaults:
+          cliHome: /opt/default/client
+          cliJavaHome: /opt/jdk-default
+          cliClients:
+            "7.4": { home: /opt/c74, javaHome: /opt/jdk-8 }
+        groups:
+          - name: g
+            versionLine: "7.4.0.90"
+            nodes:
+              - name: plain
+                baseUrl: https://inubit-a.example.test:8443
+              - name: own
+                baseUrl: https://inubit-b.example.test:8443
+                cli:
+                  home: /opt/node-client
+          - name: grp
+            versionLine: "7.4.0.90"
+            cli:
+              home: /opt/group-client
+            nodes:
+              - name: n
+                baseUrl: https://inubit-c.example.test:8443
+        """;
+
+    /** The same nodes with only {@code defaults.cliHome}, and a 6.1 node. */
+    private static final String SEVEN_FOUR_WITHOUT_CLIENTS = """
+        profile:
+          name: acme
+        defaults:
+          cliHome: /opt/default/client
+          cliJavaHome: /opt/jdk-default
+        groups:
+          - name: g
+            nodes:
+              - name: p74
+                versionLine: "7.4.0.90"
+                baseUrl: https://inubit-a.example.test:8443
+              - name: v61
+                versionLine: V6_1
+                baseUrl: https://inubit-b.example.test:8443
+        """;
+
+    private static final Optional<InubitVersion> V7_4 = version("7.4.0.90");
+
+    @Test
+    void aFlaggedVersionChoosesNodeThenGroupThenItsEntry() {
+        CapabilityMatrix flagged = TestMatrices.unverified74();
+
+        CliChoice node = server(SEVEN_FOUR, "g/own").cliFor(V7_4, flagged);
+        CliChoice group = server(SEVEN_FOUR, "grp/n").cliFor(V7_4, flagged);
+        CliChoice entry = server(SEVEN_FOUR, "g/plain").cliFor(V7_4, flagged);
+
+        assertThat(node.source()).isEqualTo(HomeSource.NODE);
+        assertThat(node.cli().home()).isEqualTo(path("/opt/node-client"));
+        assertThat(group.source()).isEqualTo(HomeSource.GROUP);
+        assertThat(group.cli().home()).isEqualTo(path("/opt/group-client"));
+        assertThat(entry.source()).isEqualTo(HomeSource.VERSION_ENTRY);
+        assertThat(entry.entry()).contains(new MajorMinor(7, 4));
+        assertThat(entry.cli().home()).isEqualTo(path("/opt/c74"));
+        assertThat(entry.cli().javaHome()).isEqualTo(path("/opt/jdk-8"));
+        assertThat(List.of(node, group, entry)).allMatch(CliChoice::ownClientOnly);
+    }
+
+    @Test
+    void aFlaggedVersionNeverFallsBackToTheVersionLessCliHome() {
+        CliChoice choice = server(SEVEN_FOUR_WITHOUT_CLIENTS, "g/p74")
+            .cliFor(V7_4, TestMatrices.unverified74());
+
+        assertThat(choice.source()).isEqualTo(HomeSource.NONE);
+        assertThat(choice.cli().home()).isEmpty();
+        assertThat(choice.ownClientOnly()).isTrue();
+    }
+
+    @Test
+    void withoutTheFlagTheVersionLessCliHomeIsUsedAsBefore() {
+        CapabilityMatrix flagged = TestMatrices.unverified74();
+        CliChoice v61 = server(SEVEN_FOUR_WITHOUT_CLIENTS, "g/v61").cliFor(
+            version("6.1.0.89"), flagged);
+        CliChoice unflagged74 = server(SEVEN_FOUR_WITHOUT_CLIENTS, "g/p74")
+            .cliFor(V7_4, TestMatrices.unverified61());
+
+        assertThat(v61.source()).isEqualTo(HomeSource.DEFAULTS);
+        assertThat(v61.cli().home()).isEqualTo(path("/opt/default/client"));
+        assertThat(v61.ownClientOnly()).isFalse();
+        assertThat(unflagged74.source()).isEqualTo(HomeSource.DEFAULTS);
+        assertThat(unflagged74.ownClientOnly()).isFalse();
+    }
+
+    @Test
+    void aFlaggedSettingChoosesItsClientByVersion() {
+        CapabilityMatrix flagged = TestMatrices.unverified74();
+
+        assertThat(server(SEVEN_FOUR_WITHOUT_CLIENTS, "g/p74").choosesCliByVersion(flagged))
+            .as("7.4 pin without any cliClients").isTrue();
+        assertThat(server(SEVEN_FOUR_WITHOUT_CLIENTS, "g/v61").choosesCliByVersion(flagged))
+            .as("6.1 unchanged").isFalse();
+        assertThat(server(SEVEN_FOUR_WITHOUT_CLIENTS, "g/p74")
+            .choosesCliByVersion(TestMatrices.unverified61())).as("7.4 without the flag").isFalse();
     }
 
     @Test

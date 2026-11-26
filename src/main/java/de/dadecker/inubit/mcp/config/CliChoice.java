@@ -17,9 +17,11 @@ import java.util.OptionalInt;
  * @param address how the address was chosen
  * @param major   the INUBIT major the choice was made for: the version's, else the line pin's
  * @param versionKnown whether a version was given
+ * @param ownClientOnly whether the version uses only a client of its own, never the version-less
+ *     {@code defaults.cliHome} (feature 025, FR-029: {@code CapabilityMatrix.Entry#ownClientOnly})
  */
 public record CliChoice(Cli cli, HomeSource source, Optional<MajorMinor> entry,
-    AddressKind address, OptionalInt major, boolean versionKnown) {
+    AddressKind address, OptionalInt major, boolean versionKnown, boolean ownClientOnly) {
 
     /** Where the client directory came from. */
     public enum HomeSource { NODE, GROUP, VERSION_ENTRY, DEFAULTS, NONE }

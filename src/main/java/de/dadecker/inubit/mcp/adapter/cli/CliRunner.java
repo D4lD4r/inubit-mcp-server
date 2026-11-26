@@ -264,9 +264,10 @@ public final class CliRunner {
 
         /**
          * The {@code defaults.cliClients} key the messages name for a missing client (research
-         * D-8): the version's major.minor, if known, when {@code cliClients} is configured or
-         * the major is 9 or later; else empty, and the 0.8.0 texts apply. A line without minor
-         * never chooses an entry (research D-3), so it names none either.
+         * D-8): the version's major.minor, if known, when {@code cliClients} is configured,
+         * the major is 9 or later or the choice is {@code ownClientOnly} (feature 025, FR-029);
+         * else empty, and the 0.8.0 texts apply. A line without minor never chooses an entry
+         * (research D-3), so it names none either.
          */
         public Optional<MajorMinor> entryHint() {
             if (server.versionLine() instanceof VersionSetting.Line line
@@ -274,7 +275,7 @@ public final class CliRunner {
                 return Optional.empty();
             }
             return version.filter(known -> !server.cliSources().clients().isEmpty()
-                || known.major() >= 9).map(MajorMinor::of);
+                || known.major() >= 9 || choice.ownClientOnly()).map(MajorMinor::of);
         }
     }
 
@@ -1056,7 +1057,10 @@ public final class CliRunner {
         };
     }
 
-    /** No client from any source (FR-005, research D-8). */
+    /**
+     * No client from any source (FR-005, research D-8); for an {@code ownClientOnly} choice
+     * without {@code cliHome}, which that version never uses (feature 025, FR-029).
+     */
     private static ToolErrorException noHome(Selection selection) {
         EffectiveNodeConfig server = selection.server();
         Optional<MajorMinor> entry = selection.entryHint();
@@ -1065,11 +1069,14 @@ public final class CliRunner {
                 "cliHome / cli.home is not set", "Set cliHome to the INUBIT client directory");
         }
         String line = entry.get().text();
+        boolean ownClientOnly = selection.choice().ownClientOnly();
         return unavailable(server, "No CLI home is configured for " + server.id()
                 + " (INUBIT " + selection.version().orElseThrow().raw() + ")",
-            "Neither cli.home, defaults.cliClients.\"" + line + "\" nor cliHome is set",
+            ownClientOnly
+                ? "Neither cli.home nor defaults.cliClients.\"" + line + "\" is set"
+                : "Neither cli.home, defaults.cliClients.\"" + line + "\" nor cliHome is set",
             "Add defaults.cliClients.\"" + line + "\".home (the INUBIT " + line
-                + " client directory) or set cliHome");
+                + " client directory)" + (ownClientOnly ? "" : " or set cliHome"));
     }
 
     /**

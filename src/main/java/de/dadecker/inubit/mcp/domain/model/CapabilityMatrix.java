@@ -33,10 +33,14 @@ public final class CapabilityMatrix {
     /**
      * The states of one version range; capabilities not listed are unsupported. A capability
      * without declared {@code channels} uses its own channels.
+     *
+     * @param ownClientOnly StartCLI on this range uses only a client of its own: node or group
+     *     {@code cli.home} or the range's {@code defaults.cliClients} entry, never the
+     *     version-less {@code defaults.cliHome} (feature 025, FR-029)
      */
     public record Entry(VersionRange range, Map<Capability, SupportState> states,
         Map<Capability, Set<Channel>> channels, boolean cliOnly, Map<Capability, String> notes,
-        PatchDepth patchDepth) {
+        PatchDepth patchDepth, boolean ownClientOnly) {
 
         public Entry {
             Objects.requireNonNull(range, "range");
@@ -46,6 +50,13 @@ public final class CapabilityMatrix {
             channels = Map.copyOf(copy);
             notes = Map.copyOf(notes);
             Objects.requireNonNull(patchDepth, "patchDepth");
+        }
+
+        /** An entry that may use the version-less {@code defaults.cliHome}. */
+        public Entry(VersionRange range, Map<Capability, SupportState> states,
+            Map<Capability, Set<Channel>> channels, boolean cliOnly, Map<Capability, String> notes,
+            PatchDepth patchDepth) {
+            this(range, states, channels, cliOnly, notes, patchDepth, false);
         }
 
         /** An entry whose patch comparison uses major.minor.patch ({@link PatchDepth#THREE}). */
@@ -242,6 +253,15 @@ public final class CapabilityMatrix {
     public ClientVersion.Comparison comparePatch(ClientVersion client,
         Optional<InubitVersion> server) {
         return client.compare(server, patchDepth(server));
+    }
+
+    /**
+     * Whether StartCLI on {@code version} uses only a client of its own, never the version-less
+     * {@code defaults.cliHome} (feature 025, FR-029); false for an unknown version and a version
+     * outside every range.
+     */
+    public boolean ownClientOnly(Optional<InubitVersion> version) {
+        return entry(version).map(Entry::ownClientOnly).orElse(false);
     }
 
     /** The version lines reached through StartCLI only, in declaration order: "6.1", "7.4". */

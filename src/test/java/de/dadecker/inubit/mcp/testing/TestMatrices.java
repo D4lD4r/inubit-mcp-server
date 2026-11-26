@@ -30,7 +30,10 @@ public final class TestMatrices {
     private TestMatrices() {
     }
 
-    /** 7.4 as production, except the two capabilities: {@code UNVERIFIED} and without a note. */
+    /**
+     * 7.4 as production, except the two capabilities: {@code UNVERIFIED} and without a note; and
+     * {@code ownClientOnly} (T033, spec FR-029), which production sets with the flip (T035).
+     */
     public static CapabilityMatrix unverified74() {
         Map<Capability, String> notes = new EnumMap<>(Capability.class);
         for (Capability capability : Capability.values()) {
@@ -39,7 +42,7 @@ public final class TestMatrices {
             }
         }
         return withV81(new CapabilityMatrix.Entry(new VersionRange(7, 4, 7, 4), UNVERIFIED, CLI,
-            true, notes, PatchDepth.FOUR));
+            true, notes, PatchDepth.FOUR, true));
     }
 
     /** 6.1 as production, except the two capabilities: {@code UNVERIFIED}. */
