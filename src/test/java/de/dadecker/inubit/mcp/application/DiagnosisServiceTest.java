@@ -42,6 +42,7 @@ import de.dadecker.inubit.mcp.domain.port.QueryRules;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.TestClientSelection;
+import de.dadecker.inubit.mcp.testing.TestMatrices;
 import java.io.StringReader;
 import java.time.Duration;
 import java.time.Instant;
@@ -998,6 +999,49 @@ class DiagnosisServiceTest {
             assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION));
         assertThat(processes(QA2).queries()).isEmpty();
         assertThat(probes).isEmpty();
+    }
+
+    // --- feature 025, T032: find_processes on a pinned 7.4 node (FR-028, FR-030) ---------------
+
+    @Test
+    void anUnverified74NodeCarriesTheWarningAndTheLogNoteAndThe81NodeNeither() {
+        matrix = TestMatrices.unverified74();
+        versionLines.put(QA2, VersionSetting.V7_4);
+        processes(QA1).answer = query -> page(List.of(
+            instance(QA1, "1", ProcessState.ERROR, NOW)), 0, 50, 1, false);
+        processes(QA2).answer = query -> page(List.of(
+            instance(QA2, "2", ProcessState.ERROR, NOW)), 0, 50, 1, false);
+
+        List<NodeResult<NodePage<ProcessInstance>>> results = service().findProcesses(
+            withStates(processRequest("qa"), Set.of(ProcessState.ERROR), false,
+                Optional.empty()));
+
+        assertThat(results).extracting(NodeResult::node).containsExactly(QA1, QA2);
+        assertThat(results.get(0).payload().orElseThrow().warnings())
+            .as("no warning on 8.1").isEmpty();
+        NodePage<ProcessInstance> legacy = results.get(1).payload().orElseThrow();
+        assertThat(legacy.page().items()).extracting(ProcessInstance::processId)
+            .containsExactly("2");
+        assertThat(legacy.warnings()).containsExactlyInAnyOrder(
+            "INUBIT 7.4 on qa/node2 is not verified for process diagnosis; results may be"
+                + " incomplete",
+            "logs of INUBIT 7.4 cannot be read with query_logs; read them in the Workbench");
+    }
+
+    @Test
+    void anEmptyQueryOnAnUnverified74NodeStillCarriesTheWarningAndTheLogNote() {
+        matrix = TestMatrices.unverified74();
+        versionLines.put(QA2, VersionSetting.V7_4);
+        processes(QA2).answer = query -> page(List.of(), 0, 50, 0, false);
+
+        NodePage<ProcessInstance> page = service().findProcesses(processRequest("qa/node2"))
+            .get(0).payload().orElseThrow();
+
+        assertThat(page.page().items()).isEmpty();
+        assertThat(page.warnings()).containsExactlyInAnyOrder(
+            "INUBIT 7.4 on qa/node2 is not verified for process diagnosis; results may be"
+                + " incomplete",
+            "logs of INUBIT 7.4 cannot be read with query_logs; read them in the Workbench");
     }
 
     // --- userColumn (T045b, research D-21) -----------------------------------------------------

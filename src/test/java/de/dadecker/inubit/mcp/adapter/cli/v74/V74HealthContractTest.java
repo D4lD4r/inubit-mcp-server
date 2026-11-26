@@ -296,6 +296,9 @@ class V74HealthContractTest {
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.node()).contains(ID);
+        // T032: the format names the profile's release
+        assertThat(error.likelyCause())
+            .isEqualTo("StartCLI's session output differs from the expected INUBIT 7.4 format");
     }
 
     // --- TLS at the adapter (FR-029, feature 012 FR-012, FR-012a) ------------------------------

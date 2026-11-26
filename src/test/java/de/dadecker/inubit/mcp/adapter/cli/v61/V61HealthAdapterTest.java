@@ -321,6 +321,8 @@ class V61HealthAdapterTest {
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.node()).contains(ID);
+        assertThat(error.likelyCause())
+            .isEqualTo("StartCLI's session output differs from the expected INUBIT 6.1 format");
         assertThat(launchers.sessions()).isEqualTo(1);
     }
 

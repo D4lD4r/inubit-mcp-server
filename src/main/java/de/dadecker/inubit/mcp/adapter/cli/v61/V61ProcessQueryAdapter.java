@@ -62,6 +62,9 @@ import java.util.Set;
  * <p>{@code tag} is refused with {@code UNSUPPORTED_VERSION} by {@link #validate} and again by
  * {@link #find} (the listing has no tag column); {@link #findByProcessId} is refused. Session
  * failures are classified as in {@link V61HealthAdapter} and carry the node.
+ *
+ * <p>Feature 025 (FR-024, FR-028) runs 7.4 on this adapter with the 7.4 {@link CliLineProfile}:
+ * the refusals and the cause of an unexpected listing name the profile's release.
  */
 public final class V61ProcessQueryAdapter implements ProcessQueryPort {
 
@@ -77,12 +80,22 @@ public final class V61ProcessQueryAdapter implements ProcessQueryPort {
     private final NodeId node;
     private final V61Connection connection;
     private final CliOutputClassifier classifier;
+    private final CliLineProfile profile;
+    private final V61QueryRules rules;
 
+    /** The process query port of a 6.1 node ({@link CliLineProfile#V61}). */
     public V61ProcessQueryAdapter(NodeId node, V61Connection connection,
         CliOutputClassifier classifier) {
+        this(node, connection, classifier, CliLineProfile.V61);
+    }
+
+    public V61ProcessQueryAdapter(NodeId node, V61Connection connection,
+        CliOutputClassifier classifier, CliLineProfile profile) {
         this.node = Objects.requireNonNull(node, "node");
         this.connection = Objects.requireNonNull(connection, "connection");
         this.classifier = Objects.requireNonNull(classifier, "classifier");
+        this.profile = Objects.requireNonNull(profile, "profile");
+        this.rules = new V61QueryRules(profile);
     }
 
     /**
@@ -93,7 +106,7 @@ public final class V61ProcessQueryAdapter implements ProcessQueryPort {
     @Override
     public void validate(ProcessQuery query) {
         try {
-            V61QueryRules.INSTANCE.validate(query);
+            rules.validate(query);
         } catch (ToolErrorException e) {
             if (e.error().code() == ErrorCode.UNSUPPORTED_VERSION) {
                 throw new ToolErrorException(e.error().withNode(node));
@@ -119,7 +132,7 @@ public final class V61ProcessQueryAdapter implements ProcessQueryPort {
             listings = V61PsParser.parse(result.stdout(), commands, node, query.now(),
                 query.hangingThreshold());
         } catch (ToolErrorException e) {
-            throw failed(e.error());
+            throw failed(V61SessionParser.named(e.error(), profile));
         }
         boolean capped = listings.stream().anyMatch(listing ->
             listing.instances().size() >= CliSessionCommand.MAX_ROWS
@@ -139,11 +152,11 @@ public final class V61ProcessQueryAdapter implements ProcessQueryPort {
             next < matches.size() ? OptionalInt.of(next) : OptionalInt.empty());
     }
 
-    /** INUBIT 6.1 has no lookup of one process id (restart/kill are not offered). */
+    /** INUBIT 6.1 and 7.4 have no lookup of one process id (restart/kill are not offered). */
     @Override
     public ProcessRows findByProcessId(String processId, Instant now,
         Duration hangingThreshold) {
-        throw new RefusingPorts(node).refusal();
+        throw new RefusingPorts(node, profile.release()).refusal();
     }
 
     /** The listings of {@code states} (empty = all states). */

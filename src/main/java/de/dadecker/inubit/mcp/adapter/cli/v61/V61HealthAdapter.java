@@ -76,7 +76,7 @@ public final class V61HealthAdapter implements CliHealthPort {
         try {
             health = V61HealthParser.parse(result.stdout());
         } catch (ToolErrorException e) {
-            throw failed(e.error());
+            throw failed(V61SessionParser.named(e.error(), profile));
         }
         return new CliHealthSnapshot(health.alive(), Optional.of(health.version()),
             profile.unameReportsServerVersion(), Optional.of(health.maintenance()),

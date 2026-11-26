@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.adapter.cli.v61;
 
 import de.dadecker.inubit.mcp.adapter.cli.CliSessionCommand;
 import de.dadecker.inubit.mcp.adapter.cli.CliSessionParser;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -24,14 +25,19 @@ import java.util.regex.Pattern;
  *
  * <p>Login failures end before the first prompt and are classified by
  * {@code CliOutputClassifier} before this parser runs.
+ *
+ * <p>The {@code UNEXPECTED_RESPONSE} cause names the expected format of INUBIT 6.1; an adapter
+ * that runs another release on this format (7.4: feature 025, FR-024) names its release with
+ * {@link #named}.
  */
 public final class V61SessionParser {
 
     /** The prompt of the interactive mode (reconstructed; the recordings confirm it, T037+). */
     public static final String PROMPT = "cli> ";
 
-    private static final CliSessionParser PARSER = new CliSessionParser(
-        Pattern.compile(Pattern.quote(PROMPT)), false, "the expected INUBIT 6.1 format");
+    private static final Pattern PROMPT_PATTERN = Pattern.compile(Pattern.quote(PROMPT));
+
+    private static final CliSessionParser PARSER = parser(CliLineProfile.V61);
 
     private V61SessionParser() {
     }
@@ -47,5 +53,19 @@ public final class V61SessionParser {
 
     static ToolErrorException unexpected(String message) {
         return PARSER.unexpected(message);
+    }
+
+    /**
+     * {@code error}, an {@code UNEXPECTED_RESPONSE} of {@link #blocks} or {@link #unexpected}
+     * (as {@link V61HealthParser} and {@link V61PsParser} throw it), with the cause naming the
+     * expected format of {@code profile}'s release.
+     */
+    static ToolError named(ToolError error, CliLineProfile profile) {
+        return parser(profile).unexpected(error.message()).error();
+    }
+
+    private static CliSessionParser parser(CliLineProfile profile) {
+        return new CliSessionParser(PROMPT_PATTERN, false,
+            "the expected INUBIT " + profile.release() + " format");
     }
 }

@@ -466,7 +466,7 @@ production matrix changes only in T035.
   warning on a successful CLI report of a `V7_4` node, the client's version warning of FR-027, a
   7.4.0.80 client at a `"7.4.0.90"` pin is a mismatch in the client part; 6.1 cases unchanged. The
   gate still refuses 7.4 in production, so the adapter is reached only after T035.
-- [ ] T032 [US7] Processes on 7.4 (spec FR-024, FR-025, FR-028, after T031):
+- [X] T032 [US7] Processes on 7.4 (spec FR-024, FR-025, FR-028, after T031):
   `V74PortSet.factory(probe, limiter)` builds a `V61ProcessQueryAdapter` with the 7.4 connection and
   profile; every other port stays `RefusingPorts` with the Mandate A 7.4 text.
   The 6.1 classes take the profile only for the texts that name the release: the

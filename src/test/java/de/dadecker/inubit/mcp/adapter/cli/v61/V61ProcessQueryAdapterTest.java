@@ -334,7 +334,10 @@ class V61ProcessQueryAdapterTest {
         ToolError error = errorOf(() -> adapter(launchers).validate(withTag));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
-        assertThat(error.message()).contains("tag").contains("nothing was sent");
+        assertThat(error.message()).isEqualTo(
+            "find_processes: INUBIT 6.1 does not support the input tag; nothing was sent");
+        assertThat(error.likelyCause())
+            .isEqualTo("The process listing of StartCLI 6.1 has no tag column");
         assertThat(error.node()).contains(ID);
         assertThat(launchers.sessions()).isZero();
     }
@@ -657,6 +660,10 @@ class V61ProcessQueryAdapterTest {
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
         assertThat(error.node()).contains(ID);
+        assertThat(error.message()).isEqualTo("This operation is not available on legacy/node1"
+            + " (INUBIT 6.1, StartCLI only); nothing was sent");
+        assertThat(error.likelyCause()).isEqualTo(
+            "INUBIT 6.1 is supported read-only through StartCLI, for a few reads only");
         assertThat(launchers.sessions()).isZero();
     }
 
@@ -695,6 +702,8 @@ class V61ProcessQueryAdapterTest {
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.node()).contains(ID);
+        assertThat(error.likelyCause())
+            .isEqualTo("StartCLI's session output differs from the expected INUBIT 6.1 format");
         assertThat(launchers.sessions()).isEqualTo(1);
     }
 

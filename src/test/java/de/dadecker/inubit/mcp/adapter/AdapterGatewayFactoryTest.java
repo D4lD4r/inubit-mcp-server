@@ -27,6 +27,7 @@ import de.dadecker.inubit.mcp.adapter.cli.helper.HelperInstallation;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61PortSet;
 import de.dadecker.inubit.mcp.adapter.cli.v61.V61QueryRules;
 import de.dadecker.inubit.mcp.adapter.cli.v74.V74PortSet;
+import de.dadecker.inubit.mcp.adapter.cli.v74.V74Profile;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.adapter.rest.v81.V81QueryRules;
@@ -1518,8 +1519,9 @@ class AdapterGatewayFactoryTest {
     @Test
     void aSevenFourNodeIsCliOnlyAndRefusesWithoutRestClient() {
         // feature 025 T008 (research D-5): registered after 6.1 as Wiring does
-        PortSetRegistry portSets = WITH_V61.register(V74PortSet.RANGE, V74PortSet.factory(),
-            V61QueryRules.INSTANCE, V74PortSet.cliHealth(V61_PROBE, V61_LIMITER));
+        PortSetRegistry portSets = WITH_V61.register(V74PortSet.RANGE,
+            V74PortSet.factory(V61_PROBE, V61_LIMITER), new V61QueryRules(V74Profile.PROFILE),
+            V74PortSet.cliHealth(V61_PROBE, V61_LIMITER));
         EffectiveNodeConfig node = withoutUsableClient(VersionSetting.V7_4);
         try (AdapterGatewayFactory factory = factory(portSets, nodeVersions(node), node)) {
             assertThat(factory.access(DEV)).isEqualTo(NodeAccess.CLI_ONLY);
