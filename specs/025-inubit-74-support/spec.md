@@ -23,7 +23,8 @@ Sources: the IMC-6 description and comments, the attached help output, the code 
 - **No vendor reference exists for 7.4.** All `docs.virtimo.net` 7.4 pages return 404; only 8.0,
   8.1 and 9.0 are online. The bundle the owner holds contains only the plugin Javadoc and JSDoc
   (ibis 7.4.0.90 API), not the REST or CLI reference. Every interface fact beyond the attached help
-  output must therefore come from recordings of a real 7.4 node, as for 6.1 (feature 012).
+  output must therefore come from recordings of a real 7.4 node, as for 6.1 (feature 012), or,
+  since the owner decision of 2026-11-26, is assumed from 6.1 and offered as unverified.
 - **The 7.4 REST API is not the 8.1 one.** In 8.0 the REST API was reworked to standard endpoints
   answering JSON, and `/ready` is new in 8.0.1. The 8.1 REST adapters cannot be assumed to work
   on 7.4. REST on 7.4 is out of scope.
@@ -70,7 +71,29 @@ Sources: the IMC-6 description and comments, the attached help output, the code 
   amendment that extends the same rule to 7.4, whose REST interface is unverified rather than
   missing. Mandate A declares no 7.4 capability supported: its CLI-only matrix entry uses no
   channel at all (every capability is refused before contact), so it does not invoke the
-  exception and does not depend on the amendment; Mandate B does.
+  exception and does not depend on the amendment; Mandate B does. Constitution 2.0.0 (ratified
+  2026-11-23) names 7.4 read-only and CLI-only; the proposed 2.1.0 (2026-11-26, Principles III and
+  V) adds the evidence level *unverified*: a read capability of a non-baseline version runs on
+  contract tests against reconstructed fixtures plus the real help output of that version, when
+  every result carries a user-visible "unverified" warning and the documentation marks it
+  untested. Mandate B (replanned 2026-11-26) rests on that level.
+- **Unverified on a CLI-only version (code check, 2026-11-26).** `SupportState.UNVERIFIED` exists
+  and is used today only on non-CLI-only versions (partner management on 9.0, reads of unknown
+  versions), where it runs the 8.1 adapters with the warning "INUBIT <version> on <node> is not
+  verified for <capability>; results may be incomplete" (`VersionGate.judge`). On a CLI-only
+  version the code refuses every state other than `SUPPORTED`: `VersionGate.judge` refuses before
+  the warning branch, `VersionGate.monitoringAccess` refuses `get_health` unless `MONITORING` is
+  `SUPPORTED`, and `NodeOverview` counts `UNVERIFIED` as usable only on a version that is not
+  CLI-only. The 6.1 StartCLI adapters exist for health (`V61HealthAdapter`, `V61HealthParser`)
+  and processes (`V61ProcessQueryAdapter`, `V61PsParser`, `V61QueryRules`); 6.1 has no other
+  StartCLI adapter. `V61HealthAdapter` treats the version `uname` reports as the client's, not the
+  server's (`UNAME_REPORTS_SERVER_VERSION = false`, until a recording confirms it), and lists
+  readiness, threads and blocking queue as `NOT_AVAILABLE_ON_6_1`. `V61ProcessQueryAdapter` reads
+  the time in state from the `DATE` column and applies hanging and time range to it; `tag` is
+  refused. The reconstructed 7.4 fixtures use exactly the 6.1 session formats with server version
+  7.4.0.90. Several Mandate A rules key on "every 7.4 capability carries a note"
+  (`CapabilityMatrix.allNotYetVerified`, `lines()`); they switch at the first 7.4 capability
+  without a note (FR-035).
 
 ## Clarifications
 
@@ -81,26 +104,52 @@ Sources: the IMC-6 description and comments, the attached help output, the code 
 - Q: Do derived edge-case fixtures count as verified? → A: Yes, accepted by the owner, when
   derived from a real recording by a documented minimal edit (FR-016a; Open Questions, Decided).
 
+### Session 2026-11-26 (Mandate B replanned)
+
+- Q: Will the 7.4 recording session (IMC-22) and the Windows live check take place? → A: No,
+  decided by the owner, 2026-11-26. 7.4 is offered as **untested**.
+- Q: Which mechanism serves 7.4 without recordings? → A: The existing `SupportState.UNVERIFIED`,
+  decided by the owner, 2026-11-26: on a 7.4 node the read capabilities in scope run and every
+  result carries the existing warning "INUBIT <version> on <node> is not verified for
+  <capability>; results may be incomplete". No new support state.
+- Q: Which capabilities? → A: "Everything 6.1 can", decided by the owner, 2026-11-26: in code 6.1
+  has StartCLI adapters for health and processes only, so MONITORING (`get_health`) and
+  PROCESS_DIAGNOSIS (`find_processes`), through StartCLI only, reusing the 6.1 adapters and parsers
+  with a 7.4 profile. Every other tool keeps refusing 7.4 as in Mandate A. 7.4 stays read-only.
+- Q: Is `AUTO` detection of 7.4 still in scope? → A: No, decided by the owner, 2026-11-26: only
+  nodes pinned with `versionLine: V7_4` or a concrete 7.4 version are served; `AUTO` never selects
+  7.4 and the 404 hint of FR-005 stays. FR-032, FR-033, US8 and SC-008 are withdrawn.
+- Q: What happens to the recording kit? → A: It stays in the repository as an optional later
+  verification path, no longer a precondition, decided by the owner, 2026-11-26. Raising 7.4 from
+  unverified to supported is a future, separate mandate (recordings or evaluated recordings plus a
+  live check, constitution 2.0.0 / 2.1.0).
+- Q: How is the documentation worded? → A: README, `docs/setup.md`, `docs/tools.md` and the
+  changelog mark `get_health` and `find_processes` on 7.4 as **untested** (unverified), decided by
+  the owner, 2026-11-26.
+
 Other decisions taken as informed defaults are listed under Assumptions; the points still open for
 the owner are listed under Open Questions.
 
 ## Mandates
 
 The feature is delivered in two mandates. Mandate A needs no 7.4 node and can be implemented and
-merged on its own. Mandate B needs live access to a 7.4 node and stays in Draft until its
-prerequisites (Preconditions) are met.
+merged on its own. Mandate B was first planned on recordings of a real 7.4 node and a live check;
+replanned on 2026-11-26 (owner decision, Clarifications), it needs no 7.4 node either and serves
+7.4 as **unverified (untested)** on the evidence of the reconstructed fixtures (constitution 2.1.0,
+Preconditions).
 
-| | Mandate A (no 7.4 node needed) | Mandate B (needs a 7.4 node) |
+| | Mandate A (no 7.4 node needed) | Mandate B (no 7.4 node; replanned 2026-11-26) |
 |---|---|---|
-| User stories | US1, US2, US3, US4, US5 | US6, US7, US8 |
-| Requirements | FR-001 – FR-020 (incl. FR-010a, FR-016a) | FR-021 – FR-034 |
-| IMC-6 criteria | 1 (pin), 3, 4, 5 | 1 (detection), 2 |
-| Result | 7.4 is known, pinned, shown, and refused clearly on every platform; the recording kit for Windows is ready | `get_health` and `find_processes` verified on a real 7.4.0.90 node on Windows (macOS / Linux by the offline suite, FR-031); automatic 7.4 detection |
+| User stories | US1, US2, US3, US4, US5 | US6, US7 (US8 withdrawn) |
+| Requirements | FR-001 – FR-020 (incl. FR-010a, FR-016a) | FR-024 – FR-031, FR-034, FR-035 (FR-021 – FR-023, FR-032, FR-033 withdrawn) |
+| IMC-6 criteria | 1 (pin), 3, 4, 5 | 2, met as unverified (untested); 1 (detection) withdrawn |
+| Result | 7.4 is known, pinned, shown, and refused clearly on every platform; the recording kit for Windows is ready | `get_health` and `find_processes` run on pinned 7.4 nodes through StartCLI, unverified, with the warning in every result; verified by the offline suite on the macOS/Linux and Windows CI jobs, no live check |
 
-Planning depth: plan.md and tasks.md design Mandate A in full. Mandate B is planned only as far
-as its inputs exist today (the order of steps, the gates, the recording session); its parsers,
-adapters and detection step are designed after the recordings, by a spec, plan and tasks update
-that re-clarifies Mandate B from what the recordings show, before any Mandate B code is written.
+Planning depth: plan.md and tasks.md design Mandate A in full and, since 2026-11-26, Mandate B in
+full as well: the 6.1 StartCLI adapters with a 7.4 profile, the unverified state on a CLI-only
+version, client selection and the switches of FR-035. No step waits for a recording. The recording
+kit (US4) stays an optional later verification path for a future mandate that may raise 7.4 to
+supported.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -148,6 +197,11 @@ node or TLS handshake reaches the node (the local client probe of FR-010a except
    client directory are shown with the note that no tool uses it until a 7.4 capability is
    verified, no JDK warning is given, and the node is not contacted.
 
+*Mandate B (2026-11-26)*: once MONITORING and PROCESS_DIAGNOSIS are `UNVERIFIED` on 7.4 (FR-030),
+scenarios 3, 5 and 6 apply to every tool except `get_health` and `find_processes` (US6, US7), and
+scenarios 1, 2 and 9 change as FR-010, FR-010a and FR-035 say; every other tool keeps exactly the
+Mandate A refusal.
+
 ---
 
 ### User Story 2 - A failed detection points to 7.4 as well as 6.1 (Priority: P2, Mandate A)
@@ -157,8 +211,8 @@ person that the node may run INUBIT 6.1 or 7.4 and which pin to set for each, in
 only the 6.1 pin as today.
 
 **Why this priority**: IMC-6 criterion 1 asks that a failed detection points to 7.4; without a
-7.4 node the server cannot tell 6.1 from 7.4 on a 404, so the hint names both until Mandate B adds
-detection.
+7.4 node the server cannot tell 6.1 from 7.4 on a 404, so the hint names both. Since the
+withdrawal of detection (US8, 2026-11-26) the hint stays in Mandate B as well.
 
 **Independent Test**: With a stubbed node that answers the detection request with HTTP 404, run a
 read and confirm the warning text; with any other detection failure, confirm the warning is
@@ -214,8 +268,10 @@ StartCLI session, the fixture folder for 7.4 with the one real case (the attache
 every other case reconstructed and listed, and a guard that keeps reconstructed cases from ever
 backing a supported capability.
 
-**Why this priority**: Mandate B depends on one well-prepared recording session on a machine the
-owner does not have; everything that can be prepared without the node must be ready and tested.
+**Why this priority**: Mandate B as first planned depended on one well-prepared recording session
+on a machine the owner does not have; everything that can be prepared without the node must be
+ready and tested. Since 2026-11-26 (owner decision) the kit is no longer a precondition of
+Mandate B; it stays as the optional path of a future mandate that may raise 7.4 to supported.
 
 **Independent Test**: Run the recorder's case listing and its offline self-tests (no server);
 run the fixture shape test, the guard test and the identifier scan.
@@ -270,93 +326,105 @@ plus dedicated regression tests per version for parsing, matching, gating and th
 
 ---
 
-### User Story 6 - Check the health of a real 7.4 node (Priority: P1, Mandate B)
+### User Story 6 - Check the health of a pinned 7.4 node, unverified (Priority: P1, Mandate B)
 
-A person operating a 7.4 installation asks "Is the 7.4 server up?". The server answers from the 7.4
-StartCLI client alone: reachable and logged in, alive, the server version, maintenance state, JVM
-memory and process counts per state, and says which parts of a health report do not exist on 7.4 —
-both when the MCP server runs on Windows and on macOS or Linux.
+A person operating a 7.4 installation pins its nodes to 7.4 and asks "Is the 7.4 server up?". The
+server answers from the 7.4 StartCLI client alone, with the 6.1 health session: reachable and
+logged in, alive, maintenance state, JVM memory and process counts per state, says which parts of
+a health report do not exist on 7.4, and warns in every result that INUBIT 7.4 is not verified for
+monitoring — both when the MCP server runs on Windows and on macOS or Linux.
 
 **Why this priority**: IMC-6 criterion 2; the health check is the entry point of every diagnosis.
+Without recordings (owner decision 2026-11-26) it is offered as untested.
 
-**Independent Test**: Contract tests against the recorded, neutralized 7.4 outputs; a live check on
-the 7.4.0.90 node from Windows (macOS and Linux by the offline suite, FR-031).
+**Independent Test**: Contract tests of the 6.1 health adapter with the 7.4 profile against the
+reconstructed 7.4 fixtures (and the real 7.4 `help` case), run by the offline suite on the
+macOS/Linux and the Windows CI jobs. No live check.
 
 **Acceptance Scenarios**:
 
-1. **Given** a node pinned to 7.4 with a 7.4 client configured in `defaults.cliClients."7.4"`,
-   **When** `get_health` targets it, **Then** the report shows the parts of FR-026 and lists the
-   others as unavailable with the reason `NOT_AVAILABLE_ON_7_4`, and no REST request is sent.
+1. **Given** a node pinned to 7.4 (`V7_4` or `"7.4.0.90"`) with a 7.4 client configured in
+   `defaults.cliClients."7.4"`, **When** `get_health` targets it, **Then** it runs through
+   StartCLI, the report shows the parts of FR-026, lists the others as unavailable with the reason
+   `NOT_AVAILABLE_ON_7_4`, carries the warning `INUBIT 7.4 on <node> is not verified for
+   monitoring; results may be incomplete` (`INUBIT 7.4.0.90 on …` for the concrete pin), and no
+   REST request is sent.
 2. **Given** the alive check answers negatively, **When** `get_health` runs, **Then** `status` is
-   `ERROR` and the other parts that could be read are still reported.
-3. **Given** a 7.4 node without a configured client, **When** `get_health` targets it, **Then** it is
-   reported with `CLI_UNAVAILABLE` and a next step naming `defaults.cliClients."7.4"`.
-4. **Given** a node pinned to 7.4 whose server version read through StartCLI (`-sv`) has another
-   major.minor, **When** `get_health` runs, **Then** the contradiction is reported with both versions.
-5. **Given** the MCP server runs on Windows, **When** scenarios 1–4 run against the real node,
-   **Then** they behave as on macOS or Linux (feature 013 invocation).
+   `ERROR`, the other parts that could be read are still reported, and the warning is present.
+3. **Given** a 7.4 node without a 7.4 client (no node or group `cli.home`, no
+   `defaults.cliClients."7.4"`), **When** `get_health` targets it, **Then** it is reported with
+   `CLI_UNAVAILABLE` and a next step naming `defaults.cliClients."7.4"` (FR-029).
+4. **Given** the session reports a version through `uname`, **When** `get_health` runs, **Then**
+   that version is reported as the StartCLI client's ("the version … read on <node> is the
+   StartCLI client's; the server version cannot be read"), as on 6.1, and is not observed as the
+   server's version (FR-027).
+5. **Given** the MCP server runs on Windows, **When** scenarios 1–4 run in the offline suite of the
+   Windows CI job, **Then** they behave as on macOS or Linux (feature 013 invocation).
+6. **Given** a 7.4 node on `AUTO`, **When** `get_health` targets it, **Then** it is handled as an
+   unknown version exactly as in Mandate A (Edge Cases); 7.4 is never selected without a pin.
 
 ---
 
-### User Story 7 - Find failed and hanging processes on a real 7.4 node (Priority: P1, Mandate B)
+### User Story 7 - Find failed and hanging processes on a pinned 7.4 node, unverified (Priority: P1, Mandate B)
 
 The person asks "Which processes are in error on the 7.4 server?". The server lists process
-instances of the 7.4 node by state from the 7.4 StartCLI client, with the fields 6.1 provides, and
-marks hanging ones where the recordings show the time in state.
+instances of the pinned 7.4 node by state from the 7.4 StartCLI client with the 6.1 process
+session, with the fields 6.1 provides, marks hanging ones as on 6.1, and warns in every result
+that INUBIT 7.4 is not verified for process diagnosis.
 
 **Why this priority**: IMC-6 criterion 2; failed processes are the main diagnosis use case.
 
-**Independent Test**: Contract tests against recorded 7.4 process listings in every state; a live
-check from Windows (macOS and Linux by the offline suite, FR-031).
+**Independent Test**: Contract tests of the 6.1 process query adapter with the 7.4 profile against
+the reconstructed 7.4 process listings in every state, run by the offline suite on both CI jobs.
+No live check.
 
 **Acceptance Scenarios**:
 
-1. **Given** a 7.4 node with processes in Error and Waiting state, **When** `find_processes` asks
-   for `ERROR`, **Then** only Error instances are returned, with the fields of FR-028.
+1. **Given** a pinned 7.4 node with processes in Error and Waiting state, **When** `find_processes`
+   asks for `ERROR`, **Then** it runs through StartCLI, only Error instances are returned with the
+   fields of FR-028, and the result carries the warning `INUBIT 7.4 on <node> is not verified for
+   process diagnosis; results may be incomplete`.
 2. **Given** a listing that reaches the row cap, **When** `find_processes` returns, **Then** the
    result carries a truncation marker and its total is marked as a lower bound.
-3. **Given** a `tag` filter or another input the recordings show 7.4 cannot serve, **When**
-   `find_processes` runs on a 7.4 node, **Then** it is refused for that node with
-   `UNSUPPORTED_VERSION`, naming the input.
+3. **Given** a `tag` filter, **When** `find_processes` runs on a 7.4 node, **Then** it is refused
+   for that node with `UNSUPPORTED_VERSION`, naming the input (as on 6.1, `V61QueryRules`).
 4. **Given** a listing with no instance, **When** `find_processes` returns, **Then** the result is
-   empty, not an error.
+   empty, not an error, and still carries the warning.
+5. **Given** `hangingOnly` or a time range, **When** `find_processes` runs on a 7.4 node, **Then**
+   they apply to the `DATE` column as on 6.1 (FR-028).
+6. **Given** a group with an 8.1 node and a pinned 7.4 node, **When** `find_processes` targets the
+   group, **Then** both are answered, and only the 7.4 node's entry carries the warning.
 
 ---
 
-### User Story 8 - A 7.4 node on `AUTO` is detected (Priority: P3, Mandate B)
+### User Story 8 - A 7.4 node on `AUTO` is detected (Priority: P3, Mandate B) — Withdrawn 2026-11-26
+
+**Withdrawn 2026-11-26** (owner decision, Clarifications): without a 7.4 node no detection step
+can be verified; only pinned nodes are served, and `AUTO` never selects 7.4. The 404 hint of US2
+stays. The original text is kept for reference only:
 
 A person adds a 7.4 node with `AUTO` and a 7.4 client configured. The server identifies it as 7.4
-without a pin and serves it like a pinned 7.4 node.
-
-**Why this priority**: IMC-6 criterion 1 (detection); the pin covers the need until then.
-
-**Independent Test**: With recorded 7.4 answers to the detection steps, confirm that a node on
-`AUTO` becomes 7.4, that 6.1, 8.1 and 9.0 nodes are detected as before, and that a node the steps
-cannot identify stays unknown with the US2 hint.
-
-**Acceptance Scenarios**:
-
-1. **Given** a 7.4 node on `AUTO` with a 7.4 client configured, **When** its version is detected,
-   **Then** it is 7.4 and `list_nodes` shows it as detected 7.4.
-2. **Given** an 8.1 or 9.0 node on `AUTO` whose REST detection succeeds, **When** its version is
-   detected, **Then** the result and the requests sent are exactly as before.
-3. **Given** a 6.1 node on `AUTO`, **When** its version is detected, **Then** it stays unknown with
-   the US2 hint, as before (6.1 is identified by pin only, feature 012).
+without a pin and serves it like a pinned 7.4 node (IMC-6 criterion 1, detection). Its scenarios
+(a 7.4 node on `AUTO` detected as 7.4; 8.1 and 9.0 detection unchanged; 6.1 stays unknown) are not
+part of this feature.
 
 ---
 
 ### Edge Cases
 
-- A 7.4 node on `AUTO` that is not identified as 7.4 (always in Mandate A; in Mandate B whenever
-  detection fails) is handled as an unknown version exactly as today: reads run with the 8.1
-  adapters and the "unverified" warning, writes are refused, and the 404 hint of FR-005 asks for
-  the pin. IMC-6 criterion 3 ("no request whose shape is unverified") applies to nodes known as
-  7.4; changing the unknown-version rule would change 6.1, 8.1 and 9.0 behaviour (criterion 5).
-  The setup documentation tells 7.4 operators to pin `V7_4`.
+- A 7.4 node on `AUTO` is never identified as 7.4 (Mandate A, and Mandate B since the withdrawal
+  of detection, 2026-11-26): it is handled as an unknown version exactly as today: reads run with
+  the 8.1 adapters and the "unverified" warning, writes are refused, and the 404 hint of FR-005
+  asks for the pin. IMC-6 criterion 3 ("no request whose shape is unverified") applies to nodes
+  known as 7.4; changing the unknown-version rule would change 6.1, 8.1 and 9.0 behaviour
+  (criterion 5). The setup documentation tells 7.4 operators to pin `V7_4`; only a pinned node gets
+  the 7.4 StartCLI path of Mandate B.
 - A concrete pin with three parts (`"7.4.0"`) is accepted; patch comparison with a four-part
   client is "not comparable" (US3 scenario 4).
-- A pin `"7.4.0.90"` while `get_health` (Mandate B) observes 7.3 or 8.0: pin contradiction, every
-  contacting tool except `get_health` is refused naming both versions (feature 009 rule).
+- A pin `"7.4.0.90"` on a node that runs another version: `get_health` on 7.4 observes no server
+  version (FR-027, as on 6.1), so the contradiction rule of feature 009 is not fed from 7.4; the
+  6.1 parsers then most likely fail with `UNEXPECTED_RESPONSE`, or the client check reports the
+  client's range. The unverified warning tells the user that the results are not verified.
 - A 7.3, 7.5 or 8.0 pin stays "known version outside every declared range", as today; this
   feature declares 7.4 only.
 - `V7_X` is not offered; a whole 7 line is out of scope.
@@ -367,16 +435,19 @@ cannot identify stays unknown with the US2 hint.
   are refused with `CLI_UNAVAILABLE` naming the missing `"7.4"` entry; the version-less client is
   never used against a 7.4 node, because an 8.1 or 9.0 client's behaviour against 7.4 is
   unverified (FR-029).
-- The 7.4 client reads the password from the console instead of standard input: the recording
-  stops and the owner decides (feature 013 rule); `-p` on the command line is never used.
-- The recordings show German output, CRLF line ends or a non-UTF-8 code page on Windows: the
-  parsers handle them as on 6.1 and 8.1; any unknown format is `UNEXPECTED_RESPONSE`, never an empty
-  result.
-- Recordings show that an interactive command differs from 6.1 (name, options, columns): the
-  catalogue and parsers follow the recordings; the reconstructed case is replaced, not kept beside
-  the recorded one.
-- The only available 7.4 node is classified `production`: no recording is made (FR-021); Mandate B
-  stays blocked.
+- The real 7.4 client reads the password from the console instead of standard input (not known
+  without a recording): the session sends the password on standard input only, as on 6.1, and
+  never through `-p`; such a client ends the session with an error or a timeout, which is
+  reported as such, never as an empty result.
+- The real 7.4 output is German, has CRLF line ends or a non-UTF-8 code page on Windows: the 6.1
+  parsers handle English and German labels and CRLF as on 6.1; any unknown format is
+  `UNEXPECTED_RESPONSE`, never an empty result.
+- An interactive command of the real 7.4 client differs from 6.1 (name, options, columns): the
+  result is `UNEXPECTED_RESPONSE` or the client's error, never a silent wrong result; the unverified
+  warning has told the user. Fixing it needs a recording or a reported output (future mandate or a
+  defect fix when reported).
+- A 7.4 node classified `production`: reads only (7.4 stays read-only), with the same warning; no
+  recording is made in this feature.
 
 ## Requirements *(mandatory)*
 
@@ -385,8 +456,8 @@ cannot identify stays unknown with the US2 hint.
 | Tool | Capability | 7.4 after Mandate A | 7.4 after Mandate B | Channel |
 |---|---|---|---|---|
 | `list_nodes` | – (configuration) | runs, shows the 7.4 node | unchanged | none |
-| `get_health` | monitoring | unsupported (refused) | supported after the live checks of FR-031 | StartCLI (+ TLS handshake for the pin) |
-| `find_processes` | process diagnosis | unsupported (refused) | supported after the live checks of FR-031 | StartCLI (+ TLS handshake for the pin) |
+| `get_health` | monitoring | unsupported (refused) | unverified (untested), pinned nodes only; warning in every result (FR-030) | StartCLI (+ TLS handshake for the pin) |
+| `find_processes` | process diagnosis | unsupported (refused) | unverified (untested), pinned nodes only; warning in every result (FR-030) | StartCLI (+ TLS handshake for the pin) |
 | `check_artifacts` | – (offline check) | runs; module lookup skipped with a notice | unchanged | none |
 | every other tool (logs, inventory, export, partners, queue entries, server logs, server settings, users, model details, node tools, all writes, deployment, end-to-end tests) | its capability | unsupported (refused) | unsupported (refused) | – |
 
@@ -421,7 +492,9 @@ cannot identify stays unknown with the US2 hint.
 - **FR-006**: The production capability matrix MUST declare a range 7.4–7.4, StartCLI only (no REST
   channel), with every capability `unsupported`; its monitoring and process diagnosis channels MUST
   be StartCLI, so that Mandate B only flips their state. The `unverified` state (runs with the 8.1
-  adapters) MUST NOT be used for 7.4.
+  adapters) MUST NOT be used for 7.4. *Mandate B (2026-11-26):* MONITORING and PROCESS_DIAGNOSIS
+  become `UNVERIFIED` on 7.4 as FR-030 says, run through StartCLI with the 7.4 port set, never with
+  the 8.1 adapters; every other capability stays as declared here.
 - **FR-007**: Every tool that contacts a node MUST be refused for a 7.4 node with
   `UNSUPPORTED_VERSION` before any REST request, StartCLI run (including the local option and
   version probes of the client) or TLS handshake, naming the node, its version (`INUBIT 7.4`, not
@@ -429,13 +502,19 @@ cannot identify stays unknown with the US2 hint.
   verified on it yet; use the INUBIT Workbench for <capability> on <node>". In calls addressing
   several nodes the refusal MUST be per node. The refusal MUST come before the client lookup, so a
   missing client never changes it. For write tools the order of the write checks and the version
-  check MUST be the one that applies to 6.1 nodes today.
+  check MUST be the one that applies to 6.1 nodes today. *Mandate B (2026-11-26):* `get_health` and
+  `find_processes` run on a pinned 7.4 node (FR-030); every other tool keeps this refusal, text
+  and next step unchanged (the next step stays true: an unverified capability is not verified).
 - **FR-008**: `check_artifacts` with module lookup on a 7.4 node MUST run its offline checks and
   skip the lookup with a notice, without contact.
 - **FR-009**: A tool whose only candidate nodes are 7.4 nodes MUST NOT be announced (feature 009).
+  *Mandate B (2026-11-26):* a pinned 7.4 node becomes a candidate node for `find_processes` under
+  the unchanged announcement rule of features 009 and 012 (its capability is no longer
+  `UNSUPPORTED` on 7.4); every other tool stays unannounced for 7.4-only profiles.
 - **FR-010**: `list_nodes` and `--check-config` MUST show a 7.4 node with its version (all four
   parts if configured so), the channel "StartCLI only" and no usable capability, without contacting
-  the node.
+  the node. *Mandate B (2026-11-26):* monitoring and process diagnosis are shown as usable (they
+  run, unverified); every other capability stays not usable with its Mandate A text.
 - **FR-010a**: A `defaults.cliClients."7.4"` entry MUST be handled in Mandate A by the generic rules
   of feature 017, unchanged: the key and its directories are validated as for any other key,
   `--check-config` runs its local version probe (no node contact) and reports the result,
@@ -443,8 +522,13 @@ cannot identify stays unknown with the US2 hint.
   shipped JDK of 7.4 is not verified); `list_nodes` and `--check-config` show the client
   directory of a 7.4 node per feature 017 FR-015 with the note that no tool uses it until a 7.4
   capability is verified. No tool runs the client against a 7.4 node in Mandate A (FR-007).
+  *Mandate B (2026-11-26):* from the flip of FR-030 on, the client is used by `get_health` and
+  `find_processes`; the note "not used until a 7.4 capability is verified" and the suppressed
+  option probe end with it (FR-035). The rule "no JDK major warning for 7.4" stays.
 - **FR-011**: The adapters selected for a 7.4 node MUST NOT build or use a REST client; every port
   of the 7.4 range refuses with `UNSUPPORTED_VERSION` as a second line of defence behind the gate.
+  *Mandate B (2026-11-26):* the health port and the process query port of the 7.4 range are the
+  6.1 StartCLI adapters with the 7.4 profile (FR-024); every other port keeps refusing.
 - **FR-012**: Refusals on a 7.4 node MUST be logged like the version refusals of feature 009
   (structured, stderr).
 - **FR-013**: FR-006 to FR-012 MUST hold identically when the MCP server runs on Windows, macOS and
@@ -459,7 +543,7 @@ cannot identify stays unknown with the US2 hint.
   attachment. Every other capability case is reconstructed (from the help output and the 6.1
   cases) and listed with its capability in `RECONSTRUCTED.txt`. The cases and what replaces them:
 
-  | Fixture case | Capability | Mandate A | Replaced in Mandate B by |
+  | Fixture case | Capability | Mandate A | Replaced by (optional later verification; not in this feature since 2026-11-26) |
   |---|---|---|---|
   | `help` | monitoring, process diagnosis | recorded (attachment) | `v74_help` (re-recorded on Windows) |
   | `health_session_ok` | monitoring | reconstructed | `v74_health_session` |
@@ -478,16 +562,24 @@ cannot identify stays unknown with the US2 hint.
   German-language variants (as for 6.1) are added only if the recordings show language-dependent
   output; the recorder runs the client in English, as the server does. The research cases of
   FR-016 (`v74_version`, `v74_exec_help`, `v74_exec_ps_help`, `v74_direct_health`) back no
-  capability; their recordings are evaluated for the Mandate B design and not kept in the
-  repository (FR-021, IMC-24).
+  capability; their recordings were to be evaluated for the Mandate B design and not kept in the
+  repository (FR-021, IMC-24). *Mandate B (2026-11-26):* no case is replaced or adjusted; the
+  reconstructed cases and the recorded `help` back the unverified capabilities of FR-030, and the
+  last column names the path of a future mandate only.
 - **FR-015**: A guard test MUST fail when the production matrix declares a 7.4 capability
   `supported` while any case of that capability is listed in `RECONSTRUCTED.txt`, or is a derived
   case whose source case is not recorded; and MUST fail when a listed case has no files or a fixture
   case is in none of `RECONSTRUCTED.txt`, `DERIVED.txt` and the README's list of recorded cases
   (the single source for recorded cases). The 7.4 fixtures MUST pass the customer identifier
-  scan. *Mandate B (IMC-24):* no 7.4 recording enters the repository, so the 7.4 cases stay
-  reconstructed; the guard's condition for `supported` changes to FR-030 as amended (every case of
-  the capability adjusted to the evaluation), the mechanism is fixed by T029.
+  scan. *Mandate B (2026-11-26, replaces the IMC-24 amendment):* the guard
+  (`V74RecordedFixturesTest`) MUST fail when the production matrix declares any 7.4 capability
+  `SUPPORTED` (no 7.4 capability may be supported in this feature); MUST fail when it declares a
+  7.4 capability other than MONITORING and PROCESS_DIAGNOSIS `UNVERIFIED`; and MUST fail when it
+  declares MONITORING or PROCESS_DIAGNOSIS `UNVERIFIED` while that capability has no case in
+  `RECONSTRUCTED.txt` or `help` is not in the README's recorded list (unverified needs
+  reconstructed fixtures plus the real help output, constitution 2.1.0 Principle III). It MUST
+  allow `UNVERIFIED` on these two capabilities backed by reconstructed cases. The rules on missing
+  files and on the three lists stay.
 - **FR-016**: The Windows recorder MUST know these 7.4 cases, StartCLI only (no REST request),
   read-only, each storing standard output, standard error and exit code:
   - `v74_help` (`-h`, local, no server) and `v74_version` (`-v`, local, no server);
@@ -505,8 +597,9 @@ cannot identify stays unknown with the US2 hint.
   (maintenance on, a negative alive check, an empty listing that does not occur) MAY be derived
   from a recorded case by a minimal, documented edit. Derived cases MUST be listed in
   `DERIVED.txt` with their source case and a one-line description of the edit; they count as
-  verified for FR-030 only while their source case is recorded. In Mandate A, when no source is
-  recorded yet, such cases are reconstructed and listed in `RECONSTRUCTED.txt`.
+  verified only while their source case is recorded. In Mandate A, when no source is recorded yet,
+  such cases are reconstructed and listed in `RECONSTRUCTED.txt`. Since 2026-11-26 no 7.4 case is
+  recorded in this feature, so `DERIVED.txt` stays empty; the rule serves a future mandate.
 - **FR-017**: The recorder MUST gain an interactive-session mode: one StartCLI process per case,
   password on standard input only, the case's commands, then an end-of-session command; the
   environment allowlist, the group allowlist and the secret check of feature 013 apply unchanged.
@@ -523,8 +616,9 @@ cannot identify stays unknown with the US2 hint.
   that the recording session can adjust them after `v74_exec_help` and `v74_exec_ps_help` without a
   code change elsewhere.
 - **FR-019**: Windows recordings MUST be stored byte-exact in the repository (line ends and code
-  page kept). 7.4 recordings are not stored (FR-021, IMC-24); the adjusted 7.4 fixtures use the
-  line ends and code page the evaluation shows.
+  page kept). 7.4 recordings are not stored (FR-021, IMC-24); since 2026-11-26 none are made in
+  this feature, and the reconstructed 7.4 fixtures keep LF line ends (CRLF is covered by the
+  parser tests, FR-025).
 
 #### Mandate A — Regression and documentation
 
@@ -535,111 +629,147 @@ cannot identify stays unknown with the US2 hint.
   (setup, tool reference, README, research notes) and the changelog MUST describe 7.4 as
   "configurable and recognised, every tool refused until verified" in the same change.
 
-#### Mandate B — Recordings
+#### Mandate B — Recordings (withdrawn 2026-11-26)
 
-- **FR-021**: The 7.4 cases MUST be recorded read-only, by hand, with the Windows recorder, on a
-  Windows machine with the 7.4 client and its JDK, against a non-production 7.4.0.90 node, after the
-  owner has approved the recording in the chat. A node classified `production` MUST NOT be
-  recorded. The recordings are for evaluation only (owner decision 2026-11-23, IMC-24): they MUST
-  NOT enter the repository, are handed to the owner raw (no customer neutralization; the recorder's
-  own replacement of the node's host, the login user, the Windows account names and local paths
-  and its password check stay), are kept outside every repository while they are evaluated, and
-  are deleted after the evaluation. The recorder writes them to a folder outside the repository
-  (its `-OutputDirectory`).
-- **FR-022**: Each reconstructed 7.4 case MUST be adjusted to what the evaluated recordings show
-  (commands, options, output format, line ends, language), with neutral values only, and stays
-  listed in `RECONSTRUCTED.txt` with a note that it was adjusted to the evaluation. Where a
-  recording shows that a reconstructed case does not exist on 7.4 (for example a command with
-  another name), the case and every parser expectation built on it MUST be replaced, not kept.
-  No recorded byte is copied into a fixture.
-- **FR-023**: The differences between 7.4 and 6.1 (options, interactive commands, output formats,
-  password handling, Java runtime of the client) MUST be documented in the research notes from the
-  evaluation, with neutral values only.
+- **FR-021** — **Withdrawn 2026-11-26** (owner decision: the 7.4 recording session, IMC-22, will
+  not take place). It required recording the 7.4 cases read-only on a Windows machine against a
+  non-production 7.4.0.90 node, for evaluation only (IMC-24). No Mandate B requirement depends on
+  it. The recorder and the kit stay as the optional path of a future mandate, under the rules of
+  FR-016 – FR-019 and IMC-24 (never a `production` node, raw output never in a repository).
+- **FR-022** — **Withdrawn 2026-11-26**: the reconstructed 7.4 cases are not adjusted to recordings;
+  they stay as built in Mandate A (FR-014) and back the unverified capabilities (FR-030). A future
+  mandate may adjust them to evaluated recordings.
+- **FR-023** — **Withdrawn 2026-11-26**: no differences between 7.4 and 6.1 are researched from
+  recordings. The research notes state what is known (the real 7.4 help output) and that every
+  other 7.4 behaviour is assumed to be the one of 6.1 (FR-034).
 
 #### Mandate B — Health and processes
 
 - **FR-024**: All 7.4-specific behaviour MUST live in adapters selected by the node's version; tool
-  logic MUST NOT branch on version strings. The 7.4 adapters MAY reuse the 6.1 StartCLI adapters
-  where the recordings show the same commands and formats.
-- **FR-025**: The 7.4 parsers MUST be tested against the 7.4 fixtures adjusted to the evaluated
-  recordings (FR-022, IMC-24), MUST parse every
-  language and line-end variant the recordings show, and MUST treat unrecognized output as
+  logic MUST NOT branch on version strings. The 7.4 health and process ports MUST reuse the 6.1
+  StartCLI adapters and parsers (`V61HealthAdapter`, `V61HealthParser`, `V61ProcessQueryAdapter`,
+  `V61PsParser`, `V61QueryRules`, `V61Connection`) with a 7.4 profile defined in
+  `adapter/cli/v74` (release, used in every text that names the version, e.g. the `tag` refusal
+  "find_processes: INUBIT 7.4 does not support the input tag; nothing was sent"; reason for
+  unavailable parts; whether `uname` reports the server's version); the profile differs from 6.1 only where the reconstructed 7.4 fixtures or the real 7.4
+  help output require it. Session mode is used, as on 6.1 (decided 2026-11-26: the reconstructed
+  fixtures are session outputs, and the real 7.4 help shows the interactive mode "startcli -u
+  <user> -p <password> [Url]"); script mode (`--execCommand`) and the direct options are not used.
+- **FR-025**: The 7.4 parsers MUST be tested against the reconstructed 7.4 fixtures (FR-014) and
+  the real recorded 7.4 `help` case, in English and German and with LF and CRLF line ends as on 6.1
+  (the CRLF variants built from the fixtures in the test), and MUST treat unrecognized output as
   `UNEXPECTED_RESPONSE`, never as an empty result.
-- **FR-026**: `get_health` on a 7.4 node MUST report, from StartCLI: `reachable`, `status` (`OK`
-  when the alive check succeeds, `ERROR` when it answers negatively, `UNKNOWN` when it could not be
-  obtained), the server version (all four parts), and of maintenance state, JVM memory and process
-  counts per state (Error, Processing, Waiting, Queued) those the recordings show; every part a
-  health report has on 8.1 and 7.4 does not provide MUST be listed as unavailable with the reason
-  `NOT_AVAILABLE_ON_7_4`. The time budget of 6.1 (feature 012 FR-009: 15 seconds for one node, the
+- **FR-026**: `get_health` on a pinned 7.4 node MUST report, from StartCLI: `reachable`, `status`
+  (`OK` when the alive check succeeds, `ERROR` when it answers negatively, `UNKNOWN` when it could
+  not be obtained), maintenance state, JVM memory and process counts per state (Error, Processing,
+  Waiting, Queued), as the 6.1 health session reads them; the version `uname` reports is handled by
+  FR-027. Readiness, thread figures and the blocking queue (the parts 6.1 lacks) MUST be listed as
+  unavailable with the reason `NOT_AVAILABLE_ON_7_4`. Every result MUST carry the unverified
+  warning of FR-030. The time budget of 6.1 (feature 012 FR-009: 15 seconds for one node, the
   overview budget of feature 001 for several) applies.
-- **FR-027**: The version read by `get_health` on a 7.4 node MUST count as the node's observed
-  version for the pin contradiction rule of feature 009, provided the recordings confirm that the
-  option used reports the server's version.
-- **FR-028**: `find_processes` on a 7.4 node MUST return the fields of the 6.1 result shape that
-  the recordings provide; process id, workflow and state are required in every row, otherwise the
-  listing is `UNEXPECTED_RESPONSE`. Hanging instances and the time range follow the 6.1 rules of
-  feature 012 when the recordings show the time in state; otherwise the hanging filter and the
-  time range are refused for 7.4 nodes with `UNSUPPORTED_VERSION`. States and filters the
-  recordings do not back MUST be refused with `UNSUPPORTED_VERSION` naming the input; truncation,
-  paging and the time budget follow the 6.1 rules of feature 012.
+- **FR-027**: Decided 2026-11-26 by assuming 6.1 behaviour: the version `uname` reports on a 7.4
+  node counts as the StartCLI client's, not the server's (as `V61HealthAdapter` does until a
+  recording confirms otherwise); it is reported in a warning ("the version … read on <node> is the
+  StartCLI client's; the server version cannot be read") and MUST NOT be recorded as the node's
+  observed version, so it does not feed the pin contradiction rule of feature 009. The
+  client/server patch comparison of `get_health` uses the pinned version and the four-part rule of
+  FR-003 (`VersionGate.comparePatch`). **Known limitation of the unverified level** (accepted by
+  the owner, 2026-11-26): `get_health` on 7.4 reports and observes no server version, a 7.4 pin is
+  never contradicted from 7.4, and no `-sv` run is added. A future mandate may change this from a
+  recording.
+- **FR-028**: `find_processes` on a pinned 7.4 node MUST return the fields of the 6.1 result shape
+  as `V61PsParser` reads them; process id, workflow and state are required in every row, otherwise
+  the listing is `UNEXPECTED_RESPONSE`. Decided 2026-11-26 by assuming 6.1 behaviour: the `DATE`
+  column is the time in state, so hanging instances and the time range follow the 6.1 rules of
+  feature 012 (whether `ps -w` also lists `Retry` stays open as on 6.1); `tag` is refused with
+  `UNSUPPORTED_VERSION` naming the input (`V61QueryRules`); truncation, paging and the time budget
+  follow the 6.1 rules of feature 012. Every result MUST carry the unverified warning of FR-030.
 - **FR-029**: StartCLI on a 7.4 node MUST use, in this order: the node's `cli.home`, the group's
   `cli.home`, then `defaults.cliClients."7.4"` (with its `javaHome`). Deviating from feature 017
   FR-003, the version-less `defaults.cliHome` MUST NOT be used for a 7.4 node; without one of the
-  three, StartCLI-backed tools are refused with `CLI_UNAVAILABLE` naming `defaults.cliClients."7.4"`.
-  The client check of feature 009 (its `-v` and declared range) applies to the chosen client, and
-  its `-v` MUST report major.minor 7.4; any other or unreadable client version refuses
-  StartCLI-backed tools on the node with `CLI_UNAVAILABLE` naming the client and its version. On
-  Windows the feature 013 invocation applies (password through standard input only, environment
-  allowlist, CRLF and code page handling). Feature 012 FR-012 (the server's own TLS handshake for
-  the pin, no HTTP request) and FR-012a apply; the 7.4 client counts as having neither a
-  trust-store nor a host-name option until the recordings show otherwise.
-- **FR-030**: A 7.4 capability MAY be declared `supported` only when every case of it (and the
-  `help` case) has been adjusted to the evaluated recordings (FR-022), its contract tests run
-  against these adjusted fixtures, the live check of FR-031 has passed and the constitution
-  amendment is ratified (Constitution III, V as amended). Recorded fixtures are not required
-  (IMC-24).
-- **FR-031**: `get_health` and `find_processes` on 7.4 MUST be declared `supported` only after a
-  live check of that capability against the 7.4.0.90 node has passed from Windows, with the
-  outcomes recorded in the quickstart. macOS and Linux are not live-checked (owner decision
-  2026-11-23, IMC-19: no macOS or Linux machine with a 7.4 client and access to a 7.4 node
-  exists); they rest on the offline suite of the macOS/Linux test job against the recordings, and
-  defects reported from these platforms are fixed when they appear. The capability matrix stays
-  platform-independent: if the Windows check cannot be made or fails, the capability stays
-  `unsupported` everywhere and the owner decides how to proceed.
+  three, StartCLI-backed tools are refused with `CLI_UNAVAILABLE` naming `defaults.cliClients."7.4"`,
+  and `--check-config` warns about it. The client check of feature 009 (its `-v` and declared range)
+  applies to the chosen client, and its `-v` MUST report major.minor 7.4; any other or unreadable
+  client version refuses StartCLI-backed tools on the node with `CLI_UNAVAILABLE` naming the client
+  and its version. The `-v` output of the 7.4 client is reconstructed from the format of the other
+  clients (a `version` case in `RECONSTRUCTED.txt`). On Windows the feature 013 invocation applies
+  (password through standard input only, environment allowlist, CRLF and code page handling).
+  Feature 012 FR-012 (the server's own TLS handshake for the pin, no HTTP request) and FR-012a
+  apply; the 7.4 client counts as having neither a trust-store nor a host-name option, as the real
+  7.4 help output shows (`V74HelpContractTest`).
+- **FR-030** (replaced 2026-11-26): MONITORING and PROCESS_DIAGNOSIS on 7.4 MUST be declared
+  `UNVERIFIED`, never `SUPPORTED`, and only when (a) their contract tests (FR-025 – FR-028) pass
+  against the reconstructed 7.4 fixtures on the macOS/Linux and the Windows CI jobs, (b) every
+  result of them on a 7.4 node carries the existing user-visible warning "INUBIT <version> on
+  <node> is not verified for <capability>; results may be incomplete", (c) the documentation of
+  FR-034 is in the same change, and (d) constitution 2.1.0 is ratified by the owner. On a CLI-only
+  version, an `UNVERIFIED` read capability MUST run through the channels of its matrix entry
+  (StartCLI) with that warning and the client check, instead of being refused; it MUST never fall
+  back to the 8.1 adapters or REST. `get_health` reaches such a node over StartCLI
+  (`VersionGate.monitoringAccess`). `SUPPORTED` on 7.4 is forbidden in this feature; every other
+  7.4 capability stays `UNSUPPORTED` with its note "not yet verified". No live check is made.
+- **FR-031** (replaced 2026-11-26): No live check is made, on any platform. Verification of
+  Mandate B is the offline suite on the macOS/Linux and the Windows CI jobs (FR-025 – FR-030);
+  the capability matrix stays platform-independent. Defects reported from real 7.4 installations
+  are fixed when they appear. Raising a 7.4 capability from `UNVERIFIED` to `SUPPORTED` is a
+  future, separate mandate with recordings or evaluated recordings plus a live check against a
+  non-production 7.4 node (constitution 2.0.0 / 2.1.0, Principles III and V).
 
-#### Mandate B — Detection
+#### Mandate B — Detection (withdrawn 2026-11-26)
 
-- **FR-032**: For a node on `AUTO`, the server MUST identify 7.4 only by a detection step that the
-  Mandate B recordings and the live check verify. The live check MUST observe what a 7.4 node
-  answers to today's REST detection request (through the server's own detection failure code, no
-  extra request); the trigger of the 7.4 step is fixed from that observation, not assumed to be
-  HTTP 404. Default step: one StartCLI run of the client chosen by FR-029 against the node
-  (`-sv`, server version), which deviates from feature 017 FR-005 (unknown version → version-less client) for this
-  run only, preceded by the TLS checks of feature 012 FR-012 and FR-012a. The node is treated as
-  7.4 only when that step reports major.minor 7.4; any other outcome leaves it unknown with the
-  hint of FR-005.
-- **FR-033**: Detection MUST stay unchanged for every node whose REST detection succeeds: no
-  additional request reaches it. A node whose detection fails with the trigger of FR-032 and that
-  has a `"7.4"` client (or a node or group `cli.home`) may receive exactly one StartCLI version run;
-  a 6.1 node on `AUTO` stays unknown (feature 012), whatever that run reports.
-- **FR-034**: When a 7.4 capability is declared `supported`, the user documentation (setup incl.
-  `defaults.cliClients."7.4"` and its JDK, tool reference, README, research notes) and the
-  changelog MUST be updated in the same change.
+- **FR-032** — **Withdrawn 2026-11-26** (owner decision): `AUTO` detection of 7.4 is out of scope.
+  Without a 7.4 node no detection step and no trigger can be verified. `AUTO` never selects 7.4;
+  only pinned nodes are served, and the 404 hint of FR-005 stays.
+- **FR-033** — **Withdrawn 2026-11-26** with FR-032: detection stays unchanged for every node; no
+  additional request (REST or StartCLI) is sent during detection.
+
+#### Mandate B — Documentation and switches
+
+- **FR-034**: When MONITORING and PROCESS_DIAGNOSIS on 7.4 are declared `UNVERIFIED` (FR-030), the
+  user documentation (`docs/setup.md` incl. `defaults.cliClients."7.4"`, its JDK and the client
+  order of FR-029; `docs/tools.md`; `README.md`; `docs/research/inubit-interfaces.md`) and the
+  changelog MUST mark `get_health` and `find_processes` on 7.4 as **untested** (unverified: the
+  warning in every result, pinned nodes only, no `AUTO`), in the same change.
+- **FR-035** (added 2026-11-26): The Mandate A rules that key on "every 7.4 capability carries a
+  note" MUST behave as follows once MONITORING and PROCESS_DIAGNOSIS on 7.4 are `UNVERIFIED`
+  without a note:
+  - `CapabilityMatrix.lines()` (the "; supported: …" lists, IMC-16 m6) MUST NOT count the notes of
+    a CLI-only entry, so 7.4 never appears in "; supported: …" for a capability out of scope on
+    7.4; the notes of 8.1 and 9.0 still count. (Replaces the "all capabilities noted" exclusion of
+    T007.)
+  - The refusal of every other capability on 7.4 keeps its Mandate A message and next step ("INUBIT
+    7.4 is recognised, but no tool is verified on it yet; use the INUBIT Workbench for <capability>
+    on <node>", T009), which stays true.
+  - The `list_nodes` warning "INUBIT 7.4 is recognised, but no tool is verified on it yet; the
+    StartCLI client of <node> is not used until a 7.4 capability is verified" and the
+    `--check-config` suffix "; not used until a 7.4 capability is verified" (T014) MUST disappear,
+    because the client is used; no replacement warning in `list_nodes` (the warning is in every
+    result).
+  - The `-h` option probe of the 7.4 client (T015) MUST run as for 6.1, because `V61Connection`
+    needs the client options; it stays local (no node contact).
+  - The `--check-config` warning for a CLI-only node without client MUST apply to 7.4 and name
+    `defaults.cliClients."7.4"` (FR-029).
+  - `CapabilityMatrix.allNotYetVerified` stays as a general rule (an entry noted on every
+    capability) but is false for every production entry after the flip.
 
 ### Key Entities
 
-- **7.4 node**: a configured node pinned to INUBIT 7.4 (`V7_4` or a concrete 7.4 version), or in
-  Mandate B detected as 7.4; reached through StartCLI only.
+- **7.4 node**: a configured node pinned to INUBIT 7.4 (`V7_4` or a concrete 7.4 version);
+  reached through StartCLI only. A node on `AUTO` is never a 7.4 node (detection withdrawn
+  2026-11-26).
 - **Version with fourth part**: major, minor, patch, an optional fourth numeric part and the raw
   text (suffix kept for display).
 - **Patch comparison rule per range**: whether the fourth part counts for the client/server patch
   comparison; four parts for 7.4, three for every other range.
-- **Capability matrix entry 7.4**: CLI-only, every capability `unsupported` in Mandate A; monitoring
-  and process diagnosis `supported` in Mandate B after recordings and live checks.
-- **7.4 fixture case**: recorded (the help output; all others after Mandate B) or reconstructed
-  (listed in `RECONSTRUCTED.txt`).
+- **Capability matrix entry 7.4**: CLI-only, every capability `unsupported` with the note "not yet
+  verified" in Mandate A; in Mandate B monitoring and process diagnosis `unverified` without a note
+  (FR-030), every other capability unchanged.
+- **7.4 profile**: what the 6.1 StartCLI adapters need to serve 7.4 (release, reason for
+  unavailable parts, whether `uname` reports the server's version), defined in `adapter/cli/v74`.
+- **7.4 fixture case**: recorded (the help output only) or reconstructed (listed in
+  `RECONSTRUCTED.txt`); in this feature every case except `help` stays reconstructed.
 - **7.4 recording case**: an entry of the Windows recorder's catalogue: local run, script-mode run,
-  direct-option run or interactive session.
+  direct-option run or interactive session; kept for an optional later verification.
 
 ## Success Criteria *(mandatory)*
 
@@ -659,17 +789,17 @@ cannot identify stays unknown with the US2 hint.
   allowed `versionLine` values adjusted.
 - **SC-006** (Mandate A): a person with the Windows machine and the 7.4 client can record every 7.4
   case of FR-016 in one sitting by following the quickstart, without editing code.
-- **SC-007** (IMC-6 criterion 2 — Mandate B): `get_health` and `find_processes` return verified
-  results for the real 7.4.0.90 node through the 7.4 client, from Windows (macOS and Linux by the
-  offline suite, FR-031);
-  `get_health` on one 7.4 node returns within 15 seconds, and listing up to 100 failed processes
-  within 15 seconds.
-- **SC-008** (IMC-6 criterion 1, detection — Mandate B): a 7.4 node on `AUTO` with a 7.4 client is
-  detected as 7.4; no node whose REST detection succeeds (8.1, 9.0) receives an additional
-  request during detection.
-- **SC-009** (Mandate B): no 7.4 capability is `supported` while one of its cases has not been
-  adjusted to the evaluated recordings (guard test green with the production matrix); no 7.4
-  recording is in the repository (IMC-24).
+- **SC-007** (IMC-6 criterion 2, as unverified — Mandate B, rewritten 2026-11-26): on a pinned
+  7.4 node, `get_health` and `find_processes` run through StartCLI against the reconstructed 7.4
+  fixtures and 100% of their results carry the unverified warning, in the offline suite of the
+  macOS/Linux and the Windows CI jobs; the 6.1 time budget (15 seconds for one node) is enforced by
+  the budget tests of feature 012 for 7.4 too. No live check.
+- **SC-008** — **Withdrawn 2026-11-26** with FR-032 and FR-033 (detection out of scope). What
+  stays: no node receives an additional request during detection (detection is unchanged).
+- **SC-009** (Mandate B, rewritten 2026-11-26): the guard test is green with the production matrix:
+  no 7.4 capability is `SUPPORTED`, and only monitoring and process diagnosis are `UNVERIFIED`,
+  each backed by reconstructed cases and the recorded `help`; no 7.4 recording is in the repository
+  (IMC-24).
 
 ## Out of Scope
 
@@ -679,6 +809,12 @@ cannot identify stays unknown with the US2 hint.
   and 9.0.
 - Logs, inventory, workspace export and partner management on 7.4; further CLI commands follow as
   separate mandates once recordings exist.
+- Detecting 7.4 on `AUTO` (FR-032, FR-033, US8, SC-008; withdrawn 2026-11-26): only pinned nodes
+  are served.
+- The 7.4 recording session, the evaluation of recordings and any live check against a 7.4 node
+  (FR-021 – FR-023, withdrawn 2026-11-26), and declaring any 7.4 capability `SUPPORTED`: a future,
+  separate mandate may raise monitoring and process diagnosis from unverified to supported with
+  recordings or evaluated recordings plus a live check (constitution 2.0.0 / 2.1.0).
 - Other 7.x lines (7.3, 7.5) and a whole-major line value `V7_X`.
 - Detecting 6.1 automatically.
 - Recording on macOS or Linux with the bash recorder (the owner records on Windows only).
@@ -686,15 +822,14 @@ cannot identify stays unknown with the US2 hint.
 ## Preconditions
 
 - **Mandate A**: none.
-- **Mandate B**:
-  - a Windows machine with an INUBIT 7.4 Workbench client and its JDK, CLI login to a
-    non-production 7.4.0.90 node, Python 3.7 or newer for the recorder, and a person who runs the
-    Windows recorder there (recording kit, raw output, IMC-24) and the live check of the MCP server
-    on that machine;
-  - the constitution amendment 2.0.0 (MAJOR, IMC-24): Principle V names INUBIT 7.4 as an
-    additionally supported, read-only, CLI-only version, and Principles III and V accept fixtures
-    adjusted to evaluated recordings plus a passed live check where storing recordings is
-    forbidden; ratified by the owner on 2026-11-23 (IMC-23).
+- **Mandate B** (replanned 2026-11-26): the constitution amendment 2.1.0 (MINOR, proposed
+  2026-11-26 in `.specify/memory/constitution.md`), ratified by the owner before MONITORING and
+  PROCESS_DIAGNOSIS are declared `UNVERIFIED` on 7.4: Principles III and V add the evidence level
+  *unverified* (contract tests against reconstructed fixtures plus the real help output, a warning
+  in every result, documentation "untested"). It builds on 2.0.0 (ratified 2026-11-23, IMC-23:
+  7.4 read-only, CLI-only). The Mandate B code tasks before the flip may run while 2.1.0 is
+  proposed; the flip may not. No 7.4 node, no Windows machine with a 7.4 client, no recording
+  session and no live check are preconditions any more.
 
 ## Assumptions
 
@@ -702,25 +837,49 @@ cannot identify stays unknown with the US2 hint.
   itself does not name a version. It was produced by `startcli.sh` on Linux; Windows `-h` output may
   differ in line ends only.
 - The interactive commands and their output on 7.4 are close to 6.1 (the direct options are);
-  reconstructed cases start from the 6.1 cases and the help output, and the recordings decide.
+  reconstructed cases start from the 6.1 cases and the help output. Since 2026-11-26 no recording
+  decides: Mandate B assumes 6.1 behaviour wherever the real 7.4 help output says nothing, and
+  every result says so through the unverified warning.
 - A 7.4 node answers the REST detection request with HTTP 404 (8.0 reworked the REST API, so 7.4
   most likely lacks `system/info`). If it answers otherwise, the hint of FR-005 does not appear and
-  the warning stays as today; nothing else in Mandate A depends on this. Mandate B observes the
-  real answer in its live check and fixes the detection trigger from it (FR-032).
+  the warning stays as today; nothing else in Mandate A depends on this. Since the withdrawal of
+  detection (2026-11-26) nothing in Mandate B depends on it either.
 - The 404 hint names both pins (FR-005) because a 404 alone cannot tell 6.1 from 7.4 without a 7.4
-  recording; Mandate B narrows it through detection.
+  recording; it stays so in Mandate B (detection withdrawn 2026-11-26).
 - Keeping the fourth part only for 7.4 comparisons (FR-003) satisfies IMC-6 criteria 4 and 5
   together: 8.1 and 9.0 versions have three parts, and feature 012 deliberately ignores the fourth
   part on 6.1.
 - A 7.4 node is reached with the StartCLI URL `<server>/ibis/servlet/IBISSoapServlet`, as the help
   output's default shows.
 - The 7.4 client needs Java 11 or older; the `"7.4"` entry of `defaults.cliClients` names its JDK.
+- The 7.4 client accepts the 6.1 session (password on standard input, the 6.1 interactive commands
+  `uname`, `uptime`, `maintenance`, `free -m`, `ps …`) and prints the 6.1 formats; not verified
+  (2026-11-26), hence `UNVERIFIED`.
 
 ## Open Questions (owner)
 
 - **Why** (IMC-6): which installations and how many 7.4 nodes — accepted as open at I2; it decides
   no requirement of this spec.
 ### Decided
+
+- **Mandate B without recordings, 7.4 unverified (untested)** (Mandates, US6 – US8, FR-014,
+  FR-015, FR-021 – FR-035, SC-007 – SC-009, Preconditions) — **decided by the owner, 2026-11-26**:
+  the recording session (IMC-22) and the Windows live check will not take place. MONITORING and
+  PROCESS_DIAGNOSIS run on pinned 7.4 nodes through StartCLI with the 6.1 adapters and a 7.4
+  profile, declared with the existing `SupportState.UNVERIFIED`; every result carries the existing
+  warning; documentation says "untested". No new support state; 7.4 stays read-only; every other
+  tool refuses as in Mandate A. `AUTO` detection of 7.4 is dropped (FR-032, FR-033, US8 withdrawn).
+  The recording kit stays as an optional later verification path; raising 7.4 to supported is a
+  future mandate. Governing rule: constitution 2.1.0 (proposed 2026-11-26, ratified by the owner
+  before the flip). This supersedes, for Mandate B, the decisions "Recordings for evaluation only"
+  and "macOS / Linux live check" below.
+
+- **Follow-up decisions on the replanned Mandate B** (FR-027, FR-035) — **decided by the owner,
+  2026-11-26**: (1) the `uname` version is the client's as on 6.1, no `-sv` run, no pin
+  contradiction from 7.4: a known limitation of the unverified level; (2) the refusal next step
+  "INUBIT 7.4 is recognised, but no tool is verified on it yet" stays unchanged for every other
+  tool; (3) no extra `list_nodes` warning for 7.4 nodes: the per-result warning and the "untested"
+  documentation suffice.
 
 - **Constitution amendment** (Preconditions) — **ratified by the owner, 2026-11-23 (IMC-23)**:
   constitution 2.0.0 (Principle V: 7.4 read-only, StartCLI only, because its REST interface is
@@ -732,16 +891,19 @@ cannot identify stays unknown with the US2 hint.
   are adjusted to the evaluation and stay reconstructed; 7.4 capabilities are enabled through the
   Windows live check and the ratified constitution amendment. Rejected alternatives: synthetic
   fixtures modelled on the recordings; neutralized recordings kept privately with local-only
-  contract tests; neutralizing on the Windows machine.
+  contract tests; neutralizing on the Windows machine. *Superseded for Mandate B on 2026-11-26* (no
+  recordings are made); it still governs any future recording of 7.4.
 
 - **macOS / Linux live check** (FR-031, SC-007) — **decided by the owner, 2026-11-23 (IMC-19)**:
   no macOS or Linux machine with the 7.4 client and access to a 7.4 node exists; the Windows-only
   live check suffices before 7.4 health and processes are enabled. macOS and Linux rest on the
-  offline suite; defects found there are fixed when they appear.
+  offline suite; defects found there are fixed when they appear. *Superseded on 2026-11-26*: no
+  live check is made on any platform (FR-031).
 
 - **`AUTO` 7.4 nodes** (Edge Cases) — **decided: accepted by the owner, 2026-11-18**: a 7.4 node
   on `AUTO` that is not identified stays an unknown version as today (8.1 reads with the
-  "unverified" warning); IMC-6 criterion 3 applies to nodes known as 7.4. The rejected alternative,
+  "unverified" warning); IMC-6 criterion 3 applies to nodes known as 7.4. Since 2026-11-26 this
+  holds for every 7.4 node on `AUTO` (detection withdrawn). The rejected alternative,
   refusing reads on every unknown node after a 404, would change 6.1 and 8.1 behaviour
   (criterion 5).
 - **Derived edge-case fixtures** (FR-016a) — **decided: accepted by the owner, 2026-11-18**: edge

@@ -33,10 +33,20 @@ Recorder self-check on Windows (no server):
 powershell -ExecutionPolicy Bypass -File tools\record-fixtures.ps1 -List
 ```
 
-## Mandate B — recording session (Windows, by hand, after approval)
+## Mandate B — validation (offline)
 
-Preconditions (spec): Windows machine with the 7.4 Workbench client and its JDK; CLI login to a
-**non-production** 7.4.0.90 node; the local neutralize map; the owner's approval in the chat.
+Owner decision 2026-11-26 (spec, Clarifications): the recording session (IMC-22) and the Windows
+live check will not take place. Mandate B is validated by the offline suite on the macOS/Linux and
+the Windows CI jobs (`mvn -q -o clean verify`; spec FR-030, FR-031, tasks T037); its only
+precondition is the ratified constitution 2.1.0. No step below is needed for Mandate B.
+
+## Optional later verification — recording session (Windows, by hand, after approval)
+
+Not a precondition of this feature since 2026-11-26. It is kept for a future mandate that may raise
+7.4 from unverified to supported (recordings or evaluated recordings plus a live check,
+constitution 2.0.0 / 2.1.0). Preconditions of such a session: Windows machine with the 7.4
+Workbench client and its JDK; CLI login to a **non-production** 7.4.0.90 node; the owner's
+approval in the chat.
 
 For IMC-17 the steps below are wrapped in the recording kit (`.apex/work/IMC-17/`: run sheet
 `record-v74.ps1`, German guide `ANLEITUNG.txt`, built by `build-kit.py`; phases `Check`,
@@ -69,9 +79,8 @@ in-repository recording and no longer apply as written.
    ```
 
 5. Run `NoCustomerIdentifiersTest`, review the diff, commit the recordings.
-6. Live check on Windows (MCP server with a `V7_4` node and an `AUTO` node; macOS and Linux are not
-   live-checked, spec FR-031):
-   record here the outcome per step, including the detection failure code of the `AUTO` node.
+6. Live check on Windows: withdrawn for this feature on 2026-11-26 (spec FR-031; `AUTO` detection
+   withdrawn, FR-032). A future mandate defines its own live check.
 
 ## Validation record
 
@@ -83,6 +92,7 @@ in-repository recording and no longer apply as written.
 | 2026-11-19 | Mandate A: `mvn -q -o clean verify` at `23a97fd2` (T001–T025 and clean-up) | macOS | exit 0; 11,264 tests, 0 failures, 0 errors, 62 skipped |
 | 2026-11-19 | CI on [PR #104](https://github.com/D4lD4r/inubit-mcp-server/pull/104) at `23a97fd2`: [build](https://github.com/D4lD4r/inubit-mcp-server/actions/runs/44573778803/job/135735630386) and [windows](https://github.com/D4lD4r/inubit-mcp-server/actions/runs/44573778803/job/135735629782) (run 44573778803), CodeQL | Linux, Windows | all green, first attempt, no rerun |
 | 2026-11-23 | Mandate B T026: owner's statements in the chat — a Windows machine (not known to the owner, run together with its owner) with an INUBIT 7.4 Workbench client and its JDK; not production; Python unknown (the run sheet's `Check` phase verifies it); recording approved by the owner. Open: client version (`v74_version` must report 7.4) and the node's non-production classification, confirmed by the machine owner in the run sheet (`$NodeIsNonProduction`) before the first recording | Windows | approval given; preconditions checked at the session |
+| 2026-11-26 | Mandate B replanned by the owner: no recording session, no live check; 7.4 health and processes to be offered as unverified (untested) on pinned nodes; detection withdrawn; constitution 2.1.0 proposed (T026–T029, T034 withdrawn) | – | decision recorded in the spec |
 
 ### Adjusted existing tests
 

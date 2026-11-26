@@ -1,4 +1,4 @@
-# Contract: Configuration Delta (Mandate A)
+# Contract: Configuration Delta (Mandate A, Mandate B)
 
 ## `versionLine`
 
@@ -25,12 +25,22 @@ Mandate A:
 | `list_nodes` | the node's `warnings` list carries the entry of contracts/mcp-tools-delta.md (no schema change) |
 | tools | never run the client against a 7.4 node (every tool is refused first) |
 
+Mandate B (2026-11-26, after the flip T035; spec FR-029, FR-035):
+
+| Where | Behaviour |
+|---|---|
+| client choice | node `cli.home` → group `cli.home` → `defaults.cliClients."7.4"` (with its `javaHome`); never the version-less `defaults.cliHome` |
+| client check | the chosen client's `-v` must report 7.4, else `CLI_UNAVAILABLE` naming the client and its version |
+| `--check-config` | runs the `-h` option probe for a 7.4 node as for 6.1; the suffix `; not used until a 7.4 capability is verified` is gone; still no JDK major warning for 7.4 |
+| `list_nodes` | the Mandate A warning entry is gone, without replacement |
+| tools | `get_health` and `find_processes` run the client (unverified); every other tool is refused first |
+
 ## `--check-config` warnings
 
 | Node | Warning |
 |---|---|
 | pinned 6.1, no client | unchanged: `<id>: INUBIT 6.1 is reached through StartCLI only, but no cliHome is configured; its capabilities report CLI_UNAVAILABLE` |
-| pinned 7.4, no client | none in Mandate A (no tool uses a client while every 7.4 capability is not yet verified) |
+| pinned 7.4, no client | none in Mandate A (no tool uses a client while every 7.4 capability is not yet verified); after Mandate B the CLI-only warning, naming `defaults.cliClients."7.4"` instead of `cliHome` (exact text fixed in T035) |
 
 ## `--check-config` summary line of a 7.4 node
 
@@ -38,7 +48,10 @@ Mandate A:
 <id> … (INUBIT 7.4, StartCLI only; available: none; refused: monitoring, process diagnosis, …)
 ```
 
+After Mandate B: `available: monitoring, process diagnosis` (unverified); the rest refused.
+
 ## Unchanged
 
-`AUTO` stays REST-based; `cliClients` selection by major.minor; `cli.home` precedence (feature
-017 FR-003) — the 7.4 deviation of spec FR-029 belongs to Mandate B.
+`AUTO` stays REST-based and never selects 7.4 (detection withdrawn 2026-11-26); `cliClients`
+selection by major.minor; `cli.home` precedence (feature 017 FR-003) — the 7.4 deviation of spec
+FR-029 belongs to Mandate B (above).

@@ -4,8 +4,11 @@ Phase 0 output of `/speckit-plan` for [spec.md](spec.md). Facts about this code 
 in the source on 2026-11-18 at `main` 0.10.2 (`9447c5c3`); paths are relative to
 `src/main/java/de/dadecker/inubit/mcp/` (`M/`) and `src/test/java/de/dadecker/inubit/mcp/` (`T/`).
 Facts about INUBIT 7.4 come only from the IMC-6 attachment `startcli.sh.help.txt`; there is no vendor
-reference. Items marked **REC** are decided by the Mandate B recordings; Mandate A builds nothing that
-depends on them.
+reference. Items marked **REC** were to be decided by the Mandate B recordings; Mandate A builds
+nothing that depends on them. *Superseded 2026-11-26* (owner decision: no recording session, no
+live check, 7.4 offered as unverified): no item waits for a recording any more; D-15 is replaced by
+D-16, which decides every REC point from the code, the reconstructed fixtures and the real 7.4 help
+output.
 
 ---
 
@@ -70,7 +73,9 @@ depends on them.
   stay unchanged.
 - **Rationale**: the note is the single switch that tells "recognised but not verified" apart from
   6.1's "CLI-only, refused": the refusal text (D-6) and the configuration warning (D-9) read it, and
-  Mandate B removes it per capability together with the state flip.
+  Mandate B removes it per capability together with the state flip. *Changed 2026-11-26 (D-16):*
+  Mandate B removes the note of monitoring and process diagnosis only; `lines()` then ignores the
+  notes of every CLI-only entry instead of those of an entry noted on every capability.
 - **Alternatives**: a separate `recognisedOnly` flag on the entry — rejected, the note already
   exists and is removed capability by capability.
 
@@ -88,7 +93,9 @@ depends on them.
 - **Rationale**: second line of defence (spec FR-011), same shape as 6.1, nothing that could talk to
   a 7.4 node.
 - **Alternatives**: register the 6.1 adapters for 7.4 now — rejected: their request shapes are
-  unverified on 7.4 (criterion 3); Mandate B decides from the recordings (D-15).
+  unverified on 7.4 (criterion 3); Mandate B decides from the recordings (D-15). *Superseded
+  2026-11-26 (D-16):* Mandate B registers the 6.1 health and process adapters with a 7.4 profile;
+  every other port keeps refusing, and the gate still refuses first until the flip.
 
 ## D-6 Refusal texts on 7.4 (FR-007, FR-012)
 
@@ -146,7 +153,7 @@ depends on them.
   Decision: `optionsFor` returns empty (as for a non-CLI-only node) while
   `matrix.allNotYetVerified(pin)`, so in Mandate A no `-h` runs for a 7.4 node and no option warning
   or option line appears; only the generic `-v` probe of feature 017 runs (spec FR-010a). Mandate B
-  turns it on with the notes.
+  turns it on with the notes (D-16: at the flip, because `V61Connection` needs the options).
 - **Release in the warning text**: the "reached through StartCLI only" warning takes the release from
   the pin (`INUBIT <major.minor>`), so the 6.1 text is unchanged and a 7.4 text is right once Mandate B
   turns the warning on.
@@ -250,7 +257,11 @@ depends on them.
 - **Note**: `README.md:176` still says 6.1 is "not on Windows" although `docs/setup.md:370-373` says
   otherwise; out of scope here, listed as a follow-up.
 
-## D-15 Mandate B outline (FR-021 – FR-034) (REC)
+## D-15 Mandate B outline (FR-021 – FR-034) (REC) — superseded 2026-11-26
+
+*Superseded 2026-11-26 by D-16* (owner decision: the recording session and the live check will not
+take place; detection is withdrawn). Kept for reference; the recording route below is the optional
+path of a future mandate that may raise 7.4 to supported.
 
 - **Decision (default, re-decided after the recordings)**:
   - The recording session (quickstart) runs the research cases first (`v74_exec_help`,
@@ -275,3 +286,53 @@ depends on them.
     not verified on INUBIT 7.4 yet"; the client option probe and its warnings turn on (D-9).
 - **Rationale**: none of these can be decided without the recordings; designing them blind would
   produce parsers for outputs nobody has seen.
+
+## D-16 Mandate B without recordings: 7.4 unverified (FR-024 – FR-031, FR-034, FR-035)
+
+Decided by the owner, 2026-11-26; governing rule constitution 2.1.0 (proposed 2026-11-26,
+Principles III and V: the evidence level *unverified*). Code facts verified in the worktree on
+2026-11-26.
+
+- **Decision**:
+  - State: the existing `SupportState.UNVERIFIED` for MONITORING and PROCESS_DIAGNOSIS on 7.4,
+    without their note; every other 7.4 capability stays `UNSUPPORTED` with "not yet verified";
+    `SUPPORTED` stays forbidden in this feature. Only pinned nodes (`V7_4` or a concrete 7.4
+    version); `AUTO` never selects 7.4.
+  - Gate: `VersionGate.judge` (`M/application/VersionGate.java:395-409`) today refuses every state
+    but `SUPPORTED` on a CLI-only version; it gets an `UNVERIFIED`-read branch that adds the existing
+    warning ("<name> on <node> is not verified for <capability>; results may be incomplete") and
+    continues to the client branch with the entry's channels (StartCLI). `monitoringAccess` returns
+    CLI for `UNVERIFIED`; `cliMonitoringWarnings` hands the warning to `get_health`'s StartCLI path
+    (`HealthService.checkServerViaCli`, which today adds no gate warning). `NodeOverview.refusal`
+    counts such a capability as usable.
+  - Adapters: the 6.1 StartCLI adapters and parsers (`V61HealthAdapter`, `V61ProcessQueryAdapter`,
+    `V61Connection`, `V61HealthParser`, `V61PsParser`, `V61QueryRules`, `V61SessionParser`) take a
+    `CliLineProfile` (release in every text, reason for unavailable parts, whether `uname` reports
+    the server's version); `V74Profile` lives in `M/adapter/cli/v74`. Session mode as on 6.1: the
+    reconstructed fixtures are session outputs and the real help shows the interactive mode.
+  - Health: readiness, threads and blocking queue are `NOT_AVAILABLE_ON_7_4`.
+  - Processes: hanging and time range on the `DATE` column, `tag` refused, as on 6.1.
+  - Client (FR-029): node `cli.home` → group `cli.home` → `defaults.cliClients."7.4"`; never the
+    version-less `cliHome` (an entry flag, since 6.1 is CLI-only and does use `cliHome`); the
+    client's `-v` must report 7.4 (a reconstructed `version` case); no trust-store or host-name
+    option (`V74HelpContractTest`).
+  - Switches (FR-035): `lines()` ignores the notes of CLI-only entries (IMC-16 m6); the refusal next
+    step "INUBIT 7.4 is recognised, but no tool is verified on it yet" stays unchanged (it stays
+    true; the D-15 idea of rewording it is dropped); the T014 note and `list_nodes` warning end with
+    the flip and get no replacement (the per-result warning and the docs say "untested"); the `-h`
+    probe runs for 7.4 after the flip; the `--check-config` warning for a CLI-only node without
+    client applies to 7.4 and names `defaults.cliClients."7.4"`.
+  - Guard (FR-015): any `SUPPORTED` on 7.4 fails; `UNVERIFIED` only on the two capabilities, each
+    with reconstructed cases and the recorded `help`.
+  - Verification: the offline suite on the macOS/Linux and the Windows CI jobs; no live check.
+- **Known limitation of the unverified level**: as on 6.1, the version `uname` reports counts as the
+  StartCLI client's, not the server's (`UNAME_REPORTS_SERVER_VERSION = false`). `get_health` on 7.4
+  therefore reports no server version, observes none, and a 7.4 pin is never contradicted from 7.4
+  (feature 009 rule not fed); no `-sv` run is added (accepted by the owner, 2026-11-26). Further
+  limitations: every 7.4 output format is assumed from 6.1; a real client that differs ends in
+  `UNEXPECTED_RESPONSE` or its own error, never in a silent wrong result.
+- **Rationale**: "everything 6.1 can" with the least new code; every assumption is visible to the
+  user through the warning and the "untested" documentation.
+- **Alternatives**: a new support state (rejected by the owner: `UNVERIFIED` exists); a script-mode
+  adapter on `--execCommand` or an `-sv` run for the server version (rejected: no fixture, more
+  code, still unverified); waiting for recordings (rejected: the session will not take place).

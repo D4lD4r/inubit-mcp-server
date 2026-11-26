@@ -1,6 +1,8 @@
-# Contract: MCP Tools Delta (Mandate A)
+# Contract: MCP Tools Delta (Mandate A, Mandate B)
 
 No tool is added or removed; no input or output schema changes shape. Changes are values and texts.
+Mandate B (replanned 2026-11-26, spec FR-030) changes `get_health` and `find_processes` on a pinned
+7.4 node; see "Mandate B (2026-11-26)" at the end. Every other tool keeps the Mandate A refusal.
 
 ## Refusal on a 7.4 node (every tool that contacts a node)
 
@@ -33,7 +35,7 @@ No tool is added or removed; no input or output schema changes shape. Changes ar
 | `access` | `cli_only` |
 | capabilities | none usable (every capability refused) |
 | client | the client directory if configured, the `-v` result and the client vs pin comparison with four parts (a 7.4.0.80 client at a 7.4.0.90 pin is a mismatch); no client options (no `-h` probe while 7.4 is not verified) |
-| `warnings` | the entry `INUBIT 7.4 is recognised, but no tool is verified on it yet; the StartCLI client of <node> is not used until a 7.4 capability is verified` (existing free string array; no schema change) |
+| `warnings` | the entry `INUBIT 7.4 is recognised, but no tool is verified on it yet; the StartCLI client of <node> is not used until a 7.4 capability is verified` (existing free string array; no schema change); removed by Mandate B, without replacement |
 
 ## Unknown-version warning after a detection answered with HTTP 404
 
@@ -59,3 +61,31 @@ no contact.
 ## Tool announcement
 
 A tool whose only candidate nodes are 7.4 nodes is not announced (feature 009 rule, unchanged).
+After Mandate B a pinned 7.4 node is a candidate for `find_processes` under the same rule.
+
+## Mandate B (2026-11-26): `get_health` and `find_processes` on a pinned 7.4 node
+
+Only after the flip (tasks T035), only for nodes pinned to 7.4; a node on `AUTO` is never treated
+as 7.4 and keeps the unknown-version behaviour and the 404 hint above.
+
+| Tool | Behaviour |
+|---|---|
+| `get_health` | StartCLI session as on 6.1; `reachable`, `status`, maintenance, JVM memory, process counts; readiness, threads, blocking queue unavailable with `NOT_AVAILABLE_ON_7_4: INUBIT 7.4 has no readiness check` (and the like); no REST request |
+| `find_processes` | StartCLI `ps` listings as on 6.1, the 6.1 result fields, hanging and time range on the `DATE` column; `tag` refused: `find_processes: INUBIT 7.4 does not support the input tag; nothing was sent` |
+| both | every result carries the warning below; in a group only the 7.4 node's entry carries it |
+| every other tool | the Mandate A refusal above, text and next step unchanged |
+
+Warning in every result (existing text of feature 009, unchanged):
+
+```text
+INUBIT 7.4 on legacy74/node1 is not verified for monitoring; results may be incomplete
+INUBIT 7.4.0.90 on legacy74/node1 is not verified for process diagnosis; results may be incomplete
+```
+
+Known limitation (unverified level, accepted by the owner 2026-11-26): the version `uname` reports
+is the StartCLI client's, as on 6.1; `get_health` adds `the version <text> read on <node> is the
+StartCLI client's; the server version cannot be read`, observes no server version, and a 7.4 pin is
+never contradicted from 7.4.
+
+`list_nodes` after Mandate B: monitoring and process diagnosis usable, every other capability not
+usable with its Mandate A text; client options shown (the `-h` probe runs); no extra warning.
