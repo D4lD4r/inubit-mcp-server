@@ -344,7 +344,9 @@ reads of feature 012, in the same flip. Code facts verified in the worktree on
     `ToolErrorException`). Contact begins with the TLS handshake or the start of the StartCLI
     process, not with the limiter permit, because `CliRunner.runSession` refuses inside the permit
     before any launch (launch guard, `CredentialGuard` cooldown, start failure). `CliRunner.execute`
-    marks errors after the process started, `V61Connection` marks handshake errors, the adapters
+    marks errors after the process started, for session runs only (a flag from `runSession`, the
+    start learnt through a `StartHook` wrapping `DIRECT`; the local `-v` / `-h` probes stay
+    unmarked), `V61Connection` marks handshake errors, the adapters
     mark classification and parse errors (T041). A failed `NodeResult` carries warnings; `FanOut`
     keeps them and gives its deadline `TIMEOUT` the warnings registered after admission;
     `SecretTiming` keeps them; `NodePages` renders them (T044). `DiagnosisService` and
@@ -353,7 +355,8 @@ reads of feature 012, in the same flip. Code facts verified in the worktree on
   - `get_health` and the fail-closed client check (FR-029): `get_health` never reaches
     `VersionGate.checkClient`; for an entry with the own-client flag `HealthService` probes the
     client before the session and refuses `CLI_UNAVAILABLE` (pre-contact, no warning) when `-v`
-    does not report the line; `NodeOverview.clientRefusal` mirrors it (T033).
+    does not report the line; `NodeOverview.clientRefusal` mirrors it (T046; the client choice
+    itself is T033).
   - `--check-config` summary: `ConfigSummary.cliOnly` counts an `UNVERIFIED` read on a CLI-only
     version as available (T038).
   - German (FR-025): variants built in the tests from the 7.4 fixtures with the 6.1 German texts;

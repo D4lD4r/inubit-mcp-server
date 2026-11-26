@@ -47,10 +47,11 @@ needed for Mandate B.
 | unverified read on a CLI-only version runs with the warning (7.4, 6.1); `list_nodes` and `--check-config` count it as usable | `VersionGateTest`, `ListNodesToolTest`, `ConfigSummaryTest` (test matrices, T038) | FR-010, FR-030, FR-036 |
 | 7.4 health: parts, `NOT_AVAILABLE_ON_7_4`, failures, CRLF and German variants, TLS | `V74HealthContractTest`, `V74PortSetTest`, `HealthServiceTest` (T031) | FR-024 – FR-027, FR-029 |
 | 7.4 processes: fields, states, hanging, time range, truncation, `tag`, variants, version note | `V74ProcessQueryContractTest`, `V74PortSetTest`, `DiagnosisServiceTest` (T032) | FR-024, FR-025, FR-028 |
-| client order, `defaults.cliClients."7.4"` text, fail-closed `-v` also for `get_health` | `EffectiveNodeConfigTest`, `CliRunnerTest`, `VersionGateTest`, `HealthServiceTest`, `ListNodesToolTest`, `CliClientProbeTest`, `V74FixturesShapeTest` (T033) | FR-014, FR-029 |
+| client order and flag, `defaults.cliClients."7.4"` text without "cliHome" | `EffectiveNodeConfigTest`, `CliRunnerTest` (T033) | FR-029 |
+| fail-closed `-v`, also for `get_health`; `version` case per capability | `VersionGateTest`, `HealthServiceTest`, `ListNodesToolTest`, `CliClientProbeTest`, `V74FixturesShapeTest` (T046) | FR-014, FR-015, FR-029 |
 | "; supported: …" never lists a CLI-only line | `CapabilityMatrixTest`, `VersionLineRegressionTest` (T039) | FR-035 |
 | guards | `V74RecordedFixturesTest`, `V74FixturesShapeTest` (T040), `V61RecordedFixturesTest` (T042) | FR-015, FR-037, SC-009, SC-010 |
-| contacted marker: plain before the handshake or process start, marked after | `V61ConnectionTest`, `CliRunnerTest`, `V74HealthContractTest`, `V74ProcessQueryContractTest` (T041) | FR-030 (b) |
+| contacted marker: plain before the handshake or the session's process start, marked after; probes never marked | `V61ConnectionTest`, `CliRunnerTest`, `V74HealthContractTest`, `V74ProcessQueryContractTest` (T041) | FR-030 (b) |
 | warnings on failed entries: `NodeResult`, `FanOut` deadline, `SecretTiming`, rendering, schema description | `NodeResultTest`, `NodePagesTest`, `FanOutTest`, `SecretTimingTest`, `FindProcessesToolTest` (T044) | FR-030 (b) |
 | services: warning on data, contacted errors and deadlines of admitted nodes, none on pre-contact refusals | `DiagnosisServiceTest`, `HealthServiceTest` (T045) | FR-030 (b), SC-007 |
 | 6.1 reads as unverified | 6.1 contract tests, `DiagnosisServiceTest`, `HealthServiceTest` (T043) | FR-036 |

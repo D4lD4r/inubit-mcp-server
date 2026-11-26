@@ -135,17 +135,18 @@ Taken by `V61HealthAdapter`, `V61ProcessQueryAdapter`, `V61QueryRules` and `V61S
 
 | Element | Change |
 |---|---|
-| `ContactedException` | **new**, extends `ToolErrorException` with the same `ToolError` (the error's JSON is unchanged): the error arose after contact began, i.e. in the server's own TLS handshake, after the StartCLI process was started, or from classifying or parsing a returned session. Taking the limiter permit is not contact. Every other `ToolErrorException` of the StartCLI path is pre-contact: missing credentials, the Windows credential refusal, refused TLS options, no client, no free slot, the launch guard (`checkLaunch`), the `CredentialGuard` cooldown, StartCLI cannot be started. |
+| `ContactedException` | **new**, extends `ToolErrorException` with the same `ToolError` (the error's JSON is unchanged): the error arose after contact began, i.e. in the server's own TLS handshake, after the StartCLI process of a session run was started (local `-v` / `-h` probes are never marked), or from classifying or parsing a returned session. Taking the limiter permit is not contact. Every other `ToolErrorException` of the StartCLI path is pre-contact: missing credentials, the Windows credential refusal, refused TLS options, no client, no free slot, the launch guard (`checkLaunch`), the `CredentialGuard` cooldown, StartCLI cannot be started. |
 | `ToolErrorException` | **new** `warnings()` (default empty) and `withWarnings(List<String>)`, keeping the subtype |
-| `NodeResult` | **new** component `warnings`: a failure may carry them (`failure(node, error)` keeps none) |
-| `FanOut` | maps a thrown exception with warnings to a failure with these warnings; its deadline `TIMEOUT` carries the warnings the node's task registered right after admission (per-call sink), none if it registered none |
+| `NodeResult` | **new** component `warnings`: a failure may carry them (`failure(node, error)` keeps none); a 3-argument constructor `(node, payload, error)` without warnings is kept for the existing callers |
+| `FanOut` | maps a thrown exception with warnings to a failure with these warnings; new overload `run(servers, deadline, call, sink)` hands the tasks a `FanOut.Sink` (`register(NodeId, List<String>)`); its deadline `TIMEOUT` carries the warnings the node's task registered right after admission, none if it registered none; the existing overloads are unchanged |
 | `NodePages` | renders a failure's warnings beside `error` |
 | `SecretTiming.explain` | keeps a result's warnings when it rebuilds a `TIMEOUT` |
 | `HealthService.Outcome` | carries whether its error is a `ContactedException` |
 
 Rule (spec FR-030 (b)): the admission warnings of a 7.4 or 6.1 node go onto data entries and onto
 contacted errors and deadline `TIMEOUT`s of an admitted node (the `FanOut` deadline, the
-`get_health` `await` budget, also while the node still waits for a StartCLI slot), never onto
+`get_health` `await` deadlines for credentials and session, also while the node still waits for a
+StartCLI slot), never onto
 pre-contact refusals (including the limiter's own no-slot `TIMEOUT`). The
 `find_processes` output schema keeps its shape (`warnings` beside `error`); only its description
 changes ("a failed {node} has an error and possibly warnings").
