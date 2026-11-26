@@ -50,6 +50,7 @@ import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import de.dadecker.inubit.mcp.testing.TestClientSelection;
+import de.dadecker.inubit.mcp.testing.TestMatrices;
 import de.dadecker.inubit.mcp.testing.TraceMatrix;
 import de.dadecker.inubit.mcp.testing.WebServiceMatrix;
 import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
@@ -969,6 +970,32 @@ class ListNodesToolTest {
         for (String id : List.of("qa/node4", "qa/node1", "qa/node2", "dev/node1")) {
             assertThat(byNode.get(id).has("warnings")).as(id).isFalse();
         }
+    }
+
+    // --- 025-T038: unverified reads on a CLI-only version (US6-14, US9-6, FR-030, FR-036) -----
+
+    @ParameterizedTest
+    @CsvSource({
+        "qa/node5, 74",
+        "qa/node6, 74",
+        "qa/node4, 61",
+        "qa/node8, 61"})
+    void monitoringAndProcessDiagnosisAreUsableWhereTheMatrixDeclaresThemUnverified(String id,
+        String line) {
+        CapabilityMatrix matrix = line.equals("74") ? TestMatrices.unverified74()
+            : TestMatrices.unverified61();
+
+        NodeSummary.Version version = version(matrix, NodeId.parse(id));
+
+        assertThat(version.access()).isEqualTo("cli_only");
+        assertThat(version.status()).isEqualTo("partially_supported");
+        assertThat(version.capabilities().usable()).as("named without suffix")
+            .containsExactly("monitoring", "process_diagnosis");
+        assertThat(version.capabilities().notUsable()).extracting(NodeSummary.NotUsable::capability)
+            .containsExactly("log_diagnosis", "inventory", "workspace_export",
+                "development_writes", "process_control");
+        assertThat(version.warnings()).as("no warning about 7.4 or 6.1").isEmpty();
+        assertThat(requests()).isZero();
     }
 
     /** The version block of {@code node} in an overview with {@code matrix}. */

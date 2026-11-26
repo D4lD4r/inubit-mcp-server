@@ -24,6 +24,7 @@ import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.testing.FakeCredentialStore;
 import de.dadecker.inubit.mcp.testing.FakeParameterStore;
 import de.dadecker.inubit.mcp.testing.Platform;
+import de.dadecker.inubit.mcp.testing.TestMatrices;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -995,7 +996,8 @@ class ConfigSummaryTest {
 
     @Test
     void theCapabilitiesOfAV61NodeAreJudgedOnTheMatrixEntryOfItsPin() {
-        // what T040 will declare: a capability is available only if SUPPORTED, as the gate admits
+        // a capability is available if SUPPORTED or (feature 025, T038) an UNVERIFIED read, as
+        // the gate admits
         CapabilityMatrix matrix = new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
             new VersionRange(6, 1, 6, 1), Map.of(Capability.MONITORING, SupportState.SUPPORTED,
                 Capability.PROCESS_DIAGNOSIS, SupportState.SUPPORTED,
@@ -1005,11 +1007,36 @@ class ConfigSummaryTest {
         String summary = render(V6_1, matrix);
 
         assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
-            + " (INUBIT 6.1, StartCLI only; available: monitoring, process diagnosis; refused:"
-            + " log diagnosis, inventory, partner management, workspace export, development"
+            + " (INUBIT 6.1, StartCLI only; available: monitoring, process diagnosis, log"
+            + " diagnosis; refused: inventory, partner management, workspace export, development"
             + " writes, deployment, end-to-end test, process control, downloading the trace log,"
             + " reading server settings, reading users, reading model details, operating the"
             + " server, managing tags), secrets: credentialStore (macOS Keychain), username ←");
+    }
+
+    /** Feature 025 T038 (FR-010, FR-030, FR-036): the test matrices of the flip. */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "74 | V7_4 | 7.4.0.90     | 7.4",
+        "61 | V6_1 | 6.1.0.89-HF1 | 6.1"})
+    void anUnverifiedReadOnACliOnlyVersionIsListedAsAvailable(String matrix, String line,
+        String pin, String release) {
+        String summary = render(matrix.equals("74") ? V7_4 : V6_1, matrix.equals("74")
+            ? TestMatrices.unverified74() : TestMatrices.unverified61());
+
+        String access = " (INUBIT " + release + ", StartCLI only; available: monitoring, process"
+            + " diagnosis; refused: log diagnosis, inventory, partner management, workspace"
+            + " export, development writes, deployment, end-to-end test, process control,"
+            + " downloading the trace log, reading server settings, reading users, reading model"
+            + " details, operating the server, managing tags), secrets: credentialStore (macOS"
+            + " Keychain), username ←";
+        assertThat(summary).contains("test/node1: read-only, cli: available, inubit: " + line
+            + access);
+        assertThat(summary).contains("test/node2: read-only, cli: available, inubit: " + pin
+            + access);
+        assertThat(summary).as("8.1 lines are unchanged")
+            .contains("test/node3: read-only, cli: available, inubit: V8_1, secrets:"
+                + " credentialStore (macOS Keychain), username ←");
     }
 
     @Test

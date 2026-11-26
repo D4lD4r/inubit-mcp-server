@@ -39,6 +39,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessControlPort;
 import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.TestClientSelection;
+import de.dadecker.inubit.mcp.testing.TestMatrices;
 import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.time.Duration;
 import java.time.Instant;
@@ -918,14 +919,14 @@ class VersionGateTest {
     }
 
     @Test
-    void a61NodeRefusesEveryCapabilityThatIsNotSupportedIncludingAnUnverifiedRead() {
+    void a61NodeRefusesEveryCapabilityThatIsNeitherSupportedNorAnUnverifiedRead() {
         Admission processes = gate(matrix61()).admit(V6_1, Capability.PROCESS_DIAGNOSIS,
             Kind.READ, REST);
         Admission monitoring = gate(matrix61()).admit(V6_1, Capability.MONITORING, Kind.READ,
             REST);
-        // no warning path and no 8.1 fallback on a CLI-only version
-        ToolError inventory = refusal(() -> gate(matrix61()).admit(V6_1, Capability.INVENTORY,
-            Kind.READ, REST));
+        // feature 025 (T038, FR-030): an unverified read runs with its warning, never refused
+        Admission inventory = gate(matrix61()).admit(V6_1, Capability.INVENTORY, Kind.READ,
+            REST);
         ToolError logs = refusal(() -> gate(matrix61()).admit(V6_1, Capability.LOG_DIAGNOSIS,
             Kind.READ, REST));
         ToolError write = refusal(() -> gate(matrix61()).admit(V6_1,
@@ -933,12 +934,12 @@ class VersionGateTest {
 
         assertThat(processes.warnings()).isEmpty();
         assertThat(monitoring.warnings()).isEmpty();
-        assertThat(inventory.message()).startsWith("INUBIT 6.1 (versionLine V6_1) on old/node1"
-            + " does not support inventory; ");
+        assertThat(inventory.warnings()).containsExactly("INUBIT 6.1 on old/node1 is not verified"
+            + " for inventory; results may be incomplete");
         assertThat(logs.message()).contains("log diagnosis");
         assertThat(write.message()).contains("development writes");
         assertThat(detection.calls).isZero();
-        assertThat(appender.list).hasSize(3);
+        assertThat(appender.list).hasSize(2);
     }
 
     @Test
@@ -1326,6 +1327,133 @@ class VersionGateTest {
 
         assertThat(gate(withLogs).admit(V6_1, Capability.PROCESS_DIAGNOSIS, Kind.READ, REST)
             .notes()).isEmpty();
+    }
+
+    // --- feature 025, T038: unverified reads on a CLI-only version (FR-030, FR-035, FR-036) ----
+
+    @ParameterizedTest
+    @CsvSource({
+        "legacy74/node1, INUBIT 7.4, 74",
+        "legacy74/node2, INUBIT 7.4.0.90, 74",
+        "old/node1,      INUBIT 6.1, 61",
+        "old/node2,      INUBIT 6.1.0.89, 61"})
+    void anUnverifiedReadOnACliOnlyVersionIsAdmittedWithTheWarningAndRunsTheClientCheck(
+        String id, String name, String line) {
+        NodeId node = NodeId.parse(id);
+        CapabilityMatrix matrix = line.equals("74") ? TestMatrices.unverified74()
+            : TestMatrices.unverified61();
+        withClient.add(node);
+        probe.answer(client(name.substring("INUBIT ".length()), "4.0.1",
+            name.substring("INUBIT ".length())));
+
+        // the caller declares REST; the entry declares StartCLI, so its client is checked
+        Admission admission = gate(matrix).admit("find_processes", node,
+            Capability.PROCESS_DIAGNOSIS, Kind.READ, REST);
+        versions.clientProbed(node, new ProbedClient(ClientKey.NONE,
+            client("9.0.7", "8.1.0", "9.0.7")));
+        ToolError excluded = refusal(() -> gate(matrix).admit("find_processes", node,
+            Capability.PROCESS_DIAGNOSIS, Kind.READ, REST));
+
+        assertThat(admission.warnings()).containsExactly(name + " on " + id + " is not verified"
+            + " for process diagnosis; results may be incomplete");
+        assertThat(probe.calls).as("one StartCLI run of the gate's client probe").hasSize(1);
+        assertThat(excluded.message()).isEqualTo("find_processes: StartCLI client 9.0.7 of " + id
+            + " supports INUBIT 8.1.0 to 9.0.7, which excludes " + name + "; process diagnosis"
+            + " via StartCLI refused; nothing was sent");
+        assertThat(detection.calls).isZero();
+    }
+
+    @Test
+    void anUnsupportedReadOn74KeepsItsRefusalWithTheUnverifiedTestMatrix() {
+        withClient.add(V7_4);
+
+        ToolError logs = refusal(() -> gate(TestMatrices.unverified74()).admit("query_logs", V7_4,
+            Capability.LOG_DIAGNOSIS, Kind.READ, REST));
+
+        assertThat(logs.message()).isEqualTo("query_logs: INUBIT 7.4 on legacy74/node1: log"
+            + " diagnosis is not yet verified for INUBIT 7.4; nothing was sent");
+        assertThat(logs.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is verified"
+            + " on it yet; use the INUBIT Workbench for log diagnosis on legacy74/node1");
+        assertThat(probe.calls).as("refused before the client").isEmpty();
+    }
+
+    @Test
+    void anUnsupportedReadOn61KeepsItsRefusalWithTheUnverifiedTestMatrix() {
+        withClient.add(V6_1);
+
+        ToolError logs = refusal(() -> gate(TestMatrices.unverified61()).admit("query_logs", V6_1,
+            Capability.LOG_DIAGNOSIS, Kind.READ, REST));
+
+        assertThat(logs.message()).isEqualTo("query_logs: INUBIT 6.1 (versionLine V6_1) on"
+            + " old/node1 does not support log diagnosis; read the logs of INUBIT 6.1 in the"
+            + " Workbench; nothing was sent");
+        assertThat(logs.nextStep()).isEqualTo("Read the logs of INUBIT 6.1 in the Workbench");
+        assertThat(probe.calls).as("refused before the client").isEmpty();
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "legacy74/node1 | V7_4 | INUBIT 7.4 on legacy74/node1: deployment is not yet verified for"
+            + " INUBIT 7.4",
+        "old/node1      | V6_1 | INUBIT 6.1 (versionLine V6_1) on old/node1 does not support"
+            + " deployment; use the Workbench"})
+    void aWriteOnACliOnlyVersionKeepsTheOrderOfChecksWithTheUnverifiedTestMatrix(String id,
+        String line, String refusal) {
+        NodeId node = NodeId.parse(id);
+        CapabilityMatrix matrix = line.equals("V7_4") ? TestMatrices.unverified74()
+            : TestMatrices.unverified61();
+        withClient.add(node);
+        // a client that would refuse: the matrix refuses the write before the client is asked
+        versions.clientProbed(node, new ProbedClient(ClientKey.NONE,
+            client("9.0.7", "8.1.0", "9.0.7")));
+
+        ToolError write = refusal(() -> gate(matrix).admit(node, Capability.DEPLOYMENT,
+            Kind.WRITE, CLI_REST));
+        versions.observed(node, version("8.1.17"));
+        ToolError contradictedWrite = refusal(() -> gate(matrix).admit(node,
+            Capability.DEPLOYMENT, Kind.WRITE, CLI_REST));
+        ToolError contradictedRead = refusal(() -> gate(matrix).admit(node,
+            Capability.PROCESS_DIAGNOSIS, Kind.READ, REST));
+
+        // contradiction, then the matrix, then the client (feature 012)
+        assertThat(write.message()).as("the refusal of the matrix, not of the client")
+            .isEqualTo(refusal + "; nothing was sent");
+        assertThat(Stream.of(contradictedWrite, contradictedRead)).allSatisfy(error ->
+            assertThat(error.message()).startsWith("versionLine " + line + " of " + id
+                + " contradicts INUBIT 8.1.17 observed by get_health at"));
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+        assertThat(detection.calls).isZero();
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "legacy74/node1, INUBIT 7.4, 74",
+        "legacy74/node2, INUBIT 7.4.0.90, 74",
+        "old/node1,      INUBIT 6.1, 61",
+        "old/node2,      INUBIT 6.1.0.89, 61"})
+    void monitoringOfAnUnverifiedCliOnlyPinIsReachedThroughStartCliWithItsWarning(String id,
+        String name, String line) {
+        NodeId node = NodeId.parse(id);
+        VersionGate gate = gate(line.equals("74") ? TestMatrices.unverified74()
+            : TestMatrices.unverified61());
+        withClient.add(node);
+
+        assertThat(gate.monitoringAccess(node)).isEqualTo(Channel.CLI);
+        assertThat(gate.cliMonitoringWarnings(node)).containsExactly(name + " on " + id
+            + " is not verified for monitoring; results may be incomplete");
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+        assertThat(detection.calls).isZero();
+        assertThat(appender.list).isEmpty();
+    }
+
+    @Test
+    void cliMonitoringWarningsAreEmptyUnlessMonitoringIsUnverifiedOnACliOnlyPin() {
+        assertThat(gate(matrix61()).cliMonitoringWarnings(V6_1)).as("SUPPORTED").isEmpty();
+        assertThat(gate().cliMonitoringWarnings(V7_4)).as("UNSUPPORTED").isEmpty();
+        assertThat(gate().cliMonitoringWarnings(AUTO)).as("not a CLI-only pin").isEmpty();
+        assertThat(gate().cliMonitoringWarnings(V9_X)).isEmpty();
+        assertThat(detection.calls).isZero();
+        assertThat(probe.calls).isEmpty();
     }
 
     // --- T023: evaluate, the non-throwing admission of deploy_release (research D-11) ---------

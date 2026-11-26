@@ -18,7 +18,9 @@ import java.util.stream.Stream;
  * every range and an unknown version use the declaration for unknown versions. A capability an
  * entry (or the unknown declaration) does not list is {@link SupportState#UNSUPPORTED}.
  * {@link SupportState#UNVERIFIED} is rejected for write capabilities (it means "runs with a
- * warning", which only reads may do).
+ * warning", which only reads may do); such a read runs with the adapters of the version's entry,
+ * the 8.1 adapters for a version without own adapters and the StartCLI adapters on a CLI-only
+ * version (feature 025, FR-030).
  *
  * <p>An entry may declare channels per capability that replace the capability's own
  * {@link Capability#channels()}, and may be {@code cliOnly}: the node is reached through StartCLI

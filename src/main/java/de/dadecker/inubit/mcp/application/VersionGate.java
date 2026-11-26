@@ -55,8 +55,9 @@ import org.slf4j.LoggerFactory;
  *       {@code MONITORING} (feature 012, research D-11);</li>
  *   <li>look up the {@link CapabilityMatrix}: {@code SUPPORTED} admits, {@code UNVERIFIED} admits
  *       a read with a warning, anything else refuses ({@code MONITORING} is never refused and gets
- *       a warning instead); on a CLI-only version anything but {@code SUPPORTED} refuses,
- *       {@code MONITORING} and reads included (feature 012, research D-3);</li>
+ *       a warning instead); on a CLI-only version {@code UNSUPPORTED} refuses, {@code MONITORING}
+ *       included (feature 012, research D-3), and an {@code UNVERIFIED} read runs with its
+ *       warning through the StartCLI channel of its entry (feature 025, FR-030);</li>
  *   <li>only when {@link Channel#CLI} is among the call's channels (on a CLI-only version the
  *       channels of its matrix entry): probe the StartCLI client the node uses at the gate's
  *       version ({@link ClientSelectionPort}, feature 017) if it exists, when no result of that
@@ -325,13 +326,15 @@ public final class VersionGate {
     /**
      * How one {@code get_health} call reaches the node, decided before any contact (FR-001,
      * research D-11): {@link Channel#CLI} for a node pinned to a CLI-only version whose
-     * {@code MONITORING} is {@code SUPPORTED}, {@link Channel#REST} for every other node, whose
-     * call then goes on with {@link #admitMonitoring} after its reads. Decided on the pin, not on
-     * an observation, so a contradicted 6.1 pin still gets no REST request (FR-002). Never detects
-     * and never probes the client: {@code get_health} probes it in parallel with its own calls.
+     * {@code MONITORING} is {@code SUPPORTED} or (feature 025, FR-030) {@code UNVERIFIED}, with
+     * the warning of {@link #cliMonitoringWarnings}; {@link Channel#REST} for every other node,
+     * whose call then goes on with {@link #admitMonitoring} after its reads. Decided on the pin,
+     * not on an observation, so a contradicted 6.1 pin still gets no REST request (FR-002). Never
+     * detects and never probes the client: {@code get_health} probes it in parallel with its own
+     * calls.
      *
      * @throws ToolErrorException {@code UNSUPPORTED_VERSION} if the node is pinned to a CLI-only
-     *     version whose {@code MONITORING} is not {@code SUPPORTED}
+     *     version whose {@code MONITORING} is {@code UNSUPPORTED}
      */
     public Channel monitoringAccess(NodeId node) {
         Objects.requireNonNull(node, "node");
@@ -340,11 +343,30 @@ public final class VersionGate {
         if (!matrix.isCliOnly(pin)) {
             return Channel.REST;
         }
-        if (matrix.state(pin, Capability.MONITORING) != SupportState.SUPPORTED) {
+        if (matrix.state(pin, Capability.MONITORING) == SupportState.UNSUPPORTED) {
             throw refuseUnsupported(node, Capability.MONITORING, Capability.Kind.READ, state, pin,
                 name(state, pin));
         }
         return Channel.CLI;
+    }
+
+    /**
+     * The warnings of a {@code get_health} call that {@link #monitoringAccess} sent through
+     * StartCLI (feature 025, FR-030 (b)): the unverified warning of the pinned version, e.g.
+     * "INUBIT 7.4 on legacy74/node1 is not verified for monitoring; results may be incomplete";
+     * empty unless the node is pinned to a CLI-only version whose {@code MONITORING} is
+     * {@code UNVERIFIED}. Never detects and never probes the client.
+     */
+    public List<String> cliMonitoringWarnings(NodeId node) {
+        Objects.requireNonNull(node, "node");
+        NodeVersionState state = versions.state(node);
+        Optional<InubitVersion> pin = pinnedVersion(state);
+        if (!matrix.isCliOnly(pin)
+            || matrix.state(pin, Capability.MONITORING) != SupportState.UNVERIFIED) {
+            return List.of();
+        }
+        return List.of(incomplete(name(state, pin).orElseThrow(), node, SupportState.UNVERIFIED,
+            Capability.MONITORING));
     }
 
     /**
@@ -393,15 +415,16 @@ public final class VersionGate {
             throw refuseContradiction(node, capability, state);
         }
         SupportState support = support(state, version, capability);
-        if (cliOnly && support != SupportState.SUPPORTED) {
-            // no warning path on a CLI-only version: it has no 8.1 adapters to fall back to
+        boolean unverifiedRead =
+            support == SupportState.UNVERIFIED && purpose == Capability.Kind.READ;
+        if (cliOnly && support != SupportState.SUPPORTED && !unverifiedRead) {
+            // a CLI-only version has no 8.1 adapters: only an unverified read runs, through the
+            // StartCLI adapters of its entry (feature 025, FR-030)
             throw refuseUnsupported(node, capability, purpose, state, version, name);
         }
-        if (support == SupportState.UNVERIFIED && purpose == Capability.Kind.READ
+        if (unverifiedRead
             || support == SupportState.UNSUPPORTED && capability == Capability.MONITORING) {
-            warnings.add(name.map(n -> n + " on " + node + " is not "
-                    + (support == SupportState.UNVERIFIED ? "verified" : "supported") + " for "
-                    + capability.label() + "; results may be incomplete")
+            warnings.add(name.map(n -> incomplete(n, node, support, capability))
                 .orElseGet(() -> unknown(node, state, matrix.cliOnlyLines())
                     + "; results are unverified"));
         } else if (support != SupportState.SUPPORTED) {
@@ -887,6 +910,18 @@ public final class VersionGate {
         return "StartCLI client " + client.version().raw() + " on " + node
             + " differs from INUBIT " + server.raw() + " (mismatch); StartCLI-backed tools still"
             + " run, but their results may be unreliable";
+    }
+
+    /**
+     * The warning of a read that runs on a version not verified or not supported for it, e.g.
+     * "INUBIT 9.1.0 on dev/node1 is not verified for process diagnosis; results may be
+     * incomplete".
+     */
+    private static String incomplete(String name, NodeId node, SupportState support,
+        Capability capability) {
+        return name + " on " + node + " is not "
+            + (support == SupportState.UNVERIFIED ? "verified" : "supported") + " for "
+            + capability.label() + "; results may be incomplete";
     }
 
     /** On a pin of a CLI-only version the message carries the next step (feature 012, FR-006). */

@@ -182,9 +182,9 @@ public final class NodeOverview {
             || cliOnly && capability != Capability.MONITORING)) {
             return Optional.of(contradiction(node, state));
         }
+        // feature 025 (FR-030): an unverified read is usable on a CLI-only version too
         if (support == SupportState.SUPPORTED
-            || support == SupportState.UNVERIFIED && capability.kind() == Capability.Kind.READ
-            && !cliOnly) {
+            || support == SupportState.UNVERIFIED && capability.kind() == Capability.Kind.READ) {
             return Optional.empty();
         }
         if (note.isPresent()) {

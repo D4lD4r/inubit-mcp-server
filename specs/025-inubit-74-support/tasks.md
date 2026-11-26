@@ -412,7 +412,7 @@ production matrix changes only in T035.
 
 ## Phase 11: Implementation (TDD)
 
-- [ ] T038 [US6] [US7] [US9] Unverified reads on a CLI-only version, 7.4 and 6.1 (spec FR-030,
+- [X] T038 [US6] [US7] [US9] Unverified reads on a CLI-only version, 7.4 and 6.1 (spec FR-030,
   FR-035, FR-036): in
   `main/application/VersionGate.java` `judge` (`:395-409`), on a CLI-only version an `UNVERIFIED`
   read adds the existing warning ("<name> on <node> is not verified for <capability>; results may
