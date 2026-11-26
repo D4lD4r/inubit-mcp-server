@@ -25,6 +25,14 @@ re-pinned to spec 025 at `3e0bde00`. No Mandate B code written.
 - IMC-6: scope change commented (10065): criterion 1 (detection) dropped, criterion 2 met as
   unverified.
 
+## Implementation progress (paused by the owner, 2026-11-26)
+Branch `claude/025-imc-17-mandate-b-impl`, worktree `.claude/worktrees/inubit-74-support-0b6255`,
+working tree clean, pushed. Done with `/d4ld4r-speckit-duo:implement` (each APPROVED in round 1):
+T038 (`a3e86d9e`), T031 (`b3e8c358`, 1 minor), T032 (`361de399`, 2 minors), T033 (`d9e5585a`,
+3 optional minors). Reviews in `specs/025-inubit-74-support/reviews/T0xx-r1.md`.
+Resume with T046 (stopped before any change), then T039, T040, T042, T041, T044, T045, T043,
+T035+T036 (one commit), T037; then a cleanup pass for the collected minors and the PR.
+
 ## Next step
 1. Spec MR — done (PR #109).
 2. Implementation with `/d4ld4r-speckit-duo:implement`, task range T031–T046 in the order of
