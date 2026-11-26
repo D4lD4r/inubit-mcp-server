@@ -33,10 +33,45 @@ Recorder self-check on Windows (no server):
 powershell -ExecutionPolicy Bypass -File tools\record-fixtures.ps1 -List
 ```
 
-## Mandate B — recording session (Windows, by hand, after approval)
+## Mandate B — validation (offline)
 
-Preconditions (spec): Windows machine with the 7.4 Workbench client and its JDK; CLI login to a
-**non-production** 7.4.0.90 node; the local neutralize map; the owner's approval in the chat.
+Owner decision 2026-11-26 (spec, Clarifications): the recording session (IMC-22) and the Windows
+live check will not take place. Mandate B is validated by the offline suite on the macOS/Linux and
+the Windows CI jobs (`mvn -q -o clean verify`; spec FR-030, FR-031, FR-036, tasks T037), for 7.4
+and, since the owner's second decision of 2026-11-26, for 6.1 health and processes as well. Its
+only precondition, the ratified constitution 2.1.0, is met (2026-11-26, IMC-25). No step below is
+needed for Mandate B.
+
+| What | Test(s) | Spec |
+|---|---|---|
+| unverified read on a CLI-only version runs with the warning (7.4, 6.1); `list_nodes` and `--check-config` count it as usable | `VersionGateTest`, `ListNodesToolTest`, `ConfigSummaryTest` (test matrices, T038) | FR-010, FR-030, FR-036 |
+| 7.4 health: parts, `NOT_AVAILABLE_ON_7_4`, failures, CRLF and German variants, TLS | `V74HealthContractTest`, `V74PortSetTest`, `HealthServiceTest` (T031) | FR-024 – FR-027, FR-029 |
+| 7.4 processes: fields, states, hanging, time range, truncation, `tag`, variants, version note | `V74ProcessQueryContractTest`, `V74PortSetTest`, `DiagnosisServiceTest` (T032) | FR-024, FR-025, FR-028 |
+| client order and flag, `defaults.cliClients."7.4"` text without "cliHome" | `EffectiveNodeConfigTest`, `CliRunnerTest` (T033) | FR-029 |
+| fail-closed `-v`, also for `get_health`; `version` case per capability | `VersionGateTest`, `HealthServiceTest`, `ListNodesToolTest`, `CliClientProbeTest`, `V74FixturesShapeTest` (T046) | FR-014, FR-015, FR-029 |
+| "; supported: …" never lists a CLI-only line | `CapabilityMatrixTest`, `VersionLineRegressionTest` (T039) | FR-035 |
+| guards | `V74RecordedFixturesTest`, `V74FixturesShapeTest` (T040), `V61RecordedFixturesTest` (T042) | FR-015, FR-037, SC-009, SC-010 |
+| contacted marker: plain before the handshake or the session's process start, marked after; probes never marked | `V61ConnectionTest`, `CliRunnerTest`, `V74HealthContractTest`, `V74ProcessQueryContractTest` (T041) | FR-030 (b) |
+| warnings on failed entries: `NodeResult`, `FanOut` deadline, `SecretTiming`, rendering, schema description | `NodeResultTest`, `NodePagesTest`, `FanOutTest`, `SecretTimingTest`, `FindProcessesToolTest` (T044) | FR-030 (b) |
+| services: warning on data, contacted errors and deadlines of admitted nodes, none on pre-contact refusals | `DiagnosisServiceTest`, `HealthServiceTest` (T045) | FR-030 (b), SC-007 |
+| 6.1 reads as unverified | 6.1 contract tests, `DiagnosisServiceTest`, `HealthServiceTest` (T043) | FR-036 |
+| the flip and the deliberate test changes | `CapabilityMatrixTest`, `V74RefusalTest`, `V61RefusalTest`, `ToolAnnouncementTest`, `ListNodesToolTest`, `ConfigSummaryTest`, `CliClientProbeTest`, `MainTest`, `ConfigValidatorTest`, `VersionLineRegressionTest` (T035) | FR-020, FR-030, FR-035, FR-036, SC-005 |
+
+## Optional later verification — recording session (Windows, by hand, after approval)
+
+Not a precondition of this feature since 2026-11-26. It is kept for a future mandate that may raise
+7.4 (or 6.1) from unverified to supported (recordings or evaluated recordings plus a live check,
+constitution 2.0.0 / 2.1.0). Preconditions of such a session: Windows machine with the 7.4
+Workbench client and its JDK; CLI login to a **non-production** 7.4.0.90 node; the owner's
+approval in the chat.
+
+For IMC-17 the steps below are wrapped in the recording kit (`.apex/work/IMC-17/`: run sheet
+`record-v74.ps1`, German guide `ANLEITUNG.txt`, built by `build-kit.py`; phases `Check`,
+`Research`, `Session`, `Pack`). It needs Python 3.7 or newer (standard library only) for
+`tools\neutralize.py`. IMC-24 (spec FR-021): the kit writes the raw results to `C:\imc17-results`
+(recorder `-OutputDirectory`) with a map that replaces nothing; they never enter the repository,
+are evaluated outside it and deleted afterwards. Steps 1–5 below describe the original
+in-repository recording and no longer apply as written.
 
 1. Set the allowlists for this run only:
 
@@ -61,8 +96,8 @@ Preconditions (spec): Windows machine with the 7.4 Workbench client and its JDK;
    ```
 
 5. Run `NoCustomerIdentifiersTest`, review the diff, commit the recordings.
-6. Live check on Windows and on macOS or Linux (MCP server with a `V7_4` node and an `AUTO` node):
-   record here the outcome per step, including the detection failure code of the `AUTO` node.
+6. Live check on Windows: withdrawn for this feature on 2026-11-26 (spec FR-031; `AUTO` detection
+   withdrawn, FR-032). A future mandate defines its own live check.
 
 ## Validation record
 
@@ -73,6 +108,9 @@ Preconditions (spec): Windows machine with the 7.4 Workbench client and its JDK;
 | 2026-11-19 | `NoCustomerIdentifiersTest` with the local identifier lists, in the full suite and alone | macOS | green (20 tests, none skipped) |
 | 2026-11-19 | Mandate A: `mvn -q -o clean verify` at `23a97fd2` (T001–T025 and clean-up) | macOS | exit 0; 11,264 tests, 0 failures, 0 errors, 62 skipped |
 | 2026-11-19 | CI on [PR #104](https://github.com/D4lD4r/inubit-mcp-server/pull/104) at `23a97fd2`: [build](https://github.com/D4lD4r/inubit-mcp-server/actions/runs/44573778803/job/135735630386) and [windows](https://github.com/D4lD4r/inubit-mcp-server/actions/runs/44573778803/job/135735629782) (run 44573778803), CodeQL | Linux, Windows | all green, first attempt, no rerun |
+| 2026-11-23 | Mandate B T026: owner's statements in the chat — a Windows machine (not known to the owner, run together with its owner) with an INUBIT 7.4 Workbench client and its JDK; not production; Python unknown (the run sheet's `Check` phase verifies it); recording approved by the owner. Open: client version (`v74_version` must report 7.4) and the node's non-production classification, confirmed by the machine owner in the run sheet (`$NodeIsNonProduction`) before the first recording | Windows | approval given; preconditions checked at the session |
+| 2026-11-26 | Mandate B replanned by the owner: no recording session, no live check; 7.4 health and processes to be offered as unverified (untested) on pinned nodes; detection withdrawn; constitution 2.1.0 proposed (T026–T029, T034 withdrawn) | – | decision recorded in the spec |
+| 2026-11-26 | Spec review spec-replan-r1 (CHANGES_REQUESTED) answered: the owner accepts 6.1-derived fixtures for 7.4 unverified and widens Mandate B to 6.1 health and processes; constitution 2.1.0 ratified by the owner (IMC-25, `660683ba`) | – | decisions recorded in the spec |
 
 ### Adjusted existing tests
 

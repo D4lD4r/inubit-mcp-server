@@ -35,15 +35,28 @@ makes it pass (Red → Green → Refactor). Specifically:
 
 - Unit tests run without a live INUBIT instance; the REST and CLI adapters are replaced by fakes
   or recorded fixtures.
-- Every adapter has contract tests against recorded INUBIT responses / CLI outputs for each
-  supported INUBIT version.
+- Every adapter has contract tests for each supported INUBIT version. By default they run
+  against recorded INUBIT responses / CLI outputs of that version. Where the project owner
+  forbids storing recordings of a version (decision recorded in the spec), contract tests
+  against fixtures adjusted to evaluated recordings of that version (no recorded byte copied
+  into a fixture), plus a passed live check of the capability against a real non-production
+  node of that version, are sufficient.
+- A read capability that Principle V declares *unverified* on a version needs contract tests
+  only against reconstructed fixtures, each marked as reconstructed: built from the vendor
+  documentation of that version, or from recordings, vendor documentation or reconstructed
+  fixtures of another version, and checked against real output of that version (such as its
+  help output) where any exists in the repository. No recording and no live check of that
+  version are needed. Such tests show how the adapter handles the assumed output, not how the
+  version behaves.
 - Every safety rule from Principle I and every secret-scrubbing rule from Principle II has
   dedicated tests.
 - Integration tests against a real INUBIT test server are optional, opt-in, and MUST never target
   an environment classified as `production`.
 
 Rationale: INUBIT environments are scarce and shared; fast, offline tests are the only reliable
-feedback loop, and the safety guarantees are only as good as their tests.
+feedback loop, and the safety guarantees are only as good as their tests. Where recordings may
+not be stored, the live check supplies the evidence from a real system that recorded bytes
+would otherwise carry.
 
 ### IV. Use-Case-Oriented Tools
 
@@ -63,19 +76,30 @@ interfaces owned by the domain/tool layer. Tool logic MUST NOT depend on HTTP or
 
 - REST is the preferred channel; the CLI is used where REST does not offer the capability.
   Exception: for a version whose REST interface does not offer what the server needs (INUBIT
-  6.1), the CLI MAY be the only channel; the spec of that version states it.
-- INUBIT 8.1.x is the supported baseline. Differences for other versions (9.x, and INUBIT 6.1.x,
-  which is supported read-only) MUST be isolated in version-specific adapter code selected by
-  configuration or detected server version, never scattered through tool logic.
+  6.1) or is unverified (INUBIT 7.4), the CLI MAY be the only channel; the spec of that version
+  states it.
+- INUBIT 8.1.x is the supported baseline. Differences for other versions (9.x, and INUBIT 6.1.x
+  and 7.4.x, which are supported read-only) MUST be isolated in version-specific adapter code
+  selected by configuration or detected server version, never scattered through tool logic.
 - A version other than the baseline MAY be declared supported for a capability only when that
-  capability's adapters have contract tests against recorded responses or CLI outputs of that
-  version (Principle III). Write capabilities on an older version than the baseline require a
-  spec of their own.
+  capability's adapters have contract tests for that version as Principle III requires: against
+  recorded responses or CLI outputs of that version or, where the project owner forbids storing
+  its recordings, against fixtures adjusted to evaluated recordings plus a passed live check
+  against a real non-production node of that version. Write capabilities on an older version
+  than the baseline require a spec of their own.
+- A read capability of a version other than the baseline MAY instead be declared *unverified*
+  (it runs, but is not supported) on the weaker evidence of Principle III when every result of
+  that capability on that version carries a user-visible warning that it is unverified, and the
+  user documentation marks the capability as untested on that version. Write capabilities MUST
+  NOT be declared unverified on that evidence. An unverified capability becomes supported only
+  with the evidence of the previous rule.
 - CLI invocations MUST use argument arrays (no shell interpolation), explicit timeouts, exit-code
   evaluation, and a tested output parser.
 
-Rationale: the planned 9.x upgrade must be an adapter change, not a rewrite; supporting an older
-installation read-only must follow the same rule and must not weaken the baseline.
+Rationale: the planned 9.x upgrade must be an adapter change, not a rewrite; supporting older
+installations read-only must follow the same rule and must not weaken the baseline. The
+unverified level lets operators read from an older installation that cannot be recorded, while
+every result says that it is unverified.
 
 ### VI. Bounded, Structured Output
 
@@ -137,4 +161,4 @@ and committed. Versioning follows semantic versioning: MAJOR for removing or red
 principle, MINOR for adding a principle or materially expanding guidance, PATCH for
 clarifications and wording.
 
-**Version**: 1.1.0 | **Ratified**: 2026-10-01 | **Last Amended**: 2026-10-31
+**Version**: 2.1.0 | **Ratified**: 2026-10-01 | **Last Amended**: 2026-11-26
