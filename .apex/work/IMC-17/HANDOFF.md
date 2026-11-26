@@ -1,4 +1,4 @@
-# Handoff — IMC-17 · Executing · 2026-11-26 · replanned (unverified, no recordings)
+# Handoff — IMC-17 · Executing · 2026-11-26 · replanned, spec merged (#109)
 
 ## Status
 Mandate B is **replanned** on the owner's decisions of 2026-11-26: no recording session, no live
@@ -10,11 +10,12 @@ fixtures incl. ones built from vendor documentation.
 Spec, plan, tasks, research, data-model, contracts, quickstart replanned on this branch;
 review-spec: `reviews/spec-replan-r1.md` (CHANGES_REQUESTED) → `spec-replan-r2.md` (APPROVED,
 minors applied); review-plan: `plan-replan-r1.md`, `r2` (CHANGES_REQUESTED) → `r3` (APPROVED,
-minors applied). Nothing of this is on main yet.
-Branch `claude/025-imc-17-mandate-b-b4dc46`, pushed; no PR yet. No Mandate B code written.
+minors applied). Merged to main with PR #109 (`3e0bde00`, CI 5/5 green); the mandate is
+re-pinned to spec 025 at `3e0bde00`. No Mandate B code written.
 
 ## Jira
-- IMC-17: summary/description rewritten to the replan, comment 10062. Flag `Blocked` still set.
+- IMC-17: summary/description rewritten to the replan, comment 10062; `Blocked` flag cleared
+  after the merge.
 - IMC-22 (recording session): cancelled, comment 10061 — **owner** moves it to Done and tells the
   colleague the kit is no longer needed (executor has no transition on Owner action cards).
 - IMC-24: superseded, comment 10064 — **owner** moves it to Applied/Done.
@@ -25,8 +26,7 @@ Branch `claude/025-imc-17-mandate-b-b4dc46`, pushed; no PR yet. No Mandate B cod
   unverified.
 
 ## Next step
-1. Spec MR: open a PR of this branch (spec, plan, tasks, constitution 2.1.0, recording kit kept as
-   optional later path), merge after green CI. Then clear the `Blocked` flag on IMC-17.
+1. Spec MR — done (PR #109).
 2. Implementation with `/d4ld4r-speckit-duo:implement`, task range T031–T046 in the order of
    tasks.md "Dependencies" (T038 → T031 → T033 → T046 …, T041 → T044 → T045 → T043, flip T035
    with docs T036, verification T037), one PR.
