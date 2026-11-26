@@ -30,7 +30,7 @@ Mandate B (2026-11-26, after the flip T035; spec FR-029, FR-035):
 | Where | Behaviour |
 |---|---|
 | client choice | node `cli.home` → group `cli.home` → `defaults.cliClients."7.4"` (with its `javaHome`); never the version-less `defaults.cliHome` |
-| client check | the chosen client's `-v` must report 7.4, else `CLI_UNAVAILABLE` naming the client and its version |
+| client check | the chosen client's `-v` must report 7.4; another version, or a `-v` that cannot be read, gives `CLI_UNAVAILABLE` naming the client and what it reported (also for `get_health`, probed before the session) |
 | `--check-config` | runs the `-h` option probe for a 7.4 node as for 6.1; the suffix `; not used until a 7.4 capability is verified` is gone; still no JDK major warning for 7.4 |
 | `list_nodes` | the Mandate A warning entry is gone, without replacement |
 | tools | `get_health` and `find_processes` run the client (unverified); every other tool is refused first |

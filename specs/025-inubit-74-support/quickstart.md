@@ -50,7 +50,9 @@ needed for Mandate B.
 | client order, `defaults.cliClients."7.4"` text, fail-closed `-v` also for `get_health` | `EffectiveNodeConfigTest`, `CliRunnerTest`, `VersionGateTest`, `HealthServiceTest`, `ListNodesToolTest`, `CliClientProbeTest`, `V74FixturesShapeTest` (T033) | FR-014, FR-029 |
 | "; supported: …" never lists a CLI-only line | `CapabilityMatrixTest`, `VersionLineRegressionTest` (T039) | FR-035 |
 | guards | `V74RecordedFixturesTest`, `V74FixturesShapeTest` (T040), `V61RecordedFixturesTest` (T042) | FR-015, FR-037, SC-009, SC-010 |
-| warning on contacted error entries, none on pre-contact refusals, `FanOut` deadline | `V61ConnectionTest`, `NodeResultTest`, `NodePagesTest`, `FanOutTest`, `DiagnosisServiceTest`, `HealthServiceTest`, `FindProcessesToolTest` (T041) | FR-030 (b), SC-007 |
+| contacted marker: plain before the handshake or process start, marked after | `V61ConnectionTest`, `CliRunnerTest`, `V74HealthContractTest`, `V74ProcessQueryContractTest` (T041) | FR-030 (b) |
+| warnings on failed entries: `NodeResult`, `FanOut` deadline, `SecretTiming`, rendering, schema description | `NodeResultTest`, `NodePagesTest`, `FanOutTest`, `SecretTimingTest`, `FindProcessesToolTest` (T044) | FR-030 (b) |
+| services: warning on data, contacted errors and deadlines of admitted nodes, none on pre-contact refusals | `DiagnosisServiceTest`, `HealthServiceTest` (T045) | FR-030 (b), SC-007 |
 | 6.1 reads as unverified | 6.1 contract tests, `DiagnosisServiceTest`, `HealthServiceTest` (T043) | FR-036 |
 | the flip and the deliberate test changes | `CapabilityMatrixTest`, `V74RefusalTest`, `V61RefusalTest`, `ToolAnnouncementTest`, `ListNodesToolTest`, `ConfigSummaryTest`, `CliClientProbeTest`, `MainTest`, `ConfigValidatorTest`, `VersionLineRegressionTest` (T035) | FR-020, FR-030, FR-035, FR-036, SC-005 |
 

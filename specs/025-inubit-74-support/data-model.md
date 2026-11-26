@@ -110,7 +110,7 @@ of them.
 
 | Component | Change |
 |---|---|
-| own-client flag (name fixed in T033) | **new**, default false; true for 7.4: StartCLI never falls back to the version-less `defaults.cliHome` (spec FR-029) |
+| `ownClientOnly` | **new**, default false (query `ownClientOnly(Optional<InubitVersion>)`); set on the production 7.4 entry in T035 (T033 tests it with a test matrix): StartCLI never falls back to the version-less `defaults.cliHome`, `choosesCliByVersion` is true, the `CLI_UNAVAILABLE` text names the `"7.4"` entry (spec FR-029) |
 
 ### SupportState (meaning extended, no new value)
 
@@ -135,13 +135,17 @@ Taken by `V61HealthAdapter`, `V61ProcessQueryAdapter`, `V61QueryRules` and `V61S
 
 | Element | Change |
 |---|---|
-| `ContactedException` | **new**, extends `ToolErrorException` with the same `ToolError` (the error's JSON is unchanged): the error arose after contact began (the limiter permit was taken: handshake or StartCLI run), or from classifying or parsing a returned session. Every other `ToolErrorException` of the StartCLI path is pre-contact (missing credentials, refused TLS options, no client, no free slot). |
-| `ToolErrorException` | **new** `warnings()` (default empty) and `withWarnings(List<String>)` |
+| `ContactedException` | **new**, extends `ToolErrorException` with the same `ToolError` (the error's JSON is unchanged): the error arose after contact began, i.e. in the server's own TLS handshake, after the StartCLI process was started, or from classifying or parsing a returned session. Taking the limiter permit is not contact. Every other `ToolErrorException` of the StartCLI path is pre-contact: missing credentials, the Windows credential refusal, refused TLS options, no client, no free slot, the launch guard (`checkLaunch`), the `CredentialGuard` cooldown, StartCLI cannot be started. |
+| `ToolErrorException` | **new** `warnings()` (default empty) and `withWarnings(List<String>)`, keeping the subtype |
 | `NodeResult` | **new** component `warnings`: a failure may carry them (`failure(node, error)` keeps none) |
 | `FanOut` | maps a thrown exception with warnings to a failure with these warnings; its deadline `TIMEOUT` carries the warnings the node's task registered right after admission (per-call sink), none if it registered none |
 | `NodePages` | renders a failure's warnings beside `error` |
+| `SecretTiming.explain` | keeps a result's warnings when it rebuilds a `TIMEOUT` |
+| `HealthService.Outcome` | carries whether its error is a `ContactedException` |
 
 Rule (spec FR-030 (b)): the admission warnings of a 7.4 or 6.1 node go onto data entries and onto
-contacted errors (and the `FanOut` deadline `TIMEOUT`), never onto pre-contact refusals. The
+contacted errors and deadline `TIMEOUT`s of an admitted node (the `FanOut` deadline, the
+`get_health` `await` budget, also while the node still waits for a StartCLI slot), never onto
+pre-contact refusals (including the limiter's own no-slot `TIMEOUT`). The
 `find_processes` output schema keeps its shape (`warnings` beside `error`); only its description
 changes ("a failed {node} has an error and possibly warnings").

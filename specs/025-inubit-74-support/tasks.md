@@ -29,9 +29,9 @@ tests may pass at once.
 **Organization**: two clearly separated groups.
 
 - **Mandate A** (Phases 1–8, T001–T025): needs no 7.4 node. Implementable and mergeable on its own.
-- **Mandate B** (Phases 9–12, T026–T043): replanned 2026-11-26 (owner decision): no 7.4 node, no
+- **Mandate B** (Phases 9–12, T026–T045): replanned 2026-11-26 (owner decision): no 7.4 node, no
   recording, no live check. T026–T029 and T034 are withdrawn; T030 carries constitution 2.1.0
-  (ratified 2026-11-26); T031–T033 and T038–T043 are detailed TDD tasks; T035 flips MONITORING
+  (ratified 2026-11-26); T031–T033 and T038–T045 are detailed TDD tasks; T035 flips MONITORING
   and PROCESS_DIAGNOSIS on 7.4 and on 6.1 to `UNVERIFIED`; T036 docs "untested"; T037
   verification on both CI jobs.
 
@@ -448,7 +448,7 @@ production matrix changes only in T035.
   a `V61HealthAdapter` with a `V61Connection` (unchanged) and the 7.4 profile; `main/Wiring.java`
   passes the shared probe and limiter as for 6.1. `main/application/HealthService.java`
   `checkServerViaCli` adds `gate.cliMonitoringWarnings(server)` to a report built from a successful
-  session (error entries: T041), and `:686` `known.compare(observed)` becomes
+  session (error entries: T041, T044, T045), and `:686` `known.compare(observed)` becomes
   `gate.comparePatch(known, observed)` (new `VersionGate.comparePatch`, delegating to the gate's
   matrix; T017). Test first: `test/adapter/cli/v74/V74HealthContractTest`
   (`FakeProcessLauncher.replaying("v7_4", …)`): `health_session_ok` (parts of FR-026, the three
@@ -486,18 +486,28 @@ production matrix changes only in T035.
   `V61QueryRules` tests); `V74PortSetTest` (the process query port); a `DiagnosisServiceTest` case with
   the T038 test matrix: the warning in the 7.4 node's entry, none for an 8.1 node of the same group,
   and the existing version note of `VersionGate.notes` (`:1016-1025`) "logs of INUBIT 7.4 cannot be
-  read with query_logs; read them in the Workbench" on every 7.4 `find_processes` entry (error
-  entries: T041).
-- [ ] T033 [US6] Client selection and fail-closed client check (spec FR-029): the choice of
+  read with query_logs; read them in the Workbench" on every admitted 7.4 `find_processes` entry (error
+  entries: T041, T044, T045).
+- [ ] T033 [US6] Client selection and fail-closed client check (spec FR-029; after T031, which
+  also edits `HealthService`, `HealthServiceTest` and `VersionGate`): the choice of
   StartCLI in `main/config/EffectiveNodeConfig.java` (`cliFor` / `choose`, `:337-360`) and
   `main/adapter/cli/CliRunner.java` `select` (`:285`) does not fall back to the version-less
-  `defaults.cliHome` for a version whose matrix entry says so (a new `CapabilityMatrix.Entry` flag,
-  true for 7.4 only; no version check). Without node `cli.home`, group `cli.home` or
+  `defaults.cliHome` for a version whose matrix entry says so: a new `CapabilityMatrix.Entry` flag
+  `ownClientOnly` (default false) with the query `ownClientOnly(Optional<InubitVersion>)`; no
+  version check. T033 tests with a test matrix whose 7.4 entry sets the flag; the production 7.4
+  entry gets it in T035, with the flip. The static `EffectiveNodeConfig.choose` (`:358`) takes the
+  flag as a parameter: when set it skips `sources.defaultHome()` (node or group `cli.home` and the
+  `"7.4"` entry still apply; without them the choice is `HomeSource.NONE`); `cliFor(version)`
+  reads it from `CapabilityMatrix.production()` (as `ConfigValidator` does), and a package-private
+  `cliFor(version, matrix)` serves the tests. `choosesCliByVersion` (`:353`, today false for 7.4
+  unless `cliClients` is configured, because the major is below 9) returns true for a setting
+  whose version has the flag, so `list_nodes` and `--check-config` show the version-dependent
+  client and `entryHint` names the `"7.4"` entry. Without node `cli.home`, group `cli.home` or
   `defaults.cliClients."7.4"`, StartCLI-backed tools answer `CLI_UNAVAILABLE` naming
   `defaults.cliClients."7.4"`: `CliRunner.noHome` (`:1060`) and `Selection.entryHint` (`:271`, today
   a major.minor only when `cliClients` is configured or the major is 9 or above, so the text says
   "set cliHome") name the `"7.4"` entry for an entry with the flag, whether `cliClients` is
-  configured or not. Fail-closed client check: in `main/application/VersionGate.java`
+  configured or not (`entryHint` reads the same flag). Fail-closed client check: in `main/application/VersionGate.java`
   `checkClient` a client of such an entry whose `-v` does not report the entry's major.minor, or
   cannot be read, refuses with `CLI_UNAVAILABLE` naming the client and what it reported.
   `get_health` never reaches `checkClient` (`monitoringAccess`, `V61Connection.healthSession`
@@ -543,72 +553,97 @@ production matrix changes only in T035.
   fails; `UNVERIFIED` monitoring and process diagnosis backed by reconstructed cases and `help`
   pass. The production matrix passes before and after T035. `V74FixturesShapeTest` (it rejects a
   fixture case in none of the lists) stays green and is part of SC-009's evidence.
-- [ ] T041 [US6] [US7] [US9] Warning on every per-node error entry after contact (spec FR-030 (b),
-  SC-007, SC-010; after T031, T032 and T033; owns all error-entry warning work). Mechanism (plan,
-  "warning scope"):
-  - "Contacted" marker: new `main/domain/model/ContactedException.java` (extends
-    `ToolErrorException`, same `ToolError`, no change to the error's JSON). `main/adapter/cli/v61/V61Connection.java`
-    (`session`, `healthSession`, `:86-132`) rethrows every `ToolErrorException` raised once the
-    limiter permit is taken (the handshake of `TlsHandshakeCheck.verify` and the StartCLI run) as
-    a `ContactedException`; everything thrown before (missing credentials, `checkCredentials`,
-    refused TLS options in `refuse`, no client in `checkAvailable`, no free slot in
-    `limiter.acquire`) stays a plain `ToolErrorException` (pre-contact). `V61HealthAdapter` and
-    `V61ProcessQueryAdapter` throw classification and parse errors of a returned session
-    (`CliOutputClassifier`, the parsers) as `ContactedException`.
-  - Carrier: `main/domain/model/NodeResult.java` gets `warnings` (a failure may carry them;
-    `failure(node, error)` keeps none); `ToolErrorException` gets `warnings()` (default empty) and
-    `withWarnings(List)`; `main/application/FanOut.java` maps a thrown exception with warnings to a
-    failure with these warnings, and for its deadline `TIMEOUT` (`:82`) takes the warnings the task
-    registered right after its admission (a per-call sink of `FanOut`, filled by
-    `DiagnosisService`); `main/mcp/tools/NodePages.java` renders a failure's warnings beside
-    `error`.
-  - `main/application/DiagnosisService.java` (`find_processes`, `:225-245`) registers the
-    admission's warnings in that sink and rethrows a `ContactedException` from the port
-    `withWarnings(admission warnings)`; a plain `ToolErrorException` (pre-contact) and the `tag`
-    refusal of `validate` stay without warnings. `main/application/HealthService.java`
-    `checkServerViaCli` adds `cliMonitoringWarnings` to a failed report only when the session's
-    error is a `ContactedException` (and on the session-budget `TIMEOUT`, which comes after the
-    launch); `failed(server, error)` for credentials, the port and the T033 client check stays
-    without them.
-  - `res/schemas/find_processes.output.json` (`results` description, today "a failed {node} has
-    only an error"): a failed node has an error and may have warnings (shape unchanged);
-    `docs/tools.md` (the `find_processes` result and the warning table) says the same.
-  - Test first: `V61ConnectionTest` (each pre-contact cause: plain `ToolErrorException`; handshake
-  rejected, `UNREACHABLE`, `AUTH_FAILED` from the session, session `TIMEOUT`: `ContactedException`;
-  the error JSON unchanged); `NodeResultTest`, a new `test/mcp/tools/NodePagesTest` (a failure with
-  warnings renders them); `FanOutTest` (a contacted failure keeps its warnings; the deadline `TIMEOUT` of a node
-  whose task registered warnings carries them; one that registered none carries none);
-  `DiagnosisServiceTest` with the T038 test matrices (7.4 and 6.1): `AUTH_FAILED` (rejected login),
-  `UNREACHABLE`, `UNEXPECTED_RESPONSE`, session `TIMEOUT` and the FanOut deadline `TIMEOUT` carry
-  the warning; `CLI_UNAVAILABLE`, missing credentials (`AUTH_FAILED` before contact), refused TLS
-  options (`TLS_ERROR` before contact), no free slot (`TIMEOUT` before launch) and `tag` do not;
-  `HealthServiceTest` with the T038 test matrix: the same split for `get_health` (handshake
-  rejected `TLS_ERROR` with the warning, refused host-name skip without), a group with an 8.1 and
-  a 7.4 node (overview budget, only the 7.4 entry warned); 8.1, 9.0 and unknown-version error
-  entries unchanged; `FindProcessesToolTest` / schema test with the new description.
+- [ ] T041 [US6] [US7] [US9] "Contacted" marker (spec FR-030 (b); after T031, T032 and T033): new
+  `main/domain/model/ContactedException.java` (extends `ToolErrorException`, same `ToolError`, the
+  error's JSON unchanged). Contact begins with the server's own TLS handshake or with the start of
+  the StartCLI process, not with the limiter permit: inside the permit `CliRunner.runSession`
+  (`:574-612`) still refuses before any launch (the Windows credential refusal, `checkLaunch`
+  (`:589`, `:653`) with `UNSUPPORTED_VERSION` or `CLI_UNAVAILABLE`, the `CredentialGuard` cooldown
+  of `guard.acquire()` with `AUTH_FAILED`, and `CLI_UNAVAILABLE` when StartCLI cannot be started,
+  `LaunchFailure`). Moving all of these before the permit is not clean (the cooldown and the start
+  failure belong to the launch itself), so the marker is set where the process has started:
+  `main/adapter/cli/CliRunner.java` `execute` (`:863`) throws every error raised after the
+  launcher started the process (the run's `TIMEOUT`, a cut or failed run) as
+  `ContactedException`, and everything before the start stays a plain `ToolErrorException`;
+  `main/adapter/cli/v61/V61Connection.java` (`session`, `healthSession`, `:86-132`) throws errors
+  of `TlsHandshakeCheck.verify` as `ContactedException`; `V61HealthAdapter` and
+  `V61ProcessQueryAdapter` throw classification (`CliOutputClassifier`) and parse errors of a
+  returned session as `ContactedException`. Pre-contact (plain): missing credentials,
+  `checkCredentials`, refused TLS options (`refuse`), no client (`checkAvailable`), no free slot
+  (`limiter.acquire` `TIMEOUT`), the launch guard, the cooldown, the start failure. Test first:
+  `V61ConnectionTest` — plain: missing credentials, refused TLS options, no free slot, launch-guard
+  refusal (`UNSUPPORTED_VERSION`, `CLI_UNAVAILABLE` for a changed client), `CredentialGuard`
+  cooldown (`AUTH_FAILED`, no launch), start failure (`CLI_UNAVAILABLE`); marked: handshake
+  rejected (`TLS_ERROR`), handshake `UNREACHABLE`, the session's `TIMEOUT` after launch, a non-zero
+  exit; the error JSON is the same in both cases; `CliRunnerTest` (marked only after the start);
+  `V74HealthContractTest` / `V74ProcessQueryContractTest` (`login_failed`, `unreachable`, an
+  unrecognized output: marked).
+- [ ] T044 [US6] [US7] [US9] Carrier for warnings on failed entries (spec FR-030 (b); after T041):
+  `main/domain/model/NodeResult.java` gets `warnings` (a failure may carry them;
+  `failure(node, error)` keeps none); `main/domain/model/ToolErrorException.java` gets `warnings()`
+  (default empty) and `withWarnings(List<String>)` (keeps the subtype, so a `ContactedException`
+  stays one); `main/application/FanOut.java` maps a thrown exception with warnings to a failure
+  with these warnings and gives its deadline `TIMEOUT` (`:82`) the warnings the node's task
+  registered right after its admission (a per-call sink of `FanOut`; none registered, none given);
+  `main/application/SecretTiming.java` `explain` (`:74-82`), which rebuilds the `TIMEOUT`
+  `NodeResult` of `find_processes` and `query_logs`, keeps the result's warnings;
+  `main/mcp/tools/NodePages.java` renders a failure's warnings beside `error`;
+  `res/schemas/find_processes.output.json` (`results` description "a failed {node} has only an
+  error" → "an error and possibly warnings"; shape unchanged); `docs/tools.md` (the
+  `find_processes` result and the warning table). Test first: `NodeResultTest`, a new
+  `test/mcp/tools/NodePagesTest` (a failure with warnings renders them), `FanOutTest` (a thrown
+  exception with warnings keeps them; the deadline `TIMEOUT` of a node that registered warnings
+  carries them, one that registered none carries none), `SecretTimingTest` (an explained
+  `TIMEOUT` keeps the warnings), `FindProcessesToolTest` (schema description, a failed entry with
+  warnings validates).
+- [ ] T045 [US6] [US7] [US9] Services attach the warning to data and contacted errors only (spec
+  FR-030 (b), SC-007, SC-010; after T044): `main/application/DiagnosisService.java`
+  (`find_processes`, `:225-245`) registers the admission's warnings in the `FanOut` sink right
+  after `admit` and rethrows a `ContactedException` from the port `withWarnings(admission
+  warnings)`; a plain `ToolErrorException` and the `tag` refusal of `validate` stay without them.
+  `main/application/HealthService.java`: `Outcome` (`:921`) carries whether its error came from a
+  `ContactedException` (`await` keeps the marker); `checkServerViaCli` adds
+  `cliMonitoringWarnings` to a failed report only for a marked error or a deadline `TIMEOUT` of
+  `await` (the node was admitted; the budget may run out while the session still waits for a slot,
+  which FR-030 (b) treats as the call's deadline, not as the limiter's no-slot refusal);
+  `failed(server, error)` for credentials, the port, the T033 client check and a plain error stays
+  without them. The `get_health` fan-out backstop `TIMEOUT` (`:246-254`, deadline `cliBudget`,
+  while `checkServerViaCli` ends at `cliBudget - FAN_OUT_GRACE`) is reached only when a node's
+  thread does not return; it gets the warning through the same `FanOut` sink, registered by
+  `checkServer` once `monitoringAccess` chose StartCLI. Test first: `DiagnosisServiceTest` with
+  the T038 test matrices (7.4 and 6.1): `AUTH_FAILED` from a rejected login, `UNREACHABLE`,
+  `UNEXPECTED_RESPONSE`, the session `TIMEOUT` after launch and the `FanOut` deadline `TIMEOUT` of
+  an admitted node still waiting for a StartCLI slot carry the warning; `CLI_UNAVAILABLE`, missing
+  credentials, refused TLS options, the limiter's no-slot `TIMEOUT`, the launch guard, the cooldown
+  and `tag` do not; `HealthServiceTest` with the T038 test matrix: the same split for
+  `get_health` (handshake rejected `TLS_ERROR` with the warning, refused host-name skip without,
+  the `await` budget `TIMEOUT` while waiting for a slot with), a group with an 8.1 and a 7.4 node
+  (overview budget, only the 7.4 entry warned); 8.1, 9.0 and unknown-version error entries
+  unchanged.
 - [ ] T042 [P] [US9] Guard for unverified 6.1 (spec FR-037, SC-010; test only):
   `test/adapter/cli/V61RecordedFixturesTest` fails when the production matrix declares any 6.1
   capability `SUPPORTED`, declares a capability other than MONITORING and PROCESS_DIAGNOSIS
   `UNVERIFIED`, or declares one of these two `UNVERIFIED` while it has no case in
   `fixtures/v6_1/cli/RECONSTRUCTED.txt`. Self-tests with test matrices as in T040. The production
   matrix passes before and after T035.
-- [ ] T043 [US9] 6.1 reads as unverified (spec FR-036; verification task, after T038 and T041): with
+- [ ] T043 [US9] 6.1 reads as unverified (spec FR-036; verification task, after T045): with
   a test matrix whose 6.1 entry declares the two capabilities `UNVERIFIED`, `get_health` and
   `find_processes` on a `V6_1` and a `"6.1.0.89"` node run the existing 6.1 reads (`FakeV61Node`,
   the replayed `fixtures/v6_1/cli/` cases incl. `_de`) with the 6.1 warning; the version-less
-  `defaults.cliHome` is used as today; every entry carries the version note "logs of INUBIT 6.1
+  `defaults.cliHome` is used as today; every admitted entry carries the version note "logs of INUBIT 6.1
   cannot be read with query_logs; read them in the Workbench"; every other capability keeps the
   feature 012 refusal. Fix
-  production code only if a case fails (expected: none beyond T038, T041).
+  production code only if a case fails (expected: none beyond T038, T041, T044, T045).
 
 ## Phase 12: Enablement, docs, verification
 
 - [ ] T035 [US6] [US7] [US9] Flip to `UNVERIFIED`, 7.4 and 6.1 together (spec FR-020, FR-030,
-  FR-031, FR-035, FR-036, SC-007, SC-009, SC-010): after T031 – T033 and T038 – T043; its
+  FR-031, FR-035, FR-036, SC-007, SC-009, SC-010): after T031 – T033 and T038 – T045; its
   precondition, the ratified constitution 2.1.0, is satisfied (T030, 2026-11-26); no live check. In
   `main/domain/model/CapabilityMatrix.java` the production entry `V7_4` declares MONITORING and
   PROCESS_DIAGNOSIS `UNVERIFIED` without a note (every other capability keeps `UNSUPPORTED` and "not
-  yet verified"), and the production entry `V6_1` declares the same two `UNVERIFIED` (partner
+  yet verified") and sets the T033 flag `ownClientOnly`, and the production entry `V6_1` declares
+  the same two `UNVERIFIED` (partner
   management and the rest stay `UNSUPPORTED`); Javadoc of both entries and of `production()`. The switches of
   FR-035 that key on `allNotYetVerified` follow without code change, except
   `main/config/ConfigValidator.java:779-786`: the warning for a CLI-only node without client names
@@ -669,13 +704,14 @@ Mandate B (replanned 2026-11-26; after Mandate A is merged)
   T026, T027, T028, T029, T034: withdrawn
   T030 done (2.1.0 ratified 2026-11-26, IMC-25)
   T038 → T031 → T032 (same port set and Wiring)
-  T038 → T033 → T039 (T033, T038, T039 and T035 edit CapabilityMatrix and its test)
-  T031 + T032 + T033 → T041 → T043
+  T031 → T033 → T039 (T031 and T033 edit HealthService and VersionGate; T033, T038, T039 and T035
+                      edit CapabilityMatrix and its test)
+  T032 + T033 → T041 → T044 → T045 → T043
   T040 [P], T042 [P] (test only, independent of T031–T033)
-  T031 – T033 + T038 – T043 ──→ T035 + T036 (one commit) → T037
+  T031 – T033 + T038 – T045 ──→ T035 + T036 (one commit) → T037
 ```
 
-- The code tasks T038, T031 – T033 and T039 – T043 change no production behaviour on their own:
+- The code tasks T038, T031 – T033 and T039 – T045 change no production behaviour on their own:
   the production matrix keeps refusing 7.4 and 6.1 health and processes until T035.
 
 ## Parallel Example
@@ -695,7 +731,7 @@ Mandate B: T040 and T042 (guard tests) run in parallel with T038 → T031 → T0
   refusing matrix entry (reads through the 8.1 adapters) or without the docs. Commits per task
   inside the branch as usual.
 - **Mandate B** (replanned 2026-11-26): one PR. First the spec/plan/tasks update is reviewed
-  (`review-spec`, `review-plan`); then T038 → T031 → T032, T033, T039 – T043, each test-first and
+  (`review-spec`, `review-plan`); then T038 → T031 → T032, T033, T039 – T045, each test-first and
   invisible in production; then T035 and T036 in one commit (flip of 7.4 and 6.1 and "untested"
   docs together, FR-034; constitution 2.1.0 is ratified); then T037. No recording, no live check.
   The recording kit stays for a future mandate that may raise 7.4 or 6.1 to supported.

@@ -340,12 +340,16 @@ reads of feature 012, in the same flip. Code facts verified in the worktree on
     review plan-replan-r1): pre-contact refusals and attempt errors come from the same port call
     (`V61Connection.session`) with overlapping codes (`AUTH_FAILED`, `TLS_ERROR`, `TIMEOUT`), and a
     failed `NodeResult` has no payload, so the warnings get lost. Decision (coordinator,
-    2026-11-26): a "contacted" marker, `ContactedException` (a `ToolErrorException`), thrown by
-    `V61Connection` for every error once the limiter permit is taken (handshake, StartCLI run) and
-    by the adapters for classification and parse errors of a returned session; a failed
-    `NodeResult` carries warnings, `FanOut` keeps them and gives its deadline `TIMEOUT` the
-    warnings the task registered after admission, `NodePages` renders them; `DiagnosisService` and
-    `HealthService` attach the admission warnings only to data entries and contacted errors (T041).
+    2026-11-26, plan reviews r1 and r2): a "contacted" marker, `ContactedException` (a
+    `ToolErrorException`). Contact begins with the TLS handshake or the start of the StartCLI
+    process, not with the limiter permit, because `CliRunner.runSession` refuses inside the permit
+    before any launch (launch guard, `CredentialGuard` cooldown, start failure). `CliRunner.execute`
+    marks errors after the process started, `V61Connection` marks handshake errors, the adapters
+    mark classification and parse errors (T041). A failed `NodeResult` carries warnings; `FanOut`
+    keeps them and gives its deadline `TIMEOUT` the warnings registered after admission;
+    `SecretTiming` keeps them; `NodePages` renders them (T044). `DiagnosisService` and
+    `HealthService` (with `Outcome` carrying the marker) attach the admission warnings to data
+    entries, marked errors and deadline `TIMEOUT`s of admitted nodes only (T045).
   - `get_health` and the fail-closed client check (FR-029): `get_health` never reaches
     `VersionGate.checkClient`; for an entry with the own-client flag `HealthService` probes the
     client before the session and refuses `CLI_UNAVAILABLE` (pre-contact, no warning) when `-v`
