@@ -1,0 +1,12 @@
+SYNTHETIC – GET /model/nodeByModel/{d}/{id} of a system diagram element (sdExtSystem) on 8.1.17,
+structure probed live, values synthetic
+Structure probe on 2026-11-27 against an 8.1.17 non-production server: a build of the MCP that
+printed only the element names and the name and type attributes of the answer (no values) read
+two external system elements (sdExtSystem) of a system diagram that manages HTTP Connector
+modules centrally. Both answers had this shape: ns2:Property ResourceType (String),
+ResourceSettings (Map) whose entries are ns2:Property elements with name, type and the value as
+text, and ResourcesLinked (List) with one ns2:Property Module (String) per managed module. One
+element had the HTTP entries ServerName, Login, Password (Password), SSLKeyStore
+(HTTPConnectorTrustStore), the other additionally the OAuth entries kept here. Element names and
+the order of the entries are as probed; names, values and the module names are synthetic, and
+four test secrets are planted (synthetic-secret-3911 … 3914).

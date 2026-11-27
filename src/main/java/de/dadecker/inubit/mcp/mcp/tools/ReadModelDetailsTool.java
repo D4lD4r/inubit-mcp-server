@@ -24,7 +24,8 @@ import java.util.OptionalInt;
  * (owner decision 2026-11-14), so the input schema has none of them.
  *
  * <p>A masked property is shown as {@code {name, type, masked: true}}; a shown value carries
- * {@code truncated: true} only when it was cut.
+ * {@code truncated: true} only when it was cut; a {@code Map} or {@code List} property carries its
+ * {@code entries} in the same forms.
  */
 public final class ReadModelDetailsTool implements ToolHandler {
 
@@ -35,7 +36,9 @@ public final class ReadModelDetailsTool implements ToolHandler {
         + " properties in INUBIT's order; secret values are masked: a property whose name is a"
         + " secret name, whose type is `Password` or whose value is key material is shown as"
         + " `masked` and counted in `maskedCount`, and a credential inside a value (such as the"
-        + " password of a database URL) is replaced by a placeholder. An unknown module id gives"
+        + " password of a database URL) is replaced by a placeholder; a `Map` or `List` property"
+        + " (such as the connection settings and linked modules of a system diagram element)"
+        + " lists its `entries`, each masked on its own. An unknown module id gives"
         + " NOT_FOUND on INUBIT 8.1 and UNEXPECTED_RESPONSE with a hint on 9.0. `libraries`"
         + " lists the uploaded library files with StartCLI, `libraryType`"
         + " `driver` or `plugin`, or both without it (one StartCLI run per type, drivers first),"
@@ -118,14 +121,20 @@ public final class ReadModelDetailsTool implements ToolHandler {
         }
     }
 
-    /** {@code {name, type, value, truncated?}}, or {@code {name, type, masked: true}}. */
+    /**
+     * {@code {name, type, value, truncated?}}, {@code {name, type, masked: true}}, or
+     * {@code {name, type, entries}} for a {@code Map} or {@code List} property.
+     */
     record Property(String name, String type, Optional<String> value,
-        Optional<Boolean> truncated, Optional<Boolean> masked) {
+        Optional<Boolean> truncated, Optional<Boolean> masked,
+        Optional<List<Property>> entries) {
 
         static Property of(ModuleDetail.Property property) {
             return new Property(property.name(), property.type(), property.value(),
                 property.truncated() ? Optional.of(true) : Optional.empty(),
-                property.masked() ? Optional.of(true) : Optional.empty());
+                property.masked() ? Optional.of(true) : Optional.empty(),
+                property.entries().isEmpty() ? Optional.empty()
+                    : Optional.of(property.entries().stream().map(Property::of).toList()));
         }
     }
 }

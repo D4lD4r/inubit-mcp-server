@@ -67,7 +67,9 @@ class ReadModelDetailsToolTest {
         + " properties in INUBIT's order; secret values are masked: a property whose name is a"
         + " secret name, whose type is `Password` or whose value is key material is shown as"
         + " `masked` and counted in `maskedCount`, and a credential inside a value (such as the"
-        + " password of a database URL) is replaced by a placeholder. An unknown module id gives"
+        + " password of a database URL) is replaced by a placeholder; a `Map` or `List` property"
+        + " (such as the connection settings and linked modules of a system diagram element)"
+        + " lists its `entries`, each masked on its own. An unknown module id gives"
         + " NOT_FOUND on INUBIT 8.1 and UNEXPECTED_RESPONSE with a hint on 9.0. `libraries`"
         + " lists the uploaded library files with StartCLI, `libraryType`"
         + " `driver` or `plugin`, or both without it (one StartCLI run per type, drivers first),"
@@ -249,6 +251,30 @@ class ReadModelDetailsToolTest {
                "maskedCount": 1},
              "warnings": []}""".formatted("SELECT id" + ItemBounds.TRUNCATION_MARKER)));
         assertThat(port.moduleCalls).containsExactly(DIAGRAM + "/100");
+    }
+
+    @Test
+    void aMapOrListPropertyShowsItsEntriesInTheSchema() {
+        port.module = new ModuleDetail("System-0001", "49", "Demo-ExtSystem", "sdExtSystem",
+            Optional.empty(), List.of(), List.of(
+                Property.entries("ResourceSettings", "Map", List.of(
+                    Property.shown("ServerName", "String", "https://demo.example.test", false),
+                    Property.masked("Password", "Password"))),
+                Property.entries("ResourcesLinked", "List", List.of(
+                    Property.shown("Module", "String", "Demo-HTTP-Out-A", false))),
+                Property.masked("ProxyCredentials", "Map")), 2);
+
+        JsonNode content = call(Map.of("target", "dev/node1", "action", "module",
+            "diagram", "System-0001", "moduleId", "49"));
+
+        assertThat(content.path("module").path("properties")).isEqualTo(json("""
+            [{"name": "ResourceSettings", "type": "Map", "entries": [
+               {"name": "ServerName", "type": "String", "value": "https://demo.example.test"},
+               {"name": "Password", "type": "Password", "masked": true}]},
+             {"name": "ResourcesLinked", "type": "List", "entries": [
+               {"name": "Module", "type": "String", "value": "Demo-HTTP-Out-A"}]},
+             {"name": "ProxyCredentials", "type": "Map", "masked": true}]"""));
+        assertThat(content.path("module").path("maskedCount").asInt()).isEqualTo(2);
     }
 
     @Test

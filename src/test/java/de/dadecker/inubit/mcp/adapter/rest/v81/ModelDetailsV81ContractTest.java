@@ -104,6 +104,8 @@ class ModelDetailsV81ContractTest {
             .willReturn(RestFixtures.response("admin-model-node-by-model", "xml")));
         wireMock.stubFor(get(urlPathEqualTo(MODULES + "34"))
             .willReturn(RestFixtures.response("admin-model-node-by-model-is-connector", "xml")));
+        wireMock.stubFor(get(urlPathEqualTo(MODULES + "49"))
+            .willReturn(RestFixtures.response("admin-model-node-by-model-sd-ext-system", "xml")));
         wireMock.stubFor(get(urlPathEqualTo(MODULES + "999999"))
             .willReturn(RestFixtures.response("admin-model-node-by-model-missing", "html")));
     }
@@ -180,6 +182,20 @@ class ModelDetailsV81ContractTest {
         assertThat(detail.parentId()).contains("66");
         assertThat(detail.properties()).extracting(Property::name).contains("ErrorSuppression");
         assertThat(detail.maskedCount()).isZero();
+    }
+
+    /** The probed shape of a system diagram element: Map and List properties with entries. */
+    @Test
+    void theSystemDiagramElementShowsItsSettingsAndLinkedModulesAsEntries() {
+        ModuleDetail detail = restOnly().module(DIAGRAM, "49");
+
+        assertThat(detail.type()).isEqualTo("sdExtSystem");
+        assertThat(detail.properties()).extracting(Property::name)
+            .containsExactly("ResourceType", "ResourceSettings", "ResourcesLinked");
+        assertThat(detail.properties().get(2).entries()).extracting(Property::value)
+            .containsExactly(Optional.of("Demo-HTTP-Out-A"), Optional.of("Demo-HTTP-Out-B"));
+        assertThat(detail.maskedCount()).isEqualTo(7);
+        assertThat(detail.toString()).doesNotContain("synthetic-secret-391");
     }
 
     /** An unknown id answers 500 with the "could not be found" status page, not 404. */
