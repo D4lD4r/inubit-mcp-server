@@ -19,7 +19,8 @@ import java.util.regex.Pattern;
 public final class SecretRules {
 
     private static final Pattern SECRET_NAME = Pattern.compile("password|passwd|pwd|secret|token"
-        + "|keystore|privatekey|passphrase|credential|apikey|accesskey", Pattern.CASE_INSENSITIVE);
+        + "|keystore|privatekey|passphrase|credential|apikey|accesskey|client_?assertion\\b",
+        Pattern.CASE_INSENSITIVE);
 
     private static final Pattern SECRET_TYPE = Pattern.compile(
         "password|key|truststore|x509|certificate", Pattern.CASE_INSENSITIVE);

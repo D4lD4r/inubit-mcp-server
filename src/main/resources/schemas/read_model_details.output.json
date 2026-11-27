@@ -61,7 +61,7 @@
           "description": "The properties in INUBIT's order, secret values masked",
           "items": { "$ref": "#/$defs/Property" }
         },
-        "maskedCount": { "type": "integer", "minimum": 0, "description": "The number of masked properties" }
+        "maskedCount": { "type": "integer", "minimum": 0, "description": "The number of masked values, entries of Map and List properties included" }
       },
       "additionalProperties": false
     },
@@ -70,14 +70,21 @@
       "required": ["name", "type"],
       "properties": {
         "name": { "type": "string" },
-        "type": { "type": "string", "description": "INUBIT's property type, e.g. String or Password" },
+        "type": { "type": "string", "description": "INUBIT's property type, e.g. String, Password, Map or List" },
         "value": { "type": "string", "maxLength": 4000, "description": "A credential inside the value is replaced by a placeholder" },
         "truncated": { "const": true, "description": "The value was cut" },
-        "masked": { "const": true }
+        "masked": { "const": true },
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Map or List property: its entries in INUBIT's order, each masked on its own",
+          "items": { "$ref": "#/$defs/Property" }
+        }
       },
       "oneOf": [
-        { "required": ["value"], "not": { "required": ["masked"] } },
-        { "required": ["masked"], "not": { "anyOf": [{ "required": ["value"] }, { "required": ["truncated"] }] } }
+        { "required": ["value"], "not": { "anyOf": [{ "required": ["masked"] }, { "required": ["entries"] }] } },
+        { "required": ["masked"], "not": { "anyOf": [{ "required": ["value"] }, { "required": ["truncated"] }, { "required": ["entries"] }] } },
+        { "required": ["entries"], "not": { "anyOf": [{ "required": ["value"] }, { "required": ["truncated"] }, { "required": ["masked"] }] } }
       ],
       "additionalProperties": false
     },

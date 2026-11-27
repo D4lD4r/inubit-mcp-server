@@ -16,6 +16,7 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.infra.ResultJson;
 import de.dadecker.inubit.mcp.testing.V90Cases;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -138,6 +139,105 @@ class ModuleDetailXmlParserTest {
         assertThat(answerToJson.contentType()).contains(XML);
         assertThat(ModuleDetailXmlParser.parse(DEV, DIAGRAM, "100", answerToJson).properties())
             .hasSize(38);
+    }
+
+    /**
+     * A system diagram element whose answer has a {@code Map} and a {@code List} property
+     * ({@code admin-model-node-by-model-sd-ext-system}, structure probed on 8.1.17, values
+     * synthetic): their {@code Property} children become entries, each masked on its own.
+     */
+    @Test
+    void theSystemDiagramElementShowsItsMapAndListPropertiesAsMaskedEntries() {
+        ModuleDetail detail = ModuleDetailXmlParser.parse(DEV, DIAGRAM, "49",
+            recorded("admin-model-node-by-model-sd-ext-system", "xml"));
+
+        assertThat(detail.name()).isEqualTo("Demo-ExtSystem");
+        assertThat(detail.type()).isEqualTo("sdExtSystem");
+        assertThat(detail.properties()).containsExactly(
+            Property.shown("ResourceType", "String", "HTTP Connector", false),
+            Property.entries("ResourceSettings", "Map", List.of(
+                Property.shown("ServerName", "String",
+                    "https://demo-backend.example.test/api/rates", false),
+                Property.shown("Login", "String", "", false),
+                Property.masked("Password", "Password"),
+                Property.masked("SSLKeyStore", "HTTPConnectorTrustStore"),
+                Property.shown("requireOAuthAuthorization", "Boolean", "true", false),
+                Property.shown("PROPERTY_OAUTH_GRANT_TYPE", "String", "client_credentials", false),
+                Property.masked("PROPERTY_OAUTH_ACCESS_TOKEN_URL", "String"),
+                Property.shown("OAUTH_PROPERTY.client_id", "String", "demo-client", false),
+                Property.masked("OAUTH_PROPERTY.client_secret", "String"),
+                Property.masked("OAUTH_PROPERTY.refresh_token", "String"),
+                Property.shown("OAUTH_PROPERTY.client_assertion_type", "String",
+                    "urn:ietf:params:oauth:client-assertion-type:jwt-bearer", false),
+                Property.masked("OAUTH_PROPERTY.client_assertion", "String"),
+                Property.shown("OAUTH_PROPERTY.username", "String", "demo_user", false),
+                Property.masked("OAUTH_PROPERTY.password", "String"))),
+            Property.entries("ResourcesLinked", "List", List.of(
+                Property.shown("Module", "String", "Demo-HTTP-Out-A", false),
+                Property.shown("Module", "String", "Demo-HTTP-Out-B", false))));
+        assertThat(detail.maskedCount()).as("every masked entry counts").isEqualTo(7);
+        assertThat(ResultJson.mapper().writeValueAsString(detail)).doesNotContain(
+            "synthetic-secret-3911", "synthetic-secret-3912", "synthetic-secret-3913",
+            "synthetic-secret-3914");
+    }
+
+    @Test
+    void aSecretNamedContainerIsMaskedAsAWhole() {
+        ModuleDetail detail = properties("<ns2:Property name=\"ProxyCredentials\" type=\"Map\">"
+            + "<ns2:Property name=\"host\" type=\"String\">synthetic-secret-3915</ns2:Property>"
+            + "</ns2:Property>");
+
+        assertThat(detail.properties()).containsExactly(
+            Property.masked("ProxyCredentials", "Map"));
+        assertThat(detail.maskedCount()).isOne();
+        assertThat(detail.toString()).doesNotContain("synthetic-secret-3915");
+    }
+
+    @Test
+    void aNestedContainerKeepsItsEntriesAndAnEmptyOneIsAnEmptyValue() {
+        ModuleDetail detail = properties("<ns2:Property name=\"Outer\" type=\"Map\">"
+            + "<ns2:Property name=\"Inner\" type=\"Map\"><ns2:Property name=\"pwd\""
+            + " type=\"String\">synthetic-secret-3916</ns2:Property></ns2:Property>"
+            + "\n\t<ns2:Property name=\"Empty\" type=\"Map\"/></ns2:Property>");
+
+        assertThat(detail.properties()).containsExactly(Property.entries("Outer", "Map", List.of(
+            Property.entries("Inner", "Map", List.of(Property.masked("pwd", "String"))),
+            Property.shown("Empty", "Map", "", false))));
+        assertThat(detail.maskedCount()).isOne();
+    }
+
+    @Test
+    void aCommentInAContainerIsIgnored() {
+        ModuleDetail detail = properties("<ns2:Property name=\"M\" type=\"Map\"><!-- note -->"
+            + "<ns2:Property name=\"e\" type=\"String\">x</ns2:Property></ns2:Property>");
+
+        assertThat(detail.properties()).containsExactly(Property.entries("M", "Map",
+            List.of(Property.shown("e", "String", "x", false))));
+    }
+
+    @Test
+    void containersNestedDeeperThanTheLimitAreUnexpected() {
+        String open = "<ns2:Property name=\"M\" type=\"Map\">";
+        String close = "</ns2:Property>";
+        String leaf = "<ns2:Property name=\"e\" type=\"String\">x</ns2:Property>";
+        int levels = ModuleDetailXmlParser.MAX_DEPTH;
+
+        assertThat(properties(open.repeat(levels) + leaf + close.repeat(levels)).properties())
+            .hasSize(1);
+        ToolError error = unexpected("7", answer(200, XML, HEAD + open.repeat(levels + 1) + leaf
+            + close.repeat(levels + 1) + TAIL));
+        assertThat(error.message()).contains("nested deeper than");
+    }
+
+    @Test
+    void theExcerptMasksTheWholeOutermostPropertyAlsoWhenItIsCutInside() {
+        String mask = de.dadecker.inubit.mcp.domain.model.Masked.MASK_TOKEN;
+
+        assertThat(ModuleDetailXmlParser.maskPropertyContent("<a><ns2:Property name=\"m\">"
+            + "<ns2:Property n=\"e\">s1</ns2:Property>s2<ns2:Property n=\"f\"/><v x=\"s3\">s4</v>"
+            + "</ns2:Property>tail<Property name=\"k\">s5"))
+            .isEqualTo("<a><ns2:Property name=\"m\">" + mask + "</ns2:Property>tail"
+                + "<Property name=\"k\">" + mask);
     }
 
     @Test
@@ -331,9 +431,29 @@ class ModuleDetailXmlParserTest {
         // a property without a type
         "<Node name=\"P\" type=\"t\" id=\"7\"><Properties><Property name=\"proxyPassword\">"
             + "synthetic-secret-3905</Property></Properties></Node>",
-        // a property with a child element
+        // a property with a child element that is not a property
         "<Node name=\"P\" type=\"t\" id=\"7\"><Properties><Property name=\"a\" type=\"Password\">"
             + "<v>synthetic-secret-3905</v></Property></Properties></Node>",
+        // a container with text next to its entries
+        "<Node name=\"P\" type=\"t\" id=\"7\"><Properties><Property name=\"m\" type=\"Map\">"
+            + "synthetic-secret-3905<Property name=\"e\" type=\"String\">x</Property></Property>"
+            + "</Properties></Node>",
+        // an entry without a type
+        "<Node name=\"P\" type=\"t\" id=\"7\"><Properties><Property name=\"m\" type=\"Map\">"
+            + "<Property name=\"proxyPassword\">synthetic-secret-3905</Property></Property>"
+            + "</Properties></Node>",
+        // text after an entry
+        "<Node name=\"P\" type=\"t\" id=\"7\"><Properties><Property name=\"m\" type=\"Map\">"
+            + "<Property name=\"e\" type=\"String\">x</Property>synthetic-secret-3905</Property>"
+            + "</Properties></Node>",
+        // text after a nested container
+        "<Node name=\"P\" type=\"t\" id=\"7\"><Properties><Property name=\"m\" type=\"Map\">"
+            + "<Property name=\"n\" type=\"Map\"><Property name=\"e\" type=\"String\">x"
+            + "</Property></Property>synthetic-secret-3905</Property></Properties></Node>",
+        // another element after an entry, with a secret attribute and text
+        "<Node name=\"P\" type=\"t\" id=\"7\"><Properties><Property name=\"m\" type=\"Map\">"
+            + "<Property name=\"e\" type=\"String\">x</Property><v a=\"synthetic-secret-3905\">"
+            + "synthetic-secret-3905</v></Property></Properties></Node>",
         // a DTD
         "<!DOCTYPE Node [<!ENTITY s 'P'>]><Node name=\"&s;\" type=\"t\" id=\"7\"><Properties>"
             + "<Property name=\"Password\" type=\"Password\">synthetic-secret-3905</Property>"

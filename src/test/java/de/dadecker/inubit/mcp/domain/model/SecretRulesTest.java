@@ -32,13 +32,14 @@ class SecretRulesTest {
     @ParameterizedTest
     @ValueSource(strings = {"FtpPassword", "PASSWD", "loginPwd", "ClientSecret", "AuthToken",
         "TrustKeyStoreRef", "PrivateKeyAlias", "KeyPassphrase", "CredentialRef", "ApiKey",
-        "AccessKeyId"})
+        "AccessKeyId", "OAUTH_PROPERTY.client_assertion", "clientAssertion"})
     void aSecretNameMatchesInAnyCase(String name) {
         assertThat(SecretRules.isSecretName(name)).isTrue();
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"Login", "ServerName", "host", "port", "licensedThreads", ""})
+    @ValueSource(strings = {"Login", "ServerName", "host", "port", "licensedThreads",
+        "OAUTH_PROPERTY.client_assertion_type", ""})
     void aHarmlessNameDoesNotMatch(String name) {
         assertThat(SecretRules.isSecretName(name)).isFalse();
     }

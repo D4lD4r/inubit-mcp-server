@@ -18,9 +18,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
+import org.w3c.dom.Text;
 
 /**
  * Parses the answer of {@code GET /model/nodeByModel/{diagram}/{moduleId}} into a
@@ -31,7 +33,10 @@ import org.w3c.dom.Node;
  *   <li>{@code 200}: XML, also when JSON was asked for. The root {@code ns4:Node} has
  *       {@code name}, {@code type}, {@code id} and an optional {@code parentId}; its children are
  *       one {@code ns4:Connection id= targetId=} per outgoing connection and
- *       {@code ns2:Properties} with {@code ns2:Property name= type=} and the value as text.
+ *       {@code ns2:Properties} with {@code ns2:Property name= type=} and the value as text. A
+ *       {@code Map} or {@code List} property has {@code ns2:Property name= type=} children
+ *       instead, its entries (structure probe of a system diagram element {@code sdExtSystem},
+ *       2026-11-27: {@code ResourceSettings} Map, {@code ResourcesLinked} List of {@code Module}).
  *       Elements are matched by local name; other elements are ignored. The document is read
  *       with the hardening of {@link XmlSupport} (no DTD, nothing external).
  *   <li>{@code 500} {@code text/html}: the status page whose {@code @Start@…@End@} message says
@@ -50,6 +55,8 @@ import org.w3c.dom.Node;
  * {@code ;password=…} or {@code ?password=…} in a JDBC URL) with its {@code ${secret:…}}
  * placeholder; such a property is not masked as a whole and does not count in
  * {@code maskedCount}. The value is masked before it is cut to {@link ItemBounds#MAX_ITEM_CHARS}.
+ * Each entry of a container is masked like a property and counts on its own; a container whose
+ * name or type is secret is masked as a whole and counts once.
  * Any other answer, or a document
  * without these attributes, is {@code UNEXPECTED_RESPONSE} with an excerpt in which the content of
  * every {@code Property} element, known credentials and secret-named values are masked.
@@ -77,9 +84,11 @@ final class ModuleDetailXmlParser {
     /** Masked beyond the window, so that no secret crossing the cut survives in part. */
     private static final int EXCERPT_OVERLAP = 512;
     private static final String QNAME = "(?:[A-Za-z_][A-Za-z0-9_.-]*+:)?+";
-    /** A {@code Property} start tag and its content up to its end tag or the end of the text. */
-    private static final Pattern PROPERTY_CONTENT = Pattern.compile("(<" + QNAME + PROPERTY
-        + "\\b[^<>]*+>)(?s:.*?)(?=</" + QNAME + PROPERTY + "\\s*>|\\z)");
+    /** A {@code Property} start, end or empty-element tag. */
+    private static final Pattern PROPERTY_TAG = Pattern.compile("<(/?)" + QNAME + PROPERTY
+        + "\\b[^<>]*+>");
+    /** Containers nested deeper than this are not a recorded form. */
+    static final int MAX_DEPTH = 16;
     private static final Pattern HTML_TAG = Pattern.compile("<[^>]*>");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
@@ -148,19 +157,20 @@ final class ModuleDetailXmlParser {
         List<Property> properties = new ArrayList<>();
         for (Element group : XmlSupport.children(root, PROPERTIES)) {
             for (Element property : XmlSupport.children(group, PROPERTY)) {
-                properties.add(property(server, response, property));
+                properties.add(property(server, response, property, 0));
             }
         }
-        int masked = (int) properties.stream().filter(Property::masked).count();
+        int masked = (int) properties.stream().mapToLong(Property::maskedCount).sum();
         return new ModuleDetail(diagram, moduleId, name, type,
             XmlSupport.attribute(root, PARENT_ID), connections, properties, masked);
     }
 
-    private static Property property(NodeId server, RestResponse response, Element property) {
+    private static Property property(NodeId server, RestResponse response, Element property,
+        int depth) {
         String name = required(server, response, property, NAME);
         String type = required(server, response, property, TYPE);
         if (hasChildElement(property)) {
-            throw unexpected(server, response, "has a property whose value is not text");
+            return container(server, response, property, name, type, depth);
         }
         String value = property.getTextContent();
         if (SecretRules.masks(name, Optional.of(type), false, value)) {
@@ -169,6 +179,35 @@ final class ModuleDetailXmlParser {
         String shown = SecretTextMasker.mask(value);
         return Property.shown(name, type, RowValues.cut(shown, ItemBounds.MAX_ITEM_CHARS),
             shown.length() > ItemBounds.MAX_ITEM_CHARS);
+    }
+
+    /**
+     * A {@code Map} or {@code List} property: masked as a whole by a secret name (so nothing
+     * below it is shown), else one entry per {@code Property} child, each read like a property.
+     * Any other child element, text next to the entries (comments are ignored) or nesting
+     * deeper than {@link #MAX_DEPTH} levels is not a recorded form.
+     */
+    private static Property container(NodeId server, RestResponse response, Element property,
+        String name, String type, int depth) {
+        if (depth >= MAX_DEPTH) {
+            throw unexpected(server, response, "has properties nested deeper than " + MAX_DEPTH
+                + " levels");
+        }
+        List<Property> entries = new ArrayList<>();
+        for (Node child = property.getFirstChild(); child != null;
+            child = child.getNextSibling()) {
+            if (child instanceof Element entry && XmlSupport.localName(entry).equals(PROPERTY)) {
+                entries.add(property(server, response, entry, depth + 1));
+            } else if (child instanceof Element
+                || child instanceof Text text && !text.getData().isBlank()) {
+                throw unexpected(server, response, "has a property whose value is neither text"
+                    + " nor a list of properties");
+            }
+        }
+        if (SecretRules.masks(name, Optional.of(type), false, "")) {
+            return Property.masked(name, type);
+        }
+        return Property.entries(name, type, entries);
     }
 
     private static boolean hasChildElement(Element element) {
@@ -213,11 +252,45 @@ final class ModuleDetailXmlParser {
         String body = response.bodyText();
         String raw = body.substring(0, Math.min(body.length(), EXCERPT_WINDOW + EXCERPT_OVERLAP));
         String masked = SecretTextMasker.mask(SecretScrubber.global().scrub(
-            PROPERTY_CONTENT.matcher(raw).replaceAll("$1" + Masked.MASK_TOKEN)));
+            maskPropertyContent(raw)));
         String text = masked.substring(0, Math.min(masked.length(), EXCERPT_WINDOW));
         if (html(response)) {
             text = HTML_TAG.matcher(text).replaceAll(" ");
         }
         return WHITESPACE.matcher(text).replaceAll(" ").strip();
+    }
+
+    /**
+     * Keeps the start tag of every outermost {@code Property} element and replaces its whole
+     * content, nested properties, text and other elements included, by the mask token up to its
+     * matching end tag (or the end of the text, when it is cut inside).
+     */
+    static String maskPropertyContent(String raw) {
+        StringBuilder out = new StringBuilder(raw.length());
+        Matcher tag = PROPERTY_TAG.matcher(raw);
+        int keepFrom = 0;
+        int depth = 0;
+        while (tag.find()) {
+            boolean end = !tag.group(1).isEmpty();
+            boolean empty = tag.group().endsWith("/>");
+            if (depth == 0) {
+                if (!end && !empty) {
+                    out.append(raw, keepFrom, tag.end()).append(Masked.MASK_TOKEN);
+                    keepFrom = tag.end();
+                    depth = 1;
+                }
+            } else if (end) {
+                depth--;
+                if (depth == 0) {
+                    keepFrom = tag.start();
+                }
+            } else if (!empty) {
+                depth++;
+            }
+        }
+        if (depth == 0) {
+            out.append(raw, keepFrom, raw.length());
+        }
+        return out.toString();
     }
 }

@@ -504,7 +504,8 @@ PARTNER_FIELD_TYPE_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.]{0,40}")
 PARTNER_TOKENS = set("FTP FTPS SFTP HTTP HTTPS WebService NONE".split())  # protocol tokens
 PARTNER_KEY_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 PARTNER_SECRET_NAME_RE = re.compile(
-    r"password|passwd|pwd|secret|token|keystore|privatekey|passphrase|credential|apikey|accesskey",
+    r"password|passwd|pwd|secret|token|keystore|privatekey|passphrase|credential|apikey|accesskey"
+    r"|client_?assertion\b",
     re.IGNORECASE)
 PARTNER_HOST_NAME_RE = re.compile(r"(?:server(?:name)?|host(?:name)?|url|uri|endpoint)$",
                                   re.IGNORECASE)

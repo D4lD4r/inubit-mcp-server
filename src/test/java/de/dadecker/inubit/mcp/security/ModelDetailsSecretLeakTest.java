@@ -302,6 +302,43 @@ class ModelDetailsSecretLeakTest {
     }
 
     /**
+     * The system diagram element of {@code admin-model-node-by-model-sd-ext-system.xml} (four
+     * planted secrets in {@code Map} entries): the result masks each entry, and a variant that
+     * cannot be read because of text after an entry shows no secret in its error or excerpt.
+     */
+    @Test
+    void theEntriesOfAMapPropertyShowNoSecretInTheResultOrTheError() {
+        String element = RestFixtures.text("admin-model-node-by-model-sd-ext-system.xml")
+            .replace("id=\"49\"", "id=\"100\"");
+        List<String> planted = List.of("synthetic-secret-3911", "synthetic-secret-3912",
+            "synthetic-secret-3913", "synthetic-secret-3914");
+        assertThat(element).contains(planted);
+        stub(aResponse().withStatus(200).withHeader("Content-Type", "application/xml")
+            .withBody(element));
+
+        JsonNode result = call(Map.of("target", "dev/node1", "action", "module",
+            "diagram", DIAGRAM, "moduleId", "100"));
+
+        assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
+        JsonNode settings = property(result.path("structuredContent").path("module"),
+            "ResourceSettings");
+        assertThat(settings.path("entries").size()).isEqualTo(14);
+        assertThat(result.toString()).doesNotContain(planted);
+
+        stub(aResponse().withStatus(200).withHeader("Content-Type", "application/xml")
+            .withBody(element.replace("</ns2:Property></ns2:Property><ns2:Property"
+                + " name=\"ResourcesLinked\"", "</ns2:Property>" + PASSWORD
+                + "</ns2:Property><ns2:Property name=\"ResourcesLinked\"")));
+        JsonNode failed = call(Map.of("target", "dev/node1", "action", "module",
+            "diagram", DIAGRAM, "moduleId", "100"));
+        ToolError error = errorOf(() -> adapter().module(DIAGRAM, "100"));
+
+        assertThat(failed.path("isError").asBoolean()).as(failed.toString()).isTrue();
+        assertThat(failed.toString() + error.excerpt().orElse("")).doesNotContain(planted)
+            .doesNotContain(PASSWORD);
+    }
+
+    /**
      * An unknown module id, other {@code 500} answers and an unreadable {@code 200} that carry
      * the planted module and the node's password: neither the error results nor the adapter's
      * errors with their excerpts carry a secret.

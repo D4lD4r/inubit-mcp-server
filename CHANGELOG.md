@@ -112,6 +112,12 @@ for recording a non-production 7.4 node later.
   deadline). A refusal because another client of the same INUBIT user, e.g. the Workbench, holds
   the lock is sent again up to four times within about four seconds and then reported as
   `UNEXPECTED_RESPONSE` naming the lock.
+- `read_model_details` reads a module with a `Map` or `List` property instead of failing as
+  `UNEXPECTED_RESPONSE` ("has a property whose value is not text"). Such a property now lists its
+  `entries`, each masked on its own and counted in `maskedCount`. This makes system diagram
+  elements readable, e.g. an external system (`sdExtSystem`) with the connection settings it
+  manages centrally (`ResourceSettings`) and the modules it manages (`ResourcesLinked`). A value
+  named `client_assertion` (an OAuth client assertion) is now masked as a secret.
 
 ### Tests
 
