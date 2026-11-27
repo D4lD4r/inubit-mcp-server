@@ -47,8 +47,13 @@ public final class V81ProcessQueryAdapter implements ProcessQueryPort {
     private final LogEndpoint endpoint;
 
     public V81ProcessQueryAdapter(NodeId server, InubitHttpClient client) {
+        this(server, new LogEndpoint(server, client));
+    }
+
+    /** On {@code endpoint} (tests: other waits before the repeats of a locked query). */
+    V81ProcessQueryAdapter(NodeId server, LogEndpoint endpoint) {
         this.server = Objects.requireNonNull(server, "server");
-        this.endpoint = new LogEndpoint(server, client);
+        this.endpoint = Objects.requireNonNull(endpoint, "endpoint");
     }
 
     @Override

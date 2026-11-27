@@ -104,6 +104,14 @@ for recording a non-production 7.4 node later.
   instead of failing as `UNEXPECTED_RESPONSE`. A newer 8.1 client prints this prefix against an
   older 8.1 server (reported with client 8.1.16 and server 8.1.7), which broke
   `export_artifacts` and the version history.
+- Log queries of parallel tool calls on the same node no longer collide. INUBIT (8.1 and 9.0) runs
+  one log query of a user at a time and refused the overlapping one with HTTP 500
+  `MonitoringLockedByOtherClient`, so an agent calling `find_processes`, `query_logs` or
+  `read_queue_entry` in parallel got `UNEXPECTED_RESPONSE`. The log queries of one node now wait
+  for each other (other nodes still run in parallel; the wait counts against the call's
+  deadline). A refusal because another client of the same INUBIT user, e.g. the Workbench, holds
+  the lock is sent again up to four times within about four seconds and then reported as
+  `UNEXPECTED_RESPONSE` naming the lock.
 
 ### Tests
 
