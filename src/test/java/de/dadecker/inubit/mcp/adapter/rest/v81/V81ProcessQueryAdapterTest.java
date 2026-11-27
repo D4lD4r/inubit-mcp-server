@@ -12,6 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
+import com.github.tomakehurst.wiremock.stubbing.Scenario;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
 import de.dadecker.inubit.mcp.adapter.rest.InubitHttpClient;
 import de.dadecker.inubit.mcp.adapter.rest.MaintenanceProbe;
@@ -35,11 +36,16 @@ import de.dadecker.inubit.mcp.testing.TestSecrets;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -592,5 +598,110 @@ class V81ProcessQueryAdapterTest {
             assertThat(excerpt).doesNotContain("<html", PASSWORD);
             assertThat(excerpt).isNotBlank();
         });
+        assertThat(wireMock.findAll(postRequestedFor(urlPathEqualTo(PATH))))
+            .as("another 500 is not retried").hasSize(1);
+    }
+
+    @Test
+    void twoCallsOnTheSameClientQueryTheLogsOneAfterTheOther() throws Exception {
+        // INUBIT runs one log query of a user at a time (F-4); two tool calls of the agent on the
+        // same node share the client, so their requests must not overlap either
+        int delay = 300;
+        wireMock.stubFor(post(urlPathEqualTo(PATH))
+            .willReturn(json(0, List.of()).withFixedDelay(delay)));
+
+        try (ExecutorService calls = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<Future<Page<ProcessInstance>>> pending = new ArrayList<>();
+            for (int i = 0; i < 3; i++) {
+                pending.add(calls.submit(() -> adapter().find(states(Set.of(), 0, 5))));
+            }
+            for (Future<Page<ProcessInstance>> call : pending) {
+                assertThat(call.get().items()).isEmpty();
+            }
+        }
+
+        List<Long> received = wireMock.findAll(postRequestedFor(urlPathEqualTo(PATH))).stream()
+            .map(request -> request.getLoggedDate().getTime()).sorted().toList();
+        assertThat(received).hasSize(3);
+        for (int i = 1; i < received.size(); i++) {
+            assertThat(received.get(i) - received.get(i - 1)).as("gap before request %d", i)
+                .isGreaterThanOrEqualTo(delay);
+        }
+    }
+
+    @Test
+    void aQueryRefusedBecauseMonitoringIsLockedIsSentAgain() {
+        // another client of the same INUBIT user (e.g. the Workbench) may hold the lock
+        for (ResponseDefinitionBuilder locked : List.of(LOCKED_RECORDED, LOCKED_JSON)) {
+            wireMock.resetAll();
+            wireMock.stubFor(post(urlPathEqualTo(PATH)).inScenario("lock")
+                .whenScenarioStateIs(Scenario.STARTED).willReturn(locked)
+                .willSetStateTo("free"));
+            wireMock.stubFor(post(urlPathEqualTo(PATH)).inScenario("lock")
+                .whenScenarioStateIs("free")
+                .willReturn(json(1, List.of(row(41, "Error", 1_000, "Mapper")))));
+
+            Page<ProcessInstance> page = quickRetries().find(states(Set.of(), 0, 5));
+
+            assertThat(page.items()).hasSize(1);
+            assertThat(wireMock.findAll(postRequestedFor(urlPathEqualTo(PATH)))).hasSize(2);
+        }
+    }
+
+    @Test
+    void aLockThatIsNotReleasedIsUnexpectedResponseNamingTheOtherClient() {
+        wireMock.stubFor(post(urlPathEqualTo(PATH)).willReturn(LOCKED_RECORDED));
+
+        ToolError error = errorOf(() -> quickRetries().find(states(Set.of(), 0, 5)));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.node()).contains(ID);
+        assertThat(error.message()).contains("monitoring", "locked");
+        assertThat(error.likelyCause()).contains("same INUBIT user");
+        assertThat(wireMock.findAll(postRequestedFor(urlPathEqualTo(PATH))))
+            .hasSize(1 + QUICK_RETRIES.size());
+    }
+
+    @Test
+    void aCallInterruptedWhileWaitingForAnotherLogQueryIsTimeoutWithoutRequest()
+        throws Exception {
+        wireMock.stubFor(post(urlPathEqualTo(PATH))
+            .willReturn(json(0, List.of()).withFixedDelay(2_000)));
+        try (ExecutorService calls = Executors.newVirtualThreadPerTaskExecutor()) {
+            Future<Page<ProcessInstance>> first =
+                calls.submit(() -> adapter().find(states(Set.of(), 0, 5)));
+            while (wireMock.findAll(postRequestedFor(urlPathEqualTo(PATH))).isEmpty()) {
+                Thread.onSpinWait();
+            }
+            AtomicReference<ToolError> waited = new AtomicReference<>();
+            Thread second = Thread.ofVirtual().start(
+                () -> waited.set(errorOf(() -> adapter().find(states(Set.of(), 0, 5)))));
+            Thread.sleep(200);
+            second.interrupt();
+            second.join();
+
+            assertThat(waited.get().code()).isEqualTo(ErrorCode.TIMEOUT);
+            assertThat(waited.get().node()).contains(ID);
+            assertThat(first.get().items()).isEmpty();
+        }
+        assertThat(wireMock.findAll(postRequestedFor(urlPathEqualTo(PATH)))).hasSize(1);
+    }
+
+    private static final ResponseDefinitionBuilder LOCKED_JSON = aResponse().withStatus(500)
+        .withHeader("Content-Type", "application/json")
+        .withBody("{\"error\":\"MonitoringLockedByOtherClient\",\"message\":\"Cannot request data"
+            + " because monitoring is locked by other client\"}");
+
+    /** The body INUBIT 9.0 sent in the live check of feature 017 (F-4). */
+    private static final ResponseDefinitionBuilder LOCKED_RECORDED = aResponse().withStatus(500)
+        .withHeader("Content-Type", "text/plain")
+        .withBody("@Start@MonitoringLockedByOtherClient@@@Cannot request data because monitoring"
+            + " is locked by other client. Please try again later.@End@");
+
+    private static final List<Duration> QUICK_RETRIES =
+        List.of(Duration.ofMillis(10), Duration.ofMillis(10), Duration.ofMillis(10));
+
+    private V81ProcessQueryAdapter quickRetries() {
+        return new V81ProcessQueryAdapter(ID, new LogEndpoint(ID, client, QUICK_RETRIES));
     }
 }

@@ -47,6 +47,8 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Flow;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
 import javax.net.ssl.SSLContext;
@@ -171,6 +173,8 @@ public final class InubitHttpClient implements AutoCloseable {
     private final long maxBodyBytes;
     private final CredentialGuard guard;
     private final HttpClient client;
+    /** One log query at a time ({@link #oneLogQueryAtATime}); fair, so no call starves. */
+    private final ReentrantLock logQueries = new ReentrantLock(true);
 
     /**
      * @param trustStorePassword the resolved trust-store password, if the trust store needs one
@@ -440,6 +444,34 @@ public final class InubitHttpClient implements AutoCloseable {
                 permit.accepted();
             }
             return evaluate(method, path, response, kind, acceptedStatuses);
+        }
+    }
+
+    /**
+     * Runs {@code query}, a log query ({@code POST /log/<log>}), once the log queries of other
+     * calls on this client are done. INUBIT (8.1 and 9.0) runs one log query of a user at a time
+     * and refuses an overlapping one with HTTP 500 {@code MonitoringLockedByOtherClient}
+     * (feature 017 live check, F-4); a client sends one user's credentials to one server, so
+     * this is that user's queue on that server. Queries of other servers do not wait.
+     *
+     * @throws ToolErrorException {@code TIMEOUT} if interrupted (the call's deadline) while
+     *     waiting; then nothing is sent
+     */
+    public <T> T oneLogQueryAtATime(Supplier<T> query) {
+        try {
+            logQueries.lockInterruptibly();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ToolErrorException(error(ErrorCode.TIMEOUT,
+                "A log query was cancelled while it waited for another log query of the server",
+                "The overall deadline of the request expired; INUBIT runs one log query of a user"
+                    + " at a time, and other calls on the server queried the logs",
+                "Retry, query fewer logs at once, or raise the timeout in the configuration"));
+        }
+        try {
+            return query.get();
+        } finally {
+            logQueries.unlock();
         }
     }
 

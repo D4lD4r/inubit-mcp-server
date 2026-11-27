@@ -1434,6 +1434,13 @@ processing ones, optionally only the hanging ones, filtered by workflow, tag and
 the REST Queue Manager view `POST /ibis/rest/log/queueLog` (research R-8; the same entries as
 `ps -csv -a`); INUBIT filters, sorts, pages and counts. No CLI installation is needed.
 
+INUBIT runs one log query of a user at a time. The log requests of `find_processes`,
+`query_logs` and `read_queue_entry` on the same node therefore run one after the other, also
+across parallel calls (other nodes still run in parallel); the wait counts against the call's
+deadline, so parallel large queries on one node take turns and each takes longer. A request
+refused because another client of the same INUBIT user holds the lock (HTTP 500
+`MonitoringLockedByOtherClient`, e.g. the Workbench) is sent again after 0.25, 0.5, 1 and 2 s.
+
 **Input** (`find_processes.input.json`):
 
 | Property | Type | Default | Meaning |
@@ -3320,7 +3327,7 @@ the state after the preview; the result shows the set read afterwards.
 | `CONFIRMATION_INVALID` | the code is unknown, used, expired, or for another node, tool or inputs |
 | `CONFLICT` | the state changed since the preview; `details.preview` holds the new preview |
 | `FORBIDDEN` | the account lacks the INUBIT role or right the entry needs ("System Administrator" for `POST /ready`, "CLI login access" for StartCLI) |
-| `UNEXPECTED_RESPONSE` | an answer in an unknown form (never guessed), e.g. a `POST /ready/off` answered 503 with another message than `No Service.`, or a `queueLog` read refused with `MonitoringLockedByOtherClient` |
+| `UNEXPECTED_RESPONSE` | an answer in an unknown form (never guessed), e.g. a `POST /ready/off` answered 503 with another message than `No Service.`, or a `queueLog` read still refused with `MonitoringLockedByOtherClient` after four retries (another client of the same INUBIT user holds the lock) |
 | `MAINTENANCE_MODE`, `UNREACHABLE`, `TIMEOUT`, `TLS_ERROR` | a state read failed; nothing was sent. A failure while sending the change is a result with `outcome: FAILED` |
 | `INTERNAL` | the `PENDING` audit record could not be written; nothing was sent |
 
