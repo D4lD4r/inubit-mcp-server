@@ -696,7 +696,7 @@ production matrix changes only in T035.
   example for 6.1), changelog entry. Both: the fixture provenance in one sentence (reconstructed
   from the 6.1 vendor documentation; 7.4 checked against its real help output). Test first: none
   (docs); the doc-link checks stay green.
-- [ ] T037 Mandate B verification (verification task): `mvn -q -o clean verify` green;
+- [X] T037 Mandate B verification (verification task): `mvn -q -o clean verify` green;
   `VersionLineRegressionTest` unchanged since T035; `NoCustomerIdentifiersTest` run locally with the
   identifier lists; the CI jobs for macOS/Linux and Windows green on the PR (the Windows job runs
   the 7.4 and 6.1 contract tests with the feature 013 invocation); quickstart validation record

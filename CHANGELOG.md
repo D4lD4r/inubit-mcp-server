@@ -62,7 +62,7 @@ nodes.
   `get_health` and `find_processes`) refuses a 7.4 node with `UNSUPPORTED_VERSION` (`<tool>:
   INUBIT 7.4 on <node>: <capability> is not yet verified for INUBIT 7.4; nothing was sent`) and
   sends nothing: no StartCLI run, no client probe, no request. In a group only the 7.4 node is
-  refused. `AUTO` never selects 7.4. A profile of 7.4 nodes only offers just `list_nodes`,
+  refused. `AUTO` never selects 7.4. A profile of 7.4 nodes only offers `list_nodes`,
   `get_health`, `find_processes`, `check_artifacts`, `read_knowledge` and `record_knowledge`.
 - `list_nodes` shows a 7.4 node as `cli_only` and `partially_supported` with monitoring and
   process diagnosis usable; `--check-config` shows it as `INUBIT 7.4, StartCLI only; available:
