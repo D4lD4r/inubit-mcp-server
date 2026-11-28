@@ -73,9 +73,11 @@ public final class CliOutputClassifier {
     /**
      * An {@code n-OK}/{@code n-NOK} line. StartCLI prints an import's last progress text
      * {@code Completed = … MB / … MB } without a line break before it (feature 008, probe P-2).
+     * A newer 8.1 client against an older 8.1 server (reported: client 8.1.16, server 8.1.7)
+     * prints {@code null} in that place instead, e.g. {@code null1-OK: …}; it is ignored too.
      */
     private static final Pattern MESSAGE = Pattern.compile(
-        "^(?:Completed = \\S+ MB / \\S+ MB\\s*)*(\\d+)-(OK|NOK):\\s?(.*)$");
+        "^(?:Completed = \\S+ MB / \\S+ MB\\s*|null\\s*)*(\\d+)-(OK|NOK):\\s?(.*)$");
     /** The server's marker for a log file it does not have (feature 021, research D-8). */
     private static final String FILE_WAS_NOT_FOUND = "FileWasNotFound";
     /** The server's marker for a refused request (feature 021, research D-14). */

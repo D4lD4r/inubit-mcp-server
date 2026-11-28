@@ -794,7 +794,10 @@ keeps the REST client's error.
 
 Concurrent `POST /log/queueLog` reads (the `find_processes` query) can be answered HTTP 500
 `MonitoringLockedByOtherClient` ("Cannot request data because monitoring is locked by other
-client", T054); the read fails with `UNEXPECTED_RESPONSE` and is not retried.
+client", T054). Since the fix of 2026-11-27 the log queries of one node wait for each other
+across calls (`InubitHttpClient.oneLogQueryAtATime`), and a refusal because another client of the
+same user holds the lock is retried four times (0.25, 0.5, 1, 2 s) before it fails with
+`UNEXPECTED_RESPONSE`.
 
 Switching maintenance off uses StartCLI over the SOAP servlet, which the vendor does not list
 among the answers blocked in maintenance mode (L-2). The read before the change accepts

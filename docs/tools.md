@@ -1301,8 +1301,9 @@ user is reported in that user's `unavailable` instead, as described above:
 > connections and properties in INUBIT's order; secret values are masked: a property whose name is a
 > secret name, whose type is `Password` or whose value is key material is shown as `masked` and
 > counted in `maskedCount`, and a credential inside a value (such as the password of a database URL)
-> is replaced by a placeholder. An unknown module id gives NOT_FOUND on INUBIT 8.1 and
-> UNEXPECTED_RESPONSE with a hint on 9.0. `libraries` lists the uploaded library files with
+> is replaced by a placeholder; a `Map` or `List` property (such as the connection settings and
+> linked modules of a system diagram element) lists its `entries`, each masked on its own. An
+> unknown module id gives NOT_FOUND on INUBIT 8.1 and UNEXPECTED_RESPONSE with a hint on 9.0. `libraries` lists the uploaded library files with
 > StartCLI, `libraryType` `driver` or `plugin`, or both without it (one StartCLI run per type,
 > drivers first), paged with `offset` and `limit` (at most 100); `nextOffset` gives the next page.
 > Until a listed library is recorded, each line of the answer is read as one file name and
@@ -1386,7 +1387,7 @@ The actions and where their facts come from:
 | `node` | the node id |
 | `action` | the action that was read |
 | `source` | the channel the result came from (FR-009): `REST` for `module`, `CLI` for `libraries` |
-| `module` | `module`: the module as described above; a property has `name`, `type` and `value` (with `truncated` (`true`) when the value was cut), or `name`, `type` and `masked` (`true`) |
+| `module` | `module`: the module as described above; a property has `name`, `type` and `value` (with `truncated` (`true`) when the value was cut), or `name`, `type` and `masked` (`true`), or, for a `Map` or `List` property, `name`, `type` and `entries`: its entries in INUBIT's order in the same forms, each masked on its own and counted in `maskedCount` (a container whose name or type is secret is masked as a whole; an empty container has the value `""`). A system diagram element (`sdExtSystem`) shows this way the connection settings it manages centrally (`ResourceSettings`) and the modules it manages (`ResourcesLinked`) |
 | `page` | `libraries`: a [Page](#common-shapes-page-and-toolerror) whose `items` are the library files of the page, `total` all of them, `nextOffset` only when there is a next page |
 | `rowFormatVerified` | `libraries`: `false` while each line of the StartCLI answer is read as one file name (L-21) |
 | `warnings` | the version and client warnings of the version check (texts in [the warnings table](#inubit-versions-and-capabilities-feature-009)) |
@@ -1445,6 +1446,13 @@ Finds process instances in the INUBIT Queue Manager: failed (`ERROR`), waiting, 
 processing ones, optionally only the hanging ones, filtered by workflow, tag and time. Backed by
 the REST Queue Manager view `POST /ibis/rest/log/queueLog` (research R-8; the same entries as
 `ps -csv -a`); INUBIT filters, sorts, pages and counts. No CLI installation is needed.
+
+INUBIT runs one log query of a user at a time. The log requests of `find_processes`,
+`query_logs` and `read_queue_entry` on the same node therefore run one after the other, also
+across parallel calls (other nodes still run in parallel); the wait counts against the call's
+deadline, so parallel large queries on one node take turns and each takes longer. A request
+refused because another client of the same INUBIT user holds the lock (HTTP 500
+`MonitoringLockedByOtherClient`, e.g. the Workbench) is sent again after 0.25, 0.5, 1 and 2 s.
 
 **Input** (`find_processes.input.json`):
 
@@ -2973,8 +2981,9 @@ partner (the result says how many values were masked, not why). A value is maske
 - it is a field or setting of `type="Password"` (with or without `encrypted`) or `encrypted="true"`
   (also the encrypted values of INUBIT's older encoding), or of a key store or certificate type;
 - its name contains `password`, `passwd`, `pwd`, `secret`, `token`, `keystore`, `privatekey`,
-  `passphrase`, `credential`, `apikey` or `accesskey` (e.g. `SSLKeyStore`, shown as not set when
-  empty);
+  `passphrase`, `credential`, `apikey` or `accesskey`, or `client_assertion` or `clientAssertion`
+  not followed by a letter, digit or `_` (so `client_assertion_type` is not a secret) (e.g.
+  `SSLKeyStore`, shown as not set when empty);
 - its value is key material (a PEM private key, a JKS, JCEKS or PKCS#12 key store in base64);
 - it is a partner field whose declared **`fieldType`** is not `String` (`Password` and every type
   the server does not know are masked).
@@ -3336,7 +3345,7 @@ the state after the preview; the result shows the set read afterwards.
 | `CONFIRMATION_INVALID` | the code is unknown, used, expired, or for another node, tool or inputs |
 | `CONFLICT` | the state changed since the preview; `details.preview` holds the new preview |
 | `FORBIDDEN` | the account lacks the INUBIT role or right the entry needs ("System Administrator" for `POST /ready`, "CLI login access" for StartCLI) |
-| `UNEXPECTED_RESPONSE` | an answer in an unknown form (never guessed), e.g. a `POST /ready/off` answered 503 with another message than `No Service.`, or a `queueLog` read refused with `MonitoringLockedByOtherClient` |
+| `UNEXPECTED_RESPONSE` | an answer in an unknown form (never guessed), e.g. a `POST /ready/off` answered 503 with another message than `No Service.`, or a `queueLog` read still refused with `MonitoringLockedByOtherClient` after four retries (another client of the same INUBIT user holds the lock) |
 | `MAINTENANCE_MODE`, `UNREACHABLE`, `TIMEOUT`, `TLS_ERROR` | a state read failed; nothing was sent. A failure while sending the change is a result with `outcome: FAILED` |
 | `INTERNAL` | the `PENDING` audit record could not be written; nothing was sent |
 

@@ -130,6 +130,24 @@ nodes.
 
 - `tools/record-fixtures.ps1` also refuses a recording whose output echoes the password in
   UTF-16 LE, not only in UTF-8 (IMC-20).
+- StartCLI result lines prefixed with `null` (e.g. `null1-OK: …`) are read as results again
+  instead of failing as `UNEXPECTED_RESPONSE`. A newer 8.1 client prints this prefix against an
+  older 8.1 server (reported with client 8.1.16 and server 8.1.7), which broke
+  `export_artifacts` and the version history.
+- Log queries of parallel tool calls on the same node no longer collide. INUBIT (8.1 and 9.0) runs
+  one log query of a user at a time and refused the overlapping one with HTTP 500
+  `MonitoringLockedByOtherClient`, so an agent calling `find_processes`, `query_logs` or
+  `read_queue_entry` in parallel got `UNEXPECTED_RESPONSE`. The log queries of one node now wait
+  for each other (other nodes still run in parallel; the wait counts against the call's
+  deadline). A refusal because another client of the same INUBIT user, e.g. the Workbench, holds
+  the lock is sent again up to four times within about four seconds and then reported as
+  `UNEXPECTED_RESPONSE` naming the lock.
+- `read_model_details` reads a module with a `Map` or `List` property instead of failing as
+  `UNEXPECTED_RESPONSE` ("has a property whose value is not text"). Such a property now lists its
+  `entries`, each masked on its own and counted in `maskedCount`. This makes system diagram
+  elements readable, e.g. an external system (`sdExtSystem`) with the connection settings it
+  manages centrally (`ResourceSettings`) and the modules it manages (`ResourcesLinked`). A value
+  named `client_assertion` (an OAuth client assertion) is now masked as a secret.
 
 ### Tests
 
