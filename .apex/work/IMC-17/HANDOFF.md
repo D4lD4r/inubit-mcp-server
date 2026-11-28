@@ -1,4 +1,4 @@
-# Handoff — IMC-17 · Executing · 2026-11-26 · replanned, spec merged (#109)
+# Handoff — IMC-17 · Verifying · 2026-11-28 · implementation merged (#114)
 
 ## Status
 Mandate B is **replanned** on the owner's decisions of 2026-11-26: no recording session, no live
@@ -25,20 +25,19 @@ re-pinned to spec 025 at `3e0bde00`. No Mandate B code written.
 - IMC-6: scope change commented (10065): criterion 1 (detection) dropped, criterion 2 met as
   unverified.
 
-## Implementation progress (paused by the owner, 2026-11-26)
-Branch `claude/025-imc-17-mandate-b-impl`, worktree `.claude/worktrees/inubit-74-support-0b6255`,
-working tree clean, pushed. Done with `/d4ld4r-speckit-duo:implement` (each APPROVED in round 1):
-T038 (`a3e86d9e`), T031 (`b3e8c358`, 1 minor), T032 (`361de399`, 2 minors), T033 (`d9e5585a`,
-3 optional minors). Reviews in `specs/025-inubit-74-support/reviews/T0xx-r1.md`.
-T046 implemented, saved as WIP commit `6fd78320` (review base `18db80d0`), task review not
-yet done. Resume with the T046 review, then T039, T040, T042, T041, T044, T045, T043,
-T035+T036 (one commit), T037; then a cleanup pass for the collected minors and the PR.
+## Implementation (done, 2026-11-28)
+All Mandate B tasks T030–T046 plus a cleanup pass of 13 review minors are done with
+`/d4ld4r-speckit-duo:implement`; every task was APPROVED in review round 1 (reviews in
+`specs/025-inubit-74-support/reviews/`). Local `mvn clean verify` green (11,470 tests).
+Merged to main with PR #114 (`299441f3`). The Windows CI job (not a required check) failed on
+two `ConfigSummaryTest` cases that expected `/opt/client` literally; fixed test-only in PR #115.
 
 ## Next step
-1. Spec MR — done (PR #109).
-2. Implementation with `/d4ld4r-speckit-duo:implement`, task range T031–T046 in the order of
-   tasks.md "Dependencies" (T038 → T031 → T033 → T046 …, T041 → T044 → T045 → T043, flip T035
-   with docs T036, verification T037), one PR.
+1. Merge PR #115 once the Windows job is green; then main is green on Linux and Windows.
+2. Owner: move IMC-22, IMC-24, IMC-25 to Done; delete link 10025; tell the colleague the kit is
+   no longer needed.
+3. Release only on the owner's decision. Raising 6.1/7.4 to supported needs recordings plus a
+   live check (constitution 2.1.0), a later mandate.
 
 ## Decisions received (2026-11-26, owner, chat)
 - 7.4 integration "will not work this way": offer 7.4 support, marked untested in the docs.
@@ -73,4 +72,6 @@ T035+T036 (one commit), T037; then a cleanup pass for the collected minors and t
 - context-mode intercepts long tool output; read long files with offsets.
 
 ## Claims for verification
-- None yet (no Mandate B code).
+- 6.1/7.4 pinned nodes: get_health and find_processes run over StartCLI with the
+  "not verified … results may be incomplete" warning; other tools refuse; wrong 7.4 client is
+  refused before contact (fail-closed). Evidence: reviews T031–T046, T037-r1, PR #114 CI.
