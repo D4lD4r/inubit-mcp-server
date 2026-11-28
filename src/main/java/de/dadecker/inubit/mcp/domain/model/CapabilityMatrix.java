@@ -202,8 +202,8 @@ public final class CapabilityMatrix {
      * reading the I/O log on 8.1 and 9.0 is unsupported with the note "not yet verified", as on
      * any other and on unknown versions (without the note). Feature 022 (US4): operating the
      * server and managing tags likewise. Feature 025 (FR-006, research D-3, D-4): 7.4.x CLI-only
-     * with every capability unsupported and the note "not yet verified" (it is therefore no line
-     * of {@link #lines}), monitoring and process diagnosis on StartCLI, and the fourth version
+     * with every capability unsupported and the note "not yet verified" (as a CLI-only entry no
+     * line of {@link #lines}), monitoring and process diagnosis on StartCLI, and the fourth version
      * part in the client/server patch comparison; every other range compares three parts.
      */
     public static CapabilityMatrix production() {
@@ -281,14 +281,14 @@ public final class CapabilityMatrix {
     /**
      * The version lines that declare {@code capability} {@code SUPPORTED} or carry a note for it
      * (supported once verified), in declaration order: "8.1", or "7.8–7.9" for a wider range. The
-     * notes of an entry that carries one on every capability do not count: such a line is only
-     * recognised (feature 025, research D-4: 7.4).
+     * notes of a CLI-only entry do not count: such a line is out of scope for the noted capability
+     * (feature 025, research D-4, FR-035: 7.4).
      */
     public List<String> lines(Capability capability) {
         Objects.requireNonNull(capability, "capability");
         return entries.stream()
             .filter(e -> e.states().get(capability) == SupportState.SUPPORTED
-                || e.notes().containsKey(capability) && !allNoted(e))
+                || e.notes().containsKey(capability) && !e.cliOnly())
             .map(e -> line(e.range()))
             .toList();
     }

@@ -902,6 +902,18 @@ class CapabilityMatrixTest {
         }
     }
 
+    /**
+     * Feature 025 T039 (spec FR-035): once 7.4 declares two capabilities unverified, not every
+     * capability carries a note; the notes of a CLI-only entry still make it no supported line.
+     */
+    @Test
+    void theNotesOfACliOnlyEntryMakeItNoSupportedLine() {
+        CapabilityMatrix matrix = TestMatrices.unverified74();
+        assertThat(matrix.allNotYetVerified(version("7.4.0.90"))).isFalse();
+        assertThat(matrix.lines(Capability.QUEUE_ENTRY_READ)).containsExactly("8.1");
+        assertThat(matrix.lines(Capability.IO_LOG_READ)).containsExactly("8.1");
+    }
+
     private static ClientVersion client(String value) {
         return new ClientVersion(version(value).orElseThrow(), Optional.empty(), Optional.empty());
     }

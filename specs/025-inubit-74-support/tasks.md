@@ -537,7 +537,7 @@ production matrix changes only in T035.
   new case and the per-capability lines); `CliClientProbeTest` (the `-v` replay of the 7.4 client).
 - [ ] ~~T034 [US8] Detection~~ — **withdrawn 2026-11-26, owner decision** (spec FR-032, FR-033,
   US8): `AUTO` never selects 7.4; detection stays unchanged.
-- [ ] T039 `lines()` without CLI-only notes (spec FR-035, IMC-16 m6; after T033 and T038, which
+- [X] T039 `lines()` without CLI-only notes (spec FR-035, IMC-16 m6; after T033 and T038, which
   also edit `CapabilityMatrix` and its test): `main/domain/model/CapabilityMatrix.java` `lines`
   (`:265-272`) counts a note only on an entry that is not CLI-only; this replaces the "every
   capability noted" exclusion of T007 (`allNoted` stays for `allNotYetVerified`). Test first:
