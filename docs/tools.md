@@ -298,7 +298,7 @@ client has not been checked yet" with the next step "Call the tool again".
 
 | Case | Text | In |
 |---|---|---|
-| unverified version | `INUBIT 9.1.0 on dev/node1 is not verified for process diagnosis; results may be incomplete` (`INUBIT 9.x (versionLine V9_X) on …` for a `V9_X` node) | read tools, `get_health` |
+| unverified version | `INUBIT 9.1.0 on dev/node1 is not verified for process diagnosis; results may be incomplete` (`INUBIT 9.x (versionLine V9_X) on …` for a `V9_X` node) | read tools, `get_health`; in `find_processes` also beside the `error` of a failed entry (feature 025) |
 | unknown version | `the INUBIT version of dev/node1 is unknown (AUTH_FAILED at 2026-10-18T09:12:03Z); results are unverified` (`(not yet detected)` if no detection was attempted) | read tools, `get_health` |
 | unknown version, the detection request answered with HTTP 404 (feature 012) | `the INUBIT version of dev/node1 is unknown (UNEXPECTED_RESPONSE at 2026-10-18T08:00:00Z); if dev/node1 runs INUBIT 6.1, pin V6_1; if it runs INUBIT 7.4, pin V7_4; results are unverified` (the 7.4 part since feature 025) | read tools, `get_health` |
 | client and server differ (major, minor or patch) | `StartCLI client 8.1.17 on dev/node1 differs from INUBIT 8.1.18 (mismatch); StartCLI-backed tools still run, but their results may be unreliable` | StartCLI-backed tools, `get_health`, `list_nodes` |
@@ -1451,10 +1451,11 @@ the REST Queue Manager view `POST /ibis/rest/log/queueLog` (research R-8; the sa
 
 **Output**: `{ "userColumn"?, "results": [ { "node", "page"?: Page<ProcessInstance>, "warnings"?: string[],
 "error"?: ToolError } ] }` — one entry per resolved server in configuration order; a server that
-fails (e.g. `UNREACHABLE`, `AUTH_FAILED`) has only `error`, the others are still reported. Items
-are sorted by `since`, newest first. `warnings` (feature 009, only when non-empty) carries the
-node's version warning, e.g. on INUBIT 9.1 or an unknown version (see
-[INUBIT versions](#inubit-versions-and-capabilities-feature-009)).
+fails (e.g. `UNREACHABLE`, `AUTH_FAILED`) has `error` and possibly `warnings`, the others are
+still reported. Items are sorted by `since`, newest first. `warnings` (feature 009, only when
+non-empty) carries the node's version warning, e.g. on INUBIT 9.1 or an unknown version (see
+[INUBIT versions](#inubit-versions-and-capabilities-feature-009)); since feature 025 a failed
+entry may carry it beside its `error`.
 
 | `ProcessInstance` field | Meaning |
 |---|---|

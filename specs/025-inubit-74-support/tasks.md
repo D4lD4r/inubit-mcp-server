@@ -585,7 +585,7 @@ production matrix changes only in T035.
   local `-v` / `-h` probe failure stays plain); `V74HealthContractTest` /
   `V74ProcessQueryContractTest` (a non-zero exit classified by `CliOutputClassifier`,
   `login_failed`, `unreachable`, an unrecognized output: marked).
-- [ ] T044 [US6] [US7] [US9] Carrier for warnings on failed entries (spec FR-030 (b); after T041):
+- [X] T044 [US6] [US7] [US9] Carrier for warnings on failed entries (spec FR-030 (b); after T041):
   `main/domain/model/NodeResult.java` gets a component `warnings` (a failure may carry them) and
   keeps a 3-argument constructor `(node, payload, error)` with no warnings, so
   `InventoryService.java:595` and `SecretTiming.java:82` compile unchanged (`failure(node, error)`

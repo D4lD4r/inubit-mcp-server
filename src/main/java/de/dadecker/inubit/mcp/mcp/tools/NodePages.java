@@ -12,7 +12,8 @@ import java.util.Optional;
 record NodePages(List<Entry> results) {
 
     /**
-     * @param warnings feature 009: the version warnings of the node; omitted if there are none
+     * @param warnings feature 009: the version warnings of the node, since feature 025 also beside
+     *                 an error (FR-030 (b)); omitted if there are none
      */
     record Entry(NodeId node, Optional<Page<?>> page, Optional<List<String>> warnings,
         Optional<ToolError> error) {
@@ -22,11 +23,13 @@ record NodePages(List<Entry> results) {
         }
     }
 
+    /** A page brings its own warnings; a failure shows its warnings beside its error. */
     static <T> NodePages of(List<NodeResult<NodePage<T>>> results) {
         return new NodePages(results.stream()
             .map(result -> new Entry(result.node(),
                 result.payload().<Page<?>>map(NodePage::page),
-                result.payload().map(NodePage::warnings), result.error()))
+                Optional.of(result.payload().map(NodePage::warnings).orElse(result.warnings())),
+                result.error()))
             .toList());
     }
 }
