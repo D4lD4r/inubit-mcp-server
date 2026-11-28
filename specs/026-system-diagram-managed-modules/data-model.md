@@ -193,7 +193,7 @@ Two pure steps, no I/O, unit-tested on their own: `ManagementSection match(Manag
 | `InventoryDetail` | `Optional<ManagementSection> management` (modules), `Optional<SystemDiagramManagement> managedModules` (system diagrams) |
 | `InventoryBounds`, `ManagementBounds` (new) | bounds of both new fields |
 | `InventoryService` | MODULE and DIAGRAM lookups call `ManagementService`; deadlines + `managementBudget` |
-| `ModelDetailService` | owner function, diagram list, `ManagementService`; returns `Read<ManagedModuleDetail>`; deadline + `managementBudget` |
+| `ModelDetailService` | owner function, diagram list, `ManagementService`; returns `Read<ManagedModuleDetail>`; no call deadline, the check bounded by the `budget` argument (research D-5) |
 | `ReadModelDetailsTool.Module` | `Optional<ManagementSection> management` |
 | `infra/ResultJson` | serializers for `ModuleDetail.Property`, `ManagementSection.Status`, `Unreadable.Kind`; `NON_EMPTY` mixins for `ManagementSection.elements` and `ManagingElement.differing` |
 | `Wiring` (root package) | creates `ManagementService` after `InventoryCache`; `ModelDetailService` after `InventoryService` and `ManagementService` |

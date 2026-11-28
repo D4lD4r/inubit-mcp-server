@@ -43,8 +43,10 @@ detail of a system diagram.
 **Testing**:
 - JUnit 5, AssertJ; WireMock through `InventoryToolFixture` and the model-detail contract setup;
 - synthetic fixtures from the probed structure (research D-11): the existing
-  `admin-model-node-by-model-sd-ext-system.xml`, a new synthetic `model-by-name-systemdiagram.xml`
-  and a managed module's own detail; recorded ones replace them in T-record;
+  `admin-model-node-by-model-sd-ext-system.xml` (parser tests) and the synthetic set of tasks.md
+  T002 (diagram list, system diagram and workflow `modelByName`, both element details, the managed
+  module's detail, a StartCLI module export), wired by a new `ManagementFixture`; recorded ones
+  replace them in T-record;
 - `ManagementMatcher` as pure unit tests (state rules, shared names, comparison);
 - secret-leak tests in `security/` (`ManagementSecretLeakTest`: result, error excerpts, logs,
   cache); `NoCustomerIdentifiersTest` and `tools/check-identifiers.py`;
@@ -68,10 +70,10 @@ call within `inventory.cacheTtl` makes no system diagram read.
 - 0 new tools (count unchanged); `get_inventory_item` gains `management` and `managedModules`;
   `read_model_details` gains `module.management`; `list_nodes`/`--check-config` show
   `module_management`.
-- New production types (about 16): `Reason`, `ExternalSystem`, `ExternalSystems`, `Unreadable`,
+- New production types (about 17): `Reason`, `ExternalSystem`, `ExternalSystems`, `Unreadable`,
   `ManagementIndex`, `ManagementSection`, `ManagingElement`, `Difference`,
   `SystemDiagramManagement`, `ElementEntry`, `LinkedModule` (domain); `ModuleTarget`, `OwnProperties`,
-  `ManagementService`, `ManagementMatcher`, `ManagementBounds` (application).
+  `ManagedModuleDetail`, `ManagementService`, `ManagementMatcher`, `ManagementBounds` (application).
 - Extended: `Capability`, `CapabilityMatrix`, `NodeOverview`, `ConfigSummary`, `InventoryDetail`,
   `InventoryBounds`, `InventoryService`, `ModelDetailService`, `ReadModelDetailsTool`,
   `GetInventoryItemTool` (description), `Wiring`, `infra/ResultJson`, both output schemas,
@@ -132,7 +134,7 @@ src/main/java/de/dadecker/inubit/mcp/
 │   ├── ManagementBounds.java
 │   ├── InventoryService.java, InventoryBounds.java    # MODULE + DIAGRAM hooks, deadlines
 │   ├── ManagedModuleDetail.java                       # ModuleDetail + management
-│   └── ModelDetailService.java                        # owner, diagram list, check, deadline
+│   └── ModelDetailService.java                        # owner, diagram list, check
 ├── mcp/tools/
 │   ├── GetInventoryItemTool.java                      # description
 │   └── ReadModelDetailsTool.java                      # Module.management, description
@@ -150,10 +152,12 @@ src/test/java/de/dadecker/inubit/mcp/
 ├── mcp/tools/GetInventoryItemToolTest.java, ReadModelDetailsToolTest.java   # pinned descriptions, schema
 └── security/ManagementSecretLeakTest.java
 src/test/resources/fixtures/v8_1/rest/
-├── admin-model-node-by-model-sd-ext-system.*          # existing (PR #113)
-├── admin-model-node-by-model-sd-ext-system-2.*        # new, synthetic
-├── model-by-name-systemdiagram.*                      # new, synthetic
-└── admin-model-node-by-model-managed-module.*         # new, synthetic
+├── admin-model-node-by-model-sd-ext-system.*          # existing (PR #113), parser tests
+├── admin-model-node-by-model-central-backend.*        # new, synthetic (node 201)
+├── admin-model-node-by-model-sd-ext-system-2.*        # new, synthetic (node 202)
+├── model-models-management.*, model-by-name-systemdiagram.*, model-by-name-tw-out.*  # new, synthetic
+└── admin-model-node-by-model-managed-module.*         # new, synthetic (node 301)
+src/test/resources/fixtures/v8_1/cli/export_modules_management.*   # new, synthetic module list
 tools/record-fixtures.sh, tools/anonymize.py           # T-record cases, ResourceSettings neutralization
 docs/tools.md, docs/interface-coverage.md, CHANGELOG.md
 ```

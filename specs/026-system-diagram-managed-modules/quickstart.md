@@ -16,19 +16,23 @@ python3 -I -m unittest discover -s tools/tests -v
 
 Synthetic fixtures (research D-11): a system diagram `SD-HTTP` (group `GRP-CONNECT`) whose `modelByName`
 lists `sdExtSystem` `Central-Backend` (node 201), `sdExtSystem` `Second-Backend` (node 202),
-`sdInubitIS` and `sdCommunicationCloud`; `nodeByModel` answers from `admin-model-node-by-model-sd-ext-system.xml` (planted
-secrets 3911–3914), `admin-model-node-by-model-sd-ext-system-2.xml` (3917) and
-`admin-model-node-by-model-managed-module.xml` (3918); a module `Demo-HTTP-Out-A` used by workflow `TW-Out` whose own `ServerName` is
-`http://localhost:8000/dummy`.
+`sdInubitIS` and `sdCommunicationCloud`; `nodeByModel` answers from `admin-model-node-by-model-central-backend.xml` (201: central
+`ServerName` `https://central.example.test`, links `Demo-HTTP-Out-A` and `-B`, planted 3916),
+`admin-model-node-by-model-sd-ext-system-2.xml` (202: links `-B`, `-C` and `Demo-HTTP-Gone`, 3917)
+and `admin-model-node-by-model-managed-module.xml` (3918); the diagram list
+`model-models-management.xml` holds only `SD-HTTP` and `TW-Out`; the module `Demo-HTTP-Out-A` is used
+by workflow `TW-Out` (node 301) and has its own `ServerName` `http://localhost:8000/dummy`; the module
+list is the StartCLI fixture `export_modules_management.zip` (`-A` … `-D`, `-C` twice). All of it is
+wired by `ManagementFixture` (tasks.md T002, T010).
 
 | # | Scenario | Spec | Expected |
 |---|---|---|---|
 | V-1 | `get_inventory_item` MODULE `Demo-HTTP-Out-A` | US1 AS1, AS2 | `management.status = managed`, element `Central-Backend`, `differing` ServerName with both values, password masked |
-| V-2 | module linked by no element | US1 AS3 | `not_managed`, `complete: true`, `systemDiagramsChecked: 1` |
-| V-3 | linked by both elements | US1 AS4 | two elements, warning "managed more than once" |
+| V-2 | `Demo-HTTP-Out-D`, linked by no element | US1 AS3 | `not_managed`, `complete: true`, `systemDiagramsChecked: 1` |
+| V-3 | `Demo-HTTP-Out-B`, linked by both elements | US1 AS4 | two elements, warning "managed more than once" |
 | V-4 | stage of two servers, other central server on node2 | US1 AS5 | each result its own settings |
 | V-5 | second system diagram answers 500 | US1 AS6 | `managed`, `complete: false`, `firstNotRead` names it, warning |
-| V-6 | two modules share the name (types match / differ / none match) | US1 AS7 | only the matching one / both with "cannot be attributed" |
+| V-6 | two modules share the name (types match: `Demo-HTTP-Out-C` through WireMock; differ / none match: `ManagementMatcherTest`) | US1 AS7 | only the matching one / both with "cannot be attributed" |
 | V-7 | `read_model_details` module of `TW-Out` | US2 AS1 | properties unchanged + same `management` |
 | V-8 | `read_model_details` of `sdExtSystem` / `sdCommunicationCloud` | US2 AS2 | no `management` |
 | V-9 | server without `inventory.owner` | US2 AS3 | `unknown`, `NOT_CONFIGURED`, properties shown |
@@ -40,7 +44,7 @@ secrets 3911–3914), `admin-model-node-by-model-sd-ext-system-2.xml` (3917) and
 | V-15 | node on 9.0 | FR-015 | `unknown`, `UNSUPPORTED_VERSION` "not yet verified" |
 | V-16 | slow `nodeByModel` beyond the budget | FR-017 | `unknown`, `TIMEOUT`, "the read goes on and fills the cache"; next call served from cache |
 | V-17 | two module calls within the TTL | SC-004 | no second `modelByName`/`nodeByModel` request |
-| V-18 | leak test: result, error excerpts, logs, cache | SC-003 | none of 3911–3914, 3917, 3918 |
+| V-18 | leak test: result, error excerpts, logs, cache | SC-003 | none of 3911–3914, 3916, 3917, 3918 |
 | V-19 | 8.1 node | D-2 | the check runs without a version warning in `management.warnings` / `managedModules.warnings` |
 | V-20 | `read_model_details` / DIAGRAM detail with no cached module list | D-13 | no StartCLI run; managed module with "module list not loaded" warning; `managedModules` without `found` + `moduleListUnavailable` |
 | V-21 | diagram list fails | D-13 | `unknown`, `complete: false`, `systemDiagramsChecked: 0`, `firstNotRead.kind = diagramList`; `managedModules.unavailable` |

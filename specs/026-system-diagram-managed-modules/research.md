@@ -185,8 +185,10 @@ compares the two.
 ## D-11 Fixtures and recording
 
 **Decision**: tests run on synthetic fixtures built from the probed structure: the existing
-`admin-model-node-by-model-sd-ext-system.xml` plus a synthetic `modelByName` answer of a system
-diagram (`sdExtSystem` ×2, `sdInubitIS`, `sdCommunicationCloud`) and a managed module's own detail.
+`admin-model-node-by-model-sd-ext-system.xml` (parser tests) plus a synthetic set for the check: a
+diagram list with one system diagram, its `modelByName` answer (`sdExtSystem` ×2, `sdInubitIS`,
+`sdCommunicationCloud`), both elements' details, a technical workflow using the managed module, the
+module's own detail and a StartCLI module export (tasks.md T002).
 Task T-record (owner-gated, needs a reachable non-production node and the operator's credentials)
 adds recorder cases for `modelByName` of a system diagram, `nodeByModel` of an `sdExtSystem` and
 the REST export of the same system diagram (D-1 alternative), extends `tools/anonymize.py` to
@@ -199,8 +201,8 @@ fixtures by recorded ones; it also resolves D-3's open point.
 managed centrally by a system diagram; the result's `management` says whether, by which element, and
 with which settings — read it before trusting the module's own connection properties." The pinned
 description tests, `docs/tools.md` (sections, field tables, rendered descriptions) and the
-`DevelopmentToolsReferenceTest` expectations are updated; `docs/interface-coverage.md` and
-`interface-coverage.tsv` gain the `get_inventory_item` use of `nodeByModel`.
+`DevelopmentToolsReferenceTest` expectations are updated; `interface-coverage.tsv` gains a comment line naming the `get_inventory_item` use of `nodeByModel`
+(the state column stays as it is) and `docs/interface-coverage.md` is regenerated.
 
 ## D-13 The owner's module list (FR-003, FR-010) and completeness
 

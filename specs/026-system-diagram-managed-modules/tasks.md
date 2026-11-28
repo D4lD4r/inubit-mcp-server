@@ -15,7 +15,7 @@ names only: `SD-HTTP`, `GRP-CONNECT`, `Central-Backend`, `Demo-HTTP-Out-A`, `*.e
 unless they start with `src/`, `docs/`, `tools/`, `specs/`.
 
 **Secrets (FR-006, SC-003, Constitution II)**: every task that adds a result field, reason, warning
-or log line asserts that none of the planted secrets `synthetic-secret-3911`…`3914`, `3917`, `3918`
+or log line asserts that none of the planted secrets `synthetic-secret-3911`…`3914`, `3916`, `3917`, `3918`
 appears in it — named below as "leak check".
 
 **Identifiers**: before every commit `python3 tools/check-identifiers.py --staged` (the pre-commit
@@ -34,20 +34,37 @@ hook runs it too).
 - [ ] T001 Baseline: the build is green on branch `026-system-diagram-managed-modules`; note the test
   count in `specs/026-system-diagram-managed-modules/reviews/implementation.md` ("Baseline")
 - [ ] T002 [P] Synthetic fixtures (research D-11, quickstart "Validation scenarios"), each with a
-  `.README` starting `SYNTHETIC –` that names the probe of 2026-11-27 as the source of the shape:
-  `src/test/resources/fixtures/v8_1/rest/model-by-name-systemdiagram.{http,xml}` in the format of
-  `modelByName_sample.*` (system diagram `SD-HTTP`, group `GRP-CONNECT`; nodes `Central-Backend`
-  `sdExtSystem` 201, `Second-Backend` `sdExtSystem` 202, one `sdInubitIS`, one
-  `sdCommunicationCloud`); `admin-model-node-by-model-sd-ext-system-2.{http,xml}` (a second external
-  system linking `Demo-HTTP-Out-A` (so V-3 has a module managed twice), `Demo-HTTP-Out-C` and the missing `Demo-HTTP-Gone`, planted
-  `synthetic-secret-3917`); `admin-model-node-by-model-managed-module.{http,xml}` (an HTTP Connector
-  `Demo-HTTP-Out-A` with `ServerName` `http://localhost:8000/dummy` and a planted Password
-  `synthetic-secret-3918`); a fixture test in `adapter/rest/v81/ManagementFixturesTest.java` asserts
-  each file parses with the existing parsers and carries its planted secret
+  `.README` starting `SYNTHETIC –` that names the probe of 2026-11-27 as the source of the shape.
+  Under `src/test/resources/fixtures/v8_1/rest/`:
+  - `model-models-management.{http,xml}` (format of `model_models_owner.xml`): the owner's diagram
+    list with exactly one `systemdiagram` `SD-HTTP` (group `GRP-CONNECT`) and the technical workflow
+    `TW-Out`;
+  - `model-by-name-systemdiagram.{http,xml}` (format of `modelByName_sample.*`): `SD-HTTP` with
+    `Central-Backend` `sdExtSystem` 201, `Second-Backend` `sdExtSystem` 202, one `sdInubitIS`, one
+    `sdCommunicationCloud`;
+  - `model-by-name-tw-out.{http,xml}`: `TW-Out` with the module node of `Demo-HTTP-Out-A` (id 301);
+  - `admin-model-node-by-model-central-backend.{http,xml}`: node 201, `ResourceType`
+    `HTTP Connector`, `ServerName` `https://central.example.test`, a planted Password
+    `synthetic-secret-3916`, linking `Demo-HTTP-Out-A` and `Demo-HTTP-Out-B` (the PR #113 fixture
+    `admin-model-node-by-model-sd-ext-system.xml` stays unchanged for the parser tests and T005);
+  - `admin-model-node-by-model-sd-ext-system-2.{http,xml}`: node 202, `ResourceType`
+    `HTTP Connector`, `ServerName` `https://second.example.test`, planted `synthetic-secret-3917`,
+    linking `Demo-HTTP-Out-B` (managed twice, V-3; `Demo-HTTP-Out-A` stays single for V-1 and
+    SC-001), `Demo-HTTP-Out-C` and the missing `Demo-HTTP-Gone`;
+  - `admin-model-node-by-model-managed-module.{http,xml}`: node 301, an HTTP Connector
+    `Demo-HTTP-Out-A` with `ServerName` `http://localhost:8000/dummy` and a planted Password
+    `synthetic-secret-3918`.
+
+  Under `src/test/resources/fixtures/v8_1/cli/`: `export_modules_management.{zip,stdout,stderr,exit}`
+  in the entry layout of `export_modules_sample.*`: `Demo-HTTP-Out-A`, `-B`, `-C` and `-D` (HTTP
+  Connector; `-D` linked by no element, V-2) and a second `Demo-HTTP-Out-C` in another diagram group
+  with an FTP Connector plugin type (V-6 "types match"). A fixture test in
+  `adapter/rest/v81/ManagementFixturesTest.java` asserts each file parses with the existing parsers
+  and carries its planted secret
 
 ## Phase 2: Foundational (blocks every story)
 
-- [ ] T003 Capability (research D-2): `domain/model/Capability.java` gains
+- [ ] T003 [P] Capability (research D-2): `domain/model/Capability.java` gains
   `MODULE_MANAGEMENT(READ, {REST})`; `domain/model/CapabilityMatrix.java`: 8.1 supported, 9.0
   refused "not yet verified", 6.1, 7.4 and unknown versions refused; `NodeOverview` and
   `ConfigSummary` list `module_management`; `src/main/resources/schemas/list_nodes.output.json` gains
@@ -132,7 +149,14 @@ FR-013…FR-017).
   construction site — `Wiring.java` (creates `ManagementService` with the shared `InventoryCache`,
   `GatewayFactory`, `VersionGate` and passes it), `mcp/tools/InventoryToolFixture.java`,
   `application/CapabilityExtensionTest.java`, `application/InventoryOwnerTest.java`,
-  `application/InventoryServiceTest.java`. Tests first in
+  `application/InventoryServiceTest.java`, and the `InventoryDetail` constructions in
+  `application/InventoryBounds.java` and `application/InventoryBoundsTest.java`. The fake server is a
+  new `mcp/tools/ManagementFixture.java` next to `InventoryToolFixture`: it stubs the T002 files
+  (`/model/models` → `model-models-management`, `modelByName/SD-HTTP`, `modelByName/TW-Out`,
+  `nodeByModel/SD-HTTP/201` and `/202`, `nodeByModel/TW-Out/301`) and a `FakeProcessLauncher`
+  exporting `export_modules_management.zip`; V-4 (second server with `ServerName`
+  `https://central-2.example.test` on node 201) and V-5 (node 202 answers 500) are stub overrides in
+  the test; V-6's branches "types differ" and "none match" run only in T007. Tests first in
   `application/InventoryServiceManagementTest.java` through WireMock (V-1…V-6, V-17) and the existing
   `InventoryServiceTest` (deadline arithmetic); leak check
 - [ ] T011 [US1] `application/ManagementBounds.java` and `application/InventoryBounds.java`: cut the
@@ -176,8 +200,8 @@ FR-013…FR-017).
   (schema for all statuses; no section for an `sdExtSystem`; the section's JSON equals
   `get_inventory_item`'s for the same module) and `adapter/rest/v81/ModelDetailsV81ContractTest.java`
   (V-7, V-8)
-- [ ] T017 [US2] `security/ModelDetailsSecretLeakTest.java`: the managed-module and both
-  `sdExtSystem` fixtures through `read_model_details`; leak check on result, errors and logs
+- [ ] T017 [US2] `security/ModelDetailsSecretLeakTest.java`: the managed-module fixture and the
+  `sdExtSystem` fixtures (`central-backend`, `sd-ext-system`, `sd-ext-system-2`) through `read_model_details`; leak check on result, errors and logs
 
 ## Phase 5: User Story 3 — a system diagram's detail lists the modules it manages (P2)
 
@@ -188,7 +212,8 @@ FR-013…FR-017).
 
 - [ ] T018 [US3] `ManagementService.forSystemDiagram` (research D-8, D-13) and the DIAGRAM hook in
   `application/InventoryService.java`; `domain/model/InventoryDetail.java` gains
-  `Optional<SystemDiagramManagement> managedModules`: elements of that diagram from the (cached) index;
+  `Optional<SystemDiagramManagement> managedModules` (again with the `InventoryDetail` constructions in
+  `InventoryBounds.java` and `InventoryBoundsTest.java`): elements of that diagram from the (cached) index;
   `found` marks only from a cached module list (`peek`), else none plus `moduleListUnavailable`; an
   unreadable element with name, node id and `error`; `unavailable` when there is no usable index for
   this diagram (gate, `TIMEOUT`, `DIAGRAM_LIST` item, the diagram itself unreadable, the diagram
@@ -229,7 +254,7 @@ FR-013…FR-017).
 - [ ] T024 Operator (live, non-production, after T022 and T023): record the three cases of T023 for
   one system diagram that manages connectors centrally, with the commands of quickstart.md "Live
   acceptance"; check with `anonymize.py --verify` and `check-identifiers.py --all`. **Blocks T025**
-- [ ] T025 Swap the synthetic `model-by-name-systemdiagram.*` and `admin-model-node-by-model-sd-ext-system*`
+- [ ] T025 Swap the synthetic `model-by-name-systemdiagram.*`, `admin-model-node-by-model-central-backend.*` and `admin-model-node-by-model-sd-ext-system*`
   fixtures for the recorded ones (planted secrets re-added at the places their README documents);
   record in `specs/026-system-diagram-managed-modules/research.md` the form of `ResourceType` (D-3)
   and whether the export carries the `sdExtSystem` properties (D-1 alternative). Tests first: the
