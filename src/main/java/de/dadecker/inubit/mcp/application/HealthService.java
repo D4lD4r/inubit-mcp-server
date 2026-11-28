@@ -115,8 +115,9 @@ import org.slf4j.LoggerFactory;
  *       its credentials as above, one {@link CliHealthPort#snapshot} (the session's connection
  *       reads the client options and checks TLS first) in parallel with the client probe. On a
  *       version that uses only a client of its own ({@link VersionGate#ownClientOnly}, feature
- *       025, FR-029: 7.4) the probe runs first, within the same budget, and a client of another
- *       major.minor or one whose version cannot be read gives a failed report with the
+ *       025, FR-029: 7.4) the probe of the pin's client (also when an observation contradicts
+ *       the pin) runs first, within the same budget, and a client of another major.minor or
+ *       one whose version cannot be read gives a failed report with the
  *       {@code CLI_UNAVAILABLE} of {@link VersionGate#ownClientRefusal}: no session, no warning.
  *       {@code reachable} means StartCLI connected and logged in; {@code status} is {@code OK}
  *       when the alive check succeeded, {@code ERROR} when it answered negatively and
@@ -452,9 +453,12 @@ public final class HealthService {
                 return failedViaCli(server, port);
             }
             if (gate.ownClientOnly(server)) {
-                // feature 025 (FR-029): the client must report the pinned line before contact
+                // feature 025 (FR-029): the client must report the pinned line before contact;
+                // probe the pin's client, the one ownClientRefusal checks, also when an
+                // observation contradicts the pin (fail-closed)
                 StartedProbe first = startProbe(executor, server,
-                    versions.effectiveVersion(server), budgetEnd);
+                    NodeVersionState.initial(versions.state(server).setting()).effectiveVersion(),
+                    budgetEnd);
                 if (first != null) {
                     record(server, first, deadline, budget);
                 }

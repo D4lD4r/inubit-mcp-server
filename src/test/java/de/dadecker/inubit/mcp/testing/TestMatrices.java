@@ -13,9 +13,9 @@ import java.util.Set;
 
 /**
  * Feature 025 T038 (spec FR-030, FR-036): the test matrices of the flip, written before it
- * landed in production (T035), whose 7.4 and 6.1 entries they repeat. Each declares monitoring and process diagnosis {@code UNVERIFIED} through StartCLI on
- * one CLI-only version and every capability {@code SUPPORTED} on 8.1; unknown versions support
- * nothing.
+ * landed in production (T035), whose 7.4 and 6.1 entries they repeat. Each declares
+ * monitoring and process diagnosis {@code UNVERIFIED} through StartCLI on one CLI-only version
+ * and every capability {@code SUPPORTED} on 8.1; unknown versions support nothing.
  */
 public final class TestMatrices {
 

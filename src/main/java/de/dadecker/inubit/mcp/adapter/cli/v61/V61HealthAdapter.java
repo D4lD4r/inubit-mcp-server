@@ -43,6 +43,7 @@ public final class V61HealthAdapter implements CliHealthPort {
         this(node, connection, classifier, CliLineProfile.V61);
     }
 
+    /** The health port of a version line on the 6.1 adapters (feature 025, FR-024). */
     public V61HealthAdapter(NodeId node, V61Connection connection,
         CliOutputClassifier classifier, CliLineProfile profile) {
         this.node = Objects.requireNonNull(node, "node");

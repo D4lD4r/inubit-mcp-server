@@ -17,13 +17,18 @@ public final class ContactedException extends ToolErrorException {
         super(error);
     }
 
-    private ContactedException(ToolError error, List<String> warnings) {
-        super(error, null, warnings);
+    /** @param details those of the re-thrown error, {@code null} if it has none */
+    public ContactedException(ToolError error, Object details) {
+        super(error, details);
     }
 
-    /** Stays a {@code ContactedException}. */
+    private ContactedException(ToolError error, Object details, List<String> warnings) {
+        super(error, details, warnings);
+    }
+
+    /** Stays a {@code ContactedException}, with its details. */
     @Override
     public ContactedException withWarnings(List<String> warnings) {
-        return new ContactedException(error(), warnings);
+        return new ContactedException(error(), details().orElse(null), warnings);
     }
 }

@@ -149,6 +149,10 @@ class HealthServiceTest {
     private volatile LeaseView leaseView = () -> new LeaseView.Snapshot.Leases(List.of());
     /** Feature 025: runs before each StartCLI installation lookup (a test may block it there). */
     private volatile Consumer<NodeId> beforeClientLookup = node -> { };
+    /** Feature 025: runs before each StartCLI health port lookup (a test may block it there). */
+    private volatile Consumer<NodeId> beforeCliPortLookup = node -> { };
+    /** Feature 025: the client chosen for a version, by the gate and get_health alike. */
+    private Function<Optional<InubitVersion>, ClientKey> clientKeys = version -> ClientKey.NONE;
 
     private FakeMonitoring monitoring(NodeId server) {
         return monitorings.computeIfAbsent(server, s -> new FakeMonitoring());
@@ -209,6 +213,7 @@ class HealthServiceTest {
 
             @Override
             public Optional<CliHealthPort> cliHealth(NodeId server) {
+                beforeCliPortLookup.accept(server);
                 return Optional.ofNullable(cliPorts.get(server));
             }
 
@@ -239,15 +244,16 @@ class HealthServiceTest {
         GatewayFactory gateways = gatewaysForTest();
         ClientVersionPort probe = (server, version, timeout) -> {
             probeTimeouts.add(timeout);
-            return new ProbedClient(ClientKey.NONE,
+            return new ProbedClient(clientKeys.apply(version),
                 clients.getOrDefault(server, () -> CLIENT_8117).get());
         };
-        VersionGate gate = gateWithoutClients(versions, gateways, matrix);
+        VersionGate gate = gateWithoutClients(versions, gateways, matrix,
+            TestClientSelection.of(node -> false, clientKeys));
         LeaseView leases = () -> leaseView.leases();
         ClientSelectionPort selection = TestClientSelection.of(node -> {
             beforeClientLookup.accept(node);
             return withClient.contains(node);
-        });
+        }, clientKeys);
         return singleCliBudget == null
             ? new HealthService(gateways, new TargetResolver(SERVERS), new FanOut(),
                 server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC), gate, versions, probe,
@@ -1241,6 +1247,30 @@ class HealthServiceTest {
     }
 
     @Test
+    void aContradicted74PinProbesThePinnedClientAndStaysRefused() {
+        pin74(VersionSetting.V7_4, true);
+        withClient.add(DEV);
+        // a client of its own per line: the observation would choose the 8.1 one
+        ClientKey own74 = new ClientKey("/opt/startcli-7.4", "");
+        clientKeys = version -> version.filter(v -> v.major() == 7 && v.minor() == 4).isPresent()
+            ? own74 : new ClientKey("/opt/startcli-8.1", "");
+        versions.observed(DEV, version("8.1.17"));
+        clients.put(DEV, () -> CLIENT_8117);
+
+        HealthReport report = checkOne74();
+
+        assertThat(report.error()).as("fail-closed: the pin's client is checked")
+            .hasValueSatisfying(error -> {
+                assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                assertThat(error.message()).isEqualTo(foreignClientMessage("StartCLI client"
+                    + " 8.1.17 of dev/node1 is not an INUBIT 7.4 client"));
+            });
+        assertThat(versions.state(DEV).clientFor(own74)).as("the pinned client was probed")
+            .isPresent();
+        assertThat(((FakeCliHealth) cliPorts.get(DEV)).budgets).as("no session").isEmpty();
+    }
+
+    @Test
     void a74PinWhoseClientVersionCannotBeReadIsRefusedBeforeTheSession() {
         pin74(PIN_74090, true);
         withClient.add(DEV);
@@ -1419,6 +1449,22 @@ class HealthServiceTest {
     void theDeadlineTimeoutOfTheCredentialsCarriesTheWarning() {
         FakeCliHealth port = pin74(budget -> snapshot("7.4.0.90", false, true, false));
         credentials.put(DEV, HealthServiceTest::sleepUntilInterruptedThenReady);
+
+        HealthReport report = checkOne74Scaled();
+
+        assertThat(report.error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+            assertThat(error.message()).startsWith(
+                "No answer from dev/node1 while preparing the connection");
+        });
+        assertThat(report.warnings()).containsExactly(UNVERIFIED_74);
+        assertThat(port.budgets).as("no session").isEmpty();
+    }
+
+    @Test
+    void theDeadlineTimeoutOfTheStartCliPortCarriesTheWarning() {
+        FakeCliHealth port = pin74(budget -> snapshot("7.4.0.90", false, true, false));
+        beforeCliPortLookup = node -> sleepQuietly(10_000);
 
         HealthReport report = checkOne74Scaled();
 

@@ -255,9 +255,10 @@ public final class VersionGate {
      *                 {@link Channel#CLI}
      * @throws ToolErrorException {@code UNSUPPORTED_VERSION} if the call is refused;
      *     {@code CLI_UNAVAILABLE} if the fail-closed client check of an own-client-only version
-     *     refuses it (feature 025, FR-029); {@code TLS_ERROR} of the detection, passed through (no request was possible, so it is
-     *     no failed detection and no reason to refuse); the error of a detection or client probe
-     *     cancelled by an interrupt, passed through and not recorded
+     *     refuses it (feature 025, FR-029); {@code TLS_ERROR} of the detection, passed through
+     *     (no request was possible, so it is no failed detection and no reason to refuse); the
+     *     error of a detection or client probe cancelled by an interrupt, passed through and not
+     *     recorded
      */
     public Admission admit(NodeId node, Capability capability, Capability.Kind purpose,
         Set<Channel> channels) {

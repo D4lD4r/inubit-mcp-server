@@ -1423,28 +1423,19 @@ class VersionGateTest {
     @ParameterizedTest
     @EnumSource(value = Capability.class, mode = EnumSource.Mode.EXCLUDE,
         names = {"MONITORING", "PROCESS_DIAGNOSIS"})
-    void everyOtherCapabilityOn61KeepsTheFeature012RefusalWithTheUnverifiedTestMatrix(
-        Capability capability) {
-        // T043 (FR-036): the same refusal as with the test matrix before the flip, whose 6.1 entry
-        // refuses everything as production does since feature 012 (its texts are pinned by
+    void everyOtherCapabilityOn61KeepsTheFeature012RefusalInProduction(Capability capability) {
+        // T043 (FR-036): the flipped production matrix keeps the feature-012 refusal of every
+        // other capability on 6.1 (its texts are pinned on the production wiring by
         // V61RefusalTest and VersionLineRegressionTest), on V6_1 and on a concrete 6.1 pin
-        CapabilityMatrix beforeTheFlip = new CapabilityMatrix(List.of(
-            new CapabilityMatrix.Entry(new VersionRange(6, 1, 6, 1),
-                Map.of(Capability.MONITORING, SupportState.UNSUPPORTED,
-                    Capability.PROCESS_DIAGNOSIS, SupportState.UNSUPPORTED),
-                Map.of(Capability.MONITORING, CLI, Capability.PROCESS_DIAGNOSIS, CLI), true),
-            new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1),
-                all(SupportState.SUPPORTED))), Map.of());
         withClient.add(V6_1);
         withClient.add(V6_1_PINNED);
 
         for (NodeId node : List.of(V6_1, V6_1_PINNED)) {
-            ToolError unverified = refusal(() -> gate(TestMatrices.unverified61()).admit(node,
+            ToolError refusal = refusal(() -> gate(CapabilityMatrix.production()).admit(node,
                 capability, capability.kind(), capability.channels()));
-            ToolError before = refusal(() -> gate(beforeTheFlip).admit(node, capability,
-                capability.kind(), capability.channels()));
 
-            assertThat(unverified).as(node.toString()).isEqualTo(before);
+            assertThat(refusal.message()).as(node.toString())
+                .contains(" on " + node + " does not support ").endsWith("; nothing was sent");
         }
         assertThat(probe.calls).as("refused before the client").isEmpty();
         assertThat(detection.calls).isZero();

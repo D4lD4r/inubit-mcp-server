@@ -142,7 +142,7 @@ public final class V61Connection {
         try {
             TlsHandshakeCheck.verify(chosen, url);
         } catch (ToolErrorException e) {
-            throw new ContactedException(e.error());
+            throw new ContactedException(e.error(), e.details().orElse(null));
         }
     }
 

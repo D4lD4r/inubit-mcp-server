@@ -85,8 +85,9 @@ class CliRunnerMessagesTest {
 
     /**
      * Feature 025 T033 (FR-029): the selection of a 7.4 node whose matrix entry has
-     * {@code ownClientOnly} and that found no client of its own; the production matrix sets the
-     * flag with the flip (T035), so the choice is built here as {@code cliFor} makes it then.
+     * {@code ownClientOnly} and that found no client of its own, built here as {@code cliFor}
+     * makes it; {@link #aSevenFourPinWithOnlyCliHomeNamesItsEntryThroughSelect} goes through
+     * {@code CliRunner.select} with the production matrix.
      */
     private Selection ownClientOnlyWithoutClient(EffectiveNodeConfig server) {
         CliChoice choice = new CliChoice(new EffectiveNodeConfig.Cli(
@@ -159,6 +160,16 @@ class CliRunnerMessagesTest {
         assertTheOwnClientText(refusal(onlyCliHome));
         assertThat(otherEntry.entryHint()).contains(new MajorMinor(7, 4));
         assertTheOwnClientText(refusal(otherEntry));
+    }
+
+    @Test
+    void aSevenFourPinWithOnlyCliHomeNamesItsEntryThroughSelect() throws IOException {
+        // feature 025 (FR-029): since the flip (T035) the production matrix flags 7.4
+        Path defaultClient = Files.createDirectories(root.resolve("default-client"));
+        EffectiveNodeConfig server = node().versionLine(new VersionSetting.Pinned(V7_4_0_90))
+            .defaultCliHome(defaultClient).build();
+
+        assertTheOwnClientText(refusal(server, Optional.of(V7_4_0_90)));
     }
 
     @Test

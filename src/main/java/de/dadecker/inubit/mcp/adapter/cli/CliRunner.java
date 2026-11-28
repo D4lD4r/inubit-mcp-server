@@ -533,7 +533,8 @@ public final class CliRunner {
      * @throws ToolErrorException {@code AUTH_FAILED} from the guard or, on Windows, for a
      *     credential StartCLI cannot receive (feature 013, FR-003; before the guard),
      *     {@code CLI_UNAVAILABLE} if StartCLI cannot be started or a Windows refusal applies,
-     *     {@code TIMEOUT} if it does not finish within {@code timeout}
+     *     {@code TIMEOUT} if it does not finish within {@code timeout}; an error raised after the
+     *     StartCLI process started comes as a {@link ContactedException} (feature 025, FR-030 (b))
      * @throws IllegalArgumentException if the trust store has to go through
      *     {@code JAVA_TOOL_OPTIONS} and its path contains whitespace (the caller refuses such a
      *     node first); nothing is launched
@@ -887,15 +888,16 @@ public final class CliRunner {
         String launchNextStep = windows ? "Check that cli.home is an existing local directory"
             + " your account can access"
             : "Check cliHome, cli.javaHome and the file permissions of bin/startcli.sh";
-        AtomicBoolean started = new AtomicBoolean();
-        StartHook recording = launch -> {
+        // whether the process started; recorded only for a run that marks contact
+        AtomicBoolean started = markContact ? new AtomicBoolean() : null;
+        StartHook startedBy = started == null ? hook : launch -> {
             LaunchedProcess process = hook.start(launch);
             started.set(true);
             return process;
         };
         ProcessRun.Call call = ProcessRun.Call.of("StartCLI").forNode(server.id())
             .withTimeoutSetting(timeoutSetting).withOutput(maxOutputBytes, decoder())
-            .startedBy(markContact ? recording : hook)
+            .startedBy(startedBy)
             .withLaunchFailure(launchCause, launchNextStep);
         if (windows) {
             call = call.refiningTimeouts((stdout, message) ->
@@ -907,8 +909,8 @@ public final class CliRunner {
             return processRun.run(spec, stdinBytes(stdinSecret, stdinCommands), timeout, call)
                 .forClientMajor(choice.major());
         } catch (ToolErrorException e) {
-            if (started.get()) {
-                throw new ContactedException(e.error());
+            if (started != null && started.get()) {
+                throw new ContactedException(e.error(), e.details().orElse(null));
             }
             throw e;
         }

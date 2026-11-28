@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.adapter.cli.v61;
 
 import de.dadecker.inubit.mcp.adapter.cli.CliSessionCommand;
 import de.dadecker.inubit.mcp.adapter.cli.CliSessionParser;
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import java.util.List;
@@ -58,9 +59,12 @@ public final class V61SessionParser {
     /**
      * {@code error}, an {@code UNEXPECTED_RESPONSE} of {@link #blocks} or {@link #unexpected}
      * (as {@link V61HealthParser} and {@link V61PsParser} throw it), with the cause naming the
-     * expected format of {@code profile}'s release.
+     * expected format of {@code profile}'s release; any other error unchanged.
      */
     static ToolError named(ToolError error, CliLineProfile profile) {
+        if (error.code() != ErrorCode.UNEXPECTED_RESPONSE) {
+            return error;
+        }
         return parser(profile).unexpected(error.message()).error();
     }
 

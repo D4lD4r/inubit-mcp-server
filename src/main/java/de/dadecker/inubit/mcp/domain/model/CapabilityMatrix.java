@@ -192,10 +192,11 @@ public final class CapabilityMatrix {
 
     /**
      * The production declaration of research D-3: 6.1.x CLI-only with monitoring and process
-     * diagnosis unverified (feature 025, FR-036) and every other capability unsupported; 8.1.x and (feature 017, research D-9) 9.0.x all supported, except partner
-     * management on 9.0.x, which is unverified (feature 018); any other known version and unknown
-     * versions: reads unverified, writes unsupported. Feature 020 (research D-6, D-20): reading
-     * Queue Manager entries is supported on 8.1 and 9.0, on any other and on unknown versions
+     * diagnosis unverified (feature 025, FR-036) and every other capability unsupported; 8.1.x
+     * and (feature 017, research D-9) 9.0.x all supported, except partner management on 9.0.x,
+     * which is unverified (feature 018); any other known version and unknown versions: reads
+     * unverified, writes unsupported. Feature 020 (research D-6, D-20): reading Queue Manager
+     * entries is supported on 8.1 and 9.0, on any other and on unknown versions
      * unsupported. Feature 021 (research D-6): downloading the trace log and the web service log
      * is supported on 8.1 (T033, T046) and 9.0 (T051, T052), on any other and on unknown versions
      * unsupported. Feature 022 (research D-1): reading the server settings is supported on 8.1

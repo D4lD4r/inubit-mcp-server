@@ -90,6 +90,7 @@ public final class V61ProcessQueryAdapter implements ProcessQueryPort {
         this(node, connection, classifier, CliLineProfile.V61);
     }
 
+    /** The process query port of a version line on the 6.1 adapters (feature 025, FR-024). */
     public V61ProcessQueryAdapter(NodeId node, V61Connection connection,
         CliOutputClassifier classifier, CliLineProfile profile) {
         this.node = Objects.requireNonNull(node, "node");

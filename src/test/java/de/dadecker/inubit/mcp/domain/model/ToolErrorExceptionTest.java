@@ -36,4 +36,15 @@ class ToolErrorExceptionTest {
         assertThat(contacted.error()).isEqualTo(ERROR);
         assertThat(contacted.warnings()).containsExactly("not verified");
     }
+
+    @Test
+    void aContactedExceptionKeepsTheDetailsAlsoWithWarnings() {
+        ToolErrorException contacted = new ContactedException(ERROR, "details");
+        ToolErrorException withWarnings = contacted.withWarnings(List.of("not verified"));
+
+        assertThat(contacted.details()).contains("details");
+        assertThat(withWarnings).isInstanceOf(ContactedException.class);
+        assertThat(withWarnings.details()).contains("details");
+        assertThat(withWarnings.warnings()).containsExactly("not verified");
+    }
 }

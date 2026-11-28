@@ -371,7 +371,7 @@ class EffectiveNodeConfigCliForTest {
                 baseUrl: https://inubit-c.example.test:8443
         """;
 
-    /** The same nodes with only {@code defaults.cliHome}, and a 6.1 node. */
+    /** A 7.4 pin and a V7_4 line with only {@code defaults.cliHome}, and a 6.1 node. */
     private static final String SEVEN_FOUR_WITHOUT_CLIENTS = """
         profile:
           name: acme
@@ -387,6 +387,9 @@ class EffectiveNodeConfigCliForTest {
               - name: v61
                 versionLine: V6_1
                 baseUrl: https://inubit-b.example.test:8443
+              - name: l74
+                versionLine: V7_4
+                baseUrl: https://inubit-c.example.test:8443
         """;
 
     private static final Optional<InubitVersion> V7_4 = version("7.4.0.90");
@@ -412,12 +415,14 @@ class EffectiveNodeConfigCliForTest {
 
     @Test
     void aFlaggedVersionNeverFallsBackToTheVersionLessCliHome() {
-        CliChoice choice = server(SEVEN_FOUR_WITHOUT_CLIENTS, "g/p74")
-            .cliFor(V7_4, TestMatrices.unverified74());
+        for (String node : List.of("g/p74", "g/l74")) {
+            CliChoice choice = server(SEVEN_FOUR_WITHOUT_CLIENTS, node)
+                .cliFor(V7_4, TestMatrices.unverified74());
 
-        assertThat(choice.source()).isEqualTo(HomeSource.NONE);
-        assertThat(choice.cli().home()).isEmpty();
-        assertThat(choice.ownClientOnly()).isTrue();
+            assertThat(choice.source()).as(node).isEqualTo(HomeSource.NONE);
+            assertThat(choice.cli().home()).as(node).isEmpty();
+            assertThat(choice.ownClientOnly()).as(node).isTrue();
+        }
     }
 
     @Test
