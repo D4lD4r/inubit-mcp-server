@@ -1,0 +1,6 @@
+SYNTHETIC – GET /model/models?user=<owner> (diagram list) on 8.1, format of model_models_owner.xml.
+Shape from the structure probe of 2026-11-27 against an 8.1.17 non-production server (see
+admin-model-node-by-model-sd-ext-system.README); all names and values are synthetic
+(feature 026, research D-11, tasks.md T002).
+The owner's diagram list holds exactly one system diagram SD-HTTP (group GRP-CONNECT) and
+the technical workflow TW-Out that uses the managed module Demo-HTTP-Out-A.

@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?><ns4:Model name="TW-Out" type="technical" ns2:version="head" group="GRP-CONNECT" xmlns:ns2="inubit.com/ibis/external/base" xmlns:ns4="inubit.com/ibis/external/model" xmlns:ns3="inubit.com/ibis/external/organigram"><ns4:Node name="Demo-HTTP-Out-A" type="twHTTPConnector" id="301"/></ns4:Model>

@@ -1,0 +1,8 @@
+SYNTHETIC – GET /model/modelByName/SD-HTTP?user=<owner> on 8.1, format of modelByName_sample.xml.
+Shape from the structure probe of 2026-11-27 against an 8.1.17 non-production server (see
+admin-model-node-by-model-sd-ext-system.README); all names and values are synthetic
+(feature 026, research D-11, tasks.md T002).
+The probe listed the elements of a system diagram as Node children: two sdExtSystem and one
+sdInubitIS; the sdCommunicationCloud element follows the recorded system diagram exports.
+Here: Central-Backend (sdExtSystem, 201), Second-Backend (sdExtSystem, 202), Demo-IS
+(sdInubitIS, 203) and Demo-Cloud (sdCommunicationCloud, 204).

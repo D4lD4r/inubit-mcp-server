@@ -1,0 +1,8 @@
+SYNTHETIC – StartCLI module export of the owner on 8.1, entry layout of export_modules_sample.zip
+Shape from the structure probe of 2026-11-27 against an 8.1.17 non-production server (see
+admin-model-node-by-model-sd-ext-system.README); all names and values are synthetic
+(feature 026, research D-11, tasks.md T002).
+module/module.xml holds Demo-HTTP-Out-A, -B, -C and -D (HTTP Connector, module group HTTP
+Connector; -A is bound to TW-Out, -D is linked by no system diagram element) and a second
+Demo-HTTP-Out-C in the module group FTP Connector with plugin type FTP Connector, so that the
+shared name is resolved by type. stdout, stderr and exit are copies of export_modules_sample.*.

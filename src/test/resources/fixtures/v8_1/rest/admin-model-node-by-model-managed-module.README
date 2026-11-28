@@ -1,0 +1,8 @@
+SYNTHETIC – GET /model/nodeByModel/TW-Out/301 of the HTTP Connector module Demo-HTTP-Out-A on 8.1, format
+Shape from the structure probe of 2026-11-27 against an 8.1.17 non-production server (see
+admin-model-node-by-model-sd-ext-system.README); all names and values are synthetic
+(feature 026, research D-11, tasks.md T002).
+of admin-model-node-by-model.xml. The probe found that a centrally managed module keeps its
+own ServerName, a local dummy endpoint (here http://localhost:8000/dummy), while the element
+names another server. The node type twHTTPConnector is assumed. One test secret is planted
+(synthetic-secret-3918).

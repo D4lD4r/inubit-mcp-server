@@ -1,0 +1,7 @@
+SYNTHETIC – GET /model/modelByName/TW-Out?user=<owner> on 8.1, format of modelByName_sample.xml.
+Shape from the structure probe of 2026-11-27 against an 8.1.17 non-production server (see
+admin-model-node-by-model-sd-ext-system.README); all names and values are synthetic
+(feature 026, research D-11, tasks.md T002).
+The technical workflow TW-Out uses the managed module Demo-HTTP-Out-A as node 301. The node
+type twHTTPConnector is assumed (tw prefix plus plugin type, as twDatabaseConnector); no
+HTTP Connector node is recorded.

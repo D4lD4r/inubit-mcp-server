@@ -1,0 +1,9 @@
+SYNTHETIC – GET /model/nodeByModel/SD-HTTP/202 of the sdExtSystem element Second-Backend on 8.1, in the
+Shape from the structure probe of 2026-11-27 against an 8.1.17 non-production server (see
+admin-model-node-by-model-sd-ext-system.README); all names and values are synthetic
+(feature 026, research D-11, tasks.md T002).
+shape of admin-model-node-by-model-sd-ext-system.xml without the OAuth entries: ResourceType
+HTTP Connector, ResourceSettings (ServerName https://second.example.test, Login, Password,
+SSLKeyStore) and ResourcesLinked with Demo-HTTP-Out-B (so managed twice), Demo-HTTP-Out-C and
+Demo-HTTP-Gone, which is not in the module list. One test secret is planted
+(synthetic-secret-3917).

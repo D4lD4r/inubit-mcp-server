@@ -8,12 +8,12 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 /** Reads one entry of a recorded CLI export ZIP ({@code fixtures/v8_1/cli/*.zip}). */
-final class ExportFixtures {
+public final class ExportFixtures {
 
     private ExportFixtures() {
     }
 
-    static byte[] entry(String zipFixture, String entryName) {
+    public static byte[] entry(String zipFixture, String entryName) {
         try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(
             FakeProcessLauncher.fixture(zipFixture)))) {
             for (ZipEntry entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {

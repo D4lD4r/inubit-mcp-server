@@ -33,7 +33,7 @@ hook runs it too).
 
 - [X] T001 Baseline: the build is green on branch `026-system-diagram-managed-modules`; note the test
   count in `specs/026-system-diagram-managed-modules/reviews/implementation.md` ("Baseline")
-- [ ] T002 [P] Synthetic fixtures (research D-11, quickstart "Validation scenarios"), each with a
+- [X] T002 [P] Synthetic fixtures (research D-11, quickstart "Validation scenarios"), each with a
   `.README` starting `SYNTHETIC –` that names the probe of 2026-11-27 as the source of the shape.
   Under `src/test/resources/fixtures/v8_1/rest/`:
   - `model-models-management.{http,xml}` (format of `model_models_owner.xml`): the owner's diagram
