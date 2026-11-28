@@ -6,8 +6,13 @@ import de.dadecker.inubit.mcp.application.PartnerService;
 import de.dadecker.inubit.mcp.domain.model.GroupId;
 import de.dadecker.inubit.mcp.domain.model.HealthReport;
 import de.dadecker.inubit.mcp.domain.model.LogType;
+import de.dadecker.inubit.mcp.domain.model.ModuleDetail;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.NodeSummary;
+import de.dadecker.inubit.mcp.domain.model.management.Difference;
+import de.dadecker.inubit.mcp.domain.model.management.ManagementSection;
+import de.dadecker.inubit.mcp.domain.model.management.ManagingElement;
+import de.dadecker.inubit.mcp.domain.model.management.Unreadable;
 import de.dadecker.inubit.mcp.domain.model.node.LeaseReason;
 import de.dadecker.inubit.mcp.domain.model.node.LeaseSummary;
 import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
@@ -30,7 +35,11 @@ import tools.jackson.databind.ser.std.ToStringSerializer;
  * {@code systemLog}), {@code java.time} values as ISO-8601. Feature 024
  * ({@code $defs/LeaseSummary}, research D-23): a {@link LoggerName} as its name, a
  * {@link LeaseReason} as its text, and {@code temporaryLogLevels} of a {@link HealthReport}
- * omitted when empty. A {@link SecretFingerprint} is
+ * omitted when empty. Feature 026 (contracts/management-section.md, research D-10): a
+ * {@link ModuleDetail.Property} in the form {@code read_model_details} writes, the status and
+ * unreadable kinds of the management check in their JSON spelling, and {@code elements} of a
+ * {@link ManagementSection} and {@code differing} of a {@link ManagingElement} omitted when
+ * empty. A {@link SecretFingerprint} is
  * refused (feature 018: it never reaches a result). Shared by the MCP result mapping and by the
  * mappers that bound an item's serialized size ({@code ItemBounds.MAX_ITEM_CHARS}), so that both
  * measure the same text.
@@ -47,10 +56,23 @@ public final class ResultJson {
             .addSerializer(LogType.class, new ToStringSerializer(LogType.class))
             .addSerializer(LoggerName.class, text(LoggerName::value))
             .addSerializer(LeaseReason.class, text(LeaseReason::text))
+            .addSerializer(ModuleDetail.Property.class, new PropertySerializer())
+            .addSerializer(ManagementSection.Status.class, text(status -> switch (status) {
+                case MANAGED -> "managed";
+                case NOT_MANAGED -> "not_managed";
+                case UNKNOWN -> "unknown";
+            }))
+            .addSerializer(Unreadable.Kind.class, text(kind -> switch (kind) {
+                case DIAGRAM_LIST -> "diagramList";
+                case SYSTEM_DIAGRAM -> "systemDiagram";
+                case ELEMENT -> "element";
+            }))
             .addSerializer(SecretFingerprint.class, new RefusingFingerprintSerializer()))
         .addMixIn(NodeSummary.StartCli.class, StartCliJson.class)
         .addMixIn(PartnerService.WorkflowView.class, WorkflowViewJson.class)
         .addMixIn(HealthReport.class, HealthReportJson.class)
+        .addMixIn(ManagementSection.class, ManagementSectionJson.class)
+        .addMixIn(ManagingElement.class, ManagingElementJson.class)
         .build();
 
     /**
@@ -75,6 +97,46 @@ public final class ResultJson {
     private abstract static class HealthReportJson {
         @JsonInclude(JsonInclude.Include.NON_EMPTY)
         abstract List<LeaseSummary> temporaryLogLevels();
+    }
+
+    /** {@code management.elements} (feature 026): only for {@code managed}. */
+    private abstract static class ManagementSectionJson {
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        abstract List<ManagingElement> elements();
+    }
+
+    /** {@code management.elements[].differing} (feature 026): only when non-empty. */
+    private abstract static class ManagingElementJson {
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        abstract List<Difference> differing();
+    }
+
+    /**
+     * A {@link ModuleDetail.Property} as {@code read_model_details} writes it (feature 026,
+     * research D-10): {@code {name, type, value, truncated?}}, {@code {name, type, masked: true}},
+     * or {@code {name, type, entries}}.
+     */
+    private static final class PropertySerializer extends ValueSerializer<ModuleDetail.Property> {
+
+        @Override
+        public void serialize(ModuleDetail.Property property, JsonGenerator generator,
+            SerializationContext context) {
+            generator.writeStartObject();
+            generator.writeStringProperty("name", property.name());
+            generator.writeStringProperty("type", property.type());
+            if (property.value().isPresent()) {
+                generator.writeStringProperty("value", property.value().get());
+                if (property.truncated()) {
+                    generator.writeBooleanProperty("truncated", true);
+                }
+            } else if (property.masked()) {
+                generator.writeBooleanProperty("masked", true);
+            } else {
+                generator.writeName("entries");
+                context.writeValue(generator, property.entries());
+            }
+            generator.writeEndObject();
+        }
     }
 
     /** Writes a value as the string {@code text} gives. */

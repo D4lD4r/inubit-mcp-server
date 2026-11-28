@@ -93,7 +93,7 @@ hook runs it too).
   a warning. Tests first in `domain/model/management/ExternalSystemsTest.java` on constructed details
   and in `adapter/rest/v81/ExternalSystemsFixtureTest.java` on
   `admin-model-node-by-model-sd-ext-system.xml` parsed by `ModuleDetailXmlParser`; leak check
-- [ ] T006 (after T004) `infra/ResultJson.java` serializers and mixins (research D-10): `ModuleDetail.Property` in the form of
+- [X] T006 (after T004) `infra/ResultJson.java` serializers and mixins (research D-10): `ModuleDetail.Property` in the form of
   `ReadModelDetailsTool.Property` (`{name, type, value, truncated?}` | `{name, type, masked: true}` |
   `{name, type, entries}`), `ManagementSection.Status` (`managed`, `not_managed`, `unknown`),
   `Unreadable.Kind` (`diagramList`, `systemDiagram`, `element`); `NON_EMPTY` mixins (as
