@@ -644,7 +644,7 @@ production matrix changes only in T035.
   `UNVERIFIED`, or declares one of these two `UNVERIFIED` while it has no case in
   `fixtures/v6_1/cli/RECONSTRUCTED.txt`. Self-tests with test matrices as in T040. The production
   matrix passes before and after T035.
-- [ ] T043 [US9] 6.1 reads as unverified (spec FR-036; verification task, after T045): with
+- [X] T043 [US9] 6.1 reads as unverified (spec FR-036; verification task, after T045): with
   a test matrix whose 6.1 entry declares the two capabilities `UNVERIFIED`, `get_health` and
   `find_processes` on a `V6_1` and a `"6.1.0.89"` node run the existing 6.1 reads (`FakeV61Node`,
   the replayed `fixtures/v6_1/cli/` cases incl. `_de`) with the 6.1 warning; the version-less

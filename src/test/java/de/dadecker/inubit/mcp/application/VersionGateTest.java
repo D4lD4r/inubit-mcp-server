@@ -61,6 +61,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 
@@ -1396,6 +1397,36 @@ class VersionGateTest {
             + " Workbench; nothing was sent");
         assertThat(logs.nextStep()).isEqualTo("Read the logs of INUBIT 6.1 in the Workbench");
         assertThat(probe.calls).as("refused before the client").isEmpty();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Capability.class, mode = EnumSource.Mode.EXCLUDE,
+        names = {"MONITORING", "PROCESS_DIAGNOSIS"})
+    void everyOtherCapabilityOn61KeepsTheFeature012RefusalWithTheUnverifiedTestMatrix(
+        Capability capability) {
+        // T043 (FR-036): the same refusal as with the test matrix before the flip, whose 6.1 entry
+        // refuses everything as production does since feature 012 (its texts are pinned by
+        // V61RefusalTest and VersionLineRegressionTest), on V6_1 and on a concrete 6.1 pin
+        CapabilityMatrix beforeTheFlip = new CapabilityMatrix(List.of(
+            new CapabilityMatrix.Entry(new VersionRange(6, 1, 6, 1),
+                Map.of(Capability.MONITORING, SupportState.UNSUPPORTED,
+                    Capability.PROCESS_DIAGNOSIS, SupportState.UNSUPPORTED),
+                Map.of(Capability.MONITORING, CLI, Capability.PROCESS_DIAGNOSIS, CLI), true),
+            new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1),
+                all(SupportState.SUPPORTED))), Map.of());
+        withClient.add(V6_1);
+        withClient.add(V6_1_PINNED);
+
+        for (NodeId node : List.of(V6_1, V6_1_PINNED)) {
+            ToolError unverified = refusal(() -> gate(TestMatrices.unverified61()).admit(node,
+                capability, capability.kind(), capability.channels()));
+            ToolError before = refusal(() -> gate(beforeTheFlip).admit(node, capability,
+                capability.kind(), capability.channels()));
+
+            assertThat(unverified).as(node.toString()).isEqualTo(before);
+        }
+        assertThat(probe.calls).as("refused before the client").isEmpty();
+        assertThat(detection.calls).isZero();
     }
 
     @ParameterizedTest
