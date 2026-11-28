@@ -86,7 +86,7 @@ hook runs it too).
   only alone, data-model.md `ManagementIndex.unreadable`), `ExternalSystem.nodeId`,
   `Reason.message`, `Unreadable.message`. Tests first, one test class per type in
   `domain/model/management/`; `PackageBoundaryTest` stays green
-- [ ] T005 `domain/model/management/ExternalSystems.java` `from(DiagramRef, ModuleRef, ModuleDetail)`
+- [X] T005 `domain/model/management/ExternalSystems.java` `from(DiagramRef, ModuleRef, ModuleDetail)`
   (data-model.md `ExternalSystem.connectorType`, `ExternalSystem.settings`,
   `ExternalSystem.linkedNames`): `ResourceType`, `ResourceSettings`, `ResourcesLinked` by exact name;
   a masked container stays one masked setting; a masked or non-String `Module` entry is skipped with
