@@ -202,7 +202,7 @@
         "process_control", "queue_entry_read", "trace_log_read", "webservice_log_read",
         "server_settings", "user_directory", "model_details", "cluster_nodes_read",
         "io_log_read", "node_config_read", "log_level_write", "server_operation",
-        "tag_administration"]
+        "tag_administration", "module_management"]
     },
     "Level": {
       "type": "object",

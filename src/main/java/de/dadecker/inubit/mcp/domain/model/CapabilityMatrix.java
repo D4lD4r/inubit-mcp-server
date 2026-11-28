@@ -103,9 +103,12 @@ public final class CapabilityMatrix {
     private static final Set<Capability> V8_1_NOT_YET_VERIFIED = Set.of(Capability.IO_LOG_READ,
         Capability.TAG_ADMINISTRATION);
 
-    /** Feature 024: the same for 9.0. */
+    /**
+     * Feature 024: the same for 9.0. Feature 026 (research D-2): checking module management until
+     * a 9.0 recording of an {@code sdExtSystem} module detail exists.
+     */
     private static final Set<Capability> V9_0_NOT_YET_VERIFIED = Set.of(Capability.IO_LOG_READ,
-        Capability.SERVER_OPERATION, Capability.TAG_ADMINISTRATION);
+        Capability.SERVER_OPERATION, Capability.TAG_ADMINISTRATION, Capability.MODULE_MANAGEMENT);
 
     /**
      * 8.1: everything; the server-log reads of feature 021 since their recordings (trace log T033,
@@ -115,7 +118,9 @@ public final class CapabilityMatrix {
      * contract tests T046); of the node tools of feature 024 the cluster's node list, the node
      * configuration and the temporary log levels since their recordings (T025, T038, T058), the
      * I/O log not yet verified; operating the server (feature 022, US4) since its recordings
-     * (T054, contract tests T066), managing tags (US4) not yet verified.
+     * (T054, contract tests T066), managing tags (US4) not yet verified; checking module
+     * management (feature 026, research D-2) by owner decision on the recorded 8.1 contracts of
+     * its endpoints.
      */
     private static final Entry V8_1 = new Entry(new VersionRange(8, 1, 8, 1),
         unsupported(ALL_SUPPORTED, V8_1_NOT_YET_VERIFIED), Map.of(), false,
@@ -130,7 +135,8 @@ public final class CapabilityMatrix {
      * 022 since their recordings (T024, T028b, T039a; contract tests T026, T037a, T046a); of the
      * node tools of feature 024 the cluster's node list, the node configuration and the temporary
      * log levels since their recordings (T062, T064, T065), the I/O log not yet verified;
-     * operating the server and managing tags (feature 022, US4) not yet verified.
+     * operating the server and managing tags (feature 022, US4) and checking module management
+     * (feature 026) not yet verified.
      */
     private static final Entry V9_0 = new Entry(new VersionRange(9, 0, 9, 0),
         unsupported(with(ALL_SUPPORTED, Capability.PARTNER_MANAGEMENT, SupportState.UNVERIFIED),
@@ -139,8 +145,8 @@ public final class CapabilityMatrix {
 
     /**
      * Unknown versions: reading Queue Manager entries, the server logs, the server settings, the
-     * users and the model details (feature 022: the coverage gate knows 8.1 and 9.0 only) and the
-     * node tools is refused, not run with a warning.
+     * users and the model details (feature 022: the coverage gate knows 8.1 and 9.0 only), the
+     * node tools and checking module management (feature 026) is refused, not run with a warning.
      */
     private static final CapabilityMatrix PRODUCTION = new CapabilityMatrix(
         List.of(V6_1, V7_4, V8_1, V9_0),
@@ -148,7 +154,7 @@ public final class CapabilityMatrix {
             Capability.TRACE_LOG_READ, Capability.WEBSERVICE_LOG_READ,
             Capability.SERVER_SETTINGS, Capability.USER_DIRECTORY, Capability.MODEL_DETAILS,
             Capability.CLUSTER_NODES_READ, Capability.IO_LOG_READ, Capability.NODE_CONFIG_READ,
-            Capability.LOG_LEVEL_WRITE)));
+            Capability.LOG_LEVEL_WRITE, Capability.MODULE_MANAGEMENT)));
 
     /**
      * The version lines whose stored secret forms are verified as comparable across servers, so
@@ -188,7 +194,9 @@ public final class CapabilityMatrix {
      * temporary log levels is supported on 8.1 and 9.0 (T025, T062; T038, T064; T058, T065);
      * reading the I/O log on 8.1 and 9.0 is unsupported with the note "not yet verified", as on
      * any other and on unknown versions (without the note). Feature 022 (US4): operating the
-     * server and managing tags likewise. Feature 025 (FR-006, research D-3, D-4): 7.4.x CLI-only
+     * server and managing tags likewise. Feature 026 (research D-2): checking module management
+     * is supported on 8.1, unsupported with the note "not yet verified" on 9.0, and unsupported on
+     * every other and on unknown versions. Feature 025 (FR-006, research D-3, D-4): 7.4.x CLI-only
      * with every capability unsupported and the note "not yet verified" (it is therefore no line
      * of {@link #lines}), monitoring and process diagnosis on StartCLI, and the fourth version
      * part in the client/server patch comparison; every other range compares three parts.

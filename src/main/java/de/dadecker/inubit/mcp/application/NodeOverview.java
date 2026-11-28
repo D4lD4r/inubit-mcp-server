@@ -303,6 +303,7 @@ public final class NodeOverview {
             case LOG_LEVEL_WRITE -> "log_level_write";
             case SERVER_OPERATION -> "server_operation";
             case TAG_ADMINISTRATION -> "tag_administration";
+            case MODULE_MANAGEMENT -> "module_management";
         };
     }
 }

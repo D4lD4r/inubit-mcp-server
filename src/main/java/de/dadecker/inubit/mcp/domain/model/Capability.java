@@ -72,7 +72,12 @@ public enum Capability {
      * {@code manage_tags}: the active tag of a user and the removal of a tag in one diagram group
      * or repository path over StartCLI (feature 022, US4, research D-18).
      */
-    TAG_ADMINISTRATION(Kind.WRITE, Set.of(Channel.CLI));
+    TAG_ADMINISTRATION(Kind.WRITE, Set.of(Channel.CLI)),
+    /**
+     * The management check of {@code get_inventory_item} and {@code read_model_details}: which
+     * system diagrams manage a module, over REST (feature 026, research D-2).
+     */
+    MODULE_MANAGEMENT(Kind.READ, Set.of(Channel.REST));
 
     /** Whether the capability only reads from INUBIT or changes it. */
     public enum Kind {
@@ -146,6 +151,7 @@ public enum Capability {
             case LOG_LEVEL_WRITE -> "changing temporary log levels";
             case SERVER_OPERATION -> "operating the server";
             case TAG_ADMINISTRATION -> "managing tags";
+            case MODULE_MANAGEMENT -> "checking module management";
         };
     }
 }

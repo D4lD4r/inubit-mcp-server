@@ -64,7 +64,7 @@ hook runs it too).
 
 ## Phase 2: Foundational (blocks every story)
 
-- [ ] T003 [P] Capability (research D-2): `domain/model/Capability.java` gains
+- [X] T003 [P] Capability (research D-2): `domain/model/Capability.java` gains
   `MODULE_MANAGEMENT(READ, {REST})`; `domain/model/CapabilityMatrix.java`: 8.1 supported, 9.0
   refused "not yet verified", 6.1, 7.4 and unknown versions refused; `NodeOverview` and
   `ConfigSummary` list `module_management`; `src/main/resources/schemas/list_nodes.output.json` gains

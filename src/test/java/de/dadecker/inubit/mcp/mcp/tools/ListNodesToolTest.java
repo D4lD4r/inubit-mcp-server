@@ -1035,9 +1035,9 @@ class ListNodesToolTest {
                 "log_diagnosis", "inventory", "partner_management", "workspace_export");
             assertThat(notUsable(dev)).as("no write access: no process control; feature 021:"
                 + " no version admits the trace log yet; feature 022: server settings, users and"
-                + " model details not yet verified")
+                + " model details not yet verified; feature 026: nor module management")
                 .containsExactly("development_writes", "trace_log_read", "server_settings",
-                    "user_directory", "model_details");
+                    "user_directory", "model_details", "module_management");
             JsonNode test = groups.path(1).path("nodes").path(0).path("version");
             assertThat(test.path("server").path("source").asString()).isEqualTo("pinned");
             assertThat(test.path("client").path("state").asString()).isEqualTo("not_available");
@@ -1045,7 +1045,7 @@ class ListNodesToolTest {
                 + " settings, users and model details supported on 8.1").isEqualTo("supported");
             assertThat(usable(test)).containsExactly("monitoring", "process_diagnosis",
                 "log_diagnosis", "inventory", "partner_management", "deployment",
-                "server_settings", "user_directory", "model_details");
+                "server_settings", "user_directory", "model_details", "module_management");
             assertThat(notUsable(test)).isEmpty();
         }
     }
@@ -1121,14 +1121,15 @@ class ListNodesToolTest {
             assertThat(usable(test)).as("feature 021 T033: the 8.1 trace log is recorded")
                 .containsExactly("monitoring", "process_diagnosis", "log_diagnosis", "inventory",
                     "partner_management", "workspace_export", "queue_entry_read",
-                    "trace_log_read", "server_settings", "user_directory", "model_details");
+                    "trace_log_read", "server_settings", "user_directory", "model_details",
+                    "module_management");
             assertThat(notUsable(test)).as("feature 022 T025, T037, T046: server settings, users"
                 + " and model details supported on 8.1").isEmpty();
             JsonNode prod = groups.path(1).path("nodes").path(0).path("version");
             assertThat(usable(prod)).as("SC-002: as without feature 020").containsExactly(
                 "monitoring", "process_diagnosis", "log_diagnosis", "inventory",
                 "partner_management", "workspace_export", "trace_log_read", "server_settings",
-                "user_directory", "model_details");
+                "user_directory", "model_details", "module_management");
             assertThat(notUsable(prod)).isEmpty();
             JsonNode lab = groups.path(2).path("nodes").path(0).path("version");
             assertThat(usable(lab)).doesNotContain("queue_entry_read");
@@ -1451,6 +1452,44 @@ class ListNodesToolTest {
             assertThat(usable(prod)).as("no write access").doesNotContain(capability);
             assertThat(notUsable(prod)).doesNotContain(capability);
         });
+    }
+
+    // --- feature 026 T003: module_management usable on 8.1, not yet verified on 9.0 (D-2) -------
+
+    @Test
+    void moduleManagementIsUsableOn81AndNotYetVerifiedOn90() {
+        String baseUrl = "https://localhost:" + wireMock.httpsPort();
+        String yaml = """
+            profile:
+              name: acme
+            auditDirectory: %s
+            workspace: %s
+            groups:
+              - name: test
+                versionLine: V8_1
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+              - name: lab
+                versionLine: V9_0
+                nodes:
+                  - name: node1
+                    baseUrl: %s
+            """.formatted(temp.resolve("audit"), temp.resolve("workspace"), baseUrl, baseUrl);
+        ProfileConfig config = new ConfigLoader(Map.of(), temp, false)
+            .parse(yaml, temp.resolve("config.yaml")).config();
+
+        Map<String, JsonNode> versions = traceVersions(config, CapabilityMatrix.production());
+
+        JsonNode test = versions.get("test/node1");
+        assertThat(usable(test)).contains("module_management");
+        assertThat(notUsable(test)).doesNotContain("module_management");
+        JsonNode lab = versions.get("lab/node1");
+        assertThat(usable(lab)).doesNotContain("module_management");
+        assertThat(notUsable(lab)).contains("module_management");
+        assertThat(reason(lab, "module_management"))
+            .contains("lab/node1: checking module management is not yet verified for INUBIT");
+        assertThat(lab.path("status").asString()).isEqualTo("partially_supported");
     }
 
     @Test

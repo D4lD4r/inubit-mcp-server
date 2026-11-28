@@ -1117,6 +1117,8 @@ class VersionGateTest {
         // feature 022 (T058, T063)
         expected.put(Capability.SERVER_OPERATION, "operating the server; use the Workbench");
         expected.put(Capability.TAG_ADMINISTRATION, "managing tags; use the Workbench");
+        // feature 026 (T003)
+        expected.put(Capability.MODULE_MANAGEMENT, "checking module management; " + other);
 
         for (Capability capability : Capability.values()) {
             ToolError error = refusal(() -> gate().admit(V6_1, capability, capability.kind(),

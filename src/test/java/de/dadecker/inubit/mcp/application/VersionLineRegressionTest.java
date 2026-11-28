@@ -84,7 +84,9 @@ class VersionLineRegressionTest {
         entry(Capability.SERVER_OPERATION,
             List.of(UNSUPPORTED, SUPPORTED, UNSUPPORTED, UNSUPPORTED)),
         entry(Capability.TAG_ADMINISTRATION,
-            List.of(UNSUPPORTED, UNSUPPORTED, UNSUPPORTED, UNSUPPORTED)));
+            List.of(UNSUPPORTED, UNSUPPORTED, UNSUPPORTED, UNSUPPORTED)),
+        entry(Capability.MODULE_MANAGEMENT,
+            List.of(UNSUPPORTED, SUPPORTED, UNSUPPORTED, UNSUPPORTED)));
 
     /**
      * The four components of an {@link InubitVersion} this baseline pins; compared on its own so

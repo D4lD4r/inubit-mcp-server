@@ -1054,13 +1054,14 @@ final class Wiring implements AutoCloseable {
      * {@code unsupported.ioLogRead}, reading the node configuration with the client and the
      * group's {@code unsupported.nodeConfigRead}, changing the temporary log level with the
      * client, effective write access and the group's {@code unsupported.logLevelWrite}; feature
-     * 022 (US4): operating the server and managing tags with write access, like process control.
+     * 022 (US4): operating the server and managing tags with write access, like process control;
+     * feature 026 (research D-2): checking module management, a REST read, always.
      */
     private Set<Capability> allowed(EffectiveNodeConfig server, boolean withClient) {
         Set<Capability> allowed = EnumSet.of(Capability.MONITORING,
             Capability.PROCESS_DIAGNOSIS, Capability.LOG_DIAGNOSIS, Capability.INVENTORY,
             Capability.PARTNER_MANAGEMENT, Capability.SERVER_SETTINGS, Capability.USER_DIRECTORY,
-            Capability.MODEL_DETAILS);
+            Capability.MODEL_DETAILS, Capability.MODULE_MANAGEMENT);
         if (withClient) {
             allowed.add(Capability.WORKSPACE_EXPORT);
         }

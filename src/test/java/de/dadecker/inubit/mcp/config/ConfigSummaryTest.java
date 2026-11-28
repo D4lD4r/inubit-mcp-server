@@ -910,7 +910,8 @@ class ConfigSummaryTest {
             + " process diagnosis, log diagnosis, inventory, partner management, workspace"
             + " export, development writes, deployment, end-to-end test, process control,"
             + " downloading the trace log, reading server settings, reading users, reading model"
-            + " details, operating the server, managing tags), secrets: credentialStore (macOS"
+            + " details, operating the server, managing tags,"
+            + " checking module management), secrets: credentialStore (macOS"
             + " Keychain), username ←";
         assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
             + access);
@@ -935,7 +936,8 @@ class ConfigSummaryTest {
             + " diagnosis, log diagnosis, inventory, partner management, workspace export,"
             + " development writes, deployment, end-to-end test, process control, reading Queue"
             + " Manager entries, downloading the trace log, reading server settings, reading"
-            + " users, reading model details, operating the server, managing tags), secrets:"
+            + " users, reading model details, operating the server, managing tags,"
+            + " checking module management), secrets:"
             + " credentialStore (macOS Keychain),"
             + " username ←");
         assertThat(summary).as("8.1 lines are unchanged")
@@ -956,7 +958,8 @@ class ConfigSummaryTest {
             + " diagnosis, log diagnosis, inventory, partner management, workspace export,"
             + " development writes, deployment, end-to-end test, process control, downloading the"
             + " trace log, downloading the web service log, reading server settings, reading"
-            + " users, reading model details, operating the server, managing tags), secrets:"
+            + " users, reading model details, operating the server, managing tags,"
+            + " checking module management), secrets:"
             + " credentialStore (macOS Keychain),"
             + " username ←");
         assertThat(summary).as("8.1 lines are unchanged")
@@ -984,8 +987,10 @@ class ConfigSummaryTest {
             + " deployment, end-to-end test, process control, downloading the trace log, reading"
             + " server settings, reading users, reading model details";
         assertThat(optedIn).contains(refused + ", " + label
-            + ", operating the server, managing tags),");
-        assertThat(without).contains(refused + ", operating the server, managing tags),")
+            + ", operating the server, managing tags,"
+            + " checking module management),");
+        assertThat(without).contains(refused + ", operating the server, managing tags,"
+            + " checking module management),")
             .doesNotContain(label);
         assertThat(optedIn).as("8.1 lines are unchanged")
             .contains("test/node3: read-only, cli: available, inubit: V8_1, secrets:"
@@ -1009,7 +1014,8 @@ class ConfigSummaryTest {
             + " log diagnosis, inventory, partner management, workspace export, development"
             + " writes, deployment, end-to-end test, process control, downloading the trace log,"
             + " reading server settings, reading users, reading model details, operating the"
-            + " server, managing tags), secrets: credentialStore (macOS Keychain), username ←");
+            + " server, managing tags, checking module management), secrets: credentialStore"
+            + " (macOS Keychain), username ←");
     }
 
     @Test
@@ -1053,7 +1059,8 @@ class ConfigSummaryTest {
             + " process diagnosis, log diagnosis, inventory, partner management, workspace"
             + " export, development writes, deployment, end-to-end test, process control,"
             + " downloading the trace log, reading server settings, reading users, reading model"
-            + " details, operating the server, managing tags), secrets: credentialStore (macOS"
+            + " details, operating the server, managing tags,"
+            + " checking module management), secrets: credentialStore (macOS"
             + " Keychain), username ←";
         assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V7_4"
             + access);
@@ -1077,9 +1084,10 @@ class ConfigSummaryTest {
         String notUsed = "; not used until a 7.4 capability is verified, secrets: credentialStore"
             + " (macOS Keychain), username ←";
         assertThat(summary)
-            .contains("managing tags), client: 7.4.0.90, server version: determined at runtime"
-                + notUsed)
-            .contains("managing tags), client: 7.4.0.90, client vs pin: match" + notUsed);
+            .contains("managing tags, checking module management), client: 7.4.0.90, server"
+                + " version: determined at runtime" + notUsed)
+            .contains("managing tags,"
+                + " checking module management), client: 7.4.0.90, client vs pin: match" + notUsed);
         assertThat(summary).as("8.1 client lines are unchanged")
             .contains("test/node3: read-only, cli: available, inubit: V8_1, client: 8.1.17"
                 + " (4.0.1–8.1.17), server version: determined at runtime, secrets:");
@@ -1094,10 +1102,12 @@ class ConfigSummaryTest {
         String on61 = render(V6_1.replace("\"6.1.0.89-HF1\"", "\"6.1.0.89\""),
             Map.of(NodeId.parse("test/node2"), client("6.1.0.80", null, null)));
 
-        assertThat(on74).contains("managing tags), client: 7.4.0.80, client vs pin: mismatch;"
+        assertThat(on74).contains("managing tags,"
+            + " checking module management), client: 7.4.0.80, client vs pin: mismatch;"
             + " not used until a 7.4 capability is verified, secrets:");
         assertThat(on61).as("the fourth part is ignored on 6.1")
-            .contains("managing tags), client: 6.1.0.80, client vs pin: match, secrets:");
+            .contains("managing tags,"
+                + " checking module management), client: 6.1.0.80, client vs pin: match, secrets:");
     }
 
     // --- feature 012 T021: the client options of a 6.1 node (FR-012a, research D-8) -----------
@@ -1114,11 +1124,13 @@ class ConfigSummaryTest {
             Map.of(NodeId.parse("test/node1"), none, NodeId.parse("test/node2"), both));
 
         assertThat(summary).contains("reading server settings, reading users, reading model"
-            + " details, operating the server, managing tags), client: 6.1.0 (4.0.1–6.1.0;"
+            + " details, operating the server, managing tags,"
+            + " checking module management), client: 6.1.0 (4.0.1–6.1.0;"
             + " options: no trust-store option, no host-name option), server version: determined"
             + " at runtime, secrets: credentialStore (macOS Keychain), username ←");
         assertThat(summary).as("a client without declared range")
-            .contains("reading model details, operating the server, managing tags), client:"
+            .contains("reading model details, operating the server, managing tags,"
+                + " checking module management), client:"
                 + " 6.1.0 (options: trust-store option, host-name option), client vs pin: ");
         assertThat(summary).as("8.1 lines are unchanged: no client options")
             .contains("test/node3: read-only, cli: available, inubit: V8_1, client: 8.1.17"
@@ -1133,7 +1145,8 @@ class ConfigSummaryTest {
             new CliClientOptions(false, false, false, Optional.empty())));
 
         assertThat(summary)
-            .contains("reading model details, operating the server, managing tags), secrets:"
+            .contains("reading model details, operating the server, managing tags,"
+                + " checking module management), secrets:"
                 + " credentialStore (macOS Keychain), username ←")
             .doesNotContain("options:");
     }
