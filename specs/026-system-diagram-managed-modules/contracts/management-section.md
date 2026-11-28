@@ -45,7 +45,7 @@ Where:
 | `collectedAt` | when an index was had | when the cached index was collected (ISO-8601) |
 | `systemDiagramsChecked` | always | system diagrams read completely (all elements read) |
 | `systemDiagramsNotRead` | always | 0 when `complete` |
-| `firstNotRead` | when an index was had and it is not complete (a failed diagram list included; never for gate refusal, no owner, foreign diagram, timeout) | `{kind: diagramList \| systemDiagram \| element, name?, systemDiagram?, code, message}` |
+| `firstNotRead` | when an index was had and it is not complete (a failed diagram list included; never for gate refusal, no owner, foreign diagram, timeout) | `{kind: diagramList \| systemDiagram \| element, name?, systemDiagram?, nodeId?, code, message}` (`systemDiagram` and `nodeId` for `element` only) |
 | `elements` | `managed` only (≥ 1, ≤ 10); left out otherwise | the managing elements |
 | `elements[].systemDiagram` | always | `{name, diagramGroup}` of the managing system diagram |
 | `elements[].element` | always | the external system element's name |

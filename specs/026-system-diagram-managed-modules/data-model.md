@@ -43,7 +43,8 @@ An item of the index that could not be read (research D-13: the module list is n
 |---|---|---|
 | `kind` | enum `DIAGRAM_LIST`, `SYSTEM_DIAGRAM`, `ELEMENT` | JSON `diagramList`, `systemDiagram`, `element` |
 | `name` | `Optional<String>` | system diagram or element name; empty for `DIAGRAM_LIST` |
-| `systemDiagram` | `Optional<DiagramRef>` | for `ELEMENT` |
+| `systemDiagram` | `Optional<DiagramRef>` | present iff `ELEMENT` |
+| `nodeId` | `Optional<String>` | the element's node id, 1–10 digits; present iff `ELEMENT` |
 | `code` | `ErrorCode` | |
 | `message` | String | ≤ `ItemBounds.MAX_MESSAGE_CHARS`, no excerpt |
 
@@ -57,6 +58,7 @@ Everything the check knows about one server and owner (research D-4).
 | `systemDiagrams` | `List<DiagramRef>` | all system diagrams of the owner in diagram-list order; empty if the diagram list failed |
 | `externalSystems` | `List<ExternalSystem>` | of the readable system diagrams, in diagram order, then element order |
 | `unreadable` | `List<Unreadable>` | in the order met; a `DIAGRAM_LIST` item is the only item when present |
+| `elementNodeIds` | `Map<DiagramRef, List<String>>` | per system diagram with `sdExtSystem` elements, their node ids in the order of the diagram's element list (`modelByName`, `DiagramDetail.modules`); exactly the node ids of that diagram's `externalSystems` and `ELEMENT` items, each once; no empty list |
 | `collectedAt` | `Instant` | when the load finished |
 
 `complete()` = `unreadable` is empty. `linking(name)` = the external systems whose `linkedNames`
@@ -131,6 +133,10 @@ For the detail of a system diagram (FR-010, research D-8).
 | `truncated` | boolean | |
 
 ### ElementEntry
+
+T018 lists a diagram's entries, readable (`externalSystems`) and unreadable (`ELEMENT` items), in the
+order of `index.elementNodeIds().get(diagram)`, matched by node id: this is INUBIT's order (the element
+list as read with `modelByName`) and does not depend on the order in which the concurrent reads finished.
 
 | Field | Type | Rule |
 |---|---|---|

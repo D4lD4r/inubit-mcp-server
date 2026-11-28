@@ -70,7 +70,7 @@ hook runs it too).
   `ConfigSummary` list `module_management`; `src/main/resources/schemas/list_nodes.output.json` gains
   the enum value. Tests first in `domain/model/CapabilityMatrixTest.java` and the existing
   `list_nodes` / `--check-config` tests
-- [ ] T004 [P] Domain types in `domain/model/management/` with `package-info.java`: `Reason`,
+- [X] T004 [P] Domain types in `domain/model/management/` with `package-info.java`: `Reason`,
   `ExternalSystem`, `Unreadable`, `ManagementIndex` (`complete()`, `linking(name)`,
   `systemDiagramsNotRead()`), `ManagementSection`, `ManagingElement`, `Difference`,
   `SystemDiagramManagement`, `ElementEntry`, `LinkedModule`. Constructor invariants per
@@ -130,7 +130,7 @@ FR-013…FR-017).
   `MODULE_MANAGEMENT`/READ/REST (refusal → `UNKNOWN` with the gate's reason; any gate warning carried on); system diagrams from the inventory diagram list `(server, DIAGRAM, "all")` filtered to
   `systemdiagram` (a failure → index with the single `DIAGRAM_LIST` item); `diagramDetail` per system
   diagram and `ModelDetailPort.module` per `sdExtSystem` node, each with concurrency 4; every other
-  failure becomes an `Unreadable` and the rest is still read; cache key
+  failure becomes an `Unreadable` (an element with its `nodeId`) and the rest is still read; `ManagementIndex.elementNodeIds` filled per system diagram in the order of its element list (`DiagramDetail.modules`), not in the order the reads finish; cache key
   `(server, DIAGRAM, "management:<owner>")`, an incomplete index served once and not cached; load on a
   virtual thread, wait at most `managementBudget = 4 × timeout`, on timeout `UNKNOWN`/`TIMEOUT` "the
   read goes on and fills the cache"; never `listModules`; one DEBUG line per load (server, owner,
@@ -214,8 +214,7 @@ FR-013…FR-017).
   `application/InventoryService.java`; `domain/model/InventoryDetail.java` gains
   `Optional<SystemDiagramManagement> managedModules` (again with the `InventoryDetail` constructions in
   `InventoryBounds.java` and `InventoryBoundsTest.java`): elements of that diagram from the (cached) index;
-  `found` marks only from a cached module list (`peek`), else none plus `moduleListUnavailable`; an
-  unreadable element with name, node id and `error`; `unavailable` when there is no usable index for
+  `found` marks only from a cached module list (`peek`), else none plus `moduleListUnavailable`; an unreadable element with name, node id and `error`; entries, readable and unreadable, ordered by `ManagementIndex.elementNodeIds` (data-model.md "ElementEntry"); `unavailable` when there is no usable index for
   this diagram (gate, `TIMEOUT`, `DIAGRAM_LIST` item, the diagram itself unreadable, the diagram
   missing from a cached index → `NOT_FOUND` "call again with `refresh: true`"); the gate's warnings in
   `managedModules.warnings`; no `managedModules` without `sdExtSystem` elements; bounds of
