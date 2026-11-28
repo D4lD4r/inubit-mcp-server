@@ -1039,8 +1039,8 @@ class ConfigSummaryTest {
             + " diagnosis; refused: log diagnosis, inventory, partner management, workspace"
             + " export, development writes, deployment, end-to-end test, process control,"
             + " downloading the trace log, reading server settings, reading users, reading model"
-            + " details, operating the server, managing tags), secrets: credentialStore (macOS"
-            + " Keychain), username ←";
+            + " details, operating the server, managing tags, checking module management),"
+            + " secrets: credentialStore (macOS Keychain), username ←";
         assertThat(summary).contains("test/node1: read-only, cli: available, " + choice
             + "inubit: " + line + access);
         assertThat(summary).contains("test/node2: read-only, cli: available, " + choice
