@@ -638,7 +638,7 @@ production matrix changes only in T035.
   and a 7.4 node
   (overview budget, only the 7.4 entry warned); 8.1, 9.0 and unknown-version error entries
   unchanged.
-- [ ] T042 [P] [US9] Guard for unverified 6.1 (spec FR-037, SC-010; test only):
+- [X] T042 [P] [US9] Guard for unverified 6.1 (spec FR-037, SC-010; test only):
   `test/adapter/cli/V61RecordedFixturesTest` fails when the production matrix declares any 6.1
   capability `SUPPORTED`, declares a capability other than MONITORING and PROCESS_DIAGNOSIS
   `UNVERIFIED`, or declares one of these two `UNVERIFIED` while it has no case in
