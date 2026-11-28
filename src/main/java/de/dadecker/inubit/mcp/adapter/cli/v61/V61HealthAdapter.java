@@ -5,6 +5,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResult;
 import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
 import de.dadecker.inubit.mcp.domain.model.CliHealthSnapshot;
+import de.dadecker.inubit.mcp.domain.model.ContactedException;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -83,8 +84,9 @@ public final class V61HealthAdapter implements CliHealthPort {
             Optional.of(health.memory()), Optional.of(health.counts()), notOffered);
     }
 
-    private ToolErrorException failed(ToolError error) {
-        return new ToolErrorException(error.node().isPresent() ? error : error.withNode(node));
+    /** An error of the returned session: after contact (feature 025, FR-030 (b)). */
+    private ContactedException failed(ToolError error) {
+        return new ContactedException(error.node().isPresent() ? error : error.withNode(node));
     }
 
     @Override

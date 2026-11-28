@@ -555,7 +555,7 @@ production matrix changes only in T035.
   fails; `UNVERIFIED` monitoring and process diagnosis backed by reconstructed cases and `help`
   pass. The production matrix passes before and after T035. `V74FixturesShapeTest` (it rejects a
   fixture case in none of the lists) stays green and is part of SC-009's evidence.
-- [ ] T041 [US6] [US7] [US9] "Contacted" marker (spec FR-030 (b); after T032 and T046): new
+- [X] T041 [US6] [US7] [US9] "Contacted" marker (spec FR-030 (b); after T032 and T046): new
   `main/domain/model/ContactedException.java` (extends `ToolErrorException`, same `ToolError`, the
   error's JSON unchanged). Contact begins with the server's own TLS handshake or with the start of
   the StartCLI process, not with the limiter permit: inside the permit `CliRunner.runSession`

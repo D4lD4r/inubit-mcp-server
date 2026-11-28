@@ -6,6 +6,7 @@ import de.dadecker.inubit.mcp.adapter.cli.CliOutputClassifier;
 import de.dadecker.inubit.mcp.adapter.cli.CliResult;
 import de.dadecker.inubit.mcp.adapter.cli.CliSessionCommand;
 import de.dadecker.inubit.mcp.adapter.cli.CliSessionCommand.Listing;
+import de.dadecker.inubit.mcp.domain.model.ContactedException;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ItemBounds;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -218,8 +219,9 @@ public final class V61ProcessQueryAdapter implements ProcessQueryPort {
         return text.substring(0, end) + ItemBounds.TRUNCATION_MARKER;
     }
 
-    private ToolErrorException failed(ToolError error) {
-        return new ToolErrorException(error.node().isPresent() ? error : error.withNode(node));
+    /** An error of the returned session: after contact (feature 025, FR-030 (b)). */
+    private ContactedException failed(ToolError error) {
+        return new ContactedException(error.node().isPresent() ? error : error.withNode(node));
     }
 
     @Override

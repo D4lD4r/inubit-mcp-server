@@ -17,6 +17,7 @@ import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ContactedException;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.Page;
@@ -173,8 +174,27 @@ class V74ProcessQueryContractTest {
     }
 
     private static ToolError errorOf(ThrowingCallable call) {
+        return exceptionOf(call).error();
+    }
+
+    private static ToolErrorException exceptionOf(ThrowingCallable call) {
         ToolErrorException exception = catchThrowableOfType(ToolErrorException.class, call);
         assertThat(exception).as("expected a ToolErrorException").isNotNull();
+        return exception;
+    }
+
+    /** The error of {@code call}, raised after contact began (T041, FR-030 (b)). */
+    private static ToolError contactedErrorOf(ThrowingCallable call) {
+        ToolErrorException exception = exceptionOf(call);
+        assertThat(exception).as("an error after contact").isInstanceOf(ContactedException.class);
+        return exception.error();
+    }
+
+    /** The error of {@code call}, raised before contact (T041, FR-030 (b)). */
+    private static ToolError plainErrorOf(ThrowingCallable call) {
+        ToolErrorException exception = exceptionOf(call);
+        assertThat(exception).as("an error before contact")
+            .isNotInstanceOf(ContactedException.class);
         return exception.error();
     }
 
@@ -390,7 +410,7 @@ class V74ProcessQueryContractTest {
         ProcessQuery withTag = query(Set.of(), false, Optional.of("release-1"), Optional.empty(),
             Optional.empty());
 
-        ToolError error = errorOf(() -> port(launchers).validate(withTag));
+        ToolError error = plainErrorOf(() -> port(launchers).validate(withTag));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
         assertThat(error.message()).isEqualTo(
@@ -424,7 +444,7 @@ class V74ProcessQueryContractTest {
         Launchers launchers = Launchers.answering(
             "Password: \ncli> PID STATE\nTotal: 0\ncli> \n");
 
-        ToolError error = errorOf(() -> port(launchers).find(query(Set.of())));
+        ToolError error = contactedErrorOf(() -> port(launchers).find(query(Set.of())));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.node()).contains(ID);
@@ -432,5 +452,39 @@ class V74ProcessQueryContractTest {
         assertThat(error.likelyCause())
             .isEqualTo("StartCLI's session output differs from the expected INUBIT 7.4 format");
         assertThat(launchers.sessions()).isEqualTo(1);
+    }
+
+    // --- session failures after contact (T041, FR-030 (b)) ------------------------------------
+
+    @Test
+    void aRejectedLoginIsAuthFailedForTheNode() {
+        Launchers launchers = Launchers.replaying("login_failed");
+
+        ToolError error = contactedErrorOf(() -> port(launchers).find(query(Set.of())));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(error.node()).contains(ID);
+        assertThat(error.message()).doesNotContain(PASSWORD);
+    }
+
+    @Test
+    void anUnreachableServerIsUnreachableForTheNode() {
+        Launchers launchers = Launchers.replaying("unreachable");
+
+        ToolError error = contactedErrorOf(() -> port(launchers).find(query(Set.of())));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNREACHABLE);
+        assertThat(error.node()).contains(ID);
+    }
+
+    @Test
+    void aNonZeroExitIsClassifiedForTheNode() {
+        Launchers launchers = new Launchers(
+            FakeProcessLauncher.of("Password: \ncli> something went wrong\n", "", 1));
+
+        ToolError error = contactedErrorOf(() -> port(launchers).find(query(Set.of())));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(error.node()).contains(ID);
     }
 }

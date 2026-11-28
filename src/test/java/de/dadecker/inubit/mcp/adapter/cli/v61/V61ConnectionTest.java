@@ -20,18 +20,28 @@ import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
+import de.dadecker.inubit.mcp.domain.model.ClientCheck;
+import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.ContactedException;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.ClientCheckLookup;
 import de.dadecker.inubit.mcp.infra.Secret;
+import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.mcp.ResultMapper;
+import de.dadecker.inubit.mcp.mcp.ToolHandler;
+import de.dadecker.inubit.mcp.mcp.ToolHints;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.PrivateFiles;
 import de.dadecker.inubit.mcp.testing.TestCliRunners;
+import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -103,6 +113,8 @@ class V61ConnectionTest {
     TlsTestServer inubit;
     /** The runner's version source (feature 017, T013). */
     Function<NodeId, Optional<InubitVersion>> versions = TestCliRunners.UNKNOWN_VERSIONS;
+    /** The client checks the runner's launch guard reads (feature 025 T041). */
+    ClientCheckLookup checks = ClientCheckLookup.NONE;
 
     @BeforeEach
     void start() throws IOException, GeneralSecurityException {
@@ -143,7 +155,7 @@ class V61ConnectionTest {
     /** The runner of the tests: the host's (overridden by {@link V61ConnectionWindowsTest}). */
     CliRunner runner(ProcessLauncher launcher) {
         return TestCliRunners.forHost(launcher, parentEnvironment,
-            new CliResources("acme", PrivateFiles.forHost()), versions);
+            new CliResources("acme", PrivateFiles.forHost()), versions, checks);
     }
 
     V61Connection connection(EffectiveNodeConfig server, Launchers launchers) {
@@ -205,6 +217,10 @@ class V61ConnectionTest {
     }
 
     static ToolError errorOf(Executable call) {
+        return exceptionOf(call).error();
+    }
+
+    static ToolErrorException exceptionOf(Executable call) {
         ToolErrorException exception = catchThrowableOfType(ToolErrorException.class, () -> {
             try {
                 call.execute();
@@ -215,7 +231,51 @@ class V61ConnectionTest {
             }
         });
         assertThat(exception).as("expected a ToolErrorException").isNotNull();
+        return exception;
+    }
+
+    /** The error of {@code call}, raised before contact (feature 025, FR-030 (b)). */
+    static ToolError plainErrorOf(Executable call) {
+        ToolErrorException exception = exceptionOf(call);
+        assertThat(exception).as("an error before contact").isNotInstanceOf(
+            ContactedException.class);
         return exception.error();
+    }
+
+    /** The error of {@code call}, raised after contact began (feature 025, FR-030 (b)). */
+    static ToolError contactedErrorOf(Executable call) {
+        ToolErrorException exception = exceptionOf(call);
+        assertThat(exception).as("an error after contact").isInstanceOf(ContactedException.class);
+        assertThat(json(exception)).as("the marker leaves the error's JSON unchanged")
+            .isEqualTo(json(new ToolErrorException(exception.error())));
+        return exception.error();
+    }
+
+    /** The JSON text of the tool result a call that throws {@code exception} answers with. */
+    private static String json(ToolErrorException exception) {
+        ToolHandler throwing = new ToolHandler() {
+            @Override
+            public String name() {
+                return "get_health";
+            }
+
+            @Override
+            public String descriptionText() {
+                return "Throws the error under test";
+            }
+
+            @Override
+            public ToolHints annotations() {
+                return ToolHints.readOnly("Throws", true);
+            }
+
+            @Override
+            public Object handle(Map<String, Object> arguments) {
+                throw exception;
+            }
+        };
+        return ((TextContent) new ResultMapper(new SecretScrubber()).invoke(throwing, Map.of())
+            .content().getFirst()).text();
     }
 
     // --- order of the steps -------------------------------------------------------------------
@@ -249,7 +309,8 @@ class V61ConnectionTest {
         EffectiveNodeConfig server = node().disableHostnameVerification(
             TestCertificates.fingerprint(CERTS.localhostCertificate())).build();
 
-        ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS, BOUND));
+        ToolError error = plainErrorOf(() -> connection(server, launchers)
+            .session(COMMANDS, BOUND));
 
         assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
         assertThat(error.node()).contains(ID);
@@ -263,7 +324,7 @@ class V61ConnectionTest {
         NodeCredentials none = new NodeCredentials(ID, Optional.empty(), Optional.empty(),
             Optional.empty(), Optional.empty());
 
-        ToolError error = errorOf(() -> connection(node().build(), none, launchers)
+        ToolError error = plainErrorOf(() -> connection(node().build(), none, launchers)
             .session(COMMANDS, BOUND));
 
         assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
@@ -281,7 +342,8 @@ class V61ConnectionTest {
             CliConcurrencyLimiter.Permit second = limiter.acquire(server)) {
             long start = System.nanoTime();
 
-            ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS, BOUND));
+            ToolError error = plainErrorOf(() -> connection(server, launchers)
+            .session(COMMANDS, BOUND));
 
             assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
             assertThat(Duration.ofNanos(System.nanoTime() - start))
@@ -298,7 +360,8 @@ class V61ConnectionTest {
         try (CliConcurrencyLimiter.Permit first = limiter.acquire(server);
             CliConcurrencyLimiter.Permit second = limiter.acquire(server)) {
 
-            ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS, BOUND));
+            ToolError error = plainErrorOf(() -> connection(server, launchers)
+            .session(COMMANDS, BOUND));
 
             assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
         }
@@ -314,7 +377,8 @@ class V61ConnectionTest {
         EffectiveNodeConfig server =
             node().pin(TestCertificates.fingerprint(CERTS.selfsignedCertificate())).build();
 
-        ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS, BOUND));
+        ToolError error = contactedErrorOf(() -> connection(server, launchers)
+            .session(COMMANDS, BOUND));
 
         assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
         assertThat(error.node()).contains(ID);
@@ -390,7 +454,8 @@ class V61ConnectionTest {
             .cliUrl("http://localhost:" + inubit.port() + EffectiveNodeConfig.DEFAULT_CLI_PATH)
             .build();
 
-        ToolError error = errorOf(() -> connection(server, launchers).session(COMMANDS, BOUND));
+        ToolError error = plainErrorOf(() -> connection(server, launchers)
+            .session(COMMANDS, BOUND));
 
         assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
         assertThat(error.nextStep()).contains("allowInsecureHttp");
@@ -574,5 +639,93 @@ class V61ConnectionTest {
 
         assertThat(launchers.sessionCommand())
             .containsSubsequence("--trustStoreFilePath", spaced.toString());
+    }
+
+    // --- contact marker (feature 025 T041, FR-030 (b)) --------------------------------------
+    // Contact begins with the server's own handshake or the start of the StartCLI process; the
+    // refusals of the runner inside the permit come before the launch and stay plain.
+
+    @Test
+    void aLaunchGuardRefusalOfAnExcludingClientIsPlain() {
+        ClientVersion eightOne = new ClientVersion(InubitVersion.parse("8.1.17").orElseThrow(),
+            InubitVersion.parse("8.1.0"), InubitVersion.parse("8.1.99"));
+        checks = (node, key) -> new ClientCheckLookup.Recorded.ForClient(
+            new ClientCheck.Checked(eightOne));
+        Launchers launchers = Launchers.withOptions();
+
+        ToolError error = plainErrorOf(() -> connection(node().build(), launchers)
+            .session(COMMANDS, BOUND));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
+        assertThat(launchers.sessions()).isZero();
+    }
+
+    @Test
+    void aLaunchGuardRefusalOfAChangedClientIsPlain() {
+        checks = (node, key) -> ClientCheckLookup.Recorded.Absent.OTHER_CLIENTS_ONLY;
+        Launchers launchers = Launchers.withOptions();
+
+        ToolError error = plainErrorOf(() -> connection(node().build(), launchers)
+            .session(COMMANDS, BOUND));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+        assertThat(error.message()).contains("changed");
+        assertThat(launchers.sessions()).isZero();
+    }
+
+    @Test
+    void theCredentialGuardCooldownIsPlainAndLaunchesNothing() {
+        try (CredentialGuard.Permit permit = guard.acquire()) {
+            permit.rejected();
+        }
+        Launchers launchers = Launchers.withOptions();
+
+        ToolError error = plainErrorOf(() -> connection(node().build(), launchers)
+            .session(COMMANDS, BOUND));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
+        assertThat(launchers.sessions()).isZero();
+    }
+
+    @Test
+    void aStartCliThatCannotBeStartedIsPlain() {
+        Launchers launchers = new Launchers(FakeProcessLauncher.of(HELP_WITH_OPTIONS, "", 0),
+            FakeProcessLauncher.of("OK\n", "", 0)
+                .failingToLaunch(new IOException("error=13, Permission denied")));
+
+        ToolError error = plainErrorOf(() -> connection(node().build(), launchers)
+            .session(COMMANDS, BOUND));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+    }
+
+    @Test
+    void anUnreachableHandshakeIsMarkedAndStartsNoSession() throws IOException {
+        int closedPort;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            closedPort = socket.getLocalPort();
+        }
+        Launchers launchers = Launchers.withOptions();
+        EffectiveNodeConfig server = node().baseUrl("https://localhost:" + closedPort).build();
+
+        ToolError error = contactedErrorOf(() -> connection(server, launchers)
+            .session(COMMANDS, BOUND));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNREACHABLE);
+        assertThat(error.node()).contains(ID);
+        assertThat(launchers.sessions()).isZero();
+    }
+
+    @Test
+    void aSessionTimeoutAfterTheLaunchIsMarked() {
+        Launchers launchers = new Launchers(FakeProcessLauncher.of(HELP_WITH_OPTIONS, "", 0),
+            FakeProcessLauncher.of("", "", 0).hanging());
+        EffectiveNodeConfig server = node().cliTimeout(Duration.ofMillis(300)).build();
+
+        ToolError error = contactedErrorOf(() -> connection(server, launchers)
+            .session(COMMANDS, BOUND));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(launchers.sessions()).isEqualTo(1);
     }
 }

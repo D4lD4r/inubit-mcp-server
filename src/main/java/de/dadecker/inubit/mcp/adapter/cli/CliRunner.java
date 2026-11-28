@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.adapter.cli;
 
 import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchSpec;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher.LaunchedProcess;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessRun.StartHook;
 import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Built;
 import de.dadecker.inubit.mcp.adapter.cli.WindowsCommandLine.Cause;
@@ -15,6 +16,7 @@ import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
 import de.dadecker.inubit.mcp.domain.model.ClientCheck;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.ContactedException;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.MajorMinor;
@@ -43,6 +45,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
@@ -314,7 +317,8 @@ public final class CliRunner {
         arguments.add(command.commandLine());
         arguments.add(server.cli().url().toString());
         return execute(selection, arguments, Optional.of(password), List.of(), timeout,
-            timeoutSetting, jvmTrustStore(server.tls().trustStore()), MAX_OUTPUT_BYTES, hook);
+            timeoutSetting, jvmTrustStore(server.tls().trustStore()), MAX_OUTPUT_BYTES, hook,
+            false);
     }
 
     /** {@code -u <user> [--trustStoreFilePath <p12>] [--disableHostNameVerification]}. */
@@ -371,7 +375,8 @@ public final class CliRunner {
         arguments.add(server.cli().url().toString());
         return guarded(guard.acquire(), () -> execute(selection, arguments,
             Optional.of(password), List.of(), timeout, "cliTimeout",
-            jvmTrustStore(server.tls().trustStore()), MAX_OUTPUT_BYTES, StartHook.DIRECT));
+            jvmTrustStore(server.tls().trustStore()), MAX_OUTPUT_BYTES, StartHook.DIRECT,
+            false));
     }
 
     /**
@@ -608,7 +613,7 @@ public final class CliRunner {
         lines.add(CliSessionCommand.EXIT);
         CliResult result = guarded(guard.acquire(), () -> execute(selection, arguments,
             Optional.of(password), lines, timeout, "cliTimeout", extraJavaToolOptions,
-            maxOutputBytes, StartHook.DIRECT));
+            maxOutputBytes, StartHook.DIRECT, true));
         return new CliResult(result.exitCode(), mask.apply(result.stdout()),
             mask.apply(result.stderr()), result.duration(), result.truncated(),
             result.outputBound(), result.clientMajor());
@@ -854,16 +859,20 @@ public final class CliRunner {
     CliResult execute(Selection selection, List<String> arguments,
         Optional<Secret> stdinSecret, Duration timeout) {
         return execute(selection, arguments, stdinSecret, List.of(), timeout, "cliTimeout", "",
-            MAX_OUTPUT_BYTES, StartHook.DIRECT);
+            MAX_OUTPUT_BYTES, StartHook.DIRECT, false);
     }
 
     /**
      * @param extraJavaToolOptions appended to the platform's {@code JAVA_TOOL_OPTIONS} (empty,
      *     or the trust-store properties of a 6.1 session, each with a leading space)
+     * @param markContact whether an error raised after {@code hook} started the process is
+     *     rethrown as a {@link ContactedException} (feature 025, FR-030 (b)); set by session runs
+     *     only, so the local {@code -v} / {@code -h} probes, exports and {@link #run} stay plain
      */
     private CliResult execute(Selection selection, List<String> arguments,
         Optional<Secret> stdinSecret, List<CliSessionCommand> stdinCommands, Duration timeout,
-        String timeoutSetting, String extraJavaToolOptions, int maxOutputBytes, StartHook hook) {
+        String timeoutSetting, String extraJavaToolOptions, int maxOutputBytes, StartHook hook,
+        boolean markContact) {
         EffectiveNodeConfig server = selection.server();
         LaunchTarget target = launchTarget(selection);
         CliChoice choice = selection.choice();
@@ -878,17 +887,31 @@ public final class CliRunner {
         String launchNextStep = windows ? "Check that cli.home is an existing local directory"
             + " your account can access"
             : "Check cliHome, cli.javaHome and the file permissions of bin/startcli.sh";
+        AtomicBoolean started = new AtomicBoolean();
+        StartHook recording = launch -> {
+            LaunchedProcess process = hook.start(launch);
+            started.set(true);
+            return process;
+        };
         ProcessRun.Call call = ProcessRun.Call.of("StartCLI").forNode(server.id())
             .withTimeoutSetting(timeoutSetting).withOutput(maxOutputBytes, decoder())
-            .startedBy(hook).withLaunchFailure(launchCause, launchNextStep);
+            .startedBy(markContact ? recording : hook)
+            .withLaunchFailure(launchCause, launchNextStep);
         if (windows) {
             call = call.refiningTimeouts((stdout, message) ->
                 CliOutputClassifier.endsAtThePasswordPrompt(stdout)
                     ? Optional.of(timeoutAtThePasswordPrompt(server, message, timeoutSetting))
                     : Optional.empty());
         }
-        return processRun.run(spec, stdinBytes(stdinSecret, stdinCommands), timeout, call)
-            .forClientMajor(choice.major());
+        try {
+            return processRun.run(spec, stdinBytes(stdinSecret, stdinCommands), timeout, call)
+                .forClientMajor(choice.major());
+        } catch (ToolErrorException e) {
+            if (started.get()) {
+                throw new ContactedException(e.error());
+            }
+            throw e;
+        }
     }
 
     /**

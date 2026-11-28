@@ -20,6 +20,7 @@ import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.config.SourcedValue;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.CliHealthSnapshot;
+import de.dadecker.inubit.mcp.domain.model.ContactedException;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.MemoryFigures;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
@@ -152,9 +153,28 @@ class V74HealthContractTest {
     }
 
     private static ToolError errorOf(CliHealthPort port) {
+        return exceptionOf(port).error();
+    }
+
+    private static ToolErrorException exceptionOf(CliHealthPort port) {
         ToolErrorException exception = catchThrowableOfType(ToolErrorException.class,
             () -> port.snapshot(BUDGET));
         assertThat(exception).as("expected a ToolErrorException").isNotNull();
+        return exception;
+    }
+
+    /** The error of a snapshot, raised after contact began (T041, FR-030 (b)). */
+    private static ToolError contactedErrorOf(CliHealthPort port) {
+        ToolErrorException exception = exceptionOf(port);
+        assertThat(exception).as("an error after contact").isInstanceOf(ContactedException.class);
+        return exception.error();
+    }
+
+    /** The error of a snapshot, raised before contact (T041, FR-030 (b)). */
+    private static ToolError plainErrorOf(CliHealthPort port) {
+        ToolErrorException exception = exceptionOf(port);
+        assertThat(exception).as("an error before contact")
+            .isNotInstanceOf(ContactedException.class);
         return exception.error();
     }
 
@@ -269,7 +289,7 @@ class V74HealthContractTest {
     void aRejectedLoginIsAuthFailedForTheNode() {
         Launchers launchers = Launchers.replaying("login_failed");
 
-        ToolError error = errorOf(port(launchers));
+        ToolError error = contactedErrorOf(port(launchers));
 
         assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED);
         assertThat(error.node()).contains(ID);
@@ -281,9 +301,20 @@ class V74HealthContractTest {
     void anUnreachableServerIsUnreachableForTheNode() {
         Launchers launchers = Launchers.replaying("unreachable");
 
-        ToolError error = errorOf(port(launchers));
+        ToolError error = contactedErrorOf(port(launchers));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNREACHABLE);
+        assertThat(error.node()).contains(ID);
+    }
+
+    @Test
+    void aNonZeroExitIsClassifiedForTheNode() {
+        Launchers launchers = new Launchers(
+            FakeProcessLauncher.of("Password: \ncli> something went wrong\n", "", 1));
+
+        ToolError error = contactedErrorOf(port(launchers));
+
+        assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.node()).contains(ID);
     }
 
@@ -292,7 +323,7 @@ class V74HealthContractTest {
         Launchers launchers = Launchers.printing(
             "Password: \ncli> INUBIT Process Engine 7.4.0.90\ncli> \n");
 
-        ToolError error = errorOf(port(launchers));
+        ToolError error = contactedErrorOf(port(launchers));
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.node()).contains(ID);
@@ -311,7 +342,7 @@ class V74HealthContractTest {
                 .trustStore(CERTS.trustStore())
                 .pin(TestCertificates.fingerprint(CERTS.selfsignedCertificate())).build();
 
-            ToolError error = errorOf(port(server, launchers));
+            ToolError error = contactedErrorOf(port(server, launchers));
 
             assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
             assertThat(error.node()).contains(ID);
@@ -330,7 +361,7 @@ class V74HealthContractTest {
                 .disableHostnameVerification(
                     TestCertificates.fingerprint(CERTS.localhostCertificate())).build();
 
-            ToolError error = errorOf(port(server, launchers));
+            ToolError error = plainErrorOf(port(server, launchers));
 
             assertThat(error.code()).isEqualTo(ErrorCode.TLS_ERROR);
             assertThat(error.message()).contains("--disableHostNameVerification");
