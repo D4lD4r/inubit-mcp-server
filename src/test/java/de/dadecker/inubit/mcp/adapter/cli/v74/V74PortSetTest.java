@@ -1,23 +1,40 @@
 package de.dadecker.inubit.mcp.adapter.cli.v74;
 
+import static de.dadecker.inubit.mcp.adapter.TestNodeConfig.storeLabels;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import de.dadecker.inubit.mcp.adapter.CredentialGuard;
 import de.dadecker.inubit.mcp.adapter.PortSet;
 import de.dadecker.inubit.mcp.adapter.PortSetRegistry;
 import de.dadecker.inubit.mcp.adapter.TestNodeConfig;
+import de.dadecker.inubit.mcp.adapter.cli.CliClientProbe;
+import de.dadecker.inubit.mcp.adapter.cli.CliConcurrencyLimiter;
+import de.dadecker.inubit.mcp.adapter.cli.CliResources;
+import de.dadecker.inubit.mcp.adapter.cli.CliRunner;
+import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.v61.V61HealthAdapter;
+import de.dadecker.inubit.mcp.adapter.cli.v61.V61ProcessQueryAdapter;
+import de.dadecker.inubit.mcp.config.NodeCredentials;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.NodeId;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
+import de.dadecker.inubit.mcp.infra.SecretScrubber;
+import de.dadecker.inubit.mcp.testing.MutableClock;
+import de.dadecker.inubit.mcp.testing.PrivateFiles;
+import de.dadecker.inubit.mcp.testing.TestCliRunners;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
-import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -25,27 +42,46 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * Feature 025 T008: the 7.4 port set refuses every port and the StartCLI health port with
- * {@code UNSUPPORTED_VERSION} naming the node and INUBIT 7.4, without contact (research D-5,
- * spec FR-011).
+ * Feature 025 T008: the 7.4 port set refuses every port with {@code UNSUPPORTED_VERSION} naming
+ * the node and INUBIT 7.4, without contact (research D-5, spec FR-011); T031: its StartCLI health
+ * port is the 6.1 health adapter, T032: its process query port the 6.1 process query adapter
+ * (spec FR-024).
  */
 class V74PortSetTest {
 
     private static final NodeId NODE = NodeId.parse("legacy74/node1");
 
+    private static final MutableClock CLOCK =
+        new MutableClock(Instant.parse("2026-11-01T10:00:00Z"));
+    private static final CliRunner RUNNER = TestCliRunners.forHost(
+        FakeProcessLauncher.of("", "", 0), Map.of("PATH", "/usr/bin"),
+        new CliResources("acme", PrivateFiles.forHost()));
+
     /** As {@code AdapterGatewayFactory} passes them for a CLI-only range: no REST client. */
     private static final PortSetRegistry.NodeResources RESOURCES =
         new PortSetRegistry.NodeResources(TestNodeConfig.node().id(NODE.value())
-            .versionLine(VersionSetting.V7_4).build(), null, null, null, null, null);
+            .versionLine(VersionSetting.V7_4).build(), new NodeCredentials(NODE, Optional.empty(),
+            Optional.empty(), Optional.empty(), Optional.empty()),
+            new CredentialGuard(storeLabels("INUBIT", NODE), CLOCK), null, RUNNER,
+            new SecretScrubber());
+
+    private static final CliClientProbe PROBE = new CliClientProbe(RUNNER,
+        id -> RESOURCES.server(), CapabilityMatrix.production(), CLOCK);
+    private static final CliConcurrencyLimiter LIMITER =
+        new CliConcurrencyLimiter(CapabilityMatrix.production());
 
     /**
-     * Every abstract method of every port of the 7.4 port set, and every default method the port
-     * overrides (such as {@code queueEntries}), with the port it is called on.
+     * Every abstract method of every refusing port of the 7.4 port set (all but the process query
+     * port), and every default method the port overrides (such as {@code queueEntries}), with the
+     * port it is called on.
      */
     static Stream<Arguments> portMethods() throws ReflectiveOperationException {
-        PortSet ports = V74PortSet.factory().create(RESOURCES);
+        PortSet ports = V74PortSet.factory(PROBE, LIMITER).create(RESOURCES);
         Stream.Builder<Arguments> calls = Stream.builder();
         for (RecordComponent component : PortSet.class.getRecordComponents()) {
+            if (component.getName().equals("processes")) {
+                continue;
+            }
             Object port = component.getAccessor().invoke(ports);
             for (Method method : component.getType().getMethods()) {
                 if (!Modifier.isStatic(method.getModifiers())
@@ -83,11 +119,19 @@ class V74PortSetTest {
     }
 
     @Test
-    void theHealthPortRefusesWithTheSevenFourRefusal() {
-        assertThatThrownBy(() -> V74PortSet.cliHealth().create(RESOURCES)
-            .snapshot(Duration.ofSeconds(5)))
-            .isInstanceOfSatisfying(ToolErrorException.class,
-                e -> assertSevenFourRefusal(e.error()));
+    void theHealthPortIsTheStartCliAdapter() {
+        // T031: the 6.1 health adapter with the 7.4 profile (V74HealthContractTest)
+        CliHealthPort health = V74PortSet.cliHealth(PROBE, LIMITER).create(RESOURCES);
+
+        assertThat(health).isInstanceOf(V61HealthAdapter.class);
+    }
+
+    @Test
+    void theProcessQueryPortIsTheStartCliAdapter() {
+        // T032: the 6.1 process query adapter with the 7.4 profile (V74ProcessQueryContractTest)
+        PortSet ports = V74PortSet.factory(PROBE, LIMITER).create(RESOURCES);
+
+        assertThat(ports.processes()).isInstanceOf(V61ProcessQueryAdapter.class);
     }
 
     private static void assertSevenFourRefusal(ToolError error) {

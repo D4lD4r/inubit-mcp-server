@@ -3,6 +3,8 @@ package de.dadecker.inubit.mcp.domain.model;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -28,6 +30,28 @@ class NodeResultTest {
         assertThat(result.payload()).isEmpty();
         assertThat(result.error()).contains(ERROR);
         assertThat(result.isSuccess()).isFalse();
+        assertThat(result.warnings()).isEmpty();
+    }
+
+    @Test
+    void aFailureMayCarryWarnings() {
+        // feature 025, FR-030 (b): the unverified warning of a node whose attempt failed
+        List<String> warnings = new ArrayList<>(List.of("not verified"));
+        NodeResult<String> result =
+            new NodeResult<>(SERVER, Optional.empty(), Optional.of(ERROR), warnings);
+        warnings.clear();
+
+        assertThat(result.error()).contains(ERROR);
+        assertThat(result.warnings()).containsExactly("not verified");
+    }
+
+    @Test
+    void theThreeArgumentConstructorAndNullGiveNoWarnings() {
+        assertThat(new NodeResult<>(SERVER, Optional.empty(), Optional.of(ERROR)).warnings())
+            .isEmpty();
+        assertThat(new NodeResult<>(SERVER, Optional.empty(), Optional.of(ERROR), null)
+            .warnings()).isEmpty();
+        assertThat(NodeResult.success(SERVER, "ok").warnings()).isEmpty();
     }
 
     @Test

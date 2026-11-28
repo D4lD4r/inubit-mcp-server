@@ -855,7 +855,8 @@ class MainTest {
         int exit = run("--check-config", "--config", file.toString());
 
         assertThat(exit).as(out() + err()).isZero();
-        String refused = "available: none; refused: monitoring, process diagnosis, log"
+        // feature 025 (FR-036): monitoring and process diagnosis are unverified reads on 6.1
+        String refused = "available: monitoring, process diagnosis; refused: log"
             + " diagnosis, inventory, partner management, workspace export, development writes,"
             + " deployment, end-to-end test, process control, downloading the trace log, reading"
             + " server settings, reading users, reading model details, operating the server,"
@@ -908,7 +909,7 @@ class MainTest {
         int exit = run("--check-config", "--config", file.toString());
 
         assertThat(exit).as(out() + err()).isZero();
-        String refused = "available: none; refused: monitoring, process diagnosis, log"
+        String refused = "available: monitoring, process diagnosis; refused: log"
             + " diagnosis, inventory, partner management, workspace export, development writes,"
             + " deployment, end-to-end test, process control";
         assertThat(out())
@@ -1251,9 +1252,12 @@ class MainTest {
      * Feature 025 T014 (FR-010a, research D-9): the generic rules of feature 017; the range is
      * printed in a form the probe cannot evaluate, the client is shown without range. FR-013
      * (IMC-20 m3): on every platform, with {@code startcli.bat} as the stand-in on Windows.
+     * T035 (FR-035): health and processes use the 7.4 client, so the option probe ({@code -h})
+     * runs as for 6.1 and the client is no longer shown as not used; the stand-in prints no help
+     * text, so every option counts as absent.
      */
     @Test
-    void checkConfigProbesA74EntryLocallyAndShowsItsClientAsNotUsedYet() throws IOException {
+    void checkConfigProbesA74EntryLocallyWithTheVersionAndTheOptionProbe() throws IOException {
         credentials();
         windows = Platform.windows();
         Path c74 = fakeStartCliOnThisPlatform("c74", "CLI 7.4.0.90",
@@ -1278,21 +1282,23 @@ class MainTest {
         assertThat(out().replace("\r\n", "\n"))
             .contains("dev/node1: read-only, cli: available, client: " + c74
                 + " (cliClients \"7.4\"), address: ")
-            .contains("inubit: V7_4 (INUBIT 7.4, StartCLI only; available: none; refused: ")
-            // "not evaluable": nothing (no range) between the client version and the next field
-            .contains("), client: 7.4.0.90, server version: determined at runtime; not used until"
-                + " a 7.4 capability is verified, secrets: credentialStore (macOS Keychain),"
-                + " username ←")
+            .contains("inubit: V7_4 (INUBIT 7.4, StartCLI only; available: monitoring, process"
+                + " diagnosis; refused: ")
+            // "not evaluable": no range, only the options inside the parentheses
+            .contains("), client: 7.4.0.90 (options: no trust-store option, no host-name"
+                + " option), server version: determined at runtime, secrets: credentialStore"
+                + " (macOS Keychain), username ←")
             .contains("\nclient " + c74 + " (Java 8): CLI 7.4.0.90\n")
-            .doesNotContain("ships with", "not declared supported", "probe failed",
-                "reached through StartCLI only", "options:", "StartCLI client offers no")
+            .doesNotContain("not used until", "ships with", "not declared supported",
+                "probe failed", "reached through StartCLI only", "StartCLI client offers no")
             .contains("Result: OK")
             .doesNotContain("://", "example.test", PASSWORD, USERNAME);
-        // local version probe only (T015, research D-9): no -h option probe while 7.4 is not
-        // verified, and no call carries a server address; on Windows the server quotes every
-        // argument (WindowsArguments.quote) and the batch file records them as passed
-        assertThat(Files.readString(c74.resolve("bin/arguments")).replace("\r\n", "\n"))
-            .isEqualTo(windows ? "\"-v\"\n" : "-v\n");
+        // only local probes, -v and -h, and no call carries a server address; on Windows the
+        // server quotes every argument (WindowsArguments.quote) and the batch file records them
+        // as passed
+        assertThat(Files.readString(c74.resolve("bin/arguments")).replace("\r\n", "\n").lines())
+            .containsExactlyElementsOf(windows ? List.of("\"-v\"", "\"-h\"")
+                : List.of("-v", "-h"));
     }
 
     /**

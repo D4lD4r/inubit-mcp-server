@@ -18,7 +18,9 @@ import java.util.stream.Stream;
  * every range and an unknown version use the declaration for unknown versions. A capability an
  * entry (or the unknown declaration) does not list is {@link SupportState#UNSUPPORTED}.
  * {@link SupportState#UNVERIFIED} is rejected for write capabilities (it means "runs with a
- * warning", which only reads may do).
+ * warning", which only reads may do); such a read runs with the adapters of the version's entry,
+ * the 8.1 adapters for a version without own adapters and the StartCLI adapters on a CLI-only
+ * version (feature 025, FR-030).
  *
  * <p>An entry may declare channels per capability that replace the capability's own
  * {@link Capability#channels()}, and may be {@code cliOnly}: the node is reached through StartCLI
@@ -31,10 +33,14 @@ public final class CapabilityMatrix {
     /**
      * The states of one version range; capabilities not listed are unsupported. A capability
      * without declared {@code channels} uses its own channels.
+     *
+     * @param ownClientOnly StartCLI on this range uses only a client of its own: node or group
+     *     {@code cli.home} or the range's {@code defaults.cliClients} entry, never the
+     *     version-less {@code defaults.cliHome} (feature 025, FR-029)
      */
     public record Entry(VersionRange range, Map<Capability, SupportState> states,
         Map<Capability, Set<Channel>> channels, boolean cliOnly, Map<Capability, String> notes,
-        PatchDepth patchDepth) {
+        PatchDepth patchDepth, boolean ownClientOnly) {
 
         public Entry {
             Objects.requireNonNull(range, "range");
@@ -44,6 +50,13 @@ public final class CapabilityMatrix {
             channels = Map.copyOf(copy);
             notes = Map.copyOf(notes);
             Objects.requireNonNull(patchDepth, "patchDepth");
+        }
+
+        /** An entry that may use the version-less {@code defaults.cliHome}. */
+        public Entry(VersionRange range, Map<Capability, SupportState> states,
+            Map<Capability, Set<Channel>> channels, boolean cliOnly, Map<Capability, String> notes,
+            PatchDepth patchDepth) {
+            this(range, states, channels, cliOnly, notes, patchDepth, false);
         }
 
         /** An entry whose patch comparison uses major.minor.patch ({@link PatchDepth#THREE}). */
@@ -71,27 +84,34 @@ public final class CapabilityMatrix {
 
     /**
      * 6.1: StartCLI only. A capability becomes {@code SUPPORTED} only together with its recorded
-     * fixtures (FR-005, research D-15); until then everything is refused.
+     * fixtures (FR-005, research D-15). Feature 025 (FR-036): monitoring and process diagnosis are
+     * unverified, backed by the fixtures reconstructed from the 6.1 vendor documentation: they run
+     * through StartCLI with the warning; partner management and everything else is refused.
      */
     private static final Entry V6_1 = new Entry(new VersionRange(6, 1, 6, 1),
-        Map.of(Capability.MONITORING, SupportState.UNSUPPORTED,
-            Capability.PROCESS_DIAGNOSIS, SupportState.UNSUPPORTED,
+        Map.of(Capability.MONITORING, SupportState.UNVERIFIED,
+            Capability.PROCESS_DIAGNOSIS, SupportState.UNVERIFIED,
             Capability.PARTNER_MANAGEMENT, SupportState.UNSUPPORTED),
         Map.of(Capability.MONITORING, Set.of(Channel.CLI),
             Capability.PROCESS_DIAGNOSIS, Set.of(Channel.CLI)),
         true);
 
     /**
-     * Feature 025 (FR-006, research D-4): 7.4 is StartCLI only and recognised, but no capability
-     * is verified on it yet: everything is refused with the note "not yet verified", never run
-     * with the 8.1 adapters as unverified. Monitoring and process diagnosis use StartCLI, so a
-     * recording only flips their state and removes their note. The client/server patch comparison
-     * uses the fourth part (FR-003, research D-3).
+     * Feature 025: 7.4 is StartCLI only (FR-006, research D-4). Monitoring and process diagnosis
+     * are unverified without a note, backed by the reconstructed 7.4 fixtures and the recorded
+     * help (FR-030): they run through StartCLI with the warning, never with the 8.1 adapters;
+     * every other capability is refused with the note "not yet verified". StartCLI uses only a 7.4
+     * client of its own, never the version-less {@code defaults.cliHome} (FR-029). The
+     * client/server patch comparison uses the fourth part (FR-003, research D-3).
      */
-    private static final Entry V7_4 = new Entry(new VersionRange(7, 4, 7, 4), Map.of(),
+    private static final Entry V7_4 = new Entry(new VersionRange(7, 4, 7, 4),
+        Map.of(Capability.MONITORING, SupportState.UNVERIFIED,
+            Capability.PROCESS_DIAGNOSIS, SupportState.UNVERIFIED),
         Map.of(Capability.MONITORING, Set.of(Channel.CLI),
             Capability.PROCESS_DIAGNOSIS, Set.of(Channel.CLI)),
-        true, notYetVerified(EnumSet.allOf(Capability.class)), PatchDepth.FOUR);
+        true, notYetVerified(EnumSet.complementOf(
+            EnumSet.of(Capability.MONITORING, Capability.PROCESS_DIAGNOSIS))),
+        PatchDepth.FOUR, true);
 
     /**
      * Feature 024 (FR-005, research D-4, D-27): the node tools refused on 8.1 with the note "not
@@ -177,11 +197,12 @@ public final class CapabilityMatrix {
     }
 
     /**
-     * The production declaration of research D-3: 6.1.x CLI-only with every capability
-     * unsupported; 8.1.x and (feature 017, research D-9) 9.0.x all supported, except partner
-     * management on 9.0.x, which is unverified (feature 018); any other known version and unknown
-     * versions: reads unverified, writes unsupported. Feature 020 (research D-6, D-20): reading
-     * Queue Manager entries is supported on 8.1 and 9.0, on any other and on unknown versions
+     * The production declaration of research D-3: 6.1.x CLI-only with monitoring and process
+     * diagnosis unverified (feature 025, FR-036) and every other capability unsupported; 8.1.x
+     * and (feature 017, research D-9) 9.0.x all supported, except partner management on 9.0.x,
+     * which is unverified (feature 018); any other known version and unknown versions: reads
+     * unverified, writes unsupported. Feature 020 (research D-6, D-20): reading Queue Manager
+     * entries is supported on 8.1 and 9.0, on any other and on unknown versions
      * unsupported. Feature 021 (research D-6): downloading the trace log and the web service log
      * is supported on 8.1 (T033, T046) and 9.0 (T051, T052), on any other and on unknown versions
      * unsupported. Feature 022 (research D-1): reading the server settings is supported on 8.1
@@ -196,10 +217,11 @@ public final class CapabilityMatrix {
      * any other and on unknown versions (without the note). Feature 022 (US4): operating the
      * server and managing tags likewise. Feature 026 (research D-2): checking module management
      * is supported on 8.1, unsupported with the note "not yet verified" on 9.0, and unsupported on
-     * every other and on unknown versions. Feature 025 (FR-006, research D-3, D-4): 7.4.x CLI-only
-     * with every capability unsupported and the note "not yet verified" (it is therefore no line
-     * of {@link #lines}), monitoring and process diagnosis on StartCLI, and the fourth version
-     * part in the client/server patch comparison; every other range compares three parts.
+     * every other and on unknown versions. Feature 025 (FR-006, FR-030, research D-3, D-4): 7.4.x
+     * CLI-only with monitoring and process diagnosis unverified on StartCLI, every other capability
+     * unsupported with the note "not yet verified" (as a CLI-only entry no line of
+     * {@link #lines}), only its own StartCLI client (FR-029), and the fourth version part in the
+     * client/server patch comparison; every other range compares three parts.
      */
     public static CapabilityMatrix production() {
         return PRODUCTION;
@@ -250,6 +272,15 @@ public final class CapabilityMatrix {
         return client.compare(server, patchDepth(server));
     }
 
+    /**
+     * Whether StartCLI on {@code version} uses only a client of its own, never the version-less
+     * {@code defaults.cliHome} (feature 025, FR-029); false for an unknown version and a version
+     * outside every range.
+     */
+    public boolean ownClientOnly(Optional<InubitVersion> version) {
+        return entry(version).map(Entry::ownClientOnly).orElse(false);
+    }
+
     /** The version lines reached through StartCLI only, in declaration order: "6.1", "7.4". */
     public List<String> cliOnlyLines() {
         return entries.stream().filter(Entry::cliOnly).map(e -> line(e.range())).toList();
@@ -257,7 +288,8 @@ public final class CapabilityMatrix {
 
     /**
      * Whether the entry containing {@code version} carries a note on every capability: the line is
-     * recognised, but nothing is verified on it yet (feature 025, 7.4); false for an unknown
+     * recognised, but nothing is verified on it yet (feature 025: 7.4 before monitoring and
+     * process diagnosis became unverified; no production entry since); false for an unknown
      * version and a version outside every range.
      */
     public boolean allNotYetVerified(Optional<InubitVersion> version) {
@@ -267,14 +299,14 @@ public final class CapabilityMatrix {
     /**
      * The version lines that declare {@code capability} {@code SUPPORTED} or carry a note for it
      * (supported once verified), in declaration order: "8.1", or "7.8–7.9" for a wider range. The
-     * notes of an entry that carries one on every capability do not count: such a line is only
-     * recognised (feature 025, research D-4: 7.4).
+     * notes of a CLI-only entry do not count: such a line is out of scope for the noted capability
+     * (feature 025, research D-4, FR-035: 7.4).
      */
     public List<String> lines(Capability capability) {
         Objects.requireNonNull(capability, "capability");
         return entries.stream()
             .filter(e -> e.states().get(capability) == SupportState.SUPPORTED
-                || e.notes().containsKey(capability) && !allNoted(e))
+                || e.notes().containsKey(capability) && !e.cliOnly())
             .map(e -> line(e.range()))
             .toList();
     }

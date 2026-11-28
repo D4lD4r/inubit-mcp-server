@@ -61,6 +61,8 @@ public record UnavailablePart(String part, String reason, Optional<String> likel
     public static final String METRICS_NOT_LICENSED = "METRICS_NOT_LICENSED";
     /** Reason code of a part INUBIT 6.1 does not offer (feature 012, FR-008). */
     public static final String NOT_AVAILABLE_ON_6_1 = "NOT_AVAILABLE_ON_6_1";
+    /** Reason code of a part INUBIT 7.4 does not offer (feature 025, FR-026). */
+    public static final String NOT_AVAILABLE_ON_7_4 = "NOT_AVAILABLE_ON_7_4";
 
     public UnavailablePart {
         if (!PARTS.contains(part)) {

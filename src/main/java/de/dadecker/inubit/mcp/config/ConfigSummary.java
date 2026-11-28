@@ -426,7 +426,8 @@ public final class ConfigSummary {
      * Feature 012 (FR-014, research D-13): {@code  (INUBIT 6.1, StartCLI only; available: <names>
      * | none; refused: <names> | none)} for a setting pinned to a CLI-only version, else empty.
      * Judged on the pin as the version gate and {@code list_nodes} do: on a CLI-only version a
-     * capability runs only if the matrix declares it {@code SUPPORTED}. Reading Queue Manager
+     * capability runs only if the matrix declares it {@code SUPPORTED} or, for a read,
+     * {@code UNVERIFIED} (feature 025, FR-030, FR-036). Reading Queue Manager
      * entries is listed only for a group with {@code unsupported.queueEntryRead} (feature 020),
      * downloading the web service log only for one with {@code unsupported.serverLogRead}
      * (feature 021), each node tool only for one with its own opt-in (feature 024, research D-5).
@@ -443,8 +444,10 @@ public final class ConfigSummary {
             if (!optedIn(server, capability)) {
                 continue;
             }
-            (matrix.state(pin, capability) == SupportState.SUPPORTED ? available : refused)
-                .add(capability.label());
+            // UNVERIFIED is declared for reads only (CapabilityMatrix)
+            SupportState state = matrix.state(pin, capability);
+            (state == SupportState.SUPPORTED || state == SupportState.UNVERIFIED
+                ? available : refused).add(capability.label());
         }
         InubitVersion version = pin.orElseThrow();
         return " (INUBIT " + version.major() + "." + version.minor() + ", StartCLI only;"

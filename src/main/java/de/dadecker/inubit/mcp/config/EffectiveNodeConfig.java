@@ -1,6 +1,7 @@
 package de.dadecker.inubit.mcp.config;
 
 import de.dadecker.inubit.mcp.application.ActionSpec;
+import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.DevelopmentPolicy;
 import de.dadecker.inubit.mcp.config.CliChoice.AddressKind;
 import de.dadecker.inubit.mcp.config.CliChoice.HomeSource;
@@ -327,14 +328,21 @@ public record EffectiveNodeConfig(
      * The StartCLI client, JDK and address for {@code version}, the node's effective version
      * (feature 017, research D-3): node or group {@code cli.home}, else the
      * {@code defaults.cliClients} entry of the version's major.minor (never for a line without
-     * minor such as {@code V9_X}), else {@code defaults.cliHome}. JDK: node → group
+     * minor such as {@code V9_X}), else {@code defaults.cliHome}, except for a version whose
+     * matrix entry is {@code ownClientOnly} (feature 025, FR-029: 7.4), which then has no client
+     * ({@link HomeSource#NONE}). JDK: node → group
      * {@code cli.javaHome} → the entry's {@code javaHome} (only with the entry's home) →
      * {@code defaults.cliJavaHome}. Address: explicit {@code cli.url}, else the servlet address
      * for a major below 9 or unknown, else {@code <baseUrl>}; the major is the version's, else the
      * line pin's.
      */
     public CliChoice cliFor(Optional<InubitVersion> version) {
-        return choose(cliSources, baseUrl, versionLine, version);
+        return cliFor(version, CapabilityMatrix.production());
+    }
+
+    /** As {@link #cliFor(Optional)}, with the {@code ownClientOnly} flag of {@code matrix}. */
+    CliChoice cliFor(Optional<InubitVersion> version, CapabilityMatrix matrix) {
+        return choose(cliSources, baseUrl, versionLine, version, matrix.ownClientOnly(version));
     }
 
     /**
@@ -347,16 +355,24 @@ public record EffectiveNodeConfig(
 
     /**
      * Whether this node's StartCLI client depends on its version (feature 017):
-     * {@code defaults.cliClients} is configured or the {@code versionLine} has major 9 or later.
-     * Otherwise the node shows exactly the 0.8.0 output (FR-009).
+     * {@code defaults.cliClients} is configured, the {@code versionLine} has major 9 or later, or
+     * its version is {@code ownClientOnly} (feature 025, FR-029). Otherwise the node shows exactly
+     * the 0.8.0 output (FR-009).
      */
     public boolean choosesCliByVersion() {
-        OptionalInt major = cliForSetting().major();
-        return !cliSources.clients().isEmpty() || major.isPresent() && major.getAsInt() >= 9;
+        return choosesCliByVersion(CapabilityMatrix.production());
+    }
+
+    /** As {@link #choosesCliByVersion()}, with the {@code ownClientOnly} flag of {@code matrix}. */
+    boolean choosesCliByVersion(CapabilityMatrix matrix) {
+        CliChoice choice = cliFor(NodeVersionState.initial(versionLine).effectiveVersion(), matrix);
+        OptionalInt major = choice.major();
+        return !cliSources.clients().isEmpty() || major.isPresent() && major.getAsInt() >= 9
+            || choice.ownClientOnly();
     }
 
     private static CliChoice choose(CliSources sources, URI baseUrl, VersionSetting line,
-        Optional<InubitVersion> version) {
+        Optional<InubitVersion> version, boolean ownClientOnly) {
         Objects.requireNonNull(version, "version");
         boolean wholeMajorLine = line instanceof VersionSetting.Line l && l.minor().isEmpty();
         Optional<MajorMinor> entryKey = version.filter(v -> !wholeMajorLine).map(MajorMinor::of)
@@ -374,7 +390,7 @@ public record EffectiveNodeConfig(
             source = HomeSource.VERSION_ENTRY;
             entryJavaHome = client.javaHome();
         } else {
-            home = sources.defaultHome();
+            home = ownClientOnly ? Optional.empty() : sources.defaultHome();
             source = home.isPresent() ? HomeSource.DEFAULTS : HomeSource.NONE;
         }
         Optional<Path> fromEntry = entryJavaHome;
@@ -395,7 +411,7 @@ public record EffectiveNodeConfig(
             url = URI.create(baseUrl + DEFAULT_CLI_PATH);
         }
         return new CliChoice(new Cli(url, home, javaHome), source, entryKey, address, major,
-            version.isPresent());
+            version.isPresent(), ownClientOnly);
     }
 
     private static OptionalInt lineMajor(VersionSetting line) {
@@ -487,8 +503,10 @@ public record EffectiveNodeConfig(
             defaults.cliClients(),
             defaults.cliHome(),
             defaults.cliJavaHome());
-        Cli cli = choose(cliSources, baseUrl, versionLine,
-            NodeVersionState.initial(versionLine).effectiveVersion()).cli();
+        Optional<InubitVersion> settingVersion =
+            NodeVersionState.initial(versionLine).effectiveVersion();
+        Cli cli = choose(cliSources, baseUrl, versionLine, settingVersion,
+            CapabilityMatrix.production().ownClientOnly(settingVersion)).cli();
         Inventory inventory = new Inventory(
             node.inventory().owner().or(group.inventory()::owner)
                 .or(defaults.inventory()::owner),

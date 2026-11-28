@@ -38,7 +38,8 @@ import org.junit.jupiter.params.provider.MethodSource;
  * {@code V8_1}, {@code V9_0}, {@code V9_X} and the pins {@code 6.1.0.89}, {@code 8.1.17},
  * {@code 9.0.10} it pins the parsed version, the client comparison, the production matrix state of
  * every capability, whether the version is CLI-only, and the refusal texts of the version gate.
- * The later tasks of the feature must pass it unchanged.
+ * The later tasks of the feature must pass it unchanged, apart from the deliberate change noted
+ * on {@link #STATES}.
  */
 class VersionLineRegressionTest {
 
@@ -48,11 +49,15 @@ class VersionLineRegressionTest {
     /** The column of {@link #STATES} a line value or pin is looked up in. */
     private enum Column { V6_1, V8_1, V9_0, UNKNOWN }
 
-    /** The production state of every capability on 6.1, 8.1, 9.0 and an unknown version. */
+    /**
+     * The production state of every capability on 6.1, 8.1, 9.0 and an unknown version. The 6.1
+     * states of monitoring and process diagnosis are the one deliberate change (feature 025,
+     * T035, FR-020, FR-036: unverified on 6.1).
+     */
     private static final Map<Capability, List<SupportState>> STATES = Map.ofEntries(
-        entry(Capability.MONITORING, List.of(UNSUPPORTED, SUPPORTED, SUPPORTED, UNVERIFIED)),
+        entry(Capability.MONITORING, List.of(UNVERIFIED, SUPPORTED, SUPPORTED, UNVERIFIED)),
         entry(Capability.PROCESS_DIAGNOSIS,
-            List.of(UNSUPPORTED, SUPPORTED, SUPPORTED, UNVERIFIED)),
+            List.of(UNVERIFIED, SUPPORTED, SUPPORTED, UNVERIFIED)),
         entry(Capability.LOG_DIAGNOSIS, List.of(UNSUPPORTED, SUPPORTED, SUPPORTED, UNVERIFIED)),
         entry(Capability.INVENTORY, List.of(UNSUPPORTED, SUPPORTED, SUPPORTED, UNVERIFIED)),
         entry(Capability.PARTNER_MANAGEMENT,

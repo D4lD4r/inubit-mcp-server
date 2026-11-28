@@ -1,4 +1,4 @@
-# Handoff — IMC-17 · Executing · 2026-11-26 · replanned (unverified, no recordings)
+# Handoff — IMC-17 · Verifying · 2026-11-28 · implementation merged (#114)
 
 ## Status
 Mandate B is **replanned** on the owner's decisions of 2026-11-26: no recording session, no live
@@ -10,11 +10,12 @@ fixtures incl. ones built from vendor documentation.
 Spec, plan, tasks, research, data-model, contracts, quickstart replanned on this branch;
 review-spec: `reviews/spec-replan-r1.md` (CHANGES_REQUESTED) → `spec-replan-r2.md` (APPROVED,
 minors applied); review-plan: `plan-replan-r1.md`, `r2` (CHANGES_REQUESTED) → `r3` (APPROVED,
-minors applied). Nothing of this is on main yet.
-Branch `claude/025-imc-17-mandate-b-b4dc46`, pushed; no PR yet. No Mandate B code written.
+minors applied). Merged to main with PR #109 (`3e0bde00`, CI 5/5 green); the mandate is
+re-pinned to spec 025 at `3e0bde00`. No Mandate B code written.
 
 ## Jira
-- IMC-17: summary/description rewritten to the replan, comment 10062. Flag `Blocked` still set.
+- IMC-17: summary/description rewritten to the replan, comment 10062; `Blocked` flag cleared
+  after the merge.
 - IMC-22 (recording session): cancelled, comment 10061 — **owner** moves it to Done and tells the
   colleague the kit is no longer needed (executor has no transition on Owner action cards).
 - IMC-24: superseded, comment 10064 — **owner** moves it to Applied/Done.
@@ -24,12 +25,19 @@ Branch `claude/025-imc-17-mandate-b-b4dc46`, pushed; no PR yet. No Mandate B cod
 - IMC-6: scope change commented (10065): criterion 1 (detection) dropped, criterion 2 met as
   unverified.
 
+## Implementation (done, 2026-11-28)
+All Mandate B tasks T030–T046 plus a cleanup pass of 13 review minors are done with
+`/d4ld4r-speckit-duo:implement`; every task was APPROVED in review round 1 (reviews in
+`specs/025-inubit-74-support/reviews/`). Local `mvn clean verify` green (11,470 tests).
+Merged to main with PR #114 (`299441f3`). The Windows CI job (not a required check) failed on
+two `ConfigSummaryTest` cases that expected `/opt/client` literally; fixed test-only in PR #115.
+
 ## Next step
-1. Spec MR: open a PR of this branch (spec, plan, tasks, constitution 2.1.0, recording kit kept as
-   optional later path), merge after green CI. Then clear the `Blocked` flag on IMC-17.
-2. Implementation with `/d4ld4r-speckit-duo:implement`, task range T031–T046 in the order of
-   tasks.md "Dependencies" (T038 → T031 → T033 → T046 …, T041 → T044 → T045 → T043, flip T035
-   with docs T036, verification T037), one PR.
+1. Merge PR #115 once the Windows job is green; then main is green on Linux and Windows.
+2. Owner: move IMC-22, IMC-24, IMC-25 to Done; delete link 10025; tell the colleague the kit is
+   no longer needed.
+3. Release only on the owner's decision. Raising 6.1/7.4 to supported needs recordings plus a
+   live check (constitution 2.1.0), a later mandate.
 
 ## Decisions received (2026-11-26, owner, chat)
 - 7.4 integration "will not work this way": offer 7.4 support, marked untested in the docs.
@@ -64,4 +72,6 @@ Branch `claude/025-imc-17-mandate-b-b4dc46`, pushed; no PR yet. No Mandate B cod
 - context-mode intercepts long tool output; read long files with offsets.
 
 ## Claims for verification
-- None yet (no Mandate B code).
+- 6.1/7.4 pinned nodes: get_health and find_processes run over StartCLI with the
+  "not verified … results may be incomplete" warning; other tools refuse; wrong 7.4 client is
+  refused before contact (fail-closed). Evidence: reviews T031–T046, T037-r1, PR #114 CI.

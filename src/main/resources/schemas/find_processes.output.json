@@ -12,7 +12,7 @@
     },
     "results": {
       "type": "array",
-      "description": "One entry per resolved {node}, in config order; a failed {node} has only an error",
+      "description": "One entry per resolved {node}, in config order; a failed {node} has an error and possibly warnings",
       "items": {
         "type": "object",
         "required": [

@@ -8,6 +8,7 @@ import de.dadecker.inubit.mcp.domain.port.ClientSelectionPort;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -19,14 +20,26 @@ import java.util.stream.Collectors;
 public final class TestClientSelection implements ClientSelectionPort {
 
     private final Predicate<NodeId> withClient;
+    private final Function<Optional<InubitVersion>, ClientKey> keys;
 
-    private TestClientSelection(Predicate<NodeId> withClient) {
+    private TestClientSelection(Predicate<NodeId> withClient,
+        Function<Optional<InubitVersion>, ClientKey> keys) {
         this.withClient = Objects.requireNonNull(withClient, "withClient");
+        this.keys = Objects.requireNonNull(keys, "keys");
     }
 
     /** @param withClient the nodes whose StartCLI exists */
     public static ClientSelectionPort of(Predicate<NodeId> withClient) {
-        return new TestClientSelection(withClient);
+        return of(withClient, version -> ClientKey.NONE);
+    }
+
+    /**
+     * As above, choosing the client {@code keys} gives for the version (feature 025: a client of
+     * its own release per version line).
+     */
+    public static ClientSelectionPort of(Predicate<NodeId> withClient,
+        Function<Optional<InubitVersion>, ClientKey> keys) {
+        return new TestClientSelection(withClient, keys);
     }
 
     /** The nodes whose startup summary has {@link NodeSummary#cliAvailable()}. */
@@ -42,7 +55,7 @@ public final class TestClientSelection implements ClientSelectionPort {
 
     @Override
     public Optional<ClientKey> current(NodeId node, Optional<InubitVersion> version) {
-        return Optional.of(ClientKey.NONE);
+        return Optional.of(keys.apply(version));
     }
 
     @Override

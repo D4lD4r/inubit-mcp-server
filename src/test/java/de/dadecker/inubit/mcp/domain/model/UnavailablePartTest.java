@@ -38,6 +38,11 @@ class UnavailablePartTest {
         assertThat(UnavailablePart.NOT_AVAILABLE_ON_6_1).isEqualTo("NOT_AVAILABLE_ON_6_1");
     }
 
+    @Test
+    void theReasonCodeForPartsMissingOn74() {
+        assertThat(UnavailablePart.NOT_AVAILABLE_ON_7_4).isEqualTo("NOT_AVAILABLE_ON_7_4");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"counts", "thread", "blocking_queue", ""})
     void anUnknownPartIsRejected(String part) {

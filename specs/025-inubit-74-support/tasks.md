@@ -412,7 +412,7 @@ production matrix changes only in T035.
 
 ## Phase 11: Implementation (TDD)
 
-- [ ] T038 [US6] [US7] [US9] Unverified reads on a CLI-only version, 7.4 and 6.1 (spec FR-030,
+- [X] T038 [US6] [US7] [US9] Unverified reads on a CLI-only version, 7.4 and 6.1 (spec FR-030,
   FR-035, FR-036): in
   `main/application/VersionGate.java` `judge` (`:395-409`), on a CLI-only version an `UNVERIFIED`
   read adds the existing warning ("<name> on <node> is not verified for <capability>; results may
@@ -439,7 +439,7 @@ production matrix changes only in T035.
   no suffix; `ConfigSummaryTest` with these test matrices: the `--check-config` summary line reads
   "(INUBIT 7.4, StartCLI only; available: monitoring, process diagnosis; refused: …)" (6.1 alike). Production unchanged: `V74RefusalTest`, `V61RefusalTest` and
   `VersionLineRegressionTest` stay green.
-- [ ] T031 [US6] Health on 7.4: profile, port set, data entries (spec FR-024 – FR-027, after T038):
+- [X] T031 [US6] Health on 7.4: profile, port set, data entries (spec FR-024 – FR-027, after T038):
   new `main/adapter/cli/v61/CliLineProfile.java` (record: release, unavailable reason, whether
   `uname` reports the server's version; constant `V61` = "6.1", `NOT_AVAILABLE_ON_6_1`, false);
   `main/adapter/cli/v61/V61HealthAdapter.java` takes the profile (the 6.1 constructor keeps today's
@@ -466,7 +466,7 @@ production matrix changes only in T035.
   warning on a successful CLI report of a `V7_4` node, the client's version warning of FR-027, a
   7.4.0.80 client at a `"7.4.0.90"` pin is a mismatch in the client part; 6.1 cases unchanged. The
   gate still refuses 7.4 in production, so the adapter is reached only after T035.
-- [ ] T032 [US7] Processes on 7.4 (spec FR-024, FR-025, FR-028, after T031):
+- [X] T032 [US7] Processes on 7.4 (spec FR-024, FR-025, FR-028, after T031):
   `V74PortSet.factory(probe, limiter)` builds a `V61ProcessQueryAdapter` with the 7.4 connection and
   profile; every other port stays `RefusingPorts` with the Mandate A 7.4 text.
   The 6.1 classes take the profile only for the texts that name the release: the
@@ -489,7 +489,7 @@ production matrix changes only in T035.
   and the existing version note of `VersionGate.notes` (`:1016-1025`) "logs of INUBIT 7.4 cannot be
   read with query_logs; read them in the Workbench" on every admitted 7.4 `find_processes` entry (error
   entries: T041, T044, T045).
-- [ ] T033 [US6] Client choice for 7.4 (spec FR-029; after T031): the choice of StartCLI in
+- [X] T033 [US6] Client choice for 7.4 (spec FR-029; after T031): the choice of StartCLI in
   `main/config/EffectiveNodeConfig.java` (`cliFor` / `choose`, `:337-360`) and
   `main/adapter/cli/CliRunner.java` `select` (`:285`) does not fall back to the version-less
   `defaults.cliHome` for a version whose matrix entry says so: a new `CapabilityMatrix.Entry` flag
@@ -512,7 +512,7 @@ production matrix changes only in T035.
   message names `defaults.cliClients."7.4"` and contains no "cliHome"; the same without any
   `cliClients`; `choosesCliByVersion` true for the flagged setting; 6.1 with `cliHome` unchanged,
   its message unchanged).
-- [ ] T046 [US6] Fail-closed client check (spec FR-014, FR-015, FR-029; after T033): in
+- [X] T046 [US6] Fail-closed client check (spec FR-014, FR-015, FR-029; after T033): in
   `main/application/VersionGate.java` `checkClient` a client of an entry with `ownClientOnly` whose
   `-v` does not report the entry's major.minor, or cannot be read, refuses with `CLI_UNAVAILABLE`
   naming the client and what it reported. `get_health` never reaches `checkClient`
@@ -537,14 +537,14 @@ production matrix changes only in T035.
   new case and the per-capability lines); `CliClientProbeTest` (the `-v` replay of the 7.4 client).
 - [ ] ~~T034 [US8] Detection~~ — **withdrawn 2026-11-26, owner decision** (spec FR-032, FR-033,
   US8): `AUTO` never selects 7.4; detection stays unchanged.
-- [ ] T039 `lines()` without CLI-only notes (spec FR-035, IMC-16 m6; after T033 and T038, which
+- [X] T039 `lines()` without CLI-only notes (spec FR-035, IMC-16 m6; after T033 and T038, which
   also edit `CapabilityMatrix` and its test): `main/domain/model/CapabilityMatrix.java` `lines`
   (`:265-272`) counts a note only on an entry that is not CLI-only; this replaces the "every
   capability noted" exclusion of T007 (`allNoted` stays for `allNotYetVerified`). Test first:
   `CapabilityMatrixTest` with the T038 test matrix: `lines(QUEUE_ENTRY_READ)` and
   `lines(IO_LOG_READ)` without 7.4; production `lines` unchanged (`VersionLineRegressionTest`
   "; supported: 8.1, 9.0" green).
-- [ ] T040 [P] Guard for unverified 7.4 (spec FR-015 as amended 2026-11-26, SC-009; test only):
+- [X] T040 [P] Guard for unverified 7.4 (spec FR-015 as amended 2026-11-26, SC-009; test only):
   `test/adapter/cli/V74RecordedFixturesTest` fails when the production matrix declares any 7.4
   capability `SUPPORTED`, declares a capability other than MONITORING and PROCESS_DIAGNOSIS
   `UNVERIFIED`, or declares one of these two `UNVERIFIED` while it has no case in
@@ -555,7 +555,7 @@ production matrix changes only in T035.
   fails; `UNVERIFIED` monitoring and process diagnosis backed by reconstructed cases and `help`
   pass. The production matrix passes before and after T035. `V74FixturesShapeTest` (it rejects a
   fixture case in none of the lists) stays green and is part of SC-009's evidence.
-- [ ] T041 [US6] [US7] [US9] "Contacted" marker (spec FR-030 (b); after T032 and T046): new
+- [X] T041 [US6] [US7] [US9] "Contacted" marker (spec FR-030 (b); after T032 and T046): new
   `main/domain/model/ContactedException.java` (extends `ToolErrorException`, same `ToolError`, the
   error's JSON unchanged). Contact begins with the server's own TLS handshake or with the start of
   the StartCLI process, not with the limiter permit: inside the permit `CliRunner.runSession`
@@ -585,7 +585,7 @@ production matrix changes only in T035.
   local `-v` / `-h` probe failure stays plain); `V74HealthContractTest` /
   `V74ProcessQueryContractTest` (a non-zero exit classified by `CliOutputClassifier`,
   `login_failed`, `unreachable`, an unrecognized output: marked).
-- [ ] T044 [US6] [US7] [US9] Carrier for warnings on failed entries (spec FR-030 (b); after T041):
+- [X] T044 [US6] [US7] [US9] Carrier for warnings on failed entries (spec FR-030 (b); after T041):
   `main/domain/model/NodeResult.java` gets a component `warnings` (a failure may carry them) and
   keeps a 3-argument constructor `(node, payload, error)` with no warnings, so
   `InventoryService.java:595` and `SecretTiming.java:82` compile unchanged (`failure(node, error)`
@@ -608,7 +608,7 @@ production matrix changes only in T035.
   today), `SecretTimingTest` (an explained
   `TIMEOUT` keeps the warnings), `FindProcessesToolTest` (schema description, a failed entry with
   warnings validates).
-- [ ] T045 [US6] [US7] [US9] Services attach the warning to data and contacted errors only (spec
+- [X] T045 [US6] [US7] [US9] Services attach the warning to data and contacted errors only (spec
   FR-030 (b), SC-007, SC-010; after T044): `main/application/DiagnosisService.java`
   (`find_processes`, `:225-245`) registers the admission's warnings in the `FanOut` sink right
   after `admit` and rethrows a `ContactedException` from the port `withWarnings(admission
@@ -638,13 +638,13 @@ production matrix changes only in T035.
   and a 7.4 node
   (overview budget, only the 7.4 entry warned); 8.1, 9.0 and unknown-version error entries
   unchanged.
-- [ ] T042 [P] [US9] Guard for unverified 6.1 (spec FR-037, SC-010; test only):
+- [X] T042 [P] [US9] Guard for unverified 6.1 (spec FR-037, SC-010; test only):
   `test/adapter/cli/V61RecordedFixturesTest` fails when the production matrix declares any 6.1
   capability `SUPPORTED`, declares a capability other than MONITORING and PROCESS_DIAGNOSIS
   `UNVERIFIED`, or declares one of these two `UNVERIFIED` while it has no case in
   `fixtures/v6_1/cli/RECONSTRUCTED.txt`. Self-tests with test matrices as in T040. The production
   matrix passes before and after T035.
-- [ ] T043 [US9] 6.1 reads as unverified (spec FR-036; verification task, after T045): with
+- [X] T043 [US9] 6.1 reads as unverified (spec FR-036; verification task, after T045): with
   a test matrix whose 6.1 entry declares the two capabilities `UNVERIFIED`, `get_health` and
   `find_processes` on a `V6_1` and a `"6.1.0.89"` node run the existing 6.1 reads (`FakeV61Node`,
   the replayed `fixtures/v6_1/cli/` cases incl. `_de`) with the 6.1 warning; the version-less
@@ -655,7 +655,7 @@ production matrix changes only in T035.
 
 ## Phase 12: Enablement, docs, verification
 
-- [ ] T035 [US6] [US7] [US9] Flip to `UNVERIFIED`, 7.4 and 6.1 together (spec FR-020, FR-030,
+- [X] T035 [US6] [US7] [US9] Flip to `UNVERIFIED`, 7.4 and 6.1 together (spec FR-020, FR-030,
   FR-031, FR-035, FR-036, SC-007, SC-009, SC-010): after T031 – T033 and T038 – T046; its
   precondition, the ratified constitution 2.1.0, is satisfied (T030, 2026-11-26); no live check. In
   `main/domain/model/CapabilityMatrix.java` the production entry `V7_4` declares MONITORING and
@@ -681,7 +681,7 @@ production matrix changes only in T035.
   MONITORING and PROCESS_DIAGNOSIS, `:53-55`, become `UNVERIFIED`: the one deliberate change of
   that test, spec FR-020), `V61RecordedFixturesTest` green. Record every adjusted existing test in
   the quickstart (validation record). Lands in one commit with T036.
-- [ ] T036 Docs and changelog for Mandate B (spec FR-034; same commit as T035): `docs/setup.md`
+- [X] T036 Docs and changelog for Mandate B (spec FR-034; same commit as T035): `docs/setup.md`
   (section "INUBIT 7.4 nodes": `get_health` and `find_processes` **untested** (unverified), pinned
   nodes only, `AUTO` never 7.4; `defaults.cliClients."7.4"` with its JDK and the client order of
   FR-029), `docs/tools.md` (capability table 7.4 column "unverified (untested)", the warning table
@@ -696,7 +696,7 @@ production matrix changes only in T035.
   example for 6.1), changelog entry. Both: the fixture provenance in one sentence (reconstructed
   from the 6.1 vendor documentation; 7.4 checked against its real help output). Test first: none
   (docs); the doc-link checks stay green.
-- [ ] T037 Mandate B verification (verification task): `mvn -q -o clean verify` green;
+- [X] T037 Mandate B verification (verification task): `mvn -q -o clean verify` green;
   `VersionLineRegressionTest` unchanged since T035; `NoCustomerIdentifiersTest` run locally with the
   identifier lists; the CI jobs for macOS/Linux and Windows green on the PR (the Windows job runs
   the 7.4 and 6.1 contract tests with the feature 013 invocation); quickstart validation record

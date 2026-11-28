@@ -17,6 +17,7 @@ import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.CliHealthSnapshot;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.ContactedException;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.HealthReport;
@@ -43,6 +44,7 @@ import de.dadecker.inubit.mcp.domain.model.node.LeaseSummary;
 import de.dadecker.inubit.mcp.domain.model.node.LoggerName;
 import de.dadecker.inubit.mcp.domain.model.node.TemporaryLevel;
 import de.dadecker.inubit.mcp.domain.port.CliHealthPort;
+import de.dadecker.inubit.mcp.domain.port.ClientSelectionPort;
 import de.dadecker.inubit.mcp.domain.port.ClientVersionPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
@@ -55,6 +57,7 @@ import de.dadecker.inubit.mcp.domain.port.ProcessQueryPort;
 import de.dadecker.inubit.mcp.testing.FakeVersionDetection;
 import de.dadecker.inubit.mcp.testing.MutableClock;
 import de.dadecker.inubit.mcp.testing.TestClientSelection;
+import de.dadecker.inubit.mcp.testing.TestMatrices;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -63,6 +66,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -77,6 +81,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -142,6 +147,12 @@ class HealthServiceTest {
     private final Map<NodeId, CliHealthPort> cliPorts = new ConcurrentHashMap<>();
     /** Feature 024: the lease store as {@code get_health} reads it (empty by default). */
     private volatile LeaseView leaseView = () -> new LeaseView.Snapshot.Leases(List.of());
+    /** Feature 025: runs before each StartCLI installation lookup (a test may block it there). */
+    private volatile Consumer<NodeId> beforeClientLookup = node -> { };
+    /** Feature 025: runs before each StartCLI health port lookup (a test may block it there). */
+    private volatile Consumer<NodeId> beforeCliPortLookup = node -> { };
+    /** Feature 025: the client chosen for a version, by the gate and get_health alike. */
+    private Function<Optional<InubitVersion>, ClientKey> clientKeys = version -> ClientKey.NONE;
 
     private FakeMonitoring monitoring(NodeId server) {
         return monitorings.computeIfAbsent(server, s -> new FakeMonitoring());
@@ -202,6 +213,7 @@ class HealthServiceTest {
 
             @Override
             public Optional<CliHealthPort> cliHealth(NodeId server) {
+                beforeCliPortLookup.accept(server);
                 return Optional.ofNullable(cliPorts.get(server));
             }
 
@@ -232,19 +244,23 @@ class HealthServiceTest {
         GatewayFactory gateways = gatewaysForTest();
         ClientVersionPort probe = (server, version, timeout) -> {
             probeTimeouts.add(timeout);
-            return new ProbedClient(ClientKey.NONE,
+            return new ProbedClient(clientKeys.apply(version),
                 clients.getOrDefault(server, () -> CLIENT_8117).get());
         };
-        VersionGate gate = gateWithoutClients(versions, gateways, matrix);
+        VersionGate gate = gateWithoutClients(versions, gateways, matrix,
+            TestClientSelection.of(node -> false, clientKeys));
         LeaseView leases = () -> leaseView.leases();
+        ClientSelectionPort selection = TestClientSelection.of(node -> {
+            beforeClientLookup.accept(node);
+            return withClient.contains(node);
+        }, clientKeys);
         return singleCliBudget == null
             ? new HealthService(gateways, new TargetResolver(SERVERS), new FanOut(),
                 server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC), gate, versions, probe,
-                TestClientSelection.of(withClient::contains), server -> Optional.empty(), leases)
+                selection, server -> Optional.empty(), leases)
             : new HealthService(gateways, new TargetResolver(SERVERS), new FanOut(),
                 server -> TIMEOUT, Clock.fixed(NOW, ZoneOffset.UTC), gate, versions, probe,
-                TestClientSelection.of(withClient::contains), server -> Optional.empty(), leases,
-                singleCliBudget, overviewBudget);
+                selection, server -> Optional.empty(), leases, singleCliBudget, overviewBudget);
     }
 
     private HealthReport checkOne(NodeId server, boolean includeSystemInfo) {
@@ -641,6 +657,26 @@ class HealthServiceTest {
 
     // --- feature 012, T007: monitoring access before contact (FR-001, research D-11) --------
 
+    /**
+     * 6.1 as in production before feature 025 declared its monitoring unverified (T035): every
+     * capability refused; 8.1 supported; unknown versions with reads unverified, as in
+     * production. Keeps the refusal before contact of feature 012 under test.
+     */
+    private static CapabilityMatrix refusing61() {
+        Map<Capability, SupportState> supported = new EnumMap<>(Capability.class);
+        Map<Capability, SupportState> unknown = new EnumMap<>(Capability.class);
+        for (Capability capability : Capability.values()) {
+            supported.put(capability, SupportState.SUPPORTED);
+            unknown.put(capability, capability.kind() == Capability.Kind.READ
+                ? SupportState.UNVERIFIED : SupportState.UNSUPPORTED);
+        }
+        return new CapabilityMatrix(List.of(
+            new CapabilityMatrix.Entry(new VersionRange(6, 1, 6, 1), Map.of(),
+                Map.of(Capability.MONITORING, Set.of(Channel.CLI),
+                    Capability.PROCESS_DIAGNOSIS, Set.of(Channel.CLI)), true),
+            new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1), supported)), unknown);
+    }
+
     @Test
     void a61NodeIsRefusedBeforeAnyContactWhileAutoAnd81NodesAreReadAsBefore() {
         versionLines.put(DEV, VersionSetting.V6_1);
@@ -652,7 +688,7 @@ class HealthServiceTest {
         };
         // qa/node2 stays pinned to V8_1
 
-        List<HealthReport> reports = service().check(Optional.empty(), false);
+        List<HealthReport> reports = service(refusing61()).check(Optional.empty(), false);
 
         HealthReport refused = reports.get(0);
         assertThat(refused.node()).isEqualTo(DEV);
@@ -689,8 +725,11 @@ class HealthServiceTest {
         versionLines.put(DEV, VersionSetting.parse("6.1.0.89").orElseThrow());
         withClient.add(DEV);
 
-        HealthReport report = checkOne(DEV, false);
+        List<HealthReport> reports = service(refusing61()).check(Optional.of(DEV.value()),
+            false);
 
+        assertThat(reports).hasSize(1);
+        HealthReport report = reports.get(0);
         assertThat(report.error()).hasValueSatisfying(error -> {
             assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
             assertThat(error.message()).contains("INUBIT 6.1.0.89", "dev/node1", "monitoring");
@@ -1085,6 +1124,439 @@ class HealthServiceTest {
         if (interrupted) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    // --- feature 025, T031: get_health on 7.4 through StartCLI, unverified (FR-026, FR-027) ---
+
+    private static final List<UnavailablePart> NOT_ON_7_4 = List.of(
+        new UnavailablePart(UnavailablePart.READY,
+            "NOT_AVAILABLE_ON_7_4: INUBIT 7.4 has no readiness check"),
+        new UnavailablePart(UnavailablePart.THREADS,
+            "NOT_AVAILABLE_ON_7_4: INUBIT 7.4 reports no thread figures"),
+        new UnavailablePart(UnavailablePart.BLOCKING_QUEUE,
+            "NOT_AVAILABLE_ON_7_4: INUBIT 7.4 reports no blocking queue"));
+    private static final ClientVersion CLIENT_74080 = new ClientVersion(version("7.4.0.80"),
+        Optional.of(version("4.0.1")), Optional.of(version("7.4.0.80")));
+    private static final VersionSetting PIN_74090 = VersionSetting.parse("7.4.0.90")
+        .orElseThrow();
+
+    /**
+     * Pins dev/node1 to {@code setting} with a StartCLI health port that reads a 7.4 session:
+     * {@code uname} gives 7.4.0.90 as the client's version (FR-027).
+     */
+    private void pin74(VersionSetting setting, boolean alive) {
+        versionLines.put(DEV, setting);
+        cliPorts.put(DEV, new FakeCliHealth(budget -> new CliHealthSnapshot(alive,
+            Optional.of("7.4.0.90"), false, Optional.of(false), Optional.of(MEMORY),
+            Optional.of(COUNTS), NOT_ON_7_4)));
+    }
+
+    /** The T038 test matrix: monitoring and process diagnosis unverified on 7.4. */
+    private HealthReport checkOne74() {
+        List<HealthReport> reports = service(TestMatrices.unverified74())
+            .check(Optional.of(DEV.value()), false);
+        assertThat(reports).hasSize(1);
+        return reports.get(0);
+    }
+
+    @Test
+    void a74NodeIsReadThroughStartCliWithTheUnverifiedWarning() {
+        pin74(VersionSetting.V7_4, true);
+
+        HealthReport report = checkOne74();
+
+        assertThat(report.reachable()).isTrue();
+        assertThat(report.status()).isEqualTo(HealthStatus.OK);
+        assertThat(report.error()).isEmpty();
+        assertThat(report.load()).contains(LoadFigures.of(MEMORY));
+        assertThat(report.processCounts()).contains(COUNTS);
+        assertThat(report.unavailable()).containsExactlyElementsOf(NOT_ON_7_4);
+        assertThat(report.version()).as("FR-027: the client's version is not the node's")
+            .isEmpty();
+        assertThat(report.warnings()).containsExactly(
+            "INUBIT 7.4 on dev/node1 is not verified for monitoring; results may be incomplete",
+            "the version 7.4.0.90 read on dev/node1 is the StartCLI client's; the server version"
+                + " cannot be read");
+        assertThat(versions.state(DEV).observed()).as("FR-027: not observed").isEmpty();
+        assertThat(monitorings).as("no REST").isEmpty();
+        assertThat(detections).hasValue(0);
+    }
+
+    @Test
+    void aNegativeAliveCheckOnAConcrete74PinIsErrorWithTheWarningNamingThePin() {
+        pin74(PIN_74090, false);
+
+        HealthReport report = checkOne74();
+
+        assertThat(report.reachable()).isTrue();
+        assertThat(report.status()).isEqualTo(HealthStatus.ERROR);
+        assertThat(report.processCounts()).contains(COUNTS);
+        assertThat(report.warnings()).contains("INUBIT 7.4.0.90 on dev/node1 is not verified for"
+            + " monitoring; results may be incomplete");
+    }
+
+    @Test
+    void a74080ClientAtA74090PinIsAMismatchInTheClientPart() {
+        // FR-003, T017: the fourth part counts on 7.4 (VersionGate.comparePatch)
+        pin74(PIN_74090, true);
+        withClient.add(DEV);
+        clients.put(DEV, () -> CLIENT_74080);
+
+        HealthReport report = checkOne74();
+
+        assertThat(report.client()).contains(HealthReport.Client.of(CLIENT_74080,
+            ClientVersion.Comparison.MISMATCH));
+        assertThat(report.warnings()).contains("StartCLI client 7.4.0.80 on dev/node1 differs"
+            + " from INUBIT 7.4.0.90 (mismatch); StartCLI-backed tools still run, but their"
+            + " results may be unreliable");
+    }
+
+    // --- feature 025, T046: the fail-closed client check before the 7.4 session (FR-029) -----
+
+    /** The fixture case {@code fixtures/v7_4/cli/version} as {@code CliVersionProbe} reads it. */
+    private static final ClientVersion CLIENT_74090 = new ClientVersion(version("7.4.0.90"),
+        Optional.of(version("4.0.1")), Optional.of(version("7.4.0.90")));
+
+    /** The T046 refusal of get_health, the same as the gate's for a StartCLI-backed tool. */
+    private static String foreignClientMessage(String cause) {
+        return cause + "; StartCLI-backed tools are refused on dev/node1; nothing was sent";
+    }
+
+    @Test
+    void a74PinWithAClientOfAnotherLineIsRefusedBeforeTheSession() {
+        pin74(VersionSetting.V7_4, true);
+        withClient.add(DEV);
+        // 4.0.1 – 8.1.17 includes 7.4: only the own-client rule refuses it
+        clients.put(DEV, () -> CLIENT_8117);
+
+        HealthReport report = checkOne74();
+
+        assertThat(report.reachable()).isFalse();
+        assertThat(report.error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+            assertThat(error.message()).isEqualTo(foreignClientMessage("StartCLI client 8.1.17 of"
+                + " dev/node1 is not an INUBIT 7.4 client"));
+            assertThat(error.node()).contains(DEV);
+        });
+        assertThat(report.warnings()).as("no unverified warning").isEmpty();
+        assertThat(((FakeCliHealth) cliPorts.get(DEV)).budgets).as("no session").isEmpty();
+        assertThat(probeTimeouts).as("one probe, bounded by the node's budget").singleElement()
+            .satisfies(bound -> assertThat(bound).isPositive()
+                .isLessThanOrEqualTo(HealthService.CLI_ONLY_SINGLE_NODE_BUDGET));
+        assertThat(monitorings).as("no REST").isEmpty();
+    }
+
+    @Test
+    void aContradicted74PinProbesThePinnedClientAndStaysRefused() {
+        pin74(VersionSetting.V7_4, true);
+        withClient.add(DEV);
+        // a client of its own per line: the observation would choose the 8.1 one
+        ClientKey own74 = new ClientKey("/opt/startcli-7.4", "");
+        clientKeys = version -> version.filter(v -> v.major() == 7 && v.minor() == 4).isPresent()
+            ? own74 : new ClientKey("/opt/startcli-8.1", "");
+        versions.observed(DEV, version("8.1.17"));
+        clients.put(DEV, () -> CLIENT_8117);
+
+        HealthReport report = checkOne74();
+
+        assertThat(report.error()).as("fail-closed: the pin's client is checked")
+            .hasValueSatisfying(error -> {
+                assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+                assertThat(error.message()).isEqualTo(foreignClientMessage("StartCLI client"
+                    + " 8.1.17 of dev/node1 is not an INUBIT 7.4 client"));
+            });
+        assertThat(versions.state(DEV).clientFor(own74)).as("the pinned client was probed")
+            .isPresent();
+        assertThat(((FakeCliHealth) cliPorts.get(DEV)).budgets).as("no session").isEmpty();
+    }
+
+    @Test
+    void a74PinWhoseClientVersionCannotBeReadIsRefusedBeforeTheSession() {
+        pin74(PIN_74090, true);
+        withClient.add(DEV);
+        clients.put(DEV, () -> {
+            throw error(ErrorCode.CLI_UNAVAILABLE, DEV, "StartCLI did not report its version"
+                + " (exit code 1)");
+        });
+
+        HealthReport report = checkOne74();
+
+        assertThat(report.error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+            assertThat(error.message()).isEqualTo(foreignClientMessage("The version of the"
+                + " StartCLI client of dev/node1 cannot be read (CLI_UNAVAILABLE at"
+                + " 2026-10-01T08:00:00Z), so it is not known to be an INUBIT 7.4 client"));
+        });
+        assertThat(report.warnings()).isEmpty();
+        assertThat(((FakeCliHealth) cliPorts.get(DEV)).budgets).as("no session").isEmpty();
+        assertThat(probeTimeouts).hasSize(1);
+    }
+
+    @Test
+    void a74PinRunsTheSessionAfterTheClientOfTheReplayedVersionCase() {
+        pin74(PIN_74090, true);
+        withClient.add(DEV);
+        FakeCliHealth port = (FakeCliHealth) cliPorts.get(DEV);
+        CountDownLatch sessionStarted = new CountDownLatch(1);
+        port.answer = budget -> {
+            sessionStarted.countDown();
+            return new CliHealthSnapshot(true, Optional.of("7.4.0.90"), false,
+                Optional.of(false), Optional.of(MEMORY), Optional.of(COUNTS), NOT_ON_7_4);
+        };
+        List<Long> sessionsBeforeTheProbe = java.util.Collections.synchronizedList(
+            new ArrayList<>());
+        clients.put(DEV, () -> {
+            sessionsBeforeTheProbe.add(1 - sessionStarted.getCount());
+            return CLIENT_74090;
+        });
+
+        HealthReport report = checkOne74();
+
+        assertThat(report.error()).isEmpty();
+        assertThat(report.status()).isEqualTo(HealthStatus.OK);
+        assertThat(report.client()).contains(HealthReport.Client.of(CLIENT_74090,
+            ClientVersion.Comparison.MATCH));
+        assertThat(report.warnings()).contains("INUBIT 7.4.0.90 on dev/node1 is not verified for"
+            + " monitoring; results may be incomplete");
+        assertThat(sessionsBeforeTheProbe).as("probed once, before the session")
+            .containsExactly(0L);
+        assertThat(port.budgets).hasSize(1);
+    }
+
+    @Test
+    void a61NodeKeepsTheProbeInParallelWithTheSession() {
+        CountDownLatch sessionStarted = new CountDownLatch(1);
+        pin61(budget -> {
+            sessionStarted.countDown();
+            return snapshot("6.1.0.89", false, true, false);
+        });
+        withClient.add(DEV);
+        List<Boolean> sawTheSession = java.util.Collections.synchronizedList(new ArrayList<>());
+        clients.put(DEV, () -> {
+            try {
+                sawTheSession.add(sessionStarted.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            // another line: the 6.1 entry is not own-client-only (FR-036)
+            return CLIENT_8117;
+        });
+
+        HealthReport report = checkOne61();
+
+        assertThat(sawTheSession).as("the probe ran while the session started").containsExactly(
+            true);
+        assertThat(report.error()).isEmpty();
+        assertThat(report.client()).isPresent();
+    }
+
+    // --- feature 025, T045: the warning on errors after contact only (FR-030 (b)) -----------
+
+    private static final String UNVERIFIED_74 = "INUBIT 7.4 on dev/node1 is not verified for"
+        + " monitoring; results may be incomplete";
+    /** Scaled single-node budget: the node's session and probe get 600 ms, the backstop 1.5 s. */
+    private static final Duration SCALED_SINGLE = Duration.ofMillis(1_500);
+
+    /** Pins dev/node1 to V7_4 with a StartCLI health port that answers with {@code answer}. */
+    private FakeCliHealth pin74(Function<Duration, CliHealthSnapshot> answer) {
+        pin74(VersionSetting.V7_4, true);
+        FakeCliHealth port = (FakeCliHealth) cliPorts.get(DEV);
+        port.answer = answer;
+        return port;
+    }
+
+    /** get_health for dev/node1 alone with the T038 test matrix and the scaled budget. */
+    private HealthReport checkOne74Scaled() {
+        List<HealthReport> reports = service(TestMatrices.unverified74(), SCALED_SINGLE,
+            SCALED_SINGLE).check(Optional.of(DEV.value()), false);
+        assertThat(reports).hasSize(1);
+        return reports.get(0);
+    }
+
+    /** A session that waits (for a free StartCLI slot) until it is cancelled. */
+    private static CliHealthSnapshot sleepUntilInterrupted(Duration budget) {
+        sleepQuietly(10_000);
+        throw new IllegalStateException("cut off");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ErrorCode.class, names = {"TLS_ERROR", "UNREACHABLE", "AUTH_FAILED",
+        "UNEXPECTED_RESPONSE", "TIMEOUT"})
+    void aSessionErrorAfterContactCarriesTheWarning(ErrorCode code) {
+        // a rejected or unreachable handshake, a rejected login, an unrecognized output, the
+        // session's TIMEOUT after launch: what the adapters mark as contacted (T041)
+        pin74(budget -> {
+            throw new ContactedException(error(code, DEV, code + " on dev/node1").error());
+        });
+
+        HealthReport report = checkOne74();
+
+        assertThat(report.reachable()).isFalse();
+        assertThat(report.error()).hasValueSatisfying(error ->
+            assertThat(error.code()).isEqualTo(code));
+        assertThat(report.warnings()).containsExactly(UNVERIFIED_74);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ErrorCode.class, names = {"TLS_ERROR", "CLI_UNAVAILABLE", "AUTH_FAILED",
+        "TIMEOUT", "UNSUPPORTED_VERSION"})
+    void aSessionRefusalBeforeContactCarriesNoWarning(ErrorCode code) {
+        // a refused host-name skip, no client or StartCLI could not be started, missing
+        // credentials or the credential guard's cooldown, no free StartCLI slot, the launch
+        // guard: what the adapters refuse before contact (T041)
+        pin74(budget -> {
+            throw error(code, DEV, code + " on dev/node1");
+        });
+
+        HealthReport report = checkOne74();
+
+        assertThat(report.error()).hasValueSatisfying(error ->
+            assertThat(error.code()).isEqualTo(code));
+        assertThat(report.warnings()).isEmpty();
+    }
+
+    @Test
+    void theBudgetTimeoutOfASessionStillWaitingForASlotCarriesTheWarning() {
+        pin74(HealthServiceTest::sleepUntilInterrupted);
+
+        HealthReport report = checkOne74Scaled();
+
+        assertThat(report.error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+            assertThat(error.message()).startsWith("The StartCLI health session of dev/node1"
+                + " did not finish within the get_health budget");
+        });
+        assertThat(report.warnings()).containsExactly(UNVERIFIED_74);
+    }
+
+    @Test
+    void aNoSlotTimeoutRewrittenForTheBudgetStaysWithoutWarning() {
+        // the limiter gives up just after the budget, before the wait's deadline (+ 250 ms)
+        pin74(budget -> {
+            sleepQuietly(budget.plusMillis(20).toMillis());
+            throw error(ErrorCode.TIMEOUT, DEV, "No free StartCLI slot for dev/node1");
+        });
+
+        HealthReport report = checkOne74Scaled();
+
+        assertThat(report.error()).hasValueSatisfying(error ->
+            assertThat(error.message()).startsWith("The StartCLI health session of dev/node1"
+                + " did not finish within the get_health budget"));
+        assertThat(report.warnings()).isEmpty();
+    }
+
+    @Test
+    void theDeadlineTimeoutOfTheCredentialsCarriesTheWarning() {
+        FakeCliHealth port = pin74(budget -> snapshot("7.4.0.90", false, true, false));
+        credentials.put(DEV, HealthServiceTest::sleepUntilInterruptedThenReady);
+
+        HealthReport report = checkOne74Scaled();
+
+        assertThat(report.error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+            assertThat(error.message()).startsWith(
+                "No answer from dev/node1 while preparing the connection");
+        });
+        assertThat(report.warnings()).containsExactly(UNVERIFIED_74);
+        assertThat(port.budgets).as("no session").isEmpty();
+    }
+
+    @Test
+    void theDeadlineTimeoutOfTheStartCliPortCarriesTheWarning() {
+        FakeCliHealth port = pin74(budget -> snapshot("7.4.0.90", false, true, false));
+        beforeCliPortLookup = node -> sleepQuietly(10_000);
+
+        HealthReport report = checkOne74Scaled();
+
+        assertThat(report.error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+            assertThat(error.message()).startsWith(
+                "No answer from dev/node1 while preparing the connection");
+        });
+        assertThat(report.warnings()).containsExactly(UNVERIFIED_74);
+        assertThat(port.budgets).as("no session").isEmpty();
+    }
+
+    private static CredentialState sleepUntilInterruptedThenReady(Duration bound) {
+        sleepQuietly(10_000);
+        return CredentialState.READY;
+    }
+
+    @Test
+    void missingOrPendingCredentialsCarryNoWarning() {
+        pin74(budget -> snapshot("7.4.0.90", false, true, false));
+        credentials.put(DEV, bound -> {
+            throw error(ErrorCode.AUTH_FAILED, DEV, "No credentials configured for dev/node1");
+        });
+        HealthReport missing = checkOne74();
+        credentials.put(DEV, bound -> CredentialState.PENDING);
+        HealthReport pending = checkOne74();
+
+        assertThat(missing.error()).hasValueSatisfying(error ->
+            assertThat(error.code()).isEqualTo(ErrorCode.AUTH_FAILED));
+        assertThat(missing.warnings()).isEmpty();
+        assertThat(pending.error()).hasValueSatisfying(error ->
+            assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT));
+        assertThat(pending.warnings()).isEmpty();
+    }
+
+    @Test
+    void theBackstopTimeoutOfANodeThreadThatDoesNotReturnCarriesTheWarning() {
+        // the client lookup before the 7.4 session ignores interrupts: only the fan-out's
+        // backstop (the budget, 1.5 s) ends the node
+        pin74(budget -> snapshot("7.4.0.90", false, true, false));
+        CountDownLatch release = new CountDownLatch(1);
+        beforeClientLookup = node -> awaitUninterruptibly(release);
+        try {
+            HealthReport report = checkOne74Scaled();
+
+            assertThat(report.error()).hasValueSatisfying(error -> {
+                assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+                assertThat(error.message()).isEqualTo("No response from dev/node1 within 1.5 s");
+            });
+            assertThat(report.warnings()).containsExactly(UNVERIFIED_74);
+        } finally {
+            release.countDown();
+        }
+    }
+
+    @Test
+    void inAGroupWithAn81AndA74NodeOnlyThe74EntryIsWarned() {
+        // overview budget (scaled to 2 s): the 7.4 session outlasts it
+        versionLines.put(QA2, VersionSetting.V7_4);
+        cliPorts.put(QA2, new FakeCliHealth(HealthServiceTest::sleepUntilInterrupted));
+
+        List<HealthReport> reports = service(TestMatrices.unverified74(), Duration.ofSeconds(3),
+            Duration.ofSeconds(2)).check(Optional.of("qa"), false);
+
+        assertThat(reports).extracting(HealthReport::node).containsExactly(QA1, QA2);
+        assertThat(reports.get(0).status()).isEqualTo(HealthStatus.OK);
+        assertThat(reports.get(0).warnings()).isEmpty();
+        assertThat(reports.get(1).error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+            assertThat(error.likelyCause()).contains("the shorter overview budget");
+        });
+        assertThat(reports.get(1).warnings()).containsExactly("INUBIT 7.4 on qa/node2 is not"
+            + " verified for monitoring; results may be incomplete");
+    }
+
+    @Test
+    void errorEntriesOf81And90AndUnknownVersionNodesStayWithoutWarnings() {
+        versionLines.put(QA1, VersionSetting.V9_0);
+        versionLines.put(QA2, VersionSetting.AUTO);
+        undetected.add(QA2);
+        for (NodeId server : SERVERS) {
+            gatewayFailures.put(server, error(ErrorCode.UNREACHABLE, server, "down"));
+        }
+
+        List<HealthReport> reports = service(TestMatrices.unverified74())
+            .check(Optional.empty(), false);
+
+        assertThat(reports).hasSize(3).allSatisfy(report -> {
+            assertThat(report.error()).hasValueSatisfying(error ->
+                assertThat(error.code()).isEqualTo(ErrorCode.UNREACHABLE));
+            assertThat(report.warnings()).isEmpty();
+        });
     }
 
     // --- feature 009: get_health observes the version of every node (T016, FR-012) ---------

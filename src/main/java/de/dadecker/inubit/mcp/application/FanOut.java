@@ -9,6 +9,9 @@ import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -26,6 +29,10 @@ import org.slf4j.LoggerFactory;
  * <p>Results come back in input (config) order. A server that misses its deadline yields
  * {@code TIMEOUT} and its call is interrupted; failures never hide the other servers' results.
  * The fan-out returns after at most the largest deadline, even if a call ignores interrupts.
+ *
+ * <p>Feature 025 (FR-030 (b)): a thrown {@link ToolErrorException} keeps its
+ * {@link ToolErrorException#warnings() warnings} in the server's failure; with a {@link Sink}, a
+ * server that misses its deadline gets the warnings its call registered there.
  */
 public final class FanOut {
 
@@ -37,6 +44,24 @@ public final class FanOut {
         T call(NodeId server) throws Exception;
     }
 
+    /**
+     * Where the calls of one fan-out register the warnings of their server as soon as they are
+     * known (e.g. right after the version gate admitted it), so that a deadline {@code TIMEOUT}
+     * still carries them.
+     */
+    public static final class Sink {
+
+        private final Map<NodeId, List<String>> warnings = new ConcurrentHashMap<>();
+
+        public void register(NodeId server, List<String> serverWarnings) {
+            warnings.put(server, List.copyOf(serverWarnings));
+        }
+
+        private List<String> of(NodeId server) {
+            return warnings.getOrDefault(server, List.of());
+        }
+    }
+
     public <T> List<NodeResult<T>> run(List<NodeId> servers, Duration deadline,
         ServerCall<T> call) {
         return run(servers, server -> deadline, call);
@@ -44,6 +69,15 @@ public final class FanOut {
 
     public <T> List<NodeResult<T>> run(List<NodeId> servers,
         Function<NodeId, Duration> deadlineOf, ServerCall<T> call) {
+        return run(servers, deadlineOf, call, new Sink());
+    }
+
+    /**
+     * As {@link #run(List, Function, ServerCall)}; a deadline {@code TIMEOUT} carries the warnings
+     * the server's call registered in {@code sink}, none if it registered none.
+     */
+    public <T> List<NodeResult<T>> run(List<NodeId> servers,
+        Function<NodeId, Duration> deadlineOf, ServerCall<T> call, Sink sink) {
         if (servers.isEmpty()) {
             return List.of();
         }
@@ -58,7 +92,8 @@ public final class FanOut {
             List<NodeResult<T>> results = new ArrayList<>();
             for (int i = 0; i < servers.size(); i++) {
                 long remaining = deadlines.get(i).toNanos() - (System.nanoTime() - start);
-                results.add(await(servers.get(i), futures.get(i), remaining, deadlines.get(i)));
+                results.add(await(servers.get(i), futures.get(i), remaining, deadlines.get(i),
+                    sink));
             }
             return List.copyOf(results);
         } finally {
@@ -68,7 +103,7 @@ public final class FanOut {
     }
 
     private static <T> NodeResult<T> await(NodeId server, Future<T> future, long remainingNanos,
-        Duration deadline) {
+        Duration deadline, Sink sink) {
         if (Thread.currentThread().isInterrupted() && !future.isDone()) {
             return NodeResult.failure(server, interrupted(future, server));
         }
@@ -79,9 +114,13 @@ public final class FanOut {
                 : NodeResult.success(server, payload);
         } catch (TimeoutException e) {
             future.cancel(true);
-            return NodeResult.failure(server, timeout(server, deadline));
+            return new NodeResult<>(server, Optional.empty(),
+                Optional.of(timeout(server, deadline)), sink.of(server));
         } catch (ExecutionException e) {
-            return NodeResult.failure(server, failure(server, e.getCause()));
+            List<String> warnings = e.getCause() instanceof ToolErrorException toolError
+                ? toolError.warnings() : List.of();
+            return new NodeResult<>(server, Optional.empty(),
+                Optional.of(failure(server, e.getCause())), warnings);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return NodeResult.failure(server, interrupted(future, server));

@@ -138,8 +138,17 @@ public final class TestCliRunners {
     public static CliRunner simulatedWindows(ProcessLauncher launcher,
         Map<String, String> parentEnvironment, ProcessContainment.State containment,
         CliResources resources, Function<NodeId, Optional<InubitVersion>> versions) {
+        return simulatedWindows(launcher, parentEnvironment, containment, resources, versions,
+            ClientCheckLookup.NONE);
+    }
+
+    /** As above, with the recorded client checks of the launch guard (feature 025 T041). */
+    public static CliRunner simulatedWindows(ProcessLauncher launcher,
+        Map<String, String> parentEnvironment, ProcessContainment.State containment,
+        CliResources resources, Function<NodeId, Optional<InubitVersion>> versions,
+        ClientCheckLookup checks) {
         return new CliRunner(launcher, parentEnvironment, true,
             new FixedSystem(new CliSystem.Read(SYSTEM_DIRECTORY), Charset.forName("IBM850")),
-            () -> containment, resources, new HandshakeStartCliPinProbe(), versions);
+            () -> containment, resources, new HandshakeStartCliPinProbe(), versions, checks);
     }
 }

@@ -57,7 +57,7 @@ own explicit setting:
 | `list_nodes`, `get_health`, `check_artifacts` | always |
 | `read_knowledge` | always |
 | `record_knowledge` | unless the profile sets `knowledge.recording: false` |
-| `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item`, `find_partners` | a node is not pinned to an INUBIT version that refuses the tool (none of them is offered, e.g., in a profile of INUBIT 6.1 nodes only) |
+| `find_processes`, `query_logs`, `list_inventory`, `get_inventory_item`, `find_partners` | a node is not pinned to an INUBIT version that refuses the tool (a profile of INUBIT 6.1 or 7.4 nodes only offers `find_processes`, but none of the others) |
 | `export_artifacts`, `export_archives` | a node has a StartCLI installation and is not pinned to an INUBIT version that refuses the export |
 | `read_queue_entry` | a node's group has `unsupported.queueEntryRead: true`, the node is not pinned to an INUBIT version that refuses it, and it has an INUBIT client home |
 | `download_server_log` | a node has an INUBIT client home (StartCLI installation) and either is not pinned to an INUBIT version that refuses the trace log download, or its group has `unsupported.serverLogRead: true` and it is not pinned to a version that refuses the web service log download |
@@ -87,8 +87,9 @@ development stages and the stage chain: [docs/setup.md](docs/setup.md).
   `get_health` reads a version that contradicts the pin. A write is not sent either when a
   parallel call finds that the node now runs another INUBIT version than the one the write was
   admitted for (also 8.1 → 9.0). On an unknown version and on versions other than 8.1 and 9.0,
-  read tools run with a warning that their results are unverified — except on INUBIT 6.1, where
-  every tool not declared supported for 6.1 is refused. StartCLI-backed tools are also refused where the
+  read tools run with a warning that their results are unverified — except on INUBIT 6.1 and 7.4,
+  where only `get_health` and `find_processes` run (with that warning) and every other tool is
+  refused. StartCLI-backed tools are also refused where the
   local StartCLI client does not support the node's INUBIT major.minor, and `deploy_release`
   deploys only between nodes of the same minor version.
   `list_nodes` shows per node the version, the client and the usable capabilities without
@@ -166,19 +167,23 @@ Details: [docs/setup.md](docs/setup.md) and the project [constitution](.specify/
   024 are verified against recorded, neutralized answers of a live non-production INUBIT 9.0 node
   where a 9.0 recording exists. The state per tool and version:
   [INUBIT versions and capabilities](docs/tools.md#inubit-versions-and-capabilities-feature-009).
-- **INUBIT 6.1** is supported read-only, through StartCLI only, for nodes pinned with
+- **INUBIT 6.1** is served read-only, through StartCLI only, for nodes pinned with
   `versionLine: V6_1` (or a concrete 6.1 version): the server sends them no REST request and
-  never writes to them. In this version every tool except `list_nodes` and the offline checks
-  of `check_artifacts` is still refused on 6.1 (`UNSUPPORTED_VERSION`); health and the process
-  listing (`get_health`, `find_processes`) become available once they have been verified against
-  recorded outputs of a real 6.1 node. Such nodes need a StartCLI client that supports INUBIT 6.1
-  and its Java runtime ([INUBIT 6.1 nodes](docs/setup.md#inubit-61-nodes-v6_1)); on Windows
-  with the rules of [StartCLI on Windows](docs/setup.md#startcli-on-windows).
-- **INUBIT 7.4** is recognised, but not yet supported: a node pinned with `versionLine: V7_4`
-  (or a concrete 7.4 version such as `"7.4.0.90"`) is reached through StartCLI only, and every
-  tool that would contact it refuses it clearly (`UNSUPPORTED_VERSION`, nothing is sent), since
-  no tool is verified on 7.4 yet; `list_nodes`, `read_knowledge`, `record_knowledge` (unless
-  `knowledge.recording: false`) and the offline checks of `check_artifacts` still work. `AUTO` never selects 7.4; pin such a node
+  never writes to them. Health and the process listing (`get_health`, `find_processes`) run on
+  6.1 **untested** (unverified): their StartCLI outputs are reconstructed from the 6.1 vendor
+  documentation, not recorded on a real 6.1 node, so every result of such a node carries the
+  warning that it is not verified. Every other tool except `list_nodes`, `read_knowledge`,
+  `record_knowledge` and the offline checks of `check_artifacts` is refused on 6.1
+  (`UNSUPPORTED_VERSION`). Such nodes need a StartCLI client that supports INUBIT 6.1 and its
+  Java runtime ([INUBIT 6.1 nodes](docs/setup.md#inubit-61-nodes-v6_1)); on Windows with the
+  rules of [StartCLI on Windows](docs/setup.md#startcli-on-windows).
+- **INUBIT 7.4** is served the same way for nodes pinned with `versionLine: V7_4` (or a concrete
+  7.4 version such as `"7.4.0.90"`): StartCLI only, read-only, `get_health` and `find_processes`
+  **untested** (unverified, with the warning in every result), every other tool refused
+  (`UNSUPPORTED_VERSION`, nothing is sent). The 7.4 outputs are assumed to be those of 6.1; only
+  the 7.4 client's help output has been checked. Such nodes need an INUBIT 7.4 client of their
+  own (`cli.home` or `defaults.cliClients."7.4"`), never the version-less `defaults.cliHome`.
+  `AUTO` never selects 6.1 or 7.4; pin such a node
   ([INUBIT 7.4 nodes](docs/setup.md#inubit-74-nodes-v7_4)).
 - Only for the CLI-based parts (`restart_process`, `kill_process`, the module list and version
   histories of the inventory tools, and every tool that exports, imports or tags artifacts —

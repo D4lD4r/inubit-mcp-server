@@ -139,15 +139,19 @@ class CliClientProbeTest {
     }
 
     @Test
-    void aSevenFourNodeStartsNoHelpRunWhileNothingIsVerifiedOnIt() {
-        // feature 025 T015 (research D-9, FR-010a): 7.4 is CLI-only, but no tool uses its client
+    void aSevenFourNodeIsProbedWithMinusHAsASixOneNode() {
+        // feature 025 (FR-029, FR-035): health and processes use the 7.4 client, so its options
+        // decide the TLS settings of the session; the real 7.4 help lists --execCommand, but
+        // neither a trust-store nor a host-name option
         for (VersionSetting version : List.of(VersionSetting.V7_4,
             new VersionSetting.Pinned(InubitVersion.parse("7.4.0.90").orElseThrow()))) {
             server = node(version).cliJavaHome(javaHome).build();
-            FakeProcessLauncher launcher = FakeProcessLauncher.replaying("v6_1", "help");
+            FakeProcessLauncher launcher = FakeProcessLauncher.replaying("v7_4", "help");
 
-            assertThat(probe(launcher).optionsFor(ID, TIMEOUT)).as(version.toString()).isEmpty();
-            assertThat(launcher.launchCount()).as(version.toString()).isZero();
+            assertThat(probe(launcher).optionsFor(ID, TIMEOUT)).as(version.toString())
+                .contains(new CliClientOptions(false, false, true, Optional.of(8)));
+            assertThat(launcher.launchCount()).as(version.toString()).isEqualTo(1);
+            assertThat(launcher.last().spec().startCliArguments()).containsExactly("-h");
         }
     }
 
