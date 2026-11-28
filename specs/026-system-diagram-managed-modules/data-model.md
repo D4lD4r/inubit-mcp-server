@@ -4,9 +4,18 @@
 
 All types are immutable records; lists are copied. Domain types live in `domain/model/management`,
 application types in `application`. No type holds a raw secret: settings are
-`ModuleDetail.Property` values, already masked by the module-detail parser (research D-9).
+`ModuleDetail.Property` values, already masked by the module-detail parser (research D-9). JSON is
+written by `infra/ResultJson` (research D-10).
 
 ## Domain (`domain/model/management`)
+
+### Reason
+
+| Field | Type | Rule |
+|---|---|---|
+| `code` | `ErrorCode` | |
+| `message` | String | ≤ `ItemBounds.MAX_MESSAGE_CHARS`, no excerpt |
+| `nextStep` | String | ≤ `ItemBounds.MAX_MESSAGE_CHARS` |
 
 ### ExternalSystem
 
@@ -28,13 +37,15 @@ ignores other properties; a `Module` entry that is masked or not a String is ski
 
 ### Unreadable
 
+An item of the index that could not be read (research D-13: the module list is not one).
+
 | Field | Type | Rule |
 |---|---|---|
-| `kind` | enum `DIAGRAM_LIST`, `MODULE_LIST`, `SYSTEM_DIAGRAM`, `ELEMENT` | what could not be read |
-| `name` | `Optional<String>` | system diagram or element name; empty for the lists |
+| `kind` | enum `DIAGRAM_LIST`, `SYSTEM_DIAGRAM`, `ELEMENT` | JSON `diagramList`, `systemDiagram`, `element` |
+| `name` | `Optional<String>` | system diagram or element name; empty for `DIAGRAM_LIST` |
 | `systemDiagram` | `Optional<DiagramRef>` | for `ELEMENT` |
 | `code` | `ErrorCode` | |
-| `message` | String | bounded by `ItemBounds.MAX_MESSAGE_CHARS`, no excerpt |
+| `message` | String | ≤ `ItemBounds.MAX_MESSAGE_CHARS`, no excerpt |
 
 ### ManagementIndex
 
@@ -43,45 +54,47 @@ Everything the check knows about one server and owner (research D-4).
 | Field | Type | Rule |
 |---|---|---|
 | `owner` | String | |
-| `systemDiagrams` | `List<DiagramRef>` | all system diagrams of the owner in diagram-list order |
+| `systemDiagrams` | `List<DiagramRef>` | all system diagrams of the owner in diagram-list order; empty if the diagram list failed |
 | `externalSystems` | `List<ExternalSystem>` | of the readable system diagrams, in diagram order, then element order |
-| `unreadable` | `List<Unreadable>` | in the order met |
+| `unreadable` | `List<Unreadable>` | in the order met; a `DIAGRAM_LIST` item is the only item when present |
 | `collectedAt` | `Instant` | when the load finished |
 
 `complete()` = `unreadable` is empty. `linking(name)` = the external systems whose `linkedNames`
-contain `name` (exact).
+contain `name` (exact). `systemDiagramsNotRead()` = number of `SYSTEM_DIAGRAM` items plus the system
+diagrams with an unreadable `ELEMENT`.
 
 ### ManagementSection
 
-The answer for one module on one server (contracts/management-section.md).
+The answer for one module on one server (contracts/management-section.md §1).
 
 | Field | Type | Rule |
 |---|---|---|
-| `status` | enum `MANAGED`, `NOT_MANAGED`, `UNKNOWN` | state rules below |
-| `complete` | boolean | |
+| `status` | enum `MANAGED`, `NOT_MANAGED`, `UNKNOWN` | JSON `managed`, `not_managed`, `unknown`; state rules below |
+| `complete` | boolean | `index.complete()` when an index was had, else `false` |
 | `owner` | `Optional<String>` | empty only for `NOT_CONFIGURED` |
-| `collectedAt` | `Optional<Instant>` | empty when nothing was read |
-| `systemDiagramsChecked` | int ≥ 0 | readable system diagrams |
-| `systemDiagramsNotRead` | int ≥ 0 | |
-| `firstNotRead` | `Optional<Unreadable>` | present iff not `complete` and something was read |
-| `elements` | `List<ManagingElement>` | non-empty iff `MANAGED`; at most 10, then `truncated` |
-| `warnings` | `List<String>` | managed more than once; ambiguous name; type mismatch; incomplete |
-| `reason` | `Optional<Reason>` | present iff `UNKNOWN`: code, message, nextStep |
+| `collectedAt` | `Optional<Instant>` | the index's, when an index was had |
+| `systemDiagramsChecked` | int ≥ 0 | `systemDiagrams.size() − systemDiagramsNotRead()`: system diagrams read completely |
+| `systemDiagramsNotRead` | int ≥ 0 | `index.systemDiagramsNotRead()` |
+| `firstNotRead` | `Optional<Unreadable>` | present iff an index was had and it is not complete (a failed diagram list included) |
+| `elements` | `List<ManagingElement>` | non-empty iff `MANAGED`; ≤ 10 (the matcher cuts and sets `truncated`) |
+| `warnings` | `List<String>` | managed more than once; cannot be attributed; type does not match; module list not loaded; incomplete; the version gate's warnings, if any |
+| `reason` | `Optional<Reason>` | present iff `UNKNOWN`; from `firstNotRead` its code and message plus the fixed next step per kind of research D-13 |
 | `truncated` | boolean | |
 
-**State rules** (FR-001 … FR-005):
+**State rules** (FR-001 … FR-005, research D-13):
 
 ```text
-                 ┌────────────── gate refused / no owner / foreign diagram ──────────────┐
-                 │                                                                       ▼
- load index ──► links found? ──yes──► MANAGED (complete = index.complete())          UNKNOWN
-                 │                                                                       ▲
-                 no ──► index.complete()? ──yes──► NOT_MANAGED (complete = true)         │
-                                    └──────no──────────────────────────────────────────┘
- budget reached before the index is loaded ──► UNKNOWN (TIMEOUT, "the read goes on and fills the cache")
+ gate refused │ no owner │ foreign diagram │ budget reached ──► UNKNOWN (reason; no index, no firstNotRead)
+
+ index had ──► links found? ──yes──► MANAGED  (complete = index.complete(); firstNotRead if incomplete)
+                    │
+                    no ──► index.complete()? ──yes──► NOT_MANAGED (complete = true)
+                                    │
+                                    no ──► UNKNOWN (reason from firstNotRead; firstNotRead present;
+                                                    a failed diagram list: systemDiagramsChecked = 0)
 ```
 
-`UNKNOWN` never carries elements; `NOT_MANAGED` is never incomplete.
+`UNKNOWN` never carries elements; `NOT_MANAGED` is never incomplete and has no `firstNotRead`.
 
 ### ManagingElement
 
@@ -99,10 +112,10 @@ The answer for one module on one server (contracts/management-section.md).
 | Field | Type | Rule |
 |---|---|---|
 | `name` | String | a non-secret setting present on both sides |
-| `central` | String | the element's shown value |
-| `module` | String | the module's shown value |
+| `central` | String | the element's shown value; never contains `${secret:` |
+| `module` | String | the module's shown value; never contains `${secret:` |
 
-Only top-level shown entries; neither value contains `${secret:` (research D-6).
+Only top-level shown entries (research D-6).
 
 ### SystemDiagramManagement
 
@@ -110,15 +123,50 @@ For the detail of a system diagram (FR-010, research D-8).
 
 | Field | Type | Rule |
 |---|---|---|
-| `elements` | `List<ElementEntry>` | at most 50, then `truncated` |
-| `moduleListUnavailable` | `Optional<Reason>` | present iff the module list could not be read; then no `found` marks |
-| `collectedAt` | `Instant` | |
+| `elements` | `List<ElementEntry>` | ≤ 50, then `truncated`; empty iff `unavailable` |
+| `moduleListUnavailable` | `Optional<Reason>` | present iff no cached module list and not `unavailable`; then no `found` marks |
+| `unavailable` | `Optional<Reason>` | present iff there is no usable index for this diagram: gate refused, budget reached (`TIMEOUT`), the index's `DIAGRAM_LIST` item, the diagram being an unreadable `SYSTEM_DIAGRAM` item, or the diagram missing from a cached index (`NOT_FOUND`, "call again with `refresh: true`") (research D-8) |
+| `collectedAt` | `Optional<Instant>` | present iff an index was had (also with a failed diagram list) |
+| `warnings` | `List<String>` | the version gate's warnings, if any (none on 8.1) |
 | `truncated` | boolean | |
 
-`ElementEntry`: `element`, `nodeId`, and either `connectorType`, `settings`, `linked`
-(`List<LinkedModule(name, Optional<Boolean> found)>`, at most 100) or `error` (`code`, `message`).
+### ElementEntry
+
+| Field | Type | Rule |
+|---|---|---|
+| `element` | String | |
+| `nodeId` | String | |
+| `connectorType` | `Optional<String>` | absent with `error` |
+| `settings` | `Optional<List<ModuleDetail.Property>>` | empty Optional with `error`; otherwise the entries, possibly `[]` |
+| `linked` | `Optional<List<LinkedModule>>` | empty Optional with `error`; otherwise ≤ 100 entries, possibly `[]` (an element without `ResourcesLinked`), then `truncated` of the enclosing list |
+| `error` | `Optional<Reason>` | the element's detail could not be read |
+
+### LinkedModule
+
+| Field | Type | Rule |
+|---|---|---|
+| `name` | String | |
+| `found` | `Optional<Boolean>` | empty iff `moduleListUnavailable` |
 
 ## Application
+
+### ManagedModuleDetail
+
+What `ModelDetailService.module` returns (research D-7).
+
+| Field | Type | Rule |
+|---|---|---|
+| `module` | `ModuleDetail` | the module's own properties, as today |
+| `management` | `Optional<ManagementSection>` | empty for a type starting with `sd` |
+
+### ModuleTarget
+
+| Field | Type | Rule |
+|---|---|---|
+| `name` | String | the module name |
+| `pluginType` | `Optional<String>` | from the module list, when known |
+| `sameName` | `Optional<List<ModuleEntry>>` | all modules of the owner with this name; empty when no module list is at hand (D-13) |
+| `ownProperties` | `Supplier<List<ModuleDetail.Property>>` | the module's own properties, called only after a link was found (D-6); a `ToolErrorException` it throws becomes the `Reason` of `comparisonUnavailable` |
 
 ### ManagementService (new)
 
@@ -127,18 +175,14 @@ For the detail of a system diagram (FR-010, research D-8).
 | `ManagementSection forModule(NodeId, String owner, ModuleTarget, boolean refresh, Duration budget)` | `get_inventory_item` MODULE and `read_model_details` |
 | `SystemDiagramManagement forSystemDiagram(NodeId, String owner, DiagramRef, boolean refresh, Duration budget)` | `get_inventory_item` DIAGRAM of type `systemdiagram` |
 
-`ModuleTarget`: name, plugin type (if known), and either the module's own properties (from
-`read_model_details`) or a supplier that reads them (research D-6).
-
-Dependencies: `VersionGate` (capability `MODULE_MANAGEMENT`), `InventoryCache`,
-`GatewayFactory` (inventory port for `listDiagrams`/`diagramDetail`/`listModules`, model-detail port
-for `module`), `Clock`, executor for virtual threads.
+Dependencies: `VersionGate` (capability `MODULE_MANAGEMENT`), `InventoryCache` (`get` for the
+diagram list and the index, `peek` for the module list), `GatewayFactory` (inventory port for
+`listDiagrams`/`diagramDetail`, model-detail port for `module`), `Clock`, executor for virtual
+threads. It never calls `listModules`.
 
 ### ManagementMatcher (new, pure)
 
-`ManagementSection match(ManagementIndex, String name, Optional<String> pluginType,
-List<ModuleEntry> sameName, Optional<List<ModuleDetail.Property>> own)`: applies research D-3 and
-D-6 and the state rules. No I/O; unit-tested on its own.
+Two pure steps, no I/O, unit-tested on their own: `ManagementSection match(ManagementIndex, ModuleTarget, List<String> gateWarnings)` applies research D-3, D-13 and the state rules and cuts elements to 10; `ManagementSection compare(ManagementSection, OwnProperties)` adds `differing` or `comparisonUnavailable` to each managing element (D-6). `OwnProperties` (application record): `Optional<List<ModuleDetail.Property>> properties` or `Optional<Reason> unavailable`, exactly one present. `ManagementService.forModule` calls `match`, and only if the result is `MANAGED` the supplier, then `compare`.
 
 ## Changed types
 
@@ -147,9 +191,10 @@ D-6 and the state rules. No I/O; unit-tested on its own.
 | `Capability` | `MODULE_MANAGEMENT(READ, {REST})` |
 | `CapabilityMatrix` | 8.1 supported; 9.0 refused "not yet verified"; 6.1, 7.4, unknown refused |
 | `InventoryDetail` | `Optional<ManagementSection> management` (modules), `Optional<SystemDiagramManagement> managedModules` (system diagrams) |
-| `InventoryBounds` | bounds of both new fields |
+| `InventoryBounds`, `ManagementBounds` (new) | bounds of both new fields |
 | `InventoryService` | MODULE and DIAGRAM lookups call `ManagementService`; deadlines + `managementBudget` |
-| `ModelDetailService` | owner function, diagram list, `ManagementService`; deadline + `managementBudget` |
-| `ReadModelDetailsTool.Module` | `Optional<Management> management` |
-| `Wiring` | creates `ModelDetailService` after `InventoryCache`, `InventoryService`, `ManagementService` |
-| `NodeOverview`, `ConfigSummary` | list `module_management` |
+| `ModelDetailService` | owner function, diagram list, `ManagementService`; returns `Read<ManagedModuleDetail>`; deadline + `managementBudget` |
+| `ReadModelDetailsTool.Module` | `Optional<ManagementSection> management` |
+| `infra/ResultJson` | serializers for `ModuleDetail.Property`, `ManagementSection.Status`, `Unreadable.Kind`; `NON_EMPTY` mixins for `ManagementSection.elements` and `ManagingElement.differing` |
+| `Wiring` (root package) | creates `ManagementService` after `InventoryCache`; `ModelDetailService` after `InventoryService` and `ManagementService` |
+| `NodeOverview`, `ConfigSummary`, `list_nodes.output.json` | list `module_management` |

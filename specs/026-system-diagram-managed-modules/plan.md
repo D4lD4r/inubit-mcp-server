@@ -14,8 +14,14 @@ detail of a system diagram.
 - **Channel by evidence** (research D-1): per system diagram the element list (`modelByName`), per
   `sdExtSystem` element its module detail (`nodeByModel`), both existing reads verified live on
   8.1.17; the module-detail parser of PR #113 masks the central settings per entry.
-- **Capability** `MODULE_MANAGEMENT` (D-2): 8.1 supported, everything else refused; a refusal gives
-  status `unknown`, never a failed tool call.
+- **Capability** `MODULE_MANAGEMENT` (D-2, owner decision 2026-11-28): 8.1 supported (recorded
+  endpoint contracts plus the live run on real `sdExtSystem` answers); everything else refused; a refusal gives status `unknown`,
+  never a failed tool call.
+- **Module list** (D-13): the check never starts the StartCLI module export; `get_inventory_item`
+  passes the list its lookup loaded, the other paths use only a cached list, else a documented
+  fallback. The check stays REST-only.
+- **JSON** (D-10): `ResultJson` serializers for `ModuleDetail.Property` and the enums, so both tools
+  write the same section.
 - **Matching** (D-3): exact module name; shared names narrowed by plugin type vs. `ResourceType`;
   every ambiguity is a warning, never a dropped link.
 - **Index and cache** (D-4): one `ManagementIndex` per server and owner in the shared
@@ -62,13 +68,14 @@ call within `inventory.cacheTtl` makes no system diagram read.
 - 0 new tools (count unchanged); `get_inventory_item` gains `management` and `managedModules`;
   `read_model_details` gains `module.management`; `list_nodes`/`--check-config` show
   `module_management`.
-- New production types (about 11): `ExternalSystem`, `ExternalSystems`, `Unreadable`,
+- New production types (about 16): `Reason`, `ExternalSystem`, `ExternalSystems`, `Unreadable`,
   `ManagementIndex`, `ManagementSection`, `ManagingElement`, `Difference`,
-  `SystemDiagramManagement` (domain); `ManagementService`, `ManagementMatcher`,
-  `ManagementBounds` (application).
+  `SystemDiagramManagement`, `ElementEntry`, `LinkedModule` (domain); `ModuleTarget`, `OwnProperties`,
+  `ManagementService`, `ManagementMatcher`, `ManagementBounds` (application).
 - Extended: `Capability`, `CapabilityMatrix`, `NodeOverview`, `ConfigSummary`, `InventoryDetail`,
   `InventoryBounds`, `InventoryService`, `ModelDetailService`, `ReadModelDetailsTool`,
-  `GetInventoryItemTool` (description), `Wiring`, both output schemas, `interface-coverage.tsv`,
+  `GetInventoryItemTool` (description), `Wiring`, `infra/ResultJson`, both output schemas,
+  `list_nodes.output.json`, `interface-coverage.tsv`,
   `tools/record-fixtures.sh`, `tools/anonymize.py`, docs.
 
 ## Constitution Check
@@ -79,9 +86,9 @@ call within `inventory.cacheTtl` makes no system diagram read.
 |---|---|---|
 | I. Safe by Default | ✅ read only | ✅ <ul><li>Only GETs that the two tools already send; no write interface; read-only hints unchanged.</li><li>No new input parameter.</li></ul> |
 | II. Secrets Stay Out | ⚠️ central settings hold passwords, trust stores, OAuth secrets | ✅ <ul><li>Settings come only from the module-detail parser, masked per entry (PR #113, review-hardened excerpt masking).</li><li>New types hold only masked `Property` values and names; no raw XML retained.</li><li>Comparison skips masked values and `${secret:` placeholders (D-6).</li><li>Leak tests on result, error excerpts, logs and cache.</li></ul> |
-| III. Test-First | ⚠️ `sdExtSystem` only probed (structure), not recorded | ✅ <ul><li>Synthetic fixtures with the probed structure and planted secrets drive every task test-first.</li><li>T-record (owner-gated) records `modelByName` and `nodeByModel` of a real system diagram, neutralized, and swaps the fixtures; until then 8.1 support rests on the live probe and the live acceptance (T-live).</li></ul> |
+| III. Test-First | ⚠️ `sdExtSystem` only probed (structure), not recorded | ✅ <ul><li>Synthetic fixtures with the probed structure and planted secrets drive every task test-first.</li><li>8.1 is supported on the recorded 8.1 contracts of both endpoints and the live run of 2026-11-27 on real `sdExtSystem` answers (research D-2, owner decision); T025 records `modelByName` and `nodeByModel` of a real system diagram, neutralized, and swaps the synthetic fixtures when a non-production node is reachable.</li></ul> |
 | IV. Use-Case-Oriented Tools | ✅ no new tool | ✅ The check lives where agents already look (spec option (b)); descriptions point to it (FR-012). |
-| V. Adapter Isolation & Version Compatibility | ✅ existing adapters | ✅ <ul><li>Uses `InventoryPort` and `ModelDetailPort` only; no HTTP in `application`.</li><li>New capability `MODULE_MANAGEMENT`: 8.1 supported, 9.0 "not yet verified" (D-2); no version branching in tool logic.</li></ul> |
+| V. Adapter Isolation & Version Compatibility | ✅ existing adapters | ✅ <ul><li>Uses `InventoryPort` and `ModelDetailPort` only; no HTTP in `application`; never the StartCLI module export (D-13).</li><li>New capability `MODULE_MANAGEMENT`: 8.1 supported, 9.0 "not yet verified" (D-2); the docs state it; no version branching in tool logic.</li></ul> |
 | VI. Bounded, Structured Output | ✅ | ✅ Fixed bounds (≤ 10 elements per section, ≤ 50 per diagram, ≤ 100 names per element, `ItemBounds` for values), `truncated` flags; failures as structured reasons with next step. |
 | VII. Observability & Auditability | ✅ read only | ✅ One DEBUG line per index load (server, owner, counts, duration); no audit record (read, like the partner usage). |
 | Tech constraints | ✅ | ✅ No new dependency; TLS and pinning unchanged. |
@@ -114,23 +121,27 @@ src/main/java/de/dadecker/inubit/mcp/
 │   ├── Capability.java, CapabilityMatrix.java         # + MODULE_MANAGEMENT
 │   ├── InventoryDetail.java                           # + management, managedModules
 │   └── management/                                    # new package
-│       ├── ExternalSystem.java, ExternalSystems.java, Unreadable.java
+│       ├── Reason.java, ExternalSystem.java, ExternalSystems.java, Unreadable.java
 │       ├── ManagementIndex.java, ManagementSection.java, ManagingElement.java
-│       ├── Difference.java, SystemDiagramManagement.java
+│       ├── Difference.java, SystemDiagramManagement.java, ElementEntry.java, LinkedModule.java
 │       └── package-info.java
 ├── application/
 │   ├── ManagementService.java                         # index load, cache, budget, gate
-│   ├── ManagementMatcher.java                         # pure matching and state rules
+│   ├── ManagementMatcher.java                         # pure match + compare, state rules
+│   ├── ModuleTarget.java, OwnProperties.java
 │   ├── ManagementBounds.java
 │   ├── InventoryService.java, InventoryBounds.java    # MODULE + DIAGRAM hooks, deadlines
+│   ├── ManagedModuleDetail.java                       # ModuleDetail + management
 │   └── ModelDetailService.java                        # owner, diagram list, check, deadline
 ├── mcp/tools/
 │   ├── GetInventoryItemTool.java                      # description
 │   └── ReadModelDetailsTool.java                      # Module.management, description
-└── infra/Wiring.java                                  # order: cache → inventory → management → model details
+├── infra/ResultJson.java                              # Property, Status, Kind serializers
+└── Wiring.java                                        # order: cache → management → inventory → model details
 src/main/resources/
 ├── schemas/get_inventory_item.output.json             # $defs.Management, $defs.SystemDiagramManagement
 ├── schemas/read_model_details.output.json             # $defs.Management
+├── schemas/list_nodes.output.json                     # module_management
 └── coverage/interface-coverage.tsv                    # nodeByModel for get_inventory_item
 src/test/java/de/dadecker/inubit/mcp/
 ├── domain/model/management/*Test.java
@@ -140,6 +151,7 @@ src/test/java/de/dadecker/inubit/mcp/
 └── security/ManagementSecretLeakTest.java
 src/test/resources/fixtures/v8_1/rest/
 ├── admin-model-node-by-model-sd-ext-system.*          # existing (PR #113)
+├── admin-model-node-by-model-sd-ext-system-2.*        # new, synthetic
 ├── model-by-name-systemdiagram.*                      # new, synthetic
 └── admin-model-node-by-model-managed-module.*         # new, synthetic
 tools/record-fixtures.sh, tools/anonymize.py           # T-record cases, ResourceSettings neutralization
@@ -151,20 +163,25 @@ docs/tools.md, docs/interface-coverage.md, CHANGELOG.md
 
 ## Implementation order
 
-1. **Foundation**: capability and matrix; domain types with invariants; `ExternalSystems.from` on the
-   PR #113 fixture; synthetic fixtures.
-2. **US1 core** (P1): `ManagementMatcher` (state rules, D-3, D-6) → `ManagementService` (index load,
-   cache, budget, gate) → `InventoryService` MODULE hook, deadline, bounds → schema and tool test →
-   leak test.
-3. **US2** (P2): `ModelDetailService` owner/diagram-list/check, `Wiring` reorder, `read_model_details`
-   schema and tool test.
+1. **Foundation**: capability and matrix (8.1 supported); domain types with invariants;
+   `ExternalSystems.from` on the PR #113 fixture; `ResultJson` serializers; synthetic fixtures.
+2. **US1 core** (P1): `ManagementMatcher` (state rules, D-3, D-6, D-13) → `ManagementService` (index
+   load, cache, budget, gate) → `InventoryService` MODULE hook with its constructor, every
+   construction site and `Wiring` in the same task (the build stays green) → bounds → schema and
+   tool test → coverage → leak test.
+3. **US2** (P2): `ModelDetailService` owner/diagram-list/check with its constructor, construction
+   sites and the `Wiring` reorder in one task → `read_model_details` schema and tool test.
 4. **US3** (P2): `forSystemDiagram`, `InventoryService` DIAGRAM hook, `managedModules` schema.
 5. **US4** (P3): descriptions, pinned tests, docs (`tools.md`, interface coverage), CHANGELOG.
-6. **T-record** (owner-gated): recorder cases, anonymizer, recorded fixtures replace the synthetic
-   ones; resolve D-3's `ResourceType` form; record the export alternative of D-1.
-7. **T-live** (owner-gated): live acceptance on 8.1 with a build of the branch; SC-001 run.
+6. **Recording** (T022–T026): recorder cases and anonymizer (agent); recording (operator, needs a
+   reachable non-production node); recorded fixtures replace the synthetic ones, D-3's
+   `ResourceType` form is settled; a mapping table or another element type
+   only if the recording requires it (conditional T026).
+7. **Live acceptance** (T027, operator): 8.1 with a build of the branch; SC-001 run.
 
-US2 and US3 depend on US1's service; US4 can follow any time after US1.
+US2 and US3 depend on US1's service and wiring; US4 can follow any time after US1. Phases 1–6 of
+tasks.md form the feature PR; T022–T027 (recording, live acceptance) land as their own PR when a
+non-production node is reachable.
 
 ## Complexity Tracking
 

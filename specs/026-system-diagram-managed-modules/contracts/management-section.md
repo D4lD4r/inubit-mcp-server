@@ -42,29 +42,29 @@ Where:
 | `status` | always | `managed` \| `not_managed` \| `unknown` |
 | `complete` | always | every system diagram (and element) of the owner was read; `not_managed` only with `true` |
 | `owner` | unless `NOT_CONFIGURED` | the owner whose system diagrams were checked |
-| `collectedAt` | when something was read | when the cached index was collected (ISO-8601) |
+| `collectedAt` | when an index was had | when the cached index was collected (ISO-8601) |
 | `systemDiagramsChecked` | always | readable system diagrams |
 | `systemDiagramsNotRead` | always | 0 when `complete` |
-| `firstNotRead` | when not `complete` and something was read | `{kind: diagramList \| moduleList \| systemDiagram \| element, name?, systemDiagram?, code, message}` |
-| `elements` | `managed` only (≥ 1, ≤ 10) | the managing elements |
-| `elements[].settings` | always (may be `[]`) | `Property` items of `read_model_details` (value / masked / entries) |
+| `firstNotRead` | when an index was had and it is not complete (a failed diagram list included; never for gate refusal, no owner, foreign diagram, timeout) | `{kind: diagramList \| systemDiagram \| element, name?, systemDiagram?, code, message}` |
+| `elements` | `managed` only (≥ 1, ≤ 10); left out otherwise | the managing elements |
+| `elements[].settings` | always (may be `[]`) | `Property` items exactly as `read_model_details` writes them: `{name, type, value, truncated?}` \| `{name, type, masked: true}` \| `{name, type, entries}` (serialized by `ResultJson`, research D-10) |
 | `elements[].differing` | when non-empty | `{name, central, module}`; non-secret top-level settings only |
 | `elements[].comparisonUnavailable` | when the module's own properties could not be read | `{code, message, nextStep}` |
-| `warnings` | always (may be `[]`) | `managed more than once`, `cannot be attributed to a single module`, `type does not match`, `incomplete: further management cannot be ruled out` |
-| `reason` | `unknown` only | `{code, message, nextStep}`, e.g. `NOT_CONFIGURED`, `UNSUPPORTED_VERSION`, `TIMEOUT` ("the read goes on and fills the cache"), `NOT_FOUND` ("diagram does not belong to the configured owner") |
+| `warnings` | always (may be `[]`) | `managed more than once`, `cannot be attributed to a single module`, `type does not match`, `module list not loaded; names are not checked for duplicates …` (research D-13), `incomplete: further management cannot be ruled out`, and the version gate's warnings, if any |
+| `reason` | `unknown` only | `{code, message, nextStep}`, e.g. `NOT_CONFIGURED`, `UNSUPPORTED_VERSION`, `TIMEOUT` ("the read goes on and fills the cache"), `NOT_FOUND` ("diagram does not belong to the configured owner"), or the code and message of `firstNotRead` for an incomplete index without a link, with the fixed next step per kind (research D-13) |
 | `truncated` | always | `elements` or a list inside was cut |
 
 Schema rules (`get_inventory_item.output.json` `$defs.Management`, `read_model_details.output.json`
-`$defs.Management`, identical): `additionalProperties: false`; `status: managed` requires
-`elements` (minItems 1) and forbids `reason`; `status: unknown` requires `reason` and forbids
-`elements`; `status: not_managed` requires `complete: true` and forbids `elements`, `reason` and
+`$defs.Management`, identical; both tools serialize the same domain record through `ResultJson`):
+`additionalProperties: false`; `status: managed` requires `elements` (minItems 1) and forbids
+`reason`; `status: unknown` requires `reason` and forbids `elements` (it may carry `firstNotRead`);
+`status: not_managed` requires `complete: true` and forbids `elements`, `reason` and
 `firstNotRead`.
 
 ## 2. `managedModules` (system diagram detail)
 
 Where: `get_inventory_item` → `results[].item.managedModules` for `kind: DIAGRAM` when the diagram's
-type is `systemdiagram` and it has at least one `sdExtSystem` element (or the elements could not be
-listed).
+type is `systemdiagram` and it has at least one `sdExtSystem` element (a diagram without one, e.g. only communication clouds, has no `managedModules`). When there is no usable index for the diagram, `elements` is `[]` and `unavailable` is set; `collectedAt`, `warnings` and `truncated` follow their rules below.
 
 ```json
 "managedModules": {
@@ -75,17 +75,21 @@ listed).
      "linked": [{"name": "Demo-HTTP-Out-A", "found": true},
                 {"name": "Demo-HTTP-Gone", "found": false}]},
     {"element": "Broken-Element", "nodeId": "202",
-     "error": {"code": "UNEXPECTED_RESPONSE", "message": "…"}}],
+     "error": {"code": "UNEXPECTED_RESPONSE", "message": "…",
+               "nextStep": "check the system diagram with get_inventory_item, then retry with refresh: true"}}],
+  "warnings": [],
   "truncated": false
 }
 ```
 
 | Field | Presence | Meaning |
 |---|---|---|
-| `elements[]` | always (≤ 50) | one per `sdExtSystem`, in INUBIT's order; either `connectorType?`, `settings`, `linked` or `error` |
+| `collectedAt` | when an index was had (also with a failed diagram list) | when the cached index was collected |
+| `elements[]` | always (≤ 50; `[]` with `unavailable`) | one per `sdExtSystem`, in INUBIT's order; either `connectorType?`, `settings` and `linked` (both always present, possibly `[]`, e.g. an element without `ResourcesLinked`) or `error {code, message, nextStep}` (then `connectorType`, `settings` and `linked` are left out) |
 | `linked[].found` | unless `moduleListUnavailable` | whether the owner has a module of that name |
-| `moduleListUnavailable` | when the module list could not be read | `{code, message, nextStep}` |
-| `unavailable` | when the elements could not be listed or the gate refused | `{code, message, nextStep}`; then `elements` is `[]` |
+| `moduleListUnavailable` | when no cached module list exists and not `unavailable` (the check never starts the StartCLI module export, research D-13) | `{code, message, nextStep}` |
+| `unavailable` | when there is no usable index for this diagram: gate refused, budget reached (`TIMEOUT`, "the read goes on and fills the cache"), diagram list failed, the diagram itself unreadable, or the diagram missing from a cached index (`NOT_FOUND`, "call again with `refresh: true`") | `{code, message, nextStep}` |
+| `warnings` | always (may be `[]`) | the version gate's warnings, if any |
 | `truncated` | always | |
 
 ## 3. Descriptions (FR-012)
@@ -101,7 +105,8 @@ modules its external systems manage."
 
 ## 4. Other surfaces
 
-- `list_nodes` / `--check-config`: capability `module_management` per server (supported on 8.1).
+- `list_nodes` / `--check-config`: capability `module_management` per server (8.1 supported; 9.0 not yet verified); `list_nodes.output.json` gains
+  the enum value.
 - `interface-coverage.tsv`: `GET /model/nodeByModel/{model}/{node}` also reachable for
   `get_inventory_item/default`; `docs/interface-coverage.md` matches.
 - No audit record (read-only, names and masked settings only).
