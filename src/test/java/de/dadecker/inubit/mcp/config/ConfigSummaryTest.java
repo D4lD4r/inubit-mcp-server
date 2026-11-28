@@ -1027,7 +1027,8 @@ class ConfigSummaryTest {
 
         // a 7.4 node chooses its client by version (production ownClientOnly, FR-029)
         String choice = matrix.equals("74")
-            ? "client: /opt/client (group cli.home), address: servlet path, " : "";
+            ? "client: " + Path.of("/opt/client") + " (group cli.home), address: servlet path, "
+            : "";
         String access = " (INUBIT " + release + ", StartCLI only; available: monitoring, process"
             + " diagnosis; refused: log diagnosis, inventory, partner management, workspace"
             + " export, development writes, deployment, end-to-end test, process control,"
@@ -1089,7 +1090,8 @@ class ConfigSummaryTest {
             + " downloading the trace log, reading server settings, reading users, reading model"
             + " details, operating the server, managing tags), secrets: credentialStore (macOS"
             + " Keychain), username ←";
-        String choice = ", client: /opt/client (group cli.home), address: servlet path";
+        String choice = ", client: " + Path.of("/opt/client")
+            + " (group cli.home), address: servlet path";
         assertThat(summary).contains("test/node1: read-only, cli: available" + choice
             + ", inubit: V7_4" + access);
         assertThat(summary).as("the pin is shown with all four parts")
