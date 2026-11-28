@@ -15,7 +15,7 @@ python3 -I -m unittest discover -s tools/tests -v
 ## Validation scenarios (automated, WireMock fake server)
 
 Synthetic fixtures (research D-11): a system diagram `SD-HTTP` (group `GRP-CONNECT`) whose `modelByName`
-lists `sdExtSystem` `Central-Backend` (node 117), `sdExtSystem` `Second-Backend` (node 149) and
+lists `sdExtSystem` `Central-Backend` (node 201), `sdExtSystem` `Second-Backend` (node 202) and
 `sdInubitIS`; `nodeByModel` answers from `admin-model-node-by-model-sd-ext-system.xml` (planted
 secrets 3911–3914); a module `Demo-HTTP-Out-A` used by workflow `TW-Out` whose own `ServerName` is
 `http://localhost:8000/dummy`.

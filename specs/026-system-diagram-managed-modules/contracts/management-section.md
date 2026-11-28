@@ -70,11 +70,11 @@ listed).
 "managedModules": {
   "collectedAt": "2026-11-28T08:00:00Z",
   "elements": [
-    {"element": "Central-Backend", "nodeId": "117", "connectorType": "HTTP Connector",
+    {"element": "Central-Backend", "nodeId": "201", "connectorType": "HTTP Connector",
      "settings": [{"name": "ServerName", "type": "String", "value": "https://central.example.test"}],
      "linked": [{"name": "Demo-HTTP-Out-A", "found": true},
                 {"name": "Demo-HTTP-Gone", "found": false}]},
-    {"element": "Broken-Element", "nodeId": "149",
+    {"element": "Broken-Element", "nodeId": "202",
      "error": {"code": "UNEXPECTED_RESPONSE", "message": "…"}}],
   "truncated": false
 }
