@@ -2,6 +2,7 @@ package de.dadecker.inubit.mcp.application;
 
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.ContactedException;
 import de.dadecker.inubit.mcp.domain.model.CoverageKey;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.LogEntry;
@@ -67,6 +68,10 @@ import java.util.regex.Pattern;
  *       {@code error} and leaves the other servers' results untouched. Feature 012: so does an
  *       {@code UNSUPPORTED_VERSION} of the process port's own input check (e.g. {@code tag} on
  *       6.1), before the gate is asked; the admission's version notes follow its warnings.
+ *       Feature 025 (FR-030 (b)): in {@code find_processes} a failed server that was admitted
+ *       keeps the admission's warnings and notes beside its error when the error came after
+ *       contact ({@link ContactedException}) or is the fan-out's deadline {@code TIMEOUT}; a
+ *       refusal before contact has none.
  *   <li>{@code timeInState} and {@code hanging} are computed here for every instance with the
  *       MCP server's clock: hanging = a {@link ProcessState#NON_FINAL} state longer than the
  *       threshold (request, else the server's {@code hangingThreshold}, else
@@ -219,6 +224,7 @@ public final class DiagnosisService {
         Set<NodeId> pending = secretTiming.pending(servers);
         Function<NodeId, Duration> deadline =
             server -> deadline(server, Capability.PROCESS_DIAGNOSIS);
+        FanOut.Sink sink = new FanOut.Sink();
         return secretTiming.explainTimeouts(fanOut.run(servers, deadline, server -> {
             // thrown before the version gate is asked (feature 012, FR-007: nothing is launched)
             ToolErrorException refusal = refused.get(server);
@@ -227,7 +233,11 @@ public final class DiagnosisService {
             }
             Optional<ToolErrorException> noColumn = request.userColumn().isEmpty()
                 ? Optional.empty() : admitUserColumn(server, servers.size() == 1);
-            List<String> warnings = admit("find_processes", Capability.PROCESS_DIAGNOSIS, server);
+            List<String> admitted = admit("find_processes", Capability.PROCESS_DIAGNOSIS, server);
+            // feature 025 (FR-030 (b)): the node is admitted, so its deadline TIMEOUT and an
+            // error after contact carry the admission's warnings; a pre-contact error does not
+            sink.register(server, admitted);
+            List<String> warnings = new ArrayList<>(admitted);
             noColumn.ifPresent(e -> warnings.add("userColumn unavailable (" + e.error().code()
                 + "): " + e.error().message()));
             ProcessQuery query = queryOf.apply(server,
@@ -236,13 +246,18 @@ public final class DiagnosisService {
             if (query.matchesNothing()) {
                 return new NodePage<>(empty(request.offset(), request.limit()), warnings);
             }
-            Page<ProcessInstance> page = gateways.processes(server).find(query);
+            Page<ProcessInstance> page;
+            try {
+                page = gateways.processes(server).find(query);
+            } catch (ContactedException e) {
+                throw e.withWarnings(admitted);
+            }
             List<ProcessInstance> items = new ArrayList<>();
             page.items().forEach(item -> items.add(item.assessedAt(now, threshold)));
             items.sort(Comparator.comparing(ProcessInstance::since).reversed());
             return new NodePage<>(bound(shared, page, items, request.offset(), request.limit()),
                 warnings);
-        }), pending);
+        }, sink), pending);
     }
 
     /**

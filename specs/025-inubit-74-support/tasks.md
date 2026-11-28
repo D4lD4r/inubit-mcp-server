@@ -608,7 +608,7 @@ production matrix changes only in T035.
   today), `SecretTimingTest` (an explained
   `TIMEOUT` keeps the warnings), `FindProcessesToolTest` (schema description, a failed entry with
   warnings validates).
-- [ ] T045 [US6] [US7] [US9] Services attach the warning to data and contacted errors only (spec
+- [X] T045 [US6] [US7] [US9] Services attach the warning to data and contacted errors only (spec
   FR-030 (b), SC-007, SC-010; after T044): `main/application/DiagnosisService.java`
   (`find_processes`, `:225-245`) registers the admission's warnings in the `FanOut` sink right
   after `admit` and rethrows a `ContactedException` from the port `withWarnings(admission

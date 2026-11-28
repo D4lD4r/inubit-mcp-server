@@ -4,6 +4,7 @@ import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.CliHealthSnapshot;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.ContactedException;
 import de.dadecker.inubit.mcp.domain.model.CredentialState;
 import de.dadecker.inubit.mcp.domain.model.Durations;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
@@ -124,8 +125,12 @@ import org.slf4j.LoggerFactory;
  *       it. The version goes to {@link NodeVersions#observed} and the report only when the
  *       snapshot marks it as the server's; otherwise a warning names it as the client's
  *       (FR-006). A report built from a successful session also carries the unverified warning
- *       of {@link VersionGate#cliMonitoringWarnings} (feature 025, FR-030 (b)). Budget: a call for one node returns within
- *       {@link #CLI_ONLY_SINGLE_NODE_BUDGET}, a call for several within
+ *       of {@link VersionGate#cliMonitoringWarnings} (feature 025, FR-030 (b)), and so does a
+ *       failed report whose error came after contact ({@link ContactedException}) or from the
+ *       call's deadline (a {@code TIMEOUT} of the wait, also for the credentials, and the
+ *       fan-out's backstop); a refusal before contact (credentials missing or pending, the client
+ *       check, a refused TLS option, no free StartCLI slot) has none. Budget: a call for one node
+ *       returns within {@link #CLI_ONLY_SINGLE_NODE_BUDGET}, a call for several within
  *       {@link #OVERVIEW_BUDGET}; the node's session and probe get that bound less
  *       {@link #FAN_OUT_GRACE}, and a session still running then is {@code TIMEOUT} worded for
  *       that budget. Other nodes keep their timeout + {@link #FAN_OUT_GRACE}.
@@ -248,15 +253,18 @@ public final class HealthService {
         servers.forEach(server -> accesses.put(server, access(server)));
         boolean overview = servers.size() > 1;
         Duration cliBudget = overview ? overviewBudget : singleCliBudget;
+        // the backstop TIMEOUT of a StartCLI node carries the warnings checkServer registered
+        FanOut.Sink sink = new FanOut.Sink();
         List<NodeResult<HealthReport>> results = fanOut.run(servers,
             server -> isCli(accesses.get(server)) ? cliBudget
                 : timeouts.apply(server).plus(FAN_OUT_GRACE),
             server -> checkServer(server, accesses.get(server), includeSystemInfo, cliBudget,
-                overview));
+                overview, sink), sink);
         LeaseView.Snapshot snapshot = awaitLeases(leaseRead, leaseDeadline);
         return results.stream()
             .map(result -> result.payload()
-                .orElseGet(() -> failed(result.node(), result.error().orElseThrow())))
+                .orElseGet(() -> failed(result.node(), result.error().orElseThrow(),
+                    result.warnings())))
             .map(report -> withLeases(report, snapshot))
             .toList();
     }
@@ -318,14 +326,16 @@ public final class HealthService {
      * @param access    how the server is reached, or its refusal
      * @param cliBudget the bound of the call for a CLI-only node
      * @param overview  whether the call addresses several nodes
+     * @param sink      receives the warnings of a node reached through StartCLI (FR-030 (b))
      */
     private HealthReport checkServer(NodeId server, Outcome<Channel> access,
-        boolean includeSystemInfo, Duration cliBudget, boolean overview)
+        boolean includeSystemInfo, Duration cliBudget, boolean overview, FanOut.Sink sink)
         throws InterruptedException {
         if (access.failed()) {
             return failed(server, access.error());
         }
         if (access.value() == Channel.CLI) {
+            sink.register(server, gate.cliMonitoringWarnings(server));
             // never REST to a CLI-only node
             return checkServerViaCli(server, cliBudget.minus(FAN_OUT_GRACE), overview);
         }
@@ -429,7 +439,7 @@ public final class HealthService {
                 gateways.prepareCredentials(server, bound)), deadline, server, budget,
                 "while preparing the connection");
             if (credentials.failed()) {
-                return failed(server, credentials.error());
+                return failedViaCli(server, credentials);
             }
             if (credentials.value() == CredentialState.PENDING) {
                 return failed(server, credentialsPending(server, budget));
@@ -439,7 +449,7 @@ public final class HealthService {
                     "no StartCLI health port for " + server))), deadline, server, budget,
                 "while preparing the connection");
             if (port.failed()) {
-                return failed(server, port.error());
+                return failedViaCli(server, port);
             }
             if (gate.ownClientOnly(server)) {
                 // feature 025 (FR-029): the client must report the pinned line before contact
@@ -462,14 +472,17 @@ public final class HealthService {
                 "to the StartCLI health session");
             if (snapshot.failed() && snapshot.error().code() == ErrorCode.TIMEOUT
                 && System.nanoTime() - budgetEnd >= 0) {
-                // the budget ran out, not the node's cliTimeout
-                snapshot = Outcome.failure(sessionTimeout(server, budget, overview));
+                // the budget ran out, not the node's cliTimeout; a limiter's no-slot TIMEOUT
+                // stays one before contact
+                snapshot = snapshot.withError(sessionTimeout(server, budget, overview));
             }
             List<String> versionWarnings = new ArrayList<>();
             Optional<InubitVersion> serverRead = Optional.empty();
-            if (!snapshot.failed()) {
+            if (!snapshot.failed() || snapshot.attempted()) {
                 // feature 025 (FR-030 (b)): the unverified warning of a CLI-only pin
                 versionWarnings.addAll(gate.cliMonitoringWarnings(server));
+            }
+            if (!snapshot.failed()) {
                 CliHealthSnapshot read = snapshot.value();
                 if (read.versionIsServer()) {
                     serverRead = read.versionText().flatMap(InubitVersion::parse);
@@ -892,11 +905,25 @@ public final class HealthService {
     }
 
     private HealthReport failed(NodeId server, ToolError error) {
+        return failed(server, error, List.of());
+    }
+
+    private HealthReport failed(NodeId server, ToolError error, List<String> warnings) {
         return new HealthReport(server, server.group(), clock.instant(), false,
             HealthStatus.UNKNOWN, Optional.empty(), Optional.empty(), Optional.empty(),
             Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
             Optional.empty(), List.of(),
-            Optional.of(error.node().isPresent() ? error : error.withNode(server)), List.of());
+            Optional.of(error.node().isPresent() ? error : error.withNode(server)), warnings);
+    }
+
+    /**
+     * The failed report of a StartCLI node: with the unverified warning of
+     * {@link VersionGate#cliMonitoringWarnings} if its error is {@link Outcome#attempted()}
+     * (FR-030 (b)), else without warnings.
+     */
+    private HealthReport failedViaCli(NodeId server, Outcome<?> outcome) {
+        return failed(server, outcome.error(),
+            outcome.attempted() ? gate.cliMonitoringWarnings(server) : List.of());
     }
 
     /** Waits for {@code future} until {@code deadline} (nano time); interrupts are passed on. */
@@ -907,7 +934,7 @@ public final class HealthService {
             return Outcome.of(future.get(remaining, TimeUnit.NANOSECONDS));
         } catch (TimeoutException e) {
             future.cancel(true);
-            return Outcome.failure(ToolError.of(ErrorCode.TIMEOUT,
+            return Outcome.attemptFailure(ToolError.of(ErrorCode.TIMEOUT,
                 "No answer from " + server + " " + what + " within "
                     + Durations.human(timeout),
                 "The INUBIT server or the network is slow, overloaded or hanging.",
@@ -917,8 +944,9 @@ public final class HealthService {
             Throwable cause = e.getCause();
             if (cause instanceof ToolErrorException toolError) {
                 ToolError error = toolError.error();
-                return Outcome.failure(error.node().isPresent() ? error
-                    : error.withNode(server));
+                ToolError withNode = error.node().isPresent() ? error : error.withNode(server);
+                return toolError instanceof ContactedException
+                    ? Outcome.attemptFailure(withNode) : Outcome.failure(withNode);
             }
             LOG.warn("Health call to {} failed unexpectedly", server, cause);
             return Outcome.failure(ToolError.of(ErrorCode.INTERNAL,
@@ -936,15 +964,30 @@ public final class HealthService {
         Optional<UnavailablePart> unavailable, Optional<String> warning) {
     }
 
-    /** The value of one call or its error. */
-    private record Outcome<T>(T value, ToolError error) {
+    /**
+     * The value of one call or its error.
+     *
+     * @param attempted feature 025 (FR-030 (b)): the error came after contact
+     *                  ({@link ContactedException}) or from the deadline of the wait for the call
+     *                  ({@code TIMEOUT}), not from a refusal before contact
+     */
+    private record Outcome<T>(T value, ToolError error, boolean attempted) {
 
         static <T> Outcome<T> of(T value) {
-            return new Outcome<>(Objects.requireNonNull(value, "value"), null);
+            return new Outcome<>(Objects.requireNonNull(value, "value"), null, false);
         }
 
         static <T> Outcome<T> failure(ToolError error) {
-            return new Outcome<>(null, error);
+            return new Outcome<>(null, error, false);
+        }
+
+        static <T> Outcome<T> attemptFailure(ToolError error) {
+            return new Outcome<>(null, error, true);
+        }
+
+        /** This failure with {@code other} as its error; {@link #attempted} is kept. */
+        Outcome<T> withError(ToolError other) {
+            return new Outcome<>(null, other, attempted);
         }
 
         boolean failed() {

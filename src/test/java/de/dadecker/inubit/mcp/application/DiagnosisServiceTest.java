@@ -10,6 +10,7 @@ import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
 import de.dadecker.inubit.mcp.domain.model.ClientKey;
 import de.dadecker.inubit.mcp.domain.model.ClientVersion;
+import de.dadecker.inubit.mcp.domain.model.ContactedException;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InterfaceCoverage;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
@@ -64,6 +65,9 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * T069: the use cases behind {@code find_processes} and {@code query_logs} with fake ports and a
@@ -1042,6 +1046,116 @@ class DiagnosisServiceTest {
             "INUBIT 7.4 on qa/node2 is not verified for process diagnosis; results may be"
                 + " incomplete",
             "logs of INUBIT 7.4 cannot be read with query_logs; read them in the Workbench");
+    }
+
+    // --- feature 025, T045: the warning on errors after contact only (FR-030 (b)) -------------
+
+    /** Pins qa/node2 to {@code line} ("7.4" or "6.1") with the T038 test matrix of that line. */
+    private void pinUnverified(String line) {
+        boolean v74 = line.equals("7.4");
+        matrix = v74 ? TestMatrices.unverified74() : TestMatrices.unverified61();
+        versionLines.put(QA2, v74 ? VersionSetting.V7_4 : VersionSetting.V6_1);
+    }
+
+    /** The admission's warning and version note of qa/node2 on an unverified {@code line}. */
+    private static String[] admissionWarnings(String line) {
+        return new String[] {
+            "INUBIT " + line + " on qa/node2 is not verified for process diagnosis; results may be"
+                + " incomplete",
+            "logs of INUBIT " + line + " cannot be read with query_logs; read them in the"
+                + " Workbench"};
+    }
+
+    private static ToolError errorOnQa2(ErrorCode code) {
+        return ToolError.of(code, code + " on qa/node2", "cause", "next step").withNode(QA2);
+    }
+
+    private NodeResult<NodePage<ProcessInstance>> findOnQa2(ProcessRequest request) {
+        List<NodeResult<NodePage<ProcessInstance>>> results = service().findProcesses(request);
+        assertThat(results).hasSize(1);
+        return results.get(0);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        // a rejected login, an unreachable server, an unrecognized output, the session's TIMEOUT
+        // after launch, a rejected TLS handshake: what the adapters mark as contacted (T041)
+        "7.4, AUTH_FAILED", "7.4, UNREACHABLE", "7.4, UNEXPECTED_RESPONSE", "7.4, TIMEOUT",
+        "7.4, TLS_ERROR",
+        "6.1, AUTH_FAILED", "6.1, UNREACHABLE", "6.1, UNEXPECTED_RESPONSE", "6.1, TIMEOUT",
+        "6.1, TLS_ERROR"})
+    void anErrorAfterContactCarriesTheAdmissionsWarnings(String line, ErrorCode code) {
+        pinUnverified(line);
+        processes(QA2).answer = query -> {
+            throw new ContactedException(errorOnQa2(code));
+        };
+
+        NodeResult<NodePage<ProcessInstance>> entry = findOnQa2(processRequest("qa/node2"));
+
+        assertThat(entry.payload()).isEmpty();
+        assertThat(entry.error()).contains(errorOnQa2(code));
+        assertThat(entry.warnings()).containsExactly(admissionWarnings(line));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        // no client or StartCLI could not be started, missing credentials or the credential
+        // guard's cooldown, a refused TLS option, no free StartCLI slot, the launch guard: what
+        // the adapters refuse before contact (T041)
+        "7.4, CLI_UNAVAILABLE", "7.4, AUTH_FAILED", "7.4, TLS_ERROR", "7.4, TIMEOUT",
+        "7.4, UNSUPPORTED_VERSION",
+        "6.1, CLI_UNAVAILABLE", "6.1, AUTH_FAILED", "6.1, TLS_ERROR", "6.1, TIMEOUT",
+        "6.1, UNSUPPORTED_VERSION"})
+    void aRefusalBeforeContactCarriesNoWarning(String line, ErrorCode code) {
+        pinUnverified(line);
+        processes(QA2).answer = query -> {
+            throw new ToolErrorException(errorOnQa2(code));
+        };
+
+        NodeResult<NodePage<ProcessInstance>> entry = findOnQa2(processRequest("qa/node2"));
+
+        assertThat(entry.error()).contains(errorOnQa2(code));
+        assertThat(entry.warnings()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"7.4", "6.1"})
+    void theFanOutDeadlineOfAnAdmittedNodeStillWaitingForASlotCarriesTheWarnings(String line) {
+        pinUnverified(line);
+        cliTimeout = Duration.ofMillis(100); // deadline: 3 x 100 ms + 300 ms + 1 s
+        processes(QA2).answer = query -> {
+            try {
+                Thread.sleep(Duration.ofSeconds(10)); // the session waits for a free slot
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            throw new IllegalStateException("cut off");
+        };
+
+        NodeResult<NodePage<ProcessInstance>> entry = findOnQa2(processRequest("qa/node2"));
+
+        assertThat(entry.error()).hasValueSatisfying(error -> {
+            assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT);
+            assertThat(error.message()).startsWith("No response from qa/node2 within");
+        });
+        assertThat(entry.warnings()).containsExactly(admissionWarnings(line));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"7.4", "6.1"})
+    void aTagRefusalCarriesNoWarning(String line) {
+        pinUnverified(line);
+        processes(QA2).validator = query -> {
+            throw tagRefused(QA2);
+        };
+
+        NodeResult<NodePage<ProcessInstance>> entry = findOnQa2(
+            withTag(processRequest("qa/node2"), "release-1"));
+
+        assertThat(entry.error()).hasValueSatisfying(error ->
+            assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION));
+        assertThat(entry.warnings()).isEmpty();
+        assertThat(processes(QA2).queries()).isEmpty();
     }
 
     // --- userColumn (T045b, research D-21) -----------------------------------------------------
