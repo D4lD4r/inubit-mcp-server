@@ -66,6 +66,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -650,6 +651,26 @@ class HealthServiceTest {
 
     // --- feature 012, T007: monitoring access before contact (FR-001, research D-11) --------
 
+    /**
+     * 6.1 as in production before feature 025 declared its monitoring unverified (T035): every
+     * capability refused; 8.1 supported; unknown versions with reads unverified, as in
+     * production. Keeps the refusal before contact of feature 012 under test.
+     */
+    private static CapabilityMatrix refusing61() {
+        Map<Capability, SupportState> supported = new EnumMap<>(Capability.class);
+        Map<Capability, SupportState> unknown = new EnumMap<>(Capability.class);
+        for (Capability capability : Capability.values()) {
+            supported.put(capability, SupportState.SUPPORTED);
+            unknown.put(capability, capability.kind() == Capability.Kind.READ
+                ? SupportState.UNVERIFIED : SupportState.UNSUPPORTED);
+        }
+        return new CapabilityMatrix(List.of(
+            new CapabilityMatrix.Entry(new VersionRange(6, 1, 6, 1), Map.of(),
+                Map.of(Capability.MONITORING, Set.of(Channel.CLI),
+                    Capability.PROCESS_DIAGNOSIS, Set.of(Channel.CLI)), true),
+            new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1), supported)), unknown);
+    }
+
     @Test
     void a61NodeIsRefusedBeforeAnyContactWhileAutoAnd81NodesAreReadAsBefore() {
         versionLines.put(DEV, VersionSetting.V6_1);
@@ -661,7 +682,7 @@ class HealthServiceTest {
         };
         // qa/node2 stays pinned to V8_1
 
-        List<HealthReport> reports = service().check(Optional.empty(), false);
+        List<HealthReport> reports = service(refusing61()).check(Optional.empty(), false);
 
         HealthReport refused = reports.get(0);
         assertThat(refused.node()).isEqualTo(DEV);
@@ -698,8 +719,11 @@ class HealthServiceTest {
         versionLines.put(DEV, VersionSetting.parse("6.1.0.89").orElseThrow());
         withClient.add(DEV);
 
-        HealthReport report = checkOne(DEV, false);
+        List<HealthReport> reports = service(refusing61()).check(Optional.of(DEV.value()),
+            false);
 
+        assertThat(reports).hasSize(1);
+        HealthReport report = reports.get(0);
         assertThat(report.error()).hasValueSatisfying(error -> {
             assertThat(error.code()).isEqualTo(ErrorCode.UNSUPPORTED_VERSION);
             assertThat(error.message()).contains("INUBIT 6.1.0.89", "dev/node1", "monitoring");

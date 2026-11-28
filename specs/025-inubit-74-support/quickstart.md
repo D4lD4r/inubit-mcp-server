@@ -135,3 +135,78 @@ Existing assertions changed on this branch (new cases and new test files are not
     optional `-OutputDirectory` and sets `RECORD_ALLOWED_HOSTS`. The `win_*` cases are unchanged.
 - Shared test fixtures extended without changing an existing assertion: the node map of
   `VersionGateTest` (T009, two 7.4 nodes), the nodes of `ListNodesToolTest` (T013, `qa/node5`–`7`).
+- Mandate B, T035 (the flip of 7.4 and 6.1 health and processes to `UNVERIFIED`; spec FR-020,
+  FR-029, FR-030, FR-035, FR-036, SC-005), each change deliberate:
+  - `CapabilityMatrixTest`: `everyCapabilityIsUnsupportedOn61` → `onlyMonitoringAndProcessDiagnosisAreUnverifiedOn61`;
+    `everyCapabilityIsUnsupportedOn74WithTheNote` → `onlyMonitoringAndProcessDiagnosisAreUnverifiedOn74`
+    (the two without a note, every other capability with "not yet verified");
+    `ownClientOnlyIsTheFlagOfTheVersionsEntry` also asserts the production flag (7.4 only);
+    `onlyEveryCapabilityNotedIsAllNotYetVerified`: false for every production entry, the positive
+    case on a matrix whose 7.4 entry notes every capability.
+  - `VersionLineRegressionTest`: the 6.1 rows of MONITORING and PROCESS_DIAGNOSIS `UNSUPPORTED` →
+    `UNVERIFIED` (the one deliberate change of that test, FR-020); nothing else.
+  - `V74RefusalTest`: `get_health` and `find_processes` leave the per-tool refusal cases; new cases
+    run them on `legacy74/node1` through the replayed 7.4 fixtures (`-h` the recorded help, `-v` the
+    reconstructed version, sessions `health_session_ok` / `ps_session_all`) with the warning, and
+    refuse `bare74/node1` (no client) with `CLI_UNAVAILABLE` naming `defaults.cliClients."7.4"`
+    without a warning; the group case `aGroupOf81And74AnswersThe81NodeAndRefusesThe74NodeInItsOwnEntry`
+    → `aGroupOf81And74AnswersBothNodesThe74NodeWithTheWarning`; the launcher replays only when a
+    test sets sessions; `legacy74/node1` gets a `cli.javaHome` with a Java 8 `release` (the PKCS12
+    trust store reaches the 7.4 client through `JAVA_TOOL_OPTIONS`); the `read_io_log` matrix
+    repeats the new production 7.4 entry.
+  - `V61RefusalTest`: `getHealthReportsTheRefusalForThe61Node` → `getHealthReadsThe61NodeThroughStartCliWithTheWarning`;
+    `find_processes` leaves `perNodeReads` for `findProcessesListsThe61NodeThroughStartCliWithTheWarningAndTheVersionNote`;
+    the launcher replays the 6.1 help, a 6.1.0 `-v` and the session when a test sets sessions;
+    `old/node2` gets a `cli.javaHome` with a Java 8 `release`; every other tool unchanged.
+  - `ToolAnnouncementTest`: `onlySixOneNodesBeforeTheFlipAnnounceNoReadTool` and
+    `onlySixOneNodesAfterTheFlipAnnounceProcessDiagnosisOnly` (with its own matrix) →
+    `onlySixOneNodesAnnounceProcessDiagnosisAsTheOnlyReadTool` on the production matrix;
+    `onlySevenFourNodesAnnounceOnlyTheToolsThatAreAlwaysAnnounced` →
+    `onlySevenFourNodesAnnounceTheToolsThatAreAlwaysAnnouncedAndFindProcesses`, with and without a
+    client home.
+  - `ListNodesToolTest`: `aV61NodeIsCliOnlyAndNoCapabilityIsUsableWithoutContactingIt` →
+    `aV61NodeIsCliOnlyWithHealthAndProcessesUsableWithoutContactingIt`;
+    `aContradictedV61PinLeavesNoCapabilityUsable` → `aContradictedV61PinLeavesOnlyMonitoringUsable`
+    (monitoring is judged on the pin, where it is unverified);
+    `aV74NodeIsCliOnlyWithItsVersionAndNoUsableCapabilityWithoutContactingIt` →
+    `aV74NodeIsCliOnlyWithItsVersionAndHealthAndProcessesUsableWithoutContactingIt`;
+    `aV74NodeWarnsThatItsClientIsNotUsedUntilA74CapabilityIsVerified` →
+    `aV74NodeCarriesNoWarningAboutItsClient` (the T014 warning ends, FR-035).
+  - `ConfigSummaryTest`: the 6.1 summaries (`aV61NodeShowsStartCliOnly…` renamed
+    `aV61NodeShowsStartCliOnlyWithHealthAndProcessesAvailableAsUnverified`, the three opt-in cases,
+    `aV61NodeWithoutCliHomeIsShownWithItsWarning`) list `available: monitoring, process diagnosis`;
+    the 7.4 summaries show the client choice (a 7.4 node chooses its client by version) and no
+    "not used until …" suffix (`aV74NodeShowsItsVersionAndStartCliOnlyWithoutAnyAvailableCapability`
+    → `aV74NodeShowsItsVersionStartCliOnlyAndHealthAndProcessesAvailableAsUnverified`,
+    `theClientOfAV74NodeIsShownAsNotUsedUntilA74CapabilityIsVerified` →
+    `theClientOfAV74NodeIsShownWithoutANotUsedSuffix`,
+    `theClientIsComparedWithA74PinOnFourPartsAndWithA61PinOnThree`); the T038 case
+    `anUnverifiedReadOnACliOnlyVersionIsListedAsAvailable` expects the client choice for 7.4.
+  - `ConfigValidatorTest`: `aV74NodeWithoutCliHomeHasNoFindingWhileNoCapabilityIsVerified` →
+    `aV74NodeWithoutItsOwnClientIsAWarningNamingTheCliClientsEntry` (also with a
+    `defaults.cliHome`, which a 7.4 node does not use).
+  - `CliClientProbeTest`: `aSevenFourNodeStartsNoHelpRunWhileNothingIsVerifiedOnIt` →
+    `aSevenFourNodeIsProbedWithMinusHAsASixOneNode` (the real 7.4 help: `--execCommand`, no TLS
+    option).
+  - `MainTest`: `checkConfigProbesA74EntryLocallyAndShowsItsClientAsNotUsedYet` →
+    `checkConfigProbesA74EntryLocallyWithTheVersionAndTheOptionProbe` (`-v` and `-h`, options in
+    the client part); `checkConfigShowsAV61NodeAsStartCliOnlyWithoutContactingInubit` and
+    `checkConfigListsTheUnsupportedReadsAsRefusedOnlyForAnOptedInV61Group`: the available list.
+  - `CliCompatibilityTest.every81And61AndAutoNodeKeepsItsStartCliValuesOf080`: 7.4 pins are no
+    longer compared with the 0.8.0 rule (FR-029 deviates from it for 7.4).
+  - `V74HelpContractTest`: the production matrix instead of its own CLI-only 7.4 matrix.
+  - `VersionGateTest`: `theProductionMatrixRefusesEveryCapabilityOf61BeforeAnyDetectionOrProbe` →
+    `theProductionMatrixRefusesEveryOtherCapabilityOf61BeforeAnyDetectionOrProbe` (monitoring and
+    process diagnosis skipped, the log example on log diagnosis);
+    `monitoringAccessOfA61PinIsRefusedWithTheProductionMatrix` →
+    `monitoringAccessOfA61PinIsCliWithTheProductionMatrix`, its refusal kept as
+    `monitoringAccessOfACliOnlyPinIsRefusedWhenTheMatrixDeclaresItUnsupported` on a pre-flip 6.1
+    entry; `a61RefusalNamesTheVersionLineTheCapabilityAndItsNextStep` without monitoring and process
+    diagnosis; `a74RefusalKeepsTheNoteMessageAndNamesTheRecognisedReleaseInItsNextStep` and
+    `a74PinIsNamedByItsVersionAndItsReleaseIsTakenFromIt` refuse log diagnosis instead of
+    monitoring and process diagnosis (texts unchanged); `cliMonitoringWarningsAreEmptyUnlessMonitoringIsUnverifiedOnACliOnlyPin`
+    takes its `UNSUPPORTED` case from an inline matrix and asserts the production warning on 7.4.
+  - `HealthServiceTest`: `a61NodeIsRefusedBeforeAnyContactWhileAutoAnd81NodesAreReadAsBefore` and
+    `aConcrete61PinIsRefusedBeforeAnyContact` run on `refusing61()` (6.1 as before the flip), so the
+    refusal before contact of feature 012 stays under test.
+  - `TestMatrices` (test helper): Javadoc only, the matrices now repeat the production entries.

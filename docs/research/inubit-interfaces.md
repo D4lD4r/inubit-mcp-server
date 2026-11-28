@@ -230,9 +230,14 @@ below is still to be checked against a real 9.0 system.
 Source: the output of `startcli.sh -h` of a 7.4 client, kept byte for byte in
 [evidence/startcli-7.4-help.txt](../../specs/025-inubit-74-support/evidence/startcli-7.4-help.txt)
 and in the fixture `src/test/resources/fixtures/v7_4/cli/help.*` (exit code and stderr assumed). No vendor
-documentation of 7.4 is available. Everything else about 7.4 is **UNVERIFIED**; in this version the
-server recognises 7.4 nodes by pin and refuses every tool on them
-([setup.md, INUBIT 7.4 nodes](../setup.md#inubit-74-nodes-v7_4)).
+documentation of 7.4 is available. Everything else about 7.4 is **UNVERIFIED**: no 7.4 output has
+been recorded, and every other 7.4 behaviour is assumed to be the one of 6.1 (feature 012). On
+that basis the server runs `get_health` and `find_processes` on pinned 7.4 nodes as **untested**
+(unverified, with the warning in every result), with the 6.1 commands and parsers, against test
+fixtures reconstructed from the 6.1 ones; every other tool refuses 7.4 nodes
+([setup.md, INUBIT 7.4 nodes](../setup.md#inubit-74-nodes-v7_4)). The 6.1 health and process
+reads are untested in the same way: their fixtures are reconstructed from the 6.1 vendor
+documentation.
 
 ### 7.1 Facts of the help output
 
@@ -254,6 +259,8 @@ server recognises 7.4 nodes by pin and refuses every tool on them
 
 ### 7.2 Unknown
 
+Until recorded, the server assumes the 6.1 behaviour for each of these points.
+
 - The interactive commands (e.g. `ps`, `uptime`, a health check) and their output formats.
 - Exit codes and stderr of every command, also of `-h`.
 - Whether the password prompt can be fed through stdin without `-p`.
@@ -261,9 +268,11 @@ server recognises 7.4 nodes by pin and refuses every tool on them
   client ships with.
 - The REST endpoints of 7.4, if any; the server sends a 7.4 node no REST request.
 
-### 7.3 Recording plan
+### 7.3 Recording plan (optional later verification)
 
-The Windows recorder `tools/record-fixtures.ps1` has 13 `v74_*` cases and a session mode (one
+No recording is made in feature 025 (owner decision, 2026-11-26). The recording kit stays for a
+later mandate that may raise 7.4 (or 6.1) health and processes from unverified to supported. The
+Windows recorder `tools/record-fixtures.ps1` has 13 `v74_*` cases and a session mode (one
 `startcli.bat -u <user> <url>` run; the password line, the commands and `exit` on stdin; the
 password never on the command line). The recordings are made by hand, with the owner's approval,
 against a **non-production** 7.4.0.90 node with the 7.4 client and its JDK
@@ -278,4 +287,5 @@ against a **non-production** 7.4.0.90 node with the 7.4 client and its JDK
 5. Run `NoCustomerIdentifiersTest`, review and commit the recordings.
 6. Live check with a `V7_4` node and an `AUTO` node.
 
-A 7.4 capability is declared verified only after its parser has passed against these recordings.
+A 7.4 capability is declared supported only after its parser has passed against these recordings
+and a live check against a non-production 7.4 node.

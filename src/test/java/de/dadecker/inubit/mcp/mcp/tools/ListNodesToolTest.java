@@ -772,9 +772,10 @@ class ListNodesToolTest {
     // --- 012-T013: a 6.1 node (US3-5, research D-13) ---------------------------------------
 
     @Test
-    void aV61NodeIsCliOnlyAndNoCapabilityIsUsableWithoutContactingIt() {
-        // US3-5: the production matrix declares every capability of 6.1 unsupported; listVersions
-        // fails on any request, and the launcher on any StartCLI run
+    void aV61NodeIsCliOnlyWithHealthAndProcessesUsableWithoutContactingIt() {
+        // US3-5; feature 025 (FR-036): the production matrix declares monitoring and process
+        // diagnosis of 6.1 unverified, everything else unsupported; listVersions fails on any
+        // request, and the launcher on any StartCLI run
         JsonNode result = versionClient.callTool("list_nodes", Map.of());
         JsonNode node = StreamSupport.stream(result.path("structuredContent").path("groups")
                 .spliterator(), false)
@@ -790,13 +791,11 @@ class ListNodesToolTest {
         assertThat(version.path("access").asString()).isEqualTo("cli_only");
         assertThat(version.path("server").path("version").asString()).isEqualTo("6.1");
         assertThat(version.path("server").path("source").asString()).isEqualTo("pinned");
-        assertThat(version.path("status").asString()).isEqualTo("unsupported");
-        assertThat(usable(version)).isEmpty();
-        assertThat(notUsable(version)).containsExactly("monitoring", "process_diagnosis",
-            "log_diagnosis", "inventory", "workspace_export", "development_writes",
-            "process_control");
-        assertThat(reason(version, "monitoring")).isEqualTo("INUBIT 6.1 (versionLine V6_1) on"
-            + " qa/node4 does not support monitoring");
+        assertThat(version.path("status").asString()).isEqualTo("partially_supported");
+        assertThat(usable(version)).containsExactly("monitoring", "process_diagnosis");
+        assertThat(notUsable(version)).containsExactly("log_diagnosis", "inventory",
+            "workspace_export", "development_writes", "process_control");
+        assertThat(version.has("warnings")).as("no warning about 6.1").isFalse();
         assertThat(reason(version, "log_diagnosis")).isEqualTo("INUBIT 6.1 (versionLine V6_1)"
             + " on qa/node4 does not support log diagnosis");
         assertThat(reason(version, "process_control")).isEqualTo("INUBIT 6.1 (versionLine V6_1)"
@@ -862,9 +861,9 @@ class ListNodesToolTest {
     }
 
     @Test
-    void aContradictedV61PinLeavesNoCapabilityUsable() {
+    void aContradictedV61PinLeavesOnlyMonitoringUsable() {
         // US3-6: the gate refuses every tool but get_health while the 6.1 pin is contradicted,
-        // and judges monitoring on the pin
+        // and judges monitoring on the pin, where it is unverified (feature 025, FR-036)
         versions.observed(QA4, InubitVersion.parse("8.1.17").orElseThrow());
 
         JsonNode version = listVersions().get("qa/node4");
@@ -872,10 +871,8 @@ class ListNodesToolTest {
         assertThat(version.path("access").asString()).isEqualTo("cli_only");
         assertThat(version.path("server").path("version").asString()).isEqualTo("8.1.17");
         assertThat(version.path("server").path("source").asString()).isEqualTo("observed");
-        assertThat(usable(version)).isEmpty();
-        assertThat(version.path("status").asString()).isEqualTo("unsupported");
-        assertThat(reason(version, "monitoring")).isEqualTo("INUBIT 6.1 (versionLine V6_1) on"
-            + " qa/node4 does not support monitoring");
+        assertThat(usable(version)).containsExactly("monitoring");
+        assertThat(version.path("status").asString()).isEqualTo("partially_supported");
         assertThat(reason(version, "process_diagnosis")).startsWith("versionLine V6_1 of"
             + " qa/node4 contradicts INUBIT 8.1.17 observed by get_health at");
         assertThat(reason(version, "development_writes")).startsWith("versionLine V6_1 of"
@@ -888,9 +885,10 @@ class ListNodesToolTest {
     @CsvSource({
         "qa/node5, V7_4,     7.4,      INUBIT 7.4",
         "qa/node6, 7.4.0.90, 7.4.0.90, INUBIT 7.4.0.90"})
-    void aV74NodeIsCliOnlyWithItsVersionAndNoUsableCapabilityWithoutContactingIt(String id,
-        String setting, String shown, String name) {
-        // the production matrix refuses every 7.4 capability as not yet verified; listVersions
+    void aV74NodeIsCliOnlyWithItsVersionAndHealthAndProcessesUsableWithoutContactingIt(
+        String id, String setting, String shown, String name) {
+        // feature 025 (FR-030): the production matrix declares monitoring and process diagnosis
+        // of 7.4 unverified and refuses every other capability as not yet verified; listVersions
         // fails on any request, and the launcher on any StartCLI run
         JsonNode result = versionClient.callTool("list_nodes", Map.of());
         JsonNode node = StreamSupport.stream(result.path("structuredContent").path("groups")
@@ -908,13 +906,12 @@ class ListNodesToolTest {
         assertThat(version.path("server").path("version").asString())
             .as("a pin keeps all four parts").isEqualTo(shown);
         assertThat(version.path("server").path("source").asString()).isEqualTo("pinned");
-        assertThat(version.path("status").asString()).isEqualTo("unsupported");
-        assertThat(usable(version)).isEmpty();
-        assertThat(notUsable(version)).containsExactly("monitoring", "process_diagnosis",
-            "log_diagnosis", "inventory", "workspace_export", "development_writes",
-            "process_control");
-        assertThat(reason(version, "monitoring")).isEqualTo(name + " on " + id
-            + ": monitoring is not yet verified for INUBIT 7.4");
+        assertThat(version.path("status").asString()).isEqualTo("partially_supported");
+        assertThat(usable(version)).containsExactly("monitoring", "process_diagnosis");
+        assertThat(notUsable(version)).containsExactly("log_diagnosis", "inventory",
+            "workspace_export", "development_writes", "process_control");
+        assertThat(reason(version, "log_diagnosis")).isEqualTo(name + " on " + id
+            + ": log diagnosis is not yet verified for INUBIT 7.4");
         assertThat(reason(version, "development_writes")).isEqualTo(name + " on " + id
             + ": development writes is not yet verified for INUBIT 7.4");
     }
@@ -924,16 +921,14 @@ class ListNodesToolTest {
         "qa/node5, true",
         "qa/node6, true",
         "qa/node7, false"})
-    void aV74NodeWarnsThatItsClientIsNotUsedUntilA74CapabilityIsVerified(String id,
-        boolean withClient) {
-        // 025-T014 (FR-010a, research D-9): with and without a client, no schema change
+    void aV74NodeCarriesNoWarningAboutItsClient(String id, boolean withClient) {
+        // feature 025 (FR-035): the T014 warning ends with the flip and gets no replacement,
+        // with and without a client
         JsonNode version = listVersions().get(id);
 
         assertThat(version.path("client").path("state").asString()).as("client")
             .isEqualTo(withClient ? "not_yet_detected" : "not_available");
-        assertThat(texts(version.path("warnings"))).containsExactly("INUBIT 7.4 is recognised,"
-            + " but no tool is verified on it yet; the StartCLI client of " + id + " is not used"
-            + " until a 7.4 capability is verified");
+        assertThat(version.has("warnings")).isFalse();
     }
 
     @Test

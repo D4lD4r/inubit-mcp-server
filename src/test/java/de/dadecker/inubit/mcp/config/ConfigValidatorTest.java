@@ -826,14 +826,21 @@ class ConfigValidatorTest {
         }
 
         @Test
-        void aV74NodeWithoutCliHomeHasNoFindingWhileNoCapabilityIsVerified() {
-            // feature 025 (FR-010a, research D-9): every 7.4 capability is not yet verified, so
-            // no tool would use a client; the 6.1 warning above stays
-            for (String line : List.of("V7_4", "\"7.4.0.90\"", "\"7.4.0.90-HF1\"")) {
-                ValidationReport report = validate(server("versionLine: " + line + "\n"));
+        void aV74NodeWithoutItsOwnClientIsAWarningNamingTheCliClientsEntry() {
+            // feature 025 (FR-029, FR-035): health and processes use the 7.4 client, never the
+            // version-less cliHome, so a configured cliHome does not count; the 6.1 warning above
+            // stays
+            for (String defaults : List.of("", "defaults:\n  cliHome: /opt/client\n")) {
+                for (String line : List.of("V7_4", "\"7.4.0.90\"", "\"7.4.0.90-HF1\"")) {
+                    ValidationReport report = validate(defaults
+                        + server("versionLine: " + line + "\n"));
 
-                assertThat(report.errors()).as(line).isEmpty();
-                assertThat(report.warnings()).as(line).isEmpty();
+                    assertThat(report.errors()).as(line).isEmpty();
+                    assertThat(report.warnings()).as(line).containsExactly("dev/node1: INUBIT 7.4"
+                        + " is reached through StartCLI only, but neither cli.home nor"
+                        + " defaults.cliClients.\"7.4\" is configured; its capabilities report"
+                        + " CLI_UNAVAILABLE");
+                }
             }
         }
 

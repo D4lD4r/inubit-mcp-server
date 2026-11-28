@@ -904,11 +904,12 @@ class ConfigSummaryTest {
         """;
 
     @Test
-    void aV61NodeShowsStartCliOnlyAndRefusesEveryCapabilityBeforeTheRecordings() {
+    void aV61NodeShowsStartCliOnlyWithHealthAndProcessesAvailableAsUnverified() {
+        // feature 025 (FR-036): monitoring and process diagnosis are unverified reads on 6.1
         String summary = render(V6_1);
 
-        String access = " (INUBIT 6.1, StartCLI only; available: none; refused: monitoring,"
-            + " process diagnosis, log diagnosis, inventory, partner management, workspace"
+        String access = " (INUBIT 6.1, StartCLI only; available: monitoring, process diagnosis;"
+            + " refused: log diagnosis, inventory, partner management, workspace"
             + " export, development writes, deployment, end-to-end test, process control,"
             + " downloading the trace log, reading server settings, reading users, reading model"
             + " details, operating the server, managing tags), secrets: credentialStore (macOS"
@@ -932,8 +933,8 @@ class ConfigSummaryTest {
             "    unsupported:\n      queueEntryRead: true\n    nodes:"));
 
         assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
-            + " (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process"
-            + " diagnosis, log diagnosis, inventory, partner management, workspace export,"
+            + " (INUBIT 6.1, StartCLI only; available: monitoring, process diagnosis; refused:"
+            + " log diagnosis, inventory, partner management, workspace export,"
             + " development writes, deployment, end-to-end test, process control, reading Queue"
             + " Manager entries, downloading the trace log, reading server settings, reading"
             + " users, reading model details, operating the server, managing tags), secrets:"
@@ -953,8 +954,8 @@ class ConfigSummaryTest {
             "    unsupported:\n      serverLogRead: true\n    nodes:"));
 
         assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V6_1"
-            + " (INUBIT 6.1, StartCLI only; available: none; refused: monitoring, process"
-            + " diagnosis, log diagnosis, inventory, partner management, workspace export,"
+            + " (INUBIT 6.1, StartCLI only; available: monitoring, process diagnosis; refused:"
+            + " log diagnosis, inventory, partner management, workspace export,"
             + " development writes, deployment, end-to-end test, process control, downloading the"
             + " trace log, downloading the web service log, reading server settings, reading"
             + " users, reading model details, operating the server, managing tags), secrets:"
@@ -980,7 +981,7 @@ class ConfigSummaryTest {
         String without = render(V6_1);
 
         String refused = "test/node1: read-only, cli: available, inubit: V6_1 (INUBIT 6.1,"
-            + " StartCLI only; available: none; refused: monitoring, process diagnosis, log"
+            + " StartCLI only; available: monitoring, process diagnosis; refused: log"
             + " diagnosis, inventory, partner management, workspace export, development writes,"
             + " deployment, end-to-end test, process control, downloading the trace log, reading"
             + " server settings, reading users, reading model details";
@@ -1024,16 +1025,19 @@ class ConfigSummaryTest {
         String summary = render(matrix.equals("74") ? V7_4 : V6_1, matrix.equals("74")
             ? TestMatrices.unverified74() : TestMatrices.unverified61());
 
+        // a 7.4 node chooses its client by version (production ownClientOnly, FR-029)
+        String choice = matrix.equals("74")
+            ? "client: /opt/client (group cli.home), address: servlet path, " : "";
         String access = " (INUBIT " + release + ", StartCLI only; available: monitoring, process"
             + " diagnosis; refused: log diagnosis, inventory, partner management, workspace"
             + " export, development writes, deployment, end-to-end test, process control,"
             + " downloading the trace log, reading server settings, reading users, reading model"
             + " details, operating the server, managing tags), secrets: credentialStore (macOS"
             + " Keychain), username ←";
-        assertThat(summary).contains("test/node1: read-only, cli: available, inubit: " + line
-            + access);
-        assertThat(summary).contains("test/node2: read-only, cli: available, inubit: " + pin
-            + access);
+        assertThat(summary).contains("test/node1: read-only, cli: available, " + choice
+            + "inubit: " + line + access);
+        assertThat(summary).contains("test/node2: read-only, cli: available, " + choice
+            + "inubit: " + pin + access);
         assertThat(summary).as("8.1 lines are unchanged")
             .contains("test/node3: read-only, cli: available, inubit: V8_1, secrets:"
                 + " credentialStore (macOS Keychain), username ←");
@@ -1044,7 +1048,8 @@ class ConfigSummaryTest {
         String summary = render(V6_1.replace("    cli:\n      home: /opt/client\n", ""));
 
         assertThat(summary).contains("test/node1: read-only, cli: unavailable, inubit: V6_1"
-                + " (INUBIT 6.1, StartCLI only; available: none; refused: monitoring,")
+                + " (INUBIT 6.1, StartCLI only; available: monitoring, process diagnosis;"
+                + " refused: log diagnosis,")
             .contains("  - test/node1: INUBIT 6.1 is reached through StartCLI only, but no"
                 + " cliHome is configured; its capabilities report CLI_UNAVAILABLE")
             .doesNotContain("test/node3: INUBIT 6.1")
@@ -1073,19 +1078,23 @@ class ConfigSummaryTest {
         """;
 
     @Test
-    void aV74NodeShowsItsVersionAndStartCliOnlyWithoutAnyAvailableCapability() {
+    void aV74NodeShowsItsVersionStartCliOnlyAndHealthAndProcessesAvailableAsUnverified() {
+        // feature 025 (FR-030, FR-029): the client is chosen by version, never the version-less
+        // cliHome, so the node line shows the choice
         String summary = render(V7_4);
 
-        String access = " (INUBIT 7.4, StartCLI only; available: none; refused: monitoring,"
-            + " process diagnosis, log diagnosis, inventory, partner management, workspace"
+        String access = " (INUBIT 7.4, StartCLI only; available: monitoring, process diagnosis;"
+            + " refused: log diagnosis, inventory, partner management, workspace"
             + " export, development writes, deployment, end-to-end test, process control,"
             + " downloading the trace log, reading server settings, reading users, reading model"
             + " details, operating the server, managing tags), secrets: credentialStore (macOS"
             + " Keychain), username ←";
-        assertThat(summary).contains("test/node1: read-only, cli: available, inubit: V7_4"
-            + access);
+        String choice = ", client: /opt/client (group cli.home), address: servlet path";
+        assertThat(summary).contains("test/node1: read-only, cli: available" + choice
+            + ", inubit: V7_4" + access);
         assertThat(summary).as("the pin is shown with all four parts")
-            .contains("test/node2: read-only, cli: available, inubit: 7.4.0.90" + access);
+            .contains("test/node2: read-only, cli: available" + choice + ", inubit: 7.4.0.90"
+                + access);
         assertThat(summary).as("8.1 lines are unchanged")
             .contains("test/node3: read-only, cli: available, inubit: V8_1, secrets:"
                 + " credentialStore (macOS Keychain), username ←");
@@ -1094,23 +1103,22 @@ class ConfigSummaryTest {
     }
 
     @Test
-    void theClientOfAV74NodeIsShownAsNotUsedUntilA74CapabilityIsVerified() {
-        // feature 025 T014 (FR-010a, research D-9)
+    void theClientOfAV74NodeIsShownWithoutANotUsedSuffix() {
+        // feature 025 (FR-035): health and processes use the 7.4 client
         String summary = render(V7_4, Map.of(
             NodeId.parse("test/node1"), client("7.4.0.90", null, null),
             NodeId.parse("test/node2"), client("7.4.0.90", null, null),
             NodeId.parse("test/node3"), client("8.1.17", "4.0.1", "8.1.17")));
 
-        String notUsed = "; not used until a 7.4 capability is verified, secrets: credentialStore"
-            + " (macOS Keychain), username ←";
+        String secrets = ", secrets: credentialStore (macOS Keychain), username ←";
         assertThat(summary)
             .contains("managing tags), client: 7.4.0.90, server version: determined at runtime"
-                + notUsed)
-            .contains("managing tags), client: 7.4.0.90, client vs pin: match" + notUsed);
+                + secrets)
+            .contains("managing tags), client: 7.4.0.90, client vs pin: match" + secrets);
         assertThat(summary).as("8.1 client lines are unchanged")
             .contains("test/node3: read-only, cli: available, inubit: V8_1, client: 8.1.17"
                 + " (4.0.1–8.1.17), server version: determined at runtime, secrets:");
-        assertThat(summary.split("not used until", -1)).hasSize(3);
+        assertThat(summary).doesNotContain("not used until");
     }
 
     @Test
@@ -1121,8 +1129,8 @@ class ConfigSummaryTest {
         String on61 = render(V6_1.replace("\"6.1.0.89-HF1\"", "\"6.1.0.89\""),
             Map.of(NodeId.parse("test/node2"), client("6.1.0.80", null, null)));
 
-        assertThat(on74).contains("managing tags), client: 7.4.0.80, client vs pin: mismatch;"
-            + " not used until a 7.4 capability is verified, secrets:");
+        assertThat(on74).contains("managing tags), client: 7.4.0.80, client vs pin: mismatch,"
+            + " secrets:");
         assertThat(on61).as("the fourth part is ignored on 6.1")
             .contains("managing tags), client: 6.1.0.80, client vs pin: match, secrets:");
     }

@@ -12,8 +12,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Feature 025 T038 (spec FR-030, FR-036): the test matrices of the flip before it lands in
- * production. Each declares monitoring and process diagnosis {@code UNVERIFIED} through StartCLI on
+ * Feature 025 T038 (spec FR-030, FR-036): the test matrices of the flip, written before it
+ * landed in production (T035), whose 7.4 and 6.1 entries they repeat. Each declares monitoring and process diagnosis {@code UNVERIFIED} through StartCLI on
  * one CLI-only version and every capability {@code SUPPORTED} on 8.1; unknown versions support
  * nothing.
  */
@@ -31,8 +31,9 @@ public final class TestMatrices {
     }
 
     /**
-     * 7.4 as production, except the two capabilities: {@code UNVERIFIED} and without a note; and
-     * {@code ownClientOnly} (T033, spec FR-029), which production sets with the flip (T035).
+     * 7.4 as in production since the flip (T035): the two capabilities {@code UNVERIFIED} and
+     * without a note, every other one with "not yet verified", and {@code ownClientOnly} (T033,
+     * spec FR-029).
      */
     public static CapabilityMatrix unverified74() {
         Map<Capability, String> notes = new EnumMap<>(Capability.class);
@@ -45,7 +46,7 @@ public final class TestMatrices {
             true, notes, PatchDepth.FOUR, true));
     }
 
-    /** 6.1 as production, except the two capabilities: {@code UNVERIFIED}. */
+    /** 6.1 as in production since the flip (T035): the two capabilities {@code UNVERIFIED}. */
     public static CapabilityMatrix unverified61() {
         return withV81(new CapabilityMatrix.Entry(new VersionRange(6, 1, 6, 1), UNVERIFIED, CLI,
             true));

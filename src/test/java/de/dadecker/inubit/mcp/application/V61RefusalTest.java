@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.TestWiring;
+import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
@@ -42,10 +43,13 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * Feature 012 (T009, SC-003, FR-007, US3): every tool on a node pinned to {@code V6_1}, through
  * the production wiring and its production capability matrix, is refused with
- * {@code UNSUPPORTED_VERSION} before any contact. The 6.1 node {@code old/node2} has write,
+ * {@code UNSUPPORTED_VERSION} before any contact, except {@code get_health} and
+ * {@code find_processes}, which run through StartCLI with the unverified warning since feature
+ * 025 (T035, FR-036). The 6.1 node {@code old/node2} has write,
  * development, deploy and end-to-end settings and a StartCLI installation, so that only the
  * version refuses; its INUBIT and SOAP endpoint is an HTTPS WireMock without stubs, and the
- * StartCLI launcher records and fails every launch. The 8.1 nodes {@code lab/node1} and
+ * StartCLI launcher records and fails every launch, unless a test replays 6.1 sessions
+ * ({@link #sessions}). The 8.1 nodes {@code lab/node1} and
  * {@code old/node1} share another WireMock; they get every tool announced and give
  * {@code query_logs} on the group {@code old} its 8.1 entry (US3-3).
  */
@@ -65,6 +69,12 @@ class V61RefusalTest {
     private WireMockServer current;
     private WireMockServer legacy;
     private final List<ProcessLauncher.LaunchSpec> launches = new CopyOnWriteArrayList<>();
+    /**
+     * The 6.1 StartCLI sessions of a test that runs health or processes; while null every launch
+     * fails. Otherwise {@code -h} replays the reconstructed 6.1 help, {@code -v} answers as a
+     * 6.1.0 client and every other launch is a session.
+     */
+    private FakeProcessLauncher sessions;
     private TestWiring wiring;
     private McpTestClient client;
 
@@ -79,6 +89,10 @@ class V61RefusalTest {
         Path cli61 = temp.resolve("cli61");
         Files.createDirectories(cli61.resolve("bin"));
         Files.writeString(cli61.resolve("bin/startcli.sh"), "#!/bin/sh\n");
+        // a Java 8 runtime for the 6.1 client, which takes the PKCS12 trust store through
+        // JAVA_TOOL_OPTIONS (it has no trust-store option)
+        Path java61 = Files.createDirectories(temp.resolve("java61"));
+        Files.writeString(java61.resolve("release"), "JAVA_VERSION=\"1.8.0_292\"\n");
         String yaml = """
             profile:
               name: acme
@@ -124,6 +138,7 @@ class V61RefusalTest {
                     baseUrl: https://localhost:%6$d
                     cli:
                       home: %7$s
+                      javaHome: %8$s
                     development:
                       enabled: true
                     e2eTests: CONFIRM
@@ -132,7 +147,7 @@ class V61RefusalTest {
                         baseUrl: https://localhost:%6$d
             """.formatted(temp.resolve("audit"), temp.resolve("workspace"),
             TestCertificates.get().trustStore(), current.httpsPort(), temp.resolve("cli81"),
-            legacy.httpsPort(), cli61);
+            legacy.httpsPort(), cli61, java61);
         LoadedConfig loaded = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml, temp.resolve("config.yaml"));
         ProfileConfig config = loaded.config();
@@ -143,11 +158,22 @@ class V61RefusalTest {
         // a configuration the server starts with: only the version keeps the tools from running
         assertThat(TestValidators.of(path -> true, Map.of(), false)
             .validate(loaded).errors()).isEmpty();
-        ProcessLauncher failing = spec -> {
+        FakeProcessLauncher help = FakeProcessLauncher.replaying("v6_1", "help");
+        FakeProcessLauncher clientVersion = FakeProcessLauncher.of("CLI 6.1.0\nSupported inubit"
+            + " Process Engine versions from 4.0.1 to 6.1.0.\n", "", 0);
+        ProcessLauncher launcher = spec -> {
             launches.add(spec);
-            throw new IOException("StartCLI must not be launched in this test");
+            if (sessions == null) {
+                throw new IOException("StartCLI must not be launched in this test");
+            }
+            return switch (spec.startCliArguments().size() == 1
+                ? spec.startCliArguments().get(0) : "") {
+                case "-h" -> help.launch(spec);
+                case "-v" -> clientVersion.launch(spec);
+                default -> sessions.launch(spec);
+            };
         };
-        wiring = TestWiring.of(config, credentials, scrubber, Files::exists, false, failing,
+        wiring = TestWiring.of(config, credentials, scrubber, Files::exists, false, launcher,
             Map.of("PATH", "/usr/bin"));
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client.initialize();
@@ -200,25 +226,59 @@ class V61RefusalTest {
             "tag_artifacts", "deploy_release", "run_e2e_test");
     }
 
+    /** Feature 025 (FR-036): the unverified warning of {@code capability} on the 6.1 node. */
+    private static String unverified(String capability) {
+        return "INUBIT 6.1 on " + NODE + " is not verified for " + capability
+            + "; results may be incomplete";
+    }
+
+    /** No REST or SOAP request on the 6.1 node: StartCLI only (TLS handshake aside). */
+    private void assertNoRequestToThe61Node() {
+        assertThat(legacy.findAll(anyRequestedFor(anyUrl()))).as("requests to " + NODE)
+            .isEmpty();
+    }
+
     @Test
-    void getHealthReportsTheRefusalForThe61Node() {
+    void getHealthReadsThe61NodeThroughStartCliWithTheWarning() {
+        // feature 025 (T035, FR-036): was the refusal of feature 012
+        sessions = FakeProcessLauncher.replaying("v6_1", "health_session_ok");
+
         JsonNode result = client.callTool("get_health", Map.of("target", NODE));
 
         assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
         JsonNode report = result.path("structuredContent").path("reports").get(0);
         assertThat(report.path("node").asString()).isEqualTo(NODE);
-        assertThat(report.path("reachable").asBoolean()).isFalse();
-        assertRefusal(report.path("error"), refusal("monitoring", CAPABLE),
-            capitalized(CAPABLE));
-        assertNothingReachedThe61Node();
+        assertThat(report.has("error")).as(report.toString()).isFalse();
+        assertThat(report.path("reachable").asBoolean()).isTrue();
+        assertThat(report.path("warnings")).extracting(JsonNode::asString)
+            .contains(unverified("monitoring"));
+        assertThat(sessions.launchCount()).as("one session").isEqualTo(1);
+        assertNoRequestToThe61Node();
+    }
+
+    @Test
+    void findProcessesListsThe61NodeThroughStartCliWithTheWarningAndTheVersionNote() {
+        // feature 025 (T035, FR-036): was the refusal of feature 012
+        sessions = FakeProcessLauncher.replaying("v6_1", "ps_session_all");
+
+        JsonNode result = client.callTool("find_processes", Map.of("target", NODE));
+
+        assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
+        JsonNode entry = result.path("structuredContent").path("results").get(0);
+        assertThat(entry.path("node").asString()).isEqualTo(NODE);
+        assertThat(entry.has("error")).as(entry.toString()).isFalse();
+        assertThat(entry.path("page").path("total").asLong()).isEqualTo(9);
+        assertThat(entry.path("warnings")).extracting(JsonNode::asString).containsExactly(
+            unverified("process diagnosis"), "logs of INUBIT 6.1 cannot be read with query_logs;"
+                + " read them in the Workbench");
+        assertThat(sessions.launchCount()).as("one session").isEqualTo(1);
+        assertNoRequestToThe61Node();
     }
 
     /** The read tools with one result entry per node: tool, arguments, expected message. */
     static Stream<Arguments> perNodeReads() {
         String inventory = "modules of INUBIT 6.1 cannot be looked up; " + CAPABLE;
         return Stream.of(
-            Arguments.of("find_processes", Map.of("target", NODE),
-                refusal("process diagnosis", CAPABLE), CAPABLE),
             Arguments.of("query_logs", Map.of("target", NODE, "logType", "systemLog"),
                 refusal("log diagnosis", "read the logs of INUBIT 6.1 in the Workbench"),
                 "read the logs of INUBIT 6.1 in the Workbench"),

@@ -894,13 +894,23 @@ class VersionGateTest {
 
     // --- feature 012, T006: CLI-only versions (FR-005 to FR-007, FR-013, FR-019) -----------
 
+    /** Feature 025 (FR-036): the two capabilities the production matrix declares unverified. */
+    private static boolean unverifiedOnCliOnlyLines(Capability capability) {
+        return capability == Capability.MONITORING || capability == Capability.PROCESS_DIAGNOSIS;
+    }
+
     @Test
-    void theProductionMatrixRefusesEveryCapabilityOf61BeforeAnyDetectionOrProbe() {
+    void theProductionMatrixRefusesEveryOtherCapabilityOf61BeforeAnyDetectionOrProbe() {
         withClient.add(V6_1);
         withClient.add(V6_1_PINNED);
+        int refused = (int) Stream.of(Capability.values())
+            .filter(capability -> !unverifiedOnCliOnlyLines(capability)).count();
 
         for (NodeId node : List.of(V6_1, V6_1_PINNED)) {
             for (Capability capability : Capability.values()) {
+                if (unverifiedOnCliOnlyLines(capability)) {
+                    continue; // feature 025 (FR-036): unverified, VersionGateTest T038 cases
+                }
                 ToolError error = refusal(() -> gate().admit(node, capability,
                     capability.kind(), CLI_REST));
                 assertThat(error.message()).as("%s on %s", capability, node)
@@ -913,11 +923,11 @@ class VersionGateTest {
         assertThat(detection.calls).isZero();
         assertThat(probe.calls).as("no StartCLI run").isEmpty();
         // FR-019: every refusal is logged like the refusals of feature 009
-        assertThat(appender.list).hasSize(2 * Capability.values().length)
+        assertThat(appender.list).hasSize(2 * refused)
             .allSatisfy(event -> assertThat(event.getFormattedMessage())
                 .contains("REFUSED", "UNSUPPORTED_VERSION", "INUBIT 6.1"));
         assertThat(appender.list).anySatisfy(event -> assertThat(event.getFormattedMessage())
-            .contains("MONITORING", "old/node2", "INUBIT 6.1.0.89"));
+            .contains("LOG_DIAGNOSIS", "old/node2", "INUBIT 6.1.0.89"));
     }
 
     @Test
@@ -1034,12 +1044,30 @@ class VersionGateTest {
     }
 
     @Test
-    void monitoringAccessOfA61PinIsRefusedWithTheProductionMatrix() {
+    void monitoringAccessOfA61PinIsCliWithTheProductionMatrix() {
+        // feature 025 (T035, FR-036): was the refusal of feature 012
         withClient.add(V6_1);
         withClient.add(V6_1_PINNED);
 
-        ToolError line = refusal(() -> gate().monitoringAccess(V6_1));
-        ToolError pinned = refusal(() -> gate().monitoringAccess(V6_1_PINNED));
+        assertThat(gate().monitoringAccess(V6_1)).isEqualTo(Channel.CLI);
+        assertThat(gate().monitoringAccess(V6_1_PINNED)).isEqualTo(Channel.CLI);
+        assertThat(probe.calls).as("no StartCLI run").isEmpty();
+        assertThat(detection.calls).isZero();
+        assertThat(appender.list).isEmpty();
+    }
+
+    @Test
+    void monitoringAccessOfACliOnlyPinIsRefusedWhenTheMatrixDeclaresItUnsupported() {
+        // feature 012 (FR-001): the refusal before contact, on a 6.1 entry as before the flip
+        withClient.add(V6_1);
+        withClient.add(V6_1_PINNED);
+        VersionGate gate = gate(new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
+            new VersionRange(6, 1, 6, 1), Map.of(),
+            Map.of(Capability.MONITORING, CLI, Capability.PROCESS_DIAGNOSIS, CLI), true)),
+            all(SupportState.SUPPORTED)));
+
+        ToolError line = refusal(() -> gate.monitoringAccess(V6_1));
+        ToolError pinned = refusal(() -> gate.monitoringAccess(V6_1_PINNED));
 
         assertThat(line.message()).isEqualTo("INUBIT 6.1 (versionLine V6_1) on old/node1 does"
             + " not support monitoring; use the Workbench, or another node with a different"
@@ -1084,9 +1112,8 @@ class VersionGateTest {
     @Test
     void a61RefusalNamesTheVersionLineTheCapabilityAndItsNextStep() {
         String other = "use the Workbench, or another node with a different INUBIT version";
+        // feature 025 (FR-036): monitoring and process diagnosis are unverified, not refused
         Map<Capability, String> expected = new EnumMap<>(Capability.class);
-        expected.put(Capability.MONITORING, "monitoring; " + other);
-        expected.put(Capability.PROCESS_DIAGNOSIS, "process diagnosis; " + other);
         expected.put(Capability.LOG_DIAGNOSIS,
             "log diagnosis; read the logs of INUBIT 6.1 in the Workbench");
         expected.put(Capability.INVENTORY,
@@ -1121,7 +1148,9 @@ class VersionGateTest {
         expected.put(Capability.SERVER_OPERATION, "operating the server; use the Workbench");
         expected.put(Capability.TAG_ADMINISTRATION, "managing tags; use the Workbench");
 
-        for (Capability capability : Capability.values()) {
+        assertThat(expected.keySet()).as("every other capability").hasSize(
+            Capability.values().length - 2);
+        for (Capability capability : expected.keySet()) {
             ToolError error = refusal(() -> gate().admit(V6_1, capability, capability.kind(),
                 CLI_REST));
             assertThat(error.message()).as("%s", capability).isEqualTo("INUBIT 6.1 (versionLine"
@@ -1179,34 +1208,26 @@ class VersionGateTest {
 
     @Test
     void a74RefusalKeepsTheNoteMessageAndNamesTheRecognisedReleaseInItsNextStep() {
-        ToolError monitoring = refusal(() -> gate().admit("get_health", V7_4,
-            Capability.MONITORING, Kind.READ, CLI_REST));
-        ToolError read = refusal(() -> gate().admit("find_processes", V7_4,
-            Capability.PROCESS_DIAGNOSIS, Kind.READ, CLI_REST));
+        // feature 025 (T035, FR-035): monitoring and process diagnosis are unverified since the
+        // flip; every other capability keeps the Mandate A texts, here log diagnosis
+        ToolError read = refusal(() -> gate().admit("query_logs", V7_4,
+            Capability.LOG_DIAGNOSIS, Kind.READ, CLI_REST));
         ToolError write = refusal(() -> gate().admit(V7_4, Capability.DEPLOYMENT, Kind.WRITE,
             CLI_REST));
-        ToolError access = refusal(() -> gate().monitoringAccess(V7_4));
 
-        assertThat(monitoring.message()).isEqualTo("get_health: INUBIT 7.4 on legacy74/node1:"
-            + " monitoring is not yet verified for INUBIT 7.4; nothing was sent");
-        assertThat(monitoring.likelyCause())
-            .isEqualTo("This server declares monitoring unsupported for that version");
-        assertThat(monitoring.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is"
-            + " verified on it yet; use the INUBIT Workbench for monitoring on legacy74/node1");
-        assertThat(access.message()).isEqualTo("INUBIT 7.4 on legacy74/node1: monitoring is not"
-            + " yet verified for INUBIT 7.4; nothing was sent");
-        assertThat(access.nextStep()).isEqualTo(monitoring.nextStep());
-        assertThat(read.message()).isEqualTo("find_processes: INUBIT 7.4 on legacy74/node1:"
-            + " process diagnosis is not yet verified for INUBIT 7.4; nothing was sent");
+        assertThat(read.message()).isEqualTo("query_logs: INUBIT 7.4 on legacy74/node1:"
+            + " log diagnosis is not yet verified for INUBIT 7.4; nothing was sent");
+        assertThat(read.likelyCause())
+            .isEqualTo("This server declares log diagnosis unsupported for that version");
         assertThat(read.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is verified"
-            + " on it yet; use the INUBIT Workbench for process diagnosis on legacy74/node1");
+            + " on it yet; use the INUBIT Workbench for log diagnosis on legacy74/node1");
         assertThat(write.message()).isEqualTo("INUBIT 7.4 on legacy74/node1: deployment is not"
             + " yet verified for INUBIT 7.4; nothing was sent");
         assertThat(write.likelyCause())
             .isEqualTo("The node runs a version for which no verified write access exists");
         assertThat(write.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is verified"
             + " on it yet; use the INUBIT Workbench for deployment on legacy74/node1");
-        assertThat(Stream.of(monitoring, read, write, access)).allSatisfy(error ->
+        assertThat(Stream.of(read, write)).allSatisfy(error ->
             assertThat(error.node()).contains(V7_4));
         assertThat(detection.calls).isZero();
         assertThat(probe.calls).as("no StartCLI run").isEmpty();
@@ -1214,15 +1235,15 @@ class VersionGateTest {
 
     @Test
     void a74PinIsNamedByItsVersionAndItsReleaseIsTakenFromIt() {
-        ToolError monitoring = refusal(() -> gate().admit("get_health", V7_4_PINNED,
-            Capability.MONITORING, Kind.READ, CLI_REST));
+        ToolError read = refusal(() -> gate().admit("query_logs", V7_4_PINNED,
+            Capability.LOG_DIAGNOSIS, Kind.READ, CLI_REST));
         ToolError write = refusal(() -> gate().admit(V7_4_PINNED, Capability.PROCESS_CONTROL,
             Kind.WRITE, CLI_REST));
 
-        assertThat(monitoring.message()).isEqualTo("get_health: INUBIT 7.4.0.90 on"
-            + " legacy74/node2: monitoring is not yet verified for INUBIT 7.4; nothing was sent");
-        assertThat(monitoring.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is"
-            + " verified on it yet; use the INUBIT Workbench for monitoring on legacy74/node2");
+        assertThat(read.message()).isEqualTo("query_logs: INUBIT 7.4.0.90 on legacy74/node2:"
+            + " log diagnosis is not yet verified for INUBIT 7.4; nothing was sent");
+        assertThat(read.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is"
+            + " verified on it yet; use the INUBIT Workbench for log diagnosis on legacy74/node2");
         assertThat(write.message()).isEqualTo("INUBIT 7.4.0.90 on legacy74/node2: process control"
             + " is not yet verified for INUBIT 7.4; nothing was sent");
         assertThat(write.nextStep()).isEqualTo("INUBIT 7.4 is recognised, but no tool is verified"
@@ -1487,7 +1508,13 @@ class VersionGateTest {
     @Test
     void cliMonitoringWarningsAreEmptyUnlessMonitoringIsUnverifiedOnACliOnlyPin() {
         assertThat(gate(matrix61()).cliMonitoringWarnings(V6_1)).as("SUPPORTED").isEmpty();
-        assertThat(gate().cliMonitoringWarnings(V7_4)).as("UNSUPPORTED").isEmpty();
+        assertThat(gate(new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
+                new VersionRange(7, 4, 7, 4), Map.of(), Map.of(Capability.MONITORING, CLI),
+                true)), Map.of())).cliMonitoringWarnings(V7_4)).as("UNSUPPORTED").isEmpty();
+        // feature 025 (T035): the production matrix declares monitoring unverified on 7.4
+        assertThat(gate().cliMonitoringWarnings(V7_4)).as("UNVERIFIED in production")
+            .containsExactly("INUBIT 7.4 on legacy74/node1 is not verified for monitoring;"
+                + " results may be incomplete");
         assertThat(gate().cliMonitoringWarnings(AUTO)).as("not a CLI-only pin").isEmpty();
         assertThat(gate().cliMonitoringWarnings(V9_X)).isEmpty();
         assertThat(detection.calls).isZero();

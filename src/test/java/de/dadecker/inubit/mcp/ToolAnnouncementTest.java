@@ -8,11 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ProfileConfig;
-import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
-import de.dadecker.inubit.mcp.domain.model.Channel;
-import de.dadecker.inubit.mcp.domain.model.SupportState;
-import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.infra.ClockProvider;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.ToolHandler;
@@ -21,7 +17,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -56,15 +52,6 @@ class ToolAnnouncementTest {
     private static final List<String> READS = List.of("find_processes", "query_logs",
         "list_inventory", "get_inventory_item", "export_artifacts", "export_archives",
         "find_partners");
-
-    /** The production matrix after the flip of the 6.1 capabilities (T040). */
-    private static final CapabilityMatrix FLIPPED = new CapabilityMatrix(List.of(
-        new CapabilityMatrix.Entry(new VersionRange(6, 1, 6, 1),
-            Map.of(Capability.MONITORING, SupportState.SUPPORTED,
-                Capability.PROCESS_DIAGNOSIS, SupportState.SUPPORTED),
-            Map.of(Capability.MONITORING, Set.of(Channel.CLI),
-                Capability.PROCESS_DIAGNOSIS, Set.of(Channel.CLI)), true)),
-        Map.of());
 
     @TempDir
     Path temp;
@@ -283,15 +270,9 @@ class ToolAnnouncementTest {
     }
 
     @Test
-    void onlySixOneNodesBeforeTheFlipAnnounceNoReadTool() {
+    void onlySixOneNodesAnnounceProcessDiagnosisAsTheOnlyReadTool() {
+        // feature 025 (T035, FR-036): process diagnosis is unverified on 6.1
         List<String> names = toolNames("V6_1", "V6_1", CapabilityMatrix.production());
-
-        assertThat(names).containsAll(ALWAYS).doesNotContainAnyElementsOf(READS);
-    }
-
-    @Test
-    void onlySixOneNodesAfterTheFlipAnnounceProcessDiagnosisOnly() {
-        List<String> names = toolNames("V6_1", "V6_1", FLIPPED);
 
         assertThat(names).containsAll(ALWAYS).contains("find_processes")
             .doesNotContain("query_logs", "list_inventory", "get_inventory_item",
@@ -306,21 +287,26 @@ class ToolAnnouncementTest {
     }
 
     @Test
-    void onlySevenFourNodesAnnounceOnlyTheToolsThatAreAlwaysAnnounced() {
-        // feature 025 T012 (FR-009, research D-8): every 7.4 capability is unsupported, so no
-        // read, opt-in, write or log-level tool is announced, even with a client home, write
-        // access and every opt-in (development, deployment and e2e tools: DevelopmentWiringTest);
-        // get_health stays announced as for 6.1 (feature 012 D-12) and refuses per node
-        String groupLines = writeEnabled(true) + "    unsupported:\n"
+    void onlySevenFourNodesAnnounceTheToolsThatAreAlwaysAnnouncedAndFindProcesses() {
+        // feature 025 T012 (FR-009, research D-8), T035 (FR-030): of the 7.4 capabilities only
+        // monitoring and process diagnosis are unverified, so find_processes is the only read
+        // tool announced, and no opt-in, write or log-level tool, even with write access and
+        // every opt-in (development, deployment and e2e tools: DevelopmentWiringTest); with and
+        // without a client home, as the announcement does not depend on a client
+        List<String> expected = Stream.concat(ALWAYS.stream(), Stream.of("find_processes"))
+            .toList();
+        String optIns = writeEnabled(true) + "    unsupported:\n"
             + "      queueEntryRead: true\n      serverLogRead: true\n"
             + "      nodeStatusRead: true\n      ioLogRead: true\n"
-            + "      nodeConfigRead: true\n      logLevelWrite: true\n" + cliHome();
+            + "      nodeConfigRead: true\n      logLevelWrite: true\n";
         for (String line : List.of("V7_4", "\"7.4.0.90\"")) {
-            assertThat(groupTools(line, groupLines, false, CapabilityMatrix.production()))
-                .as(line).containsExactlyElementsOf(ALWAYS);
+            for (String groupLines : List.of(optIns + cliHome(), optIns.stripTrailing())) {
+                assertThat(groupTools(line, groupLines, false, CapabilityMatrix.production()))
+                    .as(line + " " + groupLines).containsExactlyInAnyOrderElementsOf(expected);
+            }
         }
         assertThat(toolNames("V7_4", "\"7.4.0.90\"", CapabilityMatrix.production()))
-            .containsExactlyElementsOf(ALWAYS);
+            .containsExactlyInAnyOrderElementsOf(expected);
     }
 
     @Test

@@ -655,7 +655,7 @@ production matrix changes only in T035.
 
 ## Phase 12: Enablement, docs, verification
 
-- [ ] T035 [US6] [US7] [US9] Flip to `UNVERIFIED`, 7.4 and 6.1 together (spec FR-020, FR-030,
+- [X] T035 [US6] [US7] [US9] Flip to `UNVERIFIED`, 7.4 and 6.1 together (spec FR-020, FR-030,
   FR-031, FR-035, FR-036, SC-007, SC-009, SC-010): after T031 – T033 and T038 – T046; its
   precondition, the ratified constitution 2.1.0, is satisfied (T030, 2026-11-26); no live check. In
   `main/domain/model/CapabilityMatrix.java` the production entry `V7_4` declares MONITORING and
@@ -681,7 +681,7 @@ production matrix changes only in T035.
   MONITORING and PROCESS_DIAGNOSIS, `:53-55`, become `UNVERIFIED`: the one deliberate change of
   that test, spec FR-020), `V61RecordedFixturesTest` green. Record every adjusted existing test in
   the quickstart (validation record). Lands in one commit with T036.
-- [ ] T036 Docs and changelog for Mandate B (spec FR-034; same commit as T035): `docs/setup.md`
+- [X] T036 Docs and changelog for Mandate B (spec FR-034; same commit as T035): `docs/setup.md`
   (section "INUBIT 7.4 nodes": `get_health` and `find_processes` **untested** (unverified), pinned
   nodes only, `AUTO` never 7.4; `defaults.cliClients."7.4"` with its JDK and the client order of
   FR-029), `docs/tools.md` (capability table 7.4 column "unverified (untested)", the warning table
