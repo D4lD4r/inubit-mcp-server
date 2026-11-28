@@ -512,7 +512,7 @@ production matrix changes only in T035.
   message names `defaults.cliClients."7.4"` and contains no "cliHome"; the same without any
   `cliClients`; `choosesCliByVersion` true for the flagged setting; 6.1 with `cliHome` unchanged,
   its message unchanged).
-- [ ] T046 [US6] Fail-closed client check (spec FR-014, FR-015, FR-029; after T033): in
+- [X] T046 [US6] Fail-closed client check (spec FR-014, FR-015, FR-029; after T033): in
   `main/application/VersionGate.java` `checkClient` a client of an entry with `ownClientOnly` whose
   `-v` does not report the entry's major.minor, or cannot be read, refuses with `CLI_UNAVAILABLE`
   naming the client and what it reported. `get_health` never reaches `checkClient`
