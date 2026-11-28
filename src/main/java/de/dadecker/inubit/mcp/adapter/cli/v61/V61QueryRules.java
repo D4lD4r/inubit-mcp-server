@@ -7,26 +7,32 @@ import de.dadecker.inubit.mcp.domain.model.ProcessQuery;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.port.QueryRules;
+import java.util.Objects;
 
 /**
  * The 6.1 input checks of the diagnosis queries, without a server (feature 012 on the
  * {@link QueryRules} of feature 011): what {@link V61ProcessQueryAdapter#validate} checks. The
  * errors carry no server id; {@code DiagnosisService} adds it to the refusal it keeps as the
- * node's entry.
+ * node's entry. The texts name the release of the {@link CliLineProfile} (feature 025, FR-024:
+ * 7.4 runs on these rules with its profile).
  *
- * <p>A log query is not checked: log diagnosis is not available on 6.1, and the version gate
- * refuses it with its next step.
+ * <p>A log query is not checked: log diagnosis is not available on 6.1 and 7.4, and the version
+ * gate refuses it with its next step.
  */
 public final class V61QueryRules implements QueryRules {
 
-    public static final V61QueryRules INSTANCE = new V61QueryRules();
+    /** The rules of INUBIT 6.1 ({@link CliLineProfile#V61}). */
+    public static final V61QueryRules INSTANCE = new V61QueryRules(CliLineProfile.V61);
 
-    private V61QueryRules() {
+    private final CliLineProfile profile;
+
+    public V61QueryRules(CliLineProfile profile) {
+        this.profile = Objects.requireNonNull(profile, "profile");
     }
 
     @Override
     public void validate(LogQuery query) {
-        // refused by the version gate (log diagnosis is not available on 6.1)
+        // refused by the version gate (log diagnosis is not available on 6.1 and 7.4)
     }
 
     /**
@@ -45,8 +51,9 @@ public final class V61QueryRules implements QueryRules {
         }
         if (query.tag().isPresent()) {
             throw new ToolErrorException(ToolError.of(ErrorCode.UNSUPPORTED_VERSION,
-                "find_processes: INUBIT 6.1 does not support the input tag; nothing was sent",
-                "The process listing of StartCLI 6.1 has no tag column",
+                "find_processes: INUBIT " + profile.release()
+                    + " does not support the input tag; nothing was sent",
+                "The process listing of StartCLI " + profile.release() + " has no tag column",
                 "Omit tag for this node, or filter by workflow"));
         }
     }

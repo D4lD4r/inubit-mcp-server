@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.domain.model.Terminology;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.domain.port.ClientSelectionPort;
 import de.dadecker.inubit.mcp.domain.port.Gateway;
 import de.dadecker.inubit.mcp.domain.port.GatewayFactory;
 import de.dadecker.inubit.mcp.domain.port.InventoryPort;
@@ -65,10 +66,25 @@ public final class FakeVersionDetection implements GatewayFactory {
     /** As above, on the coverage list {@code coverage} (feature 022). */
     public static VersionGate gateWithoutClients(NodeVersions versions, GatewayFactory gateways,
         CapabilityMatrix matrix, InterfaceCoverage coverage) {
+        return gateWithoutClients(versions, gateways, matrix, coverage,
+            TestClientSelection.none());
+    }
+
+    /**
+     * As above, choosing the client of a version by {@code selection}, which names no StartCLI
+     * installation (feature 025: the client check looks up the client chosen for the pin).
+     */
+    public static VersionGate gateWithoutClients(NodeVersions versions, GatewayFactory gateways,
+        CapabilityMatrix matrix, ClientSelectionPort selection) {
+        return gateWithoutClients(versions, gateways, matrix, InterfaceCoverage.empty(),
+            selection);
+    }
+
+    private static VersionGate gateWithoutClients(NodeVersions versions, GatewayFactory gateways,
+        CapabilityMatrix matrix, InterfaceCoverage coverage, ClientSelectionPort selection) {
         return new VersionGate(versions, gateways, matrix, (node, version, timeout) -> {
             throw new AssertionError("no client probe expected for " + node);
-        }, TestClientSelection.none(), node -> Duration.ZERO, Terminology.DEFAULT, false,
-            coverage);
+        }, selection, node -> Duration.ZERO, Terminology.DEFAULT, false, coverage);
     }
 
     /** The detection of {@code node} finds {@code raw}, e.g. {@code 9.0.7}. */

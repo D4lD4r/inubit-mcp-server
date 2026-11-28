@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 import de.dadecker.inubit.mcp.domain.model.Capability.Kind;
+import de.dadecker.inubit.mcp.testing.TestMatrices;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -233,14 +235,20 @@ class CapabilityMatrixTest {
             .containsExactlyInAnyOrder(Channel.REST, Channel.CLI);
     }
 
-    /** Feature 012 (FR-005, research D-3): 6.1 is CLI-only and nothing runs until recorded. */
+    /**
+     * Feature 012 (FR-005, research D-3): 6.1 is CLI-only and nothing is supported until
+     * recorded; feature 025 (FR-036): monitoring and process diagnosis are unverified, without a
+     * note, everything else stays unsupported.
+     */
     @ParameterizedTest
     @EnumSource(Capability.class)
-    void everyCapabilityIsUnsupportedOn61(Capability capability) {
-        assertThat(production.state(version("6.1.0.89-HF1"), capability))
-            .isEqualTo(SupportState.UNSUPPORTED);
-        assertThat(production.stateOfLine(6, OptionalInt.of(1), capability))
-            .isEqualTo(SupportState.UNSUPPORTED);
+    void onlyMonitoringAndProcessDiagnosisAreUnverifiedOn61(Capability capability) {
+        SupportState expected = capability == Capability.MONITORING
+            || capability == Capability.PROCESS_DIAGNOSIS
+            ? SupportState.UNVERIFIED : SupportState.UNSUPPORTED;
+        assertThat(production.state(version("6.1.0.89-HF1"), capability)).isEqualTo(expected);
+        assertThat(production.stateOfLine(6, OptionalInt.of(1), capability)).isEqualTo(expected);
+        assertThat(production.note(version("6.1.0.89"), capability)).isEmpty();
     }
 
     @Test
@@ -804,19 +812,23 @@ class CapabilityMatrixTest {
 
     // --- feature 025 T007: the 7.4 entry (FR-003, FR-006, research D-3, D-4) -------------------
 
-    /** 7.4 is recognised, but nothing runs: every capability refused with the note. */
+    /**
+     * Feature 025 (FR-030): monitoring and process diagnosis are unverified on 7.4 without a note;
+     * every other capability is refused with the note "not yet verified".
+     */
     @ParameterizedTest
     @EnumSource(Capability.class)
-    void everyCapabilityIsUnsupportedOn74WithTheNote(Capability capability) {
+    void onlyMonitoringAndProcessDiagnosisAreUnverifiedOn74(Capability capability) {
+        boolean unverified = capability == Capability.MONITORING
+            || capability == Capability.PROCESS_DIAGNOSIS;
+        SupportState expected = unverified ? SupportState.UNVERIFIED : SupportState.UNSUPPORTED;
         for (Optional<InubitVersion> v74 : List.of(version("7.4.0.90"), version("7.4.0"),
                 version("7.4"))) {
-            assertThat(production.state(v74, capability)).as("%s", v74)
-                .isEqualTo(SupportState.UNSUPPORTED);
+            assertThat(production.state(v74, capability)).as("%s", v74).isEqualTo(expected);
             assertThat(production.note(v74, capability)).as("%s", v74)
-                .contains("not yet verified");
+                .isEqualTo(unverified ? Optional.empty() : Optional.of("not yet verified"));
         }
-        assertThat(production.stateOfLine(7, OptionalInt.of(4), capability))
-            .isEqualTo(SupportState.UNSUPPORTED);
+        assertThat(production.stateOfLine(7, OptionalInt.of(4), capability)).isEqualTo(expected);
     }
 
     @Test
@@ -850,6 +862,26 @@ class CapabilityMatrixTest {
     }
 
     @Test
+    void ownClientOnlyIsTheFlagOfTheVersionsEntry() {
+        // feature 025 T033 (FR-029): production sets the flag on 7.4 only
+        assertThat(production.ownClientOnly(version("7.4.0.90"))).isTrue();
+        assertThat(production.ownClientOnly(version("7.4"))).isTrue();
+        for (Optional<InubitVersion> other : List.of(version("6.1.0.89"), version("8.1.17"),
+                version("9.0.7"), Optional.<InubitVersion>empty())) {
+            assertThat(production.ownClientOnly(other)).as("%s", other).isFalse();
+        }
+        CapabilityMatrix flagged = TestMatrices.unverified74();
+
+        assertThat(flagged.ownClientOnly(version("7.4.0.90"))).isTrue();
+        assertThat(flagged.ownClientOnly(version("8.1.17"))).isFalse();
+        assertThat(flagged.ownClientOnly(version("6.1.0.89"))).as("outside every range").isFalse();
+        assertThat(flagged.ownClientOnly(Optional.empty())).as("unknown").isFalse();
+        assertThat(new CapabilityMatrix.Entry(new VersionRange(7, 9, 7, 9), Map.of(), Map.of(),
+                false, Map.of(), PatchDepth.FOUR).ownClientOnly())
+            .as("the existing constructors keep false").isFalse();
+    }
+
+    @Test
     void comparePatchUsesTheDepthOfTheServerVersion() {
         assertThat(production.comparePatch(client("7.4.0.80"), version("7.4.0.90")))
             .isEqualTo(ClientVersion.Comparison.MISMATCH);
@@ -870,11 +902,19 @@ class CapabilityMatrixTest {
 
     @Test
     void onlyEveryCapabilityNotedIsAllNotYetVerified() {
-        assertThat(production.allNotYetVerified(version("7.4.0.90"))).isTrue();
-        for (Optional<InubitVersion> other : List.of(version("6.1.0.89"), version("8.1.17"),
-                version("9.0.7"), version("10.0"), Optional.<InubitVersion>empty())) {
-            assertThat(production.allNotYetVerified(other)).as("%s", other).isFalse();
+        // feature 025 (FR-035): no production entry since 7.4 declares two capabilities unverified
+        for (Optional<InubitVersion> any : List.of(version("7.4.0.90"), version("6.1.0.89"),
+                version("8.1.17"), version("9.0.7"), version("10.0"),
+                Optional.<InubitVersion>empty())) {
+            assertThat(production.allNotYetVerified(any)).as("%s", any).isFalse();
         }
+        Map<Capability, String> everyNote = new EnumMap<>(Capability.class);
+        for (Capability capability : Capability.values()) {
+            everyNote.put(capability, "not yet verified");
+        }
+        CapabilityMatrix allNoted = new CapabilityMatrix(List.of(new CapabilityMatrix.Entry(
+            new VersionRange(7, 4, 7, 4), Map.of(), Map.of(), true, everyNote)), Map.of());
+        assertThat(allNoted.allNotYetVerified(version("7.4.0.90"))).isTrue();
     }
 
     /** Research D-4: the notes of 7.4 do not make it a "supported once verified" line. */
@@ -885,6 +925,18 @@ class CapabilityMatrixTest {
         for (Capability capability : Capability.values()) {
             assertThat(production.lines(capability)).as("%s", capability).doesNotContain("7.4");
         }
+    }
+
+    /**
+     * Feature 025 T039 (spec FR-035): once 7.4 declares two capabilities unverified, not every
+     * capability carries a note; the notes of a CLI-only entry still make it no supported line.
+     */
+    @Test
+    void theNotesOfACliOnlyEntryMakeItNoSupportedLine() {
+        CapabilityMatrix matrix = TestMatrices.unverified74();
+        assertThat(matrix.allNotYetVerified(version("7.4.0.90"))).isFalse();
+        assertThat(matrix.lines(Capability.QUEUE_ENTRY_READ)).containsExactly("8.1");
+        assertThat(matrix.lines(Capability.IO_LOG_READ)).containsExactly("8.1");
     }
 
     private static ClientVersion client(String value) {

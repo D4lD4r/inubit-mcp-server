@@ -19,9 +19,17 @@ repository path whose tagged files cannot be listed for a backup.
 
 Feature 025, first increment: INUBIT 7.4 nodes are **recognised by pin and refused clearly**.
 A node pinned with `versionLine: V7_4` (or a concrete 7.4 version such as `"7.4.0.90"`) is
-reached through StartCLI only; no tool is verified on 7.4 yet, so every tool that would contact
-it refuses it before any contact. The Windows recorder gained a session mode and the 7.4 cases
-for recording a non-production 7.4 node later.
+reached through StartCLI only; every tool that would contact it, except the two of the second
+increment, refuses it before any contact. The Windows recorder gained a session mode and the 7.4
+cases for recording a non-production 7.4 node later.
+
+Feature 025, second increment: `get_health` and `find_processes` run on nodes pinned to
+**INUBIT 7.4 and INUBIT 6.1** through StartCLI, **untested** (unverified): no real 7.4 or 6.1
+output has been checked, so every result of these nodes carries the warning `INUBIT <version> on
+<node> is not verified for <capability>; results may be incomplete`. The 6.1 fixtures are
+reconstructed from the 6.1 vendor documentation; the 7.4 fixtures are reconstructed from 6.1 and
+checked against the real help output of a 7.4 client. Every other tool keeps refusing 7.4 and 6.1
+nodes.
 
 ### Added
 
@@ -48,19 +56,19 @@ for recording a non-production 7.4 node later.
 - The capabilities `server_operation` (`operating the server`; supported on INUBIT 8.1, not yet
   verified on 9.0) and `tag_administration` (`managing tags`; not yet verified on 8.1 and 9.0) in
   `list_nodes`.
-- `versionLine: V7_4` and concrete 7.4 pins (feature 025). Every capability is "not yet verified"
-  on 7.4: each tool that would contact a node (all but `list_nodes`, `read_knowledge`,
-  `record_knowledge` and the offline checks of `check_artifacts`) refuses a 7.4 node with
-  `UNSUPPORTED_VERSION` (`<tool>: INUBIT 7.4 on <node>: <capability> is not yet verified
-  for INUBIT 7.4; nothing was sent`, the `get_health` report without the tool name) and sends
-  nothing: no StartCLI run, no client probe, no request. In a group only the 7.4 node is refused.
-  `AUTO` never selects 7.4. A profile of 7.4 nodes only offers just `list_nodes`, `get_health`,
-  `check_artifacts`, `read_knowledge` and `record_knowledge`.
-- `list_nodes` shows a 7.4 node as `cli_only` and `unsupported`, with the warning that its StartCLI
-  client is not used until a 7.4 capability is verified; `--check-config` shows it as `INUBIT 7.4,
-  StartCLI only; available: none`. `cli.home` and `defaults.cliClients."7.4"` are accepted but
-  not used yet; a 7.4 node gets only the local version probe, and none of the 6.1 client
-  warnings.
+- `versionLine: V7_4` and concrete 7.4 pins (feature 025). Every capability except monitoring
+  and process diagnosis is "not yet verified" on 7.4: each tool that would contact a node (all
+  but `list_nodes`, `read_knowledge`, `record_knowledge`, the offline checks of `check_artifacts`,
+  `get_health` and `find_processes`) refuses a 7.4 node with `UNSUPPORTED_VERSION` (`<tool>:
+  INUBIT 7.4 on <node>: <capability> is not yet verified for INUBIT 7.4; nothing was sent`) and
+  sends nothing: no StartCLI run, no client probe, no request. In a group only the 7.4 node is
+  refused. `AUTO` never selects 7.4. A profile of 7.4 nodes only offers `list_nodes`,
+  `get_health`, `find_processes`, `check_artifacts`, `read_knowledge` and `record_knowledge`.
+- `list_nodes` shows a 7.4 node as `cli_only` and `partially_supported` with monitoring and
+  process diagnosis usable; `--check-config` shows it as `INUBIT 7.4, StartCLI only; available:
+  monitoring, process diagnosis; refused: …`, with its client choice and the client's options,
+  and warns about a 7.4 node without its own client, naming `defaults.cliClients."7.4"`. Neither
+  a `"7.4"` entry nor a 7.4 node gets a JDK warning.
 - `tools/record-fixtures.ps1`: a case table as the only place for arguments and commands, a
   session mode (one `startcli.bat` run, the password line, the commands and `exit` on stdin; the
   password never on the command line) and 13 `v74_*` cases (help, version, health, process
@@ -68,6 +76,18 @@ for recording a non-production 7.4 node later.
   and host allowlists are checked.
 - Test fixtures `fixtures/v7_4/cli/`: the recorded `help` output of a 7.4 client and cases
   reconstructed from 6.1, listed in `RECONSTRUCTED.txt` until they are recorded.
+- `get_health` and `find_processes` on INUBIT 7.4 and 6.1 nodes (feature 025, second increment;
+  **untested**): one StartCLI session per call and node, as the 6.1 reads of feature 012, with
+  the unverified warning in every entry of such a node after the version check, also beside an
+  error from the attempt (`UNEXPECTED_RESPONSE`, a rejected login, an unreachable node,
+  `TLS_ERROR` from the handshake, `TIMEOUT`); a refusal before any contact (`CLI_UNAVAILABLE`,
+  missing credentials, `tag`) carries none. `get_health` on 7.4 lists readiness, threads and the
+  blocking queue as unavailable (`NOT_AVAILABLE_ON_7_4`). Only pinned nodes are served; `AUTO`
+  never selects 7.4 or 6.1.
+- StartCLI on a 7.4 node uses the node's or group's `cli.home`, else `defaults.cliClients."7.4"`
+  with its `javaHome`, never the version-less `defaults.cliHome`; the client's `-v` must report
+  7.4, otherwise (also when it cannot be read) health and processes refuse the node with
+  `CLI_UNAVAILABLE`.
 
 ### Changed
 
@@ -78,6 +98,11 @@ for recording a non-production 7.4 node later.
   `list_nodes`, `--check-config` and the refusal texts. The StartCLI client check compares it on
   7.4 (a 7.4.0.80 client at a 7.4.0.90 node is a `mismatch`); on every other version it still
   compares major, minor and patch.
+- A 6.1 node now offers monitoring and process diagnosis (feature 025, untested): `list_nodes`
+  shows it as `partially_supported` with both usable, `--check-config` as `available: monitoring,
+  process diagnosis`, and a profile of 6.1 nodes only offers `find_processes`. Every other 6.1
+  capability keeps its refusal of feature 012.
+- A failed `find_processes` entry may carry `warnings` beside its `error`.
 
 ### Documentation
 
@@ -91,6 +116,11 @@ for recording a non-production 7.4 node later.
   table, section "INUBIT 7.4" with the refusal texts and a `list_nodes` example; README the
   supported versions; `docs/research/inubit-interfaces.md` the facts of the 7.4 help output, what
   is unknown and the recording plan.
+- Feature 025, second increment: README, `docs/setup.md` (sections "INUBIT 6.1 nodes" and
+  "INUBIT 7.4 nodes" with `defaults.cliClients."7.4"`, its JDK and the client order), `docs/tools.md`
+  (the 6.1 and 7.4 columns, the warning table, `get_health` and `find_processes` on 6.1 and 7.4)
+  and the research notes mark `get_health` and `find_processes` on 7.4 and 6.1 as **untested**
+  (unverified); the recording kit is kept as an optional later verification.
 - IMC-20 (verifier minors of feature 025): the README credentials link points to setup section
   "4. Credentials: sources"; README no longer says 6.1 nodes are not served on Windows; README and
   setup say `record_knowledge` is offered in a 6.1/7.4-only profile unless

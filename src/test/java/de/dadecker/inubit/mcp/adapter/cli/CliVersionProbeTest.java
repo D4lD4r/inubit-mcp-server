@@ -155,6 +155,21 @@ class CliVersionProbeTest {
             .isEqualTo(Compatibility.INCOMPATIBLE);
     }
 
+    /**
+     * Feature 025 T046 (FR-029): the reconstructed {@code -v} of the 7.4 client reports 7.4, the
+     * major.minor the fail-closed client check of a 7.4 pin requires.
+     */
+    @Test
+    void parsesThe74Client() {
+        ClientVersion client = probe(FakeProcessLauncher.replaying("v7_4", "version"))
+            .probe(ID, Optional.of(version("7.4.0.90")), TIMEOUT).version();
+
+        assertThat(client.version()).isEqualTo(version("7.4.0.90"));
+        assertThat(client.version().sameMinor(version("7.4"))).isTrue();
+        assertThat(client.supportedFrom()).contains(version("4.0.1"));
+        assertThat(client.supportedTo()).contains(version("7.4.0.90"));
+    }
+
     @Test
     void probesTheClientChosenForTheGivenVersionAndReturnsItsKey(@TempDir Path clients)
         throws IOException {

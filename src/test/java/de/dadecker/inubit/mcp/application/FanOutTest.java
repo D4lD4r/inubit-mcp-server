@@ -85,6 +85,7 @@ class FanOutTest {
             assertThat(error.message()).contains("qa/slow", "5 s");
         });
         assertThat(results.get(1).payload()).contains("ok qa/fast");
+        assertThat(results.get(0).warnings()).as("no sink: no warnings").isEmpty();
     }
 
     @Test
@@ -157,6 +158,43 @@ class FanOutTest {
 
         assertThat(results.get(0).error()).contains(notFound.withNode(SLOW));
         assertThat(results.get(1).payload()).contains("fine");
+    }
+
+    @Test
+    void aThrownToolErrorKeepsItsWarnings() {
+        // feature 025 T044 (FR-030 (b)): the unverified warning of a contacted node's error
+        ToolError unreachable = ToolError.of(ErrorCode.UNREACHABLE, "down", "cause", "next");
+
+        List<NodeResult<String>> results = fanOut.run(List.of(SLOW, FAST), Duration.ofSeconds(5),
+            server -> {
+                ToolErrorException error = new ToolErrorException(unreachable);
+                throw server.equals(SLOW) ? error.withWarnings(List.of("not verified")) : error;
+            });
+
+        assertThat(results.get(0).error()).contains(unreachable.withNode(SLOW));
+        assertThat(results.get(0).warnings()).containsExactly("not verified");
+        assertThat(results.get(1).error()).contains(unreachable.withNode(FAST));
+        assertThat(results.get(1).warnings()).isEmpty();
+    }
+
+    @Test
+    void theDeadlineTimeoutCarriesTheWarningsTheTaskRegistered() {
+        // feature 025 T044 (FR-030 (b)): a node admitted before its deadline ran out
+        FanOut.Sink sink = new FanOut.Sink();
+
+        List<NodeResult<String>> results = fanOut.run(List.of(SLOW, FAST),
+            server -> Duration.ofMillis(300), server -> {
+                if (server.equals(SLOW)) {
+                    sink.register(server, List.of("not verified"));
+                }
+                sleep(Duration.ofSeconds(5));
+                return "late";
+            }, sink);
+
+        assertThat(results).allSatisfy(result -> assertThat(result.error()).hasValueSatisfying(
+            error -> assertThat(error.code()).isEqualTo(ErrorCode.TIMEOUT)));
+        assertThat(results.get(0).warnings()).containsExactly("not verified");
+        assertThat(results.get(1).warnings()).as("registered none").isEmpty();
     }
 
     @Test

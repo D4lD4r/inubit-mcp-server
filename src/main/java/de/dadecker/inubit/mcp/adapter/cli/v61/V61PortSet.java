@@ -49,13 +49,15 @@ public final class V61PortSet {
             classifier(node));
     }
 
-    private static V61Connection connection(PortSetRegistry.NodeResources node,
+    /** The StartCLI connection of {@code node}; also for 7.4 (feature 025, FR-024). */
+    public static V61Connection connection(PortSetRegistry.NodeResources node,
         CliClientProbe probe, CliConcurrencyLimiter limiter) {
         return new V61Connection(node.server(), node.credentials(), node.guard(),
             node.cliRunner(), probe, limiter);
     }
 
-    private static CliOutputClassifier classifier(PortSetRegistry.NodeResources node) {
+    /** The output classifier of {@code node}; also for 7.4 (feature 025, FR-024). */
+    public static CliOutputClassifier classifier(PortSetRegistry.NodeResources node) {
         return new CliOutputClassifier(node.scrubber(), node.server().secretLabels(),
             node.cliRunner().windows());
     }

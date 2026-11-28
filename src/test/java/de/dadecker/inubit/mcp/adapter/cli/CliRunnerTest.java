@@ -11,6 +11,7 @@ import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.adapter.rest.TlsTestServer;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
+import de.dadecker.inubit.mcp.domain.model.ContactedException;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InubitVersion;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
@@ -94,11 +95,15 @@ class CliRunnerTest {
     }
 
     private ToolError errorOf(Runnable call) {
+        return exceptionOf(call).error();
+    }
+
+    private ToolErrorException exceptionOf(Runnable call) {
         try {
             call.run();
         } catch (ToolErrorException e) {
             assertThat(e.error().toString() + e.getMessage()).doesNotContain(PASSWORD);
-            return e.error();
+            return e;
         }
         throw new AssertionError("expected a ToolErrorException");
     }
@@ -765,6 +770,57 @@ class CliRunnerTest {
                 assertThat(failure.error().code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
                 assertThat(failure.error().message()).contains("exceeded 1 MiB");
             });
+    }
+
+    // --- contact marker (feature 025 T041, FR-030 (b)) -------------------------------------
+
+    @Test
+    void aSessionErrorAfterTheProcessStartedIsMarkedAsContacted() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of("", "", 0).hanging();
+
+        ToolErrorException error = exceptionOf(() -> runSession(launcher, guard(),
+            Duration.ofMillis(200)));
+
+        assertThat(error).isInstanceOf(ContactedException.class);
+        assertThat(error.error().code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(launcher.launchCount()).isEqualTo(1);
+    }
+
+    @Test
+    void aSessionErrorBeforeTheProcessStartedIsPlain() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of(SESSION_OK, "", 0)
+            .failingToLaunch(new IOException("error=13, Permission denied"));
+
+        ToolErrorException error = exceptionOf(() -> runSession(launcher, guard(),
+            Duration.ofSeconds(5)));
+
+        assertThat(error).isNotInstanceOf(ContactedException.class);
+        assertThat(error.error().code()).isEqualTo(ErrorCode.CLI_UNAVAILABLE);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"-v", "-h"})
+    void aLocalProbeFailingAfterItsStartIsPlain(String option) {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of("", "", 0).hanging();
+
+        ToolErrorException error = exceptionOf(() -> runner(launcher).execute(server().build(),
+            List.of(option), Optional.empty(), Duration.ofMillis(200)));
+
+        assertThat(error).isNotInstanceOf(ContactedException.class);
+        assertThat(error.error().code()).isEqualTo(ErrorCode.TIMEOUT);
+        assertThat(launcher.launchCount()).isEqualTo(1);
+    }
+
+    @Test
+    void anExecCommandRunFailingAfterItsStartIsPlain() {
+        FakeProcessLauncher launcher = FakeProcessLauncher.of("", "", 0).hanging();
+
+        ToolErrorException error = exceptionOf(() -> runner(launcher).run(server().build(), USER,
+            Secret.of(PASSWORD), CliCommand.processErrorStart("110190387"),
+            Duration.ofMillis(200), guard()));
+
+        assertThat(error).isNotInstanceOf(ContactedException.class);
+        assertThat(error.error().code()).isEqualTo(ErrorCode.TIMEOUT);
     }
 
     // --- output bound per session (feature 012, T046, research D-10) ----------------------

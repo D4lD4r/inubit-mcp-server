@@ -55,8 +55,9 @@ import org.slf4j.LoggerFactory;
  *       {@code MONITORING} (feature 012, research D-11);</li>
  *   <li>look up the {@link CapabilityMatrix}: {@code SUPPORTED} admits, {@code UNVERIFIED} admits
  *       a read with a warning, anything else refuses ({@code MONITORING} is never refused and gets
- *       a warning instead); on a CLI-only version anything but {@code SUPPORTED} refuses,
- *       {@code MONITORING} and reads included (feature 012, research D-3);</li>
+ *       a warning instead); on a CLI-only version {@code UNSUPPORTED} refuses, {@code MONITORING}
+ *       included (feature 012, research D-3), and an {@code UNVERIFIED} read runs with its
+ *       warning through the StartCLI channel of its entry (feature 025, FR-030);</li>
  *   <li>only when {@link Channel#CLI} is among the call's channels (on a CLI-only version the
  *       channels of its matrix entry): probe the StartCLI client the node uses at the gate's
  *       version ({@link ClientSelectionPort}, feature 017) if it exists, when no result of that
@@ -65,7 +66,10 @@ import org.slf4j.LoggerFactory;
  *       node's {@code cliTimeout}, a run of its own before the tool's StartCLI call; then check
  *       the client against the server's major.minor (FR-011): an excluded server refuses, a patch
  *       mismatch or a range that cannot be evaluated (also a failed or timed-out probe) gives a
- *       warning; the results of other clients of the node are not judged (FR-017). An
+ *       warning; the results of other clients of the node are not judged (FR-017). On a
+ *       version whose entry is {@link CapabilityMatrix#ownClientOnly} (feature 025, FR-029) a
+ *       client of another major.minor, or a failed probe, refuses with
+ *       {@link ErrorCode#CLI_UNAVAILABLE} instead (fail-closed). An
  *       explicit servlet {@code cli.url} on major 9 or later adds its warning (research
  *       D-19).</li>
  * </ol>
@@ -250,9 +254,11 @@ public final class VersionGate {
      * @param channels the channels the call is about to use; the client check runs only for
      *                 {@link Channel#CLI}
      * @throws ToolErrorException {@code UNSUPPORTED_VERSION} if the call is refused;
-     *     {@code TLS_ERROR} of the detection, passed through (no request was possible, so it is
-     *     no failed detection and no reason to refuse); the error of a detection or client probe
-     *     cancelled by an interrupt, passed through and not recorded
+     *     {@code CLI_UNAVAILABLE} if the fail-closed client check of an own-client-only version
+     *     refuses it (feature 025, FR-029); {@code TLS_ERROR} of the detection, passed through
+     *     (no request was possible, so it is no failed detection and no reason to refuse); the
+     *     error of a detection or client probe cancelled by an interrupt, passed through and not
+     *     recorded
      */
     public Admission admit(NodeId node, Capability capability, Capability.Kind purpose,
         Set<Channel> channels) {
@@ -274,7 +280,8 @@ public final class VersionGate {
      * the steps, texts and logging are the same.
      *
      * @throws ToolErrorException as {@code admit}, except this gate's own
-     *     {@code UNSUPPORTED_VERSION} refusals
+     *     {@code UNSUPPORTED_VERSION} refusals (and the {@code CLI_UNAVAILABLE} of a client
+     *     check, feature 025)
      */
     public Evaluation evaluate(NodeId node, Capability capability, Capability.Kind purpose,
         Set<Channel> channels) {
@@ -325,13 +332,15 @@ public final class VersionGate {
     /**
      * How one {@code get_health} call reaches the node, decided before any contact (FR-001,
      * research D-11): {@link Channel#CLI} for a node pinned to a CLI-only version whose
-     * {@code MONITORING} is {@code SUPPORTED}, {@link Channel#REST} for every other node, whose
-     * call then goes on with {@link #admitMonitoring} after its reads. Decided on the pin, not on
-     * an observation, so a contradicted 6.1 pin still gets no REST request (FR-002). Never detects
-     * and never probes the client: {@code get_health} probes it in parallel with its own calls.
+     * {@code MONITORING} is {@code SUPPORTED} or (feature 025, FR-030) {@code UNVERIFIED}, with
+     * the warning of {@link #cliMonitoringWarnings}; {@link Channel#REST} for every other node,
+     * whose call then goes on with {@link #admitMonitoring} after its reads. Decided on the pin,
+     * not on an observation, so a contradicted 6.1 pin still gets no REST request (FR-002). Never
+     * detects and never probes the client: {@code get_health} probes it in parallel with its own
+     * calls.
      *
      * @throws ToolErrorException {@code UNSUPPORTED_VERSION} if the node is pinned to a CLI-only
-     *     version whose {@code MONITORING} is not {@code SUPPORTED}
+     *     version whose {@code MONITORING} is {@code UNSUPPORTED}
      */
     public Channel monitoringAccess(NodeId node) {
         Objects.requireNonNull(node, "node");
@@ -340,11 +349,71 @@ public final class VersionGate {
         if (!matrix.isCliOnly(pin)) {
             return Channel.REST;
         }
-        if (matrix.state(pin, Capability.MONITORING) != SupportState.SUPPORTED) {
+        if (matrix.state(pin, Capability.MONITORING) == SupportState.UNSUPPORTED) {
             throw refuseUnsupported(node, Capability.MONITORING, Capability.Kind.READ, state, pin,
                 name(state, pin));
         }
         return Channel.CLI;
+    }
+
+    /**
+     * The warnings of a {@code get_health} call that {@link #monitoringAccess} sent through
+     * StartCLI (feature 025, FR-030 (b)): the unverified warning of the pinned version, e.g.
+     * "INUBIT 7.4 on legacy74/node1 is not verified for monitoring; results may be incomplete";
+     * empty unless the node is pinned to a CLI-only version whose {@code MONITORING} is
+     * {@code UNVERIFIED}. Never detects and never probes the client.
+     */
+    public List<String> cliMonitoringWarnings(NodeId node) {
+        Objects.requireNonNull(node, "node");
+        NodeVersionState state = versions.state(node);
+        Optional<InubitVersion> pin = pinnedVersion(state);
+        if (!matrix.isCliOnly(pin)
+            || matrix.state(pin, Capability.MONITORING) != SupportState.UNVERIFIED) {
+            return List.of();
+        }
+        return List.of(incomplete(name(state, pin).orElseThrow(), node, SupportState.UNVERIFIED,
+            Capability.MONITORING));
+    }
+
+    /**
+     * {@code client} against {@code server} with the patch depth of the gate's matrix
+     * ({@link CapabilityMatrix#comparePatch}, feature 025, research D-3), for {@code get_health},
+     * which holds no matrix of its own.
+     */
+    public ClientVersion.Comparison comparePatch(ClientVersion client,
+        Optional<InubitVersion> server) {
+        return matrix.comparePatch(client, server);
+    }
+
+    /**
+     * Whether the version {@code node} is pinned to uses only a client of its own release
+     * ({@link CapabilityMatrix#ownClientOnly}, feature 025, FR-029): {@code get_health} then
+     * probes the client before its session and asks {@link #ownClientRefusal}. Decided on the pin
+     * like {@link #monitoringAccess}.
+     */
+    public boolean ownClientOnly(NodeId node) {
+        Objects.requireNonNull(node, "node");
+        return matrix.ownClientOnly(pinnedVersion(versions.state(node)));
+    }
+
+    /**
+     * The fail-closed client check of {@link #ownClientOnly} for {@code get_health}, which never
+     * reaches the client check of an admission (feature 025, FR-029): the {@code CLI_UNAVAILABLE}
+     * an admission gives when the recorded client of the pinned version reports another
+     * major.minor or its version could not be read; empty otherwise, also while nothing is
+     * recorded. Never detects and never probes.
+     */
+    public Optional<ToolError> ownClientRefusal(NodeId node) {
+        Objects.requireNonNull(node, "node");
+        NodeVersionState state = versions.state(node);
+        Optional<InubitVersion> pin = pinnedVersion(state);
+        if (!matrix.ownClientOnly(pin)) {
+            return Optional.empty();
+        }
+        return selection.current(node, pin)
+            .flatMap(key -> foreignClient(node, state, key, pin.orElseThrow()))
+            .map(cause -> ownClientRefused(node, Capability.MONITORING, cause, pin.orElseThrow())
+                .error());
     }
 
     /**
@@ -393,15 +462,16 @@ public final class VersionGate {
             throw refuseContradiction(node, capability, state);
         }
         SupportState support = support(state, version, capability);
-        if (cliOnly && support != SupportState.SUPPORTED) {
-            // no warning path on a CLI-only version: it has no 8.1 adapters to fall back to
+        boolean unverifiedRead =
+            support == SupportState.UNVERIFIED && purpose == Capability.Kind.READ;
+        if (cliOnly && support != SupportState.SUPPORTED && !unverifiedRead) {
+            // a CLI-only version has no 8.1 adapters: only an unverified read runs, through the
+            // StartCLI adapters of its entry (feature 025, FR-030)
             throw refuseUnsupported(node, capability, purpose, state, version, name);
         }
-        if (support == SupportState.UNVERIFIED && purpose == Capability.Kind.READ
+        if (unverifiedRead
             || support == SupportState.UNSUPPORTED && capability == Capability.MONITORING) {
-            warnings.add(name.map(n -> n + " on " + node + " is not "
-                    + (support == SupportState.UNVERIFIED ? "verified" : "supported") + " for "
-                    + capability.label() + "; results may be incomplete")
+            warnings.add(name.map(n -> incomplete(n, node, support, capability))
                 .orElseGet(() -> unknown(node, state, matrix.cliOnlyLines())
                     + "; results are unverified"));
         } else if (support != SupportState.SUPPORTED) {
@@ -832,10 +902,21 @@ public final class VersionGate {
         return matrix.state(version, capability);
     }
 
-    /** FR-011: checks the known client result; without one, a failed probe gives a warning. */
+    /**
+     * FR-011: checks the known client result; without one, a failed probe gives a warning. On a
+     * version whose entry is {@link CapabilityMatrix#ownClientOnly} (feature 025, FR-029) a
+     * client of another major.minor, or one whose version could not be read, is refused first
+     * with {@code CLI_UNAVAILABLE} (fail-closed).
+     */
     private void checkClient(NodeId node, Capability capability, NodeVersionState state,
         ClientKey key, Optional<InubitVersion> version, Optional<String> name,
         List<String> warnings) {
+        if (matrix.ownClientOnly(version)) {
+            Optional<String> foreign = foreignClient(node, state, key, version.orElseThrow());
+            if (foreign.isPresent()) {
+                throw ownClientRefused(node, capability, foreign.get(), version.orElseThrow());
+            }
+        }
         if (state.clientFor(key).isEmpty()) {
             state.clientFailureFor(key).ifPresent(failure -> warnings.add(
                 "The StartCLI client probe of "
@@ -879,6 +960,42 @@ public final class VersionGate {
     }
 
     /**
+     * Why the client {@code key} of {@code node} is not used at {@code version}, whose matrix
+     * entry is {@link CapabilityMatrix#ownClientOnly} (feature 025, FR-029, fail-closed): its
+     * {@code -v} reported another major.minor, or its probe failed; empty if it reported that
+     * major.minor or nothing is recorded yet. Also the {@code list_nodes} reason
+     * ({@link NodeOverview}).
+     */
+    static Optional<String> foreignClient(NodeId node, NodeVersionState state, ClientKey key,
+        InubitVersion version) {
+        String release = MajorMinor.of(version).text();
+        Optional<Timed<ClientVersion>> known = state.clientFor(key);
+        if (known.isPresent()) {
+            InubitVersion client = known.get().value().version();
+            return client.sameMinor(version) ? Optional.empty()
+                : Optional.of("StartCLI client " + client.raw() + " of " + node
+                    + " is not an INUBIT " + release + " client");
+        }
+        return state.clientFailureFor(key).map(failure -> "The version of the StartCLI client of "
+            + node + " cannot be read (" + timed(failure) + "), so it is not known to be an"
+            + " INUBIT " + release + " client");
+    }
+
+    /** The {@code CLI_UNAVAILABLE} of {@link #foreignClient}'s {@code cause}. */
+    private static Refusal ownClientRefused(NodeId node, Capability capability, String cause,
+        InubitVersion version) {
+        String release = MajorMinor.of(version).text();
+        return refuse(ErrorCode.CLI_UNAVAILABLE, node, capability.name(),
+            cause + "; StartCLI-backed tools are refused on " + node,
+            "INUBIT " + release + " runs StartCLI only with a client of its own release, and the"
+                + " client chosen for " + node + " is of another release or does not report its"
+                + " version",
+            "Set cli.home of the node or its group, or defaults.cliClients.\"" + release
+                + "\".home, to an INUBIT " + release + " StartCLI client whose -v reports CLI "
+                + release);
+    }
+
+    /**
      * The warning about a client whose major.minor.patch differs from the server's (FR-011), in
      * tool results as in {@code get_health} and {@code list_nodes}; on a version whose matrix
      * entry compares four parts (feature 025: 7.4) also a differing fourth part.
@@ -887,6 +1004,18 @@ public final class VersionGate {
         return "StartCLI client " + client.version().raw() + " on " + node
             + " differs from INUBIT " + server.raw() + " (mismatch); StartCLI-backed tools still"
             + " run, but their results may be unreliable";
+    }
+
+    /**
+     * The warning of a read that runs on a version not verified or not supported for it, e.g.
+     * "INUBIT 9.1.0 on dev/node1 is not verified for process diagnosis; results may be
+     * incomplete".
+     */
+    private static String incomplete(String name, NodeId node, SupportState support,
+        Capability capability) {
+        return name + " on " + node + " is not "
+            + (support == SupportState.UNVERIFIED ? "verified" : "supported") + " for "
+            + capability.label() + "; results may be incomplete";
     }
 
     /** On a pin of a CLI-only version the message carries the next step (feature 012, FR-006). */
@@ -1033,11 +1162,16 @@ public final class VersionGate {
     /** @param subject the capability or tool of the log line */
     private static Refusal refuse(NodeId node, String subject, String cause,
         String likelyCause, String nextStep) {
+        return refuse(ErrorCode.UNSUPPORTED_VERSION, node, subject, cause, likelyCause,
+            nextStep);
+    }
+
+    private static Refusal refuse(ErrorCode code, NodeId node, String subject, String cause,
+        String likelyCause, String nextStep) {
         String message = cause + NOTHING_SENT;
-        LOG.info("{} on {}: REFUSED ({}): {}", subject, node, ErrorCode.UNSUPPORTED_VERSION,
-            message);
-        return new Refusal(ToolError.of(ErrorCode.UNSUPPORTED_VERSION, message, likelyCause,
-            nextStep).withNode(node), cause);
+        LOG.info("{} on {}: REFUSED ({}): {}", subject, node, code, message);
+        return new Refusal(ToolError.of(code, message, likelyCause, nextStep).withNode(node),
+            cause);
     }
 
     /** "INUBIT 9.0.7", "INUBIT 9.x (versionLine V9_X)", or empty for an unknown version. */

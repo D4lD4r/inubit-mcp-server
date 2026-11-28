@@ -7,7 +7,9 @@ import de.dadecker.inubit.mcp.adapter.cli.CliSessionCommand;
 import de.dadecker.inubit.mcp.adapter.cli.CliSessionCommand.Listing;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
+import de.dadecker.inubit.mcp.domain.model.UnavailablePart;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -57,5 +59,30 @@ class V61SessionParserTest {
     @Test
     void outputAfterExitIsUnexpected() {
         assertUnexpected(STDOUT + "Bye\n");
+    }
+
+    // --- feature 025 (FR-024): the release named in an unexpected response -----------------
+
+    private static final CliLineProfile V74 =
+        new CliLineProfile("7.4", UnavailablePart.NOT_AVAILABLE_ON_7_4, false);
+
+    @Test
+    void anUnexpectedResponseNamesTheProfilesRelease() {
+        ToolError error = V61SessionParser.unexpected("only 1 of 3 prompts").error();
+
+        ToolError named = V61SessionParser.named(error, V74);
+
+        assertThat(named.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
+        assertThat(named.message()).isEqualTo(error.message());
+        assertThat(named.likelyCause()).contains("the expected INUBIT 7.4 format")
+            .doesNotContain("6.1");
+    }
+
+    @Test
+    void anyOtherErrorIsReturnedUnchanged() {
+        ToolError error = ToolError.of(ErrorCode.CLI_UNAVAILABLE, "StartCLI failed", "cause",
+            "next step");
+
+        assertThat(V61SessionParser.named(error, V74)).isSameAs(error);
     }
 }

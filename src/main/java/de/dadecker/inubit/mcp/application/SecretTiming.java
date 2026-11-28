@@ -85,6 +85,6 @@ public record SecretTiming(Map<NodeId, Duration> fetchWait, Predicate<NodeId> he
                 + " access dialog",
             "Answer the access dialog of the " + store + " if one is open, then retry; the"
                 + " read continues and the next call uses its result")
-            .withNode(result.node())));
+            .withNode(result.node())), result.warnings());
     }
 }

@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -70,5 +71,21 @@ class SecretTimingTest {
         assertThat(timing.explainTimeouts(List.of(NodeResult.<String>failure(STORE,
             timeout.withNode(STORE))), pending).get(0).error().orElseThrow().likelyCause())
             .isEqualTo("cause");
+    }
+
+    @Test
+    void anExplainedTimeoutKeepsItsWarnings() {
+        // feature 025 T044 (FR-030 (b)): the unverified warning of an admitted node
+        SecretTiming timing = new SecretTiming(Map.of(STORE, Duration.ofSeconds(60)),
+            node -> false, Map.of(STORE, "macOS Keychain"));
+        ToolError timeout = ToolError.of(ErrorCode.TIMEOUT, "No response", "cause", "next")
+            .withNode(STORE);
+
+        NodeResult<String> explained = timing.explainTimeouts(List.of(new NodeResult<String>(
+            STORE, Optional.empty(), Optional.of(timeout), List.of("not verified"))),
+            Set.of(STORE)).get(0);
+
+        assertThat(explained.error().orElseThrow().likelyCause()).contains("macOS Keychain");
+        assertThat(explained.warnings()).containsExactly("not verified");
     }
 }

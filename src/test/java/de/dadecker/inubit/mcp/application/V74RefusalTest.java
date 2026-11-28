@@ -14,6 +14,7 @@ import ch.qos.logback.core.read.ListAppender;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import de.dadecker.inubit.mcp.TestWiring;
 import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
+import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
 import de.dadecker.inubit.mcp.adapter.rest.TlsTestServer;
@@ -55,16 +56,21 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Feature 025 (T010, FR-007, FR-012, FR-013, SC-003, US1): every tool that contacts a node is
- * refused on a node pinned to {@code V7_4}, through the production wiring and its production
- * capability matrix, with {@code UNSUPPORTED_VERSION} and the texts of T009, before any contact.
+ * Feature 025 (T010, FR-007, FR-012, FR-013, SC-003, US1): every tool that contacts a node,
+ * except {@code get_health} and {@code find_processes}, is refused on a node pinned to
+ * {@code V7_4}, through the production wiring and its production capability matrix, with
+ * {@code UNSUPPORTED_VERSION} and the texts of T009, before any contact. Since the flip (T035,
+ * FR-030) {@code get_health} and {@code find_processes} run on such a node through StartCLI with
+ * the unverified warning, against the replayed reconstructed 7.4 fixtures; without a 7.4 client
+ * they are refused with {@code CLI_UNAVAILABLE} before any contact, without the warning.
  * The 7.4 nodes have every setting a tool needs (write, development, end-to-end, the
  * {@code unsupported} opt-ins), so that only the version refuses; {@code legacy74/node1} also has
  * a StartCLI installation and is a deployment target, {@code bare74/node1} has no client at all
  * (and so cannot be a deployment target, which needs one). Their INUBIT endpoint is a
  * TLS listener that counts connections and handshakes, their SOAP endpoint a WireMock without
  * stubs, which is also the INUBIT endpoint of the 6.1 nodes, so that its check of no request
- * covers the 6.1 nodes as well; the StartCLI launcher fails and records every launch. The 8.1
+ * covers the 6.1 nodes as well; the StartCLI launcher fails and records every launch, unless a
+ * test replays 7.4 sessions ({@link #sessions}). The 8.1
  * nodes share another WireMock and get every tool announced; {@code legacy74/node2} gives the
  * group calls their 8.1 entry. The 6.1 nodes {@code old/node1} (writes enabled) and
  * {@code readonly/node1} (writes disabled) give the outcome a 7.4 write must match (pattern
@@ -93,6 +99,15 @@ class V74RefusalTest {
     private TlsTestServer tls;
     private final FakeProcessLauncher launcher = FakeProcessLauncher.of("", "", 0)
         .failingToLaunch(new IOException("StartCLI must not be launched in this test"));
+    /**
+     * The 7.4 StartCLI sessions of a test that runs health or processes; while null every launch
+     * goes to the failing {@link #launcher}. Otherwise {@code -h} replays the recorded 7.4 help,
+     * {@code -v} the reconstructed 7.4 client version and every other launch is a session.
+     */
+    private FakeProcessLauncher sessions;
+    private final FakeProcessLauncher help74 = FakeProcessLauncher.replaying("v7_4", "help");
+    private final FakeProcessLauncher version74 =
+        FakeProcessLauncher.replaying("v7_4", "version");
     private TestWiring wiring;
     private McpTestClient client;
 
@@ -128,6 +143,10 @@ class V74RefusalTest {
         // running; the 8.1 nodes have a client home that does not exist (the launcher stays unused)
         Path cli74 = script("cli74");
         Path cli61 = script("cli61");
+        // a Java 8 runtime for the 7.4 client, which takes the PKCS12 trust store through
+        // JAVA_TOOL_OPTIONS (it has no trust-store option)
+        Path java74 = Files.createDirectories(temp.resolve("java74"));
+        Files.writeString(java74.resolve("release"), "JAVA_VERSION=\"1.8.0_292\"\n");
         String yaml = """
             profile:
               name: acme
@@ -175,6 +194,7 @@ class V74RefusalTest {
                     baseUrl: https://localhost:%7$d
                     cli:
                       home: %8$s
+                      javaHome: %10$s
                     development:
                       enabled: true
                     e2eTests: CONFIRM
@@ -235,7 +255,7 @@ class V74RefusalTest {
                       home: %8$s
             """.formatted(temp.resolve("audit"), temp.resolve("workspace"),
             TestCertificates.get().trustStore(), current.httpsPort(), temp.resolve("cli81"),
-            legacy.httpsPort(), tls.port(), cli74, cli61);
+            legacy.httpsPort(), tls.port(), cli74, cli61, java74);
         LoadedConfig loaded = new ConfigLoader(Map.of(), temp, false)
             .parse(yaml, temp.resolve("config.yaml"));
         SecretScrubber scrubber = new SecretScrubber();
@@ -249,8 +269,19 @@ class V74RefusalTest {
             "v74-refusal-pw"));
         assertThat(TestValidators.of(path -> true, Map.of(), false)
             .validate(loaded).errors()).isEmpty();
+        ProcessLauncher launches = spec -> {
+            if (sessions == null) {
+                return launcher.launch(spec);
+            }
+            return switch (spec.startCliArguments().size() == 1
+                ? spec.startCliArguments().get(0) : "") {
+                case "-h" -> help74.launch(spec);
+                case "-v" -> version74.launch(spec);
+                default -> sessions.launch(spec);
+            };
+        };
         wiring = TestWiring.of(loaded.config(), credentials, scrubber, Files::exists, false,
-            launcher, Map.of("PATH", "/usr/bin"), matrix);
+            launches, Map.of("PATH", "/usr/bin"), matrix);
         client = McpTestClient.start(wiring.toolHandlers(), scrubber);
         client.initialize();
     }
@@ -372,13 +403,12 @@ class V74RefusalTest {
 
     /**
      * Every tool registered in {@code Wiring} that contacts a node, except {@code read_io_log}
-     * (no line admits it in production, see below) and {@code deploy_release} (a group call, see
-     * below): tool, capability, arguments for a node.
+     * (no line admits it in production, see below), {@code deploy_release} (a group call, see
+     * below) and {@code get_health} and {@code find_processes} (unverified on 7.4, see below):
+     * tool, capability, arguments for a node.
      */
     static Stream<Arguments> nodeTools() {
         Stream<Arguments> tools = Stream.of(
-            tool("get_health", Capability.MONITORING, node -> Map.of("target", node)),
-            tool("find_processes", Capability.PROCESS_DIAGNOSIS, node -> Map.of("target", node)),
             tool("query_logs", Capability.LOG_DIAGNOSIS,
                 node -> Map.of("target", node, "logType", "systemLog")),
             tool("read_queue_entry", Capability.QUEUE_ENTRY_READ,
@@ -448,7 +478,8 @@ class V74RefusalTest {
 
     /**
      * SC-003: the cases of this test cover every announced tool except the four that contact no
-     * node; {@code read_io_log} has its own case below.
+     * node; {@code read_io_log}, {@code get_health} and {@code find_processes} have their own
+     * cases below.
      */
     @Test
     void theCasesCoverEveryAnnouncedToolThatContactsANode() {
@@ -456,8 +487,8 @@ class V74RefusalTest {
             .map(tool -> tool.path("name").asString()).collect(Collectors.toSet());
 
         assertThat(names).isEqualTo(Stream.concat(nodeTools().map(a -> (String) a.get()[1]),
-                Stream.of("deploy_release", "list_nodes", "check_artifacts", "read_knowledge",
-                    "record_knowledge"))
+                Stream.of("deploy_release", "get_health", "find_processes", "list_nodes",
+                    "check_artifacts", "read_knowledge", "record_knowledge"))
             .collect(Collectors.toSet()));
     }
 
@@ -506,11 +537,15 @@ class V74RefusalTest {
             all.put(capability, SupportState.SUPPORTED);
             notYetVerified.put(capability, "not yet verified");
         }
+        notYetVerified.remove(Capability.MONITORING);
+        notYetVerified.remove(Capability.PROCESS_DIAGNOSIS);
         return new CapabilityMatrix(List.of(
-            new CapabilityMatrix.Entry(new VersionRange(7, 4, 7, 4), Map.of(),
+            new CapabilityMatrix.Entry(new VersionRange(7, 4, 7, 4),
+                Map.of(Capability.MONITORING, SupportState.UNVERIFIED,
+                    Capability.PROCESS_DIAGNOSIS, SupportState.UNVERIFIED),
                 Map.of(Capability.MONITORING, Set.of(Channel.CLI),
                     Capability.PROCESS_DIAGNOSIS, Set.of(Channel.CLI)),
-                true, notYetVerified, PatchDepth.FOUR),
+                true, notYetVerified, PatchDepth.FOUR, true),
             new CapabilityMatrix.Entry(new VersionRange(8, 1, 8, 1), all)), Map.of());
     }
 
@@ -534,26 +569,94 @@ class V74RefusalTest {
             .isEmpty();
     }
 
+    /** {@code get_health} and {@code find_processes}, the session fixture each one replays. */
+    static Stream<Arguments> unverifiedReads() {
+        return Stream.of(Arguments.of("get_health", "health_session_ok", "reports",
+                "monitoring"),
+            Arguments.of("find_processes", "ps_session_all", "results", "process diagnosis"));
+    }
+
+    /** The node's entry in the per-node list {@code field} of {@code result}. */
+    private static JsonNode entryOf(JsonNode result, String field, String node) {
+        return result.path("structuredContent").path(field).valueStream()
+            .filter(entry -> entry.path("node").asString().equals(node))
+            .findFirst().orElseThrow(() -> new AssertionError("no entry of " + node + ": "
+                + result));
+    }
+
     /**
-     * FR-007: in a call addressing several nodes the refusal is per node; 8.1 is read as before.
+     * FR-030, SC-007: on the 7.4 node with its client, health and processes run through one
+     * StartCLI session against the reconstructed 7.4 fixture, after the server's own TLS
+     * handshake, with the unverified warning; nothing goes to its SOAP endpoint.
      */
     @ParameterizedTest(name = "{0}")
-    @MethodSource("groupReads")
-    void aGroupOf81And74AnswersThe81NodeAndRefusesThe74NodeInItsOwnEntry(String tool,
-        Capability capability) {
+    @MethodSource("unverifiedReads")
+    void healthAndProcessesRunOnA74NodeThroughStartCliWithTheWarning(String tool,
+        String fixture, String field, String capability) {
+        sessions = FakeProcessLauncher.replaying("v7_4", fixture);
+
+        JsonNode result = client.callTool(tool, Map.of("target", NODE));
+
+        JsonNode entry = entryOf(result, field, NODE);
+        assertThat(entry.has("error")).as(entry.toString()).isFalse();
+        assertThat(entry.path("warnings")).extracting(JsonNode::asString)
+            .contains("INUBIT 7.4 on " + NODE + " is not verified for " + capability
+                + "; results may be incomplete");
+        assertThat(sessions.launchCount()).as("one session").isEqualTo(1);
+        assertThat(tls.handshakes()).as("the server's own TLS handshake").isPositive();
+        legacy.verify(0, anyRequestedFor(anyUrl()));
+        assertThat(result.toString()).doesNotContain("v74-refusal-pw");
+    }
+
+    /**
+     * FR-029, FR-030 (b): the 7.4 node without a 7.4 client is refused with
+     * {@code CLI_UNAVAILABLE} naming {@code defaults.cliClients."7.4"}, before any contact and
+     * without the warning.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("unverifiedReads")
+    void healthAndProcessesRefuseA74NodeWithoutItsClientBeforeAnyContact(String tool,
+        String fixture, String field, String capability) {
+        sessions = FakeProcessLauncher.replaying("v7_4", fixture);
+
+        JsonNode entry = entryOf(client.callTool(tool, Map.of("target", BARE)), field, BARE);
+
+        assertThat(entry.path("error").path("code").asString()).as(entry.toString())
+            .isEqualTo("CLI_UNAVAILABLE");
+        assertThat(entry.path("error").path("message").asString() + " "
+            + entry.path("error").path("nextStep").asString())
+            .contains("defaults.cliClients.\"7.4\"");
+        assertThat(entry.path("warnings")).as(entry.toString()).isEmpty();
+        assertThat(sessions.launchCount()).isZero();
+        assertThat(help74.launchCount() + version74.launchCount()).isZero();
+        assertThat(tls.connections()).isZero();
+    }
+
+    /**
+     * FR-007, FR-030: in a call addressing several nodes each node is answered on its own: 8.1
+     * over REST as before, 7.4 through StartCLI with the warning.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("unverifiedReads")
+    void aGroupOf81And74AnswersBothNodesThe74NodeWithTheWarning(String tool, String fixture,
+        String field, String capability) {
+        sessions = FakeProcessLauncher.replaying("v7_4", fixture);
+
         JsonNode result = client.callTool(tool, Map.of("target", "legacy74"));
 
         assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
-        assertThat(errorOf(result, MIXED_81).isMissingNode()).as(result.toString()).isTrue();
-        assertRefusal(errorOf(result, NODE), tool, NODE, capability);
+        JsonNode on81 = entryOf(result, field, MIXED_81);
+        assertThat(on81.has("error")).as(on81.toString()).isFalse();
+        assertThat(on81.path("warnings").toString()).doesNotContain("not verified");
+        JsonNode on74 = entryOf(result, field, NODE);
+        assertThat(on74.has("error")).as(on74.toString()).isFalse();
+        assertThat(on74.path("warnings")).extracting(JsonNode::asString)
+            .contains("INUBIT 7.4 on " + NODE + " is not verified for " + capability
+                + "; results may be incomplete");
         assertThat(current.findAll(anyRequestedFor(anyUrl()))).as("reads of " + MIXED_81)
             .isNotEmpty();
-        assertNothingReachedA74Node();
-    }
-
-    static Stream<Arguments> groupReads() {
-        return Stream.of(Arguments.of("get_health", Capability.MONITORING),
-            Arguments.of("find_processes", Capability.PROCESS_DIAGNOSIS));
+        assertThat(sessions.launchCount()).as("one session, for the 7.4 node").isEqualTo(1);
+        legacy.verify(0, anyRequestedFor(anyUrl()));
     }
 
     /**

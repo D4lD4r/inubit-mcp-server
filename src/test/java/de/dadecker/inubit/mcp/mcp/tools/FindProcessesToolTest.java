@@ -21,19 +21,28 @@ import de.dadecker.inubit.mcp.adapter.cli.FakeProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.cli.ProcessLauncher;
 import de.dadecker.inubit.mcp.adapter.rest.RestFixtures;
 import de.dadecker.inubit.mcp.adapter.rest.TestCertificates;
+import de.dadecker.inubit.mcp.application.DiagnosisService.NodePage;
 import de.dadecker.inubit.mcp.config.ConfigLoader;
 import de.dadecker.inubit.mcp.config.ConfigValidator;
 import de.dadecker.inubit.mcp.config.LoadedConfig;
 import de.dadecker.inubit.mcp.domain.model.Capability;
 import de.dadecker.inubit.mcp.domain.model.CapabilityMatrix;
 import de.dadecker.inubit.mcp.domain.model.Channel;
+import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.InterfaceCoverage;
+import de.dadecker.inubit.mcp.domain.model.NodeId;
+import de.dadecker.inubit.mcp.domain.model.NodeResult;
 import de.dadecker.inubit.mcp.domain.model.SupportState;
+import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.VersionRange;
 import de.dadecker.inubit.mcp.domain.model.VersionSetting;
+import de.dadecker.inubit.mcp.infra.ResultJson;
 import de.dadecker.inubit.mcp.infra.SecretScrubber;
 import de.dadecker.inubit.mcp.mcp.McpTestClient;
+import de.dadecker.inubit.mcp.mcp.SchemaResources;
 import de.dadecker.inubit.mcp.testing.TestValidators;
+import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
+import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
@@ -44,6 +53,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
@@ -159,6 +169,28 @@ class FindProcessesToolTest {
             .extracting(JsonNode::asString)
             .containsExactly("ERROR", "ACTIVE", "WAITING", "QUEUED");
         assertThat(tool.path("outputSchema").path("properties").has("results")).isTrue();
+        assertThat(tool.path("outputSchema").path("properties").path("results")
+            .path("description").asString()).endsWith("has an error and possibly warnings");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aFailedEntryWithWarningsMatchesTheOutputSchema() {
+        // feature 025 T044 (FR-030 (b)): the unverified warning beside a contacted node's error
+        NodeId node = NodeId.parse("legacy74/node1");
+        NodePages pages = NodePages.of(List.of(new NodeResult<NodePage<Object>>(node,
+            Optional.empty(), Optional.of(ToolError.of(ErrorCode.UNREACHABLE, "down", "cause",
+                "next").withNode(node)), List.of("INUBIT 7.4.0.90 on legacy74/node1 is not"
+                + " verified for process diagnosis; results may be incomplete"))));
+        Map<String, Object> content = ResultJson.mapper().convertValue(pages, Map.class);
+        Map<String, Object> schema = ResultJson.mapper().readValue(SchemaResources.forClasspath()
+            .load("schemas/find_processes.output.json"), Map.class);
+
+        JsonSchemaValidator.ValidationResponse validation =
+            new DefaultJsonSchemaValidator().validate(schema, content);
+
+        assertThat(validation.valid()).as(validation.errorMessage()).isTrue();
+        assertThat(content.toString()).contains("warnings", "error");
     }
 
     @Test

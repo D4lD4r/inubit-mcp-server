@@ -186,8 +186,9 @@ class CliCompatibilityTest {
                         case VersionSetting.Auto auto -> Optional.of(V8_1_17);
                         case VersionSetting.Line l when l.major() == 8 -> Optional.of(V8_1_17);
                         case VersionSetting.Line l when l.major() == 6 -> Optional.of(V6_1_9);
-                        case VersionSetting.Pinned p when p.version().major() < 9 ->
-                            Optional.of(p.version());
+                        // feature 025 (FR-029): a 7.4 node never uses the version-less client
+                        case VersionSetting.Pinned p when p.version().major() < 9
+                            && p.version().major() != 7 -> Optional.of(p.version());
                         default -> Optional.empty();
                     };
                     if (effective.isEmpty() || runs.isEmpty()) {

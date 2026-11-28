@@ -81,8 +81,16 @@ public final class RefusingPorts implements ProcessQueryPort, LogPort, Inventory
 
     /** The refusal of an INUBIT 6.1 node. */
     public RefusingPorts(NodeId node) {
-        this(node, "6.1",
-            "INUBIT 6.1 is supported read-only through StartCLI, for a few reads only");
+        this(node, "6.1");
+    }
+
+    /**
+     * The refusal of a node of {@code release} whose StartCLI adapters serve a few reads (6.1;
+     * 7.4: feature 025, FR-024).
+     */
+    public RefusingPorts(NodeId node, String release) {
+        this(node, release,
+            "INUBIT " + release + " is supported read-only through StartCLI, for a few reads only");
     }
 
     /** The refusal of a node of {@code release} (e.g. "7.4") with its likely cause. */

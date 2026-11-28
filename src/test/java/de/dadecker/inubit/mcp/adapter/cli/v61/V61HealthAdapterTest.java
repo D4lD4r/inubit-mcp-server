@@ -230,13 +230,13 @@ class V61HealthAdapterTest {
             .snapshot(BUDGET);
 
         assertThat(snapshot.versionIsServer())
-            .isEqualTo(V61HealthAdapter.UNAME_REPORTS_SERVER_VERSION);
+            .isEqualTo(CliLineProfile.V61.unameReportsServerVersion());
     }
 
     @Test
     void untilTheRecordingsConfirmItTheVersionCountsAsTheClients() {
         // research D-6, FR-006: only recordings (T037) may declare uname the server's version
-        assertThat(V61HealthAdapter.UNAME_REPORTS_SERVER_VERSION).isFalse();
+        assertThat(CliLineProfile.V61.unameReportsServerVersion()).isFalse();
     }
 
     @ParameterizedTest
@@ -321,6 +321,8 @@ class V61HealthAdapterTest {
 
         assertThat(error.code()).isEqualTo(ErrorCode.UNEXPECTED_RESPONSE);
         assertThat(error.node()).contains(ID);
+        assertThat(error.likelyCause())
+            .isEqualTo("StartCLI's session output differs from the expected INUBIT 6.1 format");
         assertThat(launchers.sessions()).isEqualTo(1);
     }
 

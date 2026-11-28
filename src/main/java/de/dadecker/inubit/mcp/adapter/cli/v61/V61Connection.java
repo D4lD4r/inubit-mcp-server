@@ -10,6 +10,7 @@ import de.dadecker.inubit.mcp.adapter.rest.TlsHandshakeCheck;
 import de.dadecker.inubit.mcp.config.EffectiveNodeConfig;
 import de.dadecker.inubit.mcp.config.NodeCredentials;
 import de.dadecker.inubit.mcp.domain.model.CliClientOptions;
+import de.dadecker.inubit.mcp.domain.model.ContactedException;
 import de.dadecker.inubit.mcp.domain.model.ErrorCode;
 import de.dadecker.inubit.mcp.domain.model.ToolError;
 import de.dadecker.inubit.mcp.domain.model.ToolErrorException;
@@ -81,7 +82,8 @@ public final class V61Connection {
      * @throws ToolErrorException {@code CLI_UNAVAILABLE} or {@code AUTH_FAILED} before anything is
      *     launched; {@code TLS_ERROR} for a refusal or a rejected certificate, {@code UNREACHABLE}
      *     or {@code TIMEOUT} from the handshake, {@code TIMEOUT} without a free slot; any error of
-     *     {@link CliRunner#runSession}
+     *     {@link CliRunner#runSession}. The handshake's errors are {@link ContactedException}s, as
+     *     are the session's errors after StartCLI started; all others come before contact
      */
     public CliResult session(List<CliSessionCommand> commands, int maxOutputBytes) {
         return session(commands, server.cliTimeout(), maxOutputBytes, true);
@@ -121,7 +123,7 @@ public final class V61Connection {
         URI url = chosen.cli().url();
         try (CliConcurrencyLimiter.Permit permit = limiter.acquire(server)) {
             if (isHttps(url)) {
-                TlsHandshakeCheck.verify(chosen, url);
+                handshake(chosen, url);
             }
             String username = credentials.username().orElseThrow().value();
             Secret password = credentials.password().orElseThrow().value();
@@ -132,6 +134,15 @@ public final class V61Connection {
                     maxOutputBytes, guard)
                 : runner.runHealthSession(selection, username, password, options, commands,
                     bound, maxOutputBytes, guard);
+        }
+    }
+
+    /** The server's own handshake: contact begins here (feature 025, FR-030 (b)). */
+    private static void handshake(EffectiveNodeConfig chosen, URI url) {
+        try {
+            TlsHandshakeCheck.verify(chosen, url);
+        } catch (ToolErrorException e) {
+            throw new ContactedException(e.error(), e.details().orElse(null));
         }
     }
 
