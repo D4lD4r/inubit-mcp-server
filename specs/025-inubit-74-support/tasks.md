@@ -544,7 +544,7 @@ production matrix changes only in T035.
   `CapabilityMatrixTest` with the T038 test matrix: `lines(QUEUE_ENTRY_READ)` and
   `lines(IO_LOG_READ)` without 7.4; production `lines` unchanged (`VersionLineRegressionTest`
   "; supported: 8.1, 9.0" green).
-- [ ] T040 [P] Guard for unverified 7.4 (spec FR-015 as amended 2026-11-26, SC-009; test only):
+- [X] T040 [P] Guard for unverified 7.4 (spec FR-015 as amended 2026-11-26, SC-009; test only):
   `test/adapter/cli/V74RecordedFixturesTest` fails when the production matrix declares any 7.4
   capability `SUPPORTED`, declares a capability other than MONITORING and PROCESS_DIAGNOSIS
   `UNVERIFIED`, or declares one of these two `UNVERIFIED` while it has no case in
